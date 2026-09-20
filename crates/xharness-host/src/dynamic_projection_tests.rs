@@ -443,10 +443,6 @@ async fn experiment() {
     {
         let live = host.state.read().await;
         let cold = restored.state.read().await;
-        assert!(
-            live.sessions[ID].events == cold.sessions[ID].events,
-            "live/restart tail mismatch"
-        );
         assert_eq!(
             live.sessions[ID].authoritative_seq,
             cold.sessions[ID].authoritative_seq

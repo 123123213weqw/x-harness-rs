@@ -20,7 +20,7 @@ mod dynamic_projection_tests;
 
 #[cfg(test)]
 use xharness_projection::*;
-use xharness_projection::{project_inbox_message, project_session_event_tail, SessionProjector};
+use xharness_projection::{project_inbox_message, ProjectedEventTail};
 
 use crate::{
     runtime::{AgentSessionRequest, ModelRoute},
@@ -173,20 +173,21 @@ impl BasicHost {
                     false
                 }
             };
-            // Fold one event at a time: startup must not materialize a second
-            // whole-log JSON projection just to compute counters.
-            let mut metrics = MetricsProjectionState::default();
-            let projector = SessionProjector::new(&session, &route);
-            for event in session.events() {
-                metrics.apply(&projector.project(event));
-            }
-            let tail = project_session_event_tail(
-                &session,
-                &route,
-                self.config.session_event_cache_capacity,
-                self.config.session_event_cache_bytes,
-            );
-            let messages = if self.agent_runtime.has_authoritative_sessions() {
+            let authoritative = self.agent_runtime.has_authoritative_sessions();
+            // Rebuild counters from typed durable events without constructing
+            // the complete Web projection during startup.
+            let metrics = MetricsProjectionState::rebuild_logged(session.events());
+            let tail = if authoritative {
+                ProjectedEventTail::empty_at(session.next_seq())
+            } else {
+                xharness_projection::project_session_event_tail(
+                    &session,
+                    &route,
+                    self.config.session_event_cache_capacity,
+                    self.config.session_event_cache_bytes,
+                )
+            };
+            let messages = if authoritative {
                 Vec::new()
             } else {
                 session.derive_messages()
@@ -740,10 +741,48 @@ mod tests {
 
     use super::*;
     use crate::{
-        state::now_ms, DurableLoopAgentRuntime, HostConfig, ModelDescriptor, ModelReasoning,
-        ModelReasoningEffort, ModelRegistry, NoTools, PermissionPreset, RegisteredModel,
-        SessionToolFactory,
+        state::now_ms, AgentRuntime, AgentRuntimeError, AgentTurnRequest, DurableLoopAgentRuntime,
+        HostConfig, ModelDescriptor, ModelReasoning, ModelReasoningEffort, ModelRegistry, NoTools,
+        PermissionPreset, RegisteredModel, RunningTurn, SessionToolFactory,
     };
+
+    struct OfflineSnapshotRuntime {
+        store: Arc<dyn Store>,
+    }
+
+    #[async_trait]
+    impl AgentRuntime for OfflineSnapshotRuntime {
+        fn has_available_route(&self) -> bool {
+            true
+        }
+
+        fn can_route(&self, _route: &ModelRoute) -> bool {
+            true
+        }
+
+        fn has_authoritative_sessions(&self) -> bool {
+            true
+        }
+
+        async fn authoritative_session(
+            &self,
+            session_id: &str,
+        ) -> Result<Option<Session>, AgentRuntimeError> {
+            self.store
+                .load(session_id)
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })
+        }
+
+        async fn start_turn(
+            &self,
+            _request: AgentTurnRequest,
+        ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+            panic!("offline restore validation must not start model work")
+        }
+    }
 
     struct GatedProvider {
         calls: AtomicUsize,
@@ -1411,11 +1450,10 @@ mod tests {
         );
         eprintln!("offline journal: loaded {} events", session.events().len());
         let route = ModelRoute::new("offline", "offline");
-        let prompts = prompt_views(&session);
-        let initial = initial_request_header_seq(&session);
+        let projector = SessionProjector::new(&session, &route);
         // Serialize one event at a time: do not materialize a second full history.
         for event in session.events() {
-            let projected = restored_web_event(event, &route, &prompts, initial, None);
+            let projected = projector.project(event);
             let bytes = serde_json::to_vec(&projected).unwrap();
             let decoded: Value = serde_json::from_slice(&bytes).unwrap();
             assert!(
@@ -1664,8 +1702,9 @@ mod tests {
             {
                 let state = host.state.read().await;
                 let record = &state.sessions["bounded-history"];
-                assert_eq!(record.events.len(), 5);
-                assert_eq!(record.event_base_seq, record.next_event_seq() - 5);
+                assert!(record.events.is_empty());
+                assert_eq!(record.event_base_seq, record.next_event_seq());
+                assert_eq!(record.event_cache_bytes, 0);
                 assert_eq!(record.last_event_seq(), Some(41));
             }
             let history = host
@@ -1683,6 +1722,91 @@ mod tests {
             assert_eq!(value["projections"]["asOfSeq"], 41);
             assert_eq!(value["hasMore"], false);
         }
+    }
+
+    /// Replays Host startup against an isolated journal copy 100 times. With
+    /// `XHARNESS_OFFLINE_JOURNAL` this exercises a private incident journal;
+    /// the original file is never opened by the Host or modified. CI uses the
+    /// synthetic fixture and Windows runner to keep the cold-start contract
+    /// continuously covered without checking private data into the repository.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "explicit isolated cold-start acceptance; run in diagnostics CI"]
+    async fn offline_authoritative_restore_100_cold_starts() {
+        use std::io::{BufRead, Read};
+        use xharness_session_jsonl::JsonlSessionStore;
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "xharness-offline-cold-start-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let concrete = JsonlSessionStore::new(&root).unwrap().for_runtime();
+        let session_id = if let Some(input) = std::env::var_os("XHARNESS_OFFLINE_JOURNAL") {
+            let input = std::path::PathBuf::from(input);
+            assert!(
+                input.is_absolute() && input.is_file(),
+                "expected a local journal file"
+            );
+            let mut header_line = Vec::new();
+            std::io::BufReader::new(std::fs::File::open(&input).unwrap())
+                .take(1024 * 1024)
+                .read_until(b'\n', &mut header_line)
+                .unwrap();
+            let header: Value = serde_json::from_slice(&header_line)
+                .unwrap_or_else(|_| panic!("invalid offline journal header"));
+            let id = header["header"]["id"]
+                .as_str()
+                .expect("missing offline session ID")
+                .to_owned();
+            assert!(
+                !id.is_empty()
+                    && id.len() <= 200
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
+                "offline session ID must be a simple file name"
+            );
+            std::fs::copy(&input, root.join(format!("{id}.jsonl"))).unwrap();
+            id
+        } else {
+            let id = "offline-cold-start-fixture";
+            concrete.create(SessionHeader::new(id)).await.unwrap();
+            let mut events = Vec::new();
+            for turn in 1..=128 {
+                events.extend(closed_text_turn(
+                    turn,
+                    "synthetic cold-start question",
+                    "synthetic cold-start answer",
+                ));
+            }
+            concrete.append(id, Revision::ZERO, events).await.unwrap();
+            id.to_owned()
+        };
+        let store: Arc<dyn Store> = Arc::new(concrete);
+
+        for iteration in 0..100 {
+            let runtime = Arc::new(OfflineSnapshotRuntime {
+                store: Arc::clone(&store),
+            });
+            let host = BasicHost::with_agent_runtime(config(&root), runtime);
+            let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
+            assert_eq!(report.restored_sessions, 1, "iteration {iteration}");
+            assert!(report.issues.is_empty(), "iteration {iteration}");
+            let state = host.state.read().await;
+            let record = state.sessions.get(&session_id).unwrap();
+            assert!(record.events.is_empty(), "iteration {iteration}");
+            assert_eq!(record.event_cache_bytes, 0, "iteration {iteration}");
+            assert_eq!(
+                record.event_base_seq,
+                record.next_event_seq(),
+                "iteration {iteration}"
+            );
+        }
+        eprintln!("offline authoritative restore: 100 cold starts passed; no models or tools");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3365,7 +3489,7 @@ mod tests {
             .filter(|event| matches!(event.data(), EventData::SessionMutationCommitted { .. }))
             .count();
         assert_eq!(receipt_count, 3);
-        let restarted_events = {
+        let restarted_seq = {
             let state = restarted.state.read().await;
             let record = state.sessions.get("policy-session").unwrap();
             assert_eq!(record.permission_preset, PermissionPreset::DangerFullAccess);
@@ -3380,12 +3504,14 @@ mod tests {
                 record.projection_values()["plan"],
                 json!({"active": true, "pending": false})
             );
-            record.events.clone()
+            assert!(
+                record.events.is_empty(),
+                "authoritative cold history must stay in the durable store"
+            );
+            record.next_event_seq()
         };
-        let live_events = live.state.read().await.sessions["policy-session"]
-            .events
-            .clone();
-        assert_eq!(restarted_events, live_events);
+        let live_seq = live.state.read().await.sessions["policy-session"].next_event_seq();
+        assert_eq!(restarted_seq, live_seq);
     }
 
     #[test]

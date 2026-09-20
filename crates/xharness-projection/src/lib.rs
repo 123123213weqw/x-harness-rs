@@ -61,6 +61,19 @@ pub struct ProjectedEventTail {
     pub events: Vec<Value>,
 }
 
+impl ProjectedEventTail {
+    /// Create an empty live cache anchored at the authoritative durable
+    /// cursor. Cold history is loaded through `session.history` on demand.
+    pub fn empty_at(next_seq: u64) -> Self {
+        Self {
+            base_seq: next_seq,
+            next_seq,
+            bytes: 0,
+            events: Vec::new(),
+        }
+    }
+}
+
 /// Cursor page returned from the authoritative append-only Session rather
 /// than from the Host's bounded live tail.
 pub struct ProjectedHistoryPage {
@@ -146,7 +159,7 @@ pub fn project_session_event_range(
     start: usize,
     end: usize,
 ) -> Vec<Value> {
-    let prompts = prompt_views(session);
+    let prompts = prompt_views_for_range(session, start, end);
     project_session_event_range_with_prompts(session, route, &prompts, start, end)
 }
 
@@ -312,8 +325,22 @@ pub fn project_session_event_tail(
     max_events: usize,
     max_bytes: usize,
 ) -> ProjectedEventTail {
+    project_session_event_tail_from(session, route, 0, max_events, max_bytes)
+}
+
+/// Rebuild only the live suffix that was already resident in the Host. A
+/// restored authoritative session anchors this floor at its durable cursor,
+/// so synchronization cannot eagerly materialize cold history.
+pub fn project_session_event_tail_from(
+    session: &Session,
+    route: &dyn ProjectionRoute,
+    min_seq: u64,
+    max_events: usize,
+    max_bytes: usize,
+) -> ProjectedEventTail {
     let end = session.events().len();
-    let prompts = prompt_views(session);
+    let floor = usize::try_from(min_seq).unwrap_or(end).min(end);
+    let prompts = prompt_views_for_range(session, floor, end);
     let initial_request_header_seq = initial_request_header_seq(session);
     let completed_steps = completed_assistant_steps(session);
     let max_events = max_events.max(1);
@@ -321,7 +348,7 @@ pub fn project_session_event_tail(
     let mut reversed = Vec::new();
     let mut bytes = 0usize;
 
-    for event in session.events().iter().rev().take(max_events) {
+    for event in session.events()[floor..end].iter().rev().take(max_events) {
         let projected = restored_web_event(
             event,
             route,
@@ -408,7 +435,7 @@ pub fn project_session_history_range(
 ) -> Vec<Value> {
     let end = end.min(session.events().len());
     let start = start.min(end);
-    let prompts = prompt_views(session);
+    let prompts = prompt_views_for_range(session, start, end);
     let initial_request_header_seq = initial_request_header_seq(session);
     let completed_steps = completed_assistant_steps(session);
     let mut projected = Vec::new();
@@ -504,6 +531,38 @@ pub fn initial_request_header_seq(session: &Session) -> Option<u64> {
 }
 
 pub fn prompt_views(session: &Session) -> ProjectionSources {
+    prompt_views_for_range(session, 0, session.events().len())
+}
+
+fn prompt_views_for_range(session: &Session, start: usize, end: usize) -> ProjectionSources {
+    let end = end.min(session.events().len());
+    let start = start.min(end);
+    let mut wanted_prompts = BTreeSet::new();
+    let mut wanted_compactions = BTreeSet::new();
+    for event in &session.events()[start..end] {
+        match event.data() {
+            EventData::UserMessage {
+                message,
+                surface_replace,
+            } => {
+                if message.role == MessageRole::User {
+                    if let Some(id) = message.id.as_ref() {
+                        wanted_prompts.insert(id.clone());
+                    }
+                }
+                if let Some(replace) = surface_replace {
+                    wanted_compactions.insert(replace.compaction_id.clone());
+                }
+            }
+            EventData::AssistantMessage { message, .. } if message.role == MessageRole::User => {
+                if let Some(id) = message.id.as_ref() {
+                    wanted_prompts.insert(id.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
     let mut prompts = ProjectionSources::default();
     for event in session.events() {
         if let EventData::CompactionStart {
@@ -512,14 +571,19 @@ pub fn prompt_views(session: &Session) -> ProjectionSources {
             ..
         } = event.data()
         {
-            prompts
-                .compaction_commands
-                .insert(compaction_id.clone(), source_command_id.clone());
+            if wanted_compactions.contains(compaction_id) {
+                prompts
+                    .compaction_commands
+                    .insert(compaction_id.clone(), source_command_id.clone());
+            }
         }
         let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
             continue;
         };
         for input in inserted {
+            if !wanted_prompts.contains(&input.id) {
+                continue;
+            }
             prompts
                 .prompts
                 .insert(input.id.clone(), project_inbox_message(input));
