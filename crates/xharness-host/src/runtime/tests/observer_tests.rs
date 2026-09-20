@@ -279,7 +279,7 @@ async fn host_flood_steer_stop_clears_running_and_parks_internal_followup() {
     config.provider_id = "test".into();
     config.model_id = "test-model".into();
     let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
-    host.session_create(&json!({"sessionId":"host-stop"}))
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"host-stop"}))
         .await
         .unwrap();
     let admission = |id: &str| crate::driver::PromptAdmission {
@@ -431,7 +431,7 @@ async fn user_stop_lets_the_already_queued_prompt_start_the_next_turn() {
     config.provider_id = "test".into();
     config.model_id = "test-model".into();
     let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
-    host.session_create(&json!({"sessionId":"stop-queue"}))
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"stop-queue"}))
         .await
         .unwrap();
     let admission = |id: &str| crate::driver::PromptAdmission {
@@ -656,7 +656,7 @@ async fn gate_race_host() -> (Arc<crate::BasicHost>, Arc<GateCommitRuntime>) {
         crate::HostConfig::new(std::env::temp_dir()),
         rt.clone(),
     );
-    host.session_create(&json!({"sessionId":"race"}))
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"race"}))
         .await
         .unwrap();
     {
@@ -785,7 +785,7 @@ async fn concurrent_stop_is_not_overwritten_by_resume_commit() {
     tokio::time::timeout(Duration::from_secs(3), rt.entered.notified())
         .await
         .unwrap();
-    let stop = host.send_control("race", xharness_core::LoopCommand::Cancel);
+    let stop = crate::rpc::turn::send_control(&host, "race", xharness_core::LoopCommand::Cancel);
     tokio::pin!(stop);
     assert!(tokio::time::timeout(Duration::from_millis(20), &mut stop)
         .await

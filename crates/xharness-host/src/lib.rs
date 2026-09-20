@@ -30,6 +30,7 @@ mod questions;
 mod restore;
 mod rpc;
 mod runtime;
+mod session_processor;
 mod settings_processor;
 mod state;
 mod subagent_processor;

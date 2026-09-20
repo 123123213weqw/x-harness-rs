@@ -131,7 +131,7 @@ impl DurableQuestionHub {
                     "late-answer delivery host unavailable; answer retained for retry".into(),
                 )
             })?;
-        host.session_prompt(RpcId::new(format!("question-late-answer:{id}")), &json!({
+        crate::rpc::turn::prompt(&host, RpcId::new(format!("question-late-answer:{id}")), &json!({
             "sessionId":pending.session_id,"mode":"steer",
             "content":[{"type":"text","text":format!("User response to pending question {id}: {outcome}")}]
         })).await.map_err(|e| QuestionHubError::Persistence(e.message))?;
