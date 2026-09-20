@@ -38,5 +38,40 @@ const browser=await require('playwright')[engine].launch({headless:true});try{
  await page.evaluate(()=>{document.documentElement.lang='en';renderElement(staticModules.react.createElement(plugin.ToolRow,{stateKey:'web',t:x=>x,variant:'read',toolName:'web_fetch',title:'Read',icon:null,summary:'https://example.test/page',body:null,state:'ok'}))});const link=page.getByRole('link',{name:'https://example.test/page'});assert.equal(await link.getAttribute('target'),'_blank');assert.equal(await link.getAttribute('rel'),'noopener noreferrer')
  await page.evaluate(()=>renderElement(staticModules.react.createElement(plugin.ToolRow,{stateKey:'unsafe-web',t:x=>x,variant:'read',toolName:'web_fetch',title:'Read',icon:null,summary:'javascript:alert(1)',body:null,state:'ok'})));assert.equal(await page.getByRole('link').count(),0)
  await page.evaluate(()=>{window.renderDiff=()=>renderElement(staticModules.react.createElement(plugin.XHReviewDiffBlock,{stateKey:'diff-call',diffs:[{path:'big.ts',oldText:Array.from({length:3100},(_,i)=>'old '+i).join('\n'),newText:Array.from({length:3100},(_,i)=>'new '+i).join('\n')}]}));renderDiff()});await page.getByRole('button',{name:'Side by side',exact:true}).click();await page.locator('[data-xh-diff-layout=split]').waitFor();assert.equal(await page.locator('.xh-review-line').count(),1000,'split review initially caps both panes at 500 rows');await page.getByRole('button',{name:'Expand preview (3100 lines)',exact:true}).click();assert.equal(await page.locator('.xh-review-line').count(),6000,'expanded split review is bounded at 3000 rows per pane');await page.evaluate(()=>{renderElement(null);renderDiff()});assert.equal(await page.locator('.xh-review-line').count(),6000,'diff expansion survives transcript virtualization');assert.equal(await page.evaluate(()=>localStorage.getItem('xharness.ui.diff-layout.v1')),'split');await page.getByRole('button',{name:'Inline',exact:true}).click();assert.equal(await page.locator('[data-xh-diff-layout]').getAttribute('data-xh-diff-layout'),'inline');await page.evaluate(()=>{renderElement(null);renderDiff()});assert.equal(await page.locator('[data-xh-diff-layout]').getAttribute('data-xh-diff-layout'),'inline','layout preference survives remount')
- await page.setViewportSize({width:390,height:720});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'tool rows respect narrow viewport');assert.deepEqual(errors.filter(x=>x!=='owned feature fixture: stop Host boot'),[]);console.log(`${engine}/${implementation}: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap and narrow layout passed`)
+ if(implementation==='source'){
+  await page.evaluate(()=>{
+   document.documentElement.dataset.xhProcessMode='auto';window.dispatchEvent(new Event('xh-process-mode'))
+   const argsRaw=JSON.stringify({action:'send',agent_id:'agent-child-123456789012345678901234567890',message:'Please use the local fixture\nDo not change the running task'})
+   const base={callId:'agent-message',name:'agent',argsRaw,turn:1,step:1,time:20,callView:null,subCalls:[]}
+   window.renderAgent=phase=>{
+    let block=base
+    if(phase!=='sending'){
+     const receipt={ok:true,agent_id:'agent-child-123456789012345678901234567890',message_id:'stable-agent-message',status:'accepted'}
+     block={kind:'tool-result',callId:base.callId,seq:8,time:100,call:{name:'agent',argsRaw},callTime:20,content:[{type:'text',text:JSON.stringify({ok:true,content:JSON.stringify(receipt),truncated:false})}],isError:false,subCalls:[],callView:null,resultView:null}
+     if(phase==='unknown'){block.isError=true;block.error={code:'OUTCOME_UNKNOWN',name:'Interrupted'}}
+     if(phase==='failed'){block.isError=true;block.error={code:'denied',name:'ToolError'}}
+    }
+    renderElement(React.createElement(plugin.GenericToolCard,{toolName:'agent',callId:base.callId,block,t:x=>x,openFile:()=>{}}))
+   }
+   renderAgent('sending')
+  })
+  const agent=page.locator('[data-tool=agent]'),agentToggle=agent.locator('[aria-expanded]').first()
+  await agent.getByText('Sending',{exact:true}).waitFor()
+  assert.ok((await agent.innerText()).includes('Please use the local fixture'),'message preview is visible without expanding')
+  await agentToggle.press('Enter');await agent.getByText(/Waiting for a Host acknowledgement/).waitFor()
+  await page.evaluate(()=>renderAgent('queued'));await agent.getByText('Queued',{exact:true}).waitFor()
+  assert.equal(await agentToggle.getAttribute('aria-expanded'),'true','receipt does not reset disclosure')
+  assert.ok((await agent.innerText()).includes('stable-agent-message'))
+  await page.evaluate(()=>{renderElement(null);renderAgent('queued')})
+  assert.equal(await agentToggle.getAttribute('aria-expanded'),'true','historical remount preserves disclosure')
+  await page.evaluate(()=>renderAgent('unknown'));await agent.getByText('Outcome unknown',{exact:true}).waitFor()
+  assert.equal(await agent.getByText('Queued',{exact:true}).count(),0)
+  await page.evaluate(()=>renderAgent('failed'));await agent.getByText('Tool failed',{exact:true}).waitFor()
+  await page.evaluate(()=>{document.documentElement.lang='zh-CN';renderAgent('queued')});await agent.getByText('已入队',{exact:true}).waitFor()
+  await page.setViewportSize({width:390,height:720});await agentToggle.press('Enter')
+  assert.equal(await agentToggle.getAttribute('aria-expanded'),'false');await agent.getByText('已入队',{exact:true}).waitFor()
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'agent preview cannot widen viewport')
+  await page.evaluate(()=>{document.documentElement.lang='en'})
+ }
+ await page.setViewportSize({width:390,height:720});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=390),true,'tool rows respect narrow viewport');assert.deepEqual(errors.filter(x=>x!=='owned feature fixture: stop Host boot'),[]);console.log(`${engine}/${implementation}: live expansion, stream/result preservation, open-file propagation, inspect, failure summary, preparing, process-mode/manual-state retention, URL policy, split diff persistence/500–3000 cap, agent send/queued/error/unknown receipt and historical remount, bilingual/narrow layout passed`)
 }finally{await browser.close()}
