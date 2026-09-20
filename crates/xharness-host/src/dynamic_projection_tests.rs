@@ -197,7 +197,7 @@ async fn experiment() {
     assert_eq!(report.restored_sessions, 1);
     assert!(report.issues.is_empty());
     let initial_seq = store.load(ID).await.unwrap().unwrap().next_seq();
-    let mut mux = host.mux_tx.subscribe();
+    let mut mux = host.event_gateway.subscribe_mux();
     let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
     let frames = tokio::spawn(async move {
         let mut expected = initial_seq;

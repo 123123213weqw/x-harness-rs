@@ -681,7 +681,7 @@ mod tests {
         let host = setup(store, Arc::new(Probe::default())).await;
         parent(&host, "p").await;
         parent(&host, "other").await;
-        let mut announcements = host.host_tx.subscribe();
+        let mut announcements = host.event_gateway.subscribe_host();
         let (a, b) = tokio::join!(
             host.execute_agent("p", "call", start("inspect files")),
             host.execute_agent("p", "call", start("inspect files"))
