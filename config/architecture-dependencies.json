@@ -54,6 +54,7 @@
     "xharness-core",
     "xharness-debug",
     "xharness-interaction",
+    "xharness-projection",
     "xharness-prompt",
     "xharness-schedule",
     "xharness-session",
@@ -97,6 +98,10 @@
   "xharness-process": [
     "xharness-debug",
     "xharness-win32"
+  ],
+  "xharness-projection": [
+    "xharness-core",
+    "xharness-session"
   ],
   "xharness-prompt": [],
   "xharness-provider-openai": [

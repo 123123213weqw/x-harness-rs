@@ -10,7 +10,7 @@ use xharness_session::{
     Session, ToolOutcome, TurnEndReason,
 };
 
-pub(crate) mod metrics;
+pub mod metrics;
 use metrics::web_token_usage;
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
@@ -18,7 +18,7 @@ const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
 /// Minimal model identity required by presentation. The projection boundary
 /// deliberately does not depend on Host routing, provider clients or runtime
 /// configuration.
-pub(crate) trait ProjectionRoute: Send + Sync {
+pub trait ProjectionRoute: Send + Sync {
     fn provider(&self) -> &str;
     fn model(&self) -> &str;
 }
@@ -27,20 +27,20 @@ pub(crate) trait ProjectionRoute: Send + Sync {
 /// reasoning separately, so both projections use reasoning, text, then tool
 /// slots. Cross-kind interleaving is not claimed when the durable schema does
 /// not retain it.
-pub(crate) fn reasoning_delta(text: &str) -> Value {
+pub fn reasoning_delta(text: &str) -> Value {
     json!({"type":"reasoning-delta", "index":0, "text":text})
 }
 
-pub(crate) fn text_delta(text: &str) -> Value {
+pub fn text_delta(text: &str) -> Value {
     json!({"type":"text-delta", "index":1, "text":text})
 }
 
-pub(crate) fn tool_delta(index: usize, id: &str, name: &str, arguments: &str) -> Value {
+pub fn tool_delta(index: usize, id: &str, name: &str, arguments: &str) -> Value {
     json!({"type":"tool-call-delta", "index":index.saturating_add(2),
         "id":id, "name":name, "argumentsDelta":arguments})
 }
 
-pub(crate) fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
+pub fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
     let mut blocks = Vec::new();
     if !reasoning.is_empty() {
         blocks.push(json!({"type":"reasoning", "text":reasoning}));
@@ -54,32 +54,32 @@ pub(crate) fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
 /// One bounded suffix of the deterministic Web projection. Sequence numbers
 /// stay identical to the append-only Session log, so eviction never changes a
 /// browser cursor.
-pub(crate) struct ProjectedEventTail {
-    pub(crate) base_seq: u64,
-    pub(crate) next_seq: u64,
-    pub(crate) bytes: usize,
-    pub(crate) events: Vec<Value>,
+pub struct ProjectedEventTail {
+    pub base_seq: u64,
+    pub next_seq: u64,
+    pub bytes: usize,
+    pub events: Vec<Value>,
 }
 
 /// Cursor page returned from the authoritative append-only Session rather
 /// than from the Host's bounded live tail.
-pub(crate) struct ProjectedHistoryPage {
-    pub(crate) events: Vec<Value>,
-    pub(crate) has_more: bool,
-    pub(crate) as_of_seq: Option<u64>,
+pub struct ProjectedHistoryPage {
+    pub events: Vec<Value>,
+    pub has_more: bool,
+    pub as_of_seq: Option<u64>,
 }
 
 #[derive(Clone)]
-pub(crate) struct PromptView {
-    pub(crate) content: Vec<Value>,
-    pub(crate) source: Value,
-    pub(crate) rpc_fingerprint: Option<String>,
+pub struct PromptView {
+    pub content: Vec<Value>,
+    pub source: Value,
+    pub rpc_fingerprint: Option<String>,
 }
 
 /// Decode the durable inbox metadata once for both Host queue restoration and
 /// browser projection. Old journals may omit the UI envelope, but an explicit
 /// internal source must never be rewritten into a user draft.
-pub(crate) fn project_inbox_message(input: &InboxMessage) -> PromptView {
+pub fn project_inbox_message(input: &InboxMessage) -> PromptView {
     let metadata = input.source.as_ref();
     let content = metadata
         .and_then(|value| value.get("content"))
@@ -107,21 +107,21 @@ pub(crate) fn project_inbox_message(input: &InboxMessage) -> PromptView {
 }
 
 #[derive(Default)]
-pub(crate) struct ProjectionSources {
+pub struct ProjectionSources {
     prompts: BTreeMap<String, PromptView>,
     compaction_commands: BTreeMap<String, Option<String>>,
 }
 
 /// Prepared projection context for streaming one durable Session without
 /// rebuilding prompt and request-header indexes for every event.
-pub(crate) struct SessionProjector<'a> {
+pub struct SessionProjector<'a> {
     route: &'a dyn ProjectionRoute,
     sources: ProjectionSources,
     initial_request_header_seq: Option<u64>,
 }
 
 impl<'a> SessionProjector<'a> {
-    pub(crate) fn new(session: &Session, route: &'a dyn ProjectionRoute) -> Self {
+    pub fn new(session: &Session, route: &'a dyn ProjectionRoute) -> Self {
         Self {
             route,
             sources: prompt_views(session),
@@ -129,7 +129,7 @@ impl<'a> SessionProjector<'a> {
         }
     }
 
-    pub(crate) fn project(&self, event: &LoggedEvent) -> Value {
+    pub fn project(&self, event: &LoggedEvent) -> Value {
         restored_web_event(
             event,
             self.route,
@@ -140,7 +140,7 @@ impl<'a> SessionProjector<'a> {
     }
 }
 
-pub(crate) fn project_session_event_range(
+pub fn project_session_event_range(
     session: &Session,
     route: &dyn ProjectionRoute,
     start: usize,
@@ -158,7 +158,7 @@ pub(crate) fn project_session_event_range(
 /// cannot expand unless the Host supplies the matching card contract.
 /// Keeping this derivation beside the durable projector makes live delivery,
 /// paged history and restart replay use exactly the same data.
-pub(crate) fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
+pub fn project_session_event_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
     match event.data() {
         EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
         EventData::ToolResult { result, .. } => {
@@ -193,7 +193,7 @@ pub(crate) fn project_session_event_view(session: &Session, event: &LoggedEvent)
 /// compatible with the authoritative durable path. It intentionally accepts
 /// only the distinctive native-shell foreground-result shape, so arbitrary JSON tool
 /// output cannot accidentally become executable-looking terminal chrome.
-pub(crate) fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
+pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
     match event.get("type").and_then(Value::as_str)? {
         "tool/call" => {
             let data = event.get("data")?;
@@ -306,7 +306,7 @@ fn append_terminal_notice(output: &mut String, notice: &str) {
     output.push('\n');
 }
 
-pub(crate) fn project_session_event_tail(
+pub fn project_session_event_tail(
     session: &Session,
     route: &dyn ProjectionRoute,
     max_events: usize,
@@ -346,7 +346,7 @@ pub(crate) fn project_session_event_tail(
     }
 }
 
-pub(crate) fn project_session_history(
+pub fn project_session_history(
     session: &Session,
     route: &dyn ProjectionRoute,
     before_seq: Option<u64>,
@@ -393,7 +393,7 @@ fn project_session_event_range_with_prompts(
         .collect()
 }
 
-pub(crate) fn project_session_history_range(
+pub fn project_session_history_range(
     session: &Session,
     route: &dyn ProjectionRoute,
     start: usize,
@@ -490,13 +490,13 @@ fn is_folded_assistant_chunk(event: &LoggedEvent, completed_steps: &BTreeSet<(u3
     )
 }
 
-pub(crate) fn initial_request_header_seq(session: &Session) -> Option<u64> {
+pub fn initial_request_header_seq(session: &Session) -> Option<u64> {
     session.events().iter().find_map(|event| {
         matches!(event.data(), EventData::RequestHeader { .. }).then_some(event.seq)
     })
 }
 
-pub(crate) fn prompt_views(session: &Session) -> ProjectionSources {
+pub fn prompt_views(session: &Session) -> ProjectionSources {
     let mut prompts = ProjectionSources::default();
     for event in session.events() {
         if let EventData::CompactionStart {
@@ -557,7 +557,7 @@ fn web_event_envelope(event_type: String, seq: u64, time: u64, data: Value) -> V
     ]))
 }
 
-pub(crate) fn restored_web_event(
+pub fn restored_web_event(
     event: &LoggedEvent,
     route: &dyn ProjectionRoute,
     prompts: &ProjectionSources,
@@ -815,7 +815,7 @@ pub(crate) fn restored_web_event(
     web
 }
 
-pub(crate) fn web_execution_notice(
+pub fn web_execution_notice(
     turn: u32,
     notice: Option<&xharness_session::ExecutionNotice>,
 ) -> Value {
@@ -891,7 +891,7 @@ fn web_turn(turn: u32) -> u32 {
     turn.saturating_sub(1)
 }
 
-pub(crate) fn web_turn_end(reason: &TurnEndReason) -> Value {
+pub fn web_turn_end(reason: &TurnEndReason) -> Value {
     match reason {
         TurnEndReason::Completed => json!({"kind": "completed"}),
         TurnEndReason::MaxTokens => json!({"kind": "max-tokens"}),
@@ -911,7 +911,7 @@ pub(crate) fn web_turn_end(reason: &TurnEndReason) -> Value {
     }
 }
 
-pub(crate) fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
+pub fn web_assistant_chunk(chunk: &AssistantChunk) -> Value {
     match chunk {
         AssistantChunk::TextDelta(text) => text_delta(text),
         AssistantChunk::ReasoningDelta(text) => reasoning_delta(text),
@@ -971,7 +971,7 @@ fn web_message(
 }
 
 /// Shared durable/live attachment projection; binary payloads stay out of events.
-pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
+pub fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
     let mut parts = vec![json!({"type":"text","text":text})];
     for b in xharness_session::ContentBlock::from_tool_metadata(metadata) {
         if let xharness_session::ContentBlock::Image { attachment: r } = b {
@@ -984,7 +984,16 @@ pub(crate) fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Valu
 #[cfg(test)]
 mod projection_allocation_tests {
     use super::*;
-    use crate::runtime::ModelRoute;
+    struct TestRoute;
+
+    impl ProjectionRoute for TestRoute {
+        fn provider(&self) -> &str {
+            "test"
+        }
+        fn model(&self) -> &str {
+            "test"
+        }
+    }
 
     #[test]
     fn projection_byte_count_matches_encoded_json() {
@@ -1033,7 +1042,7 @@ mod projection_allocation_tests {
                 1,
             )
             .unwrap();
-        let route = ModelRoute::new("test", "test");
+        let route = TestRoute;
         let full = project_session_event_tail(&session, &route, 2048, usize::MAX);
         assert_eq!(full.events.len(), 1);
         let bytes = serde_json::to_vec(&full.events[0]).unwrap().len();

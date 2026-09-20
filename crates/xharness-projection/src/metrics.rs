@@ -6,23 +6,23 @@ use xharness_core::TokenUsage;
 
 /// One changed public projection produced while applying a Session event.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct MetricsProjectionUpdate {
-    pub(crate) key: &'static str,
-    pub(crate) value: Value,
+pub struct MetricsProjectionUpdate {
+    pub key: &'static str,
+    pub value: Value,
 }
 
 /// Deterministic, rebuildable metric projection over Web-compatible Session
 /// events. The append-only Session remains the source of truth; this state is
 /// only a Host cache used by History, Session List and live projection frames.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct MetricsProjectionState {
+pub struct MetricsProjectionState {
     token_usage: TokenUsageProjectionState,
     session_stats: SessionStatsProjectionState,
     context_pressure: ContextPressureProjectionState,
 }
 
 impl MetricsProjectionState {
-    pub(crate) fn rebuild<'a>(events: impl IntoIterator<Item = &'a Value>) -> Self {
+    pub fn rebuild<'a>(events: impl IntoIterator<Item = &'a Value>) -> Self {
         let mut state = Self::default();
         for event in events {
             state.apply(event);
@@ -33,7 +33,7 @@ impl MetricsProjectionState {
     /// Apply one event and return only public views that changed. In-flight
     /// boundaries such as `step/start` and `tool/call` mutate private fold
     /// state without publishing an identical zero-valued projection.
-    pub(crate) fn apply(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
+    pub fn apply(&mut self, event: &Value) -> Vec<MetricsProjectionUpdate> {
         let token_before = self.token_usage.view();
         let stats_before = self.session_stats.view();
         let pressure_before = self.context_pressure.view();
@@ -67,15 +67,15 @@ impl MetricsProjectionState {
         updates
     }
 
-    pub(crate) fn token_usage(&self) -> Value {
+    pub fn token_usage(&self) -> Value {
         self.token_usage.view()
     }
 
-    pub(crate) fn session_stats(&self) -> Value {
+    pub fn session_stats(&self) -> Value {
         self.session_stats.view()
     }
 
-    pub(crate) fn context_pressure(&self) -> Value {
+    pub fn context_pressure(&self) -> Value {
         self.context_pressure.view()
     }
 }
@@ -217,7 +217,7 @@ impl ContextPressureProjectionState {
 /// Convert the provider-neutral Rust usage type at the Web boundary. Internal
 /// serialization stays snake_case; the frozen upstream wire contract
 /// is camelCase.
-pub(crate) fn web_token_usage_from_core(usage: &TokenUsage) -> Value {
+pub fn web_token_usage_from_core(usage: &TokenUsage) -> Value {
     json!({
         "inputTokens": usage.input_tokens,
         "outputTokens": usage.output_tokens,
@@ -231,7 +231,7 @@ pub(crate) fn web_token_usage_from_core(usage: &TokenUsage) -> Value {
 /// snake_case values while upstream-compatible logs may already be camelCase.
 /// Returning `None` for malformed data prevents a bogus zero sample from
 /// entering durable token accounting.
-pub(crate) fn web_token_usage(usage: &Value) -> Option<Value> {
+pub fn web_token_usage(usage: &Value) -> Option<Value> {
     let input_tokens = usage_u64(usage, "inputTokens", "input_tokens")?;
     let output_tokens = usage_u64(usage, "outputTokens", "output_tokens")?;
     let mut normalized = Map::new();

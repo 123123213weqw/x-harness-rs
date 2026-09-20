@@ -10,8 +10,8 @@ use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
 use xharness_session::SessionMutationReceipt;
 
-use crate::projection::metrics::MetricsProjectionState;
 use crate::HostConfig;
+use xharness_projection::metrics::MetricsProjectionState;
 
 /// Product-level permission bundle advertised to the Web client and captured
 /// when a turn starts.  Full access is deliberately one preset instead of a

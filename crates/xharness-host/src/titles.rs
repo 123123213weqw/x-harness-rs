@@ -1055,7 +1055,7 @@ mod tests {
             Some(TitleGenerationPhase::Completed)
         );
         assert_eq!(fake.calls(), 2, "one main request plus one title request");
-        let projected = crate::projection::project_session_event_range(
+        let projected = xharness_projection::project_session_event_range(
             &session,
             &ModelRoute::new("test", "model"),
             0,

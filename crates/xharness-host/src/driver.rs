@@ -1,4 +1,9 @@
 use std::sync::{atomic::Ordering, Arc};
+use xharness_projection::metrics::web_token_usage_from_core;
+use xharness_projection::{
+    project_session_event_range, project_session_event_tail, project_session_event_view,
+    project_web_event_view,
+};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -8,11 +13,6 @@ use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopSta
 use xharness_session::SessionEvent;
 
 use crate::{
-    projection::metrics::web_token_usage_from_core,
-    projection::{
-        project_session_event_range, project_session_event_tail, project_session_event_view,
-        project_web_event_view,
-    },
     restore::{
         restored_agent_preset, restored_goal, restored_permission, restored_plan_mode,
         restored_queue, restored_session_mutation_receipts, restored_title,
@@ -1357,7 +1357,7 @@ impl BasicHost {
                 self.append_session_event(
                     session_id,
                     "run/checkpoint",
-                    crate::projection::web_execution_notice(turn, Some(&notice)),
+                    xharness_projection::web_execution_notice(turn, Some(&notice)),
                     None,
                 )
                 .await?;
@@ -1369,7 +1369,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::projection::text_delta(&text),
+                        "chunk": xharness_projection::text_delta(&text),
                     }),
                     None,
                 )
@@ -1382,7 +1382,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::projection::reasoning_delta(&text),
+                        "chunk": xharness_projection::reasoning_delta(&text),
                     }),
                     None,
                 )
@@ -1400,7 +1400,7 @@ impl BasicHost {
                     json!({
                         "turn": turn,
                         "step": step,
-                        "chunk": crate::projection::tool_delta(index, &id, &name, &arguments_delta),
+                        "chunk": xharness_projection::tool_delta(index, &id, &name, &arguments_delta),
                     }),
                     None,
                 )
@@ -1434,7 +1434,7 @@ impl BasicHost {
                             "content": [{
                                 "type": "tool-result",
                                 "toolCallId": call.id,
-                                "content": crate::projection::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
+                                "content": xharness_projection::web_tool_content(if result.ok {&result.content} else {&result.error}, result.metadata.as_ref()),
                                 "isError": !result.ok,
                             }],
                             "source": {"kind": "tool", "callId": call.id},
@@ -1632,7 +1632,7 @@ fn web_assistant_message(
     json!({
         "id": id,
         "role": "assistant",
-        "content": crate::projection::assistant_content(text, reasoning),
+        "content": xharness_projection::assistant_content(text, reasoning),
         "source": {"kind": "model", "provider": provider, "model": model},
     })
 }
