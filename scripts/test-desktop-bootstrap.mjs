@@ -9,13 +9,14 @@ async function boot(startupError, eventFirst = false) {
   const calls = []
   vm.runInNewContext(source, {
     document: { querySelector: id => id === '#state' ? main : message },
+    requestAnimationFrame: callback => callback(),
     window: { __TAURI__: {
       event: { listen: async (_name, handler) => { calls.push('listen'); if (eventFirst) handler({ payload: { phase: 'failed', message: 'live lock conflict' } }) } },
       core: { invoke: async command => { calls.push(command); return { startupError } } },
     } },
   })
   await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(calls, ['listen', 'desktop_status'])
+  assert.deepEqual(calls, ['listen', 'desktop_status', 'desktop_report_startup_phase'])
   return { classes, message }
 }
 const missed = await boot('state directory already owned')

@@ -42,6 +42,8 @@ jobs:
       - run: node scripts/test-migration-acceptance-guards.mjs
       - run: node scripts/test-install-ownership-contract.mjs
       - run: node scripts/test-desktop-bootstrap.mjs
+      - run: node scripts/test-desktop-startup.mjs
+      - run: python -B scripts/test-linux-appimage-compat.py
       - run: node scripts/test-runtime-diagnostics.mjs
       - run: python -B scripts/test-desktop-symbols.py
       - run: node scripts/test-updater-signature.mjs

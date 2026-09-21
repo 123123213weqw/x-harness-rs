@@ -5352,6 +5352,7 @@ name = "xharness-desktop"
 version = "0.1.1"
 dependencies = [
  "getrandom 0.3.4",
+ "gtk",
  "serde",
  "serde_json",
  "tauri",
@@ -5361,6 +5362,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "webkit2gtk",
  "xharness-diagnostics",
  "xharness-win32",
 ]
