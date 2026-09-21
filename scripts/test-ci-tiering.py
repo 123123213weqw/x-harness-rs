@@ -65,6 +65,7 @@ class CiTieringContract(unittest.TestCase):
         self.assertIn("cargo check --workspace --all-targets", body)
         self.assertIn("cargo clippy --workspace --all-targets -- -D warnings", body)
         self.assertIn("cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets", body)
+        self.assertIn("- name: Stage debug Windows sidecars for PR smoke\n        if: github.event_name == 'pull_request'", body)
 
     def test_macos_packaging_is_release_only_but_desktop_smoke_remains(self) -> None:
         body = job(workflow_source(), "rust-macos-arm64")
@@ -78,10 +79,10 @@ class CiTieringContract(unittest.TestCase):
         ):
             with self.subTest(step=step):
                 assert_step_guarded(self, body, step)
-        smoke = body.index("- name: Check native Tauri desktop shell")
-        build = body.index("- name: Build native host")
-        self.assertLess(smoke, build)
-        self.assertNotIn("if:", body[smoke:body.index("run: |", smoke)])
+        smoke_stage = body.index("- name: Stage debug macOS sidecars for PR smoke")
+        self.assertIn("if: github.event_name == 'pull_request'", body[smoke_stage:body.index("run: |", smoke_stage)])
+        smoke_check = body.index("- name: Check native Tauri desktop shell")
+        self.assertNotIn("if:", body[smoke_check:body.index("run: |", smoke_check)])
 
 
 if __name__ == "__main__":
