@@ -2524,25 +2524,26 @@ impl Runner {
                 "source":"request_admission","phase":"prepared",
             }),
         );
+        // Harness inspection is a separate lightweight snapshot; only the
+        // conversation input body is gated by full diagnostic capture.
+        let system = surface
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        header.system = (!system.is_empty()).then_some(system);
+        header.tools = tools.to_vec();
+        header.options.insert(
+            "inputMessageCount".into(),
+            Value::from(surface.messages.len() as u64),
+        );
+        header
+            .options
+            .insert("toolCount".into(), Value::from(tools.len() as u64));
         if capture_full_audit {
-            let system = surface
-                .messages
-                .iter()
-                .filter(|message| message.role == Role::System)
-                .map(|message| message.content.as_str())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            header.system = (!system.is_empty()).then_some(system);
-            header.tools = tools.to_vec();
             header.input = surface.messages.clone();
-        } else {
-            header.options.insert(
-                "inputMessageCount".into(),
-                Value::from(surface.messages.len() as u64),
-            );
-            header
-                .options
-                .insert("toolCount".into(), Value::from(tools.len() as u64));
         }
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),
@@ -2610,6 +2611,25 @@ impl Runner {
             .journal
             .as_ref()
             .is_some_and(|journal| journal.last_request_context.as_ref() != Some(&request_context));
+        let journal = self.journal.as_ref().unwrap();
+        match journal
+            .store
+            .archive_harness_snapshot(&journal.session_id, &header)
+            .await
+        {
+            Ok(Some(reference)) => {
+                header.options.insert("harnessSnapshot".into(), reference);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                // Optional inspection must not fail or alter the provider call.
+                eprintln!("xharness Harness snapshot capture failed: {error}");
+                header.options.insert(
+                    "harnessSnapshot".into(),
+                    json!({"kind":"omitted","reason":"archive_failed"}),
+                );
+            }
+        }
         let missing_audit = header.metadata_only(json!({
             "kind": "omitted", "reason": "archive_failed",
         }));
