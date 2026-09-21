@@ -21,6 +21,10 @@ use url::Url;
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "browser_user_agent.rs"]
+mod user_agent;
+
 /// WebView2 does not deliver fragment changes through Wry's navigation policy.
 /// Listen to the native Source property instead. This is only a resample hint:
 /// guests still have no IPC permission, and no frame-provided URL is trusted.
@@ -352,6 +356,10 @@ pub async fn desktop_browser_navigate(
         return Err("invalid browser tab".into());
     }
     let target = web_url(&url)?;
+    // Complete WKWebView's identity before the very first guest HTTP request.
+    // Failure keeps the system default; it must not block ordinary navigation.
+    #[cfg(target_os = "macos")]
+    let user_agent = user_agent::for_macos(&caller).await;
     // Before a navigation can enter native dispatch, record its admission.
     // Closing/switching the pane after this point must not claim no effect.
     if let Some(lifecycle) = app.try_state::<crate::browser_lifecycle::BrowserLifecycle>() {
@@ -506,6 +514,11 @@ pub async fn desktop_browser_navigate(
             }
             _ => true,
         });
+    #[cfg(target_os = "macos")]
+    let builder = match user_agent {
+        Some(identity) => builder.user_agent(identity),
+        None => builder,
+    };
     let child = window
         .add_child(
             builder,
