@@ -72,25 +72,39 @@ fn installed_safari_version() -> Option<String> {
     None
 }
 
+// Only successful native samples become process-wide identity. A callback
+// before the main WebView is ready (or another transient failure) must not
+// permanently pin the system fallback for every later guest navigation.
+async fn cached_identity<F>(identity: &tokio::sync::OnceCell<String>, sample: F) -> Option<&str>
+where
+    F: std::future::Future<Output = Result<String, String>>,
+{
+    identity
+        .get_or_try_init(|| sample)
+        .await
+        .ok()
+        .map(String::as_str)
+}
+
 #[cfg(target_os = "macos")]
 pub(super) async fn for_macos(caller: &tauri::Webview) -> Option<&'static str> {
-    static IDENTITY: tokio::sync::OnceCell<Option<String>> = tokio::sync::OnceCell::const_new();
-    IDENTITY
-        .get_or_init(|| async {
-            let version = installed_safari_version()?;
-            // Only the trusted main WebView is sampled, never a visited page or
-            // an IPC argument. Reuse the existing bounded native callback seam.
-            let raw = crate::browser_inspect::evaluate(
-                caller,
-                "JSON.stringify(navigator.userAgent)".into(),
-            )
-            .await
-            .ok()?;
-            let value = crate::browser_inspect::decode_callback(&raw).ok()?;
-            complete_webkit_user_agent(value.as_str()?, &version)
-        })
-        .await
-        .as_deref()
+    static IDENTITY: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+    cached_identity(&IDENTITY, async {
+        let version = installed_safari_version()
+            .ok_or_else(|| "installed Safari version unavailable".to_owned())?;
+        // Only the trusted main WebView is sampled, never a visited page or
+        // an IPC argument. Reuse the existing bounded native callback seam.
+        let raw =
+            crate::browser_inspect::evaluate(caller, "JSON.stringify(navigator.userAgent)".into())
+                .await?;
+        let value = crate::browser_inspect::decode_callback(&raw)?;
+        let native = value
+            .as_str()
+            .ok_or_else(|| "native browser identity is not a string".to_owned())?;
+        complete_webkit_user_agent(native, &version)
+            .ok_or_else(|| "native browser identity cannot be completed".to_owned())
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -98,6 +112,50 @@ mod tests {
     use super::*;
     const NATIVE: &str =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+
+    #[tokio::test]
+    async fn transient_sample_failure_is_not_cached_and_success_is_reused() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let identity = tokio::sync::OnceCell::new();
+        let samples = AtomicUsize::new(0);
+        assert_eq!(
+            cached_identity(&identity, async {
+                samples.fetch_add(1, Ordering::SeqCst);
+                Err("main callback not ready".into())
+            })
+            .await,
+            None
+        );
+        assert!(identity.get().is_none());
+        let expected = complete_webkit_user_agent(NATIVE, "26.5").unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                cached_identity(&identity, async {
+                    samples.fetch_add(1, Ordering::SeqCst);
+                    Ok(expected.clone())
+                })
+                .await,
+                Some(expected.as_str())
+            );
+        }
+        assert_eq!(samples.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn cancelled_sample_does_not_block_the_next_navigation() {
+        let identity = tokio::sync::OnceCell::new();
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            cached_identity(&identity, std::future::pending())
+        )
+        .await
+        .is_err());
+        assert!(identity.get().is_none());
+        assert_eq!(
+            cached_identity(&identity, async { Ok("recovered identity".into()) }).await,
+            Some("recovered identity")
+        );
+    }
 
     #[test]
     fn completes_the_observed_wkwebview_identity_without_changing_its_engine() {
