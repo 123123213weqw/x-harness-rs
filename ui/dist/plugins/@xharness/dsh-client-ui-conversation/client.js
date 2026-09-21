@@ -22475,6 +22475,11 @@ function toolCanFold(node, includeFailures) {
         return false;
     const stack = [node.data.root];
     for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+        // Agent communication acknowledgements must remain visible when a turn
+        // closes or its tool activity is folded. This does not pin offscreen DOM:
+        // ordinary transcript windowing still applies, including nested calls.
+        if (('kind' in block ? block.call?.name : block.name) === 'agent')
+            return false;
         // Projection's synthetic interrupted result has no settled tool/result.
         if (!('kind' in block) || block.kind !== 'tool-result'
             || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
