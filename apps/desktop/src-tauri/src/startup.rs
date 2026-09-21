@@ -79,6 +79,7 @@ impl StartupTimeline {
         diagnostics.record(Record::new(Phase::HostReady));
     }
 
+    #[cfg(target_os = "linux")]
     pub fn window_mapped(&self, diagnostics: &crate::diagnostics::Diagnostics) {
         self.report(StartupPhase::WindowMapped, diagnostics);
     }
