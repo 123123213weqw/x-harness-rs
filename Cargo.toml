@@ -4,6 +4,8 @@ members = [
     "crates/xharness-agent",
     "crates/xharness-api",
     "crates/xharness-compaction",
+    "crates/xharness-computer",
+    "crates/xharness-computer-macos",
     "crates/xharness-context",
     "crates/xharness-control",
     "crates/xharness-core",
