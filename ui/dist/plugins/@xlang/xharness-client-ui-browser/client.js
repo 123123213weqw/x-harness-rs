@@ -232,7 +232,10 @@ function watchBrowserSurfaces(content, sync) {
         void sync();
     };
     const schedule = () => { frame ?? (frame = requestAnimationFrame(refresh)); };
-    const relevant = (node) => node instanceof Element && (node.closest(`${OVERLAY_SURFACE}, [data-shell-overlay]`) || node.querySelector(OVERLAY_SURFACE)
+    const relevant = (node) => node instanceof Element && (
+    // An ancestor can move the pane without changing its size (sidebar,
+    // translated dock, layout transition). ResizeObserver alone misses that.
+    node.contains(content) || node.closest(`${OVERLAY_SURFACE}, [data-shell-overlay]`) || node.querySelector(OVERLAY_SURFACE)
         || surfaces.some(surface => node.contains(surface))
         || [...document.body.children].some(root => !root.contains(content) && root.contains(node)));
     const observer = new MutationObserver(records => {

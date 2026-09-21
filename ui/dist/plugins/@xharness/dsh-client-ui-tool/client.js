@@ -130,6 +130,7 @@ const terminal_card_model_1 = require("../models/terminal-card-model");
 const web_card_model_1 = require("../models/web-card-model");
 const tool_call_model_1 = require("../models/tool-call-model");
 const ToolRow_1 = require("../components/ToolRow");
+const agent_communication_model_1 = require("../models/agent-communication-model");
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS = {
     search: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 14 }),
@@ -141,6 +142,9 @@ const VARIANT_ICONS = {
     others: (0, jsx_runtime_1.jsx)(primitives_1.IconSparkle16, { size: 14 }),
 };
 function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, t }) {
+    const communication = (0, agent_communication_model_1.agentCommunicationModel)(toolName, block);
+    const communicationCopy = communication === null ? null
+        : (0, agent_communication_model_1.agentCommunicationCopy)(communication, document.documentElement.lang.toLowerCase().startsWith('zh'));
     const model = (0, tool_call_model_1.toolRowModel)(toolName, block, cwd, home);
     const terminal = (0, terminal_card_model_1.terminalCardModel)(block, cwd);
     const read = (0, read_card_model_1.readCardModel)(block, cwd, home);
@@ -153,15 +157,15 @@ function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, t }) {
         ? 'error'
         : model.state;
     const singleFile = model.filePath !== undefined;
-    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, icon: VARIANT_ICONS[model.variant], title: model.title,
+    return ((0, jsx_runtime_1.jsx)(ToolRow_1.ToolRow, { stateKey: block.callId, t: t, variant: model.variant, toolName: toolName, icon: VARIANT_ICONS[model.variant], title: communicationCopy?.title ?? model.title,
         // A terminal presenter's description is the contract's above-card text, so
         // it outranks the args-derived summary here exactly as it does in BashRow;
         // a search result view's replacement title outranks it the same way.
-        summary: terminal?.description ?? search?.title ?? model.summary,
+        summary: communicationCopy?.summary ?? terminal?.description ?? search?.title ?? model.summary, summarySuffix: communicationCopy?.status,
         // Single-file tools never expose an args body — the path link is the only
         // args interaction. A card is not an args body: a read/write/edit row is
         // single-file AND carries a card, so the card expands under the path link.
-        body: singleFile ? null : model.body, output: model.output, errorSummary: model.errorSummary, terminal: terminal, diff: diff, read: read, search: search, web: web, state: state, filePath: model.filePath, onOpenFile: singleFile ? openFile : undefined, inspect: inspect }));
+        body: communicationCopy?.body ?? (singleFile ? null : model.body), output: communication?.output ?? model.output, errorSummary: communication === null ? model.errorSummary : null, terminal: terminal, diff: diff, read: read, search: search, web: web, state: communication?.state ?? state, filePath: model.filePath, onOpenFile: singleFile ? openFile : undefined, inspect: inspect }));
 }
 
 },
@@ -18396,6 +18400,111 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = "\n.xh-review{min-width:0;margin:4px 0;color:var(--dsw-alias-label-primary)}\n.xh-review-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 4px}\n.xh-review-title{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}\n.xh-review-actions{display:flex;gap:3px;align-items:center}\n.xh-review-actions button{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:3px 8px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;cursor:pointer}\n.xh-review-actions button:hover,.xh-review-actions button:focus-visible{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary);outline:none}\n.xh-review-actions button[aria-pressed=true]{color:var(--dsw-alias-bg-base);background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary)}\n.xh-review-file{min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;overflow:hidden;margin:4px 0 9px;background:var(--dsw-alias-markdown-code-block)}\n.xh-review-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);font:600 11px/17px ui-monospace,SFMono-Regular,Menlo,monospace}\n.xh-review-panes{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}\n.xh-review-pane{min-width:0;max-height:400px;overflow:auto;scrollbar-gutter:stable;font:11px/19px ui-monospace,SFMono-Regular,Menlo,monospace}\n.xh-review-pane:first-child{border-right:1px solid var(--dsw-alias-border-l2)}\n.xh-review-pane-heading{position:sticky;top:0;z-index:1;display:block;padding:4px 8px;background:var(--dsw-alias-bg-base);border-bottom:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font:600 10px/16px system-ui,sans-serif}\n.xh-review-line{display:flex;white-space:pre;min-height:19px;padding-right:8px}.xh-review-line[data-changed=true]{background:var(--dsw-alias-interactive-bg-hover)}\n.xh-review-line-number{position:sticky;left:0;flex:none;box-sizing:border-box;width:35px;text-align:right;padding-right:7px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-markdown-code-block);user-select:none}\n.xh-review-line-code{display:block}.xh-review-truncated{padding:7px 10px;color:var(--dsw-alias-label-tertiary);font-size:11px;border-top:1px solid var(--dsw-alias-border-l2)}\n@media(max-width:650px){.xh-review-panes{grid-template-columns:minmax(0,1fr)}.xh-review-pane:first-child{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l2)}}\n";
 
 },
+"src/modules/tool/tool/models/agent-communication-model.js": function(module, exports, require) {
+// source: src/modules/tool/tool/models/agent-communication-model.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.agentCommunicationModel = agentCommunicationModel;
+exports.agentCommunicationCopy = agentCommunicationCopy;
+const value_guards_1 = require("../../value-guards");
+const tool_call_model_1 = require("./tool-call-model");
+function parse(text) {
+    try {
+        const value = JSON.parse(text);
+        return value;
+    }
+    catch {
+        return undefined;
+    }
+}
+function record(value) {
+    return (0, value_guards_1.isRecord)(value) && !(0, value_guards_1.isUnknownArray)(value);
+}
+function text(value) {
+    return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+/** Read only explicit Host acknowledgements, never an assistant's narrative.
+ * The current tool pipeline wraps the receipt in ToolResult.content. Legacy
+ * direct receipts are supported too. Truncated/failed envelopes fail closed.
+ */
+function receipt(output) {
+    let value = parse(output);
+    if (!record(value) || value.ok !== true || (value.truncated !== undefined && value.truncated !== false))
+        return null;
+    if (typeof value.content === 'string') {
+        value = parse(value.content);
+        if (!record(value) || value.ok !== true || (value.truncated !== undefined && value.truncated !== false))
+            return null;
+    }
+    return value;
+}
+function agentCommunicationModel(toolName, block) {
+    if (toolName !== 'agent')
+        return null;
+    const done = 'kind' in block;
+    const args = parse((done ? block.call?.argsRaw : block.argsRaw) ?? '');
+    if (!record(args))
+        return null;
+    const action = args.action;
+    if (action !== 'start' && action !== 'send' && action !== 'stop')
+        return null;
+    const target = action === 'start' ? text(args.label) : text(args.agent_id);
+    const message = text(action === 'start' ? args.task : args.message) ?? '';
+    const output = done ? (0, tool_call_model_1.resultText)(block) || null : null;
+    const ack = output === null ? null : receipt(output);
+    const ackTarget = ack === null ? null : text(ack.agent_id);
+    const messageId = ack === null ? null : text(ack.message_id);
+    // An acknowledgement for another child is not evidence for this call.
+    const matches = ackTarget !== null && (action === 'start' || ackTarget === target);
+    let phase = 'sending';
+    if (done) {
+        if (block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted')
+            phase = 'unknown';
+        else if (block.isError)
+            phase = 'failed';
+        else if (matches && ack !== null && action === 'stop' && ack.accepted === true)
+            phase = 'stop-requested';
+        else if (matches && ack !== null && action !== 'stop' && ack.status === 'accepted' && messageId !== null)
+            phase = 'queued';
+        else
+            phase = 'unconfirmed';
+    }
+    const state = phase === 'sending' ? 'running'
+        : phase === 'failed' ? 'error'
+            : phase === 'unknown' || phase === 'unconfirmed' ? 'stopped' : 'ok';
+    return { action, target: action === 'start' && matches ? ackTarget : target, message,
+        messageId: phase === 'queued' ? messageId : null, phase, state, output };
+}
+/** Keep the status visible outside the clipped message preview. Full message
+ * and stable identities remain in the expandable body; no extra RPC/polling.
+ */
+function agentCommunicationCopy(model, chinese) {
+    const phases = chinese
+        ? { sending: '发送中', queued: '已入队', 'stop-requested': '已请求停止', failed: '工具失败', unknown: '状态未知', unconfirmed: '未确认' }
+        : { sending: 'Sending', queued: 'Queued', 'stop-requested': 'Stop requested', failed: 'Tool failed', unknown: 'Outcome unknown', unconfirmed: 'Unconfirmed' };
+    const titles = chinese
+        ? { start: '创建子 Agent', send: '发送给 Agent', stop: '停止 Agent' }
+        : { start: 'Start agent', send: 'Message to agent', stop: 'Stop agent' };
+    const target = model.target ?? (chinese ? '目标待确认' : 'Target unconfirmed');
+    const shortTarget = target.length > 24 ? target.slice(0, 12) + '…' + target.slice(-8) : target;
+    const preview = model.message.replace(/\s+/g, ' ').slice(0, 160);
+    const note = model.phase === 'queued'
+        ? chinese ? 'Host 已接受并入队；不代表子 Agent 已读取或完成。' : 'Accepted into the Host inbox; not proof of reading or completion.'
+        : model.phase === 'stop-requested'
+            ? chinese ? '已接受停止请求；不代表已经停止。' : 'Stop request accepted; not proof the agent has stopped.'
+            : model.phase === 'sending'
+                ? chinese ? '等待 Host 回执。' : 'Waiting for a Host acknowledgement.'
+                : chinese ? '未确认投递结果；不能据此断言消息没有发送。' : 'Delivery is unconfirmed; this does not prove the message was not sent.';
+    return {
+        title: titles[model.action],
+        summary: preview === '' ? shortTarget : `${shortTarget} · ${preview}`,
+        status: phases[model.phase],
+        body: `${chinese ? '目标' : 'Target'}: ${target}\n${model.messageId === null ? '' : `${chinese ? '消息 ID' : 'Message ID'}: ${model.messageId}\n`}\n${model.message}\n\n${note}`,
+    };
+}
+
+},
 "src/modules/tool/tool/ToolCallTree.styles.js": function(module, exports, require) {
 // source: src/modules/tool/tool/ToolCallTree.styles.ts
 
@@ -19086,7 +19195,7 @@ exports.webToolview = {
 
 }
 };
-const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
+const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../models/agent-communication-model":"src/modules/tool/tool/models/agent-communication-model.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/tool/tool/models/agent-communication-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
