@@ -13,3 +13,5 @@ export {ToolDetails} from './tool/ToolDetails'
 export {ToolCallTree} from './tool/ToolCallTree'
 
 export {XHReviewDiffBlock} from './tool/components/ReviewDiffBlock'
+
+export * from './tool/models/agent-communication-model'

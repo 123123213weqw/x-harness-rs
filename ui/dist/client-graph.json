@@ -1,5 +1,5 @@
 {
-  "rev": "68ee22eacc5f0d6b",
+  "rev": "3603d3fcfb5620e8",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -255,8 +255,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=44a163663f1e03e3",
-      "rev": "44a163663f1e03e3",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=1284fda7d16c7b53",
+      "rev": "1284fda7d16c7b53",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -305,8 +305,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-tool",
-      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=fd171b6f83613acd",
-      "rev": "fd171b6f83613acd",
+      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=a4edf87533857b3f",
+      "rev": "a4edf87533857b3f",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -665,6 +665,20 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-performance",
+      "url": "/plugins/@xlang/xharness-client-ui-performance/client.js?rev=3ebfc7390b936904",
+      "rev": "3ebfc7390b936904",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-ui-schedule",
       "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=1ab961d5a187d1f6",
       "rev": "1ab961d5a187d1f6",
@@ -765,8 +779,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-browser",
-      "url": "/plugins/@xlang/xharness-client-ui-browser/client.js?rev=5e14a8b38d8ee964",
-      "rev": "5e14a8b38d8ee964",
+      "url": "/plugins/@xlang/xharness-client-ui-browser/client.js?rev=a6d90522f28ce6e0",
+      "rev": "a6d90522f28ce6e0",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",

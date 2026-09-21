@@ -12,3 +12,51 @@ test('Tool: read/diff/search/web intent projection and malformed/unknown fallbac
 test('Tool: terminal cwd normalization, running/final status and label forwarding are not simplified',()=>{for(const cwd of[undefined,'/workspace/app','C:\\workspace\\app','\\\\server\\share\\app'])for(const viewCwd of[undefined,'..','/tmp','C:\\tmp'])for(const exitCode of[0,1,undefined]){const block=settled({callView:{card:'terminal',command:'echo hello',cwd:viewCwd},resultView:{card:'terminal',output:'done',exitCode,signal:exitCode===1?'SIGTERM':undefined}});assert.deepEqual(safe(b.plugin.terminalCardModel,block,cwd),safe(a.plugin.terminalCardModel,block,cwd))}assert.deepEqual(json(b.plugin.terminalBlockLabels(x=>x)),json(a.plugin.terminalBlockLabels(x=>x)));for(const card of[{running:true,exitCode:1},{running:false,exitCode:0},{running:false,exitCode:2},{signal:'KILL'}])assert.equal(b.plugin.terminalFailed({card}),a.plugin.terminalFailed({card}))})
 test('Tool: recursive subcall keyed dispatch retains selection and fallback routing',()=>{const node={data:{root:running({subCalls:[settled({callId:'child'})]})}};const receipts=apis.map(({plugin})=>json(plugin.ToolCallTree({node,selectedCallId:'child',cwd:'/w',openFile(){},inspectCall(){},t:x=>x,useHostDescription:fn=>fn({home:'/home/u'}),renderSlot:()=>null})));assert.deepEqual(receipts[1],receipts[0])})
 test('Tool: collapsed/live row model and selected details body match the old component tree',()=>{for(const block of[running(),settled(),settled({isError:true,error:{code:'interrupted',name:'Cancelled'}})]){const receipts=apis.map(({plugin})=>{const props={toolName:'bash',block,cwd:'/w',home:'/u',openFile(){},inspect(){},t:x=>x};const card=plugin.GenericToolCard(props);return json({card,details:plugin.ToolDetails({block,cwd:'/w',t:x=>x,useHostDescription:fn=>fn({home:'/u'})})})});assert.deepEqual(receipts[1],receipts[0])}})
+
+test('Agent communication: stream, direct and current Host envelope acknowledgements are explicit',()=>{
+ const argsRaw=JSON.stringify({action:'send',agent_id:'child-1',message:'Please answer\nUse the local fixture'})
+ const model=patch=>json(b.plugin.agentCommunicationModel('agent',settled({call:{name:'agent',argsRaw},...patch})))
+ const ack={ok:true,agent_id:'child-1',message_id:'stable-message-1',status:'accepted'}
+ const content=value=>[{type:'text',text:JSON.stringify(value)}]
+ assert.equal(b.plugin.agentCommunicationModel('agent',running({name:'agent',argsRaw})).phase,'sending')
+ for(const value of [ack,{ok:true,content:JSON.stringify(ack),error:'',truncated:false}]){
+  const m=model({content:content(value)})
+  assert.equal(m.phase,'queued');assert.equal(m.target,'child-1');assert.equal(m.messageId,'stable-message-1')
+  for(const chinese of [true,false]){
+   const copy=b.plugin.agentCommunicationCopy(m,chinese)
+   assert.ok(copy.summary.includes('child-1'));assert.ok(copy.summary.includes('Please answer'))
+   assert.ok(copy.body.includes('Please answer\nUse the local fixture'));assert.ok(copy.body.includes('stable-message-1'))
+   assert.equal(copy.status,chinese?'已入队':'Queued')
+  }
+  const card=b.plugin.GenericToolCard({toolName:'agent',block:settled({call:{name:'agent',argsRaw},content:content(value)}),t:x=>x,openFile(){}})
+  assert.equal(card.props.title,'Message to agent');assert.equal(card.props.summarySuffix,'Queued')
+ }
+ assert.equal(b.plugin.agentCommunicationModel('bash',running({argsRaw})),null)
+ assert.equal(b.plugin.agentCommunicationModel('agent',running({argsRaw:'{"action":'})),null)
+ assert.equal(b.plugin.agentCommunicationModel('agent',running({argsRaw:'{"action":"inspect"}'})),null)
+})
+test('Agent communication: malformed, mismatched, missing and failed receipts never imply delivery',()=>{
+ const argsRaw=JSON.stringify({action:'send',agent_id:'child-1',message:'next task'})
+ const ack={ok:true,agent_id:'child-1',message_id:'stable',status:'accepted'}
+ const model=(value,patch={})=>b.plugin.agentCommunicationModel('agent',settled({call:{name:'agent',argsRaw},content:[{type:'text',text:JSON.stringify(value)}],...patch}))
+ for(const value of [null,[],{},'Both agents are running', {...ack,ok:false},{...ack,ok:'true'}, {...ack,agent_id:'other'}, {...ack,message_id:''},{...ack,status:'running'},{...ack,truncated:true},{...ack,truncated:'false'},{...ack,truncated:null}, {ok:true,content:JSON.stringify(ack),truncated:true},{ok:false,content:JSON.stringify(ack)},{ok:true,content:'malformed'}, {ok:true,content:JSON.stringify({...ack,ok:false})}]){
+  assert.equal(model(value).phase,'unconfirmed',JSON.stringify(value))
+  assert.equal(model(value).messageId,null)
+ }
+ for(const code of ['OUTCOME_UNKNOWN','interrupted']){
+  assert.equal(model(ack,{isError:true,error:{code,name:'Interrupted'}}).phase,'unknown')
+  assert.equal(model(ack,{isError:true,error:{code,name:'Interrupted'}}).state,'stopped')
+ }
+ assert.equal(model(ack,{isError:true,error:{code:'denied',name:'Error'}}).phase,'failed')
+ const copy=b.plugin.agentCommunicationCopy(model(ack,{isError:true}),false)
+ assert.ok(copy.body.includes('does not prove the message was not sent'))
+})
+test('Agent communication: start and stop receipt semantics are not execution or completion',()=>{
+ const make=(args,ack)=>b.plugin.agentCommunicationModel('agent',settled({call:{name:'agent',argsRaw:JSON.stringify(args)},content:[{type:'text',text:JSON.stringify(ack)}]}))
+ const start=make({action:'start',task:'inspect repository',label:'Review'},{ok:true,agent_id:'child-created',message_id:'child-created:initial',status:'accepted'})
+ assert.equal(start.target,'child-created');assert.equal(start.phase,'queued')
+ const stop=make({action:'stop',agent_id:'child-created'},{ok:true,agent_id:'child-created',accepted:true})
+ assert.equal(stop.phase,'stop-requested');assert.equal(stop.messageId,null)
+ assert.equal(make({action:'stop',agent_id:'child-created'},{ok:true,agent_id:'other',accepted:true}).phase,'unconfirmed')
+ assert.ok(b.plugin.agentCommunicationCopy(stop,false).body.includes('not proof the agent has stopped'))
+})

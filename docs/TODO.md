@@ -1660,3 +1660,13 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 原生图像／录制结果复用附件与预算链路并验证有界资源、取消和导航失效；不将截图塞入现有 64 KiB 文本桥，也不静默降级成 DOM 点击。
 - [x] 新零标签页真实 DeepSeek、仅 `plugin_mcp`、自然提示：4 类任务各完整执行 2 次，8 次全部通过状态／账本／清理验收；另 4 次受测试器 80-call 上限阻塞，保留失败而不算模型失败。续跑沿用同一 USD 1 上限及旧记录，最终 160 请求、费用保守上界 USD 0.2628189、pending 0、账本关闭。见 `docs/acceptance/native-browser-zero-tab-20261006.json`。
 - [ ] 打包及安装版验证；未替换、重启本机软件或发布。Mac AX Computer Use 失败是另一个边界，不由本次 Browser 修改冒充修复。
+
+## PERF-01：TPS 接收时间线
+
+- [x] 内容无关、有界 Host reducer；真实日志检查点采样，估算与接口平均值分开。
+- [x] owned TS 性能页注册在 Harness 后；原始/平滑曲线、状态带、键盘/悬停与懒加载数据表。
+- [x] 共享 wire fixture、严格 TS、Chromium/WebKit 与原冻结开屏差分回归。
+- [x] V100 远程 Rust projection 28 项、Host 282 项通过（6 项原有 ignored 未执行）；projection/Host all-targets Clippy `-D warnings` 通过。
+- [ ] 部署新 Host 与前端到实际 Web，实机流式任务验收。
+
+详见 [性能时间线设计与口径](performance-timeline.md)。
