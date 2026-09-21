@@ -21,7 +21,7 @@ use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use xharness_session::{
     AppendReceipt, LoggedEvent, Revision, Session, SessionEvent, SessionHeader, SessionInspection,
@@ -45,6 +45,17 @@ type SessionLock = AsyncMutex<()>;
 type LockTable = StdMutex<HashMap<PathBuf, Weak<SessionLock>>>;
 
 static PROCESS_LOCKS: OnceLock<LockTable> = OnceLock::new();
+
+/// Decode persisted JSON through serde_json's owned reader path.
+///
+/// Session records only contain owned types, so the borrowed `SliceRead` fast
+/// path buys us nothing here. Keeping persistence on `IoRead` also isolates
+/// journal recovery from failures in the slice string scanner: a malformed
+/// record remains an ordinary `serde_json::Error` instead of entering that
+/// optimized borrowed-string path.
+pub(crate) fn decode_owned_json<T: DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
+    serde_json::from_reader(bytes)
+}
 
 /// A filesystem-backed [`Store`] with one append-only JSONL file per session.
 ///
@@ -629,7 +640,7 @@ impl Store for JsonlSessionStore {
             file.read_exact(&mut bytes)
                 .map_err(|e| backend_error("read request audit", &path, e))?;
             let record: BatchRecord =
-                serde_json::from_slice(&bytes).map_err(|e| backend_message(e.to_string()))?;
+                decode_owned_json(&bytes).map_err(|e| backend_message(e.to_string()))?;
             for event in record.events {
                 if event.seq == seq {
                     if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
@@ -1072,7 +1083,7 @@ fn parse_reader(
     if read == 0 {
         return Err(corrupt(path, 1, "missing header record"));
     }
-    let header_record: HeaderRecord = serde_json::from_slice(&line)
+    let header_record: HeaderRecord = decode_owned_json(&line)
         .map_err(|e| corrupt(path, 1, format!("invalid header JSON: {e}")))?;
     validate_header_record(path, session_id, &header_record)?;
     let header = header_record.header;
@@ -1091,7 +1102,7 @@ fn parse_reader(
         }
         line_number += 1;
         let terminated = line.ends_with(b"\n");
-        match serde_json::from_slice::<BatchRecord>(&line) {
+        match decode_owned_json::<BatchRecord>(&line) {
             Ok(mut record) => {
                 for event in &record.events {
                     if matches!(
