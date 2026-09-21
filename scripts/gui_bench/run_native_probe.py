@@ -281,8 +281,6 @@ def main() -> int:
     receipt['native_api_core_passed'] = core_native_apis_passed(api)
     completed = completed and receipt['native_api_core_passed']
     (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
-    # Passing the bounded DOM/lifecycle contract is NOT full Browser Use parity.
-    receipt["browser_parity_passed"] = False
     receipt["hard_capability_status"] = capabilities.get("parity_gate", capabilities.get("status", "unverified"))
     receipt["cleanup_passed"] = cleaned
     receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned and completed, contract_completed=completed)
