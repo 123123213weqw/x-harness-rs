@@ -5,6 +5,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "desktop_status",
+            "desktop_report_startup_phase",
             "desktop_open_diagnostics",
             "desktop_diagnostics_status",
             "desktop_export_diagnostics",

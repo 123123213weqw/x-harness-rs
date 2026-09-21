@@ -92,6 +92,14 @@ class ReleaseProjection(unittest.TestCase):
     def test_formal_workflow_configures_key_before_packaging(self):
         source = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
         self.assertLess(source.index('Project updater public key into bundler config'), source.index('Build and sign desktop bundle (artifacts only)'))
+        patch = source.index('Remove incompatible bundled Linux desktop stack and re-sign final bytes')
+        self.assertGreater(patch, source.index('Build and sign desktop bundle (artifacts only)'))
+        self.assertLess(patch, source.index('Verify architecture, embedded channel'))
+        block = source[patch:source.index('Verify architecture, embedded channel')]
+        self.assertIn('patch-linux-appimage.py', block)
+        self.assertIn('tauri signer sign', block)
+        self.assertIn('test -s "$package.sig"', block)
+        self.assertIn('squashfs-tools', source)
         self.assertIn('needs: [plan, build]', source)
         self.assertIn('Stage one complete draft, never latest', source)
         self.assertNotIn('uploadUpdaterJson: true', source)

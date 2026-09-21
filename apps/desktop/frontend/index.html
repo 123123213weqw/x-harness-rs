@@ -46,6 +46,12 @@
           // listener. Read native state after subscribing so failure cannot leave
           // a permanent loading spinner merely because an event was missed.
           const status = await window.__TAURI__.core.invoke('desktop_status')
+          // Two animation frames mean the bootstrap DOM reached the compositor,
+          // rather than merely finishing script evaluation. The command is
+          // idempotent, so a retry cannot duplicate a diagnostic milestone.
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.__TAURI__.core.invoke('desktop_report_startup_phase', { phase: 'window_mapped' }).catch(() => {})
+          }))
           if (status?.startupError) {
             message.textContent = status.startupError
             main.classList.add('failed')

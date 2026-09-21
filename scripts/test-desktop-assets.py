@@ -25,6 +25,7 @@ def verify(app=None):
     assert (desktop / 'icons/icon.ico').read_bytes()[:4] == b'\x00\x00\x01\x00'
     assert (desktop / 'icons/128x128.png').read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
+    assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
     assert (ROOT / 'ui' / directory_plugin).read_bytes() == (ROOT / 'ui/dist' / directory_plugin).read_bytes(), 'stale directory flow in ui/dist'
     graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
@@ -39,6 +40,7 @@ def verify(app=None):
         assert digest(installed) == digest(desktop / 'icons/icon.icns'), f'packaged icon is stale: {installed}'
         assert info['CFBundleShortVersionString'] == config['version'], 'packaged version mismatch'
         assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
+        assert (app / 'Contents/Resources/web/desktop-startup.js').read_bytes() == (ROOT / 'ui/desktop/startup.js').read_bytes(), 'packaged startup instrumentation is stale'
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json',
                          directory_plugin,

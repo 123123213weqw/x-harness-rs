@@ -1,5 +1,6 @@
 mod diagnostics;
 mod sidecar;
+mod startup;
 mod updater;
 
 use std::sync::atomic::Ordering;
@@ -32,6 +33,7 @@ pub fn run() {
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
+            configure_linux_webview(app.handle());
             if app.state::<DesktopState>().diagnostics.incident() {
                 let _ = diagnostics::open(app.handle());
             }
@@ -58,6 +60,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             sidecar::desktop_status,
+            startup::desktop_report_startup_phase,
             diagnostics::desktop_open_diagnostics,
             diagnostics::desktop_diagnostics_status,
             diagnostics::desktop_export_diagnostics,
@@ -106,3 +109,37 @@ pub fn run() {
         }
     });
 }
+
+#[cfg(target_os = "linux")]
+fn configure_linux_webview(app: &tauri::AppHandle) {
+    use gtk::prelude::WidgetExt;
+    use webkit2gtk::{CacheModel, WebContextExt, WebViewExt};
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // Tauri starts on a bundled bootstrap document, then navigates to the Host
+    // origin.  WebKit's WebBrowser cache model may retain the old renderer as a
+    // spare process.  DocumentBrowser keeps normal document/resource caching,
+    // but disables that process cache so warm reopen does not accumulate a
+    // second WebKitWebProcess.
+    let handle = app.clone();
+    let _ = window.with_webview(move |webview| {
+        if let Some(context) = webview.inner().context() {
+            context.set_cache_model(CacheModel::DocumentBrowser);
+        }
+        // GTK's map signal is the actual native window/widget mapping boundary;
+        // it is not inferred from navigation or JavaScript evaluation.
+        if webview.inner().is_mapped() {
+            let state = handle.state::<DesktopState>();
+            state.startup.window_mapped(&state.diagnostics);
+        }
+        webview.inner().connect_map(move |_| {
+            let state = handle.state::<DesktopState>();
+            state.startup.window_mapped(&state.diagnostics);
+        });
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_linux_webview(_: &tauri::AppHandle) {}

@@ -100,6 +100,7 @@ jobs:
           node scripts/test-desktop-updater.mjs
           node scripts/test-updater-signature.mjs
           python3 -B scripts/test-desktop-assets.py
+          python3 -B scripts/test-linux-appimage-compat.py
           python3 -B scripts/test-desktop-release.py
           python3 -B scripts/test-desktop-release-build.py
           python3 -B scripts/test-macos-signing.py
@@ -152,7 +153,7 @@ jobs:
         if: matrix.platform == 'linux-x86_64-appimage'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep squashfs-tools
       - name: Install pinned Windows ripgrep
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
@@ -223,6 +224,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
           APPLE_SIGNING_IDENTITY: '-'
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Remove incompatible bundled Linux desktop stack and re-sign final bytes
+        if: matrix.platform == 'linux-x86_64-appimage'
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+        run: |
+          package="src-tauri/target/${{ matrix.target }}/release/bundle/appimage/XHarness_${{ needs.plan.outputs.version }}_amd64.AppImage"
+          python -B ../../scripts/patch-linux-appimage.py --appimage "$package"
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri signer sign "$package"
+          test -s "$package.sig"
       - name: Verify architecture, embedded channel, updater signature and declared Mac code-signing policy
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
