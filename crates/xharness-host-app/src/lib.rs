@@ -443,14 +443,20 @@ impl SessionToolFactory for NativeToolFactory {
             }
         }
         if let Some(questions) = &self.questions {
-            specs.push(
-                AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
-                    Arc::clone(questions),
-                    session_id,
-                    cwd,
-                )))
-                .spec(),
-            );
+            if questions
+                .allows_user_questions(session_id)
+                .await
+                .map_err(|error| error.message)?
+            {
+                specs.push(
+                    AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
+                        Arc::clone(questions),
+                        session_id,
+                        cwd,
+                    )))
+                    .spec(),
+                );
+            }
         }
         if let Some(allowlist) = self.tool_allowlist.get() {
             allowlist.apply(&mut specs);
@@ -1097,6 +1103,10 @@ mod tests {
         let workspace = TempWorkspace::new();
         let store: Arc<dyn xharness_session::Store> =
             Arc::new(xharness_session::MemorySessionStore::default());
+        store
+            .create(xharness_session::SessionHeader::new("questions"))
+            .await
+            .unwrap();
         let hub = DurableQuestionHub::new(store, Arc::new(NoopTestSink));
         let factory = NativeToolFactory::new_with_questions(
             WebRuntime::default(),

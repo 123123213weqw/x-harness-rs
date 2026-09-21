@@ -18,8 +18,28 @@ use xharness_session::{EventData, SessionEvent, Store, StoreError};
 mod continuation;
 
 const APPEND_RETRIES: usize = 16;
+pub(crate) const DELEGATED_QUESTION_POLICY: &str = "You are a delegated child agent. Clarifications belong to your parent agent, not directly to the human user. Do not call ask_user_question (ask_question) or create a replacement user-question tool. If essential information remains missing after inspecting available context and tools, finish this turn with a concise clarification report: what is missing, why it matters, and any safe options. Your result is automatically delivered to the parent; do not poll or wait for a human answer. The parent can answer using agent(action=send) and resume your work. Neither a clarification nor a parent reply grants permission: existing approval requirements remain authoritative.";
 pub const AGENT_MEMORY_BEGIN: &str = "<!-- XHARNESS:USER-MEMORY:BEGIN -->";
 pub const AGENT_MEMORY_END: &str = "<!-- XHARNESS:USER-MEMORY:END -->";
+
+/// Close obsolete child/user waits on upgrade, rather than merely hiding their
+/// dialogs and leaving autonomous work blocked. The original question remains
+/// in history; this is a runtime-policy cancellation, never a human answer.
+pub(crate) fn delegated_question_cancellations(
+    session: &xharness_session::Session,
+) -> Vec<SessionEvent> {
+    if crate::delegation::restored_delegation(session).is_none() {
+        return Vec::new();
+    }
+    xharness_session::all_user_questions(session.events())
+        .into_iter()
+        .filter(|question| matches!(question.terminal, QuestionTerminalState::Pending))
+        .map(|question| EventData::QuestionCancelled {
+            interaction_id: question.invocation.interaction_id,
+            reason: "Runtime policy closed an obsolete delegated-agent user question. Report the clarification to the parent agent instead. This was not a user cancellation or answer and grants no permission.".into(),
+        }.into())
+        .collect()
+}
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum QuestionHubError {
@@ -114,13 +134,42 @@ impl DurableQuestionHub {
         self.events.subscribe()
     }
 
+    /// Use durable delegation identity, not a model-supplied parent id or a
+    /// copied fork header. A regular fork of a child is still user-owned.
+    pub async fn allows_user_questions(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, QuestionProviderError> {
+        // Live Host ownership is rebuilt from those durable events. Avoid
+        // rereading a long conversation just to construct each turn's tools.
+        if let Some(host) = self.host.get().and_then(std::sync::Weak::upgrade) {
+            if let Some(session) = host.state.read().await.sessions.get(session_id) {
+                return Ok(!session.delegated);
+            }
+        }
+        let session = self.snapshot(session_id).await.map_err(provider_error)?;
+        Ok(crate::delegation::restored_delegation(&session).is_none())
+    }
+
     pub(crate) async fn baseline(&self) -> Vec<ServerRequest> {
-        self.pending
+        let pending = self
+            .pending
             .read()
             .await
             .values()
-            .map(|pending| question_requested_frame(pending.as_ref()))
-            .collect()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut frames = Vec::new();
+        for question in pending {
+            if self
+                .allows_user_questions(&question.session_id)
+                .await
+                .unwrap_or(false)
+            {
+                frames.push(question_requested_frame(&question));
+            }
+        }
+        frames
     }
 
     async fn ask(
@@ -130,6 +179,10 @@ impl DurableQuestionHub {
         invocation: QuestionInvocation,
         cancellation: CancellationToken,
     ) -> Result<QuestionResolution, QuestionProviderError> {
+        // Enforce ownership even when an old/custom executor still exposes the
+        // tool. Reject new/waiting child questions before persisting or publishing.
+        // Replaying an answer already accepted before upgrade creates no question.
+        let may_ask = self.allows_user_questions(session_id).await?;
         let existing = self
             .question_state(session_id, &invocation.interaction_id)
             .await
@@ -160,8 +213,14 @@ impl DurableQuestionHub {
                         "durable question identity conflicts with this tool invocation",
                     ));
                 }
+                if !may_ask {
+                    return Err(QuestionProviderError::new(DELEGATED_QUESTION_POLICY));
+                }
             }
             None => {
+                if !may_ask {
+                    return Err(QuestionProviderError::new(DELEGATED_QUESTION_POLICY));
+                }
                 self.append_and_flush(
                     session_id,
                     EventData::QuestionRequested {
@@ -969,6 +1028,246 @@ mod tests {
             .await
             .unwrap();
         store.flush(session_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_rejects_before_ui_or_persistence_even_after_restart() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "delegated-question").await;
+        let snapshot = store.load("delegated-question").await.unwrap().unwrap();
+        store
+            .append(
+                "delegated-question",
+                snapshot.revision(),
+                vec![EventData::AgentDelegated {
+                    parent_session_id: "parent".into(),
+                    invocation_id: "delegate".into(),
+                    task: "review".into(),
+                }
+                .into()],
+            )
+            .await
+            .unwrap();
+        let before = store.load("delegated-question").await.unwrap().unwrap();
+        for _ in 0..2 {
+            let sink = Arc::new(RecordingSink::default());
+            let hub = DurableQuestionHub::new(store.clone(), sink.clone());
+            let mut frames = hub.subscribe();
+            assert!(!hub
+                .allows_user_questions("delegated-question")
+                .await
+                .unwrap());
+            let provider =
+                DurableQuestionProvider::new(hub.clone(), "delegated-question", "/workspace");
+            let error = tokio::time::timeout(
+                Duration::from_secs(1),
+                provider.ask(
+                    QuestionInvocation::new(
+                        "execution-1",
+                        request(AnswerDestination::AgentMarkdown),
+                    ),
+                    CancellationToken::new(),
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap_err();
+            assert!(error.message.contains("parent agent"));
+            assert!(!error.retryable);
+            assert!(frames.try_recv().is_err());
+            assert!(hub.baseline().await.is_empty());
+            assert!(sink.0.lock().unwrap().is_empty());
+            assert_eq!(
+                store
+                    .load("delegated-question")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .events(),
+                before.events()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_allows_normal_forks_and_fails_closed_without_identity() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "question-fork").await;
+        let snapshot = store.load("question-fork").await.unwrap().unwrap();
+        store
+            .append(
+                "question-fork",
+                snapshot.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "copied history".into(),
+                    }
+                    .into(),
+                    EventData::SessionForkOrigin {
+                        parent_session_id: "old-child".into(),
+                        before_user_seq: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let hub = DurableQuestionHub::new(store, Arc::new(NoopAgentMarkdownSink));
+        assert!(hub.allows_user_questions("question-fork").await.unwrap());
+        assert!(hub.allows_user_questions("missing").await.is_err());
+        assert!(DurableQuestionHub::unavailable()
+            .allows_user_questions("unknown")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_does_not_restore_old_child_question_dialogs() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "old-child-question").await;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let snapshot = store.load("old-child-question").await.unwrap().unwrap();
+        store
+            .append(
+                "old-child-question",
+                snapshot.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "review".into(),
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: invocation.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionDeferred {
+                        interaction_id: invocation.interaction_id,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let snapshot = store.load("old-child-question").await.unwrap().unwrap();
+        let cancellations = delegated_question_cancellations(&snapshot);
+        assert_eq!(cancellations.len(), 1);
+        store
+            .append("old-child-question", snapshot.revision(), cancellations)
+            .await
+            .unwrap();
+        let closed = store.load("old-child-question").await.unwrap().unwrap();
+        assert!(!xharness_session::has_unanswered_deferred_question(
+            closed.events()
+        ));
+        assert!(
+            matches!(xharness_session::all_user_questions(closed.events())[0].terminal,
+            QuestionTerminalState::Cancelled(ref reason) if reason.starts_with("Runtime policy"))
+        );
+        assert!(
+            delegated_question_cancellations(&closed).is_empty(),
+            "migration must be idempotent"
+        );
+        hub.restore_snapshot(&closed).await;
+        assert!(hub.baseline().await.is_empty());
+        assert!(hub.pending.read().await.is_empty());
+        assert_eq!(
+            store
+                .load("old-child-question")
+                .await
+                .unwrap()
+                .unwrap()
+                .events(),
+            closed.events()
+        );
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_preserves_previously_accepted_answer_without_dialog() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let id = "answered-child";
+        session_with_question_call(&store, id).await;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let mut interaction = QuestionInteraction::new(invocation.clone()).unwrap();
+        let resolution = interaction
+            .resolve(
+                ResolveAction::Continue,
+                vec![QuestionAnswer {
+                    question_id: "target".into(),
+                    selected_option_id: None,
+                    custom_text: Some("local".into()),
+                }],
+            )
+            .unwrap();
+        let before = store.load(id).await.unwrap().unwrap();
+        store
+            .append(
+                id,
+                before.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "review".into(),
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: invocation.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionDeferred {
+                        interaction_id: invocation.interaction_id.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionResolved {
+                        interaction_id: invocation.interaction_id.clone(),
+                        resolution: resolution.clone(),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let snapshot = store.load(id).await.unwrap().unwrap();
+        assert!(delegated_question_cancellations(&snapshot).is_empty());
+        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        hub.restore_snapshot(&snapshot).await;
+        assert_eq!(
+            hub.pending.read().await.len(),
+            1,
+            "accepted late answer outbox must survive"
+        );
+        assert!(
+            hub.baseline().await.is_empty(),
+            "old accepted answer must not reopen a child dialog"
+        );
+        let mut frames = hub.subscribe();
+        let provider = DurableQuestionProvider::new(hub, id, "/workspace");
+        assert_eq!(
+            provider
+                .ask(invocation, CancellationToken::new())
+                .await
+                .unwrap(),
+            resolution
+        );
+        assert!(provider
+            .ask(
+                QuestionInvocation::new("new-question", request(AnswerDestination::Context)),
+                CancellationToken::new()
+            )
+            .await
+            .is_err());
+        assert!(frames.try_recv().is_err());
+        assert_eq!(
+            store.load(id).await.unwrap().unwrap().events(),
+            snapshot.events()
+        );
     }
 
     #[tokio::test]

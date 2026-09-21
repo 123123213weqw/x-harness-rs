@@ -265,7 +265,9 @@ impl BasicHost {
                     continue;
                 }
             };
-            let cancellations = xharness_session::stale_approval_cancellations(session.events());
+            let mut cancellations =
+                xharness_session::stale_approval_cancellations(session.events());
+            cancellations.extend(crate::questions::delegated_question_cancellations(&session));
             if !cancellations.is_empty() {
                 store
                     .append(&session_id, session.revision(), cancellations)
