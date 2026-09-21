@@ -309,7 +309,8 @@ class WorkflowAndTagTests(unittest.TestCase):
             self.assertIn("format('release-task {0}', inputs.orchestration_id)", text)
         ci_text = (ROOT / '.github/workflows/ci.yml').read_text()
         self.assertIn('python -B scripts/test-release-orchestrator.py', ci_text)
-        self.assertIn('os: [ubuntu-latest, windows-2025, macos-15]', ci_text)
+        self.assertIn("'[\"ubuntu-latest\"]'", ci_text)
+        self.assertIn("'[\"ubuntu-latest\",\"windows-2025\",\"macos-15\"]'", ci_text)
 
     def test_prepare_tag_locks_sha_checks_ci_and_does_not_force_refs(self):
         environment = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF='refs/heads/master',
