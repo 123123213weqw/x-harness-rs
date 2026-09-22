@@ -58,6 +58,7 @@ impl ModelDeployment {
             model
                 .reasoning
                 .as_ref()
+                .and_then(ReasoningSetting::profile)
                 .and_then(|r| r.default_effort.clone())
         });
         default_route.context_window_tokens = file.default.context_window_tokens;
@@ -92,15 +93,34 @@ impl ModelDeployment {
                 default_token_guard: None,
             });
         }
-        // The single-model CLI path has no provider document to declare efforts
-        // in; `--providers-file` is the supported way to describe a route.
-        let provider_config = OpenAiProviderConfig::new(
+        // Unknown/proxied routes still need explicit configuration. Official
+        // routes can use the same curated catalog as editable model settings.
+        let compatibility = crate::reasoning_compat::resolve(
+            &config.base_url,
+            if config.protocol == OpenAiProtocol::Responses {
+                "openai-responses"
+            } else {
+                "openai-completions"
+            },
+            &config.model,
+        );
+        let reasoning: Option<ModelReasoningConfig> = compatibility
+            .as_ref()
+            .map(|c| {
+                serde_json::from_value(c.profile.clone())
+                    .map_err(|_| "Invalid bundled reasoning profile".to_owned())
+            })
+            .transpose()?;
+        let mut provider_config = OpenAiProviderConfig::new(
             config.protocol,
             config.base_url,
             config.api_key,
             &config.model,
         )
         .with_context_window_fallback(config.context_window_tokens);
+        if let Some(reasoning) = &reasoning {
+            provider_config = provider_config.with_reasoning_profile(reasoning.adapter_profile()?);
+        }
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
             .with_debug(debug);
@@ -120,13 +140,19 @@ impl ModelDeployment {
             config.token_safety_margin,
         )?;
         let provider: Arc<dyn ModelProvider> = Arc::new(adapter);
-        let descriptor = ModelDescriptor::new(
+        let mut descriptor = ModelDescriptor::new(
             &config.provider,
             &config.provider,
             &config.model,
             &config.model,
         )
         .with_context_window(capabilities.context_window);
+        if let Some(reasoning) = reasoning {
+            descriptor = descriptor.with_reasoning(reasoning.public());
+        }
+        if let Some(compatibility) = compatibility {
+            descriptor.reasoning_capability = compatibility.provenance;
+        }
         let mut registry = ModelRegistry::new();
         registry
             .register(
@@ -308,7 +334,33 @@ impl ProviderConfig {
                 reasoning_capability,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
-            let reasoning = if reasoning_disabled { None } else { reasoning };
+            let reasoning_disabled =
+                reasoning_disabled || matches!(reasoning, Some(ReasoningSetting::Disabled));
+            let reasoning = reasoning.and_then(ReasoningSetting::into_profile);
+            let compat = if !reasoning_disabled && reasoning.is_none() {
+                crate::reasoning_compat::resolve(
+                    &self.base_url,
+                    if protocol == OpenAiProtocol::Responses {
+                        "openai-responses"
+                    } else {
+                        "openai-completions"
+                    },
+                    &upstream_model,
+                )
+            } else {
+                None
+            };
+            let reasoning = if reasoning_disabled {
+                None
+            } else {
+                reasoning.or_else(|| {
+                    compat
+                        .as_ref()
+                        .and_then(|c| serde_json::from_value(c.profile.clone()).ok())
+                })
+            };
+            let reasoning_capability =
+                reasoning_capability.or_else(|| compat.map(|c| c.provenance));
             let reasoning_state = reasoning_capability.unwrap_or_else(|| serde_json::json!({"state":if reasoning_disabled {"disabled"} else if reasoning.is_some() {"supported"} else {"unknown"},"source":if reasoning_disabled {"explicit"} else {"configured"}}));
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
@@ -449,12 +501,20 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
         if profiles.contains_key(id) {
             return Err("Duplicate provider ID in imported configuration".to_owned());
         }
-        let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| serde_json::json!({
+        let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| {
+            let mut value = serde_json::json!({
             "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
             "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
             "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
             "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"],"imageInput":m["image_input"]
-        })).collect::<Vec<_>>();
+            });
+            if m["reasoning_disabled"] == true {
+                value["reasoning"] = serde_json::Value::Null;
+            } else if m.get("reasoning").is_none() {
+                value.as_object_mut().expect("constructed object").remove("reasoning");
+            }
+            value
+        }).collect::<Vec<_>>();
         profiles.insert(
             id.to_owned(),
             serde_json::json!({"displayName":p["display_name"],"baseURL":p["base_url"],
@@ -490,14 +550,42 @@ struct ModelConfig {
     minimum_output_tokens: Option<u64>,
     #[serde(default = "default_token_safety_margin")]
     token_safety_margin: u64,
-    #[serde(default)]
-    reasoning: Option<ModelReasoningConfig>,
+    #[serde(default, deserialize_with = "present_reasoning_setting")]
+    reasoning: Option<ReasoningSetting>,
     #[serde(default)]
     reasoning_disabled: bool,
     #[serde(default)]
     reasoning_capability: Option<serde_json::Value>,
     #[serde(default)]
     image_input: Option<bool>,
+}
+
+// Preserve missing vs explicit null for imported provider files, just as the
+// editable settings document does. An explicit disable must never auto-enable.
+#[derive(Debug, Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum ReasoningSetting {
+    Profile(ModelReasoningConfig),
+    Disabled,
+}
+impl ReasoningSetting {
+    fn profile(&self) -> Option<&ModelReasoningConfig> {
+        match self {
+            Self::Profile(p) => Some(p),
+            Self::Disabled => None,
+        }
+    }
+    fn into_profile(self) -> Option<ModelReasoningConfig> {
+        match self {
+            Self::Profile(p) => Some(p),
+            Self::Disabled => None,
+        }
+    }
+}
+fn present_reasoning_setting<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ReasoningSetting>, D::Error> {
+    ReasoningSetting::deserialize(d).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -634,6 +722,87 @@ mod tests {
     use super::*;
 
     #[test]
+    fn provider_file_missing_reasoning_is_not_an_explicit_disable() {
+        let missing: ModelConfig =
+            serde_json::from_value(serde_json::json!({"id":"glm-5.3"})).unwrap();
+        let disabled: ModelConfig =
+            serde_json::from_value(serde_json::json!({"id":"glm-5.3","reasoning":null})).unwrap();
+        assert!(missing.reasoning.is_none());
+        assert!(matches!(
+            disabled.reasoning,
+            Some(ReasoningSetting::Disabled)
+        ));
+    }
+
+    #[test]
+    fn imported_provider_preserves_explicit_disable_over_catalog_and_profile() {
+        let path = std::env::temp_dir().join(format!(
+            "xh-disabled-reasoning-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let profile = crate::reasoning_compat::resolve(
+            "https://api.deepseek.com",
+            "openai-completions",
+            "deepseek-flash",
+        )
+        .unwrap()
+        .profile;
+        for explicit_profile in [false, true] {
+            let mut model = serde_json::json!({
+                "id":"deepseek-flash", "fallback_context_window_tokens":32768,
+                "reasoning_disabled":true,
+            });
+            if explicit_profile {
+                model["reasoning"] = profile.clone();
+            }
+            let file = serde_json::json!({"providers":[{
+                "id":"official", "base_url":"https://api.deepseek.com",
+                "protocol":"chat", "models":[model],
+            }]});
+            fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+            let settings = settings_from_file(&path);
+            fs::remove_file(&path).unwrap();
+            let settings = settings.unwrap();
+            assert_eq!(
+                settings["providers"]["official"]["models"][0].get("reasoning"),
+                Some(&serde_json::Value::Null)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_file_auto_reasoning_and_explicit_disable_both_reach_registry() {
+        for disabled in [false, true] {
+            let mut m = serde_json::json!({"id":"glm-5.3","fallback_context_window_tokens":32768});
+            if disabled {
+                m["reasoning"] = serde_json::Value::Null;
+            }
+            let provider: ProviderConfig = serde_json::from_value(serde_json::json!({"id":"my-label","base_url":"https://api.z.ai/api/paas/v4","protocol":"chat","models":[m]})).unwrap();
+            let mut registry = ModelRegistry::new();
+            provider
+                .register_models_with_key(
+                    &mut registry,
+                    DebugRecorder::disabled(),
+                    "test".into(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+            let models = registry.models();
+            assert_eq!(models[0].reasoning.is_none(), disabled);
+            assert_eq!(
+                models[0].reasoning_capability["source"],
+                if disabled { "explicit" } else { "documented" }
+            );
+        }
+    }
+
+    #[test]
     fn checked_in_remote_example_uses_environment_credentials_and_declared_efforts() {
         let config: ProviderFile = serde_json::from_str(include_str!(
             "../../../config/providers.remote.example.json"
@@ -658,10 +827,14 @@ mod tests {
         // Effort levels are configuration, not a vendor table baked into the Host.
         assert!(provider.models.iter().all(|model| {
             model.fallback_context_window_tokens == Some(131_072)
-                && model.reasoning.as_ref().is_some_and(|reasoning| {
-                    reasoning.default_effort.as_deref() == Some("high")
-                        && reasoning.efforts.iter().any(|effort| effort.id == "high")
-                })
+                && model
+                    .reasoning
+                    .as_ref()
+                    .and_then(ReasoningSetting::profile)
+                    .is_some_and(|reasoning| {
+                        reasoning.default_effort.as_deref() == Some("high")
+                            && reasoning.efforts.iter().any(|effort| effort.id == "high")
+                    })
         }));
     }
 
@@ -677,7 +850,11 @@ mod tests {
         assert_eq!(provider.base_url, "https://api.deepseek.com");
         assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
         for model in &provider.models {
-            let reasoning = model.reasoning.as_ref().expect("declared reasoning");
+            let reasoning = model
+                .reasoning
+                .as_ref()
+                .and_then(ReasoningSetting::profile)
+                .expect("declared reasoning");
             assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
             assert_eq!(
                 reasoning

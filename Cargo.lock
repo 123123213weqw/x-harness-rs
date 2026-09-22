@@ -3863,6 +3863,7 @@ dependencies = [
  "xharness-interaction",
  "xharness-jobs",
  "xharness-mcp",
+ "xharness-model-catalog",
  "xharness-platform",
  "xharness-plugins",
  "xharness-prompt",
@@ -3925,6 +3926,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "xharness-model-catalog"
+version = "0.1.1"
+source = "git+https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

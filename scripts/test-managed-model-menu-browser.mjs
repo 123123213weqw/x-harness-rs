@@ -15,7 +15,7 @@ try{
   page.on('pageerror',e=>{if(!e.message.includes('Host boot intentionally disabled'))errors.push(e.message)})
   page.setDefaultTimeout(10000);await page.goto(`${origin}/?lang=${lang}&theme=${theme}`)
   const copy=lang==='zh'?{custom:'自定义',model:/^模型 /,account:'账号服务',manage:'管理模型',back:'返回模型',close:'关闭'}:{custom:'Custom',model:/^Model /,account:'Account service',manage:'Manage models',back:'Back to models',close:'Close'}
-  const trigger=()=>page.locator('#fixture-picker button[aria-haspopup=menu]')
+  const trigger=()=>page.locator('#fixture-picker button[data-xh-model-control=model]')
   const open=async()=>{await trigger().click();await page.keyboard.press('ArrowDown');assert.equal(await page.getByRole('menuitem',{name:copy.model}).evaluate(el=>el===document.activeElement),true);await page.keyboard.press('Enter')}
   await open()
   assert.equal(await page.getByText(copy.account,{exact:true}).count(),1)
@@ -47,7 +47,11 @@ try{
   await page.keyboard.press('ArrowLeft');await page.getByRole('menuitem',{name:copy.custom,exact:true}).waitFor()
   await page.evaluate(()=>{fixture.offline=true})
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');await open()
-  await page.getByText(/offline/).waitFor();assert.equal(await page.getByRole('menuitem',{name:copy.custom,exact:true}).count(),1)
+  assert.equal(await page.getByText(/offline/).count(),0,'cached menu is usable offline without probing');
+  await page.locator('[data-xh-model-control=effort]').click();
+  await page.getByRole('menuitem',{name:lang==='zh'?'检查能力':'Check capabilities',exact:true}).click();
+  await page.getByText(/offline/).waitFor();
+  await trigger().click();await page.getByRole('menuitem',{name:copy.model}).click();assert.equal(await page.getByRole('menuitem',{name:copy.custom,exact:true}).count(),1)
   await page.evaluate(async()=>{fixture.offline=false;fixture.custom=false;await fixture.directory.load()});
   await page.getByRole('menuitem',{name:copy.custom,exact:true}).click();
   await page.getByText(lang==='zh'?'没有自定义模型。请在管理模型中添加。':'No custom models. Add one in Manage models.',{exact:true}).waitFor();
@@ -60,7 +64,7 @@ try{
    assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=620,JSON.stringify(box))
    assert.notEqual(await page.getByRole('menu').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)','real theme tokens present')
   }
-  if(process.env.UI_TEST_SCREENSHOTS){await page.getByRole('menuitemradio',{name:'DeepSeek Flash',exact:true}).click();await trigger().click();await page.getByRole('menuitem',{name:copy.model}).click();await page.mouse.move(20,100);mkdirSync(process.env.UI_TEST_SCREENSHOTS,{recursive:true});await page.setViewportSize({width:900,height:620});await page.screenshot({path:resolve(process.env.UI_TEST_SCREENSHOTS,`${engine}-${lang}-${theme}.png`)})}
+  if(process.env.UI_TEST_SCREENSHOTS){await page.getByRole('menuitemradio',{name:'DeepSeek Flash',exact:true}).click();await trigger().click();await page.getByRole('menuitem',{name:copy.model}).click();await page.mouse.move(20,100);mkdirSync(process.env.UI_TEST_SCREENSHOTS,{recursive:true});await page.setViewportSize({width:900,height:620});await page.screenshot({path:resolve(process.env.UI_TEST_SCREENSHOTS,`${engine}-${lang}-${theme}.png`)});await page.keyboard.press('Escape');await page.keyboard.press('Escape');await page.locator('[data-xh-model-control=effort]').click();await page.screenshot({path:resolve(process.env.UI_TEST_SCREENSHOTS,`${engine}-${lang}-${theme}-effort.png`)})}
   await page.close();scenarios++
  }
  assert.deepEqual(errors,[])

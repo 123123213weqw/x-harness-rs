@@ -36,6 +36,23 @@ class WebviewTests(unittest.TestCase):
             Contract(call).observe()
         self.assertLessEqual(call.call_count,11)
 
+    def test_failed_action_retains_diagnostic_without_replay_or_private_transport(self):
+        for effect in ('not_started', 'unknown', 'applied'):
+            call = Mock(return_value={'ok':False, 'effect':effect,
+                                      'message':'stale_target: observe again',
+                                      'token':'private-transport'})
+            checks = Contract(call)
+            checks.target = Mock(return_value=({'frame_id':'observed'},
+                                               {'ref':'n1', 'disabled':False}))
+            with self.subTest(effect=effect), self.assertRaises(AssertionError) as failure:
+                checks.act('select', 'Reasoning level', value='low')
+            self.assertIn('"effect": "' + effect + '"', str(failure.exception))
+            self.assertIn('stale_target', str(failure.exception))
+            self.assertNotIn('private-transport', str(failure.exception))
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(call.call_args.args[0], 'perform')
+            self.assertEqual(checks.actions, [])
+
     def test_zero_tab_fixture_loads_canonical_appframe_without_opening_a_page(self):
         html = zero_tab_html('owned-session')
         self.assertIn('AppFrame', html)
