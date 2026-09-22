@@ -40,9 +40,10 @@ try {
   ` })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.evaluate(() => {
-    const plugin = registration.factory(id => id === 'react' ? React : {})
+    const plugin = registration.factory(id => staticModules[id] ?? (id === 'react' ? React : {}))
     const components = {}
     plugin.apply({
+      get:()=>undefined,remote:{$on:()=>()=>{}},
       effect: fn => fn(),
       slots: { inject: (_name, fn) => fn(), register: (config, component) => { components[config.id] = component } },
     })

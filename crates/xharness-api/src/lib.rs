@@ -12,6 +12,7 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 
+pub mod display;
 pub mod protocol;
 
 pub const API_PREFIX: &str = "/api";
