@@ -82,6 +82,47 @@ try {
   // Navigating away must not hide an operation that may still control the OS.
   await page.evaluate(() => window.__computerTest.root.unmount())
   assert.equal(await indicator.isVisible(), true)
+
+  // In the desktop shell the native cross-app panel replaces the DOM pill.
+  // Start/stop calls are serialized so transport jitter cannot resurrect a
+  // completed activity.
+  await page.evaluate(() => {
+    window.__nativeActivityCalls = []
+    window.__TAURI__ = { core: { invoke(command, args) {
+      window.__nativeActivityCalls.push({ command, args })
+      return Promise.resolve()
+    } } }
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    window.__nativeComputerRoot = ReactDOM.createRoot(host)
+    window.__nativeComputerRoot.render(React.createElement(window.__computerTest.Row, {
+      callId: 'native-call',
+      block: { name: 'computer', argsRaw: JSON.stringify({ action: 'click', x: 40, y: 80, frame_id: 'mac-frame-2' }) },
+      t: window.__computerTest.t,
+    }))
+  })
+  await page.waitForFunction(() => window.__nativeActivityCalls.length === 1)
+  assert.equal(await indicator.isHidden(), true)
+  assert.deepEqual(await page.evaluate(() => window.__nativeActivityCalls[0]), {
+    command: 'desktop_set_computer_activity',
+    args: { request: { callId: 'native-call', active: true, mode: 'control', text: 'XHarness 正在控制鼠标和键盘' } },
+  })
+  await page.evaluate(() => {
+    window.__nativeComputerRoot.render(React.createElement(window.__computerTest.Row, {
+      callId: 'native-call',
+      block: {
+        kind: 'tool-result',
+        call: { argsRaw: JSON.stringify({ action: 'click', x: 40, y: 80, frame_id: 'mac-frame-2' }) },
+        content: [{ type: 'text', text: JSON.stringify({ ok: true, action: 'click' }) }],
+        isError: false,
+      },
+      t: window.__computerTest.t,
+    }))
+  })
+  await page.waitForFunction(() => window.__nativeActivityCalls.length === 2)
+  assert.deepEqual(await page.evaluate(() => window.__nativeActivityCalls[1].args.request), {
+    callId: 'native-call', active: false, mode: '', text: '',
+  })
   console.log(`${engine}: Computer row, global privacy indicator, settled summary and navigation retention passed`)
 } finally {
   await browser.close()

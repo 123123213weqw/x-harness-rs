@@ -110,9 +110,37 @@ window.__ModuleLoader__.load({
     }
 
     function sharedActivity() {
-      if (typeof window === 'undefined') return { calls: new Map(), element: null }
-      if (!window[GLOBAL_KEY]) window[GLOBAL_KEY] = { calls: new Map(), element: null }
+      if (typeof window === 'undefined') return { calls: new Map(), element: null, nativeTail: Promise.resolve() }
+      if (!window[GLOBAL_KEY]) window[GLOBAL_KEY] = { calls: new Map(), element: null, nativeTail: Promise.resolve() }
       return window[GLOBAL_KEY]
+    }
+
+    function desktopInvoke() {
+      const invoke = typeof window === 'undefined' ? null : window.__TAURI__?.core?.invoke
+      return typeof invoke === 'function' ? invoke : null
+    }
+
+    function syncDesktopActivity(activity, callId, descriptor) {
+      const invoke = desktopInvoke()
+      if (!invoke) return false
+      const request = descriptor ? {
+        callId,
+        active: true,
+        mode: descriptor.mode,
+        text: descriptor.text,
+      } : {
+        callId,
+        active: false,
+        mode: '',
+        text: '',
+      }
+      // Preserve start/stop ordering even if native IPC latency changes. A
+      // rejected bridge call must not break later activity updates.
+      activity.nativeTail = (activity.nativeTail ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => invoke('desktop_set_computer_activity', { request }))
+        .catch(() => {})
+      return true
     }
 
     function ensureIndicator(activity) {
@@ -137,6 +165,14 @@ window.__ModuleLoader__.load({
       if (typeof document === 'undefined') return
       const element = ensureIndicator(activity)
       const current = [...activity.calls.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      // The desktop shell projects the same state into a native, cross-app
+      // panel. Keep this DOM pill as the browser fallback, not a duplicate.
+      if (desktopInvoke()) {
+        element.hidden = true
+        element.removeAttribute('data-mode')
+        element.querySelector('.xh-computer-privacy-text').textContent = ''
+        return
+      }
       if (!current) {
         element.hidden = true
         element.removeAttribute('data-mode')
@@ -157,9 +193,11 @@ window.__ModuleLoader__.load({
       const entry = { ...descriptor, updatedAt: Date.now() }
       entry.timer = setTimeout(() => {
         activity.calls.delete(callId)
+        syncDesktopActivity(activity, callId, null)
         refreshIndicator(activity)
       }, 70_000)
       activity.calls.set(callId, entry)
+      syncDesktopActivity(activity, callId, entry)
       refreshIndicator(activity)
     }
 
@@ -169,6 +207,7 @@ window.__ModuleLoader__.load({
       const previous = activity.calls.get(callId)
       if (previous?.timer) clearTimeout(previous.timer)
       activity.calls.delete(callId)
+      syncDesktopActivity(activity, callId, null)
       refreshIndicator(activity)
     }
 

@@ -33,6 +33,12 @@ def verify(app=None):
     graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
     assert any(entry['id'] == '@xlang/xharness-client-ui-directory' for entry in graph['entries']), 'missing directory flow in boot graph'
     assert any(entry['id'] == '@xlang/xharness-client-ui-computer' for entry in graph['entries']), 'missing computer privacy UI in boot graph'
+    manifest = (desktop / 'build.rs').read_text(encoding='utf-8')
+    capability = json.loads((desktop / 'capabilities/desktop-main.json').read_text(encoding='utf-8'))
+    assert 'desktop_set_computer_activity' in manifest, 'native computer activity command missing from desktop manifest'
+    assert 'allow-desktop-set-computer-activity' in capability['permissions'], 'native computer activity bridge is not authorized'
+    native_activity = (desktop / 'src/computer_activity.rs').read_text(encoding='utf-8')
+    assert 'NSPanel' in native_activity and 'NSWindowSharingType::None' in native_activity, 'macOS privacy overlay is missing or capturable'
     if app:
         app = Path(app)
         info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())

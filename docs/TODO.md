@@ -1313,5 +1313,6 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] `COMPUTER-08` 独立 Computer Control 权限预设和设置页授权入口；在此之前继续使用明确的 full access 门禁。
 - [ ] `COMPUTER-09` 工具稳定后再接 Skill Hub；Skill 仅注入操作策略，不复制或绕过 `computer` 权限实现。
 - [x] `COMPUTER-10` Web/Tauri 共用专用 Computer 工具卡和全局隐私状态条；运行时明确区分屏幕观察与输入控制，切换会话不误隐藏，结束后清理且不挂载完整 AX 树。
+- [x] `COMPUTER-11` macOS 桌面使用原生、跨 App、跨 Space、鼠标穿透且不新建 WebView 的隐私浮层；按 callId 聚合并发活动，前后端双 watchdog 清理，浏览器保留 DOM 状态条作为降级路径。
 
 实现与失败语义见 [Computer Use 工具规范](specs/computer-use.md)。
