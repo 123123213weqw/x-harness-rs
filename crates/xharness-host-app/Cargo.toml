@@ -34,6 +34,8 @@ xharness-host = { path = "../xharness-host" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-jobs = { path = "../xharness-jobs" }
 xharness-agent = { path = "../xharness-agent" }
+xharness-process = { path = "../xharness-process" }
+xharness-sandbox = { path = "../xharness-sandbox" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-plugins = { path = "../xharness-plugins" }
 xharness-mcp = { path = "../xharness-mcp" }

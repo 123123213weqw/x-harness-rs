@@ -40,7 +40,7 @@ try {
     let AppFrame,rootDefinition
     layout.apply({get:name=>name==='sessions'?shellSessions:undefined, effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
     const components = {}
-    plugin.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: (config, component) => { components[config.id] = component } } })
+    plugin.apply({ get:()=>undefined,remote:{$on:()=>()=>{}},effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: (config, component) => { components[config.id] = component } } })
     const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
     const slots = (name, props) => name === 'workspace.item' ? React.createElement(components['browser-pane'], props)
       : name === 'conversation' ? React.createElement('div', null, 'Conversation', React.createElement(plugin.BrowserToggle)) : null

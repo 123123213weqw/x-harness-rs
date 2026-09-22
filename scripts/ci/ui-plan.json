@@ -308,6 +308,9 @@
     {"id":"contract-091","suite":"contract","argv":["node","--test","scripts/test-question-answer-queue.mjs"],"env":{},"weight":60},
     {"id":"contract-093","suite":"contract","argv":["node","--test","scripts/test-performance-source.mjs"],"env":{},"weight":60},
     {"id":"browser-208","suite":"browser","argv":["node","scripts/test-performance-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
-    {"id":"browser-209","suite":"browser","argv":["node","scripts/test-performance-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
+    {"id":"browser-209","suite":"browser","argv":["node","scripts/test-performance-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120},
+    {"id":"contract-094","suite":"contract","argv":["node","--test","scripts/test-file-display-source.mjs"],"env":{},"weight":60},
+    {"id":"browser-210","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
+    {"id":"browser-211","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90}
   ]
 }
