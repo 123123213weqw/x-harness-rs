@@ -42,6 +42,12 @@ struct Request {
     model: Option<String>,
     reported_output_tokens: Option<u64>,
     reported_reasoning_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reception_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    estimated_units: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    estimated_reasoning_units: Option<u64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,7 +89,11 @@ fn u32_field(data: &Value, key: &str) -> Option<u32> {
 
 impl PerformanceTimelineState {
     pub fn view(&self) -> Value {
-        json!({"schemaVersion":1,"source":"journal_checkpoint_estimate","bucketMs":1000,
+        let measured = self
+            .turns
+            .iter()
+            .any(|t| t.requests.iter().any(|r| r.reception_ms.is_some()));
+        json!({"schemaVersion":1,"source":if measured { "provider_reception_estimate" } else { "journal_checkpoint_estimate" },"bucketMs":1000,
             "maxSamples":MAX_SAMPLES,"turns":self.turns})
     }
     fn accept(&mut self, seq: u64, time: u64) -> Option<u64> {
@@ -194,6 +204,9 @@ impl PerformanceTimelineState {
             model: None,
             reported_output_tokens: None,
             reported_reasoning_tokens: None,
+            reception_ms: None,
+            estimated_units: None,
+            estimated_reasoning_units: None,
         });
         self.phase("waiting_first_token", time);
         self.bound();
@@ -210,6 +223,14 @@ impl PerformanceTimelineState {
             return false;
         }
         let changed = self.phase(kind, time);
+        if self
+            .turns
+            .back()
+            .and_then(|t| t.requests.back())
+            .is_some_and(|r| r.reception_ms.is_some())
+        {
+            return changed;
+        }
         let active = self.turns.back_mut().unwrap();
         if let Some(request) = active.requests.back_mut() {
             request.first_delta_ms.get_or_insert(time);
@@ -255,7 +276,9 @@ impl PerformanceTimelineState {
             return false;
         }
         if let Some(request) = self.turns.back_mut().and_then(|t| t.requests.back_mut()) {
-            request.end_ms = Some(time);
+            if request.reception_ms.is_none() {
+                request.end_ms = Some(time);
+            }
             // Adapter normalization has already made these buckets disjoint.
             request.reported_output_tokens = value
                 .and_then(|v| v.get("output_tokens").or_else(|| v.get("outputTokens")))
@@ -268,6 +291,52 @@ impl PerformanceTimelineState {
                 .and_then(Value::as_u64);
         }
         self.idle_phase(time);
+        true
+    }
+    fn reception(&mut self, turn: u32, step: u32, data: &xharness_session::ModelReception) -> bool {
+        if !self.matches(turn, step) || data.attempt != self.attempt {
+            return false;
+        }
+        let active = self.turns.back_mut().expect("matching turn");
+        let Some(request) = active.requests.back_mut() else {
+            return false;
+        };
+        if request.reception_ms.is_none() {
+            // Replace, do not append to, pre-checkpoint journal estimates.
+            active
+                .samples
+                .retain(|s| s.step != step || s.attempt != data.attempt);
+        }
+        request.start_ms = data.start_ms;
+        request.first_delta_ms = data.first_delta_ms;
+        request.reception_ms = Some(data.reception_ms);
+        request.estimated_units = Some(data.estimated_units);
+        request.estimated_reasoning_units = Some(data.estimated_reasoning_units);
+        if data.finished {
+            request.end_ms = Some(data.start_ms.saturating_add(data.elapsed_ms));
+            request.reported_output_tokens = data.output_tokens;
+            request.reported_reasoning_tokens = data.reasoning_tokens;
+        }
+        for sample in &data.samples {
+            if let Some(prior) = active.samples.back_mut().filter(|s| {
+                s.time_ms == sample.time_ms && s.step == step && s.attempt == data.attempt
+            }) {
+                prior.text_units = prior.text_units.saturating_add(sample.text_units);
+                prior.reasoning_units =
+                    prior.reasoning_units.saturating_add(sample.reasoning_units);
+                prior.argument_units = prior.argument_units.saturating_add(sample.argument_units);
+            } else {
+                active.samples.push_back(Sample {
+                    time_ms: sample.time_ms,
+                    step,
+                    attempt: data.attempt,
+                    text_units: sample.text_units,
+                    reasoning_units: sample.reasoning_units,
+                    argument_units: sample.argument_units,
+                });
+            }
+        }
+        self.bound();
         true
     }
     fn pending(&mut self, kind: &str, id: &str, add: bool, time: u64) -> bool {
@@ -349,6 +418,11 @@ impl PerformanceTimelineState {
                 true
             }
             EventData::RequestHeader { header } => self.route(&header.provider, &header.model),
+            EventData::ModelReception {
+                turn,
+                step,
+                reception,
+            } => self.reception(turn.saturating_sub(1), *step, reception),
             EventData::AssistantChunk { turn, step, chunk } => match chunk {
                 AssistantChunk::TextDelta(text) => {
                     self.delta(turn.saturating_sub(1), *step, "output", text, time)
@@ -413,6 +487,18 @@ impl PerformanceTimelineState {
         let turn = u32_field(data, "turn");
         let step = u32_field(data, "step");
         match event.get("type").and_then(Value::as_str).unwrap_or("") {
+            "model/reception" => {
+                match (
+                    u32_field(data, "turn"),
+                    u32_field(data, "step"),
+                    data.get("reception")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                ) {
+                    (Some(t), Some(s), Some(r)) => self.reception(t, s, &r),
+                    _ => false,
+                }
+            }
+
             "turn/start" => {
                 if let Some(turn) = turn {
                     self.begin_turn(turn, time);
@@ -502,6 +588,95 @@ mod tests {
         s.apply_logged(&log(0, 1000, EventData::TurnStart { turn: 1 }));
         s.apply_logged(&log(1, 1100, EventData::StepStart { turn: 1, step: 1 }));
         s
+    }
+    #[test]
+    fn transport_samples_replace_buffer_release_and_survive_rebuild() {
+        let reception = xharness_session::ModelReception {
+            attempt: 0,
+            start_ms: 1100,
+            first_delta_ms: Some(3100),
+            elapsed_ms: 5000,
+            reception_ms: 3000,
+            estimated_units: 8,
+            estimated_reasoning_units: 0,
+            finished: true,
+            output_tokens: Some(288),
+            reasoning_tokens: Some(12),
+            samples: vec![
+                xharness_session::ReceptionSample {
+                    time_ms: 3000,
+                    argument_units: 4,
+                    ..Default::default()
+                },
+                xharness_session::ReceptionSample {
+                    time_ms: 5000,
+                    argument_units: 4,
+                    ..Default::default()
+                },
+            ],
+        };
+        let events = [
+            log(0, 1000, EventData::TurnStart { turn: 1 }),
+            log(1, 1100, EventData::StepStart { turn: 1, step: 1 }),
+            log(
+                2,
+                1200,
+                EventData::RequestHeader {
+                    header: xharness_session::RequestHeader::new("test-provider", "test-model"),
+                },
+            ),
+            log(
+                3,
+                6100,
+                EventData::ModelReception {
+                    turn: 1,
+                    step: 1,
+                    reception,
+                },
+            ),
+            text(4, 6112, "buffered payload"),
+            log(
+                5,
+                6112,
+                EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: Message::assistant("done"),
+                    usage: Some(json!({"output_tokens":288,"reasoning_tokens":12})),
+                },
+            ),
+        ];
+        let mut hot = PerformanceTimelineState::default();
+        let mut cold = PerformanceTimelineState::default();
+        for e in &events {
+            hot.apply_logged(e);
+        }
+        cold = serde_json::from_value(serde_json::to_value(cold).unwrap()).unwrap();
+        for e in &events {
+            cold.apply_logged(e);
+        }
+        assert_eq!(hot.view(), cold.view());
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../protocol/fixtures/performance-reception-v1.json");
+        if std::env::var_os("XHARNESS_UPDATE_PERFORMANCE_FIXTURE").is_some() {
+            std::fs::write(
+                &fixture,
+                serde_json::to_string_pretty(&hot.view()).unwrap() + "\n",
+            )
+            .unwrap();
+        }
+        let value: Value =
+            serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+        assert_eq!(hot.view(), value);
+
+        assert_eq!(hot.view()["source"], "provider_reception_estimate");
+        assert_eq!(hot.view()["turns"][0]["requests"][0]["receptionMs"], 3000);
+        assert_eq!(hot.view()["turns"][0]["requests"][0]["endMs"], 6100);
+        assert_eq!(
+            hot.view()["turns"][0]["samples"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(hot.view()["turns"][0]["samples"][0]["timeMs"], 3000);
     }
     fn text(seq: u64, time: u64, value: &str) -> LoggedEvent {
         log(

@@ -9413,3 +9413,85 @@ async fn schema_heavy_early_pressure_keeps_fresh_history_observation_consumable(
         .any(|result| result.content == read_payload));
     assert!(originals.iter().any(|result| result.content == observation));
 }
+
+#[tokio::test(start_paused = true)]
+async fn transport_clock_precedes_private_tool_prefix_commit_and_tool_runs_once() {
+    struct DelayedProvider(AtomicUsize);
+    #[async_trait]
+    impl ModelProvider for DelayedProvider {
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+            _cancel: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            let events = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                vec![
+                    (2000, tool_delta(0, "call", "echo", "{\"value\":")),
+                    (3000, tool_delta(0, "", "", "2}")),
+                    (
+                        0,
+                        ProviderEvent::Completed {
+                            finish_reason: Some(FinishReason::ToolCalls),
+                            usage: Some(TokenUsage {
+                                output_tokens: 288,
+                                reasoning_tokens: 12,
+                                ..Default::default()
+                            }),
+                            provider_items: vec![],
+                        },
+                    ),
+                ]
+            } else {
+                vec![
+                    (0, ProviderEvent::TextDelta("done".into())),
+                    (0, completed()),
+                ]
+            };
+            Ok(Box::pin(stream::unfold(
+                VecDeque::from(events),
+                |mut events| async move {
+                    let (ms, event) = events.pop_front()?;
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    Some((Ok(event), events))
+                },
+            )))
+        }
+    }
+    let store = Arc::new(EventMemorySessionStore::default());
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = executions.clone();
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), move |_, _| {
+        let observed = observed.clone();
+        async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            ToolResult::success("ok")
+        }
+    });
+    let mut request = LoopRequest::new(
+        Arc::new(DelayedProvider(AtomicUsize::new(0))),
+        vec![AgentMessage::user("run")],
+    );
+    request.session_id = Some("reception-clock".into());
+    request.journal_store = Some(store.clone());
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    let session = store.load("reception-clock").await.unwrap().unwrap();
+    let reception = session
+        .events()
+        .iter()
+        .find_map(|e| match e.data() {
+            SessionEventData::ModelReception {
+                step: 1, reception, ..
+            } if reception.finished => Some(reception),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reception.reception_ms, 3000);
+    assert_eq!(reception.elapsed_ms, 5000);
+    assert_eq!(reception.output_tokens, Some(288));
+    assert_eq!(reception.reasoning_tokens, Some(12));
+    let serialized = serde_json::to_string(reception).unwrap();
+    assert!(!serialized.contains("value"));
+}

@@ -1,7 +1,25 @@
-import type { Sample, Turn } from './contract'
+import type { Sample, Turn, Request } from './contract'
+import { throughput } from '../shared/reception-metrics'
 export type Track = 'textUnits' | 'reasoningUnits' | 'argumentUnits'
-export function sampleTps(sample: Sample, track?: Track): number {
-  return (track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track]) / 4
+export function sampleTps(sample: Sample, track?: Track, request?: Request): number {
+  const raw = (n: number) => n / 4
+  if (request?.reportedOutputTokens === null || request?.reportedOutputTokens === undefined
+    || request.estimatedUnits === undefined || request.estimatedUnits <= 0) {
+    return raw(track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track])
+  }
+  const output = request.reportedOutputTokens
+  const total = output + (request.reportedReasoningTokens ?? 0)
+  const reasoning = request.estimatedReasoningUnits
+  // Detailed reasoning usage must not manufacture a curve for hidden thought.
+  // Without a reported split, calibration preserves the observed total shape.
+  if (reasoning === undefined || !(request.reportedReasoningTokens ?? 0)) {
+    return (track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track]) * total / request.estimatedUnits
+  }
+  const visible = request.estimatedUnits - reasoning
+  const rate = (kind: Track) => kind === 'reasoningUnits'
+    ? (reasoning > 0 ? sample[kind] * (request.reportedReasoningTokens ?? 0) / reasoning : 0)
+    : (visible > 0 ? sample[kind] * output / visible : 0)
+  return track === undefined ? rate('textUnits') + rate('reasoningUnits') + rate('argumentUnits') : rate(track)
 }
 /** No interpolation across steps, retries, or missing reception seconds. */
 export function series(turn: Turn, track: Track, smooth: boolean): readonly (readonly Sample[])[] {
@@ -23,10 +41,13 @@ export function nearest(turn: Turn, timeMs: number): Sample | undefined {
 }
 export function reportedTps(turn: Turn): number | null {
   let tokens = 0, milliseconds = 0
+  const route = turn.requests.at(-1)
   for (const request of turn.requests) {
-    if (request.reportedOutputTokens === null || request.firstDeltaMs === null || request.endMs === null || request.endMs <= request.firstDeltaMs) continue
+    if (route !== undefined && (request.provider !== route.provider || request.model !== route.model)) continue
+    if (request.reportedOutputTokens === null || request.firstDeltaMs === null || request.endMs === null) continue
+    const span = request.receptionMs ?? (request.endMs > request.firstDeltaMs ? request.endMs-request.firstDeltaMs : Math.max(1,request.endMs-request.startMs))
     tokens += request.reportedOutputTokens + (request.reportedReasoningTokens ?? 0)
-    milliseconds += request.endMs-request.firstDeltaMs
+    milliseconds += span
   }
-  return milliseconds === 0 ? null : tokens/(milliseconds/1000)
+  return throughput(tokens,milliseconds)
 }
