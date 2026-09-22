@@ -508,7 +508,11 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
             "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
             "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"],"imageInput":m["image_input"]
             });
-            if m.get("reasoning").is_none() {value.as_object_mut().expect("constructed object").remove("reasoning");}
+            if m["reasoning_disabled"] == true {
+                value["reasoning"] = serde_json::Value::Null;
+            } else if m.get("reasoning").is_none() {
+                value.as_object_mut().expect("constructed object").remove("reasoning");
+            }
             value
         }).collect::<Vec<_>>();
         profiles.insert(
@@ -728,6 +732,46 @@ mod tests {
             disabled.reasoning,
             Some(ReasoningSetting::Disabled)
         ));
+    }
+
+    #[test]
+    fn imported_provider_preserves_explicit_disable_over_catalog_and_profile() {
+        let path = std::env::temp_dir().join(format!(
+            "xh-disabled-reasoning-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let profile = crate::reasoning_compat::resolve(
+            "https://api.deepseek.com",
+            "openai-completions",
+            "deepseek-flash",
+        )
+        .unwrap()
+        .profile;
+        for explicit_profile in [false, true] {
+            let mut model = serde_json::json!({
+                "id":"deepseek-flash", "fallback_context_window_tokens":32768,
+                "reasoning_disabled":true,
+            });
+            if explicit_profile {
+                model["reasoning"] = profile.clone();
+            }
+            let file = serde_json::json!({"providers":[{
+                "id":"official", "base_url":"https://api.deepseek.com",
+                "protocol":"chat", "models":[model],
+            }]});
+            fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+            let settings = settings_from_file(&path);
+            fs::remove_file(&path).unwrap();
+            let settings = settings.unwrap();
+            assert_eq!(
+                settings["providers"]["official"]["models"][0].get("reasoning"),
+                Some(&serde_json::Value::Null)
+            );
+        }
     }
 
     #[tokio::test]
