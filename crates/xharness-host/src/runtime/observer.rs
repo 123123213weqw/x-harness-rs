@@ -209,6 +209,13 @@ impl DurableRunningTurn {
                     bound = active;
                     break;
                 }
+                EventData::CompactionStart {
+                    source_command_id: Some(command_id),
+                    ..
+                } if command_id == &self.target_input_id => {
+                    bound = active;
+                    break;
+                }
                 EventData::TurnEnd { .. } => active = None,
                 _ => {}
             }

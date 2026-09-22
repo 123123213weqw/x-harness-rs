@@ -23,9 +23,10 @@ use xharness_compaction::{
 };
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
-    ApprovalOutcome, AssistantChunk, EventData as SessionEventData, LlmFailure, LlmRetryMode,
-    PendingToolApproval, RequestHeader, Revision, SequenceRange, SessionEvent, SessionHeader,
-    Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
+    ApprovalOutcome, AssistantChunk, CommandResultKind, EventData as SessionEventData, LlmFailure,
+    LlmRetryMode, PendingToolApproval, RequestHeader, Revision, SequenceRange, SessionEvent,
+    SessionHeader, Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData,
+    TurnEndReason,
 };
 
 /// Bound both crash-loss and memory growth without returning to one JSONL
@@ -697,6 +698,10 @@ impl Runner {
             self.emit(LoopEventKind::InputCommitted).await?;
         }
 
+        if let Some(command_id) = self.request.manual_compaction_command_id.clone() {
+            return self.run_manual_compaction(&command_id).await;
+        }
+
         if let Some(recovery) = self.recovered_tool_batch.take() {
             self.tool_batch_complete = false;
             self.resume_tool_batch(recovery).await?;
@@ -783,6 +788,7 @@ impl Runner {
                                         report.estimate.total_input_tokens,
                                         report.context_window_tokens,
                                         &context_tools,
+                                        None,
                                     )
                                     .await
                                 {
@@ -833,6 +839,7 @@ impl Runner {
                                     current_input_tokens,
                                     context_window_tokens,
                                     &context_tools,
+                                    None,
                                 )
                                 .await
                             {
@@ -905,6 +912,7 @@ impl Runner {
                             context_window_tokens,
                             context_window_tokens,
                             &context_tools,
+                            None,
                         )
                         .await
                     {
@@ -1311,12 +1319,128 @@ impl Runner {
         }
     }
 
+    async fn run_manual_compaction(&mut self, command_id: &str) -> Result<LoopStatus, RunFailure> {
+        let outcome = async {
+            let tool_definitions = self.tool_definitions().await;
+            let context_tools = tool_definitions
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    RunFailure::Failed(format!("could not serialize tool schema: {error}"))
+                })?;
+            let prepared = self
+                .prepare_context(self.messages.clone(), &context_tools)
+                .await?;
+            let provider_request = ProviderRequest {
+                messages: prepared.messages.clone(),
+                tools: tool_definitions,
+                step: self.step,
+                reasoning_effort: self.request.reasoning_effort.clone(),
+                max_output_tokens: self
+                    .request
+                    .token_guard
+                    .as_ref()
+                    .map(|guard| guard.budget().reserved_output_tokens),
+                debug_scope: self.debug_scope(),
+            };
+            let (current_input_tokens, context_window_tokens) = match self
+                .check_token_budget(&provider_request, &prepared, &context_tools)
+                .await?
+            {
+                TokenBudgetCheck::Ready(Some(report)) => (
+                    report.estimate.total_input_tokens,
+                    report.context_window_tokens,
+                ),
+                TokenBudgetCheck::Ready(None) => {
+                    return Err(RunFailure::Failed(
+                        "manual compaction requires an active token guard".to_owned(),
+                    ))
+                }
+                TokenBudgetCheck::Exceeded {
+                    current_input_tokens,
+                    context_window_tokens,
+                    ..
+                } => (current_input_tokens, context_window_tokens),
+                TokenBudgetCheck::Interrupted => {
+                    return Err(RunFailure::Stopped(StopReason::Cancelled))
+                }
+            };
+            self.try_compact(
+                CompactionTrigger::Manual,
+                current_input_tokens,
+                context_window_tokens,
+                &context_tools,
+                Some(command_id),
+            )
+            .await
+        }
+        .await;
+
+        match outcome {
+            Ok(CompactionOutcome::Applied) => {
+                self.journal_append(
+                    vec![SessionEventData::CommandDone {
+                        command_id: command_id.to_owned(),
+                        kind: CommandResultKind::Success,
+                        text: Some("Context compacted".to_owned()),
+                        source_event_seq: None,
+                    }],
+                    true,
+                )
+                .await?;
+                Ok(LoopStatus::Completed)
+            }
+            Ok(CompactionOutcome::NotApplied) => {
+                self.journal_append(
+                    vec![SessionEventData::CommandDone {
+                        command_id: command_id.to_owned(),
+                        kind: CommandResultKind::Success,
+                        text: Some("No eligible history to compact".to_owned()),
+                        source_event_seq: None,
+                    }],
+                    true,
+                )
+                .await?;
+                Ok(LoopStatus::Completed)
+            }
+            Ok(CompactionOutcome::Interrupted) => {
+                let error = "Compaction was interrupted".to_owned();
+                self.journal_append(
+                    vec![SessionEventData::CommandDone {
+                        command_id: command_id.to_owned(),
+                        kind: CommandResultKind::Error,
+                        text: Some(error.clone()),
+                        source_event_seq: None,
+                    }],
+                    true,
+                )
+                .await?;
+                Err(RunFailure::Failed(error))
+            }
+            Err(error) => {
+                self.journal_append(
+                    vec![SessionEventData::CommandDone {
+                        command_id: command_id.to_owned(),
+                        kind: CommandResultKind::Error,
+                        text: Some(error.to_string()),
+                        source_event_seq: None,
+                    }],
+                    true,
+                )
+                .await?;
+                Err(error)
+            }
+        }
+    }
+
     async fn try_compact(
         &mut self,
         trigger: CompactionTrigger,
         current_input_tokens: u64,
         context_window_tokens: u64,
         context_tools: &[Value],
+        source_command_id: Option<&str>,
     ) -> Result<CompactionOutcome, RunFailure> {
         let Some(config) = self.request.compaction.clone() else {
             return Ok(CompactionOutcome::NotApplied);
@@ -1419,7 +1543,7 @@ impl Runner {
         self.journal_append(
             vec![SessionEventData::CompactionStart {
                 compaction_id: compaction_id.clone(),
-                source_command_id: None,
+                source_command_id: source_command_id.map(str::to_owned),
                 turn: Some(turn),
             }],
             true,
@@ -1470,7 +1594,7 @@ impl Runner {
                 self.journal_append(
                     vec![SessionEventData::CompactionEnd {
                         compaction_id: compaction_id.clone(),
-                        source_command_id: None,
+                        source_command_id: source_command_id.map(str::to_owned),
                         turn: Some(turn),
                         error: Some(error.to_string()),
                     }],
@@ -1491,7 +1615,7 @@ impl Runner {
             self.journal_append(
                 vec![SessionEventData::CompactionEnd {
                     compaction_id: compaction_id.clone(),
-                    source_command_id: None,
+                    source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
                     error: Some(error.clone()),
                 }],
@@ -1588,7 +1712,7 @@ impl Runner {
             self.journal_append(
                 vec![SessionEventData::CompactionEnd {
                     compaction_id: compaction_id.clone(),
-                    source_command_id: None,
+                    source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
                     error: Some(message),
                 }],
@@ -1605,7 +1729,7 @@ impl Runner {
             vec![
                 SessionEventData::CompactionSummary {
                     compaction_id: compaction_id.clone(),
-                    source_command_id: None,
+                    source_command_id: source_command_id.map(str::to_owned),
                     summary: summary.text,
                     shadowed_range,
                     shadowed_seqs: plan.range.shadowed_seqs.clone(),
@@ -1625,7 +1749,7 @@ impl Runner {
                 },
                 SessionEventData::CompactionEnd {
                     compaction_id: compaction_id.clone(),
-                    source_command_id: None,
+                    source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
                     error: None,
                 },

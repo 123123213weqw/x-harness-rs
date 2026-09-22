@@ -790,6 +790,10 @@ pub struct LoopRequest {
     /// Durable automatic context compaction. It is disabled for embedders by
     /// default and requires both a hard token guard and append-only journal.
     pub compaction: Option<xharness_compaction::CompactionConfig>,
+    /// Execute exactly one explicit maintenance compaction and finish without
+    /// sending a normal model turn. The value is the durable slash-command id
+    /// used to correlate `command/*` and `compaction/*` events.
+    pub manual_compaction_command_id: Option<String>,
     /// Formal policy-aware tool runtime. This is the sole tool registration,
     /// approval and scheduling path used by Core.
     pub tool_executor: Option<xharness_tools::ToolExecutor>,
@@ -819,6 +823,7 @@ impl LoopRequest {
             prompt: None,
             token_guard: None,
             compaction: None,
+            manual_compaction_command_id: None,
             tool_executor: None,
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
@@ -861,6 +866,23 @@ impl LoopRequest {
             if self.journal_store.is_none() {
                 return Err(LoopValidationError::new(
                     "compaction requires an append-only journal_store",
+                ));
+            }
+        }
+        if let Some(command_id) = &self.manual_compaction_command_id {
+            if command_id.trim().is_empty() {
+                return Err(LoopValidationError::new(
+                    "manual compaction requires a non-empty command id",
+                ));
+            }
+            if self.compaction.is_none() {
+                return Err(LoopValidationError::new(
+                    "manual compaction requires compaction configuration",
+                ));
+            }
+            if !self.messages.is_empty() || !self.journal_prelude.is_empty() {
+                return Err(LoopValidationError::new(
+                    "manual compaction is an input-free maintenance turn",
                 ));
             }
         }

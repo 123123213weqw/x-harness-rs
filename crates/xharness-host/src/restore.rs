@@ -349,6 +349,7 @@ impl BasicHost {
                     if runtime_report.pending_turns == 0
                         && runtime_report.recovered_approval_work_id.is_none()
                         && runtime_report.recovered_question_work_id.is_none()
+                        && runtime_report.recovered_compaction_work_id.is_none()
                     {
                         // Timer-only activation is driven by the runtime's
                         // background-turn notice. Starting an empty Host queue
@@ -369,6 +370,7 @@ impl BasicHost {
                     if let Some(work_id) = runtime_report
                         .recovered_approval_work_id
                         .or(runtime_report.recovered_question_work_id)
+                        .or(runtime_report.recovered_compaction_work_id)
                     {
                         let recovered = self
                             .agent_runtime

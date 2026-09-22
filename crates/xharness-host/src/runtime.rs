@@ -2,7 +2,7 @@ mod observer;
 use observer::DurableRunningTurn;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, RwLock as StdRwLock,
@@ -464,6 +464,8 @@ pub struct AgentResumeReport {
     pub recovered_approval_work_id: Option<String>,
     /// Stable internal work id for one replay-safe user-question turn.
     pub recovered_question_work_id: Option<String>,
+    /// One unfinished `/compact` command reattached after process restart.
+    pub recovered_compaction_work_id: Option<String>,
 }
 
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
@@ -609,6 +611,17 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _work_id: &str,
     ) -> Result<Option<Box<dyn RunningTurn>>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Admit one input-free, durable manual compaction maintenance turn.
+    async fn start_manual_compaction(
+        &self,
+        _session_id: &str,
+        _command_id: &str,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "manual compaction is unavailable for this runtime".to_owned(),
+        })
     }
 
     /// Subscribe to runtime-originated ordinary turns such as due Schedule
@@ -1309,6 +1322,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn needs_session_resume(&self, session: &Session) -> Result<bool, AgentRuntimeError> {
+        if pending_manual_compaction(session).is_some() {
+            return Ok(true);
+        }
         if xharness_session::goal::execution_state(session).is_some_and(|s| {
             let awaiting_review = s
                 .latest_turn
@@ -1502,6 +1518,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         let recovered_question_work_id = recoverable_questions.first().map(|first| {
             xharness_agent::question_recovery_work_id(&first.invocation.interaction_id)
         });
+        let recovered_compaction_work_id = pending_manual_compaction(&session);
         if let Some(first) = pending_approvals.first() {
             if pending_approvals
                 .iter()
@@ -1568,6 +1585,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                     input_id: work_id.clone(),
                 });
         }
+        if let Some(work_id) = &recovered_compaction_work_id {
+            prepared
+                .entry((request.session_id.clone(), work_id.clone()))
+                .or_insert_with(|| PreparedDurableTurn {
+                    handle: handle.clone(),
+                    events: handle.subscribe(),
+                    input_id: work_id.clone(),
+                });
+        }
         drop(prepared);
         // Attaching a Goal while an ordinary turn is live must never replay
         // its currently waiting approval/question as a crashed turn.
@@ -1576,6 +1602,12 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         {
             handle
                 .recover_open_turn()
+                .await
+                .map_err(agent_command_error)?;
+        }
+        if let Some(work_id) = &recovered_compaction_work_id {
+            handle
+                .compact(work_id.clone())
                 .await
                 .map_err(agent_command_error)?;
         }
@@ -1593,6 +1625,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             pending_next_step,
             recovered_approval_work_id,
             recovered_question_work_id,
+            recovered_compaction_work_id,
         })
     }
 
@@ -1631,6 +1664,28 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                     input_id: delivery.input_id,
                 })
             }))
+    }
+
+    async fn start_manual_compaction(
+        &self,
+        session_id: &str,
+        command_id: &str,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
+            AgentRuntimeError::Preparation {
+                message: format!("durable agent {session_id:?} is not active"),
+            }
+        })?;
+        let prepared = PreparedDurableTurn {
+            events: handle.subscribe(),
+            handle: handle.clone(),
+            input_id: command_id.to_owned(),
+        };
+        handle
+            .compact(command_id.to_owned())
+            .await
+            .map_err(agent_command_error)?;
+        Ok(self.running_from_prepared(prepared))
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
@@ -1789,6 +1844,24 @@ fn loop_control_error(error: AgentCommandError) -> LoopControlError {
     }
 }
 
+fn pending_manual_compaction(session: &Session) -> Option<String> {
+    let mut settled = HashSet::new();
+    for event in session.events().iter().rev() {
+        match event.data() {
+            xharness_session::EventData::CommandDone { command_id, .. } => {
+                settled.insert(command_id.as_str());
+            }
+            xharness_session::EventData::CommandRun {
+                command_id, name, ..
+            } if name == "compact" && !settled.contains(command_id.as_str()) => {
+                return Some(command_id.clone());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1809,7 +1882,11 @@ mod tests {
         FinishReason, IdentityContextPolicy, ProviderError, ProviderEvent, ProviderRequest,
         ProviderStream,
     };
-    use xharness_session::MemorySessionStore;
+    use xharness_session::{
+        CommandResultKind, CommandSource, EventData as SessionEventData, MemorySessionStore,
+        Revision, SessionHeader, TurnEndReason,
+    };
+    use xharness_token::{TokenBudget, TokenGuard};
 
     mod max_tokens_diagnostic;
     mod observer_tests;
@@ -1903,6 +1980,129 @@ mod tests {
                 model: "model-a".to_owned(),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn restart_recovers_one_open_manual_compaction_as_a_maintenance_turn() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        store
+            .create(SessionHeader::new("manual-compact-recovery"))
+            .await
+            .unwrap();
+        store
+            .append(
+                "manual-compact-recovery",
+                Revision::ZERO,
+                vec![
+                    SessionEventData::TurnStart { turn: 1 }.into(),
+                    SessionEventData::UserMessage {
+                        message: AgentMessage::user(format!("OLD-CONTEXT:{}", "x".repeat(6_000))),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                    SessionEventData::RequestHeader {
+                        header: xharness_session::RequestHeader::new("test", "test-model"),
+                    }
+                    .into(),
+                    SessionEventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: AgentMessage::assistant("old answer"),
+                        usage: None,
+                    }
+                    .into(),
+                    SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+                    SessionEventData::TurnEnd {
+                        turn: 1,
+                        reason: TurnEndReason::Completed,
+                    }
+                    .into(),
+                    SessionEventData::CommandRun {
+                        command_id: "manual-command".to_owned(),
+                        name: "compact".to_owned(),
+                        args: None,
+                        source: CommandSource::User,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::from([
+                "## Current Work\n- restored compact command".to_owned(),
+            ])),
+        });
+        let guard = TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 10_000,
+            reserved_output_tokens: 256,
+            minimum_output_tokens: 256,
+            safety_margin_tokens: 64,
+        })
+        .unwrap();
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(NoTools),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        )
+        .with_token_guard(Some(guard))
+        .with_compaction(Some(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(10),
+            max_tokens: 256,
+            ..CompactionConfig::default()
+        }));
+
+        let report = runtime
+            .resume_session(AgentSessionRequest {
+                session_id: "manual-compact-recovery".to_owned(),
+                cwd: "/workspace".to_owned(),
+                route: ModelRoute::new("test", "test-model"),
+                permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            report.recovered_compaction_work_id.as_deref(),
+            Some("manual-command")
+        );
+        let mut turn = runtime
+            .take_resumed_turn("manual-compact-recovery", "manual-command")
+            .await
+            .unwrap()
+            .expect("recovered compaction observer");
+        while turn.next_event().await.is_some() {}
+        let result = turn.result().await;
+        assert_eq!(result.status, xharness_core::LoopStatus::Completed);
+
+        let session = store
+            .load("manual-compact-recovery")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::CompactionStart {
+                source_command_id: Some(id),
+                ..
+            } if id == "manual-command"
+        )));
+        assert!(session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::CommandDone {
+                command_id,
+                kind: CommandResultKind::Success,
+                ..
+            } if command_id == "manual-command"
+        )));
+        runtime.shutdown(Duration::from_secs(1)).await;
     }
 
     #[tokio::test]
