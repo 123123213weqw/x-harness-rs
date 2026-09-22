@@ -25,6 +25,14 @@ const referenceLayoutCss=`
  ._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none!important}
 `
 
+// Project only the user-approved adjacent effort entry for frozen pixels.
+// Real source controls are counted and exercised separately below. No mask,
+// golden overwrite, or tolerance change is used.
+const referenceReasoningCss=`
+ .AbPDjW_root{display:block!important;gap:normal!important;max-width:none!important;flex-wrap:nowrap!important}
+ button[data-xh-model-control="effort"]{display:none!important}
+`
+
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
 const require=createRequire(resolve(deps,'package.json')),browser=await require('playwright')[engine].launch({headless:true})
 try{
@@ -40,7 +48,7 @@ try{
   const types={'.html':'text/html','.js':'application/javascript','.json':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.wasm':'application/wasm'}
   const extension=local.match(/\.[^./]+$/)?.[0]
   const bytes=readFileSync(local)
-  const body=referenceLayout&&(url.pathname==='/'||url.pathname==='/index.html')?bytes.toString().replace('</head>',`<style data-approved-regional-projection>${referenceLayoutCss}</style></head>`):bytes
+  const body=referenceLayout&&(url.pathname==='/'||url.pathname==='/index.html')?bytes.toString().replace('</head>',`<style data-approved-regional-projection>${referenceLayoutCss}</style><style data-approved-reasoning-projection>${referenceReasoningCss}</style></head>`):bytes
   return route.fulfill({body,contentType:types[extension]??'application/octet-stream'})
  })
  await page.goto('http://127.0.0.1:39187/?fixture=1')
@@ -54,6 +62,9 @@ try{
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
   await page.locator('._84hhiq_centerCol').screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-chat-boot.png':'-chat-boot.png')),animations:'disabled',caret:'hide'})
  }
+ // Remove only the temporary model-entry projection after pixel capture;
+ // all source interaction assertions exercise the real two-control layout.
+ await page.locator('style[data-approved-reasoning-projection]').evaluateAll(nodes=>nodes.forEach(node=>node.remove()))
  if(implementation==='source')assert.equal(await page.locator('._84hhiq_regionSurface').count(),3,'each owned column has its own surface')
  const early=await page.evaluate(()=>{
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
@@ -62,6 +73,8 @@ try{
   const codeReviewEntry=document.querySelectorAll('button[data-xharness-review-nav][aria-label="Code Review"]')
   const assistantEntry=document.querySelectorAll('button[data-xharness-assistant-nav][aria-label="Little X"]')
   const accountEntry=document.querySelectorAll('button[data-xh-account-trigger][aria-label="Account & settings"]')
+  const effortEntry=document.querySelectorAll('button[data-xh-model-control="effort"]')
+  const modelEntry=document.querySelectorAll('button[data-xh-model-control="model"]')
   // Explicit product deltas: Tasks, Code Review, Little X and removed sidebar search.
   // Count the removed controls independently; all other controls and exact
   // conversation pixels continue to use the untouched frozen reference.
@@ -70,9 +83,13 @@ try{
   // Only the reviewed sidebar entry changes from a gear to account chrome.
   // Keep its button count and all unrelated copy/pixels in frozen parity.
   copy.querySelectorAll('button[data-xh-account-trigger]').forEach(node=>{node.textContent='Settings'})
+  // Approved entry has separate exact counts; only its extra copy is projected.
+  copy.querySelectorAll('button[data-xh-model-control="effort"]').forEach(node=>node.remove())
   copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
-  return {accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  return {effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ assert.equal(early.effortEntryCount,implementation==='source'?1:0,'exactly one reviewed adjacent effort control')
+ assert.equal(early.modelEntryCount,implementation==='source'?1:0,'source retains one authoritative model control')
  assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
  assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
  assert.equal(early.assistantEntryCount,implementation==='source'?1:0,'Little X is one exact owned control, not a generic parity mask')
@@ -92,12 +109,19 @@ try{
  await page.getByRole('button',{name:'Close',exact:true}).click()
  await page.getByRole('button',{name:/Select model, current/}).click()
 
- await page.locator('button').filter({hasText:/^Effort\s*High$/}).waitFor()
  await page.locator('button').filter({hasText:/^上下文容量\s*未知$/}).waitFor()
- await page.locator('button').filter({hasText:/^Effort\s*High$/}).click()
+ if(implementation==='source') {
+  assert.equal(await page.locator('button').filter({hasText:/^Effort\s*High$/}).count(),0,'do not retain the old nested effort entry')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button',{name:'Thinking: High',exact:true}).click()
+ } else {
+  await page.locator('button').filter({hasText:/^Effort\s*High$/}).waitFor()
+  await page.locator('button').filter({hasText:/^Effort\s*High$/}).click()
+ }
  for(const name of ['Off','High','Max']) await page.locator('button').filter({hasText:new RegExp('^'+name+'$')}).waitFor()
  await page.locator('button').filter({hasText:/^Off$/}).click()
- await page.getByRole('button',{name:/Select model, current.*reasoning effort Off/}).waitFor()
+ if(implementation==='source')await page.getByRole('button',{name:'Thinking: Off',exact:true}).waitFor()
+ else await page.getByRole('button',{name:/Select model, current.*reasoning effort Off/}).waitFor()
  if(implementation==='source') {
   const composer=page.locator('textarea').first()
   await composer.fill('Retain draft across Work center')
@@ -119,5 +143,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}
