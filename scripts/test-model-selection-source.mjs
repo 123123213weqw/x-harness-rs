@@ -124,4 +124,6 @@ test('reasoning catalog is an exact external release dependency, not a duplicate
  const fixture=JSON.parse(readFileSync('scripts/fixtures/reasoning-catalog-v0.1.1.json','utf8'));
  assert.equal(fixture.packageVersion,'0.1.1');
  assert.equal(fixture.gitRevision,'b76585abb9102690d2dd85e385550e0d2f688601');
+ const lock=readFileSync('Cargo.lock','utf8');
+ assert.match(lock,/name = "xharness-model-catalog"\nversion = "0\.1\.1"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/xharness-model-catalog\?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"/);
 });
