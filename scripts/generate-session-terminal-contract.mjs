@@ -15,6 +15,10 @@ const identifier = name => /^[A-Za-z][A-Za-z0-9]*$/.test(name)
 
 export function generateTerminalContract(contract) {
   if (contract.contract !== 'xharness-session-terminal-v1') throw Error('unsupported terminal contract')
+  return generateWireContract(contract, { source: 'crates/xharness-projection/src/wire.rs', command: 'scripts/generate-session-terminal-contract.mjs', prefix: 'SESSION_TERMINAL' })
+}
+
+export function generateWireContract(contract, options) {
   const definitions = new Map()
   function enroll(name, schema) {
     if (!identifier(name)) throw Error('invalid schema identifier')
@@ -68,9 +72,15 @@ export function generateTerminalContract(contract) {
     if (Array.isArray(schema.type)) {
       // Schemars emits nullable maps as type:[object,null]. Other composite
       // constraints are intentionally refused until a tested lowering exists.
-      only(schema, ['type', 'additionalProperties'])
-      if (schema.type.length !== 2 || !schema.type.includes('object') || !schema.type.includes('null')) throw Error('unsupported nullable type array')
-      return emit({ anyOf: [{ type: 'object', additionalProperties: schema.additionalProperties ?? true }, { type: 'null' }] }, mode)
+      if (schema.type.length !== 2 || !schema.type.includes('null')) throw Error('unsupported nullable type array')
+      const concrete = schema.type.find(type => type !== 'null')
+      if (concrete === 'object') {
+        only(schema, ['type', 'additionalProperties'])
+        return emit({ anyOf: [{ type: 'object', additionalProperties: schema.additionalProperties ?? true }, { type: 'null' }] }, mode)
+      }
+      if (concrete !== 'string') throw Error('unsupported nullable type array')
+      only(schema, ['type'])
+      return emit({ anyOf: [{ type: 'string' }, { type: 'null' }] }, mode)
     }
     switch (schema.type) {
       case 'string':
@@ -112,11 +122,11 @@ export function generateTerminalContract(contract) {
   }
   const hash = createHash('sha256').update(literal(contract)).digest('hex')
   const rows = [...definitions].sort(([a], [b]) => a.localeCompare(b, 'en'))
-  return '// GENERATED from crates/xharness-projection/src/wire.rs. Do not edit.\n'
-    + '// Run the remote Rust exporter, then scripts/generate-session-terminal-contract.mjs.\n'
+  return '// GENERATED from ' + options.source + '. Do not edit.\n'
+    + '// Run the remote Rust exporter, then ' + options.command + '.\n'
     + "import { z } from 'zod'\n\n"
-    + 'export const SESSION_TERMINAL_CONTRACT = ' + literal(contract.contract) + '\n'
-    + 'export const SESSION_TERMINAL_SCHEMA_SHA256 = ' + literal(hash) + '\n\n'
+    + 'export const ' + options.prefix + '_CONTRACT = ' + literal(contract.contract) + '\n'
+    + 'export const ' + options.prefix + '_SCHEMA_SHA256 = ' + literal(hash) + '\n\n'
     + rows.map(([name, schema]) => 'export type ' + name + ' = ' + emit(schema, 'type')).join('\n') + '\n\n'
     + rows.map(([name, schema]) => 'export const ' + name + 'Schema: z.ZodType<' + name + '> = z.lazy(() => ' + emit(schema, 'schema') + ')').join('\n') + '\n'
 }

@@ -232,8 +232,9 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
         const source = kind === 'file' ? detail.source : kind;
         if (source === undefined)
             return;
-        const item = { id, kind, source, sessionId: detail.sessionId, title: kind === 'tool' ? '工具详情' : kind === 'file' ? (detail.title || source.split(/[\\/]/).at(-1) || '') : '新标签页', entries: detail.url ? [detail.url] : [], position: detail.url ? 0 : -1 };
-        updateSpace(value => (0, workspace_pane_1.xhWorkspaceOpen)(value, item, !fresh));
+        const item = { id, kind, source, sessionId: detail.sessionId, relativeTo: detail.relativeTo, gitDiff: detail.gitDiff, title: kind === 'tool' ? '工具详情' : kind === 'file' ? (detail.title || (detail.gitDiff ? 'Diff · ' + detail.gitDiff : undefined) || source.split(/[\\/]/).at(-1) || '') : '新标签页', entries: detail.url ? [detail.url] : [], position: detail.url ? 0 : -1 };
+        const key = detail.sessionId ?? spaceKeyRef.current;
+        setSpaces(all => ({ ...all, [key]: (0, workspace_pane_1.xhWorkspaceOpen)(all[key] ?? workspace_pane_1.xhWorkspaceEmpty, item, !fresh) }));
     };
     const closeWorkspace = (id) => {
         if (id === 'tool')
@@ -615,6 +616,7 @@ exports.xhWorkspaceClose = xhWorkspaceClose;
 exports.XhWorkspacePane = XhWorkspacePane;
 exports.workspaceOpenDetail = workspaceOpenDetail;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const file_display_options_1 = require("../shared/generated/file-display-options");
 const runtime_types_1 = require("../shared/runtime-types");
 exports.xhWorkspaceEmpty = { items: [], activeId: null };
 exports.xhWorkspaceStorageKey = 'xharness:browser-spaces-v1';
@@ -682,7 +684,7 @@ function xhNextWorkspaceId(spaces) {
     return Math.max(0, ...Object.values(spaces).flatMap(space => space.items.map(item => Number(item.id.match(/^browser:(\d+)$/)?.[1]) || 0)));
 }
 function xhWorkspaceOpen(space, item, reuse = true) {
-    const existing = reuse && space.items.find(value => value.kind === item.kind && value.source === item.source);
+    const existing = reuse && space.items.find(value => value.kind === item.kind && value.source === item.source && value.gitDiff === item.gitDiff && value.relativeTo === item.relativeTo && value.sessionId === item.sessionId);
     const visible = space.collapsed === true ? { ...space, collapsed: false } : space;
     if (existing)
         return { ...visible, activeId: existing.id };
@@ -708,11 +710,23 @@ function workspaceOpenDetail(value) {
     const raw = (0, runtime_types_1.objectValue)(value);
     if (raw.kind !== 'browser' && raw.kind !== 'tool' && !(raw.kind === 'file' && typeof raw.source === 'string' && raw.source.length > 0))
         return undefined;
+    const gitDiff = file_display_options_1.GIT_DIFF_SCOPES.find(scope => scope === raw.gitDiff);
+    if (raw.gitDiff !== undefined && gitDiff === undefined)
+        return undefined;
     const kind = raw.kind;
     if (kind !== 'browser' && kind !== 'tool' && kind !== 'file')
         return undefined;
-    return { kind, ...typeof raw.fresh === 'boolean' ? { fresh: raw.fresh } : {}, ...typeof raw.source === 'string' ? { source: raw.source } : {}, ...typeof raw.title === 'string' ? { title: raw.title } : {}, ...typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}, ...typeof raw.url === 'string' ? { url: raw.url } : {} };
+    return { kind, ...gitDiff === undefined ? {} : { gitDiff }, ...typeof raw.fresh === 'boolean' ? { fresh: raw.fresh } : {}, ...typeof raw.source === 'string' ? { source: raw.source } : {}, ...typeof raw.title === 'string' ? { title: raw.title } : {}, ...typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}, ...typeof raw.url === 'string' ? { url: raw.url } : {}, ...typeof raw.relativeTo === 'string' ? { relativeTo: raw.relativeTo } : {} };
 }
+
+},
+"src/modules/shared/generated/file-display-options.js": function(module, exports, require) {
+// source: src/modules/shared/generated/file-display-options.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.GIT_DIFF_SCOPES = void 0;
+exports.GIT_DIFF_SCOPES = ["working", "staged", "head"];
 
 },
 "src/modules/shared/runtime-types.js": function(module, exports, require) {
@@ -1260,7 +1274,7 @@ function observeShellPage(page, setActive) {
 
 }
 };
-const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js","./shell-navigation":"src/modules/layout/shell-navigation.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","../browser/model-control":"src/modules/browser/model-control.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/model-control.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{},"src/modules/layout/shell-navigation.js":{"../shared/shell-route":"src/modules/shared/shell-route.js"},"src/modules/shared/shell-route.js":{}};
+const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js","./shell-navigation":"src/modules/layout/shell-navigation.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","../browser/model-control":"src/modules/browser/model-control.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/generated/file-display-options":"src/modules/shared/generated/file-display-options.js","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/generated/file-display-options.js":{},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/model-control.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{},"src/modules/layout/shell-navigation.js":{"../shared/shell-route":"src/modules/shared/shell-route.js"},"src/modules/shared/shell-route.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

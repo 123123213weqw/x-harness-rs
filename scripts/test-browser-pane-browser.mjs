@@ -19,10 +19,11 @@ try {
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>window.registration=x}' })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.evaluate(() => {
-    const api = registration.factory(id => id === 'react' ? React : {})
+    const api = registration.factory(id => staticModules[id] ?? (id === 'react' ? React : {}))
     window.api = api
     const components = {}
     const ctx = {
+      get:()=>undefined,remote:{$on:()=>()=>{}},
       effect: fn => fn(),
       slots: { inject: (_name, fn) => fn(), register: (config, component) => { components[config.id] = component } },
     }
