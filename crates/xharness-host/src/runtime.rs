@@ -591,6 +591,18 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Read the inspector surface without exposing full request inputs.
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        Ok(self
+            .request_header(session_id, seq)
+            .await?
+            .map(|h| h.harness_view()))
+    }
+
     async fn request_header(
         &self,
         session_id: &str,
@@ -1521,6 +1533,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .await
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
+            })
+    }
+
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        self.store
+            .harness_header(session_id, seq)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: format!("Harness snapshot unavailable: {e}"),
             })
     }
 

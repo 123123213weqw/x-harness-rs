@@ -2122,3 +2122,288 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
         assert_eq!(reopened.cache_stats().entries, 0);
     }
 }
+
+fn harness_directory(dir: &TestDir, id: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    dir.path()
+        .join("harness-snapshots")
+        .join(format!("{:x}", Sha256::digest(id.as_bytes())))
+}
+async fn capture_harness(
+    store: &JsonlSessionStore,
+    id: &str,
+    mut h: xharness_session::RequestHeader,
+) -> xharness_session::RequestHeader {
+    let reference = store
+        .archive_harness_snapshot(id, &h)
+        .await
+        .unwrap()
+        .unwrap();
+    h.options.insert("harnessSnapshot".into(), reference);
+    store.archive_request(h).await.unwrap()
+}
+#[tokio::test]
+async fn harness_snapshot_default_capture_deduplicates_across_model_changes_and_restores() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("harness")).await.unwrap();
+    assert!(!store.captures_full_request_audit());
+    let full = large_request();
+    let first = capture_harness(&store, "harness", full.clone()).await;
+    let mut changed = full.clone();
+    changed.provider = "other".into();
+    changed.model = "new-model".into();
+    changed.input = vec![Message::user("DIFFERENT PRIVATE BODY")];
+    let second = capture_harness(&store, "harness", changed).await;
+    assert_eq!(
+        first.options["harnessSnapshot"],
+        second.options["harnessSnapshot"]
+    );
+    let blobs = harness_directory(&dir, "harness");
+    assert_eq!(
+        fs::read_dir(&blobs).unwrap().count(),
+        3,
+        "system + tools + manifest only"
+    );
+    for entry in fs::read_dir(&blobs).unwrap() {
+        let bytes = fs::read_to_string(entry.unwrap().path()).unwrap();
+        assert!(!bytes.contains("DIFFERENT PRIVATE BODY") && !bytes.contains("中文🚀"));
+    }
+    assert!(!dir.path().join("request-audit").exists());
+    let revision = store
+        .append("harness", Revision::ZERO, audited_turn(1, first))
+        .await
+        .unwrap()
+        .revision;
+    let mut next = full.clone();
+    next.system = Some("Changed system prompt".into());
+    next.tools.push(serde_json::json!({"name":"write"}));
+    let next = capture_harness(&store, "harness", next).await;
+    store
+        .append("harness", revision, audited_turn(2, next))
+        .await
+        .unwrap();
+    drop(store);
+    for _ in 0..3 {
+        let cold = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+        let old = cold.harness_header("harness", 3).await.unwrap().unwrap();
+        assert_eq!(old.system, full.system);
+        assert_eq!(old.tools, full.tools);
+        assert!(old.input.is_empty());
+        assert_eq!(old.options["auditSnapshot"]["reason"], "capture_disabled");
+        let new = cold.harness_header("harness", 10).await.unwrap().unwrap();
+        assert_eq!(new.system.as_deref(), Some("Changed system prompt"));
+        assert_eq!(new.tools.len(), 2);
+        assert!(cold
+            .load("harness")
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                EventData::RequestHeader { header } => Some(header),
+                _ => None,
+            })
+            .all(|h| h.system.is_none() && h.tools.is_empty() && h.input.is_empty()));
+    }
+}
+#[tokio::test]
+async fn harness_reader_never_loads_full_diagnostic_inputs_including_legacy_archives() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
+    store.create(header("full")).await.unwrap();
+    let new = capture_harness(&store, "full", large_request()).await;
+    let old = store.archive_request(large_request()).await.unwrap(); // Old version, no Harness ref.
+    let key = old.options["auditSnapshot"]["sha256"].as_str().unwrap();
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(dir.path().join("request-audit").join(format!("{key}.json"))).unwrap(),
+    )
+    .unwrap();
+    let input = manifest["input"][0].as_str().unwrap();
+    fs::remove_file(
+        dir.path()
+            .join("request-audit")
+            .join(format!("{input}.json")),
+    )
+    .unwrap();
+    let rev = store
+        .append("full", Revision::ZERO, audited_turn(1, new))
+        .await
+        .unwrap()
+        .revision;
+    store
+        .append("full", rev, audited_turn(2, old))
+        .await
+        .unwrap();
+    for seq in [3, 10] {
+        let h = store.harness_header("full", seq).await.unwrap().unwrap();
+        assert_eq!(h.system, large_request().system);
+        assert_eq!(h.tools, large_request().tools);
+        assert!(h.input.is_empty());
+        assert!(
+            store.request_header("full", seq).await.is_err(),
+            "only full diagnostics depends on the removed input blob"
+        );
+    }
+}
+#[tokio::test]
+async fn corrupt_harness_snapshot_is_explicit_without_breaking_history_or_full_audit() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
+    store.create(header("corrupt-surface")).await.unwrap();
+    let h = capture_harness(&store, "corrupt-surface", large_request()).await;
+    let key = h.options["harnessSnapshot"]["sha256"].as_str().unwrap();
+    fs::write(
+        harness_directory(&dir, "corrupt-surface").join(format!("{key}.json")),
+        b"{}",
+    )
+    .unwrap();
+    store
+        .append("corrupt-surface", Revision::ZERO, audited_turn(1, h))
+        .await
+        .unwrap();
+    assert!(store.harness_header("corrupt-surface", 3).await.is_err());
+    assert!(store
+        .request_header("corrupt-surface", 3)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(
+        store
+            .load("corrupt-surface")
+            .await
+            .unwrap()
+            .unwrap()
+            .derive_messages()
+            .len(),
+        2
+    );
+}
+#[tokio::test]
+async fn harness_snapshots_are_session_scoped_and_deleted_with_session_data() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("a")).await.unwrap();
+    store.create(header("b")).await.unwrap();
+    let a = capture_harness(&store, "a", large_request()).await;
+    store
+        .append("a", Revision::ZERO, audited_turn(1, a.clone()))
+        .await
+        .unwrap();
+    store
+        .append("b", Revision::ZERO, audited_turn(1, a))
+        .await
+        .unwrap(); // Invalid cross-session ref.
+    assert!(store.harness_header("b", 3).await.is_err());
+    let b = capture_harness(&store, "b", large_request()).await;
+    let revision = store.load("b").await.unwrap().unwrap().revision();
+    store
+        .append("b", revision, audited_turn(2, b))
+        .await
+        .unwrap();
+    store.delete_session_data("a").await.unwrap();
+    assert!(!harness_directory(&dir, "a").exists());
+    assert!(store.harness_header("b", 10).await.unwrap().is_some());
+    assert!(store
+        .archive_harness_snapshot("a", &large_request())
+        .await
+        .is_err());
+    store.delete_session_data("a").await.unwrap(); // Idempotent cleanup.
+}
+#[tokio::test]
+async fn empty_harness_snapshot_is_recorded_as_empty_not_disabled() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("empty-surface")).await.unwrap();
+    let h = capture_harness(
+        &store,
+        "empty-surface",
+        xharness_session::RequestHeader::new("test", "model"),
+    )
+    .await;
+    store
+        .append("empty-surface", Revision::ZERO, audited_turn(1, h))
+        .await
+        .unwrap();
+    let view = store
+        .harness_header("empty-surface", 3)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(view.system.is_none() && view.tools.is_empty());
+    assert_eq!(view.options["harnessSnapshot"]["kind"], "archive");
+}
+#[tokio::test]
+async fn harness_snapshot_rejects_oversized_or_invalid_digest_without_truncating() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("bounded-surface")).await.unwrap();
+    let mut h = large_request();
+    h.system = Some("x".repeat(16 * 1024 * 1024));
+    assert!(store
+        .archive_harness_snapshot("bounded-surface", &h)
+        .await
+        .is_err());
+    let mut h = large_request().metadata_only(serde_json::json!({"kind":"omitted"}));
+    h.options.insert(
+        "harnessSnapshot".into(),
+        serde_json::json!({"kind":"archive","version":1,"sha256":"../../outside"}),
+    );
+    store
+        .append("bounded-surface", Revision::ZERO, audited_turn(1, h))
+        .await
+        .unwrap();
+    assert!(store.harness_header("bounded-surface", 3).await.is_err());
+    assert!(store.load("bounded-surface").await.unwrap().is_some());
+}
+#[cfg(unix)]
+#[tokio::test]
+async fn harness_snapshot_rejects_redirects_and_is_private() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let dir = TestDir::new();
+    let outside = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("private-surface")).await.unwrap();
+    symlink(outside.path(), dir.path().join("harness-snapshots")).unwrap();
+    assert!(store
+        .archive_harness_snapshot("private-surface", &large_request())
+        .await
+        .is_err());
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    fs::remove_file(dir.path().join("harness-snapshots")).unwrap();
+    let h = capture_harness(&store, "private-surface", large_request()).await;
+    let folder = harness_directory(&dir, "private-surface");
+    assert_eq!(
+        fs::metadata(&folder).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    for f in fs::read_dir(&folder).unwrap() {
+        assert_eq!(
+            fs::metadata(f.unwrap().path())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+    let key = h.options["harnessSnapshot"]["sha256"].as_str().unwrap();
+    let blob = folder.join(format!("{key}.json"));
+    let saved = outside.path().join("saved");
+    fs::write(&saved, b"untouched").unwrap();
+    fs::remove_file(&blob).unwrap();
+    symlink(&saved, &blob).unwrap();
+    store
+        .append("private-surface", Revision::ZERO, audited_turn(1, h))
+        .await
+        .unwrap();
+    assert!(store.harness_header("private-surface", 3).await.is_err());
+    assert_eq!(fs::read(&saved).unwrap(), b"untouched");
+}
