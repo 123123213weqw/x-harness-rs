@@ -39,8 +39,8 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 | `move` | 移动指针 | `x/y` 或 `node_id + frame_id` |
 | `click` | 左/右/中键，1–3 次点击 | `button`、`count`、坐标或节点 |
 | `drag` | 按路径拖动 | `path`、`duration_ms`、`button` |
-| `scroll` | 像素级滚动 | `delta_x/delta_y`，可选 `x/y` |
-| `type` | 输入 Unicode 文本 | `text` |
+| `scroll` | 像素级滚动 | `delta_x/delta_y`，可选 `x/y` 或 `node_id + frame_id` |
+| `type` | 输入 Unicode 文本；可先聚焦语义节点 | `text`，可选 `node_id + frame_id` |
 | `keypress` | 单个按键或快捷键 | `keys`、`modifiers` |
 | `wait` | 等待 UI 稳定 | `duration_ms`（1–30000） |
 | `window` | 列表/聚焦/移动/缩放/最小化/最大化/全屏/关闭 | `operation`、`surface_id`、几何字段 |
@@ -53,11 +53,15 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - `observe` 返回显示器 logical bounds、physical pixels 和 scale，支持 Retina、多屏和负坐标。
 - 每次观察生成单调递增 `frame_id`。
 - 使用 `node_id` 时必须同时提交生成它的 `frame_id`；帧或节点过期返回可重试的 `stale_frame` / `stale_node`，禁止在未知位置点击。
-- 首版语义节点至少覆盖可见窗口；后续 AX 树扩展不得改变现有 action 协议。
+- 语义观察返回有界的扁平 AX 树，节点以 `parent_id` 保留层级，同时附带 role、label、bounds、状态与可执行 actions。
+- 节点数量/深度按 `detail` 分档：low 80/4、auto 220/8、semantic 300/10、high 500/12；适配器硬上限为 600/16，并返回 `truncated` 和 `visited`，禁止无界遍历桌面。
+- `node_id` 是当前 `frame_id` 内的定位句柄，不承诺跨观察稳定；任何后续节点操作都先检查帧，路径变化时 fail closed 并要求重新观察。
+- 单次左键单击优先执行节点的 `AXPress`；没有该 action、右键/多击/带修饰键时才退回节点中心坐标。`type` 可先通过 AX 聚焦目标，`scroll` 可先移动到节点中心。
+- `AXSecureTextField` 的值固定输出 `<redacted>`；普通可编辑文本框不回传当前内容。其余值与文本字段均限长并清理控制字符。
 
 ## 截图与多模态
 
-- 未显式填写 `include_screenshot` 时：视觉模型默认带截图，文本模型默认只返回语义观察。
+- 未显式填写 `include_screenshot` 时：视觉模型默认带截图，文本模型默认只返回语义观察；显式 `detail=semantic` 对视觉模型也默认不截图。
 - 文本模型显式请求截图时失败，并提示切换视觉模型或使用 `detail=semantic`。
 - 截图进入现有 AttachmentStore，并通过 `xharnessContentBlocks` 发送给 Provider。
 - 图片大小继续受统一附件上限约束，避免工具结果和事件日志无限膨胀。
@@ -66,14 +70,13 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 
 - 截图、JXA/Accessibility、等待和输入循环均观察 CancellationToken。
 - 拖动在取消或中途失败时仍发送 mouse-up，避免系统遗留按键状态。
-- AppleScript/JXA 有独立 8 秒上限；整个工具有 60 秒上限。
+- 普通 AppleScript/JXA 有独立 8 秒上限；有界 AX 快照为 12 秒；整个工具有 60 秒上限。
 - 窗口 ID 不再存在、权限撤销、辅助功能超时均返回结构化错误，不猜测成功。
 - 流程恢复不得盲目重复 GUI 副作用；Host 现有 tool-call execution id 和生命周期日志仍是权威恢复边界。
 
 ## 测试门禁
 
 1. Linux 远程：全工作区 fmt/check/test/clippy，验证跨平台桩和协议测试。
-2. macOS CI：编译真实 FFI 分支，执行无副作用的参数、键码、surface ID 测试。
+2. macOS CI：编译真实 FFI 分支，执行无副作用的参数、键码、surface ID、AX 快照反序列化和预算档位测试。
 3. 本机人工验收：分别撤销/开启 Accessibility 和 Screen Recording，验证 fail-closed；随后覆盖九类动作、Retina、多屏、取消拖动和用户接管。
 4. 视觉模型真实验收：`observe → click/type → observe`，确认截图以附件块传输而不是写入文本历史。
-
