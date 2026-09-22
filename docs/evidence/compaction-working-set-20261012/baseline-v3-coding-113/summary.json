@@ -1,0 +1,823 @@
+{
+  "mode": "coding",
+  "seed": 113,
+  "arm": "baseline",
+  "phase_results": {
+    "parser": {
+      "answer": "Stopping here as instructed — parser-only change done, no edits to importer.py or report.py.\n\n## What changed\nOnly `parser.py`, only `parse_amount`. It now parses via `decimal.Decimal` (no binary float):\n\n- Strips surrounding whitespace; rejects empty/non-string with `ValueError`.\n- Rejects non-numeric text (`InvalidOperation` → `ValueError`) and non-finite values (NaN, Infinity) via `is_finite()`.\n- Converts to cents with `* 100` then `quantize(Decimal(1), ROUND_HALF_UP)`, so `1.005 → 101` and `-0.005 → -1`.\n\n## Actual test evidence (fresh run)\nBaseline before edits: 4 failures. After the edit: **2 failures remaining**.\n\n- `test_money` — ok\n- `test_negative_rounding` — ok\n- `test_dedup` — **FAIL**: expected 1 row, got 2. This is `import_rows` deduplication, which lives in `importer.py` (not yet implemented; untouched per instructions).\n- `test_utc` — **FAIL**: got `{'2026-10-12': 200}`, expected `{'2026-10-11': 200}`. This is UTC-aware timestamp conversion in `import_rows` (`importer.py`), also untouched.\n\n`Ran 4 tests ... FAILED (failures=2)`.\n\nRemaining work is the v1 `import_rows` behavior (normalize id with strip+NFC, validate timestamp/revision, UTC conversion for aware timestamps, dedup by id keeping highest revision / last-wins) in `importer.py`, plus empty-input and no-mutation guarantees; `report.py` should stay as-is for this phase.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 2,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "476515122c70216b4ff67184a7ffa3158881b959dd53ed6771c278cad2e58308",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "a6302e000b8884b9858fb7ba9071165cf5eb58ef289ab3c83c1fa96fd054ba3a",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "853c2522e08fadc51a9a7fd11f7d0913084cd758c9c5d13726b022290d3411e1",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "13ff89b05706e2053818ba7b47e2c3e190e45aa1ec4ee7f4a74189a32efeff2d",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "da2b4be98719b2b43600dfb80954765d3d07bb67933e8eba5d817f0b09d36d30",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "4f271657cd2f6b5535662dce06cadb9c94d24fa52c12ab7b8275d7dc0054134b",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": "9e6f5e7a57236fab75f381975e40a51215be19fb5d556267878cd2f568ca00ef",
+          "path": "parser.py",
+          "result_sha256": "68a79cf4764e36b2edd54df7829ad4981b954afc9b9ebbcdf0159f2e86720006",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "8755c6ae2f3b44046db3882b61bd76133398c7e6bb4e66316d0363e185d25776",
+          "test_exit_zero": false,
+          "tool": "test"
+        }
+      ]
+    },
+    "importer": {
+      "answer": "All 4 public tests pass now. Stopping here — importer phase complete, report work not started.\n\n## What changed\nOnly `importer.py` (rewritten `import_rows`). `parser.py` untouched, `report.py` untouched.\n\n`import_rows(rows)` now, per the v1 contract:\n\n- **Normalize id**: `strip` + NFC only, never lowercased. Empty/non-string id raises `ValueError`.\n- **Timestamp → UTC day**: `Z`/`z` suffix mapped to `+00:00`; parsed with `datetime.fromisoformat`. Naive timestamps are treated as UTC; aware ones are converted via `astimezone(timezone.utc)` before taking `.date()`. Unparseable/empty raises `ValueError`. This is what makes `2026-10-12T00:30:00+02:00` land on `2026-10-11`.\n- **Amount**: delegated to `parse_amount` (unchanged) for integer cents.\n- **Revision**: optional, default 0; must be a non-negative `int` (bools explicitly rejected). Invalid raises `ValueError`.\n- **Dedup**: dict keyed by normalized id, keeping the highest revision; at equal revision the later input overwrites (last wins). Returned in first-seen order, as new dicts with keys `id/day/cents/revision`.\n- **No mutation / no globals**: fresh dicts are built and only local state is used. Empty input naturally returns `[]`.\n\n## Actual test evidence (fresh run)\n```\ntest_dedup (test_public.Public) ... ok\ntest_money (test_public.Public) ... ok\ntest_negative_rounding (test_public.Public) ... ok\ntest_utc (test_public.Public) ... ok\nRan 4 tests in 0.000s\nOK\n```\n(`exit=0`)\n\nRemaining v1 items are `running_balance`/`report_metadata`, which are explicitly out of scope this phase; `daily_totals` already passes through `import_rows` and required no edit.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "853c2522e08fadc51a9a7fd11f7d0913084cd758c9c5d13726b022290d3411e1",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "9e6f5e7a57236fab75f381975e40a51215be19fb5d556267878cd2f568ca00ef",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "da2b4be98719b2b43600dfb80954765d3d07bb67933e8eba5d817f0b09d36d30",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": "0b301caf6a1facc9465ca2299b6d546b49c0ceb432cc3129fefa854f321d63ea",
+          "path": "importer.py",
+          "result_sha256": "643f955029dfe25ff41c92f7474bb23c36346ca8908f88350a41c9552124281c",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "678175ee2e2dec9888fa68ae38b7d08a2a9d49bdd6702ab710e4610659343d02",
+          "test_exit_zero": true,
+          "tool": "test"
+        }
+      ]
+    },
+    "report": {
+      "answer": "All 4 tests pass. Stopping here.\n\n## Current state (re-read from disk, not history)\n\nThe maintainer's updates landed: `importer.py` now carries `API_REVISION = \"ledger-v2-external-113\"`, `parser.py`/`importer.py` are marked as externally reviewed, and `docs/api.txt` is the v2 contract. `report.py` was the only file needing work.\n\n## Observed failures before the edit (fresh run)\n\n```\nexit=1\ntest_balance (test_public.PublicV2) ... ERROR   NotImplementedError: balance implementation missing\ntest_live_metadata (test_public.PublicV2) ... FAIL  {'api_revision': 'legacy-api'} != {'api_revision': 'public-new-revision'}\nFAILED (failures=1, errors=1)\n```\n\n## Change made — `report.py` only\n\n`parser.py` and `importer.py` were left byte-for-byte untouched.\n\n- **`daily_totals(rows)`** — delegates dedup to `import_rows` (highest revision wins, ties last), aggregates integer cents into a fresh dict keyed by UTC day. Local state only, no input mutation.\n- **`running_balance(rows, opening_cents=0)`** — validates `opening_cents` up front: `bool` and non-`int` raise `ValueError`. Builds on `daily_totals`, iterates `sorted(totals)` for ascending day order, and emits **new** dicts with exactly the keys `day` and `balance_cents`, each balance being the running sum starting from `opening_cents`. Empty rows yields `[]` naturally (no days to sort).\n- **`report_metadata()`** — reads `importer.API_REVISION` through the module reference on every call, so monkeypatching `importer.API_REVISION` is reflected live instead of a frozen literal.\n\n## Actual test evidence after the edit\n\n```\nexit=0\ntest_balance (test_public.PublicV2) ... ok\ntest_live_metadata (test_public.PublicV2) ... ok\ntest_money (test_public.PublicV2) ... ok\ntest_utc (test_public.PublicV2) ... ok\nRan 4 tests in 0.000s\nOK\n```\n\nNo publishing or deployment performed. Note the contract's final review is read-only, so I made no further changes.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 1,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "d2e8eb3b3bb2b1edb0ae6379b0c1b20d7d0f65aec6a15ff0732d378b53de83ff",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "2c06709588441a868230e87c85c7819ac8898caa54fde0901139a14dd54562d8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "969b5d5fc2eab2c027c0cd9ce107b695f3a56b61e37a041acdf2e99d52910502",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "c647b1fe34a5d4b3256d09ac977bf15d2856e8810e0a7c9c4f65e869fe3311bd",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "13ff89b05706e2053818ba7b47e2c3e190e45aa1ec4ee7f4a74189a32efeff2d",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "28e6e693a395248712921c36c3d99286311554da64d0ac93b636f8e384383c9b",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": "dba08092b0267a9c281d5de20e5c483526b4514165b29647a3b86bd3650116be",
+          "path": "report.py",
+          "result_sha256": "5e52b280d36f90702eb14a2ce63a3ed8cc66af188c0e194d5c122e1f3f90a80b",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "b388b1398e08f29f6d8e8bb4ce9fbc319e7eaebac63fa9cc2424d7a5ac2a223b",
+          "test_exit_zero": true,
+          "tool": "test"
+        }
+      ]
+    },
+    "readonly": {
+      "answer": "{\"api_revision\": \"ledger-v2-external-113\", \"scope\": \"read-only\", \"rounding\": \"parse_amount converts to integer cents using decimal.Decimal and quantizes (value * 100) with ROUND_HALF_UP; no binary floating point.\", \"normalization\": \"import_rows normalizes id via strip + Unicode NFC (unicodedata.normalize(\\\"NFC\\\", raw.strip())), rejects empty ids, and never lowercases; duplicate ids are deduplicated keeping the highest \\\"revision\\\" (non-negative int, default 0), with ties going to the last occurrence.\", \"timezone\": \"import_rows parses ISO8601 timestamps via datetime.fromisoformat; a trailing \\\"Z\\\"/\\\"z\\\" is rewritten to \\\"+00:00\\\", naive timestamps are treated as UTC, and aware timestamps are converted with astimezone(timezone.utc) before taking .date().isoformat().\"}",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read"
+      ],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "d2e8eb3b3bb2b1edb0ae6379b0c1b20d7d0f65aec6a15ff0732d378b53de83ff",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "969b5d5fc2eab2c027c0cd9ce107b695f3a56b61e37a041acdf2e99d52910502",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "c647b1fe34a5d4b3256d09ac977bf15d2856e8810e0a7c9c4f65e869fe3311bd",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "dba08092b0267a9c281d5de20e5c483526b4514165b29647a3b86bd3650116be",
+          "test_exit_zero": null,
+          "tool": "read"
+        }
+      ]
+    },
+    "history": {
+      "answer": "The full record shows worker=113-450's hash continuing past the earlier truncation point.\n\n{\"worker\": \"113-450\", \"diagnostic\": \"4b514cdee74241aa285088fdc3518246a65574076141c24a71ad12e5bf22016d\"}",
+      "calls": [
+        "history",
+        "history",
+        "history",
+        "history"
+      ],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "053d5ae439242e42790ad1ed41368fa1eb8c7794856f7951fb3e9b0ffd710714",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "2773e31fa82c851b1d04bcd576056fa3f266ece97ede177ba0510cfe319fa1a8",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "75fbb6588770bd115396e248bf896dc158c48416768c2193087b1438dcfa3839",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "98e8ebd342dd8cac06fbfde3d733e4d964a26d611529ef90848577e6b54966ac",
+          "test_exit_zero": null,
+          "tool": "history"
+        }
+      ]
+    }
+  },
+  "phase_changes": {
+    "parser": [
+      "parser.py"
+    ],
+    "importer": [
+      "importer.py"
+    ],
+    "report": [
+      "report.py"
+    ],
+    "readonly": [],
+    "history": []
+  },
+  "compact_results": [
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    },
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    },
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    }
+  ],
+  "journal_prefixes_unchanged": true,
+  "journal_prefix_checks": [
+    {
+      "phase": "parser",
+      "before": {
+        "bytes": 52142,
+        "sha256": "5680e1a6900a9d30be65cc4e205421c701572122b6cc1ce786a72b9d44ead7f5"
+      },
+      "after_original_prefix": {
+        "bytes": 66335,
+        "sha256": "5680e1a6900a9d30be65cc4e205421c701572122b6cc1ce786a72b9d44ead7f5"
+      }
+    },
+    {
+      "phase": "importer",
+      "before": {
+        "bytes": 107931,
+        "sha256": "a183e7f1e303d4fa9fd16c9bb6a2e85b1ae6a61052df4176952663badb105fab"
+      },
+      "after_original_prefix": {
+        "bytes": 124604,
+        "sha256": "a183e7f1e303d4fa9fd16c9bb6a2e85b1ae6a61052df4176952663badb105fab"
+      }
+    },
+    {
+      "phase": "report",
+      "before": {
+        "bytes": 169298,
+        "sha256": "231d4297375531392a12962f91971bdde90dc290e0b61e5ff4142f8b2e4bd2f8"
+      },
+      "after_original_prefix": {
+        "bytes": 188189,
+        "sha256": "231d4297375531392a12962f91971bdde90dc290e0b61e5ff4142f8b2e4bd2f8"
+      }
+    }
+  ],
+  "current_marker": "ledger-v2-external-113",
+  "v2_initial_public_exit_code": 1,
+  "final_public_exit_code": 0,
+  "hidden_exit_code": 0,
+  "history_recovery_passed": false,
+  "history_expected_record": {
+    "worker": "113-450",
+    "diagnostic": "4b514cdee74241aa285088fdc3518246a65574076141c24a71ad12e5bf22016d"
+  },
+  "compact_successes": 3,
+  "compaction_events": [
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 88,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 22930,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 89,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 22930,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 90,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 22930,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 91,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 9626,
+          "inputTokensBefore": 22930,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 92,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 67,
+          "start": 1
+        },
+        "shadowedSeqs": [
+          1,
+          16,
+          23,
+          24,
+          25,
+          26,
+          27,
+          38,
+          41,
+          42,
+          55,
+          57,
+          65,
+          67
+        ],
+        "shadowedTokenCount": 6564,
+        "sourceCommandId": "experiment-compact-parser",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 6685,
+          "output_tokens": 1325,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 93,
+      "summary_bytes": 4810,
+      "summary_sha256": "638d57663fcd7a333dd5304739f058bb233f692d267a35d328241ad78c43095d",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807082092-2-2-0-88",
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 95,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 178,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 18475,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 179,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 18475,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 180,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 18475,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 181,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 11048,
+          "inputTokensBefore": 18475,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 182,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 157,
+          "start": 94
+        },
+        "shadowedSeqs": [
+          94,
+          83,
+          99,
+          109,
+          113,
+          114,
+          125,
+          128,
+          129,
+          145,
+          147,
+          155,
+          157
+        ],
+        "shadowedTokenCount": 4962,
+        "sourceCommandId": "experiment-compact-importer",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 3932,
+          "output_tokens": 1676,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 183,
+      "summary_bytes": 5980,
+      "summary_sha256": "974c21c81eaaadc409788aa2987d7082dbdfe8ef8d4307d881651f8c9b4a0607",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807191180-4-4-0-178",
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 185,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 272,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 23739,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 273,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 23739,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 274,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 23739,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 275,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 12428,
+          "inputTokensBefore": 23739,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 276,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 250,
+          "start": 184
+        },
+        "shadowedSeqs": [
+          184,
+          173,
+          189,
+          203,
+          210,
+          211,
+          212,
+          213,
+          214,
+          223,
+          225,
+          238,
+          240,
+          248,
+          250
+        ],
+        "shadowedTokenCount": 6712,
+        "sourceCommandId": "experiment-compact-report",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 5345,
+          "output_tokens": 1987,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 277,
+      "summary_bytes": 7080,
+      "summary_sha256": "d5037f2b47f864cc6c170e75c8da2bd979a3670066a7b19a7dd7927dced1fee3",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807257211-6-6-0-272",
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 279,
+      "type": "compaction/end"
+    }
+  ],
+  "resummarized_checkpoint_sources": [
+    {
+      "summary_seq": 183,
+      "old_checkpoint_seqs": [
+        94
+      ]
+    },
+    {
+      "summary_seq": 277,
+      "old_checkpoint_seqs": [
+        184
+      ]
+    }
+  ],
+  "process_memory_kib": {
+    "VmHWM": 28128,
+    "VmRSS": 28128
+  },
+  "ledger": {
+    "provider_calls": 25,
+    "auxiliary_calls": 3,
+    "reported_usage_calls": 25,
+    "tokens": {
+      "input_tokens": 37848,
+      "cache_read_tokens": 86528,
+      "cache_write_tokens": 0,
+      "output_tokens": 8849,
+      "reasoning_tokens": 0
+    },
+    "estimated_cny": 0.14994912000000005,
+    "unknown_reserve_cny": 0,
+    "price_basis": "fixed experiment estimate: uncached input 2, cache read 0.04, output 8 CNY/M tokens; not account debit or verified current tariff",
+    "provider_elapsed_ms": 50797,
+    "auxiliary_elapsed_ms": 21352,
+    "max_estimated_request_tokens": 21790
+  },
+  "wall_ms": 238914,
+  "audit_clean": true,
+  "system_prefix_clean": true
+}

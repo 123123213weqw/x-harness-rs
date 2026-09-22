@@ -1,3 +1,4 @@
+import { compactionTerminalPhase } from '../shared/compaction-outcome'
 import {isTrajectoryEvent} from './wire-event-codec'
 import type { Context } from './contracts'
 import type {
@@ -33,6 +34,11 @@ function eventCompactionId(
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
+function terminalStatus(outcome: Parameters<typeof compactionTerminalPhase>[0], error: string | undefined): 'complete' | 'error' | 'skipped' | 'cancelled' {
+  const phase = compactionTerminalPhase(outcome, error)
+  return phase === 'succeeded' ? 'complete' : phase === 'failed' ? 'error' : phase
+}
+
 function requestFromState(
   state: CompactionState,
 ): Extract<RequestView, { purpose: 'compaction' }> | undefined {
@@ -50,7 +56,8 @@ function requestFromState(
     completedAt: isTrajectoryEvent(end, 'compaction/end') ? end.time : null,
     status: !isTrajectoryEvent(end, 'compaction/end')
       ? 'running'
-      : end.data.error === undefined ? 'complete' : 'error',
+      : terminalStatus(end.data.outcome, end.data.error),
+    ...(isTrajectoryEvent(end, 'compaction/end') && end.data.outcome !== undefined ? { outcome: end.data.outcome } : {}),
     ...(isTrajectoryEvent(end, 'compaction/end') && end.data.error !== undefined
       ? { error: end.data.error }
       : {}),

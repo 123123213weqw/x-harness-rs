@@ -62,6 +62,7 @@
     {"id":"contract-052","suite":"contract","argv":["node","scripts/test-compaction-progress.mjs"],"env":{},"weight":60},
     {"id":"contract-053","suite":"contract","argv":["node","scripts/test-compaction-projection.mjs"],"env":{},"weight":60},
     {"id":"contract-054","suite":"contract","argv":["node","scripts/test-compaction-wire.mjs"],"env":{},"weight":60},
+    {"id":"contract-092","suite":"contract","argv":["node","scripts/test-compaction-terminal-outcomes.mjs"],"env":{},"weight":90},
     {"id":"contract-055","suite":"contract","argv":["node","scripts/test-conversation-scroll-follow.mjs"],"env":{},"weight":60},
     {"id":"contract-056","suite":"contract","argv":["node","scripts/test-computer-ui.mjs"],"env":{},"weight":60},
     {"id":"contract-057","suite":"contract","argv":["node","scripts/test-brand-headline.mjs"],"env":{},"weight":60},

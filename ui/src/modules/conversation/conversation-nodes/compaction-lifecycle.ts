@@ -1,3 +1,4 @@
+import { compactionTerminalPhase, isCompactionEndOutcome, validCompactionTerminalData, type CompactionEndOutcome } from '../../shared/compaction-outcome'
 import { isSessionEvent } from '../contract/wire-event-codec'
 import type { ConversationMatch, CompactionSummaryNode, ToolEventView } from '../types/runtime'
 
@@ -21,19 +22,21 @@ interface PresentationBase {
   startedAt?: number | undefined
   endedAt?: number | undefined
   error?: string | null | undefined
+  outcome?: CompactionEndOutcome | undefined
 }
 export type CompactionPresentation = PresentationBase & (
-  | { phase: 'running' | 'failed' }
+  | { phase: 'running' | 'failed' | 'skipped' | 'cancelled' }
   | { phase: 'succeeded'; summary: string; summaryEventSeq: number; shadowedItemCount: number; shadowedTokenCount: number }
 )
 export interface CompactionPendingNode {
   kind: 'compaction'
-  status: 'running' | 'failed'
+  status: 'running' | 'failed' | 'skipped' | 'cancelled'
   seq: number
   time: number
   progress?: CompactionProgress | undefined
   progressTime?: number | undefined
   error: string | null
+  outcome?: CompactionEndOutcome | undefined
   endedAt?: number | undefined
 }
 export type CompactionNode = CompactionSummaryNode | CompactionPendingNode
@@ -70,6 +73,9 @@ export function compactProgress(value: unknown): CompactionProgress | undefined 
 export function projectedCompactionView(envelope: ToolEventView | undefined): CompactionPresentation | undefined {
   if (envelope?.for !== 'compaction' || envelope.view.schemaVersion !== 1) return undefined
   const view = envelope.view
+  if (view.outcome !== undefined && !isCompactionEndOutcome(view.outcome)) return undefined
+  if (view.outcome !== undefined && (!validCompactionTerminalData({ outcome: view.outcome, error: typeof view.error === 'string' || view.error === null ? view.error : undefined }) || (view.error !== undefined && view.error !== null && typeof view.error !== 'string'))) return undefined
+  if (view.outcome !== undefined && (view.phase === 'running' || view.phase !== compactionTerminalPhase(view.outcome, typeof view.error === 'string' ? view.error : undefined))) return undefined
   if (typeof view.id !== 'string' || view.id === '' || !count(view.anchorSeq) || typeof view.time !== 'number' || !Number.isFinite(view.time)) return undefined
   const base: PresentationBase = { id: view.id, anchorSeq: view.anchorSeq, time: view.time, progress: view.progress,
     ...(typeof view.sourceCommandId === 'string' ? { sourceCommandId: view.sourceCommandId } : {}),
@@ -77,8 +83,9 @@ export function projectedCompactionView(envelope: ToolEventView | undefined): Co
     ...(typeof view.startedAt === 'number' ? { startedAt: view.startedAt } : {}),
     ...(typeof view.endedAt === 'number' ? { endedAt: view.endedAt } : {}),
     ...(typeof view.error === 'string' || view.error === null ? { error: view.error } : {}),
+    ...(isCompactionEndOutcome(view.outcome) ? { outcome: view.outcome } : {}),
   }
-  if (view.phase === 'running' || view.phase === 'failed') return { ...base, phase: view.phase }
+  if (view.phase === 'running' || view.phase === 'failed' || view.phase === 'skipped' || view.phase === 'cancelled') return { ...base, phase: view.phase }
   if (view.phase !== 'succeeded' || typeof view.summary !== 'string' || !count(view.summaryEventSeq) || !count(view.shadowedItemCount) || !count(view.shadowedTokenCount)) return undefined
   return { ...base, phase: view.phase, summary: view.summary, summaryEventSeq: view.summaryEventSeq, shadowedItemCount: view.shadowedItemCount, shadowedTokenCount: view.shadowedTokenCount }
 }
@@ -92,10 +99,17 @@ export function compactLifecycle(state: CompactionEvidence): CompactionNode | nu
     progress, startedAt: view.startedAt, endedAt: view.endedAt,
   }
   if (!view && !start) return null
-  return { kind: 'compaction', status: view?.phase === 'failed' || end ? 'failed' : 'running',
+  const rawEnd = isSessionEvent(end, 'compaction/end') ? end.data : undefined
+  const outcome = view?.outcome ?? rawEnd?.outcome
+  const terminal = compactionTerminalPhase(outcome, view?.error ?? rawEnd?.error)
+  // A succeeded raw end still needs its checkpoint; do not manufacture a
+  // committed summary if a legacy page is missing replacement evidence.
+  const status = view?.phase ?? (end ? terminal === 'succeeded' ? 'failed' : terminal : 'running')
+  return { kind: 'compaction', status,
     seq: view?.anchorSeq ?? start?.seq ?? 0, time: view?.time ?? start?.time ?? 0, progress,
     progressTime: view?.progressTime ?? update?.time,
-    error: view?.error ?? (isSessionEvent(end, 'compaction/end') ? end.data.error : null) ?? null,
+    error: view?.error ?? rawEnd?.error ?? null,
+    ...(outcome === undefined ? {} : { outcome }),
     endedAt: view?.endedAt ?? end?.time,
   }
 }

@@ -1,3 +1,4 @@
+import type { CompactionEndOutcome } from '../../shared/compaction-outcome'
 import type { ContentBlock, ToolSchema } from '../../client-connection/contracts/llm/llm/types'
 import type {
   AssistantProvenanceView, AssistantRequestConfig,
@@ -61,7 +62,9 @@ interface AssistantRequestView extends RequestViewBase {
 }
 
 /** One compaction provider request, either turn-owned or standalone between turns. */
-interface CompactionRequestView extends RequestViewBase {
+interface CompactionRequestView extends Omit<RequestViewBase, 'status'> {
+  status: RequestViewBase['status'] | 'skipped' | 'cancelled'
+  outcome?: CompactionEndOutcome
   purpose: 'compaction'
   /** Owning turn, or `null` when manual compaction ran between turns. */
   turn: number | null

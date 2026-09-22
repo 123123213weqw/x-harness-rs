@@ -56,6 +56,7 @@ export function TrajectoryCell({
   result: _result,
   callId: _callId,
   isError: _isError,
+  compactionTerminalState: _compactionTerminalState,
   timeSeconds,
   startedAt: _startedAt,
   input,

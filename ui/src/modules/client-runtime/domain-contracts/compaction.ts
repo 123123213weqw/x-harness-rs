@@ -7,6 +7,7 @@
  * @module @deepseek-ai/dsh-compaction/types
  */
 
+import type { CompactionEndOutcome } from '../../shared/compaction-outcome'
 import type { ContentBlock, TokenUsage } from '../../client-connection/contracts/llm/llm/types'
 import type { CommandId } from '../../client-connection/contracts/interaction/commands/brand'
 import type { CompactionId } from './compaction-brand'
@@ -66,9 +67,10 @@ declare module '../../client-connection/contracts/core/session/types' {
     )
     /**
      * Marks the end of a compaction — log-only, releases the lock. Its owner
-     * matches `compaction/start`; `error` records an unsuccessful attempt.
+     * matches `compaction/start`; typed skipped/interrupted outcomes do not commit
+     * a replacement. Legacy events without an outcome retain error semantics.
      */
-    'compaction/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
+    'compaction/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string; outcome?: CompactionEndOutcome; fingerprint?: string }
     /**
      * Shadow price of one model-free prune replacement — log-only, no
      * surfaceOp. The shared shadow-price protocol: a surface `replace` event
