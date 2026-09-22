@@ -168,6 +168,17 @@ const productPlugins = [
       ],
     },
   },
+  {
+    id: '@xlang/xharness-client-ui-computer',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-computer/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-ui-tool',
+        '@deepseek-ai/dsh-client-locale',
+      ],
+    },
+  },
 ]
 for (const product of productPlugins) {
   const bytes = portableBytes(readFileSync(product.source))
