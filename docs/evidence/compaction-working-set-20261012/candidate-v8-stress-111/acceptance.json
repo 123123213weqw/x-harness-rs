@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "criteria": {
+    "readonly_pressure_completed": true,
+    "readonly_pressure_no_source_edits": true,
+    "readonly_pressure_current_facts": true,
+    "skewed_all_technical_fields": true,
+    "skewed_task_scope": true,
+    "skewed_publication_constraint": true,
+    "unicode_marker": true,
+    "audit_clean": true,
+    "fixed_system_prefix_in_every_main_request": true,
+    "both_direct_summaries_completed": true
+  },
+  "scope": "real DeepSeek, synthetic bounded SummaryRunner pressure plus actual read-only LoopEngine; not multi-round coding acceptance"
+}

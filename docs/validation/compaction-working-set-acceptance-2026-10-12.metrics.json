@@ -1,0 +1,99 @@
+{
+  "candidate_version": "v8",
+  "baseline_version": "v3",
+  "evidence_root": "/Users/wangyue/codex-build/compact-working-set-evidence-20261012/final",
+  "rust": {
+    "integrated": {
+      "passed": 710,
+      "failed": 0,
+      "ignored": 7
+    },
+    "bridge": {
+      "passed": 39,
+      "failed": 0,
+      "ignored": 0
+    },
+    "provider-app": {
+      "passed": 108,
+      "failed": 0,
+      "ignored": 1
+    }
+  },
+  "clippy": "passed (7 target libraries, -D warnings)",
+  "final_comparison": {
+    "coding": {
+      "baseline": {
+        "samples": 3,
+        "passed": 0,
+        "mean_provider_calls": 23.333333333333332,
+        "mean_auxiliary_calls": 3,
+        "median_wall_ms": 250193,
+        "mean_auxiliary_ms": 24644,
+        "estimated_cny": 0.4652699200000001,
+        "unknown_reserve_cny": 0,
+        "resummarized_checkpoints": 6
+      },
+      "candidate": {
+        "samples": 3,
+        "passed": 0,
+        "mean_provider_calls": 22.666666666666668,
+        "mean_auxiliary_calls": 3,
+        "median_wall_ms": 61152,
+        "mean_auxiliary_ms": 13202,
+        "estimated_cny": 0.38383832000000007,
+        "unknown_reserve_cny": 0,
+        "resummarized_checkpoints": 0
+      }
+    },
+    "stress": {
+      "baseline": {
+        "samples": 1,
+        "passed": 0,
+        "mean_provider_calls": 46,
+        "mean_auxiliary_calls": 45,
+        "median_wall_ms": 159958,
+        "mean_auxiliary_ms": 105217,
+        "estimated_cny": 0.1872284,
+        "unknown_reserve_cny": 0,
+        "resummarized_checkpoints": 0
+      },
+      "candidate": {
+        "samples": 1,
+        "passed": 1,
+        "mean_provider_calls": 19,
+        "mean_auxiliary_calls": 13,
+        "median_wall_ms": 34836,
+        "mean_auxiliary_ms": 23062,
+        "estimated_cny": 0.03842164,
+        "unknown_reserve_cny": 0,
+        "resummarized_checkpoints": 0
+      }
+    }
+  },
+  "valid_pairs": 4,
+  "strict_coding_status": "not fully passed; preserve exact original oracle",
+  "limitations": [
+    "small synthetic coding fixture; three different data seeds, not model RNG seeds",
+    "sequential cohort periods with parallel runs; no randomized latency causal claim",
+    "Python read/write/test/history tools, not desktop/bash or Windows/macOS packages",
+    "reported usage at fixed experiment rates, not account debit"
+  ],
+  "baseline-v3": {
+    "source_sha256": "2972857821e418a4c82b1eb0c6635e2bf8c832e956ae6302f413ab0592fcf3a9",
+    "source_files": 82,
+    "binary_sha256": "8e269ff11fffb0b118203c39f1b81f036d11edc3ad8a9793b2a92d86bd7ef00e"
+  },
+  "candidate-v8": {
+    "source_sha256": "532af4c79eff370a11d51ef2b174d64839a14013d8730305ff72ecebea80fcc0",
+    "source_files": 84,
+    "binary_sha256": "4b476b8cd9028a597a6d97e1a7fe3e96929c77b65e4a13f5fa855ed717aa15af"
+  },
+  "all_recorded_spending": {
+    "samples": 36,
+    "calls": 1166,
+    "estimated_cny": 6.223579760000002,
+    "unknown_reserve_cny": 0,
+    "scope": "all 36 final-directory completed exploratory/accepted/excluded runs; aborted pre-API output-directory collisions consume no API",
+    "price_basis": "fixed experiment estimate: uncached input 2, cache read 0.04, output 8 CNY/M tokens; not account debit or verified current tariff"
+  }
+}

@@ -167,7 +167,7 @@ type DetailTab =
   | 'usage'
   | 'timing'
   | 'diff'
-type RecordState = 'complete' | 'running' | 'error'
+type RecordState = 'complete' | 'running' | 'error' | 'skipped' | 'cancelled'
 
 interface DetailTabItem {
   id: DetailTab
@@ -398,7 +398,7 @@ interface TrajectoryRequestNumberBase {
   seq?: number
   group: string
   number: number
-  status?: 'complete' | 'running' | 'error'
+  status?: 'complete' | 'running' | 'error' | 'skipped' | 'cancelled'
   startedAt?: number
   completedAt?: number | null
   error?: string
@@ -668,6 +668,7 @@ function collapseAssistantRecords(
 }
 
 function stateOf(record: TableRecord): RecordState {
+  if (record.cell.compactionTerminalState !== undefined) return record.cell.compactionTerminalState
   if (record.cell.isError) return 'error'
   if (record.cell.kind === 'compacted' && record.cell.timeSeconds === null) return 'running'
   if (
@@ -680,6 +681,8 @@ function stateOf(record: TableRecord): RecordState {
 function statusLabel(state: RecordState): string {
   if (state === 'error') return 'Failed'
   if (state === 'running') return 'Pending'
+  if (state === 'skipped') return 'Skipped'
+  if (state === 'cancelled') return 'Interrupted'
   return 'Completed'
 }
 
