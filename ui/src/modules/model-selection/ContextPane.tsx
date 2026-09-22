@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefCallback } from 'react'
 import { IconChevronRightOutline14 } from '@xharness/dsh-client-ui-primitives'
+import type { Translation } from '../shared/runtime-types'
 import { errorText } from '../shared/runtime-types'
 import type { ModelDirectoryState, ModelSelection, ModelSelectInjected } from './contracts'
 import { css } from './styles'
@@ -33,12 +34,15 @@ export function xhReasoningStatus(state: ModelDirectoryState): string {
   const sources: Record<string, string> = { configured: '已配置', documented: '厂商文档', provider_reported: '服务端提供', last_known_good: '上次有效能力' }
   return sources[capability?.source ?? ''] ?? '已配置'
 }
-export function ReasoningStatus({ state, load, itemRef }: { state: ModelDirectoryState; load: ModelSelectInjected['load']; itemRef: RefCallback<HTMLButtonElement> }) {
+export function ReasoningStatus({ state, load, itemRef, t }: { state: ModelDirectoryState; load: ModelSelectInjected['load']; itemRef: RefCallback<HTMLButtonElement>; t: Translation }) {
   const busy = state.status === 'loading' || state.status === 'selecting'
+  const { model } = xhModelInfo(state)
+  const capability = model?.reasoningCapability
+  const statusKey = capability?.state === 'disabled' ? 'capability.disabled' : !model?.reasoning ? 'capability.unknown' : capability?.stale ? 'capability.stale' : capability?.source === 'provider_reported' ? 'capability.reported' : capability?.source === 'documented' ? 'capability.documented' : 'capability.configured'
   return <button type="button" role="menuitem" disabled={busy}
-    style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', width: '100%', fontSize: 12 }}
-    ref={itemRef} aria-label="刷新模型能力" onClick={() => { void Promise.resolve(load(true)).catch(() => {}) }}>
-    <span>思考能力：{xhReasoningStatus(state)}</span><span>{busy ? '获取中…' : '刷新'}</span>
+    className={css.cell} ref={itemRef} aria-label={t('capability.check')}
+    onClick={() => { void Promise.resolve(load(true)).catch(() => {}) }}>
+    <span className={css.description}>{t(statusKey)}</span><span className={css.cellValue}>{t(busy ? 'capability.checking' : 'capability.check')}</span>
   </button>
 }
 export function ContextRow({ state, itemRef, open }: { state: ModelDirectoryState; itemRef: RefCallback<HTMLButtonElement>; open(): void }) {

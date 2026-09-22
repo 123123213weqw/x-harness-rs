@@ -11,6 +11,8 @@ name = "xharness-host"
 path = "src/main.rs"
 
 [dependencies]
+# v0.1.1, pinned to its immutable release commit (not a movable tag).
+xharness-model-catalog = { git = "https://github.com/123123213weqw/xharness-model-catalog", rev = "b76585abb9102690d2dd85e385550e0d2f688601", version = "=0.1.1" }
 fs2 = "0.4.3"
 xharness-attachments = { path = "../xharness-attachments" }
 xharness-cloud = { path = "../xharness-cloud" }
