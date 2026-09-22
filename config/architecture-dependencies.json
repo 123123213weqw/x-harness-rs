@@ -92,6 +92,7 @@
     "xharness-interaction",
     "xharness-jobs",
     "xharness-mcp",
+    "xharness-model-catalog",
     "xharness-platform",
     "xharness-plugins",
     "xharness-provider-openai",

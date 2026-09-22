@@ -21,6 +21,8 @@ try{
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
    assert.equal(receipt.loadedPlugins,implementation==='source'?56:52,'source adds only the reviewed Plugin API helper, Code Review, Little X and Performance modules')
+   assert.equal(receipt.effortEntryCount,implementation==='source'?1:0,'approved independent reasoning entry only')
+   assert.equal(receipt.modelEntryCount,implementation==='source'?1:0,'retained model entry has explicit count')
    assert.equal(receipt.shellNavigationCount,implementation==='source'?2:0,'reviewed Back/Forward controls only')
    assert.equal(receipt.assistantEntryCount,implementation==='source'?1:0,'one reviewed Little X entry; frozen control stays unchanged')
    assert.equal(receipt.codeReviewEntryCount,implementation==='source'?1:0,'only the reviewed Code Review navigation is projected out of old/new text and button parity')
@@ -54,7 +56,7 @@ try{
   const source=readFileSync(join(directory,browser+'-source-reference-chat-boot.png'))
   const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))
   assert.notDeepEqual(actualSource,old,`${browser}: actual rounded conversation region must differ from the frozen shell`)
-  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry projection must match independent frozen master`)
+  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry and approved reasoning-entry projection must match independent frozen master`)
   console.log(JSON.stringify({browser,implementationRuns:3,fullGraph:true,controls:'providers + model + effort + context',effortChange:true,regionalChrome:true,workNavigation:true,pixelSha256:digest(source),actualPixelSha256:digest(actualSource)}))
  }
 }finally{rmSync(directory,{recursive:true,force:true})}
