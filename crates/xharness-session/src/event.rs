@@ -9,6 +9,18 @@ use xharness_interaction::{QuestionAnswer, QuestionInvocation, QuestionResolutio
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// Typed terminal result of one compaction attempt. Legacy logs omit this
+/// field and retain the original error-versus-committed-replacement contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionEndOutcome {
+    Applied,
+    NoBenefit,
+    NoEligibleSource,
+    Interrupted,
+    Failed,
+}
+
 /// Work stages, not percentages: splitting discovers more work dynamically.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -965,8 +977,9 @@ pub enum EventData {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Value>,
     },
-    /// Closing marker. `error=None` commits the preceding summary + surface
-    /// replacement; an error closes a failed attempt without changing surface.
+    /// Closing marker. Explicit skipped outcomes close without a summary or
+    /// replacement. Legacy events without `outcome` retain the original rule:
+    /// `error=None` commits summary + replacement; an error is surface-neutral.
     #[serde(rename = "compaction/end")]
     CompactionEnd {
         #[serde(rename = "compactionId")]
@@ -981,6 +994,11 @@ pub enum EventData {
         turn: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<CompactionEndOutcome>,
+        /// Constant-size signature for deterministic no-benefit retry suppression.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
     },
     /// Deterministic model-free replacement of oversized tool observations.
     #[serde(rename = "compaction/prune")]

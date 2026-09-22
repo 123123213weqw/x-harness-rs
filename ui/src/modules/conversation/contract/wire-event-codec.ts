@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CompactionEndOutcomeSchema, validCompactionTerminalData } from '../../shared/compaction-outcome'
 import { TurnEndDataInputSchema } from '../../shared/generated/session-terminal'
 import type { SessionWireEvent } from '../../client-connection/contracts/host/apiproxy/api/sessions'
 import type { SessionEvent, SessionEventMap, AssistantChunk } from '../types/wire'
@@ -30,7 +31,7 @@ const schemas: { [K in keyof SessionEventMap]: z.ZodType<SessionEventMap[K]> } =
  'tool/code-dispatch-start':z.looseObject(dispatch), 'tool/code-dispatch':z.looseObject({...dispatch,content:content.optional(),isError:z.boolean().optional()}),
  'command/run':z.looseObject({commandId:s,name:s,args:s.optional()}),
  'command/done':z.looseObject({commandId:s,kind:z.enum(['success','error']),text:s.optional(),sourceEventSeq:n.optional()}),
- 'compaction/start':z.looseObject(compact), 'compaction/end':z.looseObject({...compact,error:s.nullable().optional()}),
+ 'compaction/start':z.looseObject(compact), 'compaction/end':z.looseObject({...compact,error:s.nullable().optional(),outcome:CompactionEndOutcomeSchema.optional(),fingerprint:s.optional()}).refine(validCompactionTerminalData),
  'compaction/progress':z.looseObject({...compact,progress:z.unknown()}),
  'compaction/summary':z.looseObject({...compact,summary:content,shadowedSeqs:z.array(n),shadowedTokenCount:n}),
  'agent/inbox/spliced':z.looseObject({target:z.enum(['next-turn','next-step']),start:n,removedCount:n.optional(),inserted:z.array(z.looseObject({id:s})),outcome:z.literal('canceled').optional()}),
