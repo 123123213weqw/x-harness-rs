@@ -229,6 +229,11 @@ impl NativeModelSettings {
                     model.reasoning = Some(value.clone());
                     observation = provenance.clone();
                     observation["state"] = json!("supported");
+                } else if let Some(compat) =
+                    crate::reasoning_compat::resolve(&profile.base_url, &profile.api, upstream)
+                {
+                    model.reasoning = Some(compat.profile);
+                    observation = compat.provenance;
                 } else if profile.reasoning_discovery.is_some() {
                     observation = provenance.clone();
                     observation["state"] = json!("unknown");
