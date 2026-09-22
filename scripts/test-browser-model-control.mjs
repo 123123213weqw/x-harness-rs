@@ -49,7 +49,7 @@ try{
    const load=id=>id==='@xharness/dsh-client-runtime/client'?runtime:staticModules[id]
    const layout=registrations['@xharness/dsh-client-ui-layout'].factory(load)
    const browser=registrations['@xlang/xharness-client-ui-browser'].factory(load)
-   browser.apply({effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}})
+   browser.apply({get:()=>undefined,remote:{$on:()=>()=>{}},effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}})
     const shellSessions=createShellSessionsFixture({current:'chat-a',ids:['chat-a'],byId:{'chat-a':{blank:false}}})
    let AppFrame,definition
    layout.apply({get:name=>name==='sessions'?shellSessions:undefined,effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,view)=>{AppFrame=view;definition=spec;return()=>{}}}})

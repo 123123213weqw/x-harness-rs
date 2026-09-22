@@ -387,7 +387,11 @@ function apply(ctx) {
                 fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
                 openFile: (path) => {
                     const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd;
-                    return workspaces.openPath((0, runtime_values_1.resolveWorkspacePath)(cwd, path));
+                    const resolved = (0, runtime_values_1.resolveWorkspacePath)(cwd, path);
+                    if (path === '.' || path === '..' || /[\\/]$/.test(path))
+                        return workspaces.openPath(resolved);
+                    window.dispatchEvent(new CustomEvent('xharness:workspace-open', { detail: { kind: 'file', source: resolved, sessionId } }));
+                    return Promise.resolve();
                 },
                 loadOlder: () => scoped.loadOlder(),
                 loadImage: attachment => conversation.resolveImage(sessionId, attachment),
