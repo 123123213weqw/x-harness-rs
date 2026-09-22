@@ -170,7 +170,7 @@ fn render(app: &AppHandle, snapshot: Option<ActivitySnapshot>) {
 mod macos {
     use std::cell::RefCell;
 
-    use objc2::{rc::Retained, MainThreadMarker};
+    use objc2::{rc::Retained, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::{
         NSBackingStoreType, NSBox, NSBoxType, NSColor, NSFont, NSPanel, NSScreen,
         NSStatusWindowLevel, NSTextField, NSWindowCollectionBehavior, NSWindowSharingType,
