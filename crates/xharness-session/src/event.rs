@@ -1034,6 +1034,13 @@ pub enum EventData {
         step: u32,
         chunk: AssistantChunk,
     },
+    /// Observed before retry-prefix buffering; not conversation content.
+    #[serde(rename = "model/reception")]
+    ModelReception {
+        turn: u32,
+        step: u32,
+        reception: crate::ModelReception,
+    },
     #[serde(rename = "assistant/message")]
     AssistantMessage {
         turn: u32,

@@ -2,6 +2,7 @@
 // Mounted on 'conversation.composer.dock' so it sticks with the composer in the
 // active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
+import { throughput } from '../../shared/reception-metrics'
 import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Tooltip } from '../primitives'
 import type { ConversationSnapshot, UseProjection } from "../types/runtime"
@@ -186,11 +187,9 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
     if (stats.ttftSteps > 0) {
       speeds.push(t('stats.ttftAverage', { duration: formatDuration(stats.ttftMs / stats.ttftSteps) }))
     }
-    if (stats.decodeMs > 0) {
-      speeds.push(t('stats.tokensPerSecond', {
-        throughput: formatTokensPerSecond(stats.decodeTokens / (stats.decodeMs / 1_000)),
-      }))
-    }
+    const rateTotals = projected?.activeThroughput ?? stats
+    const rate = throughput(rateTotals.decodeTokens,rateTotals.decodeMs)
+    if (rate !== null) speeds.push(t('stats.tokensPerSecond', { throughput:formatTokensPerSecond(rate) }))
     if (speeds.length > 0) groups.push(speeds.join(' · '))
   }
   // Context occupancy deliberately lives on the composer's ContextMeter ring,

@@ -4036,9 +4036,12 @@ impl Runner {
         let mut round = ModelRound::default();
         let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
         let mut last_provider_error: Option<ProviderError> = None;
+        let mut reception_attempt = 0u32;
 
         loop {
             self.ensure_running()?;
+            let mut reception = crate::reception::ReceptionRecorder::new(reception_attempt);
+            reception_attempt = reception_attempt.saturating_add(1);
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();
             let mut stream_future =
@@ -4159,6 +4162,10 @@ impl Runner {
                         if delta.is_empty() {
                             continue;
                         }
+                        if reception.observe("text", &delta) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
+                        }
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
                         round.saw_delta = true;
@@ -4174,6 +4181,10 @@ impl Runner {
                     ModelInput::Provider(Some(Ok(ProviderEvent::ReasoningDelta(delta)))) => {
                         if delta.is_empty() {
                             continue;
+                        }
+                        if reception.observe("reasoning", &delta) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
                         }
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
@@ -4193,6 +4204,15 @@ impl Runner {
                         name,
                         arguments_delta,
                     }))) => {
+                        let observed = if arguments_delta.is_empty() {
+                            &name
+                        } else {
+                            &arguments_delta
+                        };
+                        if reception.observe("arguments", observed) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
+                        }
                         pending_tool_bytes = pending_tool_bytes
                             .saturating_add(id.len())
                             .saturating_add(name.len())
@@ -4218,6 +4238,9 @@ impl Runner {
                         usage,
                         provider_items,
                     }))) => {
+                        // Snapshot the transport clock BEFORE releasing the private prefix.
+                        self.journal_reception(reception.checkpoint(true, usage.as_ref()))
+                            .await?;
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
                         let effective_finish_reason = finish_reason.clone().unwrap_or({
@@ -4280,6 +4303,8 @@ impl Runner {
                 return Ok(round);
             }
             let error = failure.expect("an incomplete provider attempt has an error");
+            self.journal_reception(reception.checkpoint(true, None))
+                .await?;
             if error.is_context_overflow() && !round.saw_delta {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
@@ -4402,6 +4427,45 @@ impl Runner {
             call.arguments_json.push_str(&delta.arguments_delta);
         }
         Ok(())
+    }
+
+    async fn journal_reception(
+        &mut self,
+        reception: xharness_session::ModelReception,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".into()))?;
+        if reception.finished {
+            // Capture now, persist with the existing completion/retry batch.
+            // Telemetry must not add a synchronous write to every short reply.
+            self.journal
+                .as_mut()
+                .expect("journal checked above")
+                .pending_stream_events
+                .push(
+                    SessionEventData::ModelReception {
+                        turn,
+                        step,
+                        reception,
+                    }
+                    .into(),
+                );
+            return Ok(());
+        }
+        self.journal_append(
+            vec![SessionEventData::ModelReception {
+                turn,
+                step,
+                reception,
+            }],
+            false,
+        )
+        .await?;
+        self.emit(LoopEventKind::StreamCheckpoint).await
     }
 
     async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {

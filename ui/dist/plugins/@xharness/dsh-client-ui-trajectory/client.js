@@ -17039,6 +17039,7 @@ exports.en = {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerTrajectoryAssistantDefinition = registerTrajectoryAssistantDefinition;
+const reception_metrics_1 = require("../shared/reception-metrics");
 const brand_1 = require("../client-connection/contracts/llm/llm/brand");
 const wire_event_codec_1 = require("./wire-event-codec");
 const runtime_1 = require("./runtime");
@@ -17171,6 +17172,12 @@ function closedBoundary(context) {
 function fallbackState(context) {
     let state;
     for (const match of context.matches) {
+        const r = (0, reception_metrics_1.receptionReading)(match.event);
+        if (r !== null) {
+            state ?? (state = initialState(r.turn, r.step, match.event.seq, r.startMs, false));
+            state = { ...state, reception: r };
+            continue;
+        }
         const event = match.event;
         if ((0, wire_event_codec_1.isTrajectoryEvent)(event, 'assistant/chunk')) {
             state ?? (state = initialState(event.data.turn, event.data.step, event.seq, event.time, false));
@@ -17209,9 +17216,10 @@ function finalNode(state, context) {
                 model: event.data.message.source.model,
             },
             timing: {
-                stepStartTime: state.started ? state.startTime : null,
-                firstTokenTime: state.firstTokenTime ?? null,
-                completedTime: event.time,
+                stepStartTime: state.reception?.startMs ?? (state.started ? state.startTime : null),
+                firstTokenTime: state.reception?.firstDeltaMs ?? state.firstTokenTime ?? null,
+                completedTime: state.reception?.finished ? state.reception.startMs + state.reception.elapsedMs : event.time,
+                ...(state.reception === undefined ? {} : { receptionMs: state.reception.receptionMs }),
             },
             ...(event.data.interrupted === true ? { interrupted: true } : {}),
         };
@@ -17266,6 +17274,9 @@ const trajectoryAssistantDefinition = {
     kind: 'trajectory-assistant-step',
     target: 'trajectory',
     match: (event) => {
+        const r = (0, reception_metrics_1.receptionReading)(event);
+        if (r !== null)
+            return { id: `${r.turn}:${r.step}`, role: 'update' };
         if ((0, wire_event_codec_1.isTrajectoryEvent)(event, 'step/start')) {
             return { id: `${event.data.turn}:${event.data.step}`, role: 'start' };
         }
@@ -17284,6 +17295,9 @@ const trajectoryAssistantDefinition = {
         return initialState(match.event.data.turn, match.event.data.step, match.event.seq, match.event.time, true);
     },
     update: (context, match) => {
+        const r = (0, reception_metrics_1.receptionReading)(match.event);
+        if (r !== null)
+            return { ...context.state, reception: r };
         if ((0, wire_event_codec_1.isTrajectoryEvent)(match.event, 'assistant/chunk'))
             return updateChunk(context.state, match);
         if ((0, wire_event_codec_1.isTrajectoryEvent)(match.event, 'assistant/message')) {
@@ -17379,6 +17393,81 @@ const trajectoryTurnEndDefinition = {
 function registerTrajectoryAssistantDefinition(ctx) {
     ctx.conversationEvents.register(trajectoryAssistantDefinition);
     ctx.conversationEvents.register(trajectoryTurnEndDefinition);
+}
+
+},
+"src/modules/shared/reception-metrics.js": function(module, exports, require) {
+// source: src/modules/shared/reception-metrics.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.throughput = throughput;
+exports.totalOutputTokens = totalOutputTokens;
+exports.messageProvenance = messageProvenance;
+exports.receptionReading = receptionReading;
+const runtime_types_1 = require("./runtime-types");
+/** Pure metric arithmetic shared by Chat and Performance. Never reads UI time. */
+function throughput(tokens, milliseconds) {
+    return Number.isFinite(tokens) && tokens >= 0 && Number.isFinite(milliseconds) && milliseconds > 0
+        ? tokens / (milliseconds / 1000) : null;
+}
+function totalOutputTokens(usage) {
+    if (!(0, runtime_types_1.isObjectRecord)(usage))
+        return null;
+    const output = usage.outputTokens;
+    const reasoning = usage.reasoningTokens ?? 0;
+    return typeof output === 'number' && Number.isFinite(output) && output >= 0
+        && typeof reasoning === 'number' && Number.isFinite(reasoning) && reasoning >= 0 ? output + reasoning : null;
+}
+function messageProvenance(message) {
+    if (!(0, runtime_types_1.isObjectRecord)(message) || !(0, runtime_types_1.isObjectRecord)(message.source))
+        return undefined;
+    const { provider, model } = message.source;
+    return typeof provider === 'string' && typeof model === 'string' ? { provider, model } : undefined;
+}
+function receptionReading(event) {
+    if (event?.type !== 'model/reception' || !(0, runtime_types_1.isObjectRecord)(event.data))
+        return null;
+    const data = event.data, r = data.reception;
+    if (!(0, runtime_types_1.isObjectRecord)(r))
+        return null;
+    const { turn, step } = data;
+    const { attempt, startMs, firstDeltaMs, elapsedMs, receptionMs, finished } = r;
+    const finite = (n) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+    if (!finite(turn) || !finite(step) || !finite(attempt) || !finite(startMs) || !finite(elapsedMs)
+        || !finite(receptionMs) || receptionMs < 1 || typeof finished !== 'boolean'
+        || !(firstDeltaMs === null || finite(firstDeltaMs) && firstDeltaMs >= startMs))
+        return null;
+    return { turn, step, attempt, startMs, firstDeltaMs, elapsedMs, receptionMs, finished };
+}
+
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 },
@@ -17797,35 +17886,6 @@ function registerTrajectoryMessageDefinitions(ctx) {
 }
 
 },
-"src/modules/shared/runtime-types.js": function(module, exports, require) {
-// source: src/modules/shared/runtime-types.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isObjectRecord = isObjectRecord;
-exports.objectValue = objectValue;
-exports.errorText = errorText;
-exports.textValue = textValue;
-exports.numberValue = numberValue;
-function isObjectRecord(value) {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-function objectValue(value) {
-    return isObjectRecord(value) ? value : {};
-}
-function errorText(error) {
-    const record = objectValue(error);
-    const rpc = objectValue(record.rpcError);
-    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
-}
-function textValue(value, fallback = '') {
-    return typeof value === 'string' ? value : fallback;
-}
-function numberValue(value, fallback = 0) {
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-},
 "src/modules/trajectory/trajectory-request-header-definition.js": function(module, exports, require) {
 // source: src/modules/trajectory/trajectory-request-header-definition.ts
 
@@ -18199,7 +18259,7 @@ function exactOptionals(value, keys) {
 const config = wire_event_codec_1.requestConfigSchema.refine(value => exactOptionals(value, ['purpose', 'thinking', 'reasoningEffort', 'temperature', 'maxTokens', 'stop']));
 const assistant = zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('assistant'), turn: n, step: n, blocks,
     messageId: s.optional(), usage: zod_1.z.unknown().optional(), provenance: provenance.optional(), requestConfig: config.optional(),
-    timing: zod_1.z.looseObject({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n }).optional(), interrupted: zod_1.z.literal(true).optional(),
+    timing: zod_1.z.looseObject({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n, receptionMs: n.optional() }).optional(), interrupted: zod_1.z.literal(true).optional(),
 }).refine(value => exactOptionals(value, ['messageId', 'provenance', 'requestConfig', 'timing', 'interrupted']));
 const tool = zod_1.z.lazy(() => zod_1.z.union([
     zod_1.z.looseObject({ callId: s, name: s, argsRaw: s, turn: n, step: n, time: n, callView, subCalls: zod_1.z.array(tool) }).refine(value => !('kind' in value)),
@@ -25600,7 +25660,7 @@ exports.default = ".mCzLya_root{--dsh-trajectory-toolbar-height:32px;box-sizing:
 
 }
 };
-const __dependencies = {"src/modules/trajectory/index.js":{"./duration-store":"src/modules/trajectory/duration-store.js","./locales":"src/modules/trajectory/locales.js","./trajectory-assistant-definition":"src/modules/trajectory/trajectory-assistant-definition.js","./trajectory-compaction-definition":"src/modules/trajectory/trajectory-compaction-definition.js","./trajectory-message-definitions":"src/modules/trajectory/trajectory-message-definitions.js","./trajectory-request-header-definition":"src/modules/trajectory/trajectory-request-header-definition.js","./trajectory-snapshot-builder":"src/modules/trajectory/trajectory-snapshot-builder.js","./trajectory-tool-definition":"src/modules/trajectory/trajectory-tool-definition.js","./TrajectoryView":"src/modules/trajectory/TrajectoryView.js"},"src/modules/trajectory/duration-store.js":{"zod":"vendor/zod.js","./runtime":"src/modules/trajectory/runtime.js"},"vendor/zod.js":{},"src/modules/trajectory/runtime.js":{},"src/modules/trajectory/locales.js":{},"src/modules/trajectory/trajectory-assistant-definition.js":{"../client-connection/contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./runtime":"src/modules/trajectory/runtime.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/client-connection/contracts/llm/llm/brand.js":{"zod":"vendor/zod.js"},"src/modules/trajectory/wire-event-codec.js":{"zod":"vendor/zod.js","../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../shared/generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/compaction-outcome.js":{"zod":"vendor/zod.js"},"src/modules/shared/generated/session-terminal.js":{"zod":"vendor/zod.js"},"src/modules/trajectory/trajectory-definition-common.js":{},"src/modules/trajectory/trajectory-compaction-definition.js":{"../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/trajectory-message-definitions.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../client-connection/contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./runtime":"src/modules/trajectory/runtime.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/shared/runtime-types.js":{},"src/modules/trajectory/trajectory-request-header-definition.js":{"./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/trajectory-snapshot-builder.js":{"./snapshot-codec":"src/modules/trajectory/snapshot-codec.js"},"src/modules/trajectory/snapshot-codec.js":{"zod":"vendor/zod.js","../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/trajectory/trajectory-tool-definition.js":{"./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/TrajectoryView.js":{"./snapshot-codec":"src/modules/trajectory/snapshot-codec.js","./usage-value":"src/modules/trajectory/usage-value.js","./TrajectoryTable":"src/modules/trajectory/TrajectoryTable.js","./TrajectoryToolbar":"src/modules/trajectory/TrajectoryToolbar.js","./TrajectoryTimeline":"src/modules/trajectory/TrajectoryTimeline.js","./layout":"src/modules/trajectory/layout.js","./timeline":"src/modules/trajectory/timeline.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-search-index":"src/modules/trajectory/trajectory-search-index.js","./trajectory-snapshot-builder":"src/modules/trajectory/trajectory-snapshot-builder.js","./views.styles":"src/modules/trajectory/views.styles.js"},"src/modules/trajectory/usage-value.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/trajectory/TrajectoryTable.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./vendor/react-virtual/src/index":"src/modules/trajectory/vendor/react-virtual/src/index.js","./primitives":"src/modules/trajectory/primitives.js","./vendor/diff/src/patch/create":"src/modules/trajectory/vendor/diff/src/patch/create.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-virtual-rows":"src/modules/trajectory/trajectory-virtual-rows.js","./trajectory-preview":"src/modules/trajectory/trajectory-preview.js","./TrajectoryTable.styles":"src/modules/trajectory/TrajectoryTable.styles.js"},"src/modules/trajectory/vendor/react-virtual/src/index.js":{"../../virtual-core/src/index":"src/modules/trajectory/vendor/virtual-core/src/index.js"},"src/modules/trajectory/vendor/virtual-core/src/index.js":{"./lazy-measurements":"src/modules/trajectory/vendor/virtual-core/src/lazy-measurements.js","./utils":"src/modules/trajectory/vendor/virtual-core/src/utils.js"},"src/modules/trajectory/vendor/virtual-core/src/lazy-measurements.js":{},"src/modules/trajectory/vendor/virtual-core/src/utils.js":{},"src/modules/trajectory/primitives.js":{},"src/modules/trajectory/vendor/diff/src/patch/create.js":{"../diff/line":"src/modules/trajectory/vendor/diff/src/diff/line.js"},"src/modules/trajectory/vendor/diff/src/diff/line.js":{"./base":"src/modules/trajectory/vendor/diff/src/diff/base.js","../util/params":"src/modules/trajectory/vendor/diff/src/util/params.js"},"src/modules/trajectory/vendor/diff/src/diff/base.js":{},"src/modules/trajectory/vendor/diff/src/util/params.js":{},"src/modules/trajectory/trajectory-record.js":{},"src/modules/trajectory/trajectory-virtual-rows.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/trajectory-preview.js":{"./primitives":"src/modules/trajectory/primitives.js"},"src/modules/trajectory/TrajectoryTable.styles.js":{"./TrajectoryTable.css":"src/modules/trajectory/TrajectoryTable.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryTable.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/trajectory/TrajectoryToolbar.js":{"./primitives":"src/modules/trajectory/primitives.js","./TrajectoryToolbar.styles":"src/modules/trajectory/TrajectoryToolbar.styles.js"},"src/modules/trajectory/TrajectoryToolbar.styles.js":{"./TrajectoryToolbar.css":"src/modules/trajectory/TrajectoryToolbar.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryToolbar.css":{},"src/modules/trajectory/TrajectoryTimeline.js":{"./primitives":"src/modules/trajectory/primitives.js","./timeline":"src/modules/trajectory/timeline.js","./TrajectoryTimeline.styles":"src/modules/trajectory/TrajectoryTimeline.styles.js"},"src/modules/trajectory/timeline.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/TrajectoryTimeline.styles.js":{"./TrajectoryTimeline.css":"src/modules/trajectory/TrajectoryTimeline.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryTimeline.css":{},"src/modules/trajectory/layout.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./usage-value":"src/modules/trajectory/usage-value.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/trajectory-search-index.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-preview":"src/modules/trajectory/trajectory-preview.js"},"src/modules/trajectory/views.styles.js":{"./views.css":"src/modules/trajectory/views.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/views.css":{}};
+const __dependencies = {"src/modules/trajectory/index.js":{"./duration-store":"src/modules/trajectory/duration-store.js","./locales":"src/modules/trajectory/locales.js","./trajectory-assistant-definition":"src/modules/trajectory/trajectory-assistant-definition.js","./trajectory-compaction-definition":"src/modules/trajectory/trajectory-compaction-definition.js","./trajectory-message-definitions":"src/modules/trajectory/trajectory-message-definitions.js","./trajectory-request-header-definition":"src/modules/trajectory/trajectory-request-header-definition.js","./trajectory-snapshot-builder":"src/modules/trajectory/trajectory-snapshot-builder.js","./trajectory-tool-definition":"src/modules/trajectory/trajectory-tool-definition.js","./TrajectoryView":"src/modules/trajectory/TrajectoryView.js"},"src/modules/trajectory/duration-store.js":{"zod":"vendor/zod.js","./runtime":"src/modules/trajectory/runtime.js"},"vendor/zod.js":{},"src/modules/trajectory/runtime.js":{},"src/modules/trajectory/locales.js":{},"src/modules/trajectory/trajectory-assistant-definition.js":{"../shared/reception-metrics":"src/modules/shared/reception-metrics.js","../client-connection/contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./runtime":"src/modules/trajectory/runtime.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/shared/reception-metrics.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/client-connection/contracts/llm/llm/brand.js":{"zod":"vendor/zod.js"},"src/modules/trajectory/wire-event-codec.js":{"zod":"vendor/zod.js","../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../shared/generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/compaction-outcome.js":{"zod":"vendor/zod.js"},"src/modules/shared/generated/session-terminal.js":{"zod":"vendor/zod.js"},"src/modules/trajectory/trajectory-definition-common.js":{},"src/modules/trajectory/trajectory-compaction-definition.js":{"../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/trajectory-message-definitions.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../client-connection/contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./runtime":"src/modules/trajectory/runtime.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/trajectory-request-header-definition.js":{"./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/trajectory-snapshot-builder.js":{"./snapshot-codec":"src/modules/trajectory/snapshot-codec.js"},"src/modules/trajectory/snapshot-codec.js":{"zod":"vendor/zod.js","../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./wire-event-codec":"src/modules/trajectory/wire-event-codec.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/trajectory/trajectory-tool-definition.js":{"./wire-event-codec":"src/modules/trajectory/wire-event-codec.js","./trajectory-definition-common":"src/modules/trajectory/trajectory-definition-common.js"},"src/modules/trajectory/TrajectoryView.js":{"./snapshot-codec":"src/modules/trajectory/snapshot-codec.js","./usage-value":"src/modules/trajectory/usage-value.js","./TrajectoryTable":"src/modules/trajectory/TrajectoryTable.js","./TrajectoryToolbar":"src/modules/trajectory/TrajectoryToolbar.js","./TrajectoryTimeline":"src/modules/trajectory/TrajectoryTimeline.js","./layout":"src/modules/trajectory/layout.js","./timeline":"src/modules/trajectory/timeline.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-search-index":"src/modules/trajectory/trajectory-search-index.js","./trajectory-snapshot-builder":"src/modules/trajectory/trajectory-snapshot-builder.js","./views.styles":"src/modules/trajectory/views.styles.js"},"src/modules/trajectory/usage-value.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/trajectory/TrajectoryTable.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./vendor/react-virtual/src/index":"src/modules/trajectory/vendor/react-virtual/src/index.js","./primitives":"src/modules/trajectory/primitives.js","./vendor/diff/src/patch/create":"src/modules/trajectory/vendor/diff/src/patch/create.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-virtual-rows":"src/modules/trajectory/trajectory-virtual-rows.js","./trajectory-preview":"src/modules/trajectory/trajectory-preview.js","./TrajectoryTable.styles":"src/modules/trajectory/TrajectoryTable.styles.js"},"src/modules/trajectory/vendor/react-virtual/src/index.js":{"../../virtual-core/src/index":"src/modules/trajectory/vendor/virtual-core/src/index.js"},"src/modules/trajectory/vendor/virtual-core/src/index.js":{"./lazy-measurements":"src/modules/trajectory/vendor/virtual-core/src/lazy-measurements.js","./utils":"src/modules/trajectory/vendor/virtual-core/src/utils.js"},"src/modules/trajectory/vendor/virtual-core/src/lazy-measurements.js":{},"src/modules/trajectory/vendor/virtual-core/src/utils.js":{},"src/modules/trajectory/primitives.js":{},"src/modules/trajectory/vendor/diff/src/patch/create.js":{"../diff/line":"src/modules/trajectory/vendor/diff/src/diff/line.js"},"src/modules/trajectory/vendor/diff/src/diff/line.js":{"./base":"src/modules/trajectory/vendor/diff/src/diff/base.js","../util/params":"src/modules/trajectory/vendor/diff/src/util/params.js"},"src/modules/trajectory/vendor/diff/src/diff/base.js":{},"src/modules/trajectory/vendor/diff/src/util/params.js":{},"src/modules/trajectory/trajectory-record.js":{},"src/modules/trajectory/trajectory-virtual-rows.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/trajectory-preview.js":{"./primitives":"src/modules/trajectory/primitives.js"},"src/modules/trajectory/TrajectoryTable.styles.js":{"./TrajectoryTable.css":"src/modules/trajectory/TrajectoryTable.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryTable.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/trajectory/TrajectoryToolbar.js":{"./primitives":"src/modules/trajectory/primitives.js","./TrajectoryToolbar.styles":"src/modules/trajectory/TrajectoryToolbar.styles.js"},"src/modules/trajectory/TrajectoryToolbar.styles.js":{"./TrajectoryToolbar.css":"src/modules/trajectory/TrajectoryToolbar.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryToolbar.css":{},"src/modules/trajectory/TrajectoryTimeline.js":{"./primitives":"src/modules/trajectory/primitives.js","./timeline":"src/modules/trajectory/timeline.js","./TrajectoryTimeline.styles":"src/modules/trajectory/TrajectoryTimeline.styles.js"},"src/modules/trajectory/timeline.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/TrajectoryTimeline.styles.js":{"./TrajectoryTimeline.css":"src/modules/trajectory/TrajectoryTimeline.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/TrajectoryTimeline.css":{},"src/modules/trajectory/layout.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./usage-value":"src/modules/trajectory/usage-value.js","./trajectory-record":"src/modules/trajectory/trajectory-record.js"},"src/modules/trajectory/trajectory-search-index.js":{"./trajectory-record":"src/modules/trajectory/trajectory-record.js","./trajectory-preview":"src/modules/trajectory/trajectory-preview.js"},"src/modules/trajectory/views.styles.js":{"./views.css":"src/modules/trajectory/views.css","../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/trajectory/views.css":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
