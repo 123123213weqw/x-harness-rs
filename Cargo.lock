@@ -3928,7 +3928,8 @@ dependencies = [
 
 [[package]]
 name = "xharness-model-catalog"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"
 dependencies = [
  "serde",
  "serde_json",
