@@ -144,4 +144,12 @@ for (let attempt = 0; attempt < 20 && session.stitching; attempt++)
   await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(session.stitching, false);
 assert.deepEqual(Array.from(session.events, event => event.seq), [10, 11, 12, 13, 14, 15, 16, 17, 18]);
+
+// History is a conversation projection rather than a raw journal slice.
+// Folding/coalescing leaves legitimate seq gaps within and across pages.
+const sparseSession = new runtime.Session('sparse', { sessions: { history: async () => ok([row(2), row(4), row(8)], false) } }, {}, { conversation: { events, views } });
+sparseSession.installWindow([row(10), row(12)], true); sparseSession.openState = 'open';
+await sparseSession.loadOlder();
+assert.equal(sparseSession.openState, 'open');
+assert.deepEqual(Array.from(sparseSession.events, event => event.seq), [2, 4, 8, 10, 12]);
 console.log('atomic history: transactional mapping, interaction/live-buffer preservation, pagination/gap serialization and retry passed');

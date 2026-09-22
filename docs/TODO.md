@@ -280,6 +280,7 @@ Commit、Issue、PR 应引用这些 ID。
 
 - [x] `UI-CACHE-01` 保留 Session/scope 的历史 LRU，默认 6 个闲置会话 / 64 MiB 估算历史容量；保护当前/运行/待处理任务。见 [规范](specs/session-history-cache.md)。
 - [x] `UI-CACHE-02` 清理原始历史与派生视图，按原范围分页恢复；错误可重试、旧请求 generation 防护、cold 重连不复活缓存。
+- [x] `UI-CACHE-02a` 修复投影历史分页误判：已完成 chunk 折叠和 delta 合并会形成合法 seq 间隔；范围恢复与向上加载统一验证严格递增、游标上界和跨页不重叠，不再要求原始日志序号相邻。
 - [x] `UI-CACHE-03` 实际打包 Runtime 27 项断言、V100 Chromium 三次内存对比、本机 WebKit 测试，并接入双引擎 CI。见 [实验记录](reports/session-history-cache-20260913.md)。
 - [ ] `UI-CACHE-04` 推送并通过 GitHub CI 后合并发布；已安装 App 的真实多会话内存对照验收。
 - [ ] `UI-CACHE-05` 独立评估共享 projection/图片/插件缓存；按锚点区间恢复优化，避免很长历史重新打开时逐页回补。

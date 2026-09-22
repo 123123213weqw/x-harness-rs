@@ -46,5 +46,11 @@ if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[
   graph.rev = hash(JSON.stringify(graph.entries));
   writeFileSync(resolve(dist, 'client-graph.json'), JSON.stringify(graph, null, 2) + '\n');
   const index = resolve(dist, 'index.html');
-  writeFileSync(index, readFileSync(index, 'utf8').replace(/window\.__DSH_BOOT__ = .*?<\/script>/, () => `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`));
+  let html = readFileSync(index, 'utf8');
+  for (const id of ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-conversation']) {
+    const entry = graph.entries.find(entry => entry.id === id);
+    const tag = new RegExp(`/plugins/${id.replaceAll('.', '\\.')}/client\\.js\\?rev=[0-9a-f]+`, 'g');
+    html = html.replace(tag, `/plugins/${id}/client.js?rev=${entry.rev}`);
+  }
+  writeFileSync(index, html.replace(/window\.__DSH_BOOT__ = .*?<\/script>/, () => `window.__DSH_BOOT__ = ${JSON.stringify(graph)}</script>`));
 }
