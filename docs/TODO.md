@@ -412,8 +412,8 @@ Context 占用圆环、Harness 构造视图、Web Fetch 大结果直接挤爆 Co
   同一仓库的 `ui/`；Fresh Clone 不再依赖本机相邻的旧 `x-harness` 工作树才能启动网页。
 
 当前最短阻塞链调整为：**大结果持久 Spill/Reference 与 Pruner Replace → Credential Reference/配置 → 远程 Web Auth → WebSocket Cursor Resume →
-macOS 签名/公证与发布验证**。手动 `/compact`、独立摘要 Purpose 路由和精确 Tokenizer 作为
-Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
+macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘要 Purpose 路由和精确 Tokenizer
+作为 Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不阻塞本地单用户 Coding Agent。
 
 ## 已完成基础能力
 
@@ -928,7 +928,10 @@ Context P1 后续并行推进；MCP、Skills、LSP、Subagent 和 Workflow 不�
   恢复、正式 Durable Host 默认启用、Web `surfaceOp={op:replace,start,end}` 投影及回归测试。
   Compact 已使用独立 `compaction_reasoning_effort`，由精确模型能力列表解析最低成本档，不继承
   主对话 high/xhigh；摘要请求固定 `tools=[]`，并已回归覆盖思考档位与 Tool Schema 隔离。
-  **剩余：** 手动 `/compact`、Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
+  **新增完成：** 手动 `/compact` 已接入命令目录、空闲 Session Maintenance Turn、持久
+  `command/run|done` 与 `compaction/*` 关联、Host/Agent 重启恢复；自动压缩从 Start 起显示运行
+  动画，成功转为摘要，失败/取消撤销临时节点，实时与历史恢复共用 reducer。
+  **剩余：** Purpose 路由到独立摘要模型、把 `DONE-68` 的请求侧 Tool Result
   Pruner 接入持久 Replace/内容引用缓存（不得恢复已撤回的工具参数占位投影）、Provider 结构化
   错误码优先于兼容文本分类、真实 SIGKILL/Flush 全切点矩阵、按模型本地精确 Tokenizer，以及把
   已解决 Question/Answer/Tool Result 作为不可拆分单元选择 Compact 安全切点；未决 Question

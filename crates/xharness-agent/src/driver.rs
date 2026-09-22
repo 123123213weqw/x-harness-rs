@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -148,6 +149,11 @@ enum DriverCommand {
     /// Resume one open tool-approval boundary from the durable Session log.
     /// No synthetic user input or new turn is created.
     RecoverOpenTurn,
+    /// Run one input-free manual compaction maintenance turn. The stable
+    /// command id also scopes the Host observer and durable lifecycle.
+    Compact {
+        command_id: String,
+    },
     Followup(InboxMessage),
     /// Admit a maintenance-generated followup only at an idle actor boundary.
     /// Unlike checking [`DurableAgentHandle::status`] before `followup`, this
@@ -227,6 +233,8 @@ impl WorkerSupervisor {
                 status: status_tx,
                 wake_requested: false,
                 recovery_requested: false,
+                pending_compaction: None,
+                recover_pending_compaction: generation > 1,
                 shutdown: self.shutdown.clone(),
             };
             let started = Instant::now();
@@ -489,6 +497,13 @@ impl DurableAgentHandle {
         self.send(DriverCommand::RecoverOpenTurn).await
     }
 
+    pub async fn compact(&self, command_id: impl Into<String>) -> Result<(), AgentCommandError> {
+        self.send(DriverCommand::Compact {
+            command_id: command_id.into(),
+        })
+        .await
+    }
+
     pub async fn steer(&self, message: InboxMessage) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Steer(message)).await
     }
@@ -673,6 +688,8 @@ struct DriverWorker {
     status: watch::Sender<AgentStatus>,
     wake_requested: bool,
     recovery_requested: bool,
+    pending_compaction: Option<String>,
+    recover_pending_compaction: bool,
     shutdown: CancellationToken,
 }
 
@@ -685,6 +702,18 @@ impl DriverWorker {
         if let Err(error) = self.activation.inbox().reconcile_consumed().await {
             self.publish_error(error.to_string());
             return;
+        }
+        if self.recover_pending_compaction {
+            if let Ok(Some(session)) = self
+                .activation
+                .inbox()
+                .store()
+                .load(self.activation.id())
+                .await
+            {
+                self.pending_compaction = pending_manual_compaction(&session);
+                self.wake_requested = self.pending_compaction.is_some();
+            }
         }
         let _ = ready.send(());
         loop {
@@ -711,7 +740,8 @@ impl DriverWorker {
                         continue;
                     }
                 };
-                if !snapshot.next_turn().is_empty()
+                if self.pending_compaction.is_some()
+                    || !snapshot.next_turn().is_empty()
                     || self
                         .goal_controller()
                         .state()
@@ -866,6 +896,20 @@ impl DriverWorker {
                     permit = &mut acquire => break permit.map_err(AgentCommandError::Failed)?,
                 }
             };
+            if let Some(command_id) = self.pending_compaction.take() {
+                let mut request = self
+                    .factory
+                    .build(self.activation.id(), Vec::new())
+                    .await
+                    .map_err(AgentCommandError::Failed)?;
+                request.manual_compaction_command_id = Some(command_id.clone());
+                request.session_id = Some(self.activation.id().to_owned());
+                request.journal_store = Some(self.activation.inbox().store());
+                let turn = self.next_turn().await?;
+                self.drive_request(request, turn, vec![command_id]).await?;
+                admission_retries = 0;
+                continue;
+            }
             let claim = self
                 .activation
                 .inbox()
@@ -992,7 +1036,11 @@ impl DriverWorker {
                     s.definition.execution_enabled
                         && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
                 });
-            if pending.next_turn().is_empty() && !self.wake_requested && !continue_goal {
+            if pending.next_turn().is_empty()
+                && self.pending_compaction.is_none()
+                && !self.wake_requested
+                && !continue_goal
+            {
                 return Ok(());
             }
             self.wake_requested = false;
@@ -1197,6 +1245,16 @@ impl DriverWorker {
                 self.set_status(AgentStatus::Running);
                 Ok(())
             }
+            DriverCommand::Compact { command_id } => {
+                if self.pending_compaction.is_some() {
+                    Err(AgentCommandError::Busy)
+                } else {
+                    self.pending_compaction = Some(command_id);
+                    self.wake_requested = true;
+                    self.set_status(AgentStatus::Running);
+                    Ok(())
+                }
+            }
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {
@@ -1239,6 +1297,7 @@ impl DriverWorker {
             DriverCommand::RecoverOpenTurn => Err(AgentCommandError::Failed(
                 "an Agent turn is already running".to_owned(),
             )),
+            DriverCommand::Compact { .. } => Err(AgentCommandError::Busy),
             DriverCommand::Followup(message) => {
                 let result = self.persist(InboxTarget::NextTurn, message).await;
                 if result.is_ok() {
@@ -1308,6 +1367,24 @@ impl DriverWorker {
     fn publish_error(&self, message: String) {
         let _ = self.events.send(AgentEvent::Error { message });
     }
+}
+
+fn pending_manual_compaction(session: &xharness_session::Session) -> Option<String> {
+    let mut settled = HashSet::new();
+    for event in session.events().iter().rev() {
+        match event.data() {
+            EventData::CommandDone { command_id, .. } => {
+                settled.insert(command_id.as_str());
+            }
+            EventData::CommandRun {
+                command_id, name, ..
+            } if name == "compact" && !settled.contains(command_id.as_str()) => {
+                return Some(command_id.clone());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn map_loop_control(

@@ -5655,8 +5655,23 @@ function XHarnessEditAction({ content, editMessage, t }) {
 				t
 			});
 		});
+		// xh-compaction-running/v1
 		/** Automatic compaction keyed Chat renderer. */
 		const CompactionNodeView = (0, react.memo)(function CompactionNodeView({ node, t }) {
+			if (node.data.status === "running") return (0, react_jsx_runtime.jsxs)("div", {
+				className: MessageItem_module_css_default.compactionRow + " " + MessageItem_module_css_default.retryRow,
+				"data-active": true,
+				"data-compaction-running": true,
+				"aria-live": "polite",
+				children: [(0, react_jsx_runtime.jsx)("span", {
+					className: MessageItem_module_css_default.compactionLeading,
+					"aria-hidden": true,
+					children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconApiOutline14, {})
+				}), (0, react_jsx_runtime.jsx)("span", {
+					className: MessageItem_module_css_default.retryText,
+					children: t("message.compaction.running")
+				})]
+			});
 			return (0, react_jsx_runtime.jsx)(CompactionItem, {
 				node: node.data,
 				t
@@ -8780,6 +8795,15 @@ keepMounted: index >= activeSuffix,
 		* @returns adopted State, preserving reference identity when the Match adds no evidence.
 		*/
 		function updateCompactionState(state, match) {
+			if (match.event.type === "compaction/start") return {
+				...state,
+				start: match,
+				end: void 0
+			};
+			if (match.event.type === "compaction/end") return {
+				...state,
+				end: match
+			};
 			if (match.event.type === "compaction/summary") return {
 				...state,
 				summary: match
@@ -8846,11 +8870,15 @@ keepMounted: index >= activeSuffix,
 		//#endregion
 		//#region lib/types/client/conversation-nodes/compaction.js
 		function fallbackState$2(context) {
+			const start = context.matches.find((match) => match.event.type === "compaction/start");
 			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
 			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
+			const end = context.matches.find((match) => match.event.type === "compaction/end");
 			return {
+				...start === void 0 ? {} : { start },
 				...summary === void 0 ? {} : { summary },
-				...checkpoint === void 0 ? {} : { checkpoint }
+				...checkpoint === void 0 ? {} : { checkpoint },
+				...end === void 0 ? {} : { end }
 			};
 		}
 		/** Automatic compaction lifecycle and landed checkpoint Definition. */
@@ -8874,12 +8902,21 @@ keepMounted: index >= activeSuffix,
 				}
 				return null;
 			},
-			start: () => ({}),
+			start: (_context, match) => match === void 0 ? {} : { start: match },
 			update: (context, match) => updateCompactionState(context.state, match),
 			buildViewNode: (context) => {
 				const state = context.state ?? fallbackState$2(context);
-				if (state.checkpoint === void 0) return null;
-				const marker = compactSummary(state.summary, state.checkpoint);
+				if (state.checkpoint !== void 0) {
+					const marker = compactSummary(state.summary, state.checkpoint);
+					return chatNode(context, "compaction", marker.seq, marker);
+				}
+				if (state.end !== void 0 || state.start === void 0) return null;
+				const marker = {
+					kind: "compaction",
+					status: "running",
+					seq: state.start.event.seq,
+					time: state.start.event.time
+				};
 				return chatNode(context, "compaction", marker.seq, marker);
 			}
 		};

@@ -27,6 +27,8 @@ const find=(tree,predicate)=>{
  if(predicate(tree))return tree;
  for(const child of [tree.props?.children].flat(2)) {const result=find(child,predicate);if(result)return result;}
 };
+assert.match(source,/data-compaction-running/);
+assert.match(source,/t\("message\.compaction\.running"\)/);
 for(const f of fixtures) {
  const matches=f.events.map(event=>({event}));
  const def=f.manual?api.commandDefinition:api.compactionDefinition;
@@ -40,6 +42,13 @@ for(const f of fixtures) {
   assert.equal(view.kind,'manual-compaction');
   assert.equal(view.data.command.commandId,'manual-compact');
  } else {
+  const startMatch=relevant.find(m=>m.event.type==='compaction/start');
+  const runningState=def.update({state:def.start()},startMatch);
+  const running=def.buildViewNode({state:runningState,matches:[startMatch]});
+  assert.equal(running.kind,'compaction');
+  assert.equal(running.data.status,'running');
+  assert.equal(running.data.seq,startMatch.event.seq);
+  assert.deepEqual(running,def.buildViewNode({matches:[startMatch]}),'running live and restored contribution agree');
   let state=def.start();
   for(const match of relevant) {
    state=def.update({state},match);

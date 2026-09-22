@@ -133,8 +133,8 @@ xharness-host
 可使用等价参数 `--context-window`、`--max-output-tokens` 和 `--token-safety-margin`。Guard 将
 总窗口减去输出预留和安全余量后再接纳输入；Chat/Responses 同时收到对应的原生最大输出字段。
 分页读取、单结果确定性 Head/Tail、80% Pressure/硬超窗自动摘要和不修改原日志的
-Surface Replace 已进入正式 Durable Host。手动 `/compact`、生产 Pruner/Spill 和独立
-Summary Purpose 仍按[上下文预算规范](specs/context.md)继续实现。
+Surface Replace 已进入正式 Durable Host。空闲会话可执行 `/compact` 主动压缩；生产
+Pruner/Spill 和独立 Summary Purpose 仍按[上下文预算规范](specs/context.md)继续实现。
 
 ### Compact 消融
 

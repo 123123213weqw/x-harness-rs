@@ -1,10 +1,11 @@
 //! Slash-command catalogue and execution adapter.
 
 use serde_json::{json, Value};
+use tokio::sync::mpsc;
 use xharness_api::{RpcError, RpcId};
 use xharness_session::{CommandResultKind, CommandSource, EventData as SessionEventData};
 
-use crate::BasicHost;
+use crate::{state::DriverCommand, BasicHost};
 
 use super::{
     bad_request, goal, permission_command_input, permission_events, plan_command_input,
@@ -30,6 +31,11 @@ pub(super) async fn list(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             "description": "Enter or leave plan mode",
             "input": {"hint": "[off|message]", "images": true},
         },
+        {
+            "name": "compact",
+            "description": "Compact eligible conversation history now",
+            "input": {"hint": ""},
+        },
         {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}}
     ]))
 }
@@ -46,6 +52,17 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
             host,
             &session_id,
             line.trim_start().strip_prefix("/goal").unwrap().trim(),
+            images,
+        )
+        .await
+        .map(Some);
+    }
+    if line.trim() == "/compact" || line.trim_start().starts_with("/compact ") {
+        let images = required_array(args, "images")?;
+        return execute_compact(
+            host,
+            &session_id,
+            line.trim_start().strip_prefix("/compact").unwrap().trim(),
             images,
         )
         .await
@@ -133,6 +150,128 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
     )
     .await?;
     Ok(Some(json!({"commandId": command_id, "result": result})))
+}
+
+async fn execute_compact(
+    host: &BasicHost,
+    session_id: &str,
+    raw_input: &str,
+    images: &[Value],
+) -> Result<Value, RpcError> {
+    let _session_guard = host.lock_admission(session_id).await;
+    let command_id = host.mint_id("command");
+    host.commit_session_events(
+        session_id,
+        vec![SessionEventData::CommandRun {
+            command_id: command_id.clone(),
+            name: "compact".to_owned(),
+            args: (!raw_input.is_empty()).then(|| raw_input.to_owned()),
+            source: CommandSource::User,
+        }
+        .into()],
+    )
+    .await?;
+
+    let rejection = if !images.is_empty() {
+        Some("/compact does not accept image attachments".to_owned())
+    } else if !raw_input.is_empty() {
+        Some("/compact does not accept arguments".to_owned())
+    } else {
+        let state = host.state.read().await;
+        let session = state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?;
+        if session.running {
+            Some("/compact requires the current Agent turn to finish first".to_owned())
+        } else if session.dispatch_paused {
+            Some("/compact is unavailable while session dispatch is paused".to_owned())
+        } else {
+            None
+        }
+    };
+    if let Some(text) = rejection {
+        settle_compact_command(
+            host,
+            session_id,
+            &command_id,
+            CommandResultKind::Error,
+            &text,
+        )
+        .await?;
+        return Ok(json!({
+            "commandId":command_id,
+            "result":{"kind":"error","text":text},
+        }));
+    }
+
+    let run = match host
+        .agent_runtime
+        .start_manual_compaction(session_id, &command_id)
+        .await
+    {
+        Ok(run) => run,
+        Err(error) => {
+            let text = error.to_string();
+            settle_compact_command(
+                host,
+                session_id,
+                &command_id,
+                CommandResultKind::Error,
+                &text,
+            )
+            .await?;
+            return Ok(json!({
+                "commandId":command_id,
+                "result":{"kind":"error","text":text},
+            }));
+        }
+    };
+
+    let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
+    {
+        let mut state = host.state.write().await;
+        let session = state
+            .sessions
+            .get_mut(session_id)
+            .ok_or_else(|| session_not_found(session_id))?;
+        session.running = true;
+        session.control = Some(control_tx);
+    }
+    host.push_host(json!({
+        "type":"host/session-status",
+        "sessionId":session_id,
+        "running":true,
+    }));
+    let host = host.clone();
+    let session_id = session_id.to_owned();
+    tokio::spawn(async move {
+        host.drive_recovered_turn(session_id, run, control_rx).await;
+    });
+    Ok(json!({
+        "commandId":command_id,
+        "result":{"kind":"success","text":"Compaction started"},
+    }))
+}
+
+async fn settle_compact_command(
+    host: &BasicHost,
+    session_id: &str,
+    command_id: &str,
+    kind: CommandResultKind,
+    text: &str,
+) -> Result<(), RpcError> {
+    host.commit_session_events(
+        session_id,
+        vec![SessionEventData::CommandDone {
+            command_id: command_id.to_owned(),
+            kind,
+            text: Some(text.to_owned()),
+            source_event_seq: None,
+        }
+        .into()],
+    )
+    .await
 }
 
 async fn execute_plan(
