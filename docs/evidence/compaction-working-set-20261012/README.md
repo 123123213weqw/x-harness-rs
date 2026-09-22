@@ -1,0 +1,7 @@
+# Compaction working-set A/B evidence
+
+These are immutable reported results for public synthetic Python ledger tasks, not private user conversations. The original strict oracle is retained: coding 0/3 for both arms due to underspecified exact short-enum checks and an actual JSON-only formatting violation; executable hidden tests pass 23/23 in all six coding samples. Candidate pressure passes, baseline pressure fails. No self-evaluation is counted as acceptance.
+
+`comparison.json`, per-run `summary.json`, `acceptance.json`, `provider-ledger.json`, actual public/hidden test outputs, and frozen source manifests are supplied. Summaries contain visible final answers and content-free hashes of tool evidence. Reasoning, credentials, live app state, private user history, and complete request/journal bodies are not published here. Complete sanitized synthetic request/journal evidence remains available in the recorded local evidence directory; do not claim this subset independently proves every byte-prefix audit.
+
+The frozen cohort used baseline e0a35e4c production sources and candidate-v8. The PR is integrated onto master 05d902f7; its post-integration Rust/UI regression is reported separately and is not relabeled as that frozen cohort. Fixture seeds are not model RNG seeds. Costs use fixed experiment rates, not account debits. Timing includes connection/cache/concurrent-run differences and does not establish generalized speedup.

@@ -110,6 +110,19 @@ jobs:
           & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-fixture.ps1
           if ($LASTEXITCODE) { throw 'Windows Shell reconciliation regression failed' }
 
+  compaction-evaluator-contract:
+    name: Compaction evaluator / offline acceptance guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Offline only: no Keychain, SSH, live model requests or deployment.
+      - run: python3 -B scripts/experiments/test-compaction-coding.py
+      - run: python3 -B scripts/experiments/test-compaction-multiround.py
+
   cloud-offline-guards:
     name: Cloud lifecycle offline guards
     runs-on: ubuntu-latest

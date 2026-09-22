@@ -1,5 +1,6 @@
 /** Module-local Host protocol vocabulary; payloads are data, never service implementations. */
 import type { TurnEndDataInput } from '../../shared/generated/session-terminal'
+import type { CompactionEndOutcome } from '../../shared/compaction-outcome'
 export type SessionId = string
 export type WorkspaceId = string
 export type MessageId = string
@@ -49,7 +50,7 @@ export interface SessionEventMap {
  'command/run': { commandId: string; name: string; args?: (string) | undefined }
  'command/done': { commandId: string; kind: 'success' | 'error'; text?: (string) | undefined; sourceEventSeq?: (number) | undefined }
  'compaction/start': { compactionId: string; sourceCommandId?: (string) | undefined }
- 'compaction/end': { compactionId: string; sourceCommandId?: (string) | undefined; error?: (string | null) | undefined }
+ 'compaction/end': { compactionId: string; sourceCommandId?: (string) | undefined; error?: (string | null) | undefined; outcome?: CompactionEndOutcome | undefined; fingerprint?: string | undefined }
  'compaction/progress': { compactionId: string; sourceCommandId?: (string) | undefined; progress: unknown }
  'compaction/summary': { compactionId: string; sourceCommandId?: (string) | undefined; summary: readonly ContentBlock[]; shadowedSeqs: readonly number[]; shadowedTokenCount: number }
  'agent/inbox/spliced': { target: InboxTarget; start: number; removedCount?: (number) | undefined; inserted: readonly { id: string }[]; outcome?: ('canceled') | undefined }

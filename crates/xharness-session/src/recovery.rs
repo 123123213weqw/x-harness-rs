@@ -404,6 +404,8 @@ pub fn interrupted_compaction_recovery(events: &[LoggedEvent]) -> Vec<SessionEve
                     source_command_id: source_command_id.clone(),
                     turn: *turn,
                     error: Some(COMPACTION_INTERRUPTED_ERROR.to_owned()),
+                    outcome: Some(crate::CompactionEndOutcome::Interrupted),
+                    fingerprint: None,
                 }
                 .into(),
             ),

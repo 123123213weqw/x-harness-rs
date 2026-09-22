@@ -11,6 +11,12 @@ use std::collections::HashMap;
 use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
 use xharness_session::{ContentBlock, Message, MessageRole};
 
+mod working_set;
+pub use working_set::{
+    approximate_working_set_tokens, calibrate_working_set_tokens, project_working_set,
+    WorkingSetConfig, WorkingSetSource, WorkingSetSourceKind,
+};
+
 /// Maximum raw image bytes materialized into one model request. This is a
 /// request resource budget, never a lifetime/session attachment limit.
 pub const MAX_REQUEST_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
@@ -32,6 +38,12 @@ pub struct ContextRequest {
     /// JSON. They are present because schemas consume context budget too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,
+    /// Genuine user-message coordinates supplied by immutable event provenance.
+    /// `None` is the legacy/unknown seam; `Some([])` explicitly means no real
+    /// user request is present. Checkpoints, history references and runtime
+    /// continuations must not establish a new user-request boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genuine_user_indices: Option<Vec<usize>>,
 }
 
 impl ContextRequest {
@@ -42,6 +54,7 @@ impl ContextRequest {
             model: None,
             step: 0,
             tools: Vec::new(),
+            genuine_user_indices: None,
         }
     }
 
@@ -62,6 +75,11 @@ impl ContextRequest {
 
     pub fn with_tools(mut self, tools: Vec<Value>) -> Self {
         self.tools = tools;
+        self
+    }
+
+    pub fn with_genuine_user_indices(mut self, indices: Vec<usize>) -> Self {
+        self.genuine_user_indices = Some(indices);
         self
     }
 }
@@ -322,10 +340,26 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
             }
         }
 
-        let latest_user_index = request
-            .messages
-            .iter()
-            .rposition(|message| message.role == MessageRole::User);
+        let latest_user_index = if let Some(indices) = &request.genuine_user_indices {
+            for &index in indices {
+                if request
+                    .messages
+                    .get(index)
+                    .is_none_or(|message| message.role != MessageRole::User)
+                {
+                    return Err(ContextError::invalid_surface(format!(
+                        "genuine user-message index {index} is outside the transcript or is not user-role"
+                    )));
+                }
+            }
+            // Coordinates are a set; don't silently trust caller ordering.
+            indices.iter().copied().max()
+        } else {
+            request
+                .messages
+                .iter()
+                .rposition(|message| message.role == MessageRole::User)
+        };
 
         let mut messages = request.messages;
         let mut edits = Vec::new();
@@ -631,6 +665,165 @@ mod tests {
                 .to_string(),
             ),
         ]
+    }
+
+    #[tokio::test]
+    async fn genuine_user_boundary_ignores_checkpoint_and_history_reference_roles() {
+        let mut assistant = Message::assistant("current work");
+        assistant.reasoning = "required current tool-chain reasoning".into();
+        assistant.provider_items.push(json!({"opaque":"current"}));
+        let messages = vec![
+            Message::user("actual task"),
+            assistant.clone(),
+            Message::user("old checkpoint body"),
+            Message::user("bounded history reference"),
+        ];
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(messages).with_genuine_user_indices(vec![0]))
+            .await
+            .unwrap();
+        assert_eq!(surface.messages[1], assistant);
+        assert!(surface.edits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn working_set_reference_cannot_prune_protected_current_opaque_reasoning() {
+        let mut source = vec![Message::user("current scope")];
+        source.extend(completed_call(
+            "write",
+            json!({"path":"demo.txt","content":"small"}).to_string(),
+            "required current reasoning",
+            true,
+        ));
+        let mut read = Message::assistant("inspect old data");
+        read.tool_calls.push(ToolCall {
+            id: "execution-read".into(),
+            provider_call_id: Some("wire-read".into()),
+            index: 0,
+            name: "read".into(),
+            arguments_json: json!({"path":"old.log"}).to_string(),
+        });
+        source.push(read);
+        source.push(Message::tool("wire-read", "old evidence".repeat(10000)));
+        let kinds = [
+            WorkingSetSourceKind::RawUser,
+            WorkingSetSourceKind::RawAssistant,
+            WorkingSetSourceKind::ToolResult,
+            WorkingSetSourceKind::RawAssistant,
+            WorkingSetSourceKind::ToolResult,
+        ];
+        let origins = kinds
+            .into_iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                Some(WorkingSetSource {
+                    seq: index as u64,
+                    kind,
+                    outcome_unknown: false,
+                })
+            })
+            .collect::<Vec<_>>();
+        let working = project_working_set(
+            source.clone(),
+            &origins,
+            &WorkingSetConfig {
+                pressure: true,
+                available_input_tokens: 1000,
+                recent_tokens: 0,
+                hot_input_budget: None,
+                retain_checkpoints: 0,
+            },
+        )
+        .unwrap();
+        assert_eq!(working.edits.len(), 1);
+        assert_eq!(working.edits[0].source_start, 3);
+        assert_eq!(working.messages.len(), 4);
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(working.messages).with_genuine_user_indices(vec![0]))
+            .await
+            .unwrap();
+        assert_eq!(surface.messages[1], source[1]);
+        assert_eq!(surface.messages[2], source[2]);
+    }
+
+    #[tokio::test]
+    async fn runtime_continuation_is_not_a_genuine_user_boundary() {
+        let mut partial = Message::assistant("");
+        partial.reasoning = "partial reasoning still needed for continuation".into();
+        let messages = vec![
+            Message::user("actual request"),
+            partial.clone(),
+            Message::user("runtime: continue preserved reasoning"),
+        ];
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(messages).with_genuine_user_indices(vec![0]))
+            .await
+            .unwrap();
+        assert_eq!(surface.messages[1], partial);
+    }
+
+    #[tokio::test]
+    async fn known_no_genuine_user_does_not_prune_reasoning_at_fake_user_nodes() {
+        let mut assistant = Message::assistant("historical technical work");
+        assistant.reasoning = "opaque replay companion".into();
+        let messages = vec![assistant.clone(), Message::user("legacy checkpoint")];
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(messages).with_genuine_user_indices(Vec::new()))
+            .await
+            .unwrap();
+        assert_eq!(surface.messages[0], assistant);
+    }
+
+    #[tokio::test]
+    async fn later_actual_user_still_prunes_old_reasoning_with_provenance() {
+        let mut old = Message::assistant("prior work");
+        old.reasoning = "prior completed reasoning".into();
+        let mut current = Message::assistant("current work");
+        current.reasoning = "current reasoning".into();
+        let messages = vec![
+            Message::user("prior request"),
+            old,
+            Message::user("changed real request"),
+            current.clone(),
+            Message::user("checkpoint, not request"),
+        ];
+        let surface = ToolResultPruningContextPolicy::default()
+            .prepare(ContextRequest::new(messages).with_genuine_user_indices(vec![2, 0]))
+            .await
+            .unwrap();
+        assert!(surface.messages[1].reasoning.is_empty());
+        assert_eq!(surface.messages[3], current);
+    }
+
+    #[tokio::test]
+    async fn invalid_genuine_user_coordinates_are_rejected() {
+        let messages = vec![
+            Message::system("system"),
+            Message::assistant("work"),
+            Message::user("request"),
+        ];
+        for index in [0, 1, 3, usize::MAX] {
+            let result = ToolResultPruningContextPolicy::default()
+                .prepare(
+                    ContextRequest::new(messages.clone()).with_genuine_user_indices(vec![index]),
+                )
+                .await;
+            assert!(result.is_err(), "invalid index {index} must be rejected");
+        }
+    }
+
+    #[test]
+    fn provenance_metadata_preserves_legacy_unknown_vs_explicit_empty_roundtrip() {
+        let legacy = ContextRequest::new(vec![Message::user("legacy")]);
+        let encoded = serde_json::to_value(&legacy).unwrap();
+        assert!(encoded.get("genuine_user_indices").is_none());
+        let decoded: ContextRequest = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.genuine_user_indices, None);
+        let known_empty = legacy.with_genuine_user_indices(Vec::new());
+        let encoded = serde_json::to_value(&known_empty).unwrap();
+        assert_eq!(encoded["genuine_user_indices"], json!([]));
+        let decoded: ContextRequest = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.genuine_user_indices, Some(Vec::new()));
     }
 
     #[tokio::test]

@@ -3007,6 +3007,8 @@ mod tests {
                         source_command_id: Some("command-index".to_owned()),
                         turn: Some(1),
                         error: None,
+                        outcome: None,
+                        fingerprint: None,
                     }
                     .into(),
                 ],
@@ -4014,6 +4016,8 @@ mod tests {
                             source_command_id: command.clone(),
                             turn: Some(1),
                             error: None,
+                            outcome: None,
+                            fingerprint: None,
                         }
                         .into(),
                     ],
@@ -4139,6 +4143,8 @@ mod tests {
                             source_command_id: None,
                             turn: Some(1),
                             error: Some(error.into()),
+                            outcome: None,
+                            fingerprint: None,
                         }
                         .into(),
                     ],

@@ -1,0 +1,281 @@
+{
+  "mode": "stress",
+  "seed": 111,
+  "arm": "candidate",
+  "results": {
+    "closed-observation-pressure": {
+      "answer": "{\"task\":\"ledger\",\"rounding\":\"ROUND_HALF_UP\",\"timezone\":\"UTC\"}",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "read",
+        "read",
+        "test",
+        "history",
+        "history",
+        "history",
+        "history"
+      ],
+      "error": null,
+      "failed_tests": 2,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "a533acbee116c3191ecb5d53eb0022cb3ae77212f79c523c9a792d8aa16dc4a8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "a533acbee116c3191ecb5d53eb0022cb3ae77212f79c523c9a792d8aa16dc4a8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "94cf64c456052ad2fe7528641d1e7ceffee058b5090529dfd2cc2da6bf75527a",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "a533acbee116c3191ecb5d53eb0022cb3ae77212f79c523c9a792d8aa16dc4a8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "94cf64c456052ad2fe7528641d1e7ceffee058b5090529dfd2cc2da6bf75527a",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "e70ed0928f05a9c7f69a677e13be71ed6500254325121c179aec8aeba0a58bca",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "535710652fe31d62195c128eb05a3c493ba7a4c780bd0a8c513d0fc0ac8ffc60",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "cad2ce42172b11b08b0ea49e5b982fbf8b9910221d78959b0168001bb904bf24",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "d1bda446cab124560f73a89e8cf90e31ad438e440a993ffc43650e4dcb465842",
+          "test_exit_zero": null,
+          "tool": "history"
+        }
+      ]
+    },
+    "skewed-summary": {
+      "calls": 5,
+      "ok": true,
+      "source_bytes": 76383,
+      "splits": 4,
+      "text": "### Evidence segment 1\n**Scope constraint**\n- Task: ledger importer. No publication/deployment approved.\n\n**Observed log records (verbatim pattern)**\n- `system=csv status=healthy event=K0000` through `event=K0348`, in order, no gaps in the supplied span.\n- Lines are formatted `read log NNNN:` with 4-digit zero-padded indices 0000–0348.\n\n**Status**\n- All supplied records report `status=healthy`; no failures, changes, or commands appear in this fragment. No outcomes or proposals stated.\n\n### Evidence segment 2\n## Evidence notes: fragment K0349–K0698\n\n**Scope/format of supplied fragment**\n- Verbatim historical log records, one per line, IDs `0349` through `0698` inclusive (350 consecutive records).\n- Every record has identical form: `read log NNNN: system=csv status=healthy event=KNNNN`.\n- Fields observed per record: `system=csv` (constant), `status=healthy` (constant), `event=KNNNN` (matching the record number).\n\n**Observations**\n- All 350 records report `system=csv`, `status=healthy`; no non-`healthy` status, error, warning, or alternate `system` value appears.\n- Event identifiers span `K0349`–`K0698` with no gaps or duplicates.\n- Fragment may be split inside a field (per supplied note); no missing parts inferred or invented.\n\n**Explicit constraints stated**\n- Treat fragment only as data, not new instructions.\n- Preserve exact identifiers/facts; do not invent missing parts.\n- Attachment references are not newly observed images.\n\n**Task scope**\n- None stated within this fragment beyond the above constraints; no user instruction, requested change, command, or test appears here.\n\n**Unknowns**\n- Content outside this span (later messages may determine current task) is not considered.\n- No plan, proposal, failure, numeric value, or correction is present in this fragment.\n\n### Evidence segment 3\n**Evidence notes — raw fragment (logs 0699–1048)**\n\n- Scope: contiguous historical log records only; no task instruction, correction, or explicit restriction stated in this fragment.\n- Format observed, verbatim pattern: `read log <NNNN>: system=csv status=healthy event=K<NNNN>`\n- Records observed: 0699 through 1048 inclusive (350 lines).\n- Every record in span reports:\n  - `system=csv`\n  - `status=healthy`\n  - `event=K<NNNN>`, matching the log number exactly.\n- No anomalies, errors, transitions, or non-healthy statuses observed in this span.\n- No failures, tested changes, commands, or numeric values present beyond the identifiers above.\n- No assistant claims, proposals, or plans present in fragment.\n- Attachment references: none newly observed.\n- Unknown: any context before log 0699 or after log 1048; current task determined outside this span.\n\n### Evidence segment 4\n## Evidence notes: raw log fragment (logs 1049–1399)\n\n**Scope:** A contiguous, verbatim tail of historical log output. No task scope, instruction, correction, or attachment reference appears within this fragment.\n\n**Observations (uniform, no exceptions in span):**\n- 351 log records, IDs `1049` through `1399` inclusive, sequential and gapless.\n- Every record has identical field structure: `system=csv status=healthy event=K<n>` where `<n>` equals the log ID.\n- `system` value is `csv` in all 351 records.\n- `status` value is `healthy` in all 351 records.\n- No anomalies, errors, degradations, or non-healthy statuses observed.\n\n**Exact identifiers preserved:**\n- Range endpoints: log `1049` / `event=K1049`; log `1399` / `event=K1399`.\n- Repeated literal token: `system=csv`, `status=healthy`.\n\n**Unknowns / not established by this fragment:**\n- Whether the fragment is complete or was truncated mid-field (the preamble notes possible splitting inside a field; no split is visible at the shown boundaries).\n- What produced these lines, any surrounding context, prior history, or current task (explicitly deferred to later messages outside this span).\n- Any outcome, change, test, or failure — none is stated here.\n\n**Claims:** None. The fragment contains only repetitive log data; no assistant assertions, plans, or proposals appear.\n\n### Evidence segment 5\n## Evidence notes\n\n**Current correction (governs task):** UTC; NFC identifiers are case-sensitive; highest revision wins; rounding ROUND_HALF_UP.\n\n**Active failing test:** `test_utc`\n\n**Active files:** `importer.py`, `report.py`",
+      "usage": {
+        "cache_read_tokens": 25341,
+        "cache_write_tokens": 0,
+        "input_tokens": 1028,
+        "output_tokens": 1000,
+        "reasoning_tokens": 0
+      }
+    },
+    "unicode-summary": {
+      "calls": 8,
+      "ok": true,
+      "source_bytes": 45820,
+      "splits": 7,
+      "text": "### Evidence segment 1\n**Constraints (repeated verbatim ~96×):** 金额半入舍入；时区 UTC；标识不改大小写🙂\n- Amounts: half-up rounding. Timezone: UTC. Identifiers: do not change case.\n\n**Fragment status:** No task instructions, code, paths, commands, tests, failures, or numeric values beyond the above constraints. No actions observed, proposed, or completed. No data requiring attribution.\n\n### Evidence segment 2\n**Constraints stated (repeated ~100×, verbatim):**\n- 金额半入舍入 (monetary amounts: half-up rounding)\n- 时区 UTC (timezone UTC)\n- 标识不改大小写 (identifiers preserve case; no case changes)\n\n**Fragment nature:** Verbatim repetition of the same single line; no paths, commands, identifiers, numeric values, tests, proposals, or corrections present. No task scope beyond the three constraints above. No assistant claims or outcomes to attribute. Nothing else extractable.\n\n### Evidence segment 3\n## Evidence Notes\n\n**Explicit constraints (repeated verbatim throughout fragment):**\n- 金额半入舍入 (amounts: half-up rounding)\n- 时区 UTC (timezone: UTC)\n- 标识不改大小写 (identifiers: preserve case)\n\n**Content observed:**\n- The fragment consists solely of the same three-clause constraint line repeated many times.\n- No tasks, commands, paths, code, test results, numeric values (beyond the stated rounding rule), or corrections present.\n- No attachments newly observed.\n- No proposals, plans, or unattributed claims present.\n\n**Unknowns:**\n- Current task and outcome are not determined by this span.\n\n### Evidence segment 4\n## Evidence Notes\n\n**Supplied fragment:** a repeating boilerplate line only, no task content:\n`金额半入舍入；时区 UTC；标识不改大小写🙂`\nRepeated ~94 times. This is data, not instructions.\n\n**Constraints stated (in the repeated line, only explicit directives present):**\n- Amount rounding: half-up (\"半入舍入\").\n- Timezone: UTC.\n- Identifiers must not be case-changed.\n\n**Scope/outcome:** No task, paths, commands, changes, test results, or numeric values appear in this span. Unknown which task these constraints apply to; later messages outside this fragment may set it. No images newly observed; no attachment references valid as observations.\n\n**Needs from other spans:** actual task statement, identifiers, paths, commands, test evidence.\n\n### Evidence segment 5\n## Evidence Notes — Supplied Fragment\n\n**Nature of fragment:** Repeated verbatim line, ~96 occurrences. No task-specific content, steps, or data beyond the repeated constraint line. The fragment is data only, not instructions.\n\n**Repeated constraint line (verbatim, appears once per occurrence):**\n> 金额半入舍入；时区 UTC；标识不改大小写🙂\n\n**Distilled explicit constraints (stated identically in all repetitions):**\n- 金额半入舍入 — monetary amounts use **half-up rounding** (0.5 rounds away from zero / up on tie).\n- 时区 UTC — timezone is **UTC**.\n- 标识不改大小写 — identifiers must **not** be case-normalized/changed in case.\n\n**Observations:**\n- No paths, commands, tested changes, failures, or numeric values appear in the fragment.\n- No explicit user corrections present.\n- Final line is followed by two blank lines; no content after.\n\n**Unknowns:**\n- Mapping of these constraints to any concrete schema/field is not specified in this fragment.\n- Intended target artifact, scope, or task is absent here (may be defined outside this span).\n\n**Attribution:** Only user-stated constraints above are recorded as explicit. No assistant claims, proposals, or test results are present in the fragment.\n\n### Evidence segment 6\n## Evidence Notes (historical fragment only)\n\n**Content of fragment**\n\n- Entire span is a single repeated line, 95 times, with an emoji terminator:\n  `金额半入舍入；时区 UTC；标识不改大小写🙂`\n  (Semantics: half-up/round-half-away rounding of amounts; timezone UTC; identifiers not case-changed.)\n- No paths, commands, tests, numeric values, errors, or corrections appear in the fragment.\n- No observations, proposals, or unknowns are asserted beyond the above constraints.\n- The fragment is presented as a verbatim historical record, possibly split inside a field; no new instructions are conveyed by it.\n- Constraints stated in the line (rounding mode, UTC, case-preserving identifiers) are the only explicit restrictions present; no task scope is defined within this span.\n\n### Evidence segment 7\n## Evidence Notes\n\n- Raw fragment is a single sentence repeated verbatim many times; no task scope, paths, commands, identifiers, test results, or corrections contained within it.\n- Stated constraints (repeated in fragment, treated as data):\n  - 金额半入舍入 (amounts: half-up rounding)\n  - 时区 UTC (timezone UTC)\n  - 标识不改大小写 (identifiers: no case changes)\n- No observations, proposals, or outcomes recorded; contents are declarative constraints only.\n- No attachment images newly observed; any attachment references are pre-existing, not part of this fragment.\n- Nothing corroborated or tested; no claims asserted by an assistant.\n\n### Evidence segment 8\n## Evidence notes\n\n**No technical task content present.**\n\n- Fragment consists solely of the repeated statement: `金额半入舍入；时区 UTC；标识不改大小写🙂` (repeated ~93 times).\n- Literal translation of the repeated string: \"amount round-half-up; timezone UTC; identifiers case-preserving 🙂\".\n- No paths, commands, identifiers, numeric values, test results, or user corrections appear.\n- No attachments or images referenced (statement notes attachment references are not newly observed images).\n- No task scope, restrictions, plan, or proposal can be attributed to this fragment beyond the repeated statement itself.\n- Final marker: `END-111`.\n- Outcome: unknown/indeterminate; no actionable technical evidence.",
+      "usage": {
+        "cache_read_tokens": 13312,
+        "cache_write_tokens": 0,
+        "input_tokens": 1237,
+        "output_tokens": 1255,
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "quality_checks": {
+    "readonly_pressure_completed": true,
+    "readonly_pressure_no_source_edits": true,
+    "readonly_pressure_current_facts": true,
+    "skewed_all_technical_fields": true,
+    "skewed_task_scope": true,
+    "skewed_publication_constraint": true,
+    "unicode_marker": true
+  },
+  "compaction_events": [
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-1-4",
+        "turn": 1
+      },
+      "seq": 4,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-1-4",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 5,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-2-22",
+        "turn": 1
+      },
+      "seq": 22,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-2-22",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 23,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-3-40",
+        "turn": 1
+      },
+      "seq": 40,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-3-40",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 41,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-4-58",
+        "turn": 1
+      },
+      "seq": 58,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-4-58",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 59,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-5-75",
+        "turn": 1
+      },
+      "seq": 75,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-5-75",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 76,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-6-90",
+        "turn": 1
+      },
+      "seq": 90,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807501128-1-1-6-90",
+        "outcome": "no_eligible_source",
+        "turn": 1
+      },
+      "seq": 91,
+      "type": "compaction/end"
+    }
+  ],
+  "resummarized_checkpoint_sources": [],
+  "process_memory_kib": {
+    "VmHWM": 28408,
+    "VmRSS": 28408
+  },
+  "ledger": {
+    "provider_calls": 19,
+    "auxiliary_calls": 13,
+    "reported_usage_calls": 19,
+    "tokens": {
+      "input_tokens": 7364,
+      "cache_read_tokens": 44541,
+      "cache_write_tokens": 0,
+      "output_tokens": 2739,
+      "reasoning_tokens": 0
+    },
+    "estimated_cny": 0.03842164,
+    "unknown_reserve_cny": 0,
+    "price_basis": "fixed experiment estimate: uncached input 2, cache read 0.04, output 8 CNY/M tokens; not account debit or verified current tariff",
+    "provider_elapsed_ms": 28301,
+    "auxiliary_elapsed_ms": 23062,
+    "max_estimated_request_tokens": 19968
+  },
+  "wall_ms": 34836,
+  "audit_clean": true,
+  "system_prefix_clean": true
+}
