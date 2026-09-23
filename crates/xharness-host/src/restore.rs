@@ -52,7 +52,20 @@ pub struct HostRestoreReport {
     pub resumed_pending_approvals: usize,
     pub resumed_user_questions: usize,
     pub waiting_next_step_inputs: usize,
+    pub paused_incomplete_tool_sessions: usize,
     pub issues: Vec<HostRestoreIssue>,
+}
+
+/// Startup behavior for work that was interrupted after a model emitted a
+/// tool call but before an authoritative tool result was recorded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecoveryPolicy {
+    /// Compatibility mode for embedded callers that explicitly own recovery.
+    #[default]
+    ResumeIncompleteTools,
+    /// Native product mode: reconstruct the session but require a new explicit
+    /// user prompt before any interrupted work can proceed.
+    PauseIncompleteTools,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -86,6 +99,30 @@ impl BasicHost {
         self: &Arc<Self>,
         store: Arc<dyn Store>,
     ) -> Result<HostRestoreReport, HostRestoreError> {
+        self.restore_from_store_with_policy(store, RecoveryPolicy::default())
+            .await
+    }
+
+    pub async fn restore_from_store_with_policy(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+        recovery_policy: RecoveryPolicy,
+    ) -> Result<HostRestoreReport, HostRestoreError> {
+        self.restore_from_store_with_policy_and_progress(store, recovery_policy, || {})
+            .await
+    }
+
+    /// Variant used by native composition to publish a closed startup stage
+    /// exactly when history replay transitions into model reconciliation.
+    pub async fn restore_from_store_with_policy_and_progress<F>(
+        self: &Arc<Self>,
+        store: Arc<dyn Store>,
+        recovery_policy: RecoveryPolicy,
+        model_reconciliation_started: F,
+    ) -> Result<HostRestoreReport, HostRestoreError>
+    where
+        F: FnOnce(),
+    {
         self.start_background_turn_listener();
         self.restore_control_state().await?;
         // Persisted model overrides and credentials must be activated before
@@ -163,6 +200,9 @@ impl BasicHost {
             let queued_user_prompt = queue.iter().any(|prompt| prompt.user_mutable());
             let pending_approval_count = session.pending_tool_approvals().len();
             let recoverable_question_count = session.recoverable_user_questions().len();
+            let pause_incomplete_tools =
+                matches!(recovery_policy, RecoveryPolicy::PauseIncompleteTools)
+                    && !xharness_session::incomplete_tool_calls(session.events()).is_empty();
             let runtime_background_work = match self.agent_runtime.needs_session_resume(&session) {
                 Ok(required) => required,
                 Err(error) => {
@@ -215,7 +255,8 @@ impl BasicHost {
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
             let record = SessionRecord {
-                dispatch_paused: crate::delegation::restored_dispatch_paused(&session),
+                dispatch_paused: crate::delegation::restored_dispatch_paused(&session)
+                    || pause_incomplete_tools,
                 delegated: crate::delegation::restored_delegation(&session).is_some(),
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
@@ -265,7 +306,16 @@ impl BasicHost {
             }
             report.restored_sessions += 1;
             report.waiting_next_step_inputs += inbox.next_step().len();
-            if (!crate::delegation::restored_dispatch_paused(&session) || queued_user_prompt)
+            if pause_incomplete_tools {
+                report.paused_incomplete_tool_sessions += 1;
+                report.issues.push(HostRestoreIssue {
+                    session_id: session_id.clone(),
+                    message: "interrupted tool work was restored paused; send a new user prompt to continue"
+                        .to_owned(),
+                });
+            }
+            if !pause_incomplete_tools
+                && (!crate::delegation::restored_dispatch_paused(&session) || queued_user_prompt)
                 && (projected_queue_len > 0
                     || pending_approval_count > 0
                     || recoverable_question_count > 0
@@ -417,6 +467,7 @@ impl BasicHost {
         // it, and the registry that was just refreshed is the authority on what
         // is still offered. Repair before publishing so a healthy provider is
         // not reported as an unavailable model.
+        model_reconciliation_started();
         report.issues.extend(self.reconcile_model_routes().await);
         // Publishing the issues on the Host state is what makes them reachable
         // from the product surface (`host.describe`) rather than only stderr.
@@ -2932,6 +2983,101 @@ mod tests {
         assert!(projected
             .iter()
             .all(|event| event["data"].get("removed_count").is_none()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pause_policy_does_not_resume_an_incomplete_tool_call() {
+        let cwd = std::env::temp_dir();
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let mut header = SessionHeader::new("paused-tool-restart");
+        header.cwd = Some(cwd.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let call = ToolCall {
+            id: "execution-paused".to_owned(),
+            provider_call_id: Some("provider-paused".to_owned()),
+            index: 0,
+            name: "guarded".to_owned(),
+            arguments_json: "{}".to_owned(),
+        };
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(call.clone());
+        store
+            .append(
+                "paused-tool-restart",
+                Revision::ZERO,
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::AssistantMessage {
+                        turn: 1,
+                        step: 1,
+                        message: assistant,
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::ToolCall {
+                        turn: 1,
+                        step: 1,
+                        call: call.clone(),
+                    }
+                    .into(),
+                    EventData::ApprovalAsked {
+                        id: "approval-paused".to_owned(),
+                        tool_name: "guarded".to_owned(),
+                        call_id: Some(call.id),
+                        reason: Some("requires explicit approval".to_owned()),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let provider: Arc<dyn ModelProvider> = Arc::new(ApprovalRecoveryProvider {
+            requests: Arc::clone(&requests),
+        });
+        let runtime = Arc::new(DurableLoopAgentRuntime::new(
+            "test",
+            "test-model",
+            Some(provider),
+            Arc::new(ApprovalRecoveryTools {
+                executions: Arc::clone(&executions),
+            }),
+            Arc::new(IdentityContextPolicy),
+            Arc::clone(&store),
+            Arc::new(MemoryLeaseManager::default()),
+            64,
+        ));
+        let host = BasicHost::with_agent_runtime(config(&cwd), runtime);
+        let report = host
+            .restore_from_store_with_policy(
+                Arc::clone(&store),
+                RecoveryPolicy::PauseIncompleteTools,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(report.paused_incomplete_tool_sessions, 1);
+        assert_eq!(report.resumed_pending_approvals, 0);
+        assert_eq!(report.resumed_pending_turns, 0);
+        assert_eq!(executions.load(Ordering::SeqCst), 0);
+        assert!(requests.lock().unwrap().is_empty());
+        let state = host.state.read().await;
+        let record = state.sessions.get("paused-tool-restart").unwrap();
+        assert!(record.dispatch_paused);
+        assert!(!record.running);
+        drop(state);
+        let durable = store.load("paused-tool-restart").await.unwrap().unwrap();
+        assert_eq!(
+            xharness_session::incomplete_tool_calls(durable.events()).len(),
+            1
+        );
+        assert!(!durable.events().iter().any(|event| matches!(
+            event.data(),
+            EventData::ToolResult { result, .. } if result.call_id == "execution-paused"
+        )));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
