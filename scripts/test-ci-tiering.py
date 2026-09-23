@@ -56,6 +56,7 @@ class CiTieringContract(unittest.TestCase):
 
     def test_linux_native_sandbox_is_installed_and_probed_before_tests(self) -> None:
         body = job(workflow_source(), "rust-linux")
+        self.assertIn("runs-on: ubuntu-22.04", body)
         install = body.index("sudo apt-get install -y ripgrep bubblewrap")
         probe = body.index("bwrap --unshare-user --unshare-pid --unshare-net")
         tests = body.index("cargo test --workspace --all-targets")
