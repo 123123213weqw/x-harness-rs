@@ -619,7 +619,10 @@ impl StartupWaitBudget {
     }
 
     fn observe(&mut self, sequence: u64, now: Instant) -> bool {
-        if self.last_sequence.is_some_and(|previous| sequence <= previous) {
+        if self
+            .last_sequence
+            .is_some_and(|previous| sequence <= previous)
+        {
             return false;
         }
         self.last_sequence = Some(sequence);
