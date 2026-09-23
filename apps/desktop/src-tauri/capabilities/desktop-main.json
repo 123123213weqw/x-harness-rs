@@ -15,6 +15,7 @@
     "allow-desktop-check-update",
     "allow-desktop-update-status",
     "allow-desktop-download-update",
-    "allow-desktop-install-update"
+    "allow-desktop-install-update",
+    "allow-desktop-set-computer-activity"
   ]
 }

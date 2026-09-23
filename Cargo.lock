@@ -3337,6 +3337,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "xharness-computer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "xharness-tools",
+]
+
+[[package]]
+name = "xharness-computer-macos"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "xharness-computer",
+]
+
+[[package]]
 name = "xharness-context"
 version = "0.1.0"
 dependencies = [
@@ -3485,6 +3510,8 @@ dependencies = [
  "xharness-attachments",
  "xharness-coding-tools",
  "xharness-compaction",
+ "xharness-computer",
+ "xharness-computer-macos",
  "xharness-control",
  "xharness-core",
  "xharness-debug",

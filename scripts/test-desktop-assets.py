@@ -27,9 +27,18 @@ def verify(app=None):
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
     assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
+    computer_plugin = 'plugins/@xlang/xharness-client-ui-computer/client.js'
     assert (ROOT / 'ui' / directory_plugin).read_bytes() == (ROOT / 'ui/dist' / directory_plugin).read_bytes(), 'stale directory flow in ui/dist'
+    assert (ROOT / 'ui' / computer_plugin).read_bytes() == (ROOT / 'ui/dist' / computer_plugin).read_bytes(), 'stale computer privacy UI in ui/dist'
     graph = json.loads((ROOT / 'ui/dist/client-graph.json').read_text(encoding='utf-8'))
     assert any(entry['id'] == '@xlang/xharness-client-ui-directory' for entry in graph['entries']), 'missing directory flow in boot graph'
+    assert any(entry['id'] == '@xlang/xharness-client-ui-computer' for entry in graph['entries']), 'missing computer privacy UI in boot graph'
+    manifest = (desktop / 'build.rs').read_text(encoding='utf-8')
+    capability = json.loads((desktop / 'capabilities/desktop-main.json').read_text(encoding='utf-8'))
+    assert 'desktop_set_computer_activity' in manifest, 'native computer activity command missing from desktop manifest'
+    assert 'allow-desktop-set-computer-activity' in capability['permissions'], 'native computer activity bridge is not authorized'
+    native_activity = (desktop / 'src/computer_activity.rs').read_text(encoding='utf-8')
+    assert 'NSPanel' in native_activity and 'NSWindowSharingType::None' in native_activity, 'macOS privacy overlay is missing or capturable'
     if app:
         app = Path(app)
         info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
@@ -44,6 +53,7 @@ def verify(app=None):
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json',
                          directory_plugin,
+                         computer_plugin,
                          'plugins/@xharness/dsh-client-connection/client.js',
                          'plugins/@xharness/dsh-client-ui-model-selection/client.js']:
             assert digest(web / relative) == digest(ROOT / 'ui/dist' / relative), f'packaged UI is stale: {relative}'
