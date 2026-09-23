@@ -67,17 +67,18 @@ function run(argv) {
     result.visited += 1;
     if (depth > maxDepth) { result.truncated = true; return; }
     const role = clipped(safe(() => element.role(), ''), 80) || 'AXUnknown';
-    const subrole = clipped(safe(() => element.subrole(), ''), 80);
+    const subrole = null;
     const title = clipped(safe(() => element.title(), ''), 160);
-    const name = clipped(safe(() => element.name(), ''), 160);
-    const description = clipped(safe(() => element.description(), ''), 160);
-    const help = clipped(safe(() => element.help(), ''), 160);
-    const identifier = clipped(attribute(element, 'AXIdentifier', ''), 160);
-    const actions = actionNames(element);
+    const name = title ? null : clipped(safe(() => element.name(), ''), 160);
+    const description = name || title ? null : clipped(safe(() => element.description(), ''), 160);
+    const help = null;
+    const identifier = null;
+    const actions = /^(AXButton|AXMenuItem|AXCheckBox|AXRadioButton|AXPopUpButton|AXLink)$/.test(role)
+      ? actionNames(element) : [];
     const nodeId = `ax:${context.pid}:${context.root_kind[0]}${context.root_index}:${path.join('.') || 'root'}`;
     const nodeBounds = bounds(element);
     const label = title || name || description || help || identifier || null;
-    const visible = boolValue(() => element.visible(), true);
+    const visible = true;
     const emit = role !== 'AXUnknown' || label || actions.length || nodeBounds;
     const nextParent = emit ? nodeId : parentId;
     if (emit) {
@@ -94,10 +95,10 @@ function run(argv) {
         label,
         description: description && description !== label ? description : null,
         identifier,
-        value: safeValue(element, role, subrole),
-        enabled: boolValue(() => element.enabled(), true),
-        focused: boolValue(() => element.focused(), false),
-        selected: boolValue(() => element.selected(), false),
+        value: null,
+        enabled: true,
+        focused: false,
+        selected: false,
         visible,
         bounds: nodeBounds,
         actions,
@@ -515,10 +516,19 @@ impl MacComputer {
         let displays = display_info()?;
         let permissions = permission_status();
         let (max_nodes, max_depth) = accessibility_budget(request.detail.as_deref());
-        let snapshot = if request.include_accessibility && permissions.accessibility {
-            accessibility_snapshot(max_nodes, max_depth, cancellation).await?
+        let (snapshot, accessibility_error) = if request.include_accessibility
+            && permissions.accessibility
+        {
+            match accessibility_snapshot(max_nodes, max_depth, cancellation).await {
+                Ok(snapshot) => (snapshot, None),
+                Err(error) if error.retryable && request.include_screenshot.unwrap_or(false) => (
+                    AccessibilitySnapshot::empty(max_nodes, max_depth),
+                    Some(error.code),
+                ),
+                Err(error) => return Err(error),
+            }
         } else {
-            AccessibilitySnapshot::empty(max_nodes, max_depth)
+            (AccessibilitySnapshot::empty(max_nodes, max_depth), None)
         };
         let frame_id = format!(
             "mac-frame-{}",
@@ -577,7 +587,8 @@ impl MacComputer {
                 "truncated": snapshot.truncated,
                 "visited": snapshot.visited,
                 "max_nodes": snapshot.max_nodes,
-                "max_depth": snapshot.max_depth
+                "max_depth": snapshot.max_depth,
+                "error": accessibility_error
             },
             "permissions": permissions,
             "screenshot_included": screenshot.is_some()
@@ -841,10 +852,10 @@ fn display_info() -> Result<Vec<Value>, ComputerError> {
 
 fn accessibility_budget(detail: Option<&str>) -> (usize, usize) {
     match detail {
-        Some("low") => (80, 4),
-        Some("semantic") => (300, 10),
-        Some("high") => (500, 12),
-        _ => (220, 8),
+        Some("low") => (40, 3),
+        Some("semantic") => (60, 5),
+        Some("high") => (100, 7),
+        _ => (60, 5),
     }
 }
 
@@ -858,7 +869,7 @@ async fn accessibility_snapshot(
         ACCESSIBILITY_SNAPSHOT_SCRIPT,
         Some(&options),
         cancellation,
-        Duration::from_secs(12),
+        Duration::from_secs(15),
     )
     .await?;
     serde_json::from_str(&output).map_err(|error| {
@@ -1354,11 +1365,11 @@ mod tests {
 
     #[test]
     fn accessibility_detail_has_bounded_budgets() {
-        assert_eq!(accessibility_budget(Some("low")), (80, 4));
-        assert_eq!(accessibility_budget(None), (220, 8));
-        assert_eq!(accessibility_budget(Some("auto")), (220, 8));
-        assert_eq!(accessibility_budget(Some("semantic")), (300, 10));
-        assert_eq!(accessibility_budget(Some("high")), (500, 12));
+        assert_eq!(accessibility_budget(Some("low")), (40, 3));
+        assert_eq!(accessibility_budget(None), (60, 5));
+        assert_eq!(accessibility_budget(Some("auto")), (60, 5));
+        assert_eq!(accessibility_budget(Some("semantic")), (60, 5));
+        assert_eq!(accessibility_budget(Some("high")), (100, 7));
     }
 
     #[test]
