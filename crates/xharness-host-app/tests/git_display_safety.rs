@@ -10,15 +10,25 @@ use xharness_platform::NativePlatform;
 struct Repository(PathBuf);
 impl Repository {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "xh-git-display-中文-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
+        // Windows wall-clock resolution is not a uniqueness guarantee when
+        // tests create repositories concurrently. Own each directory exclusively.
+        static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = loop {
+            let sequence = NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "xh-git-display-中文-{}-{}-{sequence}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            match std::fs::create_dir(&root) {
+                Ok(()) => break root,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot exclusively create Git fixture {root:?}: {error}"),
+            }
+        };
         let fixture = Self(std::fs::canonicalize(root).unwrap());
         fixture.git(&["init", "-q"]);
         fixture.git(&["config", "user.name", "Git Display Test"]);
@@ -255,6 +265,13 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
     source.write("main.txt", "remote baseline\n");
     source.commit();
     source.git(&["config", "uploadpack.allowFilter", "true"]);
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD:main.txt"])
+        .current_dir(&source.0)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let target_oid = String::from_utf8(output.stdout).unwrap().trim().to_owned();
     let fixture = Repository::new();
     // The same file transport is a functional fallback: the control clone can
     // lazily read the promised blob. Production preview must not use it.
@@ -279,21 +296,42 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
             name,
         ]);
     }
-    fn assert_missing_promised_blob(root: &std::path::Path) {
+    fn local_object_ids(root: &std::path::Path) -> std::collections::BTreeSet<String> {
+        // -e is not a physical-presence oracle for promised objects across Git
+        // versions. Enumerate the actual object stores without resolving or
+        // lazily fetching any promised object.
         let output = std::process::Command::new("git")
-            .args(["cat-file", "-e", "HEAD:main.txt"])
+            .args([
+                "cat-file",
+                "--batch-all-objects",
+                "--batch-check=%(objectname)",
+            ])
             .env("GIT_NO_LAZY_FETCH", "1")
             .env("GIT_ALLOW_PROTOCOL", "")
             .current_dir(root)
             .output()
             .unwrap();
         assert!(
-            !output.status.success(),
-            "fixture already had its promised blob"
+            output.status.success(),
+            "local object enumeration: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+    fn assert_missing_promised_blob(root: &std::path::Path, target_oid: &str) {
+        assert!(
+            !local_object_ids(root).contains(target_oid),
+            "fixture physically contains promised blob {target_oid} at {root:?}"
         );
     }
     let control = fixture.0.join("control");
-    assert_missing_promised_blob(&control);
+    assert_missing_promised_blob(&control, &target_oid);
+    let initial_partial_root = fixture.0.join("partial");
+    assert_missing_promised_blob(&initial_partial_root, &target_oid);
     let output = std::process::Command::new("git")
         .args(["show", "HEAD:main.txt"])
         .current_dir(&control)
@@ -307,6 +345,10 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
         "remote baseline\n"
+    );
+    assert!(
+        local_object_ids(&control).contains(&target_oid),
+        "positive control did not physically fetch the promised blob"
     );
     let root = std::fs::canonicalize(fixture.0.join("partial")).unwrap();
     let output = std::process::Command::new("git")
@@ -323,7 +365,7 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
         String::from_utf8_lossy(&output.stderr)
     );
     std::fs::write(root.join("main.txt"), "local working content\n").unwrap();
-    assert_missing_promised_blob(&root);
+    assert_missing_promised_blob(&root, &target_oid);
     // An explicit repository protocol allowance must not override the empty
     // environment whitelist. Exercise that fallback independently of no-lazy.
     let output = std::process::Command::new("git")
@@ -345,6 +387,7 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let objects_before = local_object_ids(&root);
     let index_before = std::fs::read(root.join(".git/index")).unwrap();
     fn pack_files(root: &std::path::Path) -> Vec<std::ffi::OsString> {
         let mut names = std::fs::read_dir(root.join(".git/objects/pack"))
@@ -364,7 +407,8 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
     assert!(
         error.contains("not allowed")
             || error.contains("unable to read")
-            || error.contains("bad object"),
+            || error.contains("bad object")
+            || error.contains("could not fetch"),
         "missing object must fail without fetching: {error}"
     );
     assert_eq!(
@@ -376,7 +420,12 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
         pack_files(&root),
         "preview fetched promised objects"
     );
-    assert_missing_promised_blob(&root);
+    assert_missing_promised_blob(&root, &target_oid);
+    assert_eq!(
+        objects_before,
+        local_object_ids(&root),
+        "preview changed physical objects"
+    );
 }
 
 #[test]
@@ -582,4 +631,47 @@ async fn git_filter_subsection_quotes_and_spaces_remain_single_config_arguments(
     let text = preview(&fixture.0, "main.txt", GitDiffScope::Working).await;
     assert!(text.contains("+literal working content"), "{text}");
     assert!(!text.contains("QUOTED_FILTER_EXECUTED"), "{text}");
+}
+
+#[test]
+fn git_fixture_parallel_allocations_are_unique_and_cleanup_isolated() {
+    const COUNT: usize = 16;
+    let barrier = Arc::new(std::sync::Barrier::new(COUNT));
+    let workers = (0..COUNT)
+        .map(|index| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let fixture = Repository::new();
+                fixture.write("owner.txt", &format!("fixture {index}"));
+                (index, fixture)
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut fixtures = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    let roots = fixtures
+        .iter()
+        .map(|(_, fixture)| fixture.0.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(roots.len(), COUNT);
+    for (index, fixture) in &fixtures {
+        assert_eq!(
+            std::fs::read_to_string(fixture.0.join("owner.txt")).unwrap(),
+            format!("fixture {index}")
+        );
+    }
+    let (_, removed) = fixtures.pop().unwrap();
+    let removed_path = removed.0.clone();
+    drop(removed);
+    assert!(!removed_path.exists());
+    for (index, fixture) in &fixtures {
+        assert_eq!(
+            std::fs::read_to_string(fixture.0.join("owner.txt")).unwrap(),
+            format!("fixture {index}"),
+            "cleanup removed another fixture"
+        );
+    }
 }

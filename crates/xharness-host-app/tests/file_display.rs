@@ -1,5 +1,11 @@
 use serde_json::json;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
     display::{DisplayFile, DisplayRead},
@@ -12,14 +18,30 @@ use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let p = std::env::temp_dir().join(format!(
-            "xh-file-preview-{}-{}",
-            std::process::id(),
+        Self::at(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
-        ));
+                .as_nanos(),
+        )
+    }
+    fn at(tick: u128) -> Self {
+        // Windows clock resolution is not a uniqueness guarantee. Reserve the
+        // directory atomically, and never share it with another fixture/drop.
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let p = loop {
+            let p = std::env::temp_dir().join(format!(
+                "xh-file-preview-{}-{}-{}",
+                std::process::id(),
+                tick,
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::create_dir(&p) {
+                Ok(()) => break p,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("fixture directory reservation failed: {error}"),
+            }
+        };
         std::fs::create_dir_all(p.join("docs")).unwrap();
         std::fs::write(
             p.join("docs/report.md"),
@@ -34,6 +56,36 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
         let _ = std::fs::remove_file(self.0.with_extension("outside.txt"));
+    }
+}
+#[test]
+fn same_clock_tick_fixtures_reserve_disjoint_directories_and_cleanup_only_their_own() {
+    let barrier = Arc::new(std::sync::Barrier::new(32));
+    let handles: Vec<_> = (0..32)
+        .map(|_| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                Fixture::at(42)
+            })
+        })
+        .collect();
+    let mut fixtures: Vec<_> = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect();
+    let paths: std::collections::HashSet<_> =
+        fixtures.iter().map(|fixture| fixture.0.clone()).collect();
+    assert_eq!(paths.len(), 32);
+    let removed = fixtures.pop().unwrap();
+    let removed_path = removed.0.clone();
+    drop(removed);
+    assert!(!removed_path.exists());
+    for fixture in &fixtures {
+        assert_eq!(
+            std::fs::read_to_string(fixture.0.join("main.rs")).unwrap(),
+            "fn main() {}\n"
+        );
     }
 }
 fn factory() -> Arc<NativeToolFactory> {
