@@ -195,18 +195,32 @@ async fn preview_rejects_escape_symlink_missing_binary_and_large_text() {
     assert!(!invalid.is_ok());
     let token = CancellationToken::new();
     token.cancel();
-    assert!(host
+    let cancelled = host
         .read_display_file(
             DisplayRead {
                 git_diff: None,
                 session_id: "s".into(),
                 path: "main.rs".into(),
-                relative_to: None
+                relative_to: None,
             },
-            token
+            token,
         )
         .await
-        .is_err());
+        .unwrap_err();
+    assert_eq!(cancelled.message, "file preview cancelled");
+    let file = host
+        .read_display_file(
+            DisplayRead {
+                git_diff: None,
+                session_id: "s".into(),
+                path: "main.rs".into(),
+                relative_to: None,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(file, DisplayFile::Text { text, .. } if text == "fn main() {}\n"));
 }
 #[tokio::test]
 async fn image_is_ephemeral_bounded_and_independent_of_model_vision() {

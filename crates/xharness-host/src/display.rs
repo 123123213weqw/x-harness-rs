@@ -20,6 +20,9 @@ impl BasicHost {
         request: DisplayRead,
         cancellation: CancellationToken,
     ) -> Result<DisplayFile, RpcError> {
+        if cancellation.is_cancelled() {
+            return Err(RpcError::bad_request("file preview cancelled", json!([])));
+        }
         if request.path.trim().is_empty()
             || request.path.len() > 4096
             || request.path.contains('\0')
@@ -67,8 +70,17 @@ impl BasicHost {
                 .map_err(|e| RpcError::bad_request(e, json!([])));
         }
         tokio::select! {
-            _=cancellation.cancelled()=>Err(RpcError::bad_request("file preview cancelled",json!([]))),
-            result=self.agent_runtime.read_display_file(&request.session_id,&cwd,permission,&path)=>result.map_err(|e|RpcError::bad_request(e,json!([])))
+            biased;
+            _ = cancellation.cancelled() => Err(RpcError::bad_request("file preview cancelled", json!([]))),
+            result = self.agent_runtime.read_display_file(&request.session_id, &cwd, permission, &path) => {
+                // The runtime can cancel and complete in the same poll, after
+                // the cancellation branch was polled Pending. Never project
+                // those bytes merely because the read branch became Ready.
+                if cancellation.is_cancelled() {
+                    return Err(RpcError::bad_request("file preview cancelled", json!([])));
+                }
+                result.map_err(|e| RpcError::bad_request(e, json!([])))
+            }
         }
     }
 }
@@ -167,6 +179,138 @@ pub(crate) async fn read_rpc(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        AgentRuntime, AgentRuntimeError, AgentTurnRequest, HostConfig, PermissionPreset,
+        RunningTurn,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xharness_api::{ApiBackend, RpcId, RpcMethod};
+
+    struct ReadyDisplayRuntime {
+        reads: AtomicUsize,
+        cancel_on_read: Option<CancellationToken>,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentRuntime for ReadyDisplayRuntime {
+        fn has_available_route(&self) -> bool {
+            false
+        }
+
+        fn can_route(&self, _: &crate::ModelRoute) -> bool {
+            false
+        }
+
+        async fn start_turn(
+            &self,
+            _: AgentTurnRequest,
+        ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+            panic!("a file preview must not start a model turn")
+        }
+
+        async fn read_display_file(
+            &self,
+            _: &str,
+            _: &str,
+            _: PermissionPreset,
+            path: &Path,
+        ) -> Result<DisplayFile, String> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            if let Some(token) = &self.cancel_on_read {
+                token.cancel();
+            }
+            // No await: cancellation and successful completion can become
+            // Ready in this very poll, without any timers or scheduler race.
+            Ok(DisplayFile::Text {
+                path: path.to_str().unwrap().into(),
+                text: "controlled preview bytes".into(),
+            })
+        }
+    }
+
+    async fn ready_host(
+        cancel_on_read: Option<CancellationToken>,
+    ) -> (Arc<BasicHost>, Arc<ReadyDisplayRuntime>) {
+        let runtime = Arc::new(ReadyDisplayRuntime {
+            reads: AtomicUsize::new(0),
+            cancel_on_read,
+        });
+        let cwd = std::env::temp_dir();
+        let host = BasicHost::with_agent_runtime(HostConfig::new(&cwd), runtime.clone());
+        let created = host
+            .call(
+                RpcId::new("create"),
+                RpcMethod::SessionCreate,
+                json!({"sessionId":"s","cwd":cwd}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(created.is_ok(), "{created:?}");
+        (host, runtime)
+    }
+
+    fn request() -> DisplayRead {
+        DisplayRead {
+            session_id: "s".into(),
+            path: "ready.txt".into(),
+            relative_to: None,
+            git_diff: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn precancelled_preview_never_calls_ready_runtime() {
+        let (host, runtime) = ready_host(None).await;
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = host.read_display_file(request(), token).await.unwrap_err();
+        assert_eq!(error.message, "file preview cancelled");
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_admission_wins_before_ready_runtime_is_polled() {
+        let (host, runtime) = ready_host(None).await;
+        let token = CancellationToken::new();
+        let state = host.state.write().await;
+        let read = host.read_display_file(request(), token.clone());
+        tokio::pin!(read);
+        // Admit an uncancelled request, then hold it precisely at the session
+        // read lock. On release, cancellation and runtime are both ready.
+        assert!(futures::poll!(&mut read).is_pending());
+        token.cancel();
+        drop(state);
+        assert_eq!(read.await.unwrap_err().message, "file preview cancelled");
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancellation_inside_ready_runtime_cannot_return_preview_bytes() {
+        let token = CancellationToken::new();
+        let (host, runtime) = ready_host(Some(token.clone())).await;
+        assert!(!token.is_cancelled());
+        let error = host
+            .read_display_file(request(), token.clone())
+            .await
+            .unwrap_err();
+        assert!(token.is_cancelled());
+        assert_eq!(error.message, "file preview cancelled");
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn uncancelled_ready_runtime_returns_preview_bytes() {
+        let (host, runtime) = ready_host(None).await;
+        let file = host
+            .read_display_file(request(), CancellationToken::new())
+            .await
+            .unwrap();
+        assert!(
+            matches!(file, DisplayFile::Text { text, .. } if text == "controlled preview bytes")
+        );
+        assert_eq!(runtime.reads.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn resource_parent_is_lexical_and_no_root_escape() {
         assert_eq!(
