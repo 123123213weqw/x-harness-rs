@@ -13,13 +13,12 @@ use xharness_host::{
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
-use xharness_host_app::{ManagedAgentMarkdownSink, NativeToolFactory};
+use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_with_debug_and_desktop_token};
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
-use xharness_web::WebRuntime;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -139,7 +138,7 @@ async fn run(args: Args, debug: DebugRecorder) -> Result<(), Box<dyn std::error:
     let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(sessions_dir)?.for_runtime());
     let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
     let schedules = ScheduleManager::new(Arc::clone(&store));
-    let web = WebRuntime::default().with_debug(debug.clone());
+    let web = configured_web_runtime(env::var("EXA_API_KEY").ok(), debug.clone())?;
     let tools = NativeToolFactory::new_with_questions_and_schedules(
         web,
         debug.clone(),

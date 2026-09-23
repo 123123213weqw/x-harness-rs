@@ -36,6 +36,10 @@ available model, and persist that selection.
 `--providers-file` remains an imported base layer; user changes are persisted in
 the selected `--state-dir` control log. Imported profiles cannot be removed via
 the custom-provider delete action; removing user overrides restores their base.
+On restart, the effective model document is recomputed from the **current**
+imported base plus saved user overrides; the old effective-value snapshot is
+never allowed to hide providers newly added by a deployment update. The same
+rebase is used by `settings.update`, `replace`, and `mutate`.
 Preserved metadata includes exact-model reasoning, upstream model aliases,
 capability probes and token budgets. Explicit context limits are recommended.
 When no limit is given for a new model, 32768 is an explicitly non-authoritative

@@ -4,12 +4,18 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
-type SessionGateMap = Arc<Mutex<std::collections::HashMap<(String, bool), Arc<Mutex<()>>>>>;
+// Keep only weak references in the index. An active guard (or a task waiting
+// for that guard) owns the strong Arc; completed one-shot operations such as
+// `agent-operation:*` must not leave a permanent map entry.
+type SessionGateMap =
+    Arc<Mutex<std::collections::HashMap<(String, bool), std::sync::Weak<Mutex<()>>>>>;
 
 mod control;
 mod credential_processor;
 mod delegation;
 mod delegation_concurrency;
+#[cfg(test)]
+mod gate_tests;
 mod goal_processor;
 mod goal_tool;
 mod goals;
@@ -181,7 +187,7 @@ pub struct BasicHost {
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     admission_gates: SessionGateMap,
-    projection_gates: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
+    projection_gates: Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
     background_listener_lifetime: Arc<driver::BackgroundListenerLifetime>,
     next_id: Arc<AtomicU64>,
@@ -308,11 +314,18 @@ impl BasicHost {
     async fn lock_session_gate(&self, session_id: &str, permission: bool) -> OwnedMutexGuard<()> {
         let gate = {
             let mut gates = self.admission_gates.lock().await;
-            Arc::clone(
-                gates
-                    .entry((session_id.to_owned(), permission))
-                    .or_insert_with(|| Arc::new(Mutex::new(()))),
-            )
+            // Prune expired keys before inserting. The map is normally tiny;
+            // unlike a size threshold, this also bounds sequential invalid IDs.
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            let key = (session_id.to_owned(), permission);
+            match gates.get(&key).and_then(std::sync::Weak::upgrade) {
+                Some(gate) => gate,
+                None => {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(key, Arc::downgrade(&gate));
+                    gate
+                }
+            }
         };
         gate.lock_owned().await
     }
@@ -320,11 +333,15 @@ impl BasicHost {
     pub(crate) async fn lock_projection(&self, session_id: &str) -> OwnedMutexGuard<()> {
         let gate = {
             let mut gates = self.projection_gates.lock().await;
-            Arc::clone(
-                gates
-                    .entry(session_id.to_owned())
-                    .or_insert_with(|| Arc::new(Mutex::new(()))),
-            )
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            match gates.get(session_id).and_then(std::sync::Weak::upgrade) {
+                Some(gate) => gate,
+                None => {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(session_id.to_owned(), Arc::downgrade(&gate));
+                    gate
+                }
+            }
         };
         gate.lock_owned().await
     }
