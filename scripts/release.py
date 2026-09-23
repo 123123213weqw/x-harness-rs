@@ -39,20 +39,45 @@ class TransportError(TaskError):
     pass
 
 
+def safe_get_endpoint(arguments):
+    # Queries/cursors and arbitrary CLI text are never diagnostics. Only the
+    # public REST resources used by this coordinator may appear in an error.
+    path = arguments[-1].split('?', 1)[0] if arguments else ''
+    workflows = '|'.join(re.escape(name) for name in sorted(
+        {'ci.yml', 'desktop-release-service.yml', *WORKFLOWS.values()}))
+    resource = (r'(?:git/ref/heads/master|releases|actions/variables/'
+                r'XHARNESS_(?:FRIENDS_RELEASE_REPOSITORY|MACOS_PREVIEW_CERT_SHA1)|'
+                r'actions/workflows/(?:' + workflows + r')/runs|'
+                r'actions/runs/[1-9][0-9]*(?:/artifacts|/attempts/[1-9][0-9]*/jobs)?)')
+    return path if re.fullmatch(r'repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/' + resource, path) else 'GitHub API'
+
+
 def require(condition, message):
     if not condition:
         raise TaskError(message)
 
 
 def gh(arguments, payload=None):
+    is_get = (len(arguments) >= 2 and arguments[0] == 'api' and payload is None
+              and all(option in ('--paginate', '--slurp') for option in arguments[1:-1]))
+    endpoint = safe_get_endpoint(arguments) if is_get else None
     try:
         result = subprocess.run(['gh', *arguments], input=json.dumps(payload) if payload is not None else None,
                                 text=True, encoding='utf-8', stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, timeout=90)
     except (OSError, subprocess.TimeoutExpired) as error:
+        if is_get:
+            raise TransportError(f'GitHub GET failed: {endpoint} (HTTP unknown)') from None
         raise TransportError('GitHub CLI unavailable or timed out; resume the same task, do not redispatch manually') from error
     if result.returncode:
         # Do not persist arbitrary CLI diagnostics, credentials or environment.
+        if is_get:
+            match = re.search(r'\(HTTP ([1-5][0-9]{2})\)', result.stderr or '')
+            status = int(match[1]) if match else None
+            message = f'GitHub GET failed: {endpoint} (HTTP {status if status is not None else "unknown"})'
+            if status is not None and 400 <= status < 500 and status not in (408, 429):
+                raise TaskError(message)  # Permissions/missing resources are not transient outages.
+            raise TransportError(message)
         raise TransportError('GitHub request failed; check gh authentication/network and resume the same task')
     return json.loads(result.stdout) if result.stdout.strip() else None
 
