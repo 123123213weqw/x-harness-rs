@@ -59,6 +59,10 @@ jobs:
         uses: ./.github/actions/desktop-release-service
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot GET repository Variables. Capture public policy
+          # from trusted workflow vars, never workflow_dispatch inputs.
+          XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+          XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_SCOPE: ${{ inputs.release_scope }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
