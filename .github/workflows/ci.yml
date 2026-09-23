@@ -363,8 +363,13 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
-      - name: Install search integration test dependency
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Install search and native read-only sandbox test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep bubblewrap
+          # Native Git previews must actually run the confined adapter, not
+          # skip or fall back to an unconfined child on a bare hosted runner.
+          bwrap --unshare-user --unshare-pid --unshare-net --die-with-parent --ro-bind / / /bin/true
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
