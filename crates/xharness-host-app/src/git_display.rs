@@ -494,6 +494,20 @@ fn git_config_path(root: &Path) -> std::path::PathBuf {
     path
 }
 
+async fn collect(
+    child: ProcessHandle,
+    cancellation: CancellationToken,
+    deadline: tokio::time::Instant,
+) -> Result<ProcessOutput, String> {
+    let cancel = child.cancellation();
+    let waiting = child.wait();
+    tokio::pin!(waiting);
+    tokio::select! {
+        result=&mut waiting=>result.map_err(|e|e.to_string()),
+        _=cancellation.cancelled()=>{cancel.cancel();let _=waiting.await;Err("Git preview cancelled".into())},
+        _=tokio::time::sleep_until(deadline)=>{cancel.cancel();let _=waiting.await;Err("Git preview timed out".into())}
+    }
+}
 #[cfg(test)]
 mod path_tests {
     use super::*;
@@ -557,20 +571,6 @@ mod path_tests {
     }
 }
 
-async fn collect(
-    child: ProcessHandle,
-    cancellation: CancellationToken,
-    deadline: tokio::time::Instant,
-) -> Result<ProcessOutput, String> {
-    let cancel = child.cancellation();
-    let waiting = child.wait();
-    tokio::pin!(waiting);
-    tokio::select! {
-        result=&mut waiting=>result.map_err(|e|e.to_string()),
-        _=cancellation.cancelled()=>{cancel.cancel();let _=waiting.await;Err("Git preview cancelled".into())},
-        _=tokio::time::sleep_until(deadline)=>{cancel.cancel();let _=waiting.await;Err("Git preview timed out".into())}
-    }
-}
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
