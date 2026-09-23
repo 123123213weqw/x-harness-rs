@@ -63,7 +63,10 @@ Schedule ID 在一个 Session 内单调分配且永不复用，避免删除、�
 
 投递使用由 Session、Schedule ID 和 occurrence 派生的稳定 Message ID。若 Inbox 已写入但
 `dispatch` 尚未落盘便崩溃，恢复逻辑可以识别已经存在的消息，禁止重复副作用。持久存储错误、
-日志非法状态或 CAS 长期不收敛时必须显式失败/休眠，不能假装提醒已成功。
+日志非法状态或 CAS 长期不收敛时必须显式失败/休眠，不能假装提醒已成功。已知投递成功但
+`dispatch` 写入发生瞬时冲突时，Owner 只保留并重试派发标记，不再调用
+`maintenance_followup`；若标记已追加但 flush 失败，先核对并完成 flush，不能重复追加。
+Host 重启后也先检查稳定 Message ID，再决定是否需要发送提醒。
 
 ## 注入安全
 

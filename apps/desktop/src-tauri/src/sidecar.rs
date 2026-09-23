@@ -83,11 +83,28 @@ impl DesktopState {
                 let candidate = app_config.join("providers.json");
                 candidate.is_file().then_some(candidate)
             });
-        let provider_env = providers_file
+        let mut provider_env = providers_file
             .as_deref()
             .map(|path| load_provider_env(path, &app_config))
             .transpose()?
             .unwrap_or_default();
+        // Finder/Explorer-launched apps do not reliably inherit shell exports.
+        // Reuse the existing private secret-file convention for optional web
+        // search, even when there is no providers.json.
+        let inherited_exa_key = env::var("EXA_API_KEY")
+            .ok()
+            .is_some_and(|key| !key.trim().is_empty());
+        let projected_exa_key = provider_env
+            .iter()
+            .any(|(name, value)| name == "EXA_API_KEY" && !value.trim().is_empty());
+        if !inherited_exa_key && !projected_exa_key {
+            if let Some(key) = provider_secret_candidates(&app_config, "EXA_API_KEY")
+                .into_iter()
+                .find_map(|path| read_nonempty_secret(&path))
+            {
+                provider_env.push(("EXA_API_KEY".to_owned(), key));
+            }
+        }
         Ok(Self {
             diagnostics: crate::diagnostics::Diagnostics::new(
                 app_cache.join("diagnostics"),
