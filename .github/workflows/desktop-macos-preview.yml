@@ -57,12 +57,12 @@ concurrency:
 env:
   PYTHONUTF8: '1'
   PREVIEW_TAG: desktop-preview
-  XHARNESS_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/download/desktop-preview/latest.json
-  XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_PREVIEW_UPDATER_PUBKEY || secrets.XHARNESS_TEST_UPDATER_PUBKEY }}
+  XHARNESS_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+  XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
 
 jobs:
   plan:
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/local/mac-install-20260923'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -117,8 +117,8 @@ jobs:
       ARCH: ${{ matrix.arch }}
       # Ad-hoc signing is the declared policy of this channel; no Apple identity is used.
       APPLE_SIGNING_IDENTITY: '-'
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_PREVIEW_UPDATER_PRIVATE_KEY || secrets.XHARNESS_TEST_UPDATER_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_PREVIEW_UPDATER_PASSWORD || secrets.XHARNESS_TEST_UPDATER_PASSWORD }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
