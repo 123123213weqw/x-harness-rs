@@ -7424,9 +7424,8 @@ async prompt(content, mode, signal, options = {}) {
 						this.conversation.prepend([], this.hasMore);
 						return;
 					}
-					const tail = older[older.length - 1];
-					if (tail === void 0 || tail.event.seq + 1 !== this.baseSeq) {
-						console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`);
+					if (!this.xhValidHistoryPage(older, this.baseSeq)) {
+						console.error(`[web-runtime] invalid projected history page before ${this.baseSeq}`);
 						this.hasMore = false;
 						this.conversation.prepend([], false);
 						return;
@@ -8775,8 +8774,8 @@ function installAtomicHistory(Assembler, Session) {
       if (generation !== this.openGeneration || this.openState !== 'open' || this.stitching) return;
       const value = responseValue(result), older = value.events;
       if (this.baseSeq !== beforeSeq) throw Error('History window changed during pagination; retry history loading');
-      if (older.length && (older.at(-1).event.seq + 1 !== beforeSeq || older[0].event.seq >= beforeSeq))
-        throw Error('History page discontinuous; retry history loading');
+      if (older.length && !this.xhValidHistoryPage(older, beforeSeq))
+        throw Error('History projected page is invalid; retry history loading');
       if (!older.length && value.hasMore) throw Error('History page made no progress; retry history loading');
       const entries = [...older, ...this.events.map((event, index) => ({ event, view: this.views[index] }))];
       this.installWindow(entries, value.hasMore);
@@ -8824,6 +8823,26 @@ installAtomicHistory(ConversationNodeAssembler, Session);
 // Product-owned history residency. This is NOT model context compaction.
 function installSessionHistoryCache(Session, SessionManager) {
   const defaults = Object.freeze({ maxInactiveSessions: 6, maxInactiveBytes: 64 * 1024 * 1024 });
+  // History pages contain the Host's conversation projection, not a raw slice
+  // of the durable journal. Completed streaming chunks can be folded and
+  // adjacent deltas can be coalesced, so a sound page is ordered and bounded
+  // by beforeSeq but is not required to contain every intervening seq.
+  function validProjectedHistoryPage(entries, beforeSeq) {
+    if (!Array.isArray(entries) || entries.length === 0 || !Number.isSafeInteger(beforeSeq)) return false;
+    let priorSeq = -1;
+    return entries.every(entry => {
+      const seq = entry?.event?.seq;
+      const ordered = Number.isSafeInteger(seq) && seq >= 0 && seq > priorSeq && seq < beforeSeq;
+      priorSeq = seq;
+      return ordered;
+    });
+  }
+  // loadOlder is defined by the upstream runtime. Keep the page contract on
+  // the Session prototype so the patched method and range restoration share
+  // exactly one validator.
+  Session.prototype.xhValidHistoryPage = function(entries, beforeSeq) {
+    return validProjectedHistoryPage(entries, beforeSeq);
+  };
   // Conservative payload weight, not a promise about JS heap/RSS. No JSON copy,
   // no strong global memo, and no recursive stack overflow on deeply nested data.
   function weight(value) {
@@ -8984,8 +9003,8 @@ function installSessionHistoryCache(Session, SessionManager) {
       if (generation !== this.openGeneration) return value;
       if (!result.ok) throw Error('History restore failed: ' + (result.error?.message ?? 'request rejected'));
       entries = result.value.events; hasMore = result.value.hasMore;
-      if (!entries.length || entries.at(-1).event.seq + 1 !== beforeSeq || entries[0].event.seq >= beforeSeq)
-        throw Error('History restore failed: non-contiguous page');
+      if (!validProjectedHistoryPage(entries, beforeSeq))
+        throw Error('History restore failed: invalid projected page');
       pages.push(entries);
     }
     if (generation !== this.openGeneration) return value;

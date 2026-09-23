@@ -111,6 +111,26 @@ try {
   select('c');c.history=async p=>p.beforeSeq?{result:{ok:false,error:{message:'offline'}}}:{result:{ok:true,value:pageOf()}};
   c.xhRestoreBaseSeq=1;await c.open();ok(c.openState==='error'&&c.xhRestoreBaseSeq===1,'restore failure keeps anchor range and error');
   c.history=api.sessions.history;await c.open();ok(c.openState==='open'&&c.baseSeq===1,'restore retry succeeds');
+  // Authoritative history is a projection: completed chunks disappear and
+  // adjacent deltas may coalesce. Sparse seqs are valid when strictly ordered,
+  // below beforeSeq, and non-overlapping across pages.
+  const sparsePageOf=(before=201)=>{const start=Math.max(1,before-50);return {events:Array.from({length:before-start},(_,i)=>start+i).filter(seq=>seq%7!==3).map(row),hasMore:start>1}};
+  c.xhRestoreBaseSeq=51;c.history=async p=>({result:{ok:true,value:sparsePageOf(p.beforeSeq)}});
+  const sparse=await c.restoreHistoryRange(sparsePageOf(),c.openGeneration);
+  ok(sparse.events[0].event.seq<=51&&sparse.events.at(-1).event.seq===200&&sparse.events.every((entry,i,all)=>i===0||entry.event.seq>all[i-1].event.seq),'sparse projected restore pages reach the saved anchor and stay ordered');
+  c.xhRestoreBaseSeq=undefined;
+  manager.summaries.push({sessionId:'sparse-older',running:false,blank:false,updatedAt:0});
+  const sparseOlder=manager.get('sparse-older');sparseOlder.history=async p=>({result:{ok:true,value:sparsePageOf(p.beforeSeq)}});
+  manager.select('sparse-older');await sparseOlder.open();const sparseBase=sparseOlder.baseSeq;await sparseOlder.loadOlder();
+  ok(sparseOlder.baseSeq<sparseBase&&sparseOlder.hasMore,'loadOlder accepts a projected page whose tail is not baseSeq - 1');
+  c.history=api.sessions.history;
+  c.xhRestoreBaseSeq=51;
+  for(const events of [[row(100),row(99)],[row(100),row(151)],[row(100),row(100)]]) {
+    let failed=false;c.history=async()=>({result:{ok:true,value:{events,hasMore:false}}});
+    try{await c.restoreHistoryRange(sparsePageOf(),c.openGeneration)}catch(error){failed=/invalid projected page/.test(String(error))}
+    ok(failed,'reordered, overlapping, and duplicate projected pages are rejected');
+  }
+  c.history=api.sessions.history;c.xhRestoreBaseSeq=undefined;
   // The server losing the requested range must show an error, not fabricate success.
   c.xhRestoreBaseSeq=1;
   for(const value of [{events:[],hasMore:false},{events:[row(190)],hasMore:false}]) {
@@ -118,6 +138,7 @@ try {
     ok(failed,'missing saved range is explicit');
   }
   c.xhRestoreBaseSeq=undefined;
+  select('c');await c.open();
   // Pending send is protected even before running/queue feedback arrives.
   let finishCommand;remote.commands.execute=()=>new Promise(r=>{finishCommand=r});
   const command=c.command('fixture');select('e');manager.historyCacheStats();
