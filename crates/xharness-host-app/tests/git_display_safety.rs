@@ -264,17 +264,83 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
     let source = Repository::new();
     source.write("main.txt", "remote baseline\n");
     source.commit();
-    source.git(&["config", "uploadpack.allowFilter", "true"]);
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD:main.txt"])
-        .current_dir(&source.0)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let target_oid = String::from_utf8(output.stdout).unwrap().trim().to_owned();
-    let fixture = Repository::new();
-    // The same file transport is a functional fallback: the control clone can
-    // lazily read the promised blob. Production preview must not use it.
+    fn git_with_input(root: &std::path::Path, args: &[&str], input: &[u8]) -> std::process::Output {
+        use std::io::Write;
+        let mut child = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            let mut stdin = child.stdin.take().unwrap();
+            stdin.write_all(input).unwrap();
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+    fn source_git_text(source: &Repository, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&source.0)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+    let target_oid = source_git_text(&source, &["rev-parse", "HEAD:main.txt"])
+        .trim()
+        .to_owned();
+    let head_oid = source_git_text(&source, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
+    // Build a genuine commit/tree-only promisor pack locally. A clone's remote
+    // may ignore blob:none; missingness must not depend on server negotiation.
+    let filtered_oids = source_git_text(
+        &source,
+        &[
+            "rev-list",
+            "--objects",
+            "--filter=blob:none",
+            "--no-object-names",
+            "HEAD",
+        ],
+    );
+    let expected_objects = filtered_oids
+        .lines()
+        .map(str::to_owned)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        expected_objects.len(),
+        2,
+        "fixture must contain exactly its commit and root tree"
+    );
+    assert!(expected_objects.contains(&head_oid));
+    assert!(
+        !expected_objects.contains(&target_oid),
+        "filtered object list contains target blob"
+    );
+    let pack = git_with_input(
+        &source.0,
+        &["pack-objects", "--stdout"],
+        filtered_oids.as_bytes(),
+    )
+    .stdout;
+    let control_fixture = Repository::new();
+    let partial_fixture = Repository::new();
+    // Both repositories use the same real source as a functional lazy-fetch
+    // fallback, but neither local object store receives the promised blob.
     let source_url = format!(
         "{}{}",
         if cfg!(windows) { "file:///" } else { "file://" },
@@ -285,21 +351,35 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
             .trim_start_matches(r"\\?\")
             .replace('\\', "/")
     );
-    for name in ["control", "partial"] {
-        fixture.git(&[
-            "clone",
-            "-q",
-            "--filter=blob:none",
-            "--no-checkout",
-            "--no-local",
-            &source_url,
-            name,
+    for destination in [&control_fixture, &partial_fixture] {
+        git_with_input(
+            &destination.0,
+            &["index-pack", "--stdin", "--promisor"],
+            &pack,
+        );
+        assert!(
+            std::fs::read_dir(destination.0.join(".git/objects/pack"))
+                .unwrap()
+                .any(|entry| entry.unwrap().path().extension()
+                    == Some(std::ffi::OsStr::new("promisor"))),
+            "fixture pack was not marked promisor"
+        );
+        destination.git(&["config", "core.repositoryformatversion", "1"]);
+        destination.git(&["config", "extensions.partialClone", "origin"]);
+        destination.git(&["config", "remote.origin.url", &source_url]);
+        destination.git(&[
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
         ]);
+        destination.git(&["config", "remote.origin.promisor", "true"]);
+        destination.git(&["config", "remote.origin.partialclonefilter", "blob:none"]);
+        destination.git(&["update-ref", "refs/heads/fixture", &head_oid]);
+        destination.git(&["symbolic-ref", "HEAD", "refs/heads/fixture"]);
     }
     fn local_object_ids(root: &std::path::Path) -> std::collections::BTreeSet<String> {
-        // -e is not a physical-presence oracle for promised objects across Git
-        // versions. Enumerate the actual object stores without resolving or
-        // lazily fetching any promised object.
+        // Enumerate actual stores, not an object lookup that could resolve or
+        // lazily fetch a promised object.
         let output = std::process::Command::new("git")
             .args([
                 "cat-file",
@@ -328,13 +408,23 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
             "fixture physically contains promised blob {target_oid} at {root:?}"
         );
     }
-    let control = fixture.0.join("control");
-    assert_missing_promised_blob(&control, &target_oid);
-    let initial_partial_root = fixture.0.join("partial");
-    assert_missing_promised_blob(&initial_partial_root, &target_oid);
+    let control = &control_fixture.0;
+    let initial_partial_root = &partial_fixture.0;
+    assert_eq!(
+        local_object_ids(control),
+        expected_objects,
+        "control pack differs from filtered object list"
+    );
+    assert_eq!(
+        local_object_ids(initial_partial_root),
+        expected_objects,
+        "production fixture pack differs from filtered object list"
+    );
+    assert_missing_promised_blob(control, &target_oid);
+    assert_missing_promised_blob(initial_partial_root, &target_oid);
     let output = std::process::Command::new("git")
         .args(["show", "HEAD:main.txt"])
-        .current_dir(&control)
+        .current_dir(control)
         .output()
         .unwrap();
     assert!(
@@ -347,10 +437,10 @@ async fn git_preview_missing_promisor_blob_does_not_lazily_fetch_from_a_working_
         "remote baseline\n"
     );
     assert!(
-        local_object_ids(&control).contains(&target_oid),
+        local_object_ids(control).contains(&target_oid),
         "positive control did not physically fetch the promised blob"
     );
-    let root = std::fs::canonicalize(fixture.0.join("partial")).unwrap();
+    let root = partial_fixture.0.clone();
     let output = std::process::Command::new("git")
         .args(["read-tree", "HEAD"])
         // read-tree itself may prefetch index blobs, so setup must disable it.

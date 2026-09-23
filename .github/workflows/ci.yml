@@ -362,6 +362,8 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          # Never restore vendored C archives compiled against newer glibc.
+          prefix-key: native-ubuntu-22.04-v1
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
