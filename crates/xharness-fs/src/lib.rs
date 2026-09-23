@@ -696,11 +696,30 @@ impl FsService {
         max_bytes: usize,
     ) -> Result<Vec<u8>, FsError> {
         validate_session_id(session_id)?;
+        self.read_bytes_inner(Some(session_id.to_owned()), target, max_bytes)
+            .await
+    }
+
+    /// Same race-safe, contained read, without blessing a model's later write.
+    /// UI inspection is not an observation made by the executing model.
+    pub async fn read_preview_bytes(
+        &self,
+        target: &FsTarget,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, FsError> {
+        self.read_bytes_inner(None, target, max_bytes).await
+    }
+
+    async fn read_bytes_inner(
+        &self,
+        session_id: Option<String>,
+        target: &FsTarget,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, FsError> {
         let (record, guard) = self.lock_target(target).await?;
         let root = self.inner.root.clone();
         let root_fd = self.inner.root_fd.clone();
         let observations = self.inner.observations.clone();
-        let session_id = session_id.to_owned();
         let key = target.key.clone();
         run_blocking(move || {
             let _guard = guard;
@@ -735,15 +754,17 @@ impl FsService {
                     display: physical.display,
                 });
             }
-            observations.record(
-                &session_id,
-                &key,
-                Observation::Version(
-                    after
-                        .clone()
-                        .into_version(sampled_digest_bytes(after.len, &bytes)),
-                ),
-            )?;
+            if let Some(session_id) = session_id {
+                observations.record(
+                    &session_id,
+                    &key,
+                    Observation::Version(
+                        after
+                            .clone()
+                            .into_version(sampled_digest_bytes(after.len, &bytes)),
+                    ),
+                )?;
+            }
             Ok(bytes)
         })
         .await

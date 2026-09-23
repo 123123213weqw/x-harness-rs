@@ -196,6 +196,15 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-runtime",
+      "kind": "source-module",
+      "source": "src/modules/runtime-environment/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-brand-official",
       "kind": "source-module",
       "source": "src/modules/brand-official/index.ts",

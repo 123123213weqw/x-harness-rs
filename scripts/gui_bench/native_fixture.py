@@ -40,7 +40,10 @@ const timer=setInterval(()=>{
  const load=id=>id==='@xharness/dsh-client-runtime/client'?runtime:staticModules[id];
  const layout=registrations['@xharness/dsh-client-ui-layout'].factory(load);
  const browser=registrations['@xlang/xharness-client-ui-browser'].factory(load);
- browser.apply({effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}});
+ // File-display Host services are absent in this evaluator-owned session.
+ // Supply their actual optional ABI without fabricating a native event,
+ // navigation request, ready acknowledgement or BrowserPane result.
+ browser.apply({get:()=>undefined,remote:{$on:()=>()=>{}},effect:fn=>fn(),slots:{inject:(_name,fn)=>fn(),register:()=>{}}});
  // Evaluator-owned session service, not a navigation or native-browser stub.
  // AppFrame consumes the real ShellNavigation returned by the root inject hook.
  let selection={current:config.session,ids:[config.session],byId:{[config.session]:{blank:false}},phase:'ready'};

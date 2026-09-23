@@ -208,6 +208,7 @@ export function apply(ctx: Context): void {
       'conversation.input.right': { kind: 'list', scope: 'session' },
       'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
+      'conversation.hero.runtimeEnvironment': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
@@ -398,7 +399,10 @@ export function apply(ctx: Context): void {
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          return workspaces.openPath(resolveWorkspacePath(cwd, path))
+          const resolved=resolveWorkspacePath(cwd,path)
+          if(path==='.'||path==='..'||/[\\/]$/.test(path))return workspaces.openPath(resolved)
+          window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'file',source:resolved,sessionId}}))
+          return Promise.resolve()
         },
         loadOlder: () => scoped.loadOlder(),
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),

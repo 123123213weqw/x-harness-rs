@@ -6,6 +6,7 @@ import {sha256,readInput} from './ui-build-contract.mjs'
 const root=resolve('ui/reference/master-a613970')
 const metadata=JSON.parse(readFileSync(join(root,'REFERENCE.json'),'utf8'))
 const approvedAdditions = [
+  {"id":"@xlang/xharness-client-ui-runtime","kind":"source-module","source":"src/modules/runtime-environment/index.ts","inject":["@xharness/dsh-client-ui-conversation","@xharness/dsh-client-locale"]},
   { id: '@xlang/xharness-client-ui-performance', kind: 'source-module', source: 'src/modules/performance/index.ts', inject: ['@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-runtime', '@xharness/dsh-client-locale'] },
   { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
   { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },

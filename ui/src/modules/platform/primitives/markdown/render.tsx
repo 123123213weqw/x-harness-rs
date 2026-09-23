@@ -63,6 +63,12 @@ function remoteImageUrl(url: string): string | undefined {
   }
 }
 
+/** Explicit file-preview owner seam. No change to normal chat URL policy. */
+export interface MarkdownResources {
+  image(url: string, alt: string): ReactNode | undefined
+  link(url: string, children: ReactNode): ReactNode | undefined
+}
+
 /** Link/image reference targets collected from a document (first definition per identifier wins, as in CommonMark). */
 export interface ReferenceTargets {
   /** Link/image definitions keyed by upper-cased identifier. */
@@ -129,6 +135,7 @@ export interface MarkdownRenderContext {
   /** Localized fence copy-button labels. */
   readonly codeLabels: MarkdownCodeLabels | undefined
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
+  readonly resources?: MarkdownResources | undefined
   readonly fileMentions: MarkdownFileMentions | undefined
   /** Inside an anchor's children: interactive mentions must not nest there. */
   readonly inLink?: boolean
@@ -283,11 +290,11 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'table':
       return renderTable(node, key, { ...context, streamMotion: undefined })
     case 'link':
-      return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key)
+      return renderResourceLink(node.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
-      return renderImage(node.url, node.alt ?? '', key)
+      return renderResourceImage(node.url, node.alt ?? '', key, context)
     case 'imageReference':
       return renderImageReference(node, key, context)
     case 'footnoteReference':
@@ -476,6 +483,15 @@ function inlineCodeHttpUrl(value: string): string | undefined {
   }
 }
 
+function renderResourceLink(url: string, children: ReactNode[], key: Key, context: MarkdownRenderContext): ReactNode {
+  const local = context.resources?.link(url, children)
+  return local === undefined ? renderAnchor(url, children, key) : <Fragment key={key}>{local}</Fragment>
+}
+function renderResourceImage(url: string, alt: string, key: Key, context: MarkdownRenderContext): ReactNode {
+  const local = context.resources?.image(url, alt)
+  return local === undefined ? renderImage(url, alt, key) : <Fragment key={key}>{local}</Fragment>
+}
+
 function renderImage(url: string, alt: string, key: Key): ReactNode {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)))
   if (imageSrc === undefined) {
@@ -514,7 +530,7 @@ function renderLinkReference(
     // not an anchor, so mentions inside it stay live.
     return <Fragment key={key}>{'['}{renderChildren(node.children, context)}{referenceSuffix(node)}</Fragment>
   }
-  return renderAnchor(definition.url, renderChildren(node.children, { ...context, inLink: true }), key)
+  return renderResourceLink(definition.url, renderChildren(node.children, { ...context, inLink: true }), key, context)
 }
 
 function renderImageReference(
@@ -524,7 +540,7 @@ function renderImageReference(
 ): ReactNode {
   const definition = context.targets.definitions.get(node.identifier.toUpperCase())
   if (definition === undefined) return `![${node.alt ?? ''}${referenceSuffix(node)}`
-  return renderImage(definition.url, node.alt ?? '', key)
+  return renderResourceImage(definition.url, node.alt ?? '', key, context)
 }
 
 function renderFootnoteReference(

@@ -164,8 +164,9 @@ export function AppFrame({
     const id=kind==='tool'?'tool':`${kind}:${++nextWorkspaceId.current}`
     const source=kind==='file'?detail.source:kind
     if(source===undefined)return
-    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,title:kind==='tool'?'工具详情':kind==='file'?(detail.title||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
-    updateSpace(value=>xhWorkspaceOpen(value,item,!fresh))
+    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,relativeTo:detail.relativeTo,gitDiff:detail.gitDiff,title:kind==='tool'?'工具详情':kind==='file'?(detail.title||(detail.gitDiff?'Diff · '+detail.gitDiff:undefined)||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
+    const key=detail.sessionId??spaceKeyRef.current
+    setSpaces(all=>({...all,[key]:xhWorkspaceOpen(all[key]??xhWorkspaceEmpty,item,!fresh)}))
   }
   const closeWorkspace=(id:string|null):void=>{
     if(id==='tool')actions.closeDetails()
