@@ -308,7 +308,7 @@ async fn fetch_profiles(
     if budget.is_zero() {
         return Err("Discovery deadline elapsed".into());
     }
-    let client = reqwest::Client::builder()
+    let client = xharness_provider_openai::client_builder_for_endpoint(&spec.url)
         .timeout(budget)
         .redirect(reqwest::redirect::Policy::none())
         .build()
