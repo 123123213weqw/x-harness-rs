@@ -642,6 +642,12 @@ impl StartupProgress {
                 }
                 sequence = sequence.saturating_add(1);
                 let _ = StartupProgressReceipt::new(sequence, stage).write(&path);
+                // This receipt is a startup-only signal. Once ready, stop the
+                // heartbeat instead of syncing a tiny file every second for
+                // the entire lifetime of a desktop session.
+                if stage == StartupStage::Ready {
+                    break;
+                }
             }
         });
         Self {
