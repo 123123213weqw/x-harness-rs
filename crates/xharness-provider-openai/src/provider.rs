@@ -26,8 +26,9 @@ use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
 use xharness_token::WireFeatures;
 
 use crate::{
-    build_openai_request, build_openai_token_count_request, OpenAiProtocol, OpenAiStreamNormalizer,
-    SseParser, DEFAULT_SSE_EVENT_LIMIT_BYTES, DEFAULT_SSE_PENDING_LIMIT_BYTES,
+    build_openai_request, build_openai_token_count_request, client_builder_for_endpoint,
+    OpenAiProtocol, OpenAiStreamNormalizer, SseParser, DEFAULT_SSE_EVENT_LIMIT_BYTES,
+    DEFAULT_SSE_PENDING_LIMIT_BYTES,
 };
 
 pub const DEFAULT_ERROR_BODY_LIMIT_BYTES: usize = 4 * 1024;
@@ -305,6 +306,7 @@ impl fmt::Debug for OpenAiProviderConfig {
 pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
     client: Client,
+    capability_client: Client,
     token_count_support: Arc<AtomicU8>,
     calibration: Arc<CalibrationStore>,
     counter_retry_at: Arc<std::sync::Mutex<Option<Instant>>>,
@@ -378,16 +380,28 @@ impl OpenAiProvider {
                 ));
             }
         }
-        let client = Client::builder()
+        let client = client_builder_for_endpoint(&config.base_url)
             .connect_timeout(config.connect_timeout)
             // A rolling body timeout catches a stalled stream without killing
             // a long but actively producing reasoning response.
             .read_timeout(config.stream_idle_timeout)
             .build()
             .map_err(|error| ProviderError::new(format!("could not build HTTP client: {error}")))?;
+        let capability_client = if let Some(probe) = &config.capability_probe {
+            client_builder_for_endpoint(&probe.url)
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.stream_idle_timeout)
+                .build()
+                .map_err(|error| {
+                    ProviderError::new(format!("could not build capability HTTP client: {error}"))
+                })?
+        } else {
+            client.clone()
+        };
         Ok(Self {
             config: Arc::new(config),
             client,
+            capability_client,
             token_count_support: Arc::new(AtomicU8::new(TOKEN_COUNT_UNKNOWN)),
             calibration: Arc::new(CalibrationStore::default()),
             counter_retry_at: Arc::new(std::sync::Mutex::new(None)),
@@ -469,7 +483,7 @@ impl OpenAiProvider {
         probe: &OpenAiCapabilityProbe,
         cancellation: &CancellationToken,
     ) -> Result<ModelCapabilities, ProviderError> {
-        let mut request = self.client.get(&probe.url);
+        let mut request = self.capability_client.get(&probe.url);
         if !self.config.api_key.is_empty() {
             request = request.bearer_auth(&self.config.api_key);
         }

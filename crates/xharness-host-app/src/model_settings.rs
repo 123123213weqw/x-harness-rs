@@ -312,7 +312,7 @@ impl ModelSettingsBackend for NativeModelSettings {
         } else {
             None
         };
-        let client = reqwest::Client::builder()
+        let client = xharness_provider_openai::client_builder_for_endpoint(base)
             .timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
             .build()

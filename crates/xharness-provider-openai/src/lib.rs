@@ -2,6 +2,8 @@
 
 mod calibration_store;
 pub use calibration_store::CalibrationStore;
+mod network;
+pub use network::client_builder_for_endpoint;
 mod protocol;
 mod provider;
 mod sse;
