@@ -286,6 +286,79 @@ class CommandTests(unittest.TestCase):
                 release.gh(['api', 'anything'])
         self.assertNotIn('sensitive', str(error.exception))
 
+    def test_ordinary_client_keeps_rest_policy_even_with_ambient_hosted_vars(self):
+        env = {'XHARNESS_FRIENDS_RELEASE_REPOSITORY': 'untrusted/fork',
+               'XHARNESS_MACOS_PREVIEW_CERT_SHA1': 'd' * 40}
+        with patch.dict(os.environ, env), patch.object(release, 'gh_read', side_effect=[
+                {'value': REPO}, {'value': 'C' * 40}]) as read:
+            client = release.GitHub(REPO)
+            self.assertTrue(client.opted_in())
+            self.assertEqual(client.publisher_pin(), 'c' * 40)
+        self.assertEqual([call.args[0][-1] for call in read.call_args_list], [
+            f'repos/{REPO}/actions/variables/XHARNESS_FRIENDS_RELEASE_REPOSITORY',
+            f'repos/{REPO}/actions/variables/XHARNESS_MACOS_PREVIEW_CERT_SHA1'])
+
+    def test_permanent_get_http_errors_fail_once_with_safe_endpoint_status(self):
+        path = f'repos/{REPO}/actions/variables/XHARNESS_FRIENDS_RELEASE_REPOSITORY'
+        for status in (400, 401, 403, 404, 409, 410, 422):
+            result = subprocess.CompletedProcess([], 1, 'PRIVATE RESPONSE BODY',
+                f'gh: PRIVATE TOKEN raw body (HTTP {status})\nnonce=PRIVATE QUERY')
+            with self.subTest(status=status), patch.object(release.subprocess, 'run', return_value=result) as run, \
+                    patch.object(release.time, 'sleep') as sleep:
+                with self.assertRaises(release.TaskError) as error:
+                    release.gh_read(['api', path + '?nonce=PRIVATE QUERY'])
+                self.assertNotIsInstance(error.exception, release.TransportError)
+                self.assertEqual(str(error.exception), f'GitHub GET failed: {path} (HTTP {status})')
+                self.assertEqual(run.call_count, 1)
+                sleep.assert_not_called()
+
+    def test_get_diagnostics_redact_unknown_resource_and_query(self):
+        result = subprocess.CompletedProcess([], 1, '', 'PRIVATE TOKEN (HTTP 403)')
+        paths = [f'repos/{REPO}/actions/workflows/PRIVATE.yml/runs?secret=PRIVATE',
+                 f'repos/{REPO}/actions/variables/PRIVATE',
+                 'https://PRIVATE.example/token?secret=PRIVATE']
+        for path in paths:
+            with self.subTest(path=path), patch.object(release.subprocess, 'run', return_value=result):
+                with self.assertRaisesRegex(release.TaskError, r'^GitHub GET failed: GitHub API \(HTTP 403\)$'):
+                    release.gh_read(['api', path])
+
+    def test_transient_get_http_errors_still_retry_and_then_succeed(self):
+        args = ['api', '--paginate', '--slurp', f'repos/{REPO}/actions/workflows/ci.yml/runs?head_sha={SHA}']
+        for status in (408, 429, 500, 502, 503, 504):
+            failed = subprocess.CompletedProcess([], 1, '', f'PRIVATE TOKEN (HTTP {status})')
+            good = subprocess.CompletedProcess([], 0, '{"ok":true}', '')
+            with self.subTest(status=status), patch.object(release.subprocess, 'run', side_effect=[failed, good]) as run, \
+                    patch.object(release.time, 'sleep') as sleep:
+                self.assertEqual(release.gh_read(args), {'ok': True})
+                self.assertEqual(run.call_count, 2)
+                sleep.assert_called_once_with(1)
+
+    def test_timeout_and_unknown_get_failures_keep_bounded_safe_recovery(self):
+        path = f'repos/{REPO}/git/ref/heads/master'
+        failures = [subprocess.TimeoutExpired(['PRIVATE TOKEN'], 90, stderr='PRIVATE BODY'),
+                    subprocess.CompletedProcess([], 1, 'PRIVATE BODY', 'PRIVATE TOKEN network EOF')]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), patch.object(release.subprocess, 'run', side_effect=
+                    failure if isinstance(failure, Exception) else None,
+                    return_value=failure if not isinstance(failure, Exception) else None) as run, \
+                    patch.object(release.time, 'sleep') as sleep:
+                with self.assertRaises(release.TransportError) as error:
+                    release.gh_read(['api', path])
+                self.assertEqual(str(error.exception), f'GitHub GET failed: {path} (HTTP unknown)')
+                self.assertEqual(run.call_count, 3)
+                self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+
+    def test_post_http_failure_remains_unknown_transport_and_is_not_retried(self):
+        for status in (401, 403, 404, 422, 503):
+            result = subprocess.CompletedProcess([], 1, '', f'PRIVATE TOKEN (HTTP {status})')
+            with self.subTest(status=status), patch.object(release.subprocess, 'run', return_value=result) as run, \
+                    patch.object(release.time, 'sleep') as sleep:
+                with self.assertRaises(release.TransportError) as error:
+                    release.GitHub(REPO).dispatch('desktop-release.yml', {})
+                self.assertNotIn('PRIVATE', str(error.exception))
+                self.assertEqual(run.call_count, 1)
+                sleep.assert_not_called()
+
     def test_cli_status_missing_task_never_starts_one(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(release, 'GitHub') as client, \
                 patch.object(sys, 'argv', ['release.py', '0.2.20', '--repo', REPO, '--state-dir', directory, '--status']), \
