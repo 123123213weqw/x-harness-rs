@@ -3012,7 +3012,7 @@ window.__ModuleLoader__.load({
 		});
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-conversation/src/client/skeleton/ContextMeter.module.css.mjs
-		const css$19 = ".S4my2G_root{display:inline-flex;position:relative}.S4my2G_trigger{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:999px;flex:none;place-items:center;display:grid}.S4my2G_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}.S4my2G_track{fill:none;stroke:var(--dsw-alias-border-l3);stroke-width:2px}.S4my2G_fill{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:2px;stroke-linecap:round}.S4my2G_panel{z-index:100;box-sizing:border-box;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:264px;box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-secondary);cursor:default;border-radius:12px;padding:12px;font-size:12px;line-height:20px;position:absolute;bottom:calc(100% + 8px);right:0}.S4my2G_header{align-items:center;gap:6px;display:flex}.S4my2G_figures{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin-left:auto;font-weight:500}.S4my2G_percent{color:var(--dsw-alias-label-primary);font-weight:500}.S4my2G_headline{color:var(--dsw-alias-label-tertiary)}.S4my2G_headline:empty{display:none}.S4my2G_bar{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;gap:1px;height:4px;margin:10px 0 12px;display:flex;overflow:hidden}.S4my2G_segment{background:var(--meter-tint,var(--dsw-alias-label-tertiary));border-radius:1px;flex:none;min-width:2px;height:100%}.S4my2G_swatch{background:var(--meter-tint);vertical-align:baseline;border-radius:2px;width:8px;height:8px;margin-right:6px;display:inline-block}.S4my2G_colorSystem{--meter-tint:var(--dsw-static-neutral-bluish-400)}.S4my2G_colorTools{--meter-tint:#a78bfa}.S4my2G_colorMessages{--meter-tint:var(--dsw-static-blue-450)}.S4my2G_rows{margin:6px 0 0}.S4my2G_row{justify-content:space-between;align-items:center;gap:12px;padding:2px 0;display:flex}.S4my2G_row dt{color:var(--dsw-alias-label-secondary)}.S4my2G_row dd{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin:0}";
+		const css$19 = ".S4my2G_root{display:inline-flex;position:relative}.S4my2G_trigger{width:28px;height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:999px;flex:none;place-items:center;display:grid}.S4my2G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S4my2G_trigger:disabled{cursor:default;opacity:.45}.S4my2G_track{fill:none;stroke:var(--dsw-alias-border-l3);stroke-width:2px}.S4my2G_fill{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:2px;stroke-linecap:round}.S4my2G_panel{z-index:100;box-sizing:border-box;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:264px;box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-secondary);cursor:default;border-radius:12px;padding:12px;font-size:12px;line-height:20px;position:absolute;bottom:calc(100% + 8px);right:0}.S4my2G_header{align-items:center;gap:6px;display:flex}.S4my2G_figures{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin-left:auto;font-weight:500}.S4my2G_percent{color:var(--dsw-alias-label-primary);font-weight:500}.S4my2G_headline{color:var(--dsw-alias-label-tertiary)}.S4my2G_headline:empty{display:none}.S4my2G_bar{background:var(--dsw-alias-interactive-bg-hover);border-radius:999px;gap:1px;height:4px;margin:10px 0 12px;display:flex;overflow:hidden}.S4my2G_segment{background:var(--meter-tint,var(--dsw-alias-label-tertiary));border-radius:1px;flex:none;min-width:2px;height:100%}.S4my2G_swatch{background:var(--meter-tint);vertical-align:baseline;border-radius:2px;width:8px;height:8px;margin-right:6px;display:inline-block}.S4my2G_colorSystem{--meter-tint:var(--dsw-static-neutral-bluish-400)}.S4my2G_colorTools{--meter-tint:#a78bfa}.S4my2G_colorMessages{--meter-tint:var(--dsw-static-blue-450)}.S4my2G_rows{margin:6px 0 0}.S4my2G_row{justify-content:space-between;align-items:center;gap:12px;padding:2px 0;display:flex}.S4my2G_row dt{color:var(--dsw-alias-label-secondary)}.S4my2G_row dd{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary);margin:0}";
 		const tagId$19 = "@xharness/dsh-client-ui-conversation/ContextMeter.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId$19) + "]") === null) {
 			const tag = document.createElement("style");
@@ -3080,6 +3080,7 @@ window.__ModuleLoader__.load({
 			const [open, setOpen] = (0, react.useState)(false);
 			const rootRef = (0, react.useRef)(null);
 			const context = contextOccupancy(pressure);
+			// xharness-context-meter-stable/v1
 			const available = context !== null;
 			(0, react.useEffect)(() => {
 				if (!available && open) setOpen(false);
@@ -3100,9 +3101,11 @@ window.__ModuleLoader__.load({
 					document.removeEventListener("keydown", onKeyDown);
 				};
 			}, [available, open]);
-			if (context === null) return null;
-			const percent = context.percent;
-			const reading = `${context.exact ? "" : "≈"}${percent}%`;
+			const percent = context?.percent ?? 0;
+            const reading = available ? `${context.exact ? "" : "≈"}${percent}%` : null;
+            const label = available ? t("context.aria", { percent: reading })
+                : t(["preparing", "in_flight", "model_changed"].includes(pressure?.phase)
+                    ? "context.pending" : "context.unavailable");
 			const [headBefore = "", headAfter = ""] = t("context.aria", { percent: READING_SLOT }).split(READING_SLOT).map((part) => part.trim());
 			const breakdownTotal = breakdown === void 0 ? 0 : breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens;
 			const segments = (breakdown === void 0 || breakdownTotal === 0 ? [{
@@ -3118,16 +3121,17 @@ window.__ModuleLoader__.load({
 				ref: rootRef,
 				className: ContextMeter_module_css_default.root,
 				children: [(0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Tooltip, {
-					label: t("context.aria", { percent: reading }),
+					label,
 					side: "top",
 					delayMs: 200,
 					disabled: open,
 					children: (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: ContextMeter_module_css_default.trigger,
-						"aria-label": t("context.aria", { percent: reading }),
-						"aria-haspopup": "dialog",
-						"aria-expanded": open,
+						"aria-label": label,
+						"aria-haspopup": available ? "dialog" : void 0,
+						"aria-expanded": available ? open : void 0,
+						disabled: !available,
 						onClick: () => {
 							setOpen(!open);
 						},
@@ -3151,7 +3155,7 @@ window.__ModuleLoader__.load({
 							})]
 						})
 					})
-				}), open && (0, react_jsx_runtime.jsxs)("div", {
+				}), open && available && (0, react_jsx_runtime.jsxs)("div", {
 					className: ContextMeter_module_css_default.panel,
 					role: "dialog",
 					"aria-label": t("context.used"),
@@ -6559,6 +6563,8 @@ keepMounted: index >= activeSuffix,
 			"image.subagentUnsupported": "子智能体会话暂不支持图片",
 			"image.sendFailed": "图片发送失败（{reason}），请重新添加图片后再试",
 			"context.aria": "上下文已用 {percent}",
+			"context.pending": "正在计算上下文",
+			"context.unavailable": "暂无上下文读数",
 			"context.used": "上下文已用",
 			"context.system": "系统提示词",
 			"context.tools": "工具",
@@ -6751,6 +6757,8 @@ keepMounted: index >= activeSuffix,
 			"image.subagentUnsupported": "Subagent sessions do not support images yet",
 			"image.sendFailed": "Sending images failed ({reason}); re-add them and try again",
 			"context.aria": "{percent} of context used",
+			"context.pending": "Calculating context usage",
+			"context.unavailable": "Context usage unavailable",
 			"context.used": "of context used",
 			"context.system": "System prompt",
 			"context.tools": "Tools",

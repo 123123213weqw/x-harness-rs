@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import vm from 'node:vm';
-import {patchContextAccounting} from './patch-context-accounting.mjs';
+import {patchContextAccounting, patchContextMeterStability} from './patch-context-accounting.mjs';
 const bytes=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',import.meta.url));
 assert.equal(patchContextAccounting(bytes).toString(),bytes.toString());
+assert.equal(patchContextMeterStability(bytes).toString(),bytes.toString());
 const source=bytes.toString().match(/function contextOccupancy\(pressure\) \{[\s\S]*?\n\t\t\}/)?.[0];assert.ok(source);
 const fn=vm.runInNewContext('('+source+')');
 let x=fn({pressureTokens:117446,projectedTokens:415395,contextWindow:1000000});assert.equal(x.usedTokens,117446);assert.equal(x.percent,12);assert.equal(x.exact,true);
@@ -40,3 +42,64 @@ assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage).exact,true);as
 assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}).exact,false,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
 assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}).percent,100);
 console.log('context precision: independent readings / calibrated / compaction / late usage / legacy / failed request passed');
+
+// The composer control must retain the same 28px slot while a new step clears
+// the previous sample, and it must not present the old model's percentage.
+const bundle=bytes.toString();
+const meterStart=bundle.indexOf('function ContextMeter({ useProjection, t }) {');
+const meterEnd=bundle.indexOf('\n\t\t//#endregion',meterStart);
+assert.ok(meterStart>=0&&meterEnd>meterStart);
+const jsx=(type,props,key)=>({type,props,key});
+const meter=vm.runInNewContext('('+bundle.slice(meterStart,meterEnd)+')',{
+  contextOccupancy:fn,
+  react:{useState:()=>[false,()=>{}],useRef:()=>({current:null}),useEffect:()=>{}},
+  react_jsx_runtime:{jsx,jsxs:jsx},
+  _xharness_dsh_client_ui_primitives:{Tooltip:'Tooltip'},
+  ContextMeter_module_css_default:{root:'root',trigger:'trigger',track:'track',fill:'fill'},
+  RADIUS:5.5,CIRCUMFERENCE:2*Math.PI*5.5,READING_SLOT:'\0',ROWS:[],
+});
+const zh={
+  'context.aria':'上下文已用 {percent}',
+  'context.pending':'正在计算上下文',
+  'context.unavailable':'暂无上下文读数',
+};
+function renderMeter(pressure,locale=zh) {
+  const tree=meter({useProjection:key=>key==='contextPressure'?pressure:undefined,
+    t:(key,params)=>locale[key]?.replace('{percent}',params?.percent??'')??key});
+  assert.equal(tree.type,'span','the composer slot must never disappear');
+  const tooltip=tree.props.children[0];
+  const button=tooltip.props.children;
+  const circle=button.props.children.props.children[1];
+  return {tree,tooltip,button,circle};
+}
+const pending=renderMeter({contextWindow:1000,phase:'preparing'});
+assert.equal(pending.button.props.disabled,true);
+assert.equal(pending.button.props['aria-label'],'正在计算上下文');
+assert.equal(pending.button.props['aria-haspopup'],undefined);
+assert.match(pending.circle.props.strokeDasharray,/^0 /);
+const estimate=renderMeter({contextWindow:1000,projectedTokens:400,projectedAccuracy:'estimated',phase:'in_flight'});
+assert.equal(estimate.button.props.disabled,false);
+assert.equal(estimate.button.props['aria-label'],'上下文已用 ≈40%');
+assert.match(estimate.circle.props.strokeDasharray,/^[1-9]/);
+const nextStep=renderMeter({contextWindow:1000,phase:'preparing'});
+assert.equal(nextStep.tree.props.className,estimate.tree.props.className);
+assert.equal(nextStep.button.props.disabled,true,'never reuse the previous step as current');
+assert.doesNotMatch(nextStep.button.props['aria-label'],/40%/);
+const changedModel=renderMeter({});
+assert.equal(changedModel.button.props.disabled,true);
+assert.equal(changedModel.button.props['aria-label'],'暂无上下文读数');
+const failed=renderMeter({contextWindow:1000,phase:'unmeasured'});
+assert.equal(failed.button.props.disabled,true);
+const measured=renderMeter({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported'});
+assert.equal(measured.button.props['aria-label'],'上下文已用 50%');
+const en=renderMeter({}, {'context.aria':'{percent} of context used',
+  'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable'});
+assert.equal(en.button.props['aria-label'],'Context usage unavailable');
+assert.match(bundle,/"context.pending": "正在计算上下文"/);
+assert.match(bundle,/"context.pending": "Calculating context usage"/);
+const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
+const entry=graph.entries.find(item=>item.id==='@xharness/dsh-client-ui-conversation');
+assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
+const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');
+assert.ok(html.includes(entry.url));
+console.log('context meter: stable slot / no stale reading / unavailable / measured / bilingual / revision passed');
