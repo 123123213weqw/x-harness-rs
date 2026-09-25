@@ -1,4 +1,4 @@
-import { isObjectRecord } from '../../shared/runtime-types'
+import { totalOutputTokens, throughput } from '../../shared/reception-metrics'
 // Latency/throughput folds shared by the settled turn footer and StatsLine.
 
 import type { AssistantMessageNode, ConversationNode } from "../types/runtime"
@@ -27,11 +27,6 @@ interface UsageLike {
 
 type AssistantNode = AssistantMessageNode
 
-function usageOutputTokens(usage: unknown): number | null {
-  if (!isObjectRecord(usage)) return null
-  const value = usage.outputTokens
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
-}
 
 /**
  * Read one assistant node's TTFT, decode wall time, and output tokens.
@@ -44,9 +39,9 @@ export function assistantStepReading(node: AssistantNode): StepReading {
     ? Math.max(0, timing.firstTokenTime - timing.stepStartTime)
     : null
   const decodeMs = timing !== undefined && timing.firstTokenTime !== null
-    ? Math.max(0, timing.completedTime - timing.firstTokenTime)
+    ? (timing.receptionMs ?? (timing.completedTime > timing.firstTokenTime ? timing.completedTime-timing.firstTokenTime : Math.max(1,timing.completedTime-(timing.stepStartTime??timing.firstTokenTime))))
     : null
-  return { ttftMs, decodeMs, outputTokens: usageOutputTokens(node.usage) }
+  return { ttftMs, decodeMs, outputTokens: totalOutputTokens(node.usage) }
 }
 
 interface TurnFold {
@@ -70,6 +65,11 @@ interface TurnFold {
  */
 export function deriveTurnMetrics(nodes: readonly ConversationNode[]): Map<number, TurnMetrics> {
   const folds = new Map<number, TurnFold>()
+  const routes = new Map<number, AssistantNode>()
+  for (const node of nodes) {
+    if (node.kind === 'assistant' && node.provenance !== undefined
+      && node.step >= (routes.get(node.turn)?.step ?? -1)) routes.set(node.turn,node)
+  }
   for (const node of nodes) {
     if (node.kind !== 'assistant') continue
     const reading = assistantStepReading(node)
@@ -81,7 +81,9 @@ export function deriveTurnMetrics(nodes: readonly ConversationNode[]): Map<numbe
       fold.firstStep = node.step
       fold.firstStepTtftMs = reading.ttftMs
     }
-    if (reading.decodeMs !== null && reading.outputTokens !== null) {
+    const route = routes.get(node.turn)?.provenance
+    const sameRoute = route === undefined || (node.provenance?.provider === route.provider && node.provenance?.model === route.model)
+    if (sameRoute && reading.decodeMs !== null && reading.outputTokens !== null) {
       fold.decodeMs += reading.decodeMs
       fold.outputTokens += reading.outputTokens
       fold.sampled = true
@@ -91,7 +93,8 @@ export function deriveTurnMetrics(nodes: readonly ConversationNode[]): Map<numbe
   for (const [turn, fold] of folds) {
     const entry: TurnMetrics = {}
     if (fold.firstStepTtftMs !== null) entry.ttftMs = fold.firstStepTtftMs
-    if (fold.sampled && fold.decodeMs > 0) entry.tokensPerSecond = fold.outputTokens / (fold.decodeMs / 1000)
+    const rate = fold.sampled ? throughput(fold.outputTokens,fold.decodeMs) : null
+    if (rate !== null) entry.tokensPerSecond = rate
     if (entry.ttftMs !== undefined || entry.tokensPerSecond !== undefined) metrics.set(turn, entry)
   }
   return metrics

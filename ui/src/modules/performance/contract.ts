@@ -3,9 +3,9 @@ export const PHASES = ['preparing','waiting_first_token','reasoning','output','a
 export type PhaseKind = typeof PHASES[number]
 export interface Sample { timeMs: number; step: number; attempt: number; textUnits: number; reasoningUnits: number; argumentUnits: number }
 export interface Phase { startMs: number; endMs: number | null; kind: PhaseKind; step: number | null; attempt: number }
-export interface Request { step: number; attempt: number; startMs: number; firstDeltaMs: number | null; endMs: number | null; provider: string | null; model: string | null; reportedOutputTokens: number | null; reportedReasoningTokens: number | null }
+export interface Request { step: number; attempt: number; startMs: number; firstDeltaMs: number | null; endMs: number | null; provider: string | null; model: string | null; reportedOutputTokens: number | null; reportedReasoningTokens: number | null; receptionMs?: number; estimatedUnits?: number; estimatedReasoningUnits?: number }
 export interface Turn { turn: number; startMs: number; endMs: number | null; lastMs: number; truncated: boolean; samples: readonly Sample[]; phases: readonly Phase[]; requests: readonly Request[] }
-export interface Timeline { schemaVersion: 1; source: 'journal_checkpoint_estimate'; bucketMs: 1000; maxSamples: 600; turns: readonly Turn[] }
+export interface Timeline { schemaVersion: 1; source: 'journal_checkpoint_estimate' | 'provider_reception_estimate'; bucketMs: 1000; maxSamples: 600; turns: readonly Turn[] }
 declare module '../client-connection/contracts/session/session-projection/types' { interface SessionProjectionMap { performanceTimeline: Timeline } }
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !array(v)
@@ -15,7 +15,7 @@ const nullable = (v: unknown): v is number | null => v === null || integer(v)
 const ordered = (start: unknown, end: unknown) => integer(start) && nullable(end) && (end === null || end >= start)
 /** Invalid optional telemetry disables only this panel, never Session history. */
 function isTimeline(value: unknown): value is Timeline {
-  if (!record(value) || value.schemaVersion !== 1 || value.source !== 'journal_checkpoint_estimate'
+  if (!record(value) || value.schemaVersion !== 1 || (value.source !== 'journal_checkpoint_estimate' && value.source !== 'provider_reception_estimate')
     || value.bucketMs !== 1000 || value.maxSamples !== 600 || !array(value.turns) || value.turns.length > 4) return false
   let samples = 0, phases = 0, requests = 0, previousTurn = -1
   for (const turn of value.turns) {
@@ -35,6 +35,9 @@ function isTimeline(value: unknown): value is Timeline {
     for (const request of turn.requests) if (!record(request) || !integer(request.step) || !integer(request.attempt)
       || !ordered(request.startMs,request.endMs) || !ordered(request.startMs,request.firstDeltaMs)
       || !nullable(request.reportedOutputTokens) || !nullable(request.reportedReasoningTokens)
+      || request.receptionMs !== undefined && (!integer(request.receptionMs) || request.receptionMs < 1)
+      || request.estimatedUnits !== undefined && !integer(request.estimatedUnits)
+      || request.estimatedReasoningUnits !== undefined && (!integer(request.estimatedReasoningUnits) || request.estimatedReasoningUnits > (request.estimatedUnits ?? 0))
       || ![request.provider,request.model].every(v => v === null || (typeof v === 'string' && v.length <= 320))) return false
   }
   if (samples > 600 || phases > 128 || requests > 64) return false

@@ -587,59 +587,18 @@ function pullReference(record, location) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.diffRows = diffRows;
-const structured_1 = require("./structured");
-/** Rendering uses the same validated coordinates as evidence validation. */
-function diffRows(patch) {
-    const lines = (0, structured_1.diffLines)(patch);
-    if (!lines.length || patch === null)
-        return [];
-    const rows = [];
-    let index = 0, inHunk = false;
-    for (const row of patch.replaceAll('\r\n', '\n').split('\n')) {
-        if (row.startsWith('@@ ')) {
-            inHunk = true;
-            continue;
-        }
-        if (!inHunk)
-            continue;
-        const line = lines[index];
-        if (!line)
-            continue;
-        if (row[0] === ' ') {
-            const right = lines[index + 1];
-            if (!right)
-                return [];
-            rows.push({ left: line.line, right: right.line, text: line.text, kind: 'context' });
-            index += 2;
-        }
-        else if (row[0] === '-') {
-            rows.push({ left: line.line, right: null, text: line.text, kind: 'removed' });
-            index++;
-        }
-        else if (row[0] === '+') {
-            rows.push({ left: null, right: line.line, text: line.text, kind: 'added' });
-            index++;
-        }
-    }
-    return rows;
-}
+exports.diffRows = void 0;
+var hunks_1 = require("../shared/diff/hunks");
+Object.defineProperty(exports, "diffRows", { enumerable: true, get: function () { return hunks_1.diffRows; } });
 
 },
-"src/modules/code-review/structured.js": function(module, exports, require) {
-// source: src/modules/code-review/structured.ts
+"src/modules/shared/diff/hunks.js": function(module, exports, require) {
+// source: src/modules/shared/diff/hunks.ts
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.diffLines = diffLines;
-exports.decodeReviewReport = decodeReviewReport;
-exports.reportIsStale = reportIsStale;
-const object = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
-const bounded = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
-const lineNumber = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-const safePath = (value) => bounded(value, 2048) && !value.startsWith('/') && !value.includes('\\') && !/[\u0000-\u001f]/.test(value) && value.split('/').every(part => part !== '.' && part !== '..' && part.length > 0);
-const priority = (value) => value === 0 || value === 1 || value === 2 || value === 3;
-const side = (value) => value === 'left' || value === 'right';
+exports.diffRows = diffRows;
 /** Parse actual hunk coordinates, not patch-array offsets. Malformed/truncated
  * hunks have no trustworthy coordinates and fail closed. No full-file guesses. */
 function diffLines(patch) {
@@ -692,50 +651,40 @@ function diffLines(patch) {
     }
     return inHunk && oldRemaining === 0 && newRemaining === 0 ? result : [];
 }
-function finding(raw, snapshot, index) {
-    if (!object(raw) || !priority(raw.priority) || !bounded(raw.title, 160) || !bounded(raw.explanation, 4000) || !safePath(raw.path) || !side(raw.side) || !lineNumber(raw.startLine) || !lineNumber(raw.endLine) || raw.endLine < raw.startLine || raw.endLine - raw.startLine > 39 || !bounded(raw.evidence, 8000))
-        throw Error('Invalid finding fields');
-    const { path, side: whichSide, startLine, endLine } = raw;
-    const file = snapshot.files.find(file => file.path === path);
-    if (!file)
-        throw Error('File was not supplied to this review');
-    const lines = diffLines(file.patch).filter(line => line.side === whichSide && line.line >= startLine && line.line <= endLine);
-    if (lines.length !== endLine - startLine + 1 || lines.some((line, offset) => line.line !== startLine + offset))
-        throw Error('Location is outside the supplied diff');
-    if (raw.evidence.replaceAll('\r\n', '\n') !== lines.map(line => line.text).join('\n'))
-        throw Error('Evidence does not match the supplied code');
-    return { id: `finding-${index + 1}`, priority: raw.priority, title: raw.title, explanation: raw.explanation, path: raw.path, side: raw.side, startLine: raw.startLine, endLine: raw.endLine, evidence: raw.evidence, validation: 'evidence-linked', disposition: 'needs-confirmation' };
-}
-/** Complete JSON only; partial streaming JSON is never promoted to a report.
- * Metadata, coverage and display identities are derived from the trusted snapshot. */
-function decodeReviewReport(raw, snapshot) {
-    if (raw.length > 1024 * 1024)
-        throw Error('Review report exceeds the response bound');
-    const value = JSON.parse(raw);
-    if (!object(value) || value.version !== 1 || !Array.isArray(value.findings) || value.findings.length > 100)
-        throw Error('Invalid review report');
-    const items = value.findings;
-    const findings = [], rejected = [], seen = new Set();
-    const suppliedFiles = snapshot.files.filter(file => diffLines(file.patch).length > 0).map(file => file.path);
-    const unavailableFiles = snapshot.files.filter(file => !suppliedFiles.includes(file.path)).map(file => file.path);
-    for (const [index, item] of items.entries()) {
-        try {
-            const next = finding(item, snapshot, index), key = JSON.stringify([next.path, next.side, next.startLine, next.endLine, next.title, next.explanation]);
-            if (seen.has(key)) {
-                rejected.push({ index, reason: 'Duplicate finding' });
-                continue;
-            }
-            seen.add(key);
-            findings.push(next);
+/** Rendering uses the same validated coordinates as evidence validation. */
+function diffRows(patch) {
+    const lines = diffLines(patch);
+    if (!lines.length || patch === null)
+        return [];
+    const rows = [];
+    let index = 0, inHunk = false;
+    for (const row of patch.replaceAll('\r\n', '\n').split('\n')) {
+        if (row.startsWith('@@ ')) {
+            inHunk = true;
+            continue;
         }
-        catch (error) {
-            rejected.push({ index, reason: error instanceof Error ? error.message : 'Invalid finding' });
+        if (!inHunk)
+            continue;
+        const line = lines[index];
+        if (!line)
+            continue;
+        if (row[0] === ' ') {
+            const right = lines[index + 1];
+            if (!right)
+                return [];
+            rows.push({ left: line.line, right: right.line, text: line.text, kind: 'context' });
+            index += 2;
+        }
+        else if (row[0] === '-') {
+            rows.push({ left: line.line, right: null, text: line.text, kind: 'removed' });
+            index++;
+        }
+        else if (row[0] === '+') {
+            rows.push({ left: null, right: line.line, text: line.text, kind: 'added' });
+            index++;
         }
     }
-    return { target: { account: snapshot.account, repository: snapshot.repository, number: snapshot.number, headSha: snapshot.headSha }, findings, rejected, suppliedFiles, unavailableFiles, scopeIncomplete: snapshot.filesHasMore || snapshot.files.length < snapshot.changedFiles || unavailableFiles.length > 0, outcome: findings.length ? 'findings' : rejected.length ? 'invalid-findings' : 'no-findings-in-supplied-scope' };
-}
-function reportIsStale(report, target) {
-    return report.target.account !== target.account || report.target.repository.toLowerCase() !== target.repository.toLowerCase() || report.target.number !== target.number || report.target.headSha !== target.headSha;
+    return rows;
 }
 
 },
@@ -832,6 +781,70 @@ function ReviewPanel({ client, account, record, zh, disabled, jump, reference })
     } }
     const stale = current && (current.stale || current.target.sha !== record.headSha);
     return (0, jsx_runtime_1.jsxs)("section", { className: "xhreview-model", "aria-label": zh ? '模型审核' : 'Model review', children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("h3", { children: zh ? '模型审核' : 'Model review' }), (0, jsx_runtime_1.jsx)("span", { className: "xhreview-sha", children: record.headSha.slice(0, 8) })] }), runs.length > 0 && (0, jsx_runtime_1.jsxs)("label", { children: [zh ? '审核记录' : 'Review history', " ", (0, jsx_runtime_1.jsx)("select", { "aria-label": zh ? '审核记录' : 'Review history', value: selected, onChange: e => setSelected(e.target.value), children: runs.map(r => (0, jsx_runtime_1.jsxs)("option", { value: r.id, children: [r.model, " \u00B7 ", r.target.sha.slice(0, 8), " \u00B7 ", r.status, " \u00B7 ", r.mode] }, r.id)) })] }), current && (0, jsx_runtime_1.jsxs)("article", { className: "xhreview-model-result", children: [(0, jsx_runtime_1.jsxs)("p", { children: [current.model, " \u00B7 ", current.status, " \u00B7 ", current.target.sha.slice(0, 8)] }), stale && (0, jsx_runtime_1.jsx)("p", { role: "status", className: "xhreview-error", children: zh ? '此结果已过期或当前提交无法确认，请重新审核。' : 'This result is stale or current head could not be verified. Review again.' }), current.question && (0, jsx_runtime_1.jsx)("blockquote", { children: current.question }), current.status === 'running' ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("p", { role: "status", children: [zh ? '正在审核…' : 'Reviewing…', " \u00B7 ", current.text.length, " ", zh ? '字符已接收' : 'characters received'] }), current.mode === 'question' && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.MarkdownText, { text: current.text })] }) : current.status === 'completed' ? (current.mode === 'review' ? (0, jsx_runtime_1.jsx)(Findings, { run: current, zh: zh, stale: !!stale, jump: jump, reference: reference }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.MarkdownText, { text: current.text })) : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { role: "alert", children: current.error ?? current.status }), current.text && (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: zh ? '未完成输出' : 'Incomplete output' }), (0, jsx_runtime_1.jsx)("pre", { children: current.text })] })] })] }), !runs.length && (0, jsx_runtime_1.jsx)("p", { className: "xhreview-muted", children: zh ? '选择模型审核当前变更，或交给全局助手讨论。' : 'Select a model to review these changes, or discuss them with the assistant.' }), busy && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh ? '正在准备请求…' : 'Preparing request…' }), error && (0, jsx_runtime_1.jsx)("p", { role: "alert", className: "xhreview-error", children: error }), (0, jsx_runtime_1.jsxs)("div", { className: "xhreview-composer", children: [(0, jsx_runtime_1.jsxs)("label", { children: [zh ? '模型' : 'Model', " ", (0, jsx_runtime_1.jsx)("select", { "aria-label": zh ? '审核模型' : 'Review model', value: choice, onChange: e => setChoice(e.target.value), disabled: busy || !!active, children: models.map(m => (0, jsx_runtime_1.jsxs)("option", { value: JSON.stringify([m.provider, m.model]), children: [m.name, " \u00B7 ", m.provider] }, JSON.stringify([m.provider, m.model]))) })] }), !models.length && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh ? '没有可用模型，请先配置 provider。' : 'No available models. Configure a provider first.' }), (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("button", { disabled: disabled || busy || !!active || !choice, onClick: () => void start(), children: zh ? '审核变更' : 'Review changes' }), active && (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void cancel(), children: zh ? '停止' : 'Stop' })] })] })] });
+}
+
+},
+"src/modules/code-review/structured.js": function(module, exports, require) {
+// source: src/modules/code-review/structured.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.diffLines = void 0;
+exports.decodeReviewReport = decodeReviewReport;
+exports.reportIsStale = reportIsStale;
+const hunks_1 = require("../shared/diff/hunks");
+var hunks_2 = require("../shared/diff/hunks");
+Object.defineProperty(exports, "diffLines", { enumerable: true, get: function () { return hunks_2.diffLines; } });
+const object = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+const bounded = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
+const lineNumber = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+const safePath = (value) => bounded(value, 2048) && !value.startsWith('/') && !value.includes('\\') && !/[\u0000-\u001f]/.test(value) && value.split('/').every(part => part !== '.' && part !== '..' && part.length > 0);
+const priority = (value) => value === 0 || value === 1 || value === 2 || value === 3;
+const side = (value) => value === 'left' || value === 'right';
+function finding(raw, snapshot, index) {
+    if (!object(raw) || !priority(raw.priority) || !bounded(raw.title, 160) || !bounded(raw.explanation, 4000) || !safePath(raw.path) || !side(raw.side) || !lineNumber(raw.startLine) || !lineNumber(raw.endLine) || raw.endLine < raw.startLine || raw.endLine - raw.startLine > 39 || !bounded(raw.evidence, 8000))
+        throw Error('Invalid finding fields');
+    const { path, side: whichSide, startLine, endLine } = raw;
+    const file = snapshot.files.find(file => file.path === path);
+    if (!file)
+        throw Error('File was not supplied to this review');
+    const lines = (0, hunks_1.diffLines)(file.patch).filter(line => line.side === whichSide && line.line >= startLine && line.line <= endLine);
+    if (lines.length !== endLine - startLine + 1 || lines.some((line, offset) => line.line !== startLine + offset))
+        throw Error('Location is outside the supplied diff');
+    if (raw.evidence.replaceAll('\r\n', '\n') !== lines.map(line => line.text).join('\n'))
+        throw Error('Evidence does not match the supplied code');
+    return { id: `finding-${index + 1}`, priority: raw.priority, title: raw.title, explanation: raw.explanation, path: raw.path, side: raw.side, startLine: raw.startLine, endLine: raw.endLine, evidence: raw.evidence, validation: 'evidence-linked', disposition: 'needs-confirmation' };
+}
+/** Complete JSON only; partial streaming JSON is never promoted to a report.
+ * Metadata, coverage and display identities are derived from the trusted snapshot. */
+function decodeReviewReport(raw, snapshot) {
+    if (raw.length > 1024 * 1024)
+        throw Error('Review report exceeds the response bound');
+    const value = JSON.parse(raw);
+    if (!object(value) || value.version !== 1 || !Array.isArray(value.findings) || value.findings.length > 100)
+        throw Error('Invalid review report');
+    const items = value.findings;
+    const findings = [], rejected = [], seen = new Set();
+    const suppliedFiles = snapshot.files.filter(file => (0, hunks_1.diffLines)(file.patch).length > 0).map(file => file.path);
+    const unavailableFiles = snapshot.files.filter(file => !suppliedFiles.includes(file.path)).map(file => file.path);
+    for (const [index, item] of items.entries()) {
+        try {
+            const next = finding(item, snapshot, index), key = JSON.stringify([next.path, next.side, next.startLine, next.endLine, next.title, next.explanation]);
+            if (seen.has(key)) {
+                rejected.push({ index, reason: 'Duplicate finding' });
+                continue;
+            }
+            seen.add(key);
+            findings.push(next);
+        }
+        catch (error) {
+            rejected.push({ index, reason: error instanceof Error ? error.message : 'Invalid finding' });
+        }
+    }
+    return { target: { account: snapshot.account, repository: snapshot.repository, number: snapshot.number, headSha: snapshot.headSha }, findings, rejected, suppliedFiles, unavailableFiles, scopeIncomplete: snapshot.filesHasMore || snapshot.files.length < snapshot.changedFiles || unavailableFiles.length > 0, outcome: findings.length ? 'findings' : rejected.length ? 'invalid-findings' : 'no-findings-in-supplied-scope' };
+}
+function reportIsStale(report, target) {
+    return report.target.account !== target.account || report.target.repository.toLowerCase() !== target.repository.toLowerCase() || report.target.number !== target.number || report.target.headSha !== target.headSha;
 }
 
 },
@@ -1560,7 +1573,7 @@ function AuthorFilter({ mine, change, zh }) {
 
 }
 };
-const __dependencies = {"src/modules/code-review/index.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./CodeReview.css":"src/modules/code-review/CodeReview.css","./EvidencePanel":"src/modules/code-review/EvidencePanel.js","../assistant/contracts":"src/modules/assistant/contracts.js","./assistant-reference":"src/modules/code-review/assistant-reference.js","./ReviewPanel":"src/modules/code-review/ReviewPanel.js","./structured":"src/modules/code-review/structured.js","./diff-rows":"src/modules/code-review/diff-rows.js","./client":"src/modules/code-review/client.js","./cache":"src/modules/code-review/cache.js","./storage":"src/modules/code-review/storage.js","./preferences":"src/modules/code-review/preferences.js","./RepositoryPicker":"src/modules/code-review/RepositoryPicker.js","./idle":"src/modules/code-review/idle.js","./data":"src/modules/code-review/data.js"},"src/modules/shared/shell-route.js":{},"src/modules/code-review/CodeReview.css":{},"src/modules/code-review/EvidencePanel.js":{"./data":"src/modules/code-review/data.js"},"src/modules/code-review/data.js":{},"src/modules/assistant/contracts.js":{},"src/modules/code-review/assistant-reference.js":{"./diff-rows":"src/modules/code-review/diff-rows.js"},"src/modules/code-review/diff-rows.js":{"./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/structured.js":{},"src/modules/code-review/ReviewPanel.js":{"./data":"src/modules/code-review/data.js","./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/client.js":{},"src/modules/code-review/cache.js":{"./client":"src/modules/code-review/client.js","./idle":"src/modules/code-review/idle.js"},"src/modules/code-review/idle.js":{},"src/modules/code-review/storage.js":{},"src/modules/code-review/preferences.js":{},"src/modules/code-review/RepositoryPicker.js":{"./preferences":"src/modules/code-review/preferences.js"}};
+const __dependencies = {"src/modules/code-review/index.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./CodeReview.css":"src/modules/code-review/CodeReview.css","./EvidencePanel":"src/modules/code-review/EvidencePanel.js","../assistant/contracts":"src/modules/assistant/contracts.js","./assistant-reference":"src/modules/code-review/assistant-reference.js","./ReviewPanel":"src/modules/code-review/ReviewPanel.js","./structured":"src/modules/code-review/structured.js","./diff-rows":"src/modules/code-review/diff-rows.js","./client":"src/modules/code-review/client.js","./cache":"src/modules/code-review/cache.js","./storage":"src/modules/code-review/storage.js","./preferences":"src/modules/code-review/preferences.js","./RepositoryPicker":"src/modules/code-review/RepositoryPicker.js","./idle":"src/modules/code-review/idle.js","./data":"src/modules/code-review/data.js"},"src/modules/shared/shell-route.js":{},"src/modules/code-review/CodeReview.css":{},"src/modules/code-review/EvidencePanel.js":{"./data":"src/modules/code-review/data.js"},"src/modules/code-review/data.js":{},"src/modules/assistant/contracts.js":{},"src/modules/code-review/assistant-reference.js":{"./diff-rows":"src/modules/code-review/diff-rows.js"},"src/modules/code-review/diff-rows.js":{"../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/code-review/ReviewPanel.js":{"./data":"src/modules/code-review/data.js","./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/structured.js":{"../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/code-review/client.js":{},"src/modules/code-review/cache.js":{"./client":"src/modules/code-review/client.js","./idle":"src/modules/code-review/idle.js"},"src/modules/code-review/idle.js":{},"src/modules/code-review/storage.js":{},"src/modules/code-review/preferences.js":{},"src/modules/code-review/RepositoryPicker.js":{"./preferences":"src/modules/code-review/preferences.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

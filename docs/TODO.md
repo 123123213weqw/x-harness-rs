@@ -89,7 +89,7 @@
 - [ ] `CLOUD-06` TLS/任务归属 Gateway、短期连接授权、根/子 Session 访问范围、持久 cursor 校准、有界多观察者和断线不取消回归；不复制第二套 Session/Goal 状态。
 - [ ] `CLOUD-07` 客户端 RuntimeConnection 与原 Web/Tauri UI：托管入口、远程徽标、原 GoalBar、问题回答与 Steering；明确本机/VM 路径与附件映射，不新增常驻诊断页面。
   - [x] `CLOUD-07a-ui` 新任务工作区旁的执行环境入口：按原 Slot/Locale/主题注册，产品源码、生成包、重建与 CI 单元测试一致；菜单始终可打开查看，绑定锁仅限制选项；可信空会话可选本机，旧/运行中/加载失败/未知会话保持原环境。当前仅本机可用，统一 Cloud 选项禁用且说明待接入，不展示机器名称，不伪造环境目录或云端提交。2026-10-02 已在本机独立 3083 Web 更新静态资源，未替换桌面软件；这是旧工作区的历史 UI 验收，本 PR 不携带旧 JS 补丁或生成包，迁移最新 TS 接口仍待完成。
-  - [ ] `CLOUD-07a-ts` 按最新 owned TypeScript / Slot 契约迁移已验收的环境入口；不得用旧 JS 补丁或生成包覆盖当前前端。
+  - [x] `CLOUD-07a-ts` 将环境入口迁移为 owned TypeScript `runtime-environment` source-module，使用新的类型化 Slot owner 与工作区样式契约，重建并提交当前生成图/包，不携带旧 JS 补丁。Cloud 尚未接线，明确禁用；不发云端 RPC、不本机回退。加入状态组合、伪造选择、双语、真实 Chromium/WebKit 全图和键盘回归；详见[迁移记录](reports/cloud-runtime-picker-ts-20261011.md)。CI 以该 PR 的新提交为准，不宣称完整托管可用。
   - [ ] `CLOUD-07a-routing` 接真实环境目录与 RuntimeConnection/Gateway，在新任务提交边界持久绑定环境、按环境加载工作区，并验证断线/切换/旧响应与目录缓存隔离。不能将 UI 入口已显示计为托管可用。
 - [ ] `CLOUD-08` 完成 CLOUD-T01～T24 的确定性/真实适配器对照、跨平台客户端 CI，以及专用 VM 和真实 DeepSeek 多轮验收；共享服务器不能充当 Full Access VM 边界。
   - [x] `CLOUD-LAB-02` 专属 VM-1 内原 Host + DeepSeek 两轮真实编程：唯一 Goal、Prepared 零请求/重启、独立 unittest/语义验证、等待确认后重启不重放、seal/外部停止 7 项通过。最新全工作区 1060 passed / 19 ignored / 0 failed，六模块 Clippy、40 项实验 guard 与 5 项架构 guard 通过。仅受限私有 fixture，不是完整生产 Submit 或跨平台桌面验收。

@@ -92,6 +92,18 @@ impl EventStore for FailedRequestAudit {
         false
     }
 
+    async fn archive_harness_snapshot(
+        &self,
+        id: &str,
+        header: &RequestHeader,
+    ) -> Result<Option<Value>, StoreError> {
+        assert_eq!(id, "audit-unavailable");
+        assert!(header.input.is_empty());
+        Ok(Some(
+            json!({"kind":"archive","version":1,"sha256":"surface-reference"}),
+        ))
+    }
+
     async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
         self.0.list_headers().await
     }
@@ -145,8 +157,137 @@ async fn optional_request_audit_failure_does_not_prevent_a_model_turn() {
         .unwrap();
     assert_eq!(header.options["auditSnapshot"]["kind"], "omitted");
     assert_eq!(header.options["auditSnapshot"]["reason"], "archive_failed");
+    assert_eq!(
+        header.options["harnessSnapshot"]["sha256"],
+        "surface-reference"
+    );
     assert_eq!(header.options["inputMessageCount"], 1);
     assert!(header.input.is_empty() && header.tools.is_empty());
+}
+
+#[derive(Default)]
+struct HarnessOnlyStore {
+    inner: EventMemorySessionStore,
+    fail: bool,
+    surfaces: Mutex<Vec<RequestHeader>>,
+}
+#[async_trait]
+impl EventStore for HarnessOnlyStore {
+    fn captures_full_request_audit(&self) -> bool {
+        false
+    }
+    async fn archive_harness_snapshot(
+        &self,
+        _: &str,
+        h: &RequestHeader,
+    ) -> Result<Option<Value>, StoreError> {
+        assert!(h.input.is_empty());
+        self.surfaces.lock().unwrap().push(h.clone());
+        if self.fail {
+            return Err(StoreError::Backend {
+                message: "snapshot unavailable".into(),
+            });
+        }
+        Ok(Some(
+            json!({"kind":"archive","version":1,"sha256":"surface-reference"}),
+        ))
+    }
+    async fn archive_request(&self, h: RequestHeader) -> Result<RequestHeader, StoreError> {
+        assert!(h.input.is_empty());
+        Ok(h.metadata_only(json!({"kind":"omitted","reason":"capture_disabled"})))
+    }
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.inner.list_headers().await
+    }
+    async fn create(&self, h: SessionHeader) -> Result<Session, StoreError> {
+        self.inner.create(h).await
+    }
+    async fn load(&self, id: &str) -> Result<Option<Session>, StoreError> {
+        self.inner.load(id).await
+    }
+    async fn append(
+        &self,
+        id: &str,
+        r: Revision,
+        e: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        self.inner.append(id, r, e).await
+    }
+    async fn flush(&self, id: &str) -> Result<Revision, StoreError> {
+        self.inner.flush(id).await
+    }
+    async fn inspect(&self, id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.inner.inspect(id).await
+    }
+}
+#[tokio::test]
+async fn harness_surface_capture_is_independent_of_full_diagnostics_and_failure() {
+    for fail in [false, true] {
+        let store = Arc::new(HarnessOnlyStore {
+            fail,
+            ..Default::default()
+        });
+        let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+        let mut request = LoopRequest::new(
+            provider.clone(),
+            vec![
+                AgentMessage::system("Exact runtime system"),
+                AgentMessage::user("PRIVATE USER BODY"),
+            ],
+        );
+        request.session_id = Some("harness-only".into());
+        request.journal_store = Some(store.clone());
+        install_tool(
+            &mut request,
+            TestToolSpec::new(
+                "read",
+                "Exact runtime tool",
+                json!({"type":"object"}),
+                |_, _| async { ToolResult::success("unused") },
+            ),
+        )
+        .await;
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed);
+        let surface = store.surfaces.lock().unwrap()[0].clone();
+        assert_eq!(surface.system.as_deref(), Some("Exact runtime system"));
+        assert_eq!(surface.tools[0]["name"], "read");
+        assert!(!serde_json::to_string(&surface)
+            .unwrap()
+            .contains("PRIVATE USER BODY"));
+        let sent = provider.requests();
+        assert_eq!(
+            sent[0]
+                .messages
+                .iter()
+                .find(|m| m.role == Role::User)
+                .unwrap()
+                .content,
+            "PRIVATE USER BODY"
+        );
+        assert_eq!(
+            serde_json::to_value(&sent[0].tools).unwrap(),
+            serde_json::to_value(&surface.tools).unwrap()
+        );
+        let session = store.load("harness-only").await.unwrap().unwrap();
+        let header = session
+            .events()
+            .iter()
+            .find_map(|e| match e.data() {
+                SessionEventData::RequestHeader { header } => Some(header),
+                _ => None,
+            })
+            .unwrap();
+        assert!(header.system.is_none() && header.tools.is_empty() && header.input.is_empty());
+        assert_eq!(
+            header.options["harnessSnapshot"]["kind"],
+            if fail { "omitted" } else { "archive" }
+        );
+        assert_eq!(
+            header.options["auditSnapshot"]["reason"],
+            "capture_disabled"
+        );
+    }
 }
 
 #[tokio::test]
@@ -9412,4 +9553,86 @@ async fn schema_heavy_early_pressure_keeps_fresh_history_observation_consumable(
         .iter()
         .any(|result| result.content == read_payload));
     assert!(originals.iter().any(|result| result.content == observation));
+}
+
+#[tokio::test(start_paused = true)]
+async fn transport_clock_precedes_private_tool_prefix_commit_and_tool_runs_once() {
+    struct DelayedProvider(AtomicUsize);
+    #[async_trait]
+    impl ModelProvider for DelayedProvider {
+        async fn stream(
+            &self,
+            _request: ProviderRequest,
+            _cancel: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            let events = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                vec![
+                    (2000, tool_delta(0, "call", "echo", "{\"value\":")),
+                    (3000, tool_delta(0, "", "", "2}")),
+                    (
+                        0,
+                        ProviderEvent::Completed {
+                            finish_reason: Some(FinishReason::ToolCalls),
+                            usage: Some(TokenUsage {
+                                output_tokens: 288,
+                                reasoning_tokens: 12,
+                                ..Default::default()
+                            }),
+                            provider_items: vec![],
+                        },
+                    ),
+                ]
+            } else {
+                vec![
+                    (0, ProviderEvent::TextDelta("done".into())),
+                    (0, completed()),
+                ]
+            };
+            Ok(Box::pin(stream::unfold(
+                VecDeque::from(events),
+                |mut events| async move {
+                    let (ms, event) = events.pop_front()?;
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    Some((Ok(event), events))
+                },
+            )))
+        }
+    }
+    let store = Arc::new(EventMemorySessionStore::default());
+    let executions = Arc::new(AtomicUsize::new(0));
+    let observed = executions.clone();
+    let tool = TestToolSpec::new("echo", "echo", json!({"type":"object"}), move |_, _| {
+        let observed = observed.clone();
+        async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            ToolResult::success("ok")
+        }
+    });
+    let mut request = LoopRequest::new(
+        Arc::new(DelayedProvider(AtomicUsize::new(0))),
+        vec![AgentMessage::user("run")],
+    );
+    request.session_id = Some("reception-clock".into());
+    request.journal_store = Some(store.clone());
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
+    let session = store.load("reception-clock").await.unwrap().unwrap();
+    let reception = session
+        .events()
+        .iter()
+        .find_map(|e| match e.data() {
+            SessionEventData::ModelReception {
+                step: 1, reception, ..
+            } if reception.finished => Some(reception),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reception.reception_ms, 3000);
+    assert_eq!(reception.elapsed_ms, 5000);
+    assert_eq!(reception.output_tokens, Some(288));
+    assert_eq!(reception.reasoning_tokens, Some(12));
+    let serialized = serde_json::to_string(reception).unwrap();
+    assert!(!serialized.contains("value"));
 }

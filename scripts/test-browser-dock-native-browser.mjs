@@ -57,7 +57,7 @@ try {
     const plugin = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
     // Seat the real Browser.css and native lifecycle; a factory alone leaves
     // an empty page rectangle after navigation, unlike the shipped plugin.
-    plugin.apply({effect:fn=>fn(),slots:{inject:(_,fn)=>fn(),register:()=>{}}})
+    plugin.apply({get:()=>undefined,remote:{$on:()=>()=>{}},effect:fn=>fn(),slots:{inject:(_,fn)=>fn(),register:()=>{}}})
     let AppFrame,rootDefinition
     layout.apply({ get:()=>({list:{getSnapshot:()=>({current:undefined,ids:[],byId:{},phase:'ready'}),subscribe:()=>()=>{}},open(){},clear(){},subagentAddress(){}}), effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
     const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
