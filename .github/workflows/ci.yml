@@ -173,6 +173,8 @@ jobs:
         run: |
           node --test scripts/test-ci-ui-suite.mjs
           python3 -B scripts/test-ci-tiering.py
+          python3 -B scripts/test-ci-latency.py
+          node --test scripts/test-ci-ui-timing.mjs
       - name: Check committed artifacts, strict types and deterministic build
         run: node scripts/ci-ui-suite.mjs --suite build
       - name: Seal same-run UI artifact (not a compiler cache)
@@ -362,6 +364,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           # Never restore vendored C archives compiled against newer glibc.
           prefix-key: native-ubuntu-22.04-v1
           workspaces: |
@@ -376,44 +379,46 @@ jobs:
           bwrap --unshare-user --unshare-pid --unshare-net --die-with-parent --ro-bind / / /bin/true
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
+          XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
+          XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
+          XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
+          XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
           XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
         run: |
-          cargo test --locked -p xharness-projection export_session_terminal_contract
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
       - name: File display wire is generated from actual Rust DTOs
         env:
           XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
         run: |
-          cargo test --locked -p xharness-api export_file_display_contract
           node scripts/generate-file-display-contract.mjs --from "$XHARNESS_FILE_DISPLAY_EXPORT" --check
           node --test scripts/test-file-display-source.mjs
       - name: Real Rust fork announcements and lists cross the production WebSocket and HTTP decoders
         env:
           XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
         run: |
-          cargo test --locked -p xharness-host export_fork_wire_contract
           node --test scripts/test-fork-wire-contract.mjs
       - name: Goal remote HTTP replies match shipped client schemas
         env:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
         run: |
-          cargo test -p xharness-host-app --test goal_remotes
           node scripts/test-goal-remote-contract.mjs "$XHARNESS_GOAL_REMOTE_FIXTURE"
       - name: Native plugin replies match checked TypeScript DTOs
         env:
           XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
         run: |
-          cargo test --locked -p xharness-host-app --test plugin_wire_contract
           node scripts/test-plugin-wire-contract.mjs "$XHARNESS_PLUGIN_WIRE_FIXTURE"
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
@@ -452,6 +457,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
@@ -475,12 +481,14 @@ jobs:
           (Split-Path -Parent $rg) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
@@ -669,18 +677,21 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
       - name: Install portable search before integration tests
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
@@ -796,6 +807,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target

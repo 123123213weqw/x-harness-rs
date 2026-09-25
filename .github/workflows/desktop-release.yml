@@ -198,19 +198,21 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          shared-key: desktop-native-${{ matrix.target }}
-          workspaces: |
-            . -> target
-            apps/desktop/src-tauri -> target
       - name: Preserve Windows release symbols without changing optimization
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: |
           'CARGO_PROFILE_RELEASE_DEBUG=2' >> $env:GITHUB_ENV
           'CARGO_PROFILE_RELEASE_STRIP=none' >> $env:GITHUB_ENV
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: desktop-native-${{ matrix.target }}
+          # Salt only public compile-time configuration, never signing secrets.
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST XHARNESS_ACCOUNT_ORIGIN XHARNESS_INSTALLATION_ENDPOINT XHARNESS_RELEASE_CHANNEL
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
       - name: Install native macOS ripgrep
         if: startsWith(matrix.platform, 'darwin-')
         run: bash scripts/install-portable-rg.sh
