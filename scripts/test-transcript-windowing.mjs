@@ -102,6 +102,43 @@ try {
  });
  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="false"]').length>70);
  assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'actual ChatView opens at bottom');
+ // Compaction replaces a large history span while the turn keeps running.
+ // Native anchoring can emit a scroll without any reader gesture. That must
+ // not turn off follow mode and strand the viewport at the compact marker.
+ await page.evaluate(()=>{
+  snap={...snap,running:true,chat:{...snap.chat,
+    order:[...snap.chat.order.slice(-25),'compact'],
+    nodes:new Map([...snap.chat.nodes,['compact',{key:'compact',kind:'compaction',anchorSeq:100,data:{status:'running'}}]])}};
+  renderActual();
+ });
+ await scroll.evaluate(e=>{
+  e.scrollTop=Math.max(0,e.scrollTop-120);
+  e.dispatchEvent(new Event('scroll'));
+ });
+ await page.waitForTimeout(100);
+ assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'compaction reflow keeps live follow');
+ await page.evaluate(()=>{
+  snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'after-compact'],
+    nodes:new Map([...snap.chat.nodes,['after-compact',{key:'after-compact',kind:'assistant',anchorSeq:101,data:{}}]])}};
+  renderActual();
+ });
+ assert.ok(await scroll.evaluate(e=>e.scrollHeight-e.scrollTop-e.clientHeight)<30,'answer after compact remains visible');
+ await scroll.evaluate(e=>{
+  e.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-180}));
+  e.scrollTop=Math.max(0,e.scrollTop-180);
+  e.dispatchEvent(new Event('scroll'));
+ });
+ await page.waitForTimeout(40);
+ const readerTop=await scroll.evaluate(e=>e.scrollTop);
+ await page.evaluate(()=>{
+  snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'after-reader-scroll'],
+    nodes:new Map([...snap.chat.nodes,['after-reader-scroll',{key:'after-reader-scroll',kind:'assistant',anchorSeq:102,data:{}}]])}};
+  renderActual();
+ });
+ assert.ok(Math.abs(await scroll.evaluate(e=>e.scrollTop)-readerTop)<2,'explicit reader scroll disables follow');
+ await page.evaluate(()=>{
+  snap={...snap,running:false,chat:{...snap.chat,order:[...Array.from({length:100},(_,i)=>String(i))]}};renderActual();
+ });
  await scroll.evaluate(e=>{e.scrollTop=5000});await page.waitForTimeout(150);
  const before=await scroll.evaluate(e=>e.scrollTop);
  await page.evaluate(()=>{snap={...snap,chat:{...snap.chat,order:[...snap.chat.order,'100'],nodes:new Map([...snap.chat.nodes,['100',{key:'100',kind:'assistant',anchorSeq:100,data:{}}]])}};renderActual()});
