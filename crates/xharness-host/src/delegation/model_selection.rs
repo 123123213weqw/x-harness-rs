@@ -42,8 +42,23 @@ impl ModelOverride {
         let mut selected = if provider == parent.provider && model == parent.model {
             parent.clone()
         } else {
-            let descriptor = catalog.iter().find(|d| d.provider == provider && d.model == model)
-                .ok_or_else(|| format!("unknown configured model route {provider}/{model}; use agent inspect to list available models"))?;
+            let descriptor = catalog
+                .iter()
+                .find(|d| d.provider == provider && d.model == model)
+                .ok_or_else(|| {
+                    let inherited = if self.provider.is_none() {
+                        format!("; provider omitted, inherited parent provider {provider}")
+                    } else {
+                        String::new()
+                    };
+                    let candidates: Vec<_> = catalog
+                        .iter()
+                        .filter(|d| d.model == model)
+                        .take(8)
+                        .map(start_selectors)
+                        .collect();
+                    format!("unknown configured model route {provider}/{model}{inherited}; use agent inspect without agent_id and copy both provider and model from models[].start_selectors; matching configured selectors (up to 8, not live verified): {}", json!(candidates))
+                })?;
             ModelSelection {
                 provider,
                 model,
@@ -343,8 +358,14 @@ pub(super) fn admitted_model(session: &Session) -> Option<ModelSelection> {
             _ => None,
         })
 }
+/// Copyable start fields, not a slash-encoded route: model IDs may contain '/'.
+fn start_selectors(descriptor: &ModelDescriptor) -> Value {
+    json!({"provider":descriptor.provider,"model":descriptor.model})
+}
+
 pub(super) fn catalog_view(catalog: &[ModelDescriptor]) -> Value {
     Value::Array(catalog.iter().map(|d|json!({"provider":d.provider,"model":d.model,
+        "start_selectors":start_selectors(d),
         "reasoning_efforts":d.reasoning.as_ref().map(|r|r.efforts.iter().map(|e|e.id.as_str()).collect::<Vec<_>>()).unwrap_or_default(),
         "default_reasoning_effort":d.reasoning.as_ref().and_then(|r|r.default_effort.as_deref())})).collect())
 }
@@ -484,6 +505,109 @@ mod tests {
         }
         .resolve(&parent(), &catalog())
         .is_err());
+    }
+
+    #[test]
+    fn omitted_provider_reports_cross_provider_candidates_without_rerouting() {
+        let parent = ModelSelection {
+            provider: "glm".into(),
+            model: "glm-main".into(),
+            reasoning_effort: Some("high".into()),
+            context_window_tokens: Some(200_000),
+        };
+        let catalog = vec![ModelDescriptor::new(
+            "deepseek",
+            "DeepSeek",
+            "deepseek-flash",
+            "Flash",
+        )];
+        let error = ModelOverride {
+            model: Some("deepseek-flash".into()),
+            ..Default::default()
+        }
+        .resolve(&parent, &catalog)
+        .unwrap_err();
+        assert!(error.contains("glm/deepseek-flash"));
+        assert!(error.contains("provider omitted, inherited parent provider glm"));
+        assert!(error.contains("models[].start_selectors"));
+        assert!(error.contains(&start_selectors(&catalog[0]).to_string()));
+        assert!(error.contains("not live verified"));
+
+        let selected = ModelOverride {
+            provider: Some("deepseek".into()),
+            model: Some("deepseek-flash".into()),
+            ..Default::default()
+        }
+        .resolve(&parent, &catalog)
+        .unwrap();
+        assert_eq!(selected.provider, "deepseek");
+        assert_eq!(selected.model, "deepseek-flash");
+        assert_eq!(selected.reasoning_effort, None);
+        assert_eq!(selected.context_window_tokens, None);
+    }
+
+    #[test]
+    fn configured_candidates_round_trip_duplicate_and_slash_model_ids() {
+        let catalog = vec![
+            ModelDescriptor::new("one", "One", "vendor/model/v2", "Shared"),
+            ModelDescriptor::new("two", "Two", "vendor/model/v2", "Shared"),
+        ];
+        let view = catalog_view(&catalog);
+        for (index, descriptor) in catalog.iter().enumerate() {
+            let mut arguments = view[index]["start_selectors"].clone();
+            arguments["action"] = json!("start");
+            arguments["task"] = json!("read-only review");
+            let operation: AgentOperation = serde_json::from_value(arguments).unwrap();
+            operation.validate().unwrap();
+            let AgentOperation::Start {
+                provider,
+                model,
+                reasoning_effort,
+                ..
+            } = operation
+            else {
+                panic!("candidate must be usable as start selectors")
+            };
+            let selected = ModelOverride {
+                provider,
+                model,
+                reasoning_effort,
+            }
+            .resolve(&parent(), &catalog)
+            .unwrap();
+            assert_eq!(selected.provider, descriptor.provider);
+            assert_eq!(selected.model, "vendor/model/v2");
+        }
+        let error = ModelOverride {
+            model: Some("vendor/model/v2".into()),
+            ..Default::default()
+        }
+        .resolve(&parent(), &catalog)
+        .unwrap_err();
+        for descriptor in &catalog {
+            assert!(error.contains(&start_selectors(descriptor).to_string()));
+        }
+        assert!(catalog_view(&[]).as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unknown_route_hints_do_not_rewrite_explicit_provider_or_guess_unknown_models() {
+        for (provider, model) in [(Some("missing"), "small"), (None, "unknown")] {
+            let error = ModelOverride {
+                provider: provider.map(str::to_owned),
+                model: Some(model.into()),
+                ..Default::default()
+            }
+            .resolve(&parent(), &catalog())
+            .unwrap_err();
+            assert!(error.contains("unknown configured model route"));
+            if provider.is_some() {
+                assert!(!error.contains("provider omitted"));
+                assert!(error.contains(&start_selectors(&catalog()[0]).to_string()));
+            } else {
+                assert!(error.ends_with("[]"));
+            }
+        }
     }
     #[test]
     fn only_exact_allowed_once_can_admit_a_changed_route() {
@@ -725,7 +849,11 @@ mod tests {
     fn observed_catalog_and_binding_text_do_not_grant_permission() {
         let view = catalog_view(&catalog());
         assert_eq!(view[0]["reasoning_efforts"], json!(["off", "vendor-3"]));
-        assert_eq!(view[0].as_object().unwrap().len(), 4);
+        assert_eq!(
+            view[0]["start_selectors"],
+            json!({"provider":"p","model":"small"})
+        );
+        assert_eq!(view[0].as_object().unwrap().len(), 5);
         let call = xharness_core::ToolCall {
             name: "agent".into(),
             arguments_json: serde_json::to_string(&operation()).unwrap(),
