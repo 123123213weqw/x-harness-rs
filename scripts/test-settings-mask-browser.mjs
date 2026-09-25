@@ -58,6 +58,25 @@ try {
     await openAccountSettings(page); await dialog.waitFor()
     await dialog.getByRole('button',{name:'General',exact:true}).click()
     const expectedPaint=(await geometry()).paint
+    const icons = await dialog.locator('nav button').evaluateAll(buttons => buttons.map(button => {
+      const icon=button.querySelector('[data-xh-settings-icon]'),svg=icon?.querySelector('svg')
+      const rect=svg?.getBoundingClientRect()
+      return {label:button.textContent.trim(),kind:icon?.getAttribute('data-xh-settings-icon'),hidden:icon?.getAttribute('aria-hidden'),
+        width:rect?.width,height:rect?.height,count:icon?.querySelectorAll('svg').length,
+        ink:svg?getComputedStyle(svg).color:null,labelInk:getComputedStyle(button).color,shape:svg?.innerHTML}
+    }))
+    const expectedIcons = new Map([
+      ['General','general'],['Models','models'],['Account & model service','account'],['Profile','usage'],
+      ['Archived chats','archive'],['Display & shortcuts','display'],['Installation statistics & privacy','installation'],
+    ])
+    for(const [label,kind] of expectedIcons) {
+      const icon=icons.find(item=>item.label===label)
+      assert.ok(icon,`${theme}: registered settings row ${label}`)
+      assert.equal(icon.kind,kind);assert.equal(icon.hidden,'true');assert.equal(icon.count,1)
+      near(icon.width,16,`${label} icon width`);near(icon.height,16,`${label} icon height`)
+      assert.equal(icon.ink,icon.labelInk,`${label} inherits the actual theme ink`)
+    }
+    assert.equal(new Set(icons.map(icon=>icon.shape)).size,icons.length,'actual SVG shapes distinguish settings sections, not just metadata')
     for (const width of [1810,1280,960,640,426]) {
       const height=width<=640 ? 664 : 900
       await page.setViewportSize({width,height})
