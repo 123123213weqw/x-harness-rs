@@ -1255,6 +1255,23 @@ mod tests {
             panic!("snapshot failed")
         };
         assert!(!value["header"]["input"].as_array().unwrap().is_empty());
+        let result = host
+            .call_dynamic(
+                xharness_api::RpcId::new("harness-snapshot"),
+                "session.requestSnapshot",
+                json!({"sessionId":"g","seq":seq,"scope":"harness"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let xharness_api::RpcResult::Success {
+            value: Some(surface),
+        } = result
+        else {
+            panic!("Harness snapshot failed")
+        };
+        assert!(surface["header"].get("input").is_none());
+        assert_eq!(surface["header"]["tools"], value["header"]["tools"]);
         assert!(host.state.read().await.sessions["g"].messages.is_empty());
         let exported = host
             .export_session("g", CancellationToken::new())
@@ -1269,6 +1286,8 @@ mod tests {
             json!({"sessionId":"missing","seq":seq}),
             json!({"sessionId":"g","seq":-1}),
             json!({"sessionId":"g","seq":999999}),
+            json!({"sessionId":"g","seq":seq,"scope":"all"}),
+            json!({"sessionId":"g","seq":seq,"scope":true}),
         ] {
             assert!(!host
                 .call_dynamic(

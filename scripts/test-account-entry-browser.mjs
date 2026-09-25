@@ -75,6 +75,26 @@ try {
     await page.getByRole('button', { name: zh ? '收起侧边栏' : 'Collapse sidebar', exact: true }).click()
     assert.equal(await page.getByRole('menu').count(), 0)
     await page.setViewportSize({ width: 426, height: 664 })
+    // This assertion covers the resting narrow rail, not another collapse
+    // race (the live-menu/focus race above intentionally remains unwaited).
+    // A visible/stable button may still be the fading wide entry: opacity
+    // does not make it non-actionable, and viewport resize is asynchronous.
+    // Await the shell's actual rail/fade lifecycle, never a fixed delay or a
+    // retry that could conceal a menu dismissed after the following click.
+    await page.waitForFunction(() => {
+      const entry = document.querySelector('[data-xh-account-trigger]')
+      const sidebar = entry?.closest('.U910La_root')
+      const foot = entry?.closest('.U910La_footArea')
+      const frame = document.querySelector('._84hhiq_frame')
+      return innerWidth === 426 && innerHeight === 664
+        && entry?.classList.contains('xhAccount_rail')
+        && sidebar?.classList.contains('U910La_collapsed')
+        && !sidebar.classList.contains('U910La_fading')
+        && foot && getComputedStyle(foot).opacity === '1'
+        && frame?.getBoundingClientRect().width === 426
+        && [foot, frame].every(element => element.getAnimations().every(animation =>
+          !animation.pending && animation.playState !== 'running'))
+    })
     await trigger.click()
     const box = await page.getByRole('menu').boundingBox()
     assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 426 && box.y + box.height <= 664, 'rail menu fits viewport')

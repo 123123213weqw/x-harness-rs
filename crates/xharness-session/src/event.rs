@@ -128,7 +128,8 @@ impl Revision {
 }
 
 /// Request routing and accounting fact. The full model-visible envelope is
-/// optional diagnostics and may be retained separately when capture is on.
+/// optional diagnostics. System/tool inspection is retained independently in
+/// a lightweight sidecar referenced by options.harnessSnapshot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RequestHeader {
     pub provider: String,
@@ -162,6 +163,30 @@ impl RequestHeader {
             input: Vec::new(),
             options: BTreeMap::new(),
         }
+    }
+
+    /// A read-only Harness view, never the full request body. Legacy inline
+    /// system messages are supported without returning any user/tool messages.
+    pub fn harness_view(&self) -> Self {
+        let system = self.system.clone().or_else(|| {
+            let text = self
+                .input
+                .iter()
+                .filter(|m| m.role == crate::MessageRole::System)
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            (!text.is_empty()).then_some(text)
+        });
+        let mut view = self.metadata_only(
+            self.options
+                .get("auditSnapshot")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"kind":"harness_only"})),
+        );
+        view.system = system;
+        view.tools = self.tools.clone();
+        view
     }
 
     /// Preserve routing, accounting and prompt fingerprints without retaining
@@ -1034,6 +1059,13 @@ pub enum EventData {
         step: u32,
         chunk: AssistantChunk,
     },
+    /// Observed before retry-prefix buffering; not conversation content.
+    #[serde(rename = "model/reception")]
+    ModelReception {
+        turn: u32,
+        step: u32,
+        reception: crate::ModelReception,
+    },
     #[serde(rename = "assistant/message")]
     AssistantMessage {
         turn: u32,
@@ -1108,5 +1140,32 @@ pub struct LoggedEvent {
 impl LoggedEvent {
     pub const fn data(&self) -> &EventData {
         self.event.data()
+    }
+}
+
+#[cfg(test)]
+mod harness_view_tests {
+    use super::*;
+    #[test]
+    fn surface_view_strips_body_and_supports_legacy_system_without_overriding_explicit_empty() {
+        let mut header = RequestHeader::new("test", "model");
+        header.input = vec![
+            Message::system("legacy system"),
+            Message::user("PRIVATE BODY"),
+        ];
+        header.tools = vec![serde_json::json!({"name":"read"})];
+        header.options.insert(
+            "context".into(),
+            serde_json::json!({"edits":[{"message":"PRIVATE EDIT"}]}),
+        );
+        let surface = header.harness_view();
+        assert_eq!(surface.system.as_deref(), Some("legacy system"));
+        assert_eq!(surface.tools, header.tools);
+        assert!(surface.input.is_empty());
+        let encoded = serde_json::to_string(&surface).unwrap();
+        assert!(!encoded.contains("PRIVATE BODY") && !encoded.contains("PRIVATE EDIT"));
+        header.system = Some(String::new());
+        assert_eq!(header.harness_view().system, Some(String::new()));
+        assert_eq!(header.input.len(), 2, "the actual request is not mutated");
     }
 }

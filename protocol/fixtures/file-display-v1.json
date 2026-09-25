@@ -1,0 +1,32 @@
+{
+  "files": [
+    {
+      "kind": "markdown",
+      "path": "/workspace/report.md",
+      "text": "# Report\n![figure](figure.png)\n"
+    },
+    {
+      "kind": "text",
+      "path": "/workspace/main.rs",
+      "text": "fn main() {}"
+    },
+    {
+      "dataBase64": "AA==",
+      "height": 1,
+      "kind": "image",
+      "mediaType": "image/png",
+      "path": "/workspace/figure.png",
+      "width": 1
+    },
+    {
+      "kind": "diff",
+      "path": "/workspace/change.patch",
+      "source": "patch",
+      "text": "--- a/main.rs\n+++ b/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
+    }
+  ],
+  "open": {
+    "path": "/workspace/report.md",
+    "sessionId": "s"
+  }
+}

@@ -13,7 +13,7 @@ const idleSource=buildSync({entryPoints:[new URL('../ui/src/modules/code-review/
 const browser=await({chromium,webkit}[engine]).launch({headless:true})
 const moduleSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'}]).get('@xlang/xharness-client-ui-code-review').bytes.toString()
 try{
- const page=await browser.newPage({viewport:{width:1180,height:780}}),errors=[]
+ const page=await browser.newPage({viewport:{width:1180,height:780},locale:'en-US'}),errors=[]
  page.on('pageerror',error=>{if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
  await installOwnedViewHtml(page,'source','<html lang="en"><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>',{origin:'https://review-cache-fixture.test'})
  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>{window.registration=row}}'})

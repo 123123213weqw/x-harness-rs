@@ -25,6 +25,40 @@ def require(condition, message):
         raise release.TaskError(message)
 
 
+class HostedGitHub(release.GitHub):
+    """Policy snapshot from trusted workflow vars, not dispatch inputs or REST.
+
+    Construct only after the hosted/master/workflow/source guards in main.
+    Ordinary CLI clients still use GitHub's repository-variable REST checks.
+    """
+    def __init__(self, repo, scope, configured_repository, publisher_pin):
+        super().__init__(repo)
+        require(scope in release.SCOPES, 'Invalid hosted release scope')
+        require(configured_repository == repo, 'Trusted workflow repository opt-in missing or mismatched')
+        self._publisher_pin = None
+        if scope == release.contract.MACOS_SELFSIGNED_SCOPE:
+            require(publisher_pin not in (None, ''), 'Trusted workflow Mac publisher pin missing')
+            if isinstance(publisher_pin, str):
+                publisher_pin = publisher_pin.lower()  # Same canonicalization as the ordinary REST client.
+            release.contract.signing_fingerprint(publisher_pin)
+            self._publisher_pin = publisher_pin
+
+    def opted_in(self):
+        return True  # Exact repository equality was checked at construction.
+
+    def publisher_pin(self):
+        require(self._publisher_pin is not None, 'Trusted workflow Mac publisher pin missing')
+        return self._publisher_pin
+
+
+def validate_restored_policy(state, client, version, scope, sha):
+    require(state.get('repository') == client.repo and state['version'] == version
+            and state['scope'] == scope and state['source_sha'] == sha
+            and state.get('pipeline') is True, 'Restored release identity changed')
+    pin = client.publisher_pin() if scope == release.contract.MACOS_SELFSIGNED_SCOPE else None
+    require(state.get('macos_signing_fingerprint') == pin, 'Restored Mac publisher pin changed')
+
+
 def artifact_prefix(version, run_id):
     release.contract.version(version)
     require(re.fullmatch(r'[1-9][0-9]*', run_id or ''), 'Invalid service run identity')
@@ -146,8 +180,9 @@ def advance_until_done(task, publish, *, timeout=14400, interval=60, sleep=time.
             confirm = task.state['version'] if publish and task.state['phase'] == 'awaiting_confirmation' else None
             phase = task.advance(confirm=confirm)
             failures = 0
-        except release.TransportError:
+        except release.TransportError as error:
             failures += 1
+            print(str(error), file=sys.stderr)  # release.py exposes only a safe GET endpoint/status.
             require(failures <= 6, 'GitHub transport unavailable after bounded recovery; rerun this same service run')
             require(clock() < deadline, 'Coordinator deadline reached; resume this same run')
             sleep(min(60, 5 * 2 ** (failures - 1)))
@@ -175,15 +210,16 @@ def main():
         require(env.get('GITHUB_WORKFLOW_REF', '').startswith(env['GITHUB_REPOSITORY'] + '/.github/workflows/' + WORKFLOW + '@'), 'Wrong coordinator workflow')
         require(sha == env.get('GITHUB_SHA'), 'Master moved before coordinator dispatch; do not rebind the version')
         require(env['PUBLISH_AFTER_ACCEPTANCE'] in ('true', 'false'), 'Publication intent must be explicit')
-        client = release.GitHub(env['GITHUB_REPOSITORY'])
+        client = HostedGitHub(env['GITHUB_REPOSITORY'], scope,
+                              env.get('XHARNESS_FRIENDS_RELEASE_REPOSITORY'),
+                              env.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1'))
         root = Path(env['RUNNER_TEMP']) / 'release-service'
         root.mkdir(mode=0o700, exist_ok=False)
         state = restore(client, root, version, env['GITHUB_RUN_ID'], sha)
         if state is None:
             state = release.new_task(client.repo, version, scope, sha,
                 client.publisher_pin() if scope == release.contract.MACOS_SELFSIGNED_SCOPE else None, pipeline=True)
-        require(state['version'] == version and state['scope'] == scope and state['source_sha'] == sha
-                and state.get('pipeline') is True, 'Restored release identity changed')
+        validate_restored_policy(state, client, version, scope, sha)
         action = ROOT / '.github/actions/desktop-release-service/index.cjs'
         def upload(name, path):
             result = subprocess.run(['node', str(action), 'checkpoint', name, str(path)], check=False)
