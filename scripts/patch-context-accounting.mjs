@@ -31,6 +31,47 @@ export function patchContextAccounting(bytes) {
   return Buffer.from(s);
 }
 
+// Keep the composer control mounted while a new model step is being counted.
+// The host deliberately clears the previous step's reading at step/start; an
+// empty reading must not remove the control and shift the send-button layout.
+export function patchContextMeterStability(bytes) {
+  let source = bytes.toString();
+  if (source.includes('xharness-context-meter-stable/v1')) return bytes;
+  const start = source.indexOf('function ContextMeter({ useProjection, t }) {');
+  const end = source.indexOf('\n\t\t//#endregion', start);
+  if (start < 0 || end < 0) throw Error('context meter upstream anchor changed');
+  let block = source.slice(start, end);
+  const replace = (before, after) => {
+    if (block.split(before).length !== 2) throw Error(`context meter anchor changed: ${before}`);
+    block = block.replace(before, after);
+  };
+  replace('const context = contextOccupancy(pressure);',
+    'const context = contextOccupancy(pressure);\n\t\t\t// xharness-context-meter-stable/v1');
+  replace('if (context === null) return null;\n\t\t\tconst percent = context.percent;\n\t\t\tconst reading = `${context.exact ? "" : "≈"}${percent}%`;',
+    `const percent = context?.percent ?? 0;
+            const reading = available ? \`\${context.exact ? "" : "≈"}\${percent}%\` : null;
+            const label = available ? t("context.aria", { percent: reading })
+                : t(["preparing", "in_flight", "model_changed"].includes(pressure?.phase)
+                    ? "context.pending" : "context.unavailable");`);
+  replace('label: t("context.aria", { percent: reading }),', 'label,');
+  replace('"aria-label": t("context.aria", { percent: reading }),\n\t\t\t\t\t\t"aria-haspopup": "dialog",\n\t\t\t\t\t\t"aria-expanded": open,',
+    '"aria-label": label,\n\t\t\t\t\t\t"aria-haspopup": available ? "dialog" : void 0,\n\t\t\t\t\t\t"aria-expanded": available ? open : void 0,\n\t\t\t\t\t\tdisabled: !available,');
+  replace('open && (0, react_jsx_runtime.jsxs)("div", {',
+    'open && available && (0, react_jsx_runtime.jsxs)("div", {');
+  source = source.slice(0, start) + block + source.slice(end);
+  const translate = (before, after) => {
+    if (source.split(before).length !== 2) throw Error(`context meter locale/CSS anchor changed: ${before}`);
+    source = source.replace(before, after);
+  };
+  translate('"context.aria": "上下文已用 {percent}",',
+    '"context.aria": "上下文已用 {percent}",\n\t\t\t"context.pending": "正在计算上下文",\n\t\t\t"context.unavailable": "暂无上下文读数",');
+  translate('"context.aria": "{percent} of context used",',
+    '"context.aria": "{percent} of context used",\n\t\t\t"context.pending": "Calculating context usage",\n\t\t\t"context.unavailable": "Context usage unavailable",');
+  translate('.S4my2G_trigger:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+    '.S4my2G_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.S4my2G_trigger:disabled{cursor:default;opacity:.45}');
+  return Buffer.from(source);
+}
+
 export function patchContextConnection(bytes) {
   let s=bytes.toString();
   if(s.includes('xharness-context-replay/v2'))return bytes;
