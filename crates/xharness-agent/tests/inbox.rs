@@ -153,6 +153,105 @@ async fn stale_claim_cannot_remove_newer_queue_state() {
 }
 
 #[tokio::test]
+async fn user_resume_is_revision_bound_and_preserves_earlier_runtime_receipts() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let inbox = DurableInbox::open(store.clone(), SessionHeader::new("failed-claim"))
+        .await
+        .unwrap();
+    store
+        .append(
+            "failed-claim",
+            Revision::ZERO,
+            vec![
+                EventData::TurnStart { turn: 1 }.into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: TurnEndReason::Failed {
+                        error: "compaction did not shrink".into(),
+                        provider_failure: None,
+                    },
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let mut report = InboxMessage::user("child-result", "context only");
+    report.source = Some(serde_json::json!({"kind":"agent-settlement"}));
+    inbox.append(InboxTarget::NextTurn, report).await.unwrap();
+    assert!(inbox.prepare_user_claim().await.unwrap().is_empty());
+    inbox
+        .append(
+            InboxTarget::NextTurn,
+            InboxMessage::user("retry", "retry explicitly"),
+        )
+        .await
+        .unwrap();
+    let claim = inbox.prepare_user_claim().await.unwrap();
+    assert_eq!(
+        claim
+            .messages
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["retry"]
+    );
+    assert!(
+        store
+            .load("failed-claim")
+            .await
+            .unwrap()
+            .unwrap()
+            .dispatch_paused(),
+        "preparation must not reopen admission"
+    );
+    inbox.remove("retry").await.unwrap();
+    assert!(inbox
+        .commit_claim(claim, vec![], vec![])
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("revision conflict"));
+    assert!(
+        store
+            .load("failed-claim")
+            .await
+            .unwrap()
+            .unwrap()
+            .dispatch_paused(),
+        "a cancelled/stale resume cannot open the gate"
+    );
+    assert!(inbox.prepare_user_claim().await.unwrap().is_empty());
+    inbox
+        .append(
+            InboxTarget::NextTurn,
+            InboxMessage::user("retry-2", "retry now"),
+        )
+        .await
+        .unwrap();
+    let claim = inbox.prepare_user_claim().await.unwrap();
+    inbox
+        .commit_claim(claim, vec![EventData::TurnStart { turn: 2 }.into()], vec![])
+        .await
+        .unwrap();
+    let session = store.load("failed-claim").await.unwrap().unwrap();
+    assert!(!session.dispatch_paused());
+    assert_eq!(
+        inbox.snapshot().await.unwrap().next_turn()[0].id,
+        "child-result"
+    );
+    let last = session.events().last().unwrap();
+    assert!(session
+        .events()
+        .iter()
+        .any(|event| event.revision == last.revision
+            && matches!(
+                event.data(),
+                EventData::AgentDispatchPaused { paused: false }
+            )));
+}
+
+#[tokio::test]
 async fn recovery_reconciles_a_consumed_steer_left_pending_by_a_crash() {
     let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
     let inbox = DurableInbox::open(Arc::clone(&store), SessionHeader::new("reconcile"))
