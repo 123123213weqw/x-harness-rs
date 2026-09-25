@@ -4053,7 +4053,9 @@ dependencies = [
  "tokio-util",
  "xharness-agent",
  "xharness-core",
+ "xharness-jobs",
  "xharness-session",
+ "xharness-session-jsonl",
  "xharness-tools",
 ]
 
