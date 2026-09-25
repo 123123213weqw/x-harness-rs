@@ -1,5 +1,5 @@
 {
-  "rev": "cfb937846c6beec1",
+  "rev": "2c3266fab1d0c5de",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -26,8 +26,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=c89a5226c48f8ff3",
-      "rev": "c89a5226c48f8ff3",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=8d8ac21840d63920",
+      "rev": "8d8ac21840d63920",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -73,8 +73,8 @@
     },
     {
       "id": "@xharness/dsh-client-connection",
-      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=611fb0d28cbff397",
-      "rev": "611fb0d28cbff397",
+      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=5011d0ce59a5855d",
+      "rev": "5011d0ce59a5855d",
       "inject": [],
       "external": [],
       "immediately": true
@@ -650,8 +650,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-trajectory",
-      "url": "/plugins/@xharness/dsh-client-ui-trajectory/client.js?rev=cb27ec028d2a2a0e",
-      "rev": "cb27ec028d2a2a0e",
+      "url": "/plugins/@xharness/dsh-client-ui-trajectory/client.js?rev=47fcc3b28839f402",
+      "rev": "47fcc3b28839f402",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-runtime",
@@ -849,6 +849,21 @@
       ],
       "external": [
         "@xharness/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-session-import",
+      "url": "/plugins/@xlang/xharness-client-ui-session-import/client.js?rev=30fa045db24edd56",
+      "rev": "30fa045db24edd56",
+      "inject": [
+        "@xharness/dsh-client-ui-settings-general",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale"
+      ],
+      "external": [
         "react",
         "react/jsx-runtime"
       ]

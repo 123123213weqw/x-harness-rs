@@ -11,6 +11,7 @@ const SUPPORTED_METHODS: &[&str] = &[
     "session.list",
     "session.search",
     "session.create",
+    "session.import",
     "session.history",
     "session.models",
     "session.selectModel",
@@ -72,7 +73,7 @@ fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
         .map(|method| method.as_str())
         .collect::<Vec<_>>();
     assert_eq!(actual, SUPPORTED_METHODS);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 54);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 55);
     for name in SUPPORTED_METHODS {
         assert_eq!(name.parse::<RpcMethod>().unwrap().as_str(), *name);
     }
@@ -162,6 +163,7 @@ fn canonical_request(method: RpcMethod) -> Value {
     match method {
         RpcMethod::SessionList => json!({}),
         RpcMethod::SessionSearch => json!({"query":"needle"}),
+        RpcMethod::SessionImport => json!({"source":"codex","jsonl":"{}\n","preview":true}),
         RpcMethod::SessionCreate => json!({"workspaceId":"workspace","agentPreset":"coding"}),
         RpcMethod::SessionHistory => json!({"sessionId":"session","beforeSeq":42,"maxMessages":50}),
         RpcMethod::SessionModels => json!({"sessionId":"session"}),
