@@ -283,6 +283,16 @@ jobs:
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: python -B scripts/desktop-release-build.py collect --plan dist/desktop-plan/plan.json --platform '${{ matrix.platform }}' --target '${{ matrix.target }}' --public-key dist/updater.pub --output 'dist/desktop-package/${{ matrix.platform }}'
+      - name: Owned Windows profile isolation regression (no installer)
+        if: matrix.platform == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          ./scripts/test-windows-install-ownership-isolation.ps1
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-windows-install-ownership-isolation.ps1
+          if ($LASTEXITCODE) { throw 'Windows fixture isolation regression failed' }
+      # This runs on the same worker as native updater acceptance below. It must
+      # return only its own claimed KnownFolder roots to an empty namespace;
+      # the later migration test still refuses all pre-existing user data.
       - name: Windows real installer ownership and crash cleanup acceptance
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
