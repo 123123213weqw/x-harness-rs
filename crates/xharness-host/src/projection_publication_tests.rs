@@ -411,7 +411,7 @@ async fn live_refresh_restart_and_fork_use_the_same_durable_projection() {
     .await;
     assert_eq!(
         child_history["events"].as_array().unwrap().len(),
-        fork_at_seq as usize + 1
+        fork_at_seq as usize + 2 // copied prefix plus durable fork-origin marker
     );
     assert!(!child_history.to_string().contains("after fork"));
 
@@ -447,10 +447,111 @@ async fn live_refresh_restart_and_fork_use_the_same_durable_projection() {
     assert_eq!(after_restart["events"], refreshed["events"]);
     assert_eq!(after_restart["projections"], refreshed["projections"]);
     assert_eq!(child_after_restart["events"], child_history["events"]);
+    {
+        let state = restored.state.read().await;
+        let restored_record = &state.sessions[&child_id];
+        assert_eq!(restored_record.parent_session_id.as_deref(), Some(ID));
+        assert_eq!(restored_record.origin.as_deref(), Some("fork"));
+    }
     assert_eq!(
         child_after_restart["projections"],
         child_history["projections"]
     );
     drop(restored);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn edit_fork_cuts_before_selected_user_message_including_the_first_message() {
+    let (host, store) = fixture().await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let first = store.load(ID).await.unwrap().unwrap();
+    let receipt = store
+        .append(ID, first.revision(), completed_turn(1, "first", &header))
+        .await
+        .unwrap();
+    store
+        .append(ID, receipt.revision, completed_turn(2, "second", &header))
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let user_seqs: Vec<_> = source
+        .events()
+        .iter()
+        .filter_map(|event| {
+            matches!(event.data(), EventData::UserMessage { .. }).then_some(event.seq)
+        })
+        .collect();
+    assert_eq!(user_seqs.len(), 2);
+    for (index, target) in user_seqs.iter().enumerate() {
+        let fork = rpc_value(
+            &host,
+            RpcMethod::SessionFork,
+            json!({"sessionId":ID,"beforeUserSeq":target}),
+        )
+        .await;
+        let id = fork["sessionId"].as_str().unwrap();
+        let child = store.load(id).await.unwrap().unwrap();
+        let texts: Vec<_> = child
+            .events()
+            .iter()
+            .filter_map(|event| match event.data() {
+                EventData::UserMessage { message, .. } => Some(message.content.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), index);
+        assert!(!texts.iter().any(|text| text.contains("second")));
+        assert!(matches!(child.events().last().unwrap().data(),
+            EventData::SessionForkOrigin { parent_session_id, before_user_seq }
+            if parent_session_id == ID && *before_user_seq == Some(*target)));
+        let record = &host.state.read().await.sessions[id];
+        assert_eq!(record.parent_session_id.as_deref(), Some(ID));
+        assert_eq!(record.blank, index == 0);
+    }
+    let invalid = host
+        .call(
+            RpcId::new("invalid-edit-fork"),
+            RpcMethod::SessionFork,
+            json!({"sessionId":ID,"beforeUserSeq":u64::MAX}),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(invalid, RpcResult::Failure { .. }));
+}
+
+#[test]
+fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
+    let mut session = Session::new(SessionHeader::new("fork-of-child")).unwrap();
+    session
+        .append(
+            session.revision(),
+            EventData::AgentDelegated {
+                parent_session_id: "old-parent".into(),
+                invocation_id: "invocation".into(),
+                task: "task".into(),
+            },
+        )
+        .unwrap();
+    session
+        .append(
+            session.revision(),
+            EventData::AgentDispatchPaused { paused: true },
+        )
+        .unwrap();
+    session
+        .append(
+            session.revision(),
+            EventData::SessionForkOrigin {
+                parent_session_id: "actual-source".into(),
+                before_user_seq: Some(5),
+            },
+        )
+        .unwrap();
+    assert_eq!(crate::delegation::restored_delegation(&session), None);
+    assert!(!crate::delegation::restored_dispatch_paused(&session));
 }

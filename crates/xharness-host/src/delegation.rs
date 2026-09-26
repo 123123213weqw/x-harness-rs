@@ -88,12 +88,17 @@ pub(crate) fn restored_delegation(session: &Session) -> Option<String> {
     session
         .events()
         .iter()
+        .rev()
         .find_map(|event| match event.data() {
             EventData::AgentDelegated {
                 parent_session_id, ..
-            } => Some(parent_session_id.clone()),
+            } => Some(Some(parent_session_id.clone())),
+            // A normal fork can copy the history of a delegated child, but it
+            // must not become another delegated child after restart.
+            EventData::SessionForkOrigin { .. } => Some(None),
             _ => None,
         })
+        .flatten()
 }
 pub(crate) fn restored_dispatch_paused(session: &Session) -> bool {
     session
@@ -102,6 +107,7 @@ pub(crate) fn restored_dispatch_paused(session: &Session) -> bool {
         .rev()
         .find_map(|event| match event.data() {
             EventData::AgentDispatchPaused { paused } => Some(*paused),
+            EventData::SessionForkOrigin { .. } => Some(false),
             _ => None,
         })
         .unwrap_or(false)
