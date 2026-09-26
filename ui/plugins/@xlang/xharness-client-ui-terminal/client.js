@@ -522,15 +522,71 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'xhterm-viewport', ref: containerRef })
     }
 
+    function dockInsets(viewportWidth, composerRect) {
+      if (composerRect !== null && composerRect.width > 160) {
+        return {
+          left: Math.max(8, Math.round(composerRect.left)),
+          right: Math.max(8, Math.round(viewportWidth - composerRect.right)),
+        }
+      }
+      const inset = Math.max(16, Math.round((viewportWidth - 800) / 2))
+      return { left: inset, right: inset }
+    }
+
     function TerminalDock({ t }) {
       const store = useDockStore()
       const [height, setHeight] = useState(store.height)
+      const [insets, setInsets] = useState(() => dockInsets(window.innerWidth, null))
       const draggingRef = useRef(false)
       const activeTab = store.activeTab()
 
       useEffect(() => {
         if (!draggingRef.current) setHeight(store.height)
       }, [store.height])
+
+      useEffect(() => {
+        let composer = null
+        const observer = typeof ResizeObserver === 'function'
+          ? new ResizeObserver(update)
+          : null
+        let scheduled = 0
+        function update() {
+          const next = document.querySelector('[data-composer-card="true"]')
+          if (next !== composer) {
+            observer?.disconnect()
+            composer = next
+            if (composer !== null) observer?.observe(composer)
+          }
+          const rect = composer?.getBoundingClientRect() ?? null
+          const nextInsets = dockInsets(window.innerWidth, rect)
+          setInsets((previous) => previous.left === nextInsets.left && previous.right === nextInsets.right
+            ? previous
+            : nextInsets)
+        }
+        function schedule() {
+          if (scheduled !== 0) return
+          scheduled = window.requestAnimationFrame(() => {
+            scheduled = 0
+            update()
+          })
+        }
+        const mutations = typeof MutationObserver === 'function'
+          ? new MutationObserver(() => {
+            if (composer === null || !composer.isConnected) schedule()
+          })
+          : null
+        mutations?.observe(document.body, { childList: true, subtree: true })
+        window.addEventListener('resize', schedule)
+        document.addEventListener('transitionend', schedule, true)
+        update()
+        return () => {
+          observer?.disconnect()
+          mutations?.disconnect()
+          window.cancelAnimationFrame(scheduled)
+          window.removeEventListener('resize', schedule)
+          document.removeEventListener('transitionend', schedule, true)
+        }
+      }, [])
 
       useEffect(() => {
         const move = (event) => {
@@ -552,7 +608,7 @@ window.__ModuleLoader__.load({
 
       if (!store.open) return null
 
-      return h('div', { className: 'xhterm-dock', style: { height } },
+      return h('div', { className: 'xhterm-dock', style: { height, ...insets } },
         h('div', {
           className: 'xhterm-resize-handle',
           title: t('resize.hint'),
@@ -633,7 +689,7 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhterm-dock{position:fixed;left:0;right:0;bottom:0;z-index:90;display:flex;flex-direction:column;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);box-shadow:0 -8px 24px rgba(0,0,0,.18)}
+.xhterm-dock{position:fixed;bottom:0;z-index:90;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-bottom:0;border-radius:10px 10px 0 0;box-shadow:0 -8px 24px rgba(0,0,0,.18)}
 .xhterm-resize-handle{height:4px;flex:none;cursor:row-resize}
 .xhterm-dragging,.xhterm-dragging *{cursor:row-resize!important;user-select:none!important}
 .xhterm-tabbar{display:flex;align-items:center;gap:2px;flex:none;padding:2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}
@@ -686,6 +742,7 @@ window.__ModuleLoader__.load({
     exports.TerminalTab = TerminalTab
     exports.terminalCall = terminalCall
     exports.terminalBytes = terminalBytes
+    exports.dockInsets = dockInsets
     exports.terminalTheme = terminalTheme
     exports.exitNotice = exitNotice
     exports.dockStore = dockStore
