@@ -21,6 +21,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-server` | [Web 服务承载层](server.md) | 已实现 HTTP/WS/静态资源承载 |
 | `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md)、[模型性能与 Token 投影](metrics-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn；完整性能投影计划中 |
 | `xharness-agent` | [长生命周期 Agent](agent.md) | Inbox、Supervisor、多 Turn/Steer、Registry、本机 Lease 与恢复 Wake 已实现 |
+| Host/Agent 交互检查 | [轮次交互状态检查](turn-statecheck.md) | #152 阶段 0–2：测试期有限状态枚举与真实行为对照；不接管生产调度 |
 | `xharness-core` | [核心 Agent Loop](core-loop.md) | 已实现，已在 Linux 测试 |
 | `xharness-provider-openai` | [OpenAI-compatible Provider](provider-openai.md) | 已实现，协议和真实 Chat 已测试 |
 | `xharness-session` | [事件溯源 Session](session.md) | 已实现 |

@@ -1,5 +1,16 @@
 # XHarness 总任务清单
 
+## 轮次交互状态检查（Issue #152，2026-09-26）
+
+目标：先把跨 queue、停止、工具、问题、compact、恢复的关键决策变为可审查的测试期契约，再考虑逐域迁移生产判断；详见 [规范](specs/turn-statecheck.md)。
+
+- [x] `STATECHECK-00` 将 #73 的「工具在飞时排队用户输入」受控回归加入仓库；补模型在飞的隔离参数对照，并盘点现有停止、问题、恢复与 Core 未知结果测试。
+- [x] `STATECHECK-01` 增加只在 `#[cfg(test)]` 编译的有限状态枚举器：八个真实剖面、稳定规则 ID、可生成且由测试核对的决策表、显式 `Undefined` 与有界可达状态探索。不改生产决策、Session JSONL 或 Web 协议。
+- [x] `STATECHECK-02` 对照真实 Host/Agent：fake provider、可暂停工具、停止队列、问题恢复及模拟进程重启后的未完成工具暂停；模型规则 ID 在对应回归入口核对。V100 上 Host `cargo test` 全目标与 Core 遗留工具恢复定向测试通过，Host Clippy `-D warnings` 通过；跨平台 CI 尚未运行。
+- [ ] `STATECHECK-03` 补 compact 完成且队列非空、Goal/fork/approval、overflow 与更多取消竞态的实际对照；逐项裁决 `Undefined`，不能靠模型自测宣称行为正确。
+- [ ] `STATECHECK-04` 若决策表与实际实现稳定一致，再逐域抽取生产共用决策核；保留日志/队列格式及可单域回退能力。
+- [ ] `STATECHECK-05` 跨平台 CI 通过后合并；此次仅测试与规范，不发布或替换软件。
+
 ## Host RPC 模块化重构（2026-09-20）
 
 目标：保持单进程、线协议和持久格式不变，把当前“文件已拆、依赖未拆”的 `BasicHost` 重构为可维护的
