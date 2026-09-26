@@ -40,6 +40,8 @@ use xharness_api::{
 };
 use xharness_debug::{DebugEvent, DebugRecorder};
 
+pub mod terminal;
+
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
 const DESKTOP_COOKIE_NAME: &str = "xharness_desktop";
 
@@ -87,6 +89,20 @@ fn api_router_with_debug_and_readiness(
     debug: DebugRecorder,
     readiness: StartupReadiness,
 ) -> Router {
+    api_router_with_debug_readiness_and_terminals(
+        backend,
+        debug,
+        readiness,
+        terminal::TerminalRouterState::default(),
+    )
+}
+
+fn api_router_with_debug_readiness_and_terminals(
+    backend: Arc<dyn ApiBackend>,
+    debug: DebugRecorder,
+    readiness: StartupReadiness,
+    terminals: terminal::TerminalRouterState,
+) -> Router {
     let state = ServerState { backend, debug };
     Router::new()
         .route(RESPOND_PATH, post(respond))
@@ -98,9 +114,10 @@ fn api_router_with_debug_and_readiness(
         )
         .route("/api/{namespace}/{method}", post(dynamic_unary))
         .route("/api/{method}", post(unary))
+        .with_state(state)
+        .merge(terminal::terminal_routes(terminals))
         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
         .route_layer(middleware::from_fn_with_state(readiness, require_ready))
-        .with_state(state)
 }
 
 #[derive(Deserialize)]
@@ -244,7 +261,30 @@ pub fn web_router_with_debug_desktop_token_and_readiness(
     desktop_token: Option<String>,
     readiness: StartupReadiness,
 ) -> Router {
-    let mut router = api_router_with_debug_and_readiness(backend, debug, readiness.clone());
+    web_router_full(
+        backend,
+        static_dir,
+        debug,
+        desktop_token,
+        readiness,
+        terminal::TerminalRouterState::default(),
+    )
+}
+
+/// Complete Web carrier including the `/api/terminal/*` extension routes.
+/// The terminal registry is native OS composition owned by the embedding
+/// binary (`xharness-host-app`), so it is threaded in here rather than living
+/// inside the control-plane backend.
+pub fn web_router_full(
+    backend: Arc<dyn ApiBackend>,
+    static_dir: Option<PathBuf>,
+    debug: DebugRecorder,
+    desktop_token: Option<String>,
+    readiness: StartupReadiness,
+    terminals: terminal::TerminalRouterState,
+) -> Router {
+    let mut router =
+        api_router_with_debug_readiness_and_terminals(backend, debug, readiness.clone(), terminals);
     if let Some(token) = desktop_token {
         let auth = DesktopAuth::new(token);
         router = router

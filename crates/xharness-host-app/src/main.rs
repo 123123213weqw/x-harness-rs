@@ -19,7 +19,10 @@ use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettin
 use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
-use xharness_server::{serve, web_router_with_debug_desktop_token_and_readiness, StartupReadiness};
+use xharness_server::{
+    serve, terminal::TerminalRouterState, web_router_full, StartupReadiness,
+};
+use xharness_terminal::TerminalRegistry;
 use xharness_session::Store;
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -237,13 +240,15 @@ async fn run(
     host.install_model_settings(Arc::new(model_settings), model_settings_base)
         .await?;
     let readiness = StartupReadiness::pending();
+    let terminal_registry = Arc::new(TerminalRegistry::with_defaults());
     let backend: Arc<dyn ApiBackend> = host.clone();
-    let router = web_router_with_debug_desktop_token_and_readiness(
+    let router = web_router_full(
         backend,
         args.static_dir,
         debug.clone(),
         args.desktop_token.clone(),
         readiness.clone(),
+        TerminalRouterState::new(Some(terminal_registry.clone())),
     );
     *failure_code = Some(StartupFailureCode::NetworkBind);
     startup_progress.stage(StartupStage::NetworkBind);
@@ -339,6 +344,15 @@ async fn run(
     host.shutdown_auto_titles().await;
     let mut shutdown = runtime.shutdown(Duration::from_secs(10)).await;
     host.stop_background_listeners();
+    // Web terminals are owned by this binary, not the control-plane backend;
+    // shut them down after Agent quiescence so their PTY drain is visible in
+    // the structured report instead of racing process exit.
+    let terminal_shutdown = terminal_registry.shutdown().await;
+    if !terminal_shutdown.is_graceful() {
+        shutdown
+            .cleanup_errors
+            .push(format!("terminal registry: {terminal_shutdown:?}"));
+    }
     // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
     // After backend quiescence, bound transport drain and then abort only the
     // carrier task; no Provider, Tool, Process or PTY remains owned by it.
