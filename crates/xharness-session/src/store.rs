@@ -71,9 +71,9 @@ pub trait Store: Send + Sync + 'static {
     ///
     /// Implementations must return headers in ascending session-id order and
     /// validate each discovered record before publishing it. This is the
-    /// startup discovery seam used by Hosts to rebuild projections after a
-    /// process restart; silently skipping a corrupt session would make
-    /// durable work disappear from the product surface.
+    /// strict discovery seam used by callers that require fully validated
+    /// journals; silently skipping a corrupt session would make durable work
+    /// disappear from the product surface.
     ///
     /// Failing closed is required for anything that may still hold durable
     /// work. Implementations may skip only entries that provably carry none
@@ -99,6 +99,17 @@ pub trait Store: Send + Sync + 'static {
         &self,
     ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
         Ok((self.list_headers().await?, Vec::new()))
+    }
+
+    /// Startup candidate enumeration. A disk store may validate only the
+    /// immutable header here, avoiding a second full replay of every journal.
+    /// The Host MUST call `load` for each candidate before publishing it and
+    /// report a failed load as an unreadable session. Stores without a cheap
+    /// header read retain the fully validated `scan_sessions` behavior.
+    async fn scan_startup_candidates(
+        &self,
+    ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
+        self.scan_sessions().await
     }
 
     /// Atomically register an empty session. Existing ids are never replaced.

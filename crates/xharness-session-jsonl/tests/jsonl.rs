@@ -264,6 +264,36 @@ async fn scan_sessions_publishes_healthy_sessions_and_reports_the_rest() {
     );
 }
 
+#[tokio::test]
+async fn startup_candidates_read_only_headers_and_defer_tail_validation() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("healthy")).await.unwrap();
+    store.create(header("corrupt-tail")).await.unwrap();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(dir.session_file("corrupt-tail"))
+        .unwrap();
+    file.write_all(b"not-json\n").unwrap();
+    fs::write(dir.session_file("bad-header"), b"not-json\n").unwrap();
+
+    let (candidates, unreadable) = store.scan_startup_candidates().await.unwrap();
+    assert_eq!(
+        candidates.iter().map(|h| h.id.as_str()).collect::<Vec<_>>(),
+        ["corrupt-tail", "healthy"]
+    );
+    assert_eq!(unreadable.len(), 1);
+    assert_eq!(unreadable[0].session_id, "bad-header");
+    assert!(store.load("healthy").await.unwrap().is_some());
+    assert!(store.load("corrupt-tail").await.is_err());
+
+    // Public strict enumeration is unchanged: it still validates the tail.
+    assert!(store.list_headers().await.is_err());
+    let (validated, invalid) = store.scan_sessions().await.unwrap();
+    assert_eq!(validated.len(), 1);
+    assert_eq!(invalid.len(), 2);
+}
+
 /// The strict seam still fails closed on the same directory: tolerating an
 /// entry at startup must not weaken `list_headers` for its other callers.
 #[tokio::test]
