@@ -138,7 +138,7 @@ impl BasicHost {
         // Tolerant scan: one unreadable entry must not make every healthy
         // session undiscoverable, and it must not be dropped silently either.
         // Whatever cannot be published is reported below as a startup issue.
-        let (headers, unreadable) = store.scan_sessions().await?;
+        let (headers, unreadable) = store.scan_startup_candidates().await?;
         let mut report = HostRestoreReport {
             discovered_sessions: headers.len() + unreadable.len(),
             model_settings_error,
@@ -155,11 +155,26 @@ impl BasicHost {
 
         for header in headers {
             let session_id = header.id.clone();
-            let mut session = store.load(&session_id).await?.ok_or_else(|| {
-                HostRestoreError::SessionDisappeared {
-                    session_id: session_id.clone(),
+            // A candidate header is not proof that its event tail is valid.
+            // Validate the complete journal exactly once here, and keep one
+            // damaged session from hiding every healthy conversation.
+            let mut session = match store.load(&session_id).await {
+                Ok(Some(session)) => session,
+                Ok(None) => {
+                    report.issues.push(HostRestoreIssue {
+                        session_id,
+                        message: "session disappeared during startup recovery".to_owned(),
+                    });
+                    continue;
                 }
-            })?;
+                Err(error) => {
+                    report.issues.push(HostRestoreIssue {
+                        session_id,
+                        message: error.to_string(),
+                    });
+                    continue;
+                }
+            };
             let cancellations = xharness_session::stale_approval_cancellations(session.events());
             if !cancellations.is_empty() {
                 store
@@ -1062,6 +1077,46 @@ mod tests {
             report.issues,
             "the report must be reachable from the product surface"
         );
+    }
+
+    /// Header-only startup discovery must never publish a conversation whose
+    /// later batch is corrupt. Validation is deferred, not weakened.
+    #[tokio::test]
+    async fn corrupt_tail_is_reported_when_startup_load_validates_candidate() {
+        use xharness_session_jsonl::JsonlSessionStore;
+
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-restore-tail-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(&dir).unwrap());
+        store.create(SessionHeader::new("healthy")).await.unwrap();
+        store
+            .create(SessionHeader::new("corrupt-tail"))
+            .await
+            .unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("corrupt-tail.jsonl"))
+            .unwrap();
+        std::io::Write::write_all(&mut file, b"not-json\n").unwrap();
+
+        let host = BasicHost::without_provider(config(&dir));
+        let report = host.restore_from_store(store).await.unwrap();
+        assert_eq!(report.discovered_sessions, 2);
+        assert_eq!(report.restored_sessions, 1);
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].session_id, "corrupt-tail");
+        assert!(report.issues[0].message.contains("invalid batch JSON"));
+        assert!(host.state.read().await.sessions.contains_key("healthy"));
+        assert!(!host
+            .state
+            .read()
+            .await
+            .sessions
+            .contains_key("corrupt-tail"));
     }
 
     fn config(cwd: &Path) -> HostConfig {
