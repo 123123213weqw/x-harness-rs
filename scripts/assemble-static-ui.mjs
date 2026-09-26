@@ -171,6 +171,18 @@ const productPlugins = [
     },
   },
   {
+    id: '@xlang/xharness-client-ui-terminal',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-terminal/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-runtime',
+        '@deepseek-ai/dsh-client-locale',
+        '@deepseek-ai/dsh-client-ui-conversation',
+      ],
+    },
+  },
+  {
     id: '@xlang/xharness-client-ui-computer',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-computer/client.js'),
     declaration: {
@@ -214,6 +226,15 @@ for (const entry of entries) {
   const target = join(pluginRoot, entry.id, 'client.js')
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, plugin.bytes)
+  if (entry.id === '@xlang/xharness-client-ui-terminal') {
+    // xterm.js ships as prebuilt UMD assets; they are versioned with the
+    // plugin directory rather than the module graph.
+    cpSync(
+      join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-terminal/vendor'),
+      join(pluginRoot, entry.id, 'vendor'),
+      { recursive: true },
+    )
+  }
   const sourceMap = `${plugin.source}.map`
   try {
     if (!['@deepseek-ai/dsh-client-ui-attachment', '@deepseek-ai/dsh-client-ui-settings-models', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))

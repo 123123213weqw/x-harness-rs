@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, sync::Arc, time::
 
 use xharness_debug::{DebugRecorder, MemoryDebugSink};
 use xharness_process::SpawnSpec;
-use xharness_terminal::{TerminalOpenSpec, TerminalRegistry, TerminalSignal};
+use xharness_terminal::{TerminalOpenSpec, TerminalRegistry, TerminalSignal, TerminalSize};
 
 fn pwsh_path() -> PathBuf {
     std::env::var_os("ProgramFiles")
@@ -58,6 +58,7 @@ async fn conpty_runs_persistent_powershell_with_utf8_and_debug_events() {
             owner: "windows-owner".into(),
             name: "powershell".into(),
             process: pwsh_spec(),
+            size: TerminalSize::default(),
         })
         .await
         .unwrap();
@@ -101,6 +102,7 @@ async fn conpty_registry_shutdown_reaps_all_powershell_sessions() {
                 owner: owner.into(),
                 name: name.into(),
                 process: pwsh_spec(),
+                size: TerminalSize::default(),
             })
             .await
             .unwrap();

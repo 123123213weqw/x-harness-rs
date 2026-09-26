@@ -89,9 +89,11 @@
     "xharness-server",
     "xharness-session",
     "xharness-session-jsonl",
+    "xharness-terminal",
     "xharness-token",
     "xharness-tools",
     "xharness-web",
+    "xharness-web-terminal",
     "xharness-win32"
   ],
   "xharness-interaction": [
@@ -151,6 +153,10 @@
   ],
   "xharness-web": [
     "xharness-debug"
+  ],
+  "xharness-web-terminal": [
+    "xharness-process",
+    "xharness-terminal"
   ],
   "xharness-win32": []
 }
