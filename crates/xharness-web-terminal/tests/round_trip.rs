@@ -47,7 +47,7 @@ async fn terminal_routes_report_missing_registry() {
 #[tokio::test]
 async fn open_send_read_resize_close_round_trip() {
     let registry = Arc::new(TerminalRegistry::with_defaults());
-    let router = app(Some(TerminalRouterState::new(registry.clone())));
+    let router = app(Some(TerminalRouterState::new(Some(registry.clone()))));
     let open = json!({
         "name": "round-trip",
         "cols": 120,
