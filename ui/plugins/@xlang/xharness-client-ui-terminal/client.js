@@ -353,6 +353,8 @@ window.__ModuleLoader__.load({
 
     const dockStore = {
       open: false,
+      closing: false,
+      closeTimer: 0,
       height: 280,
       tabs: [],
       active: null,
@@ -380,9 +382,23 @@ window.__ModuleLoader__.load({
       activeTab() {
         return this.tabs.find((tab) => tab.name === this.active) ?? null
       },
+      // Closing goes through a short exit-animation phase so the dock slides
+      // out instead of vanishing; parameters follow the ZCode bottom-dock
+      // transition (0.18s exit against a 0.26s enter).
       setOpen(open) {
-        this.open = open
-        if (open) void this.refresh()
+        if (open) {
+          window.clearTimeout(this.closeTimer)
+          this.closing = false
+          this.open = true
+          void this.refresh()
+        } else if (this.open && !this.closing) {
+          this.closing = true
+          this.closeTimer = window.setTimeout(() => {
+            this.open = false
+            this.closing = false
+            this.emit()
+          }, 190)
+        }
         this.emit()
       },
       setHeight(height) {
@@ -544,9 +560,12 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      if (!store.open) return null
+      if (!store.open && !store.closing) return null
 
-      return h('div', { className: 'xhterm-dock', style: { height: store.height } },
+      return h('div', {
+        className: store.closing ? 'xhterm-dock xhterm-dock-closing' : 'xhterm-dock',
+        style: { height: store.height },
+      },
         h('div', {
           className: 'xhterm-resize-handle',
           title: t('resize.hint'),
@@ -628,7 +647,11 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhterm-dock{order:1;display:flex;flex:none;flex-direction:column;box-sizing:border-box;width:100%;min-width:0;max-height:calc(100vh - 220px);background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2)}
+.xhterm-dock{order:1;display:flex;flex:none;flex-direction:column;box-sizing:border-box;width:100%;min-width:0;max-height:calc(100vh - 220px);background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);animation:xhterm-dock-in .26s cubic-bezier(.23,1,.32,1)}
+.xhterm-dock-closing{animation:xhterm-dock-out .18s cubic-bezier(.23,1,.32,1) forwards}
+@keyframes xhterm-dock-in{from{opacity:0;transform:translate3d(0,32px,0) scale(.96)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
+@keyframes xhterm-dock-out{to{opacity:0;transform:translate3d(0,32px,0) scale(.97)}}
+@media (prefers-reduced-motion:reduce){.xhterm-dock,.xhterm-dock-closing{animation:none}}
 .xhterm-resize-handle{height:4px;flex:none;cursor:row-resize}
 .xhterm-dragging,.xhterm-dragging *{cursor:row-resize!important;user-select:none!important}
 .xhterm-tabbar{display:flex;align-items:center;gap:2px;flex:none;padding:2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}
