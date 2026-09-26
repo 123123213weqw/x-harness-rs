@@ -8,6 +8,7 @@ description = "Web terminal extension routes (/api/terminal/*) for XHarness"
 
 [dependencies]
 axum.workspace = true
+base64 = "0.22"
 serde.workspace = true
 serde_json.workspace = true
 xharness-process = { path = "../xharness-process" }

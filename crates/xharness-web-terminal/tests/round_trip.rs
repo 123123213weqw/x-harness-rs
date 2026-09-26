@@ -10,6 +10,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use xharness_terminal::TerminalRegistry;
@@ -70,7 +71,7 @@ async fn open_send_read_resize_close_round_trip() {
     assert_eq!(status, StatusCode::CONFLICT);
 
     let output = poll_read(&router, "round-trip", "sentinel-ready").await;
-    assert!(output.contains("120 35"), "stty size missing: {output:?}");
+    assert!(output.contains("35 120"), "stty size missing: {output:?}");
 
     let (status, body) = post_json(
         &router,
@@ -117,8 +118,9 @@ async fn poll_read(router: &axum::Router, name: &str, expected: &str) -> String 
         assert_eq!(status, StatusCode::OK, "{body}");
         let read = &body["read"];
         cursor = read["cursor"].as_u64();
-        if let Some(chunk) = read["content"].as_str() {
-            seen.push_str(chunk);
+        if let Some(encoded) = read["content_base64"].as_str() {
+            let chunk = STANDARD.decode(encoded).unwrap();
+            seen.push_str(&String::from_utf8_lossy(&chunk));
         }
         if seen.contains(expected) {
             return seen;

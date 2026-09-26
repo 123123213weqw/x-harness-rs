@@ -171,6 +171,21 @@ pub struct TerminalRead {
     pub exit_signal: Option<i32>,
 }
 
+/// Byte-preserving PTY output for transports that decode UTF-8 across reads.
+/// A read can end in the middle of a multibyte character, so converting each
+/// cursor slice to a String would irreversibly replace valid output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalRawRead {
+    pub id: String,
+    pub name: String,
+    pub content: Vec<u8>,
+    pub cursor: u64,
+    pub truncated_before_cursor: bool,
+    pub running: bool,
+    pub exit_code: Option<i32>,
+    pub exit_signal: Option<i32>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TerminalError {
     #[error("terminal configuration limits must be non-zero")]
@@ -324,6 +339,25 @@ impl TerminalRegistry {
         name: &str,
         cursor: Option<u64>,
     ) -> Result<TerminalRead, TerminalError> {
+        let raw = self.read_raw(owner, name, cursor).await?;
+        Ok(TerminalRead {
+            id: raw.id,
+            name: raw.name,
+            content: String::from_utf8_lossy(&raw.content).into_owned(),
+            cursor: raw.cursor,
+            truncated_before_cursor: raw.truncated_before_cursor,
+            running: raw.running,
+            exit_code: raw.exit_code,
+            exit_signal: raw.exit_signal,
+        })
+    }
+
+    pub async fn read_raw(
+        &self,
+        owner: &str,
+        name: &str,
+        cursor: Option<u64>,
+    ) -> Result<TerminalRawRead, TerminalError> {
         let session = self.session(owner, name).await?;
         session.refresh_status().await?;
         let state = session.state.lock().await;
@@ -338,18 +372,31 @@ impl TerminalRegistry {
         let effective = requested.max(state.base_offset);
         let skip = usize::try_from(effective - state.base_offset).unwrap_or(usize::MAX);
         let content: Vec<u8> = state.buffer.iter().skip(skip).copied().collect();
-        let result = TerminalRead {
+        let result = TerminalRawRead {
             id: session.id.clone(),
             name: session.name.clone(),
-            content: String::from_utf8_lossy(&content).into_owned(),
+            content,
             cursor: state.total_bytes,
             truncated_before_cursor,
             running: state.running,
             exit_code: state.exit_code,
             exit_signal: state.exit_signal,
         };
-        self.trace(owner, "read.completed", json!({"read": &result}))
-            .await;
+        self.trace(
+            owner,
+            "read.completed",
+            json!({
+                "id": &result.id,
+                "name": &result.name,
+                "bytes": result.content.len(),
+                "cursor": result.cursor,
+                "truncated_before_cursor": result.truncated_before_cursor,
+                "running": result.running,
+                "exit_code": result.exit_code,
+                "exit_signal": result.exit_signal,
+            }),
+        )
+        .await;
         Ok(result)
     }
 

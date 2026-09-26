@@ -16,6 +16,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use xharness_process::SpawnSpec;
@@ -310,10 +311,19 @@ async fn terminal_read(State(state): State<TerminalRouterState>, body: Bytes) ->
         Err(response) => return response,
     };
     match registry
-        .read(WEB_TERMINAL_OWNER, &request.name, request.cursor)
+        .read_raw(WEB_TERMINAL_OWNER, &request.name, request.cursor)
         .await
     {
-        Ok(read) => ok(json!({"read": read})),
+        Ok(read) => ok(json!({"read": {
+            "id": read.id,
+            "name": read.name,
+            "content_base64": STANDARD.encode(&read.content),
+            "cursor": read.cursor,
+            "truncated_before_cursor": read.truncated_before_cursor,
+            "running": read.running,
+            "exit_code": read.exit_code,
+            "exit_signal": read.exit_signal,
+        }})),
         Err(error) => terminal_error(error),
     }
 }
