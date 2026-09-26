@@ -1,20 +1,32 @@
-use std::{fs, path::PathBuf, process::Command, time::SystemTime};
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+    time::SystemTime,
+};
 use xharness_diagnostics::{StartupFailureCode, StartupFailureReceipt};
 
 struct Workspace(PathBuf);
 
 impl Workspace {
     fn new() -> Self {
+        // macOS can report the same clock tick to parallel test threads.
+        // A per-process serial prevents one Workspace's Drop from deleting
+        // another test's still-running child process state directory.
+        static NEXT_WORKSPACE: AtomicU64 = AtomicU64::new(0);
+        let serial = NEXT_WORKSPACE.fetch_add(1, Ordering::Relaxed);
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "xharness-startup-failure-{}-{nonce}",
+            "xharness-startup-failure-{}-{nonce}-{serial}",
             std::process::id()
         ));
-        fs::create_dir_all(root.join("workspace")).unwrap();
-        fs::create_dir_all(root.join("state")).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(root.join("workspace")).unwrap();
+        fs::create_dir(root.join("state")).unwrap();
         Self(root)
     }
 }

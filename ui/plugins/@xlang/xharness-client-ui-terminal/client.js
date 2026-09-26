@@ -22,6 +22,15 @@ window.__ModuleLoader__.load({
     const RECONNECT_BASE_MS = 800
     const RECONNECT_MAX_MS = 6400
 
+    function panelExitWatchdogMs() {
+      const value = window.getComputedStyle?.(document.documentElement)
+        ?.getPropertyValue('--xh-duration-panel-out')?.trim() ?? ''
+      const match = /^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)$/.exec(value)
+      const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 180
+      // Keep the watchdog beyond the CSS animation, including custom token values.
+      return Math.max(1000, Math.ceil(durationMs + 500))
+    }
+
     const zh = {
       'dock.open': '终端',
       'dock.close': '关闭终端',
@@ -383,22 +392,33 @@ window.__ModuleLoader__.load({
         return this.tabs.find((tab) => tab.name === this.active) ?? null
       },
       // Closing goes through a short exit-animation phase so the dock slides
-      // out instead of vanishing; parameters follow the ZCode bottom-dock
-      // transition (0.18s exit against a 0.26s enter).
+      // out instead of vanishing. animationend is authoritative; the timer is
+      // only a watchdog for hidden tabs or removed styles, not a CSS duration.
       setOpen(open) {
         if (open) {
           window.clearTimeout(this.closeTimer)
+          this.closeTimer = 0
           this.closing = false
           this.open = true
           void this.refresh()
         } else if (this.open && !this.closing) {
-          this.closing = true
-          this.closeTimer = window.setTimeout(() => {
+          if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
             this.open = false
             this.closing = false
             this.emit()
-          }, 190)
+            return
+          }
+          this.closing = true
+          this.closeTimer = window.setTimeout(() => this.finishClose(), panelExitWatchdogMs())
         }
+        this.emit()
+      },
+      finishClose() {
+        if (!this.closing) return
+        window.clearTimeout(this.closeTimer)
+        this.closeTimer = 0
+        this.open = false
+        this.closing = false
         this.emit()
       },
       setHeight(height) {
@@ -485,7 +505,7 @@ window.__ModuleLoader__.load({
         {
           type: 'button',
           className: 'xhterm-trigger',
-          onClick: () => store.setOpen(!store.open),
+          onClick: () => store.setOpen(store.closing || !store.open),
           title: store.open ? t('dock.close') : t('dock.open'),
         },
         h('svg', {
@@ -565,6 +585,11 @@ window.__ModuleLoader__.load({
       return h('div', {
         className: store.closing ? 'xhterm-dock xhterm-dock-closing' : 'xhterm-dock',
         style: { height: store.height },
+        onAnimationEnd: (event) => {
+          if (event.target === event.currentTarget && event.animationName === 'xhterm-dock-out') {
+            store.finishClose()
+          }
+        },
       },
         h('div', {
           className: 'xhterm-resize-handle',
@@ -647,8 +672,8 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .xhterm-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhterm-trigger:hover,.xhterm-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhterm-dock{order:1;display:flex;flex:none;flex-direction:column;box-sizing:border-box;width:100%;min-width:0;max-height:calc(100vh - 220px);background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);animation:xhterm-dock-in .26s cubic-bezier(.23,1,.32,1)}
-.xhterm-dock-closing{animation:xhterm-dock-out .18s cubic-bezier(.23,1,.32,1) forwards}
+.xhterm-dock{order:1;display:flex;flex:none;flex-direction:column;box-sizing:border-box;width:100%;min-width:0;max-height:calc(100vh - 220px);background:var(--dsw-alias-bg-base);border-top:1px solid var(--dsw-alias-border-l2);animation:xhterm-dock-in var(--xh-duration-panel-in,260ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1))}
+.xhterm-dock-closing{animation:xhterm-dock-out var(--xh-duration-panel-out,180ms) var(--xh-ease-panel,cubic-bezier(.23,1,.32,1)) forwards}
 @keyframes xhterm-dock-in{from{opacity:0;transform:translate3d(0,32px,0) scale(.96)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 @keyframes xhterm-dock-out{to{opacity:0;transform:translate3d(0,32px,0) scale(.97)}}
 @media (prefers-reduced-motion:reduce){.xhterm-dock,.xhterm-dock-closing{animation:none}}
@@ -682,7 +707,7 @@ window.__ModuleLoader__.load({
         const shortcut = (event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === '`') {
             event.preventDefault()
-            dockStore.setOpen(!dockStore.open)
+            dockStore.setOpen(dockStore.closing || !dockStore.open)
           }
         }
         window.addEventListener('keydown', shortcut)

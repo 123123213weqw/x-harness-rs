@@ -1,7 +1,17 @@
 # 界面动效（Web Motion）
 
-两处动效，均改写自 Apache-2.0 的 zai-org/ZCode，均带
-`prefers-reduced-motion` 降级，均为纯 CSS（不引 Framer Motion）。
+流式文本与面板动效改写自 Apache-2.0 的 zai-org/ZCode；品牌扫光为产品自有动效。
+它们均带 `prefers-reduced-motion` 降级，均为纯 CSS（不引 Framer Motion）。
+
+## 统一运动令牌
+
+`ui/overrides/motion-tokens.css` 是唯一的产品运动令牌源。静态 UI 组装时复制到
+`ui/dist/motion-tokens.css`，带内容哈希的 `<link>` 在插件启动前注入一次；Web 和
+Tauri 使用相同的静态资源。插件的 CSS 使用 `var(--xh-…, fallback)`，即使单个
+样式文件缺失也能维持原有速度。令牌按语义分为快速反馈、控件反馈、遮罩进入/退出、
+面板进入/退出、流式正文、运行状态脉冲、Logo 周期及相应缓动，不把不同场景
+强制改成同一时长。任务、终端、流式正文、日程、电脑、上下文插件和 Logo 都使用
+同一组令牌。
 
 ## 流式文本逐段淡入（`@xlang/xharness-client-ui-motion`）
 
@@ -30,4 +40,7 @@ ZCode `zcode-stream-text-in` 的 DOM 级等价实现：对话流式输出时，�
 ZCode `ConversationBottomDockTransition` 的参数：进场 0.26s、退场 0.18s、
 缓动 `cubic-bezier(.23,1,.32,1)`；底部 dock 32px 上移 + 0.96 缩放，侧面板
 24px 位移 + 0.98 缩放，scrim 0.2s/0.15s 淡入淡出。退场经 store 的关闭相位
-（190ms 定时器）再卸载，ESC 与遮罩点击同路径。
+在关闭相位等对应面板的 `animationend` 后卸载，而不是另设与 CSS 并行的 190ms
+时钟。监听器只接受自身的退场动画，子节点或进场动画不能误关；看门狗按退场令牌时长加余量计算（至少 1s），兜底
+标签页隐藏或样式丢失导致的事件缺席。重新打开会取消旧关闭；减少动态效果时
+立即关闭。ESC、遮罩点击与按钮走同一路径。

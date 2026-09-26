@@ -278,7 +278,12 @@ const desktopStartupBytes = portableBytes(readFileSync(desktopStartupSource))
 const desktopStartupRev = revision(desktopStartupBytes)
 writeFileSync(join(dist, 'desktop-startup.js'), desktopStartupBytes)
 const desktopStartupTag = `<script defer src="/desktop-startup.js?rev=${desktopStartupRev}"></script>`
+const motionTokensBytes = readFileSync(join(repoRoot, 'ui/overrides/motion-tokens.css'))
+const motionTokensRev = revision(motionTokensBytes)
+writeFileSync(join(dist, 'motion-tokens.css'), motionTokensBytes)
+const motionTokensTag = `<link rel="stylesheet" data-xh-motion-tokens href="/motion-tokens.css?rev=${motionTokensRev}">`
 if (!index.includes('</head>')) throw new Error('index.html does not contain </head>')
+index = index.replace(/<head(?:\s[^>]*)?>/, match => `${match}\n    ${motionTokensTag}`)
 index = index.replace('</head>', `    ${desktopUpdaterTag}\n    ${desktopStartupTag}\n  </head>`)
 writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
 writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
