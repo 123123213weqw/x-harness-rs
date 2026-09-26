@@ -54,10 +54,15 @@ fn invalid_provider_file_writes_a_closed_failure_receipt_before_host_exit() {
         .unwrap();
     assert!(!output.status.success());
     assert!(!ready_file.exists());
-    assert_eq!(
-        StartupFailureReceipt::read(&receipt_file).unwrap().code,
-        StartupFailureCode::ProviderConfiguration
-    );
+    let receipt = StartupFailureReceipt::read(&receipt_file).unwrap_or_else(|error| {
+        panic!(
+            "provider startup failed without a receipt: {error}; status={}; stdout={}; stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
+    assert_eq!(receipt.code, StartupFailureCode::ProviderConfiguration);
     let written = fs::read_to_string(&receipt_file).unwrap();
     assert!(!written.contains("secret-bait"));
     assert!(!written.contains(provider_file.to_str().unwrap()));
@@ -103,9 +108,21 @@ fn corrupt_control_log_reports_session_restore_without_copying_its_contents() {
         .output()
         .unwrap();
     assert!(!output.status.success());
+    let receipt = StartupFailureReceipt::read(&receipt_file).unwrap_or_else(|error| {
+        panic!(
+            "corrupt control log failed without a receipt: {error}; status={}; stdout={}; stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
     assert_eq!(
-        StartupFailureReceipt::read(&receipt_file).unwrap().code,
-        StartupFailureCode::SessionRestore
+        receipt.code,
+        StartupFailureCode::SessionRestore,
+        "unexpected startup category; status={}; stdout={}; stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
     assert!(!fs::read_to_string(receipt_file)
         .unwrap()

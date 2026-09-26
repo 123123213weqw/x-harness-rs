@@ -23,6 +23,39 @@ impl xharness_coding_tools::MediaReader for Reader {
         if cancel.is_cancelled() {
             return Err(err("read cancelled"));
         }
+        if let Some(id) = path.strip_prefix("attachment://") {
+            if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(err("invalid attachment reference"));
+            }
+            let host = self
+                .host
+                .upgrade()
+                .ok_or_else(|| err("attachment service unavailable"))?;
+            if !host.session_accepts_images(&self.session).await {
+                return Err(err(
+                    "current model does not declare image input; switch to a vision model",
+                ));
+            }
+            let item = tokio::select! {
+                _ = cancel.cancelled() => return Err(err("read cancelled")),
+                result = host.resolve_session_attachment(&self.session, id) => result.map_err(err)?,
+            };
+            if item.reference.width == 0 {
+                return Err(err("attachment is not an image"));
+            }
+            let text = format!(
+                "Historical image {} ({} × {} pixels)",
+                serde_json::to_string(path).unwrap(),
+                item.reference.width,
+                item.reference.height
+            );
+            return Ok(Some(ToolOutput {
+                content: text.clone(),
+                metadata: Some(
+                    json!({"xharnessContentBlocks":[xharness_session::ContentBlock::Text{text},xharness_session::ContentBlock::Image{attachment:item.reference}]}),
+                ),
+            }));
+        }
         let (fs, target) = self.platform.resolve_read_file(path).map_err(err)?;
         let prefix = fs
             .read_prefix(&self.session, &target, 16)
@@ -169,6 +202,17 @@ mod tests {
                 .as_slice(),
             include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png")
         );
+        let recalled = reader
+            .read(&format!("attachment://{}", attachment.id), &cancel)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(recalled.content.contains("Historical image"));
+        let blocks = xharness_session::ContentBlock::from_tool_metadata(recalled.metadata.as_ref());
+        assert!(
+            matches!(&blocks[1], xharness_session::ContentBlock::Image { attachment: r } if r == attachment)
+        );
+        assert!(reader.read("attachment://../bad", &cancel).await.is_err());
         assert!(reader.read("../outside", &cancel).await.is_err());
         assert!(reader.read("missing", &cancel).await.is_err());
         let unknown = Reader {
