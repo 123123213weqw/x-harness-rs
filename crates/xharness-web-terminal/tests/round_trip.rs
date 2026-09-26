@@ -31,7 +31,10 @@ async fn post_json(router: &axum::Router, path: &str, body: Value) -> (StatusCod
     let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 #[tokio::test]
@@ -85,12 +88,15 @@ async fn open_send_read_resize_close_round_trip() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 
-    let (status, _) =
-        post_json(&router, "/api/terminal/close", json!({"name": "round-trip"})).await;
+    let (status, _) = post_json(
+        &router,
+        "/api/terminal/close",
+        json!({"name": "round-trip"}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
 
-    let (status, _) =
-        post_json(&router, "/api/terminal/read", json!({"name": "round-trip"})).await;
+    let (status, _) = post_json(&router, "/api/terminal/read", json!({"name": "round-trip"})).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     let report = registry.shutdown().await;

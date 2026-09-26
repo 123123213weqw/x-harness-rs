@@ -12,12 +12,12 @@ use axum::{
 };
 use futures::stream;
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use xharness_api::{
-    ApiBackend, ClientResponse, EventStream, RpcReceipt, RpcId, RpcMethod, RpcResult,
+    ApiBackend, ClientResponse, EventStream, RpcId, RpcMethod, RpcReceipt, RpcResult,
 };
 use xharness_server::{web_router_full, StartupReadiness};
-use tokio_util::sync::CancellationToken;
 
 struct FixtureBackend;
 

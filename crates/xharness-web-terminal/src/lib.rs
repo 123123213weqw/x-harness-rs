@@ -33,7 +33,14 @@ pub const WEB_TERMINAL_OWNER: &str = "web";
 const MAX_INPUT_BYTES: usize = 256 * 1024;
 const MAX_ARGS: usize = 64;
 const SAFE_INHERITED_ENV: &[&str] = &[
-    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "COLORTERM",
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "TMPDIR",
+    "COLORTERM",
 ];
 
 #[derive(Clone, Default)]
@@ -130,13 +137,16 @@ fn failure(status: StatusCode, code: &str, message: impl Into<String>) -> Respon
 }
 
 fn parse_body<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, Response> {
-    serde_json::from_slice(body)
-        .map_err(|error| failure(StatusCode::BAD_REQUEST, "invalid_request", error.to_string()))
+    serde_json::from_slice(body).map_err(|error| {
+        failure(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            error.to_string(),
+        )
+    })
 }
 
-async fn registry(
-    state: &TerminalRouterState,
-) -> Result<Arc<TerminalRegistry>, Response> {
+async fn registry(state: &TerminalRouterState) -> Result<Arc<TerminalRegistry>, Response> {
     state.registry.clone().ok_or_else(|| {
         failure(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -193,7 +203,8 @@ fn default_cwd() -> PathBuf {
     let home = env::var_os("HOME");
     #[cfg(windows)]
     let home = env::var_os("USERPROFILE");
-    home.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+    home.map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// The terminal registry spawns with a cleared environment, so the Web
@@ -216,10 +227,7 @@ fn terminal_env(extra: &BTreeMap<String, String>) -> BTreeMap<OsString, OsString
     environment
 }
 
-async fn terminal_open(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -267,10 +275,7 @@ fn xharness_process_spec(request: &OpenRequest) -> xharness_process::SpawnSpec {
     SpawnSpec::new(program, cwd).args(request.args.iter().map(OsString::from))
 }
 
-async fn terminal_send(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -295,10 +300,7 @@ async fn terminal_send(
     }
 }
 
-async fn terminal_read(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_read(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -316,10 +318,7 @@ async fn terminal_read(
     }
 }
 
-async fn terminal_resize(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_resize(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -341,10 +340,7 @@ async fn terminal_resize(
     }
 }
 
-async fn terminal_signal(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_signal(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -362,10 +358,7 @@ async fn terminal_signal(
     }
 }
 
-async fn terminal_close(
-    State(state): State<TerminalRouterState>,
-    body: Bytes,
-) -> Response {
+async fn terminal_close(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,
@@ -380,10 +373,7 @@ async fn terminal_close(
     }
 }
 
-async fn terminal_list(
-    State(state): State<TerminalRouterState>,
-    _body: Bytes,
-) -> Response {
+async fn terminal_list(State(state): State<TerminalRouterState>, _body: Bytes) -> Response {
     let registry = match registry(&state).await {
         Ok(registry) => registry,
         Err(response) => return response,

@@ -574,17 +574,10 @@ impl TerminalSession {
             // plain, fully-initialised value type; TIOCSWINSZ neither reads
             // nor writes beyond it.
             let result = unsafe {
-                nix::libc::ioctl(
-                    self.control_fd.as_raw_fd(),
-                    nix::libc::TIOCSWINSZ,
-                    &winsize,
-                )
+                nix::libc::ioctl(self.control_fd.as_raw_fd(), nix::libc::TIOCSWINSZ, &winsize)
             };
             if result == -1 {
-                return Err(terminal_io(
-                    "resize PTY",
-                    io::Error::last_os_error(),
-                ));
+                return Err(terminal_io("resize PTY", io::Error::last_os_error()));
             }
             Ok(())
         }
