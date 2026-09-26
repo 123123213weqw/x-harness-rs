@@ -1093,6 +1093,45 @@ async fn context_policy_projects_a_disposable_surface_before_provider_io() {
 }
 
 #[tokio::test]
+async fn accumulated_images_do_not_block_a_later_text_turn() {
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let image = |id: char| xharness_session::ContentBlock::Image {
+        attachment: xharness_session::AttachmentRef {
+            id: id.to_string().repeat(64),
+            session_id: "images".into(),
+            media_type: "image/png".into(),
+            bytes: 20 * 1024 * 1024,
+            width: 64,
+            height: 64,
+        },
+    };
+    let history = vec![
+        AgentMessage::user("old").with_content_blocks(vec![image('a')]),
+        AgentMessage::user("recent").with_content_blocks(vec![image('b')]),
+        AgentMessage::user("newest").with_content_blocks(vec![image('c')]),
+        AgentMessage::user("continue in text"),
+    ];
+    let request = LoopRequest::new(provider.clone(), history.clone());
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.messages[..history.len()], history);
+    let sent = &provider.requests()[0].messages;
+    assert!(matches!(
+        sent[0].content_blocks[0],
+        xharness_session::ContentBlock::Text { .. }
+    ));
+    assert!(matches!(
+        sent[1].content_blocks[0],
+        xharness_session::ContentBlock::Image { .. }
+    ));
+    assert!(matches!(
+        sent[2].content_blocks[0],
+        xharness_session::ContentBlock::Image { .. }
+    ));
+    assert_eq!(sent[3].content, "continue in text");
+}
+
+#[tokio::test]
 async fn result_does_not_require_draining_more_events_than_the_legacy_buffer() {
     const DELTAS: usize = 512;
     let mut script = (0..DELTAS)

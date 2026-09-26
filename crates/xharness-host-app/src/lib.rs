@@ -249,7 +249,7 @@ impl SessionToolFactory for NativeToolFactory {
         }
         let mut specs = bundle.specs();
         if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
-            read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Uploaded user images are already provided directly. Image reads do not accept text pagination options.");
+            read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Recent uploaded images are provided directly; an earlier deferred image can be inspected with read(path=\"attachment://<image id>\") as shown in its history marker. Image reads do not accept text pagination options.");
         }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {

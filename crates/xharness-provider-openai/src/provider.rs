@@ -603,23 +603,17 @@ impl OpenAiProvider {
             return Err(ProviderError::new("attachment request cancelled"));
         }
         let mut body = self.request_body(request, token_count)?;
-        let image_count = request
-            .messages
-            .iter()
-            .flat_map(|m| &m.content_blocks)
-            .filter(|b| matches!(b, xharness_attachments::ContentBlock::Image { .. }))
-            .count();
+        let has_images = request.messages.iter().any(|m| {
+            m.content_blocks
+                .iter()
+                .any(|b| matches!(b, xharness_attachments::ContentBlock::Image { .. }))
+        });
         if request.messages.iter().all(|m| m.content_blocks.is_empty()) {
             return Ok(body);
         }
-        if image_count > 0 && self.image_support == Some(false) {
+        if has_images && self.image_support == Some(false) {
             return Err(ProviderError::new(
                 "selected model does not support image input; choose a vision model",
-            ));
-        }
-        if image_count > 16 {
-            return Err(ProviderError::new(
-                "request exceeds the attachment limit of 16 images; reduce image context",
             ));
         }
         let store = self.attachments.as_ref().ok_or_else(|| {
@@ -652,7 +646,7 @@ impl OpenAiProvider {
                         }
                         ContentBlock::Image { attachment } => {
                             total_bytes=total_bytes.saturating_add(attachment.bytes);
-                            if total_bytes>40*1024*1024 { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
+                            if total_bytes>xharness_core::MAX_REQUEST_IMAGE_BYTES { return Err(ProviderError::new("request images exceed 40 MiB; reduce image context")); }
                             let key=(attachment.session_id.clone(),attachment.id.clone());
                             if !resolved.contains_key(&key) {
                                 let item=tokio::select! {
@@ -1725,6 +1719,25 @@ mod multimodal_tests {
                 debug_scope: DebugScope::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn seventeen_small_images_are_not_a_hard_request_failure() {
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (provider, mut request) = fixture(protocol).await;
+            let image = request.messages[1].content_blocks[1].clone();
+            request.messages[1].content_blocks = vec![image; 17];
+            let body = provider
+                .multimodal_body(&request, false, &CancellationToken::new())
+                .await
+                .unwrap();
+            let key = if protocol == OpenAiProtocol::ChatCompletions {
+                "messages"
+            } else {
+                "input"
+            };
+            assert_eq!(body[key][1]["content"].as_array().unwrap().len(), 17);
+        }
     }
 
     #[tokio::test]
