@@ -22,6 +22,15 @@ window.__ModuleLoader__.load({
     const RECONNECT_BASE_MS = 800
     const RECONNECT_MAX_MS = 6400
 
+    function panelExitWatchdogMs() {
+      const value = window.getComputedStyle?.(document.documentElement)
+        ?.getPropertyValue('--xh-duration-panel-out')?.trim() ?? ''
+      const match = /^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)$/.exec(value)
+      const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 180
+      // Keep the watchdog beyond the CSS animation, including custom token values.
+      return Math.max(1000, Math.ceil(durationMs + 500))
+    }
+
     const zh = {
       'dock.open': '终端',
       'dock.close': '关闭终端',
@@ -400,7 +409,7 @@ window.__ModuleLoader__.load({
             return
           }
           this.closing = true
-          this.closeTimer = window.setTimeout(() => this.finishClose(), 1000)
+          this.closeTimer = window.setTimeout(() => this.finishClose(), panelExitWatchdogMs())
         }
         this.emit()
       },

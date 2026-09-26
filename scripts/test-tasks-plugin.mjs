@@ -9,11 +9,14 @@ const sandbox = {
   },
 }
 let reducedMotion = false
+let panelExitToken = ''
+let closeDelay = 0
 let nextCloseTimer = 0
 const closeTimers = new Map()
 sandbox.window.matchMedia = () => ({ matches: reducedMotion })
+sandbox.window.getComputedStyle = () => ({ getPropertyValue: () => panelExitToken })
 sandbox.window.setTimeout = (callback, delay) => {
-  assert.equal(delay, 1000, 'close timer is only a watchdog')
+  closeDelay = delay
   const id = ++nextCloseTimer
   closeTimers.set(id, callback)
   return id
@@ -172,6 +175,7 @@ assert.equal(plugin.store.busyId, null)
 plugin.store.open = true
 plugin.store.setOpen(false)
 assert.equal(plugin.store.closing, true)
+assert.equal(closeDelay, 1000, 'the default close watchdog keeps a one-second minimum')
 const slotRegistrations = []
 plugin.apply({
   effect() {},
@@ -227,6 +231,18 @@ plugin.store.setOpen(true)
 plugin.store.setOpen(false)
 closeTimers.get(plugin.store.closeTimer)()
 assert.equal(plugin.store.open, false, 'watchdog prevents a stuck panel')
+panelExitToken = '2s'
+plugin.store.setOpen(true)
+plugin.store.setOpen(false)
+assert.equal(closeDelay, 2500, 'the watchdog follows longer CSS motion tokens')
+closingPanel.props.onAnimationEnd({ target: ownTarget, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })
+assert.equal(closeTimers.size, 0, 'animation completion cancels the extended watchdog')
+panelExitToken = '1350ms'
+plugin.store.setOpen(true)
+plugin.store.setOpen(false)
+assert.equal(closeDelay, 1850, 'millisecond tokens also extend the watchdog')
+plugin.store.finishClose()
+panelExitToken = ''
 plugin.store.refresh = originalRefresh
 
 console.log('tasks plugin: assertions passed')
