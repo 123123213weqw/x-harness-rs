@@ -126,6 +126,8 @@ jobs:
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-motion-tokens-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-motion-tokens-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-settings-save-feedback-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-settings-save-feedback-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-desktop-updater-layer.mjs
