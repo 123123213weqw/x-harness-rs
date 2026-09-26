@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
-use xharness_session::{Message, MessageRole};
+use xharness_session::{ContentBlock, Message, MessageRole};
+
+/// Maximum raw image bytes materialized into one model request. This is a
+/// request resource budget, never a lifetime/session attachment limit.
+pub const MAX_REQUEST_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
 
 /// Legacy threshold retained for source compatibility. Tool arguments are no
 /// longer pruned: historical calls must not teach executable placeholder text.
@@ -134,6 +138,15 @@ pub struct ContextSurface {
     pub messages: Vec<Message>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edits: Vec<SurfaceEdit>,
+    /// Images remain in durable history; this counts references deferred only
+    /// from the current model request. Kept separate from source-range edits
+    /// because a compacted surface no longer has one-to-one source indexes.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deferred_images: usize,
+}
+
+const fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 impl ContextSurface {
@@ -146,6 +159,7 @@ impl ContextSurface {
             source_message_count,
             messages,
             edits: Vec::new(),
+            deferred_images: 0,
         }
     }
 
@@ -162,6 +176,34 @@ impl ContextSurface {
             source_message_count,
             messages,
             edits,
+            deferred_images: 0,
+        }
+    }
+
+    /// Keep recent visual context within the wire budget. Older images become
+    /// explicit, session-scoped `read` references, not silent omissions. This
+    /// changes only the disposable surface; the session log and UI stay intact.
+    /// No fixed count of images is imposed on a conversation or request.
+    pub fn defer_images_over_budget(&mut self, max_bytes: u64) {
+        let mut used = 0u64;
+        for message in self.messages.iter_mut().rev() {
+            for block in message.content_blocks.iter_mut().rev() {
+                let ContentBlock::Image { attachment } = block else {
+                    continue;
+                };
+                if attachment.bytes <= max_bytes.saturating_sub(used) {
+                    used = used.saturating_add(attachment.bytes);
+                    continue;
+                }
+                let path = serde_json::to_string(&format!("attachment://{}", attachment.id))
+                    .unwrap_or_default();
+                *block = ContentBlock::Text {
+                    text: format!(
+                        "[Earlier image retained in conversation but deferred from this request because of the image budget. To inspect it again, use read with path {path}.]"
+                    ),
+                };
+                self.deferred_images += 1;
+            }
         }
     }
 
@@ -386,7 +428,61 @@ mod tests {
     }
     use super::*;
     use serde_json::json;
-    use xharness_session::{MessageRole, ToolCall};
+    use xharness_session::{AttachmentRef, MessageRole, ToolCall};
+
+    fn image(id: char, bytes: u64) -> ContentBlock {
+        ContentBlock::Image {
+            attachment: AttachmentRef {
+                id: id.to_string().repeat(64),
+                session_id: "session".into(),
+                media_type: "image/png".into(),
+                bytes,
+                width: 64,
+                height: 64,
+            },
+        }
+    }
+
+    #[test]
+    fn image_projection_does_not_limit_conversation_to_sixteen_images() {
+        let messages = (0..17)
+            .map(|_| Message::user("image").with_content_blocks(vec![image('a', 1)]))
+            .collect::<Vec<_>>();
+        let mut surface = ContextSurface::identity(messages.clone());
+        surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
+        assert_eq!(surface.deferred_images, 0);
+        assert_eq!(surface.messages, messages);
+    }
+
+    #[test]
+    fn image_projection_defers_old_references_without_mutating_history() {
+        let messages = vec![
+            Message::user("first").with_content_blocks(vec![image('a', 20)]),
+            Message::user("second").with_content_blocks(vec![image('b', 20)]),
+            Message::user("latest").with_content_blocks(vec![image('c', 20)]),
+        ];
+        let original = messages.clone();
+        let mut surface = ContextSurface::identity(messages);
+        surface.defer_images_over_budget(40);
+        assert_eq!(surface.deferred_images, 1);
+        let ContentBlock::Text { text } = &surface.messages[0].content_blocks[0] else {
+            panic!("old image was not deferred");
+        };
+        assert!(text.contains(&format!("attachment://{}", "a".repeat(64))));
+        assert!(matches!(
+            surface.messages[1].content_blocks[0],
+            ContentBlock::Image { .. }
+        ));
+        assert!(matches!(
+            surface.messages[2].content_blocks[0],
+            ContentBlock::Image { .. }
+        ));
+        assert!(matches!(
+            original[0].content_blocks[0],
+            ContentBlock::Image { .. }
+        ));
+        surface.validate().unwrap();
+    }
 
     #[test]
     fn identity_preserves_lossless_messages() {
