@@ -350,6 +350,42 @@ impl Store for JsonlSessionStore {
         Ok((headers, unreadable))
     }
 
+    async fn scan_startup_candidates(
+        &self,
+    ) -> Result<(Vec<SessionHeader>, Vec<UnreadableSession>), StoreError> {
+        let root = Arc::clone(&self.root);
+        let mut session_ids = run_blocking(move || discover_session_ids(root.as_path())).await?;
+        session_ids.sort();
+
+        let mut headers = Vec::with_capacity(session_ids.len());
+        let mut unreadable = Vec::new();
+        for session_id in session_ids {
+            let result = async {
+                let (path, guard) = self.locked_path(&session_id).await?;
+                let requested_id = session_id.clone();
+                run_blocking(move || {
+                    let _guard = guard;
+                    let _file_lock = acquire_file_lock(&path)?;
+                    read_header_file(&path, &requested_id)
+                })
+                .await
+            }
+            .await;
+            match result {
+                Ok(Some(header)) => headers.push(header),
+                Ok(None) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: "session disappeared during startup enumeration".to_owned(),
+                }),
+                Err(error) => unreadable.push(UnreadableSession {
+                    session_id,
+                    reason: error.to_string(),
+                }),
+            }
+        }
+        Ok((headers, unreadable))
+    }
+
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
         let session_id = header.id.clone();
         let (path, guard) = self.locked_path(&session_id).await?;
@@ -1057,6 +1093,38 @@ fn load_file_mode(
     ensure_regular_file(&file, path, "session log")?;
 
     parse_reader(path, session_id, BufReader::new(file), runtime_audit_view).map(Some)
+}
+
+/// Read only the immutable first record. The Host verifies the event tail on
+/// its single full `load` before the candidate becomes visible. Old JSONL
+/// files need no migration and no sidecar allocation for this fast path.
+fn read_header_file(path: &Path, session_id: &str) -> Result<Option<SessionHeader>, StoreError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("inspect session path", path, error)),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(corrupt(path, 1, "session path must not be a symbolic link"));
+    }
+    if !metadata.is_file() {
+        return Err(corrupt(path, 1, "session path is not a regular file"));
+    }
+    let file = match secure_open_options().read(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(backend_error("open session", path, error)),
+    };
+    ensure_regular_file(&file, path, "session log")?;
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    if read_record(&mut reader, &mut line, path)? == 0 {
+        return Err(corrupt(path, 1, "missing header record"));
+    }
+    let record: HeaderRecord = decode_owned_json(&line)
+        .map_err(|e| corrupt(path, 1, format!("invalid header JSON: {e}")))?;
+    validate_header_record(path, session_id, &record)?;
+    Ok(Some(record.header))
 }
 
 // Bound a single corrupt/hostile record, not the number of history records.
