@@ -40,8 +40,6 @@ use xharness_api::{
 };
 use xharness_debug::{DebugEvent, DebugRecorder};
 
-pub mod terminal;
-
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
 const DESKTOP_COOKIE_NAME: &str = "xharness_desktop";
 
@@ -89,19 +87,18 @@ fn api_router_with_debug_and_readiness(
     debug: DebugRecorder,
     readiness: StartupReadiness,
 ) -> Router {
-    api_router_with_debug_readiness_and_terminals(
-        backend,
-        debug,
-        readiness,
-        terminal::TerminalRouterState::default(),
-    )
+    api_router_with_debug_and_extension(backend, debug, readiness, Router::new())
 }
 
-fn api_router_with_debug_readiness_and_terminals(
+/// Merge an XHarness-owned extension surface (for example the Web terminal
+/// routes) into the `/api` transport. Extension routers already carry their
+/// own state; they share the request-body limit and the readiness gate, and
+/// desktop-token wrapping covers them like every other `/api` route.
+fn api_router_with_debug_and_extension(
     backend: Arc<dyn ApiBackend>,
     debug: DebugRecorder,
     readiness: StartupReadiness,
-    terminals: terminal::TerminalRouterState,
+    extension: Router,
 ) -> Router {
     let state = ServerState { backend, debug };
     Router::new()
@@ -115,7 +112,7 @@ fn api_router_with_debug_readiness_and_terminals(
         .route("/api/{namespace}/{method}", post(dynamic_unary))
         .route("/api/{method}", post(unary))
         .with_state(state)
-        .merge(terminal::terminal_routes(terminals))
+        .merge(extension)
         .layer(DefaultBodyLimit::max(DEFAULT_REQUEST_BODY_LIMIT_BYTES))
         .route_layer(middleware::from_fn_with_state(readiness, require_ready))
 }
@@ -267,24 +264,23 @@ pub fn web_router_with_debug_desktop_token_and_readiness(
         debug,
         desktop_token,
         readiness,
-        terminal::TerminalRouterState::default(),
+        Router::new(),
     )
 }
 
-/// Complete Web carrier including the `/api/terminal/*` extension routes.
-/// The terminal registry is native OS composition owned by the embedding
-/// binary (`xharness-host-app`), so it is threaded in here rather than living
-/// inside the control-plane backend.
+/// Complete Web carrier plus an XHarness extension router (see
+/// [`api_router_with_debug_and_extension`]) merged inside the readiness and
+/// desktop-token layers.
 pub fn web_router_full(
     backend: Arc<dyn ApiBackend>,
     static_dir: Option<PathBuf>,
     debug: DebugRecorder,
     desktop_token: Option<String>,
     readiness: StartupReadiness,
-    terminals: terminal::TerminalRouterState,
+    extension: Router,
 ) -> Router {
     let mut router =
-        api_router_with_debug_readiness_and_terminals(backend, debug, readiness.clone(), terminals);
+        api_router_with_debug_and_extension(backend, debug, readiness.clone(), extension);
     if let Some(token) = desktop_token {
         let auth = DesktopAuth::new(token);
         router = router

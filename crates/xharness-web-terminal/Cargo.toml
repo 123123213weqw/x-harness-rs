@@ -1,0 +1,17 @@
+[package]
+name = "xharness-web-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+xharness-process = { path = "../xharness-process" }
+xharness-terminal = { path = "../xharness-terminal" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower.workspace = true
