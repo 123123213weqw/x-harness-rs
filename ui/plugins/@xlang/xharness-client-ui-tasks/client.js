@@ -196,6 +196,8 @@ window.__ModuleLoader__.load({
 
     const store = {
       open: false,
+      closing: false,
+      closeTimer: 0,
       loading: false,
       error: null,
       sessions: [],
@@ -214,11 +216,24 @@ window.__ModuleLoader__.load({
       emit() {
         for (const listener of this.listeners) listener()
       },
+      // A short exit-animation phase slides the panel out before unmount;
+      // timing pairs with the .18s panel-out animation.
       setOpen(open) {
-        this.open = open
+        if (open) {
+          window.clearTimeout(this.closeTimer)
+          this.closing = false
+          this.open = true
+          void this.refresh()
+        } else if (this.open && !this.closing) {
+          this.closing = true
+          this.closeTimer = window.setTimeout(() => {
+            this.open = false
+            this.closing = false
+            this.emit()
+          }, 190)
+        }
         this.menuId = null
         this.renameId = null
-        if (open) void this.refresh()
         this.emit()
       },
       togglePinned(id) {
@@ -518,11 +533,16 @@ window.__ModuleLoader__.load({
           ),
           h('span', { className: 'xhtask-trigger-label' }, t('panel.open')),
         ),
-        state.open
+        state.open || state.closing
           ? ReactDOM.createPortal(
-              h('div', { className: 'xhtask-scrim', onClick: () => state.setOpen(false) },
+              h('div', {
+                className: state.closing ? 'xhtask-scrim xhtask-scrim-closing' : 'xhtask-scrim',
+                onClick: () => state.setOpen(false),
+              },
                 h('div', {
-                  className: 'xhtask-panel-wrap',
+                  className: state.closing
+                    ? 'xhtask-panel-wrap xhtask-panel-wrap-closing'
+                    : 'xhtask-panel-wrap',
                   style: { width: PANEL_WIDTH },
                   onClick: (event) => event.stopPropagation(),
                 }, h(TasksPanel, { t })),
@@ -537,8 +557,15 @@ window.__ModuleLoader__.load({
 
     const CSS = `
 .xhtask-trigger{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:3px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;cursor:pointer}.xhtask-trigger:hover,.xhtask-trigger:focus-visible{color:var(--dsw-alias-label-secondary)}
-.xhtask-scrim{position:fixed;inset:0;z-index:95;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32))}
-.xhtask-panel-wrap{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.18)}
+.xhtask-scrim{position:fixed;inset:0;z-index:95;background:var(--dsw-alias-bg-mask-1,rgba(0,0,0,.32));animation:xhtask-scrim-in .2s ease-out}
+.xhtask-scrim-closing{animation:xhtask-scrim-out .15s ease-in forwards}
+@keyframes xhtask-scrim-in{from{opacity:0}}
+@keyframes xhtask-scrim-out{to{opacity:0}}
+.xhtask-panel-wrap{position:absolute;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:-8px 0 24px rgba(0,0,0,.18);animation:xhtask-panel-in .26s cubic-bezier(.23,1,.32,1)}
+.xhtask-panel-wrap-closing{animation:xhtask-panel-out .18s cubic-bezier(.23,1,.32,1) forwards}
+@keyframes xhtask-panel-in{from{opacity:0;transform:translate3d(24px,0,0) scale(.98)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
+@keyframes xhtask-panel-out{to{opacity:0;transform:translate3d(24px,0,0) scale(.98)}}
+@media (prefers-reduced-motion:reduce){.xhtask-scrim,.xhtask-scrim-closing,.xhtask-panel-wrap,.xhtask-panel-wrap-closing{animation:none}}
 .xhtask-panel{display:flex;flex-direction:column;flex:1;min-height:0;width:100%}
 .xhtask-head{display:flex;align-items:center;gap:8px;flex:none;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .xhtask-head-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}

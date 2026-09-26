@@ -171,6 +171,14 @@ const productPlugins = [
     },
   },
   {
+    id: '@xlang/xharness-client-ui-motion',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-motion/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [],
+    },
+  },
+  {
     id: '@xlang/xharness-client-ui-tasks',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-tasks/client.js'),
     declaration: {

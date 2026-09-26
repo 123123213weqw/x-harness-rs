@@ -99,6 +99,7 @@ jobs:
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-terminal-plugin.mjs
       - run: node scripts/test-tasks-plugin.mjs
+      - run: node scripts/test-motion-plugin.mjs
       - run: node scripts/test-compaction-ui.mjs
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs
