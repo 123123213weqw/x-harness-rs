@@ -5,9 +5,9 @@
 // until the user presses the banner's retry (or reloads). The model keeps
 // answering in the meantime, which is the reported "模型还在回答，但是前端不显示".
 //
-// The status frame that a new user prompt produces is the right moment to
-// recover: the user just acted, and the answer is about to arrive. Retrying
-// there means the frames that follow already have a window to land in.
+// A turn may continue streaming after compaction without a new prompt or a
+// running-status edge. Its next durable event must also trigger recovery;
+// otherwise the buffered suffix (including compaction/end) stays invisible.
 //
 // Recovery reuses the error banner's own read-only path (`loadOlder` is routed
 // to the history-only retry by the transactional layer), so it never resubmits
@@ -33,6 +33,8 @@ function installLiveAnswerRecovery(Session) {
   };
   const handleRunning = Session.prototype.handleRunning;
   if (typeof handleRunning !== 'function') throw Error('Live answer recovery method missing: handleRunning');
+  const handleMuxEnvelope = Session.prototype.handleMuxEnvelope;
+  if (typeof handleMuxEnvelope !== 'function') throw Error('Live answer recovery method missing: handleMuxEnvelope');
   const prompt = Session.prototype.prompt;
   if (typeof prompt !== 'function') throw Error('Live answer recovery method missing: prompt');
   // A queued prompt does not necessarily produce another running=true frame:
@@ -51,6 +53,15 @@ function installLiveAnswerRecovery(Session) {
     // `handleRunning` returns early when the flag did not change, so react to the
     // reported status instead of to a transition.
     if (running === true) this.xhRecoverLiveAnswer();
+    return result;
+  };
+  // The transactional history wrapper owns buffering while openState is error.
+  // Observe *after* its mux dispatch so the arriving event is in liveBuffer
+  // before a read-only history retry can stitch it. Do not react to projection,
+  // queue or status frames: only durable session events advance the transcript.
+  Session.prototype.handleMuxEnvelope = function(rpcId, frame) {
+    const result = handleMuxEnvelope.call(this, rpcId, frame);
+    if (frame.type === 'session/event') this.xhRecoverLiveAnswer();
     return result;
   };
 }
