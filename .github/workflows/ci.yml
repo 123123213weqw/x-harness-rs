@@ -185,6 +185,7 @@ jobs:
       - name: Regression harness and architecture contract
         run: |
           python3 -B scripts/regression/check-architecture.py
+          python3 -B -m unittest scripts/regression/test_check_architecture.py
           python3 -B scripts/regression/summarize.py --help >/dev/null
           bash -n scripts/regression/remote-regression.sh
           bash -n scripts/regression/run-suite.sh

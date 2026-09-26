@@ -316,6 +316,56 @@ pub struct OpenAiProvider {
     image_support: Option<bool>,
 }
 
+/// The wire encoder owns these arrays. Keep shape and offset checks at the
+/// mutation boundary so an encoder change becomes a provider error, not a
+/// panic that interrupts a live agent turn.
+fn encoded_items_mut(
+    body: &mut Value,
+    protocol: OpenAiProtocol,
+) -> Result<&mut Vec<Value>, ProviderError> {
+    let field = match protocol {
+        OpenAiProtocol::ChatCompletions => "messages",
+        OpenAiProtocol::Responses => "input",
+    };
+    body.get_mut(field)
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            ProviderError::new(format!(
+                "OpenAI request encoder produced invalid {field} array"
+            ))
+        })
+}
+
+fn encoded_item_mut(
+    body: &mut Value,
+    protocol: OpenAiProtocol,
+    position: usize,
+) -> Result<&mut Map<String, Value>, ProviderError> {
+    encoded_items_mut(body, protocol)?
+        .get_mut(position)
+        .ok_or_else(|| {
+            ProviderError::new("OpenAI request encoder message offset is out of bounds")
+        })?
+        .as_object_mut()
+        .ok_or_else(|| ProviderError::new("OpenAI request encoder produced a non-object message"))
+}
+
+fn insert_encoded_item(
+    body: &mut Value,
+    protocol: OpenAiProtocol,
+    position: usize,
+    item: Value,
+) -> Result<(), ProviderError> {
+    let items = encoded_items_mut(body, protocol)?;
+    if position > items.len() {
+        return Err(ProviderError::new(
+            "OpenAI request encoder insertion offset is out of bounds",
+        ));
+    }
+    items.insert(position, item);
+    Ok(())
+}
+
 impl OpenAiProvider {
     pub fn new(config: OpenAiProviderConfig) -> Result<Self, ProviderError> {
         if config.max_sse_pending_bytes == 0 {
@@ -673,14 +723,12 @@ impl OpenAiProvider {
                 if message.role == xharness_core::Role::Tool {
                     tool_images.extend(content);
                 } else {
-                    match self.config.protocol {
-                        OpenAiProtocol::ChatCompletions => {
-                            body["messages"][index + inserted]["content"] = json!(content)
-                        }
-                        OpenAiProtocol::Responses => {
-                            body["input"][offset]["content"] = json!(content)
-                        }
-                    }
+                    let position = match self.config.protocol {
+                        OpenAiProtocol::ChatCompletions => index + inserted,
+                        OpenAiProtocol::Responses => offset,
+                    };
+                    encoded_item_mut(&mut body, self.config.protocol, position)?
+                        .insert("content".into(), Value::Array(content));
                 }
             }
             offset += crate::protocol::encode_response_message(message).len();
@@ -692,18 +740,14 @@ impl OpenAiProvider {
                     .is_none_or(|m| m.role != xharness_core::Role::Tool)
             {
                 let item = json!({"role":"user","content":std::mem::take(&mut tool_images)});
+                let position = match self.config.protocol {
+                    OpenAiProtocol::ChatCompletions => index + inserted + 1,
+                    OpenAiProtocol::Responses => offset,
+                };
+                insert_encoded_item(&mut body, self.config.protocol, position, item)?;
                 match self.config.protocol {
-                    OpenAiProtocol::ChatCompletions => {
-                        body["messages"]
-                            .as_array_mut()
-                            .unwrap()
-                            .insert(index + inserted + 1, item);
-                        inserted += 1;
-                    }
-                    OpenAiProtocol::Responses => {
-                        body["input"].as_array_mut().unwrap().insert(offset, item);
-                        offset += 1;
-                    }
+                    OpenAiProtocol::ChatCompletions => inserted += 1,
+                    OpenAiProtocol::Responses => offset += 1,
                 }
             }
         }
@@ -1316,6 +1360,44 @@ mod tests {
             reasoning_effort: effort.map(str::to_owned),
             max_output_tokens: None,
             debug_scope: Default::default(),
+        }
+    }
+
+    #[test]
+    fn encoded_message_mutations_reject_invalid_shapes_and_offsets() {
+        for (protocol, field) in [
+            (OpenAiProtocol::ChatCompletions, "messages"),
+            (OpenAiProtocol::Responses, "input"),
+        ] {
+            let mut body = json!({});
+            assert!(encoded_items_mut(&mut body, protocol)
+                .unwrap_err()
+                .message
+                .contains(field));
+            body[field] = json!({"not":"an array"});
+            assert!(encoded_items_mut(&mut body, protocol).is_err());
+
+            body[field] = json!([null]);
+            assert!(encoded_item_mut(&mut body, protocol, 0)
+                .unwrap_err()
+                .message
+                .contains("non-object"));
+            assert!(encoded_item_mut(&mut body, protocol, 1)
+                .unwrap_err()
+                .message
+                .contains("out of bounds"));
+            assert!(insert_encoded_item(&mut body, protocol, 2, json!({}))
+                .unwrap_err()
+                .message
+                .contains("out of bounds"));
+
+            body[field] = json!([{"role":"user"}]);
+            encoded_item_mut(&mut body, protocol, 0)
+                .unwrap()
+                .insert("content".into(), json!([{"type":"text","text":"hello"}]));
+            insert_encoded_item(&mut body, protocol, 1, json!({"role":"user"})).unwrap();
+            assert_eq!(body[field].as_array().unwrap().len(), 2);
+            assert_eq!(body[field][0]["content"][0]["text"], "hello");
         }
     }
 

@@ -1,10 +1,13 @@
 //! Synthetic snapshot-only tests: no model, tool execution or production state.
 use super::*;
 use crate::{runtime::AgentRuntime, HostConfig};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
 use xharness_session::{
-    EventData, MemorySessionStore, Revision, Session, SessionHeader, SessionTitleSource, Store,
+    EventData, MemorySessionStore, Message, RequestHeader, Revision, Session, SessionHeader,
+    SessionTitleSource, Store, TurnEndReason,
 };
+use xharness_session_jsonl::JsonlSessionStore;
 
 const ID: &str = "projection-publication";
 
@@ -28,6 +31,42 @@ impl AgentRuntime for SnapshotRuntime {
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: error.to_string(),
             })
+    }
+    async fn persist_session_events(
+        &self,
+        id: &str,
+        cwd: &str,
+        events: Vec<xharness_session::SessionEvent>,
+    ) -> Result<bool, AgentRuntimeError> {
+        let mut session =
+            self.0
+                .load(id)
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })?;
+        if session.is_none() {
+            let mut header = SessionHeader::new(id);
+            header.cwd = Some(cwd.to_owned());
+            session = Some(self.0.create(header).await.map_err(|error| {
+                AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                }
+            })?);
+        }
+        self.0
+            .append(id, session.unwrap().revision(), events)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })?;
+        self.0
+            .flush(id)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })?;
+        Ok(true)
     }
     async fn start_turn(
         &self,
@@ -245,4 +284,173 @@ async fn concurrent_projection_sync_publishes_each_new_event_once() {
         }
     }
     assert_eq!(published, vec![prior.next_seq()]);
+}
+
+async fn rpc_value(host: &BasicHost, method: RpcMethod, payload: Value) -> Value {
+    match host
+        .call(
+            RpcId::new(format!("projection-regression-{method}")),
+            method,
+            payload,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+    {
+        RpcResult::Success { value: Some(value) } => value,
+        result => panic!("{method} failed: {result:?}"),
+    }
+}
+
+fn completed_turn(
+    turn: u32,
+    label: &str,
+    request_header: &RequestHeader,
+) -> Vec<xharness_session::SessionEvent> {
+    vec![
+        EventData::TurnStart { turn }.into(),
+        EventData::UserMessage {
+            message: Message::user(format!("question {label}")),
+            surface_replace: None,
+        }
+        .into(),
+        EventData::StepStart { turn, step: 1 }.into(),
+        EventData::RequestHeader {
+            header: request_header.clone(),
+        }
+        .into(),
+        EventData::AssistantMessage {
+            turn,
+            step: 1,
+            message: Message::assistant(format!("answer {label}")),
+            usage: None,
+        }
+        .into(),
+        EventData::StepEnd { turn, step: 1 }.into(),
+        EventData::TurnEnd {
+            turn,
+            reason: TurnEndReason::Completed,
+        }
+        .into(),
+    ]
+}
+
+#[tokio::test]
+async fn live_refresh_restart_and_fork_use_the_same_durable_projection() {
+    let root = std::env::temp_dir().join(format!(
+        "xharness-projection-differential-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store: Arc<dyn Store> = Arc::new(
+        JsonlSessionStore::new(root.join("sessions"))
+            .unwrap()
+            .for_runtime(),
+    );
+    let mut header = SessionHeader::new(ID);
+    header.cwd = Some(root.to_string_lossy().into_owned());
+    store.create(header).await.unwrap();
+    let request_header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let first = store
+        .append(
+            ID,
+            Revision::ZERO,
+            completed_turn(1, "before fork", &request_header),
+        )
+        .await
+        .unwrap();
+    store.flush(ID).await.unwrap();
+    let fork_at_seq = store.load(ID).await.unwrap().unwrap().next_seq() - 1;
+    let host = BasicHost::with_agent_runtime(
+        HostConfig::new(&root),
+        Arc::new(SnapshotRuntime(store.clone())),
+    );
+    assert!(host
+        .restore_from_store(store.clone())
+        .await
+        .unwrap()
+        .issues
+        .is_empty());
+    let mut live = host.event_gateway.subscribe_mux();
+
+    let second = completed_turn(2, "after fork", &request_header);
+    store.append(ID, first.revision, second).await.unwrap();
+    store.flush(ID).await.unwrap();
+    assert!(host.sync_authoritative_session(ID).await.unwrap());
+    let live_events = std::iter::from_fn(|| live.try_recv().ok())
+        .filter(|frame| frame.payload["type"] == "session/event")
+        .map(|frame| frame.payload["event"].clone())
+        .collect::<Vec<_>>();
+    let refreshed = rpc_value(&host, RpcMethod::SessionHistory, json!({"sessionId": ID})).await;
+    let refreshed_events = refreshed["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["event"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(live_events, refreshed_events[(fork_at_seq as usize + 1)..]);
+
+    let fork = rpc_value(
+        &host,
+        RpcMethod::SessionFork,
+        json!({"sessionId": ID, "atSeq": fork_at_seq}),
+    )
+    .await;
+    let child_id = fork["sessionId"].as_str().unwrap().to_owned();
+    let child_history = rpc_value(
+        &host,
+        RpcMethod::SessionHistory,
+        json!({"sessionId": child_id}),
+    )
+    .await;
+    assert_eq!(
+        child_history["events"].as_array().unwrap().len(),
+        fork_at_seq as usize + 1
+    );
+    assert!(!child_history.to_string().contains("after fork"));
+
+    drop(host);
+    drop(store);
+    let reopened: Arc<dyn Store> = Arc::new(
+        JsonlSessionStore::new(root.join("sessions"))
+            .unwrap()
+            .for_runtime(),
+    );
+    let restored = BasicHost::with_agent_runtime(
+        HostConfig::new(&root),
+        Arc::new(SnapshotRuntime(reopened.clone())),
+    );
+    assert!(restored
+        .restore_from_store(reopened)
+        .await
+        .unwrap()
+        .issues
+        .is_empty());
+    let after_restart = rpc_value(
+        &restored,
+        RpcMethod::SessionHistory,
+        json!({"sessionId": ID}),
+    )
+    .await;
+    let child_after_restart = rpc_value(
+        &restored,
+        RpcMethod::SessionHistory,
+        json!({"sessionId": child_id}),
+    )
+    .await;
+    assert_eq!(after_restart["events"], refreshed["events"]);
+    assert_eq!(after_restart["projections"], refreshed["projections"]);
+    assert_eq!(child_after_restart["events"], child_history["events"]);
+    assert_eq!(
+        child_after_restart["projections"],
+        child_history["projections"]
+    );
+    drop(restored);
+    std::fs::remove_dir_all(root).unwrap();
 }
