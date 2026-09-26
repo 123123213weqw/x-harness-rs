@@ -284,21 +284,38 @@ impl BasicHost {
             let permission = restored_permission(&session);
             let plan_active = restored_plan_mode(&session);
             let goal = restored_goal(&session);
+            let delegation_parent = crate::delegation::restored_delegation(&session);
+            let fork_parent = session
+                .events()
+                .iter()
+                .rev()
+                .find_map(|event| match event.data() {
+                    EventData::SessionForkOrigin {
+                        parent_session_id, ..
+                    } => Some(parent_session_id.clone()),
+                    _ => None,
+                });
             let record = SessionRecord {
                 dispatch_paused: crate::delegation::restored_dispatch_paused(&session)
                     || pause_incomplete_tools,
-                delegated: crate::delegation::restored_delegation(&session).is_some(),
+                delegated: delegation_parent.is_some(),
                 session_id: session_id.clone(),
                 created_at: header.created_at_ms,
                 updated_at,
                 running: false,
                 blank,
-                parent_session_id: crate::delegation::restored_delegation(&session),
-                // The upstream breadcrumb follows parentSessionId only for
-                // origin=subagent. Recover it from the durable delegation,
-                // never infer it for ordinary sessions or forks.
-                origin: crate::delegation::restored_delegation(&session)
-                    .map(|_| "subagent".to_owned()),
+                parent_session_id: delegation_parent.clone().or(fork_parent),
+                origin: delegation_parent
+                    .map(|_| "subagent".to_owned())
+                    .or_else(|| {
+                        session
+                            .events()
+                            .iter()
+                            .any(|event| {
+                                matches!(event.data(), EventData::SessionForkOrigin { .. })
+                            })
+                            .then(|| "fork".to_owned())
+                    }),
                 cwd: cwd.clone(),
                 agent_preset: restored_agent_preset(&session),
                 title: restored_title(&session),

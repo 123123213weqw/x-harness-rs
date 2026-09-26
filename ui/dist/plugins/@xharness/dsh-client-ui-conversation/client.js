@@ -5126,7 +5126,7 @@ class XHarnessMessageEditor {
       return this.writes;
     } catch(e) { this.set({ error: String(e) }); return Promise.reject(e); }
   }
-  async request(content) {
+  async request(content, preparedImages) {
     await this.ready;
     if (this.disposed || this.busy() || this.d.running()) return;
     if (this.state.phase !== 'idle') { this.set({error:this.d.t('message.editFinish')}); return; }
@@ -5134,8 +5134,8 @@ class XHarnessMessageEditor {
       this.set({error:this.d.t('message.editUnsupported')}); return;
     }
     this.pending = { text: content.filter(b => b.type === 'text').map(b => b.text).join(''),
-      images: content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
-    if (this.pending.images.some(a => !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
+      images: preparedImages || content.filter(b => b.type === 'image' || b.type === 'file').map(b => ({kind:b.type,ref: b.attachment, name: b.attachment?.name || 'image', type:b.attachment?.mediaType})) };
+    if (this.pending.images.some(a => !a.file && !a.ref?.attachmentId)) { this.set({error:this.d.t('message.editMissing')}); return; }
     const before = this.capture();
     if (before.text || before.images.length) this.set({phase:'confirm',error:''});
     else await this.confirm();
@@ -5263,6 +5263,28 @@ function xhEditMessage(inputHub, sessionId, content) {
   const shell = inputHub.shell(sessionId);
   return shell.xhEditor.request(content).catch(e=>shell.notify('error',String(e)));
 }
+// Resolve source-owned attachments before creating the child. The selected
+// message is deliberately absent from child history, so image_ref cannot be
+// used there; the child draft owns fresh File bytes instead.
+async function xhForkMessage(inputHub, sessions, sessionId, seq, content) {
+  if (!Number.isSafeInteger(seq) || seq < 0 || !Array.isArray(content) ||
+      content.some(part => !['text','image','file'].includes(part.type))) throw Error('Unsupported fork message');
+  const source = sessions.binding(sessionId)?.session;
+  if (!source) throw Error('Source session is unavailable');
+  const images = await Promise.all(content.filter(part => part.type === 'image' || part.type === 'file').map(async part => {
+    const ref = part.attachment;
+    if (!ref?.attachmentId) throw Error('Attachment reference is missing');
+    const result = await source.readAttachment(ref.attachmentId);
+    if (!result.ok) throw Error(result.error?.message || 'Attachment could not be read');
+    return {file:new File([result.value.data], ref.name || 'attachment', {type:result.value.attachment.mediaType || ref.mediaType})};
+  }));
+  const childId = await sessions.fork({sessionId, beforeUserSeq:seq, increaseTitle:true});
+  const shell = inputHub.shell(childId);
+  await shell.xhEditor.request(content, images);
+  sessions.open(childId);
+  if (!shell.xhEditor.state.editing) shell.notify('error', shell.xhEditor.state.error || 'Could not prepare fork draft');
+  return childId;
+}
 function XHarnessEditableInputBar(props) {
   const editor = props.keyboard?.xhEditor;
   const state = react.useSyncExternalStore(editor?.subscribe || (()=>()=>{}), editor?.getSnapshot || (()=>null));
@@ -5283,6 +5305,10 @@ function XHarnessEditableInputBar(props) {
 function XHarnessEditAction({ content, editMessage, t }) {
   return react_jsx_runtime.jsx(_xharness_dsh_client_ui_primitives.Tooltip,{label:t('message.edit'),side:'bottom',children:
     react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.edit'),'data-message-edit':'',onClick:()=>editMessage(content),children:'✎'})});
+}
+function XHarnessForkAction({ content, seq, forkMessage, t }) {
+  return react_jsx_runtime.jsx(_xharness_dsh_client_ui_primitives.Tooltip,{label:t('message.editFork'),side:'bottom',children:
+    react_jsx_runtime.jsx('button',{type:'button',className:MessageIconActions_module_css_default.action,'aria-label':t('message.editFork'),'data-message-edit-fork':'',onClick:()=>forkMessage(seq,content),children:'⑂'})});
 }
 // XHARNESS CONVERSATION MESSAGE EDIT END
 		function MessageIconActions({ text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className, extraActions, t }) {
@@ -5631,7 +5657,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 			});
 		}
 		/** User and admitted-steering keyed Chat renderer. */
-		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, editMessage, editAvailable, t }) {
+		const UserMessageNodeView = (0, react.memo)(function UserMessageNodeView({ node, renderMessageImages, editMessage, forkMessage, editAvailable, t }) {
 			const data = node.data;
 			return (0, react_jsx_runtime.jsx)(UserStyleBubble, {
 				content: data.content,
@@ -5643,7 +5669,7 @@ function XHarnessEditAction({ content, editMessage, t }) {
 					time: data.time,
 					clock: "start",
 					className: MessageItem_module_css_default.actions,
-					extraActions: editAvailable && data.content.length > 0 ? (0, react_jsx_runtime.jsx)(XHarnessEditAction, { content: data.content, editMessage, t }) : null,
+					extraActions: editAvailable && data.content.length > 0 ? (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {children:[(0, react_jsx_runtime.jsx)(XHarnessEditAction, { content: data.content, editMessage, t }), (0, react_jsx_runtime.jsx)(XHarnessForkAction, { content: data.content, seq:data.seq, forkMessage, t })]}) : null,
 					t
 				})
 			});
@@ -5863,7 +5889,7 @@ function createTranscriptWindowing(React) {
 }
 // xh-transcript-implementation:end
 const XhTranscriptWindowRow = createTranscriptWindowing(react);
-const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, editAvailable, renderMessageImages, fileMentions, useSession, renderSlot, t, keepMounted }) {
+const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, renderMessageImages, fileMentions, useSession, renderSlot, t, keepMounted }) {
 			const node = useSession((snapshot) => snapshot.chat.nodes.get(nodeKey));
 			const routedNode = node;
 			const owner = (0, react.useMemo)(() => node === void 0 ? null : {
@@ -5873,6 +5899,7 @@ const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCa
 				inspectCall,
 				forkAt,
 				editMessage,
+				forkMessage,
 				editAvailable,
 				renderMessageImages,
 				fileMentions
@@ -5884,6 +5911,7 @@ const ChatNodeSeat = (0, react.memo)(function ChatNodeSeat({ nodeKey, selectedCa
 				inspectCall,
 				forkAt,
 				editMessage,
+				forkMessage,
 				editAvailable,
 				renderMessageImages,
 				fileMentions
@@ -6018,7 +6046,7 @@ function xhScrollFollowAtBottom(currentAtBottom, scrollTop, floor, observedTop, 
   return moved && readerInputRecent ? floor - scrollTop <= 25 : currentAtBottom;
 }
 
-		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, editMessage, fileMentions, t }) {
+		function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, editMessage, forkMessage, fileMentions, t }) {
 			const order = useSession((s) => s.chat.order);
 			const nodeStore = useSession((s) => s.chat.nodes);
 			const timeline = useSession((s) => s.chat.timeline);
@@ -6274,6 +6302,7 @@ keepMounted: index >= activeSuffix,
 								inspectCall,
 								forkAt,
 								editMessage,
+								forkMessage,
 								editAvailable: !running,
 								renderMessageImages,
 								fileMentions,
@@ -6673,6 +6702,7 @@ keepMounted: index >= activeSuffix,
 "message.editUnsupported": "此消息含不支持恢复的内容，未修改草稿",
 "message.editStorage": "无法持久保存编辑草稿",
 			"message.edit": "编辑并重新发送",
+			"message.editFork": "编辑并 Fork 到新对话",
 			"message.branch": "在新对话中分支",
 			"message.branchUnavailable": "仅可从已完成轮次的最后一条消息分支",
 			"message.retry.active": "正在重试模型请求",
@@ -6867,6 +6897,7 @@ keepMounted: index >= activeSuffix,
 "message.editUnsupported": "This message contains unsupported content; draft unchanged",
 "message.editStorage": "Could not persist the edited draft",
 			"message.edit": "Edit and resend",
+			"message.editFork": "Edit and fork into a new conversation",
 			"message.branch": "Branch into a new conversation",
 			"message.branchUnavailable": "Available only on the last message of a completed turn",
 			"message.retry.active": "Retrying model request",
@@ -7720,7 +7751,7 @@ keepMounted: index >= activeSuffix,
 					id: summary.id,
 					displayTitle: summary.displayTitle
 				});
-				if (summary.origin !== "subagent") break;
+				if (summary.origin !== "subagent" && summary.origin !== "fork") break;
 				cursor = summary.parentId;
 			}
 			return chain;
@@ -10665,6 +10696,7 @@ const XhCheckpointView=(0,react.memo)(function XhCheckpointView({node}){
 							actions.setView("trajectory");
 						},
 						editMessage: (content) => xhEditMessage(inputHub, sessionId, content),
+						forkMessage: (seq, content) => xhForkMessage(inputHub, sessions, sessionId, seq, content).catch(error => inputHub.shell(sessionId).notify("error", String(error))),
 						chatScroll: {
 							save: (position) => {
 								if (position === null) chatScrollPositions.delete(sessionId);

@@ -509,6 +509,13 @@ pub enum EventData {
         invocation_id: String,
         task: String,
     },
+    /// Ordinary conversation fork identity, outside model-visible history.
+    #[serde(rename = "session/fork-origin")]
+    SessionForkOrigin {
+        parent_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before_user_seq: Option<u64>,
+    },
     /// Host admission gate. A stopped session must not be woken by child notices.
     #[serde(rename = "agent/dispatch-paused")]
     AgentDispatchPaused { paused: bool },

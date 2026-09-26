@@ -17,6 +17,27 @@ function once(text, before, after) {
   return text.replace(before, after)
 }
 
+function patchEditForkUi(text) {
+  if (text.includes('data-message-edit-fork') && text.includes('forkMessage: (seq, content)')) return text
+  text = once(text,
+    'function UserMessageNodeView({ node, renderMessageImages, editMessage, editAvailable, t }) {',
+    'function UserMessageNodeView({ node, renderMessageImages, editMessage, forkMessage, editAvailable, t }) {')
+  text = once(text,
+    'extraActions: editAvailable && data.content.length > 0 ? (0, react_jsx_runtime.jsx)(XHarnessEditAction, { content: data.content, editMessage, t }) : null,',
+    'extraActions: editAvailable && data.content.length > 0 ? (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {children:[(0, react_jsx_runtime.jsx)(XHarnessEditAction, { content: data.content, editMessage, t }), (0, react_jsx_runtime.jsx)(XHarnessForkAction, { content: data.content, seq:data.seq, forkMessage, t })]}) : null,')
+  text = once(text, 'forkAt, editMessage, editAvailable, renderMessageImages,', 'forkAt, editMessage, forkMessage, editAvailable, renderMessageImages,')
+  const ownerField = '\t\t\t\teditMessage,\n\t\t\t\teditAvailable,'
+  if (text.split(ownerField).length !== 3) throw Error('upstream fork owner fields changed')
+  text = text.replaceAll(ownerField, '\t\t\t\teditMessage,\n\t\t\t\tforkMessage,\n\t\t\t\teditAvailable,')
+  text = once(text, 'forkAt, editMessage, fileMentions, t }) {', 'forkAt, editMessage, forkMessage, fileMentions, t }) {')
+  text = once(text, '\t\t\t\t\t\t\t\teditMessage,\n\t\t\t\t\t\t\t\teditAvailable: !running,', '\t\t\t\t\t\t\t\teditMessage,\n\t\t\t\t\t\t\t\tforkMessage,\n\t\t\t\t\t\t\t\teditAvailable: !running,')
+  text = once(text, 'editMessage: (content) => xhEditMessage(inputHub, sessionId, content),', 'editMessage: (content) => xhEditMessage(inputHub, sessionId, content),\n\t\t\t\t\t\tforkMessage: (seq, content) => xhForkMessage(inputHub, sessions, sessionId, seq, content).catch(error => inputHub.shell(sessionId).notify("error", String(error))),')
+  text = once(text, 'if (summary.origin !== "subagent") break;', 'if (summary.origin !== "subagent" && summary.origin !== "fork") break;')
+  text = once(text, '"message.edit": "编辑并重新发送",', '"message.edit": "编辑并重新发送",\n\t\t\t"message.editFork": "编辑并 Fork 到新对话",')
+  text = once(text, '"message.edit": "Edit and resend",', '"message.edit": "Edit and resend",\n\t\t\t"message.editFork": "Edit and fork into a new conversation",')
+  return text
+}
+
 export function patchConversationMessageEdit(bytes) {
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
   if (text.includes(begin)) {
@@ -24,7 +45,7 @@ export function patchConversationMessageEdit(bytes) {
     const finish = text.indexOf(end, start)
     if (finish < 0) throw new Error('unterminated conversation message-edit source')
     text = text.slice(0, start) + begin + source + end + text.slice(finish + end.length)
-    return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n')
+    return Buffer.from(patchEditForkUi(text).replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n')
   }
 
   text = once(
@@ -97,23 +118,42 @@ export function patchConversationMessageEdit(bytes) {
     const anchor = '"message.stopped": '+JSON.stringify(locale)+',';
     text = once(text, anchor, anchor+'\n'+Object.entries(labels).map(([key,pair])=>'"message.'+key+'": '+JSON.stringify(pair[index])+',').join('\n'));
   }
-  return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n')
+  return Buffer.from(patchEditForkUi(text).replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd() + '\n')
 }
 
 export function patchMessageEditConnection(bytes) {
   let text=bytes.toString('utf8').replaceAll('\r\n','\n');
-  if (text.includes('// xharness-edit-reference-wire/v1')) return Buffer.from(text);
-  text=once(text, 'const promptContentPartSchema = discriminatedUnion("type", [object({',
-    '// xharness-edit-reference-wire/v1\nconst promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({');
-  text=once(text, 'content: array(promptContentPartSchema),', 'content: array(promptContentPartSchema),\nrequireIdle: boolean().optional(),');
+  if (!text.includes('// xharness-edit-reference-wire/v1')) {
+    text=once(text, 'const promptContentPartSchema = discriminatedUnion("type", [object({',
+      '// xharness-edit-reference-wire/v1\nconst promptContentPartSchema = discriminatedUnion("type", [object({type:literal("image_ref"),attachmentId:string().min(1)}),object({');
+    text=once(text, 'content: array(promptContentPartSchema),', 'content: array(promptContentPartSchema),\nrequireIdle: boolean().optional(),');
+  }
+  if (!text.includes('beforeUserSeq: number().int().nonnegative().optional()')) {
+    text=once(text, 'atSeq: number().int().nonnegative().optional()', 'atSeq: number().int().nonnegative().optional(),\n\t\t\tbeforeUserSeq: number().int().nonnegative().optional()');
+  }
+  if (!text.includes('// xharness-edit-fork-mock/v1')) {
+    text=once(text, 'const { sessionId, atSeq } = request.payload;', '// xharness-edit-fork-mock/v1\n\t\t\t\t\t\t\tconst { sessionId, atSeq, beforeUserSeq } = request.payload;');
+    text=once(text, 'const boundary = (atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0);',
+      'const targetIndex = beforeUserSeq === void 0 ? -1 : log.findIndex(e => e.seq === beforeUserSeq && e.type === "user/message" && e.data?.source?.kind === "user");\n\t\t\t\t\t\t\tif (beforeUserSeq !== void 0 && targetIndex < 0) return err(request, {code:"fork-unavailable",message:"user message not found",details:{sessionId}});\n\t\t\t\t\t\t\tconst boundary = beforeUserSeq === void 0 ? ((atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0)) : {seq:log.slice(0,targetIndex).findLast(e=>e.type==="turn/end")?.seq ?? -1};');
+    text=once(text, 'while (cut < log.length && log[cut]?.type !== "turn/start") cut++;', 'if (beforeUserSeq === void 0) while (cut < log.length && log[cut]?.type !== "turn/start") cut++;');
+    const childFields='blank: false,\n\t\t\t\t\t\t\t\tparentSessionId: sessionId,';
+    if (text.split(childFields).length !== 3) throw Error('upstream mock fork child fields changed');
+    text=text.replaceAll(childFields, 'blank: cut === 0,\n\t\t\t\t\t\t\t\tparentSessionId: sessionId,\n\t\t\t\t\t\t\t\torigin: "fork",');
+  }
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd()+'\n');
 }
 export function patchMessageEditRuntime(bytes) {
   let text=bytes.toString('utf8').replaceAll('\r\n','\n');
-  if(text.includes('// xharness-edit-admission/v1')) return Buffer.from(text);
-  text=once(text, 'async prompt(content, mode, signal) {', '// xharness-edit-admission/v1\nasync prompt(content, mode, signal, options = {}) {');
-  text=once(text, '\t\t\t\t\t\tcontent,\n\t\t\t\t\t\tclientTimeZone: resolvedClientTimeZone()', '\t\t\t\t\t\tcontent,\n\t\t\t\t\t\t...(options.requireIdle === true ? {requireIdle:true} : {}),\n\t\t\t\t\t\tclientTimeZone: resolvedClientTimeZone()');
-  text=once(text, 'content.some((part) => part.type === "image")', 'content.some((part) => part.type === "image" || part.type === "image_ref")');
+  if(!text.includes('// xharness-edit-admission/v1')) {
+    text=once(text, 'async prompt(content, mode, signal) {', '// xharness-edit-admission/v1\nasync prompt(content, mode, signal, options = {}) {');
+    text=once(text, '\t\t\t\t\t\tcontent,\n\t\t\t\t\t\tclientTimeZone: resolvedClientTimeZone()', '\t\t\t\t\t\t\tcontent,\n\t\t\t\t\t\t...(options.requireIdle === true ? {requireIdle:true} : {}),\n\t\t\t\t\t\tclientTimeZone: resolvedClientTimeZone()');
+    text=once(text, 'content.some((part) => part.type === "image")', 'content.some((part) => part.type === "image" || part.type === "image_ref")');
+  }
+  if (!text.includes('...opts.beforeUserSeq === void 0')) {
+    text=once(text, '...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq }', '...opts.atSeq === void 0 ? {} : { atSeq: opts.atSeq },\n\t\t\t\t\t\t...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: opts.beforeUserSeq }');
+    text=once(text, '...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) }', '...opts.atSeq === void 0 ? {} : { atSeq: Math.floor(opts.atSeq) },\n\t\t\t\t\t...opts.beforeUserSeq === void 0 ? {} : { beforeUserSeq: Math.floor(opts.beforeUserSeq) }');
+    text=once(text, 'parentSessionId: opts.sessionId,', 'parentSessionId: opts.sessionId,\n\t\t\t\t\t\t\torigin: "fork",');
+  }
   return Buffer.from(text.replace(/\n\/\/# sourceMappingURL=client\.js\.map\s*$/, '').trimEnd()+'\n');
 }
 
