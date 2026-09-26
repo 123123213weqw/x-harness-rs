@@ -198,6 +198,7 @@ window.__ModuleLoader__.load({
       open: false,
       loading: false,
       error: null,
+      actionError: null,
       sessions: [],
       archivedIds: [],
       snapshots: readJson(ARCHIVE_KEY, {}),
@@ -259,6 +260,8 @@ window.__ModuleLoader__.load({
         }
       },
       async rename(id, title) {
+        if (this.busyId !== null) return
+        this.actionError = null
         this.busyId = id
         this.emit()
         try {
@@ -269,24 +272,30 @@ window.__ModuleLoader__.load({
           }
           this.renameId = null
           this.emit()
+        } catch (error) {
+          this.actionError = String(error?.message ?? error)
         } finally {
           this.busyId = null
           this.emit()
         }
       },
       async archive(id) {
+        if (this.busyId !== null) return
         const target = this.sessions.find((session) => session.sessionId === id)
+        this.actionError = null
         this.busyId = id
         this.emit()
         try {
-          // Snapshot before the RPC: session.list hides archived sessions, so
-          // this snapshot is the only metadata the archived section will have.
-          if (target !== undefined) this.snapshot(target, makeT())
           await rpc('workspace.archiveSession', { sessionId: id })
+          // Persist the label only after the archive succeeded; failed RPCs
+          // must not leave a phantom archived snapshot behind.
+          if (target !== undefined) this.snapshot(target, makeT())
           this.sessions = this.sessions.filter((session) => session.sessionId !== id)
           this.archivedIds = [...this.archivedIds, id]
           this.pinned = this.pinned.filter((candidate) => candidate !== id)
           writeJson(PINNED_KEY, this.pinned)
+        } catch (error) {
+          this.actionError = String(error?.message ?? error)
         } finally {
           this.busyId = null
           this.menuId = null
@@ -294,11 +303,15 @@ window.__ModuleLoader__.load({
         }
       },
       async fork(id) {
+        if (this.busyId !== null) return
+        this.actionError = null
         this.busyId = id
         this.emit()
         try {
           await rpc('session.fork', { sessionId: id })
           await this.refresh()
+        } catch (error) {
+          this.actionError = String(error?.message ?? error)
         } finally {
           this.busyId = null
           this.menuId = null
@@ -441,6 +454,10 @@ window.__ModuleLoader__.load({
             onClick: () => state.setOpen(false),
           }, '×'),
         ),
+        state.actionError !== null
+          ? h('div', { className: 'xhtask-action-error', role: 'alert' },
+              t('action.failed', { message: state.actionError }))
+          : null,
         state.loading && state.sessions.length === 0
           ? h('div', { className: 'xhtask-empty' }, t('loading'))
           : state.error !== null && state.sessions.length === 0
@@ -544,6 +561,7 @@ window.__ModuleLoader__.load({
 .xhtask-head-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
 .xhtask-head-count{color:var(--dsw-alias-label-tertiary);font-size:11px}
 .xhtask-head-action{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer}.xhtask-head-action:first-of-type{margin-left:auto}.xhtask-head-action+.xhtask-head-action{margin-left:0}.xhtask-head-action:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
+.xhtask-action-error{flex:none;margin:8px 12px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-size:12px;overflow-wrap:anywhere}
 .xhtask-body{flex:1;min-height:0;overflow:auto;padding:6px}
 .xhtask-group{margin-bottom:8px}
 .xhtask-group-label{display:flex;align-items:center;gap:6px;padding:6px 6px 4px;color:var(--dsw-alias-label-tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.04em}

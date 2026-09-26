@@ -124,4 +124,37 @@ await assert.rejects(
   /was not found/,
 )
 
+// Failed mutations must be visible in the panel state, never surface as an
+// unhandled rejection or create a phantom archived entry.
+plugin.store.sessions = [{
+  sessionId: 'x', updatedAt: 1_770_000_000_000,
+  projections: { values: { title: 'Still live' } },
+}]
+responses.set(
+  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-3', method: 'workspace.archiveSession', payload: { sessionId: 'x' } }),
+  { result: { ok: false, error: { message: 'archive denied' } } },
+)
+await plugin.store.archive('x')
+assert.equal(plugin.store.actionError, 'archive denied')
+assert.equal(plugin.store.sessions.length, 1)
+assert.equal(plugin.store.snapshots.x, undefined)
+assert.equal(plugin.store.busyId, null)
+
+responses.set(
+  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-4', method: 'session.rename', payload: { sessionId: 'x', title: 'New title' } }),
+  { result: { ok: false, error: { message: 'rename denied' } } },
+)
+await plugin.store.rename('x', 'New title')
+assert.equal(plugin.store.actionError, 'rename denied')
+assert.equal(plugin.store.sessions[0].projections.values.title, 'Still live')
+assert.equal(plugin.store.busyId, null)
+
+responses.set(
+  JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-5', method: 'session.fork', payload: { sessionId: 'x' } }),
+  { result: { ok: false, error: { message: 'fork denied' } } },
+)
+await plugin.store.fork('x')
+assert.equal(plugin.store.actionError, 'fork denied')
+assert.equal(plugin.store.busyId, null)
+
 console.log('tasks plugin: assertions passed')
