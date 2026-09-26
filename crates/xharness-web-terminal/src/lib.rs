@@ -137,23 +137,23 @@ fn failure(status: StatusCode, code: &str, message: impl Into<String>) -> Respon
         .into_response()
 }
 
-fn parse_body<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, Response> {
+fn parse_body<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, Box<Response>> {
     serde_json::from_slice(body).map_err(|error| {
-        failure(
+        Box::new(failure(
             StatusCode::BAD_REQUEST,
             "invalid_request",
             error.to_string(),
-        )
+        ))
     })
 }
 
-async fn registry(state: &TerminalRouterState) -> Result<Arc<TerminalRegistry>, Response> {
+fn registry(state: &TerminalRouterState) -> Result<Arc<TerminalRegistry>, Box<Response>> {
     state.registry.clone().ok_or_else(|| {
-        failure(
+        Box::new(failure(
             StatusCode::SERVICE_UNAVAILABLE,
             "terminal_unavailable",
             "this host was started without the terminal registry",
-        )
+        ))
     })
 }
 
@@ -179,17 +179,15 @@ fn terminal_error(error: xharness_terminal::TerminalError) -> Response {
 fn default_shell() -> OsString {
     #[cfg(unix)]
     {
-        for candidate in [
-            env::var_os("SHELL"),
-            Some("/bin/bash".into()),
-            Some("/bin/sh".into()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            return candidate;
-        }
-        unreachable!("a unix shell fallback always matches")
+        env::var_os("SHELL")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| {
+                if std::path::Path::new("/bin/bash").is_file() {
+                    "/bin/bash".into()
+                } else {
+                    "/bin/sh".into()
+                }
+            })
     }
     #[cfg(windows)]
     {
@@ -229,13 +227,13 @@ fn terminal_env(extra: &BTreeMap<String, String>) -> BTreeMap<OsString, OsString
 }
 
 async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<OpenRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if request.args.len() > MAX_ARGS {
         return failure(
@@ -277,13 +275,13 @@ fn xharness_process_spec(request: &OpenRequest) -> xharness_process::SpawnSpec {
 }
 
 async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<SendRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if request.input.len() > MAX_INPUT_BYTES {
         return failure(
@@ -302,13 +300,13 @@ async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) ->
 }
 
 async fn terminal_read(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<ReadRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match registry
         .read_raw(WEB_TERMINAL_OWNER, &request.name, request.cursor)
@@ -329,13 +327,13 @@ async fn terminal_read(State(state): State<TerminalRouterState>, body: Bytes) ->
 }
 
 async fn terminal_resize(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<ResizeRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let size = TerminalSize {
         cols: request.cols,
@@ -351,13 +349,13 @@ async fn terminal_resize(State(state): State<TerminalRouterState>, body: Bytes) 
 }
 
 async fn terminal_signal(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<SignalRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match registry
         .signal(WEB_TERMINAL_OWNER, &request.name, request.signal)
@@ -369,13 +367,13 @@ async fn terminal_signal(State(state): State<TerminalRouterState>, body: Bytes) 
 }
 
 async fn terminal_close(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let request = match parse_body::<NameRequest>(&body) {
         Ok(request) => request,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match registry.close(WEB_TERMINAL_OWNER, &request.name).await {
         Ok(read) => ok(json!({"read": read})),
@@ -384,9 +382,9 @@ async fn terminal_close(State(state): State<TerminalRouterState>, body: Bytes) -
 }
 
 async fn terminal_list(State(state): State<TerminalRouterState>, _body: Bytes) -> Response {
-    let registry = match registry(&state).await {
+    let registry = match registry(&state) {
         Ok(registry) => registry,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match registry.list(WEB_TERMINAL_OWNER).await {
         Ok(terminals) => ok(json!({"terminals": terminals})),

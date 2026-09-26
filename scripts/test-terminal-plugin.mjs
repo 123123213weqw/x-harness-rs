@@ -23,6 +23,10 @@ assert.ok(index.includes(`window.__DSH_BOOT__ = ${JSON.stringify(graph)}`))
 const sandbox = {
   atob: globalThis.atob,
   window: {
+    localStorage: {
+      getItem() { return null },
+      setItem() {},
+    },
     __ModuleLoader__: {
       load(value) { registration = value },
     },
@@ -34,14 +38,12 @@ vm.createContext(sandbox)
 vm.runInContext(source, sandbox)
 
 const React = {
-  createElement() {},
+  createElement(type, props, ...children) { return { type, props, children } },
   Fragment: 'fragment',
   useEffect() {},
   useRef() { return { current: null } },
   useState(value) { return [value, () => {}] },
 }
-const ReactDOM = { createPortal() {} }
-
 let documentState = { lang: 'zh-CN' }
 sandbox.getComputedStyle = () => ({ getPropertyValue: () => '' })
 sandbox.document = {
@@ -69,7 +71,6 @@ sandbox.fetch = async () => {
 
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
-  if (id === 'react-dom') return ReactDOM
   throw new Error(`unexpected module dependency: ${id}`)
 })
 
@@ -78,6 +79,32 @@ assert.equal(registration.id, '@xlang/xharness-client-ui-terminal')
 // injected service list is compared via JSON instead.
 assert.equal(JSON.stringify(plugin.inject), '["slots","locale"]')
 assert.equal(typeof plugin.apply, 'function')
+const slotRegistrations = []
+plugin.apply({
+  effect() {},
+  slots: {
+    inject(name, register) { slotRegistrations.push({ name, registration: register() }) },
+    register(options, component) { return { options, component } },
+  },
+})
+assert.equal(
+  JSON.stringify(slotRegistrations.map(({ name }) => name)),
+  JSON.stringify(['conversation.session.header.actions', 'conversation.input.dock']),
+)
+assert.equal(slotRegistrations[1].registration.options.id, 'xharness-terminal-dock')
+assert.equal(slotRegistrations[1].registration.options.order, 20)
+assert.match(source, /\.xhterm-dock\{order:1;display:flex/)
+assert.doesNotMatch(source, /\.xhterm-dock\{position:fixed/)
+
+// The rendered height must track the store even while a drag is in progress.
+plugin.dockStore.open = true
+plugin.dockStore.setHeight(320)
+const dockRoot = slotRegistrations[1].registration.component()
+const dock = dockRoot.type(dockRoot.props)
+assert.equal(dock.props.style.height, 320)
+plugin.dockStore.setHeight(90)
+assert.equal(dockRoot.type(dockRoot.props).props.style.height, 160)
+plugin.dockStore.open = false
 
 // The exit notice follows the document language and carries exit details.
 documentState.lang = 'zh-CN'

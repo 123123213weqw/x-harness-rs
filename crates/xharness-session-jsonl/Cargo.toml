@@ -8,12 +8,17 @@ description = "Crash-tolerant JSONL persistence for XHarness sessions"
 
 [dependencies]
 async-trait.workspace = true
+base64 = "0.22"
+flate2 = "1.1"
 fs2 = "0.4.3"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 xharness-session = { path = "../xharness-session" }
+
+[target.'cfg(windows)'.dependencies]
+xharness-win32 = { path = "../xharness-win32" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.180"
