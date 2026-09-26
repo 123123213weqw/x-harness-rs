@@ -157,6 +157,25 @@ impl HostConfig {
 
 #[async_trait]
 pub trait SessionToolFactory: Send + Sync + 'static {
+    /// Execution inspection is separate from tool/model admission. Factories
+    /// expose only jobs owned by the authenticated session.
+    async fn process_runs(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(Vec::new())
+    }
+    async fn process_output(
+        &self,
+        _session_id: &str,
+        _id: &str,
+        _cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        Err("process output unavailable".into())
+    }
+    async fn cancel_process_run(&self, _session_id: &str, _id: &str) -> Result<(), String> {
+        Err("process cancellation unavailable".into())
+    }
     async fn executor(
         &self,
         session_id: &str,

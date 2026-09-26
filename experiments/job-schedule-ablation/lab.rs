@@ -707,7 +707,7 @@ async fn c_remove_run_identity_alias_overwrites_previous_output() {
 }
 
 #[tokio::test]
-async fn diagnostic_existing_runtime_id_reuse_is_not_solved_by_unifying_the_entry() {
+async fn regression_restart_never_resolves_an_old_run_to_a_new_producer() {
     for arm in ARMS {
         let old = Lab::new(arm, 1).await;
         let (old_id, lease) = old.run(noop_cancel()).await.unwrap();
@@ -719,17 +719,14 @@ async fn diagnostic_existing_runtime_id_reuse_is_not_solved_by_unifying_the_entr
         let (new_id, lease) = restarted.run(noop_cancel()).await.unwrap();
         lease.publish_stdout("new Host output");
         lease.finish(JobOutcome::completed("new Host run"));
-        assert_eq!(
-            old_id.id(),
-            new_id.id(),
-            "counterexample depends on real registry id reuse"
-        );
-        assert_eq!(
-            restarted.output(&old_id, &old_cursor).stdout,
-            "new Host output"
-        );
+        assert_ne!(old_id.id(), new_id.id());
+        assert!(restarted
+            .unified
+            .jobs
+            .read_since("root", old_id.id(), &old_cursor)
+            .is_err());
     }
-    eprintln!("KNOWN_GAP A_AND_B: runtime ids reset after registry restart; durable run handles need generation or persisted identity");
+    eprintln!("REGRESSION A_AND_B: expired runtime identity fails closed after registry restart");
 }
 
 #[tokio::test]

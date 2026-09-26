@@ -528,6 +528,23 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    async fn process_runs(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(Vec::new())
+    }
+    async fn process_output(
+        &self,
+        _session_id: &str,
+        _id: &str,
+        _cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        Err("process output unavailable".into())
+    }
+    async fn cancel_process_run(&self, _session_id: &str, _id: &str) -> Result<(), String> {
+        Err("process cancellation unavailable".into())
+    }
     /// Fixed read-only Git operation; no shell or model-selected argv.
     async fn read_display_diff(
         &self,
@@ -1471,6 +1488,26 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 message: "automation management is unavailable".into(),
             })?;
         Ok(schedules.execute(session_id, invocation, command).await)
+    }
+
+    async fn process_runs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        self.tool_factory.process_runs(session_id).await
+    }
+    async fn process_output(
+        &self,
+        session_id: &str,
+        id: &str,
+        cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        self.tool_factory
+            .process_output(session_id, id, cursor)
+            .await
+    }
+    async fn cancel_process_run(&self, session_id: &str, id: &str) -> Result<(), String> {
+        self.tool_factory.cancel_process_run(session_id, id).await
     }
 
     async fn prepare_automation_worker(

@@ -1,5 +1,18 @@
 # XHarness 总任务清单
 
+## Job 执行协议与 UI 统一（2026-10-13）
+
+- [x] `JOB-RUN-01` Registry generation + opaque 进程 ID，旧运行、旧 cursor 和旧数字短名失败关闭，不再复用新 producer。
+- [x] `JOB-RUN-02` v1 Plan/Run DTO、owner 绑定、显式取消范围、取消 ack 与 terminal settlement 分离；复用原 Schedule/进程驱动。
+- [x] `JOB-RUN-03` 原生 ToolFactory 共享 Registry 接口，Job RPC 查询/输出/控制；原工具与 automation/manage 保持兼容。
+- [x] `JOB-RUN-04` Rust/TS 共用 fixture、JobClient 单连接/单 scope 请求、迟到回包/断线/卸载回归；共用执行卡片与工作中心执行页。
+- [x] `JOB-RUN-05` 黑白灰主题 Token、双击/深浅色/窄屏/键盘/文本转义浏览器回归，新增测试加入既有 CI 分片计划。
+- [ ] `JOB-RUN-06` PR 审核、GitHub 完整 CI、正式安装包与实际 Host 的端到端验收；当前开发分支不等于已部署。
+- [ ] `JOB-RUN-07` Agent occurrence 精确取消、进程记录持久化、catalog 分页/增量事件、统一创建入口与真实模型选工具 A/B。
+- [ ] `JOB-RUN-08` 完成事件→持久化 Inbox 桥接；必须遵守 terminal-failure gate，避免回执重复唤醒。
+
+规格：`docs/specs/unified-jobs.md`；验收：`docs/evidence/unified-jobs-20261013.md`。
+
 ## 前端 CI 并行优化（2026-10-06）
 
 - [x] `CI-UI-01` 单 job 拆为严格构建、四契约分片、两引擎各四浏览器分片和独立构建前后像素检查；保留原 290 次 argv／env 调用，含重复次数。

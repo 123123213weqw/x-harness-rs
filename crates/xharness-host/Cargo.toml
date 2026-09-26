@@ -8,6 +8,7 @@ description = "Reusable provider-neutral host control plane for XHarness"
 
 [dependencies]
 base64 = "0.22"
+chrono.workspace = true
 xharness-attachments = { path = "../xharness-attachments" }
 async-stream.workspace = true
 async-trait.workspace = true
@@ -28,6 +29,7 @@ xharness-prompt = { path = "../xharness-prompt" }
 xharness-projection = { path = "../xharness-projection" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-schedule = { path = "../xharness-schedule" }
+xharness-jobs = { path = "../xharness-jobs" }
 xharness-session = { path = "../xharness-session" }
 xharness-token = { path = "../xharness-token" }
 xharness-tools = { path = "../xharness-tools" }
@@ -40,5 +42,4 @@ xharness-win32 = { path = "../xharness-win32" }
 [dev-dependencies]
 xharness-process = { path = "../xharness-process" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }
-chrono.workspace = true
 tower.workspace = true
