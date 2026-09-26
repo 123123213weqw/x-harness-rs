@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = ROOT / "config" / "architecture-dependencies.json"
+HOST_POLICY = ROOT / "config" / "architecture-host-modules.json"
 
 # Source-level seams that cannot be expressed by Cargo's crate graph yet. Keep
 # this list deliberately small: it guards only processors that have completed
@@ -82,6 +83,55 @@ FORBIDDEN_SOURCE_FRAGMENTS = {
 }
 
 
+def check_managed_host_modules(root: Path, policy: dict) -> list[str]:
+    """Enforce the declared owner, dependency and integration seams of extracted Host policy."""
+    errors: list[str] = []
+    host = root / "crates" / "xharness-host" / "src"
+    lib = (host / "lib.rs").read_text()
+    sources = list(host.rglob("*.rs"))
+    seen_sources: set[str] = set()
+    seen_owners: set[str] = set()
+    for module in policy["managedModules"]:
+        source_name = module["source"]
+        owner = module["stateOwner"].strip()
+        if not owner or owner in seen_owners:
+            errors.append(f"managed Host module needs a unique state owner: {source_name}")
+        seen_owners.add(owner)
+        if source_name in seen_sources:
+            errors.append(f"duplicate managed Host module: {source_name}")
+        seen_sources.add(source_name)
+        paths = [source_name, module["entrypoint"], *module["allowedConsumers"]]
+        if any(Path(value).is_absolute() or ".." in Path(value).parts for value in paths):
+            errors.append(f"managed Host module has an unsafe path: {source_name}")
+            continue
+        source = host / source_name
+        entrypoint = host / module["entrypoint"]
+        if not source.is_file() or not entrypoint.is_file():
+            errors.append(f"managed Host module missing source or entrypoint: {source_name}")
+            continue
+        for consumer in module["allowedConsumers"]:
+            if not (host / consumer).is_file():
+                errors.append(f"managed Host module has a missing allowed consumer: {consumer}")
+        stem = Path(source_name).stem
+        if not re.search(rf"(?m)^mod {re.escape(stem)};\s*$", lib):
+            errors.append(f"managed Host module not declared in lib.rs: {source_name}")
+        if f"{stem}::" not in entrypoint.read_text():
+            errors.append(f"managed Host entrypoint does not use {source_name}")
+        production = source.read_text().split("#[cfg(test)]", 1)[0]
+        actual_crates = set(re.findall(r"\bxharness_\w+(?=::)", production))
+        unexpected = actual_crates - set(module["allowedCrates"])
+        if unexpected:
+            errors.append(f"{source_name}: undeclared internal crates: {', '.join(sorted(unexpected))}")
+        allowed = {source_name, module["entrypoint"], *module["allowedConsumers"]}
+        for candidate in sources:
+            relative = candidate.relative_to(host).as_posix()
+            if relative in allowed or relative.endswith("_tests.rs"):
+                continue
+            if f"{stem}::" in candidate.read_text():
+                errors.append(f"{relative}: bypasses {source_name} integration entrypoint")
+    return errors
+
+
 def production_dependencies(manifest: Path) -> set[str]:
     section = ""
     dependencies: set[str] = set()
@@ -143,6 +193,12 @@ def main() -> int:
         found = sorted(fragment for fragment in forbidden_fragments if fragment in text)
         if found:
             errors.append(f"{relative}: forbidden legacy handler: {', '.join(found)}")
+
+    host_policy = json.loads(HOST_POLICY.read_text())
+    if host_policy.get("version") != 1:
+        errors.append("unsupported managed Host architecture policy version")
+    else:
+        errors.extend(check_managed_host_modules(ROOT, host_policy))
 
     if errors:
         print("architecture dependency regression:")
