@@ -37,7 +37,11 @@ try {
   await page.route('**/api/session.requestSnapshot',async route=>{
     const {payload}=route.request().postDataJSON();calls.push(payload);
     if(payload.seq===10)await new Promise(resolve=>delayed=resolve);
-    const result=fail?{ok:false,error:{message:'audit unavailable'}}:{ok:true,value:{...payload,header:{provider:'test',model:'model',input:[{role:'user',content:'Full request '+payload.sessionId+' '+payload.seq}],system:'System restored',tools:[{name:'read',description:'restored tool'}],options:{}}}};
+    const omitted=payload.seq===20||payload.seq===21;
+    const header=omitted
+      ? {provider:'test',model:'model',input:[],tools:[],options:{auditSnapshot:{kind:'omitted',reason:payload.seq===20?'capture_disabled':'archive_failed'},inputMessageCount:4,toolCount:2}}
+      : {provider:'test',model:'model',input:[{role:'user',content:'Full request '+payload.sessionId+' '+payload.seq}],system:'System restored',tools:[{name:'read',description:'restored tool'}],options:{}};
+    const result=fail?{ok:false,error:{message:'audit unavailable'}}:{ok:true,value:{...payload,header}};
     await route.fulfill({contentType:'application/json',body:JSON.stringify({type:'server-response',rpcId:'test',result})}).catch(()=>{});
   });
   await page.goto('http://workspace-fixture.test/')
@@ -75,6 +79,12 @@ try {
   await page.evaluate(()=>showDiff());await page.getByText('Full request diff 7',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Diff',exact:true}).click();await page.getByText('Full request diff 5',{exact:true}).waitFor();
   assert.equal(calls.some(c=>c.sessionId==='diff'&&c.seq===4),false);
+  await page.evaluate(()=>show(20,'b','context'));
+  await page.getByText(/完整请求诊断未开启/).waitFor();
+  assert.equal(await page.getByText('Full request b 20',{exact:true}).count(),0);
+  await page.evaluate(()=>show(21,'b','harness'));
+  await page.getByText(/完整请求诊断捕获失败/).waitFor();
+  await page.getByText('2 个模型可见工具（定义未记录）',{exact:true}).waitFor();
   await page.evaluate(()=>unmount());assert.equal(await page.locator('#root').textContent(),'');
   assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture: stop host boot')),[]);
   console.log(engine+': on-demand Context/Harness hydration, retry, late response, switching sessions, bounded selection, unmount passed');

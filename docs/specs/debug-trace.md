@@ -38,6 +38,11 @@ XHARNESS_DEBUG_DIR=~/.local/share/xharness/debug
 `off|full`，以后可以向同一个抽象增加 Metadata/OpenTelemetry Adapter，但不能改变 Full 的
 不丢提交事件语义。
 
+请求审计另有轻量默认值：`off` 时仅在 Session Journal 保存路由、计数、预算、指纹等请求元数据，
+不生成新的 `request-audit` 完整快照。显式开启 `full` 时，同时启用完整请求快照归档；历史
+快照不因关闭 Debug 自动删除。完整归档是可选诊断，写入失败会在请求元数据标记
+`archive_failed`，不阻断模型请求；正常会话日志的持久化失败仍按原有错误处理。
+
 ## 桌面 Host 启动失败回执
 
 桌面启动时为每次 Host 生成唯一的私有 `XHARNESS_STARTUP_FAILURE_FILE` 路径。Host 在

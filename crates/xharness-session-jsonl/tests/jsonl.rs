@@ -16,7 +16,7 @@ use xharness_session::{
     EventData, Message, Revision, SessionCatalogEntry, SessionEvent, SessionHeader,
     StartupCandidate, Store, StoreError,
 };
-use xharness_session_jsonl::JsonlSessionStore;
+use xharness_session_jsonl::{JsonlSessionStore, RequestAuditMode};
 
 static NEXT_TEMP_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -1200,9 +1200,57 @@ async fn cold_compression_no_saving_leaves_v1_bytes_unchanged() {
     assert_eq!(fs::read(dir.session_file("small")).unwrap(), before);
 }
 #[tokio::test]
-async fn audit_archive_is_lossless_deduplicated_and_not_in_hot_history() {
+async fn request_audit_defaults_to_metadata_without_creating_blob_files() {
     let dir = TestDir::new();
     let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    assert!(!store.captures_full_request_audit());
+    store.create(header("metadata-only")).await.unwrap();
+    let full = large_request();
+    let compact = store.archive_request(full.clone()).await.unwrap();
+    assert_eq!(compact.provider, full.provider);
+    assert_eq!(compact.model, full.model);
+    assert_eq!(compact.options["auditSnapshot"]["kind"], "omitted");
+    assert_eq!(
+        compact.options["auditSnapshot"]["reason"],
+        "capture_disabled"
+    );
+    assert_eq!(compact.options["inputMessageCount"], full.input.len());
+    assert_eq!(compact.options["toolCount"], full.tools.len());
+    assert!(compact.input.is_empty() && compact.tools.is_empty() && compact.system.is_none());
+    assert!(!dir.path().join("request-audit").exists());
+    store
+        .append(
+            "metadata-only",
+            Revision::ZERO,
+            audited_turn(1, compact.clone()),
+        )
+        .await
+        .unwrap();
+    let reopened = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    assert_eq!(
+        reopened.request_header("metadata-only", 3).await.unwrap(),
+        Some(compact)
+    );
+    assert_eq!(
+        reopened
+            .load("metadata-only")
+            .await
+            .unwrap()
+            .unwrap()
+            .derive_messages()[0]
+            .content,
+        "original user fact"
+    );
+}
+
+#[tokio::test]
+async fn audit_archive_is_lossless_deduplicated_and_not_in_hot_history() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
+    assert!(store.captures_full_request_audit());
     store.create(header("audit")).await.unwrap();
     let original = large_request();
     let compact = store.archive_request(original.clone()).await.unwrap();
@@ -1342,7 +1390,10 @@ async fn escape_heavy_large_record_survives_repeated_cold_recovery() {
 #[tokio::test]
 async fn missing_or_corrupt_audit_is_explicit_error_but_does_not_break_conversation() {
     let dir = TestDir::new();
-    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
     store.create(header("bad-audit")).await.unwrap();
     let h = store.archive_request(large_request()).await.unwrap();
     let key = h.options["auditSnapshot"]["sha256"]
@@ -1400,7 +1451,9 @@ async fn complete_unknown_unterminated_record_is_not_a_torn_tail() {
 async fn audit_directory_symlink_is_rejected_without_writing_outside() {
     let dir = TestDir::new();
     let outside = TestDir::new();
-    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full);
     std::os::unix::fs::symlink(outside.path(), dir.path().join("request-audit")).unwrap();
     assert!(store.archive_request(large_request()).await.is_err());
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
@@ -1425,7 +1478,10 @@ async fn switching_to_runtime_drops_existing_full_audit_cache() {
 #[tokio::test]
 async fn audit_offsets_survive_cache_hit_eviction_and_unterminated_last_record() {
     let dir = TestDir::new();
-    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
     store.create(header("offset")).await.unwrap();
     let h = large_request();
     let compact = store.archive_request(h.clone()).await.unwrap();
@@ -1459,7 +1515,10 @@ async fn audit_offsets_survive_cache_hit_eviction_and_unterminated_last_record()
 #[tokio::test]
 async fn audit_preserves_multimodal_opaque_reasoning_and_crlf_legacy_history() {
     let dir = TestDir::new();
-    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_request_audit_mode(RequestAuditMode::Full)
+        .for_runtime();
     store.create(header("opaque")).await.unwrap();
     let mut h = large_request();
     h.input[0].content_blocks = vec![xharness_session::ContentBlock::Image {
