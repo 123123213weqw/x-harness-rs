@@ -84,8 +84,8 @@ impl Revision {
     }
 }
 
-/// Request envelope that must be recoverable independently of derived chat
-/// messages.
+/// Request routing and accounting fact. The full model-visible envelope is
+/// optional diagnostics and may be retained separately when capture is on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RequestHeader {
     pub provider: String,
@@ -96,9 +96,10 @@ pub struct RequestHeader {
     pub system: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<Value>,
-    /// Exact provider-neutral input after context policy preparation. JSONL
-    /// may archive it losslessly and leave an options.auditSnapshot reference;
-    /// use Store::request_header for explicit full-fidelity audit access.
+    /// Exact provider-neutral input after context policy preparation. In
+    /// metadata-only mode this is omitted from the journal; full capture may
+    /// archive it and leave an options.auditSnapshot reference. Use
+    /// Store::request_header for full-fidelity access when it was captured.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input: Vec<Message>,
     /// Provider- or harness-specific call controls not yet promoted to stable
@@ -117,6 +118,35 @@ impl RequestHeader {
             tools: Vec::new(),
             input: Vec::new(),
             options: BTreeMap::new(),
+        }
+    }
+
+    /// Preserve routing, accounting and prompt fingerprints without retaining
+    /// the full model-visible input, tool schemas or system text. The journal
+    /// can always replay the conversation from its ordinary message events;
+    /// this only changes optional request diagnostics.
+    pub fn metadata_only(&self, snapshot: Value) -> Self {
+        let mut options = self.options.clone();
+        if let Some(Value::Object(context)) = options.get_mut("context") {
+            if let Some(Value::Array(edits)) = context.remove("edits") {
+                context.insert("edit_count".into(), Value::from(edits.len() as u64));
+            }
+        }
+        options.insert("auditSnapshot".into(), snapshot);
+        options
+            .entry("inputMessageCount".into())
+            .or_insert_with(|| Value::from(self.input.len() as u64));
+        options
+            .entry("toolCount".into())
+            .or_insert_with(|| Value::from(self.tools.len() as u64));
+        Self {
+            provider: self.provider.clone(),
+            model: self.model.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            system: None,
+            tools: Vec::new(),
+            input: Vec::new(),
+            options,
         }
     }
 }

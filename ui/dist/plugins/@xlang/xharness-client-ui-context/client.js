@@ -390,8 +390,15 @@ window.__ModuleLoader__.load({
         return()=>{live=false;controller.abort();clearTimeout(timeout)}
       },[key,attempt])
       const current=loaded.key===key?loaded:{headers:new Map(),loading:targets.length>0,error:''}
+      const activeHeader=current.headers.get(selected?.seq)??selected?.header
+      const omitted=activeHeader?.options?.auditSnapshot
+      const omittedNotice=omitted?.kind==='omitted'
+        ? h('div',{role:'status',key:'audit-omitted'},omitted.reason==='archive_failed'
+          ? '完整请求诊断捕获失败；本次仅保留模型、预算与消息数量等元数据，对话仍正常执行。'
+          : '完整请求诊断未开启；本次仅保留模型、预算与消息数量等元数据，无法还原实际发送的正文。')
+        : null
       return {requests:requests.map(r=>current.headers.has(r.seq)?{...r,header:current.headers.get(r.seq)}:r),
-        notice:current.loading?h('p',{role:'status',key:'audit-state'},'正在按需读取完整请求快照…'):current.error?h('div',{role:'alert',key:'audit-state'},[current.error,h('button',{type:'button',onClick:()=>setAttempt(n=>n+1),key:'retry'},'重试')]):null}
+        notice:current.loading?h('p',{role:'status',key:'audit-state'},'正在按需读取请求诊断…'):current.error?h('div',{role:'alert',key:'audit-state'},[current.error,h('button',{type:'button',onClick:()=>setAttempt(n=>n+1),key:'retry'},'重试')]):omittedNotice}
     }
 
     function HarnessView({ useSession, sessionId }) {
@@ -448,7 +455,7 @@ window.__ModuleLoader__.load({
           ]),
           h('div', { className: 'xhctx-pipeline', key: 'body' }, [
             ['1', 'Prompt Assembly', `${sections.length} sections`],
-            ['2', 'Tool Registry', `${view.tools.length} tools`],
+            ['2', 'Tool Registry', `${view.options.toolCount??view.tools.length} tools`],
             ['3', 'Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`],
             ['4', 'Provider Request', view.config.provider ?? 'unknown'],
           ].map(([index, title, meta]) => h('div', { className: 'xhctx-pipeline-step', key: index }, [
@@ -487,7 +494,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'xhctx-panel-head xhctx-tool-head', key: 'head' }, [
             h('div', { key: 'title' }, [
               h('h3', { key: 'heading' }, 'Tool Registry'),
-              h('span', { key: 'count' }, `${view.tools.length} 个模型可见工具`),
+              h('span', { key: 'count' }, `${view.options.toolCount??view.tools.length} 个模型可见工具${view.options.auditSnapshot?.kind==='omitted'?'（定义未记录）':''}`),
             ]),
             h('input', {
               className: 'xhctx-tool-search',

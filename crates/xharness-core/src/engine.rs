@@ -2247,13 +2247,12 @@ impl Runner {
             model: model.clone(),
             context_window: token_budget.map(|report| report.context_window_tokens),
         };
-        let system = surface
-            .messages
-            .iter()
-            .filter(|message| message.role == Role::System)
-            .map(|message| message.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let capture_full_audit = self
+            .journal
+            .as_ref()
+            .unwrap()
+            .store
+            .captures_full_request_audit();
         let mut header = RequestHeader::new(provider, model);
         header.options.insert(
             "measurement".into(),
@@ -2263,13 +2262,30 @@ impl Runner {
                 "source":"request_admission","phase":"prepared",
             }),
         );
-        header.system = (!system.is_empty()).then_some(system);
+        if capture_full_audit {
+            let system = surface
+                .messages
+                .iter()
+                .filter(|message| message.role == Role::System)
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            header.system = (!system.is_empty()).then_some(system);
+            header.tools = tools.to_vec();
+            header.input = surface.messages.clone();
+        } else {
+            header.options.insert(
+                "inputMessageCount".into(),
+                Value::from(surface.messages.len() as u64),
+            );
+            header
+                .options
+                .insert("toolCount".into(), Value::from(tools.len() as u64));
+        }
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),
             Value::String(sha256_json(&tools)?),
         );
-        header.tools = tools.to_vec();
-        header.input = surface.messages.clone();
         if let Some(prompt) = &self.request.prompt {
             header.options.insert(
                 "prompt".to_owned(),
@@ -2302,16 +2318,26 @@ impl Runner {
             .journal
             .as_ref()
             .is_some_and(|journal| journal.last_request_context.as_ref() != Some(&request_context));
-        let header = self
+        let missing_audit = header.metadata_only(json!({
+            "kind": "omitted", "reason": "archive_failed",
+        }));
+        let header = match self
             .journal
             .as_ref()
             .unwrap()
             .store
             .archive_request(header)
             .await
-            .map_err(|error| {
-                RunFailure::Failed(format!("request audit archive failed: {error}"))
-            })?;
+        {
+            Ok(header) => header,
+            Err(error) => {
+                // Optional diagnostics must not turn a healthy provider call
+                // into a failed Agent turn. The compact durable request fact
+                // still identifies this attempt and its accounting.
+                eprintln!("xharness optional request audit capture failed: {error}");
+                missing_audit
+            }
+        };
         let mut events = vec![SessionEventData::RequestHeader { header }];
         if context_changed {
             events.push(SessionEventData::RequestContext {
