@@ -136,6 +136,18 @@ for (const entry of composed) {
 // silently drop XHarness-only UI capabilities.
 const productPlugins = [
   {
+    id: '@xlang/xharness-client-ui-profile',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-profile/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-runtime',
+        '@deepseek-ai/dsh-client-locale',
+        '@deepseek-ai/dsh-client-ui-settings-general',
+      ],
+    },
+  },
+  {
     id: '@xlang/xharness-client-ui-directory',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-directory/client.js'),
     declaration: {

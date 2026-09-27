@@ -26,6 +26,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-provider-openai` | [OpenAI-compatible Provider](provider-openai.md) | 已实现，协议和真实 Chat 已测试 |
 | `xharness-session` | [事件溯源 Session](session.md) | 已实现 |
 | `xharness-session-jsonl` | [JSONL Session 存储](session-jsonl.md) | 已实现 |
+| Usage Profile | [每日 Token 使用档案](usage-profile.md) | 按 UTC 事件时间投影并在设置页展示；无 Usage 时不估造 |
 | `xharness-tools` | [工具注册与执行管线](tools.md) | 已实现 |
 | `xharness-process` | [子进程运行时](process.md) | Unix Process Group / Windows Job 已实现并原生测试 |
 | `xharness-jobs` | [后台 Job 注册表](jobs.md) | 已实现五态、Owner 隔离、增量输出与 Shutdown |

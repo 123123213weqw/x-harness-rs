@@ -18,6 +18,7 @@ pub struct MetricsProjectionUpdate {
 #[derive(Clone, Debug, Default)]
 pub struct MetricsProjectionState {
     token_usage: TokenUsageProjectionState,
+    daily_token_usage: DailyTokenUsageProjectionState,
     session_stats: SessionStatsProjectionState,
     context_pressure: ContextPressureProjectionState,
 }
@@ -38,6 +39,7 @@ impl MetricsProjectionState {
         let mut state = Self::default();
         for event in events {
             state.token_usage.apply_logged(event.data());
+            state.daily_token_usage.apply_logged(event);
             state.session_stats.apply_logged(event);
             state.context_pressure.apply_logged(event.data());
         }
@@ -53,17 +55,24 @@ impl MetricsProjectionState {
         let pressure_before = self.context_pressure.view();
 
         self.token_usage.apply(event);
+        let daily_changed = self.daily_token_usage.apply(event);
         self.session_stats.apply(event);
         self.context_pressure.apply(event);
 
         let token_after = self.token_usage.view();
         let stats_after = self.session_stats.view();
         let pressure_after = self.context_pressure.view();
-        let mut updates = Vec::with_capacity(3);
+        let mut updates = Vec::with_capacity(4);
         if token_after != token_before {
             updates.push(MetricsProjectionUpdate {
                 key: "tokenUsage",
                 value: token_after,
+            });
+        }
+        if daily_changed {
+            updates.push(MetricsProjectionUpdate {
+                key: "dailyTokenUsage",
+                value: self.daily_token_usage.view(),
             });
         }
         if stats_after != stats_before {
@@ -83,6 +92,13 @@ impl MetricsProjectionState {
 
     pub fn token_usage(&self) -> Value {
         self.token_usage.view()
+    }
+
+    /// UTC calendar-day usage reconstructed from immutable event timestamps.
+    /// A fork-origin marker discards copied parent usage, so each provider
+    /// request contributes to the account-wide profile exactly once.
+    pub fn daily_token_usage(&self) -> Value {
+        self.daily_token_usage.view()
     }
 
     pub fn session_stats(&self) -> Value {
@@ -455,6 +471,117 @@ impl TokenUsageProjectionState {
 
     fn view(&self) -> Value {
         serde_json::to_value(self.totals).expect("token usage projection is serializable")
+    }
+}
+
+const DAY_MS: u64 = 86_400_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DailyUsageSample {
+    turn: u32,
+    step: u32,
+    day_start_ms: u64,
+    buckets: TokenUsageProjection,
+}
+
+/// Rebuildable UTC-day accounting. A usage chunk and the final assistant
+/// message for one step are revisions of one sample, never two requests.
+#[derive(Clone, Debug, Default)]
+struct DailyTokenUsageProjectionState {
+    days: BTreeMap<u64, TokenUsageProjection>,
+    last: Option<DailyUsageSample>,
+}
+
+impl DailyTokenUsageProjectionState {
+    fn apply(&mut self, event: &Value) -> bool {
+        if event.get("type").and_then(Value::as_str) == Some("xharness/internal")
+            && event.pointer("/data/kind").and_then(Value::as_str) == Some("fork-origin")
+        {
+            return self.reset_fork();
+        }
+        let Some((turn, step, usage)) = usage_sample(event) else {
+            return false;
+        };
+        let Some(time) = event.get("time").and_then(Value::as_u64) else {
+            return false;
+        };
+        self.apply_usage(turn, step, time, usage)
+    }
+
+    fn apply_logged(&mut self, event: &LoggedEvent) -> bool {
+        match event.data() {
+            EventData::SessionForkOrigin { .. } => self.reset_fork(),
+            EventData::AssistantChunk {
+                turn,
+                step,
+                chunk: AssistantChunk::Usage(usage),
+            }
+            | EventData::AssistantMessage {
+                turn,
+                step,
+                usage: Some(usage),
+                ..
+            } => self.apply_usage(web_turn(*turn), *step, event.timestamp_ms, usage),
+            _ => false,
+        }
+    }
+
+    fn reset_fork(&mut self) -> bool {
+        let changed = !self.days.is_empty();
+        self.days.clear();
+        self.last = None;
+        changed
+    }
+
+    fn apply_usage(&mut self, turn: u32, step: u32, time: u64, usage: &Value) -> bool {
+        let Some(buckets) = TokenUsageProjection::from_usage(usage) else {
+            return false;
+        };
+        let day_start_ms = time / DAY_MS * DAY_MS;
+        let previous = self
+            .last
+            .filter(|sample| sample.turn == turn && sample.step == step);
+        if previous
+            .is_some_and(|sample| sample.day_start_ms == day_start_ms && sample.buckets == buckets)
+        {
+            return false;
+        }
+        if let Some(sample) = previous {
+            if let Some(total) = self.days.get_mut(&sample.day_start_ms) {
+                *total = total.replacing(Some(sample.buckets), TokenUsageProjection::default());
+                if *total == TokenUsageProjection::default() {
+                    self.days.remove(&sample.day_start_ms);
+                }
+            }
+        }
+        if buckets != TokenUsageProjection::default() {
+            let total = self.days.entry(day_start_ms).or_default();
+            *total = total.replacing(None, buckets);
+        }
+        self.last = Some(DailyUsageSample {
+            turn,
+            step,
+            day_start_ms,
+            buckets,
+        });
+        true
+    }
+
+    fn view(&self) -> Value {
+        Value::Array(
+            self.days
+                .iter()
+                .map(|(day_start_ms, buckets)| {
+                    json!({
+                        "dayStartMs": day_start_ms,
+                        "uncachedInputTokens": buckets.uncached_input_tokens,
+                        "cacheReadTokens": buckets.cache_read_tokens,
+                        "cacheWriteTokens": buckets.cache_write_tokens,
+                        "outputTokens": buckets.output_tokens,
+                    })
+                })
+                .collect(),
+        )
     }
 }
 
@@ -948,6 +1075,7 @@ mod tests {
         let typed = MetricsProjectionState::rebuild_logged(&durable);
         let projected = MetricsProjectionState::rebuild(&web);
         assert_eq!(typed.token_usage(), projected.token_usage());
+        assert_eq!(typed.daily_token_usage(), projected.daily_token_usage());
         assert_eq!(typed.session_stats(), projected.session_stats());
         assert_eq!(typed.context_pressure(), projected.context_pressure());
         assert_eq!(
@@ -964,6 +1092,95 @@ mod tests {
             })
         );
         assert_eq!(typed.context_pressure()["phase"], "history_changed");
+    }
+
+    #[test]
+    fn daily_usage_replaces_stream_sample_across_midnight_and_excludes_fork_prefix() {
+        let old = json!({"inputTokens": 30, "outputTokens": 2});
+        let revised = json!({"inputTokens": 40, "outputTokens": 4});
+        let next = json!({"inputTokens": 10, "outputTokens": 1});
+        let durable = vec![
+            logged(
+                0,
+                DAY_MS - 10,
+                EventData::AssistantChunk {
+                    turn: 1,
+                    step: 1,
+                    chunk: AssistantChunk::Usage(old.clone()),
+                },
+            ),
+            logged(
+                1,
+                DAY_MS + 10,
+                EventData::AssistantMessage {
+                    turn: 1,
+                    step: 1,
+                    message: Message::assistant("done"),
+                    usage: Some(revised.clone()),
+                },
+            ),
+            logged(
+                2,
+                DAY_MS + 20,
+                EventData::SessionForkOrigin {
+                    parent_session_id: "parent".into(),
+                    before_user_seq: None,
+                },
+            ),
+            logged(
+                3,
+                DAY_MS * 2 + 10,
+                EventData::AssistantMessage {
+                    turn: 2,
+                    step: 1,
+                    message: Message::assistant("child"),
+                    usage: Some(next.clone()),
+                },
+            ),
+        ];
+        let web = [
+            event(
+                0,
+                DAY_MS - 10,
+                "assistant/chunk",
+                json!({"turn":0,"step":1,"chunk":{"type":"usage","usage":old}}),
+            ),
+            event(
+                1,
+                DAY_MS + 10,
+                "assistant/message",
+                json!({"turn":0,"step":1,"usage":revised}),
+            ),
+            event(
+                2,
+                DAY_MS + 20,
+                "xharness/internal",
+                json!({"kind":"fork-origin"}),
+            ),
+            event(
+                3,
+                DAY_MS * 2 + 10,
+                "assistant/message",
+                json!({"turn":1,"step":1,"usage":next}),
+            ),
+        ];
+        let mut live = MetricsProjectionState::default();
+        assert!(live
+            .apply(&web[0])
+            .iter()
+            .any(|item| item.key == "dailyTokenUsage"));
+        assert_eq!(live.daily_token_usage().as_array().unwrap().len(), 1);
+        live.apply(&web[1]);
+        assert_eq!(live.daily_token_usage().as_array().unwrap().len(), 1);
+        assert_eq!(live.daily_token_usage()[0]["dayStartMs"], DAY_MS);
+        assert_eq!(live.daily_token_usage()[0]["uncachedInputTokens"], 40);
+        live.apply(&web[2]);
+        assert_eq!(live.daily_token_usage(), json!([]));
+        live.apply(&web[3]);
+        let cold = MetricsProjectionState::rebuild_logged(&durable);
+        assert_eq!(live.daily_token_usage(), cold.daily_token_usage());
+        assert_eq!(live.daily_token_usage()[0]["dayStartMs"], DAY_MS * 2);
+        assert_eq!(live.daily_token_usage()[0]["uncachedInputTokens"], 10);
     }
 
     #[test]
