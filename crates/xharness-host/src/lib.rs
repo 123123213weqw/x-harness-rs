@@ -185,6 +185,11 @@ pub struct BasicHost {
     pub(crate) state: Arc<RwLock<state::HostState>>,
     pub(crate) control_store: Arc<dyn ControlStore>,
     pub(crate) control_gate: Arc<Mutex<()>>,
+    pub(crate) lazy_store: Arc<std::sync::OnceLock<Arc<dyn xharness_session::Store>>>,
+    pub(crate) lazy_headers:
+        Arc<RwLock<std::collections::HashMap<String, xharness_session::SessionHeader>>>,
+    pub(crate) lazy_restore_gates:
+        Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
@@ -278,6 +283,9 @@ impl BasicHost {
             agent_runtime,
             control_store,
             control_gate: Arc::new(Mutex::new(())),
+            lazy_store: Arc::new(std::sync::OnceLock::new()),
+            lazy_headers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            lazy_restore_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             event_gateway,
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),

@@ -66,8 +66,10 @@ impl BasicHost {
             return;
         }
         let state = self.state.read().await;
-        for id in state.sessions.keys() {
-            self.queue_title(id);
+        for (id, session) in &state.sessions {
+            if !session.restoring {
+                self.queue_title(id);
+            }
         }
     }
 

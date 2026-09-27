@@ -7,6 +7,31 @@ use crate::{
     AppendReceipt, Revision, Session, SessionError, SessionEvent, SessionHeader, SessionInspection,
 };
 
+/// Rebuildable, bounded catalogue projection. The journal remains authoritative.
+/// A disk store returns this only when its recorded file identity still matches
+/// the journal; a missing or stale entry is an unknown state, never "idle".
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCatalogEntry {
+    pub header: SessionHeader,
+    pub updated_at_ms: u64,
+    pub title: Option<String>,
+    pub agent_preset: Option<String>,
+    pub parent_session_id: Option<String>,
+    pub origin: Option<String>,
+    pub model_provider: String,
+    pub model: String,
+    pub reasoning_effort: Option<String>,
+    pub context_window_tokens: Option<u64>,
+    pub permission_preset: String,
+    pub plan_active: bool,
+    pub blank: bool,
+    pub next_seq: u64,
+    /// Includes any pending input, approval, question, interrupted work, or
+    /// runtime background work. False is safe only with a matching fingerprint.
+    pub needs_recovery: bool,
+}
+
 /// Storage failures with stable ownership and CAS diagnostics.
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum StoreError {
@@ -44,6 +69,20 @@ pub struct UnreadableSession {
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Optional fast catalogue lookup. None means missing/stale/unusable and
+    /// must never be interpreted as proof that no work needs recovery.
+    async fn catalog_entry(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<SessionCatalogEntry>, StoreError> {
+        Ok(None)
+    }
+
+    /// Best-effort rebuildable index publication after a verified full replay.
+    async fn publish_catalog_entry(&self, _entry: SessionCatalogEntry) -> Result<(), StoreError> {
+        Ok(())
+    }
+
     /// Persist the exact tool-returned envelope before publishing a reduced result.
     /// Implementations must not return a reference until publication succeeds.
     async fn archive_tool_result(
