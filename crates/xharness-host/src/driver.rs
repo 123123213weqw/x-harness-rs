@@ -7,13 +7,13 @@ use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
 use xharness_agent::InboxProjection;
 use xharness_api::{RpcError, RpcErrorCode, RpcId};
 use xharness_core::{AgentMessage, LoopCommand, LoopEvent, LoopEventKind, LoopStatus, Role};
-use xharness_session::SessionEvent;
+use xharness_session::{EventData, Session, SessionCatalogEntry, SessionEvent};
 
 use crate::{
     event_gateway::EventGateway,
     restore::{
         restored_agent_preset, restored_goal, restored_permission, restored_plan_mode,
-        restored_queue, restored_session_mutation_receipts, restored_title,
+        restored_queue, restored_route, restored_session_mutation_receipts, restored_title,
     },
     runtime::{AgentRuntimeError, AgentTurnRequest, ModelRoute, RunningTurn},
     state::{now_ms, DriverCommand, PendingResponse, QueuePlacement, QueuedPrompt},
@@ -388,6 +388,17 @@ impl BasicHost {
                 ))
             })?;
             let projected_queue = restored_queue(&inbox);
+            let catalog_boundary = inputs.cursor != Some(session.next_seq())
+                && (matches!(
+                    session.events().last().map(|event| event.data()),
+                    Some(EventData::TurnEnd { .. })
+                ) || !self
+                    .state
+                    .read()
+                    .await
+                    .sessions
+                    .get(session_id)
+                    .is_some_and(|record| record.running));
             let tail = project_session_event_tail_from(
                 &session,
                 route,
@@ -479,11 +490,68 @@ impl BasicHost {
             if permission_changed {
                 self.push_permission_projection(session_id).await;
             }
+            if catalog_boundary {
+                self.publish_catalog_projection(&session).await;
+            }
             return Ok(true);
         }
         Err(RpcError::internal(format!(
             "authoritative session {session_id:?} changed repeatedly during projection; retry synchronization"
         )))
+    }
+
+    /// Publish stable user-visible metadata from the already loaded durable
+    /// snapshot. The store compares its observed file stamp under the writer
+    /// lock, so a concurrent append cannot mark older work as safely idle.
+    async fn publish_catalog_projection(&self, session: &Session) {
+        let Some(store) = self.lazy_store.get() else {
+            return;
+        };
+        let route = restored_route(session, &self.config);
+        let (parent_session_id, origin, updated_at, blank) = {
+            let state = self.state.read().await;
+            let Some(record) = state.sessions.get(&session.header().id) else {
+                return;
+            };
+            (
+                record.parent_session_id.clone(),
+                record.origin.clone(),
+                record.updated_at,
+                record.blank,
+            )
+        };
+        let needs_recovery = self
+            .agent_runtime
+            .needs_session_resume(session)
+            .unwrap_or(true)
+            || !session.pending_tool_approvals().is_empty()
+            || !session.recoverable_user_questions().is_empty()
+            || !xharness_session::incomplete_tool_calls(session.events()).is_empty()
+            || InboxProjection::from_session(session).map_or(true, |inbox| {
+                !inbox.next_turn().is_empty() || !inbox.next_step().is_empty()
+            });
+        let entry = SessionCatalogEntry {
+            header: session.header().clone(),
+            updated_at_ms: updated_at,
+            title: restored_title(session),
+            agent_preset: restored_agent_preset(session),
+            parent_session_id,
+            origin,
+            model_provider: route.provider,
+            model: route.model,
+            reasoning_effort: route.reasoning_effort,
+            context_window_tokens: route.context_window_tokens,
+            permission_preset: restored_permission(session).as_str().to_owned(),
+            plan_active: restored_plan_mode(session),
+            blank,
+            next_seq: session.next_seq(),
+            needs_recovery,
+        };
+        if let Err(error) = store.publish_catalog_entry(entry).await {
+            // The journal is authoritative. A failed or racing index write is
+            // repaired lazily on the next startup, never a model-loop failure.
+            eprintln!("xharness catalogue update skipped: {error}");
+        }
     }
 
     pub(crate) async fn append_session_event(
