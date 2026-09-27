@@ -38,15 +38,20 @@ resize 64 "$favicon_png"
 resize 512 "$manifest_png"
 iconutil -c icns "$work_dir/XHarness.iconset" -o "$tauri_icons/icon.icns"
 
-python3 - "$master_png" "$tauri_icons/icon.ico" <<'PY'
+python3 - "$master_png" "$tauri_icons" <<'PY'
 from pathlib import Path
 import sys
 
 from PIL import Image
 
-source, output = map(Path, sys.argv[1:])
+source, icon_dir = map(Path, sys.argv[1:])
+# Tauri's generate_context! requires RGBA PNGs, even when every pixel is opaque.
+for name in ('32x32.png', '128x128.png', '128x128@2x.png'):
+    output = icon_dir / name
+    with Image.open(output) as image:
+        image.convert('RGBA').save(output)
 with Image.open(source) as image:
-    image.save(output, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    image.save(icon_dir / 'icon.ico', format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 PY
 
 if [[ -f "$repo_root/ui/dist/index.html" ]]; then
