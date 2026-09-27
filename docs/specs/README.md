@@ -31,6 +31,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-jobs` | [后台 Job 注册表](jobs.md) | 已实现五态、Owner 隔离、增量输出与 Shutdown |
 | Web Motion | [界面动效](web-motion.md) | 流式文本逐段淡入 + 终端/任务面板进出场过渡已实现（均带 reduced-motion 降级） |
 | Web Tasks Panel | [任务列表面板](web-tasks.md) | 置顶/时间线分组/重命名/归档快照/复刻恢复面板已实现（置顶为本地存储） |
+| Web Conversation | [历史消息编辑并 Fork](session-edit-fork.md) | 用户消息前的已完成轮次分叉、草稿与附件预填、来源持久化 |
 | Web Terminal | [Web 内嵌终端](web-terminal.md) | `/api/terminal/*` 扩展路由、PTY 游标轮询、xterm 插件与多 tab Dock 已实现（Windows resize 待接） |
 | `xharness-schedule` | [持久定时提醒](schedule.md) | 已实现三工具、Session 事件、Idle-only 唤醒、重启恢复与 Web 实时投影 |
 | `xharness-fs` | [工作区文件系统](filesystem.md) | Linux/macOS/Windows 已实现并原生测试 |

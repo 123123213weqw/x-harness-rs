@@ -40,7 +40,7 @@ try {
   for (const name of plugins) {
     const file = resolve(dist,'plugins/@xharness',name,'client.js');
     let source=readFileSync(file,'utf8');
-    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.xhEditStorage = xhEditStorage; exports.SessionInputShell = SessionInputShell; exports.XHarnessEditAction = XHarnessEditAction; exports.XHarnessMessageEditor =');
+    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =', 'exports.xhEditStorage = xhEditStorage; exports.SessionInputShell = SessionInputShell; exports.XHarnessEditAction = XHarnessEditAction; exports.XHarnessForkAction = XHarnessForkAction; exports.XHarnessMessageEditor =');
     await page.addScriptTag({content:source});
   }
   await page.evaluate(() => {
@@ -59,7 +59,7 @@ try {
     const conversation={createdImageUrls:new Set(),draftImages:ids=>ids.map(id=>registry.get(id)).filter(Boolean),
       createDraftImages:files=>files.map(file=>{const a={id:'i'+count++,file,previewUrl:URL.createObjectURL(file)};registry.set(a.id,a);return a;}),
       releaseDraftImage:id=>{const a=registry.get(id);if(a)URL.revokeObjectURL(a.previewUrl);registry.delete(id);}};
-    window.admissions=[];window.running=false;window.failSend=false;window.missing=false;
+    window.admissions=[];window.forkClicks=[];window.running=false;window.failSend=false;window.missing=false;
     const shell=new module.SessionInputShell({defaultSink:async(text,ids)=>{
       editor.guardSubmit();admissions.push({text,ids});
       if(failSend)return {kind:'error'};
@@ -74,6 +74,7 @@ try {
     const root=DOM.createRoot(document.getElementById('root'));
     function App(){return React.createElement('div',{},
       React.createElement(module.XHarnessEditAction,{content:[{type:'text',text:'old message'}],editMessage:c=>editor.request(c),t:k=>k}),
+      React.createElement(module.XHarnessForkAction,{content:[{type:'text',text:'old message'}],seq:7,forkMessage:(seq,content)=>forkClicks.push({seq,content}),t:k=>k}),
       React.createElement(module.XHarnessEditableInputBar,{sessionId:'fixture',keyboard:shell,inputActions:shell.actions,
         useSession:f=>f({running:false,subagent:null,removed:false}),useInput,useNotices:()=>null,useLexicon:()=>new Map(),useMenuLauncher:()=>false,useProjection:()=>undefined,
         renderSlot:()=>null,t:k=>k,resolveSubmitMode:()=> 'queue',draftImages:ids=>conversation.draftImages(ids),
@@ -91,6 +92,8 @@ try {
     return {outcome,released,content:payload[0],options:payload[3]};
   });
   assert.deepEqual(wire,{outcome:{kind:'error'},released:false,content:[{type:'image_ref',attachmentId:'durable-old'},{type:'text',text:'edited'}],options:{requireIdle:true}});
+  await page.locator('[data-message-edit-fork]').click();
+  assert.deepEqual(await page.evaluate(()=>forkClicks),[{seq:7,content:[{type:'text',text:'old message'}]}]);
   await page.locator('textarea').fill('unsent draft');
   await page.locator('[data-message-edit]').click();
   await page.getByRole('alertdialog').waitFor();

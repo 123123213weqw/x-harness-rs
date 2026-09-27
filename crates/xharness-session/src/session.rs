@@ -611,6 +611,13 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     ));
                 }
             }
+            EventData::SessionForkOrigin {
+                parent_session_id, ..
+            } => {
+                if parent_session_id.trim().is_empty() {
+                    return Err(lifecycle_error(logged.seq, "fork parent must be non-empty"));
+                }
+            }
             EventData::AgentDelegationFailure { .. }
             | EventData::AgentFailureDelivered { .. }
             | EventData::AgentDispatchPaused { .. }
