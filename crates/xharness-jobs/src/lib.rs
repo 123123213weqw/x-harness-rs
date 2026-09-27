@@ -1,7 +1,7 @@
 //! Producer-neutral background jobs for XHarness.
 //!
 //! The registry owns admission, ids, session isolation, lifecycle state,
-//! bounded unread output and shutdown. A producer owns the actual resource and
+//! bounded retained output and shutdown. A producer owns the actual resource and
 //! receives a [`JobLease`] after registration. Model-facing tools are kept in
 //! `xharness-coding-tools`; this crate intentionally knows nothing about Bash,
 //! PTYs, subagents or providers.
@@ -13,7 +13,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
 pub const DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER: usize = 10;
@@ -176,7 +176,27 @@ pub struct JobRead {
     pub stderr: String,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    pub next_cursor: JobOutputCursor,
     pub snapshot: JobSnapshot,
+}
+
+/// Independent absolute positions for one job's stdout and stderr streams.
+/// A cursor can be reused by multiple readers without consuming either view.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobOutputCursor {
+    pub job_id: String,
+    pub stdout: u64,
+    pub stderr: u64,
+}
+
+impl JobOutputCursor {
+    pub fn start(job_id: impl Into<String>) -> Self {
+        Self {
+            job_id: job_id.into(),
+            stdout: 0,
+            stderr: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -237,6 +257,8 @@ pub enum JobError {
     CancelFailed { id: String, message: String },
     #[error("job wait timeout must be greater than zero")]
     InvalidWaitTimeout,
+    #[error("invalid output cursor for job {id}")]
+    InvalidCursor { id: String },
 }
 
 #[derive(Clone)]
@@ -285,7 +307,9 @@ struct EntryState {
 
 struct OutputBuffer {
     bytes: Vec<u8>,
-    dropped: u64,
+    start: u64,
+    end: u64,
+    legacy_cursor: u64,
     limit: usize,
 }
 
@@ -293,27 +317,44 @@ impl OutputBuffer {
     fn new(limit: usize) -> Self {
         Self {
             bytes: Vec::with_capacity(limit.min(8192)),
-            dropped: 0,
+            start: 0,
+            end: 0,
+            legacy_cursor: 0,
             limit,
         }
     }
 
     fn append(&mut self, chunk: &[u8]) {
+        self.end = self.end.saturating_add(chunk.len() as u64);
         self.bytes.extend_from_slice(chunk);
         if self.bytes.len() > self.limit {
             let overflow = self.bytes.len() - self.limit;
             self.bytes.drain(..overflow);
-            self.dropped = self.dropped.saturating_add(overflow as u64);
         }
+        self.start = self.end.saturating_sub(self.bytes.len() as u64);
     }
 
     fn take(&mut self) -> (String, bool) {
-        let complete_len = incomplete_utf8_tail_start(&self.bytes).unwrap_or(self.bytes.len());
-        let complete = self.bytes.drain(..complete_len).collect::<Vec<_>>();
-        let text = String::from_utf8_lossy(&complete).into_owned();
-        let truncated = self.dropped > 0;
-        self.dropped = 0;
+        let (text, truncated, next) = self.read_from(self.legacy_cursor);
+        self.legacy_cursor = next;
         (text, truncated)
+    }
+
+    fn read_from(&self, requested: u64) -> (String, bool, u64) {
+        let actual = requested.clamp(self.start, self.end);
+        let offset = usize::try_from(actual - self.start).unwrap_or(self.bytes.len());
+        let available = &self.bytes[offset.min(self.bytes.len())..];
+        let skipped = available
+            .iter()
+            .take_while(|byte| **byte & 0b1100_0000 == 0b1000_0000)
+            .count();
+        let complete = &available[skipped..];
+        let complete_len = incomplete_utf8_tail_start(complete).unwrap_or(complete.len());
+        (
+            String::from_utf8_lossy(&complete[..complete_len]).into_owned(),
+            requested < self.start || skipped > 0,
+            actual.saturating_add((skipped + complete_len) as u64),
+        )
     }
 }
 
@@ -437,7 +478,8 @@ impl JobRegistry {
         Ok(self.expect_owned(owner, id)?.snapshot())
     }
 
-    /// Consume output published since the previous model-facing read.
+    /// Legacy single-reader cursor. New model-facing callers should use
+    /// `read_since` so another reader cannot consume their output.
     pub fn read(&self, owner: &str, id: &str) -> Result<JobRead, JobError> {
         let job = self.expect_owned(owner, id)?;
         let mut state = job.state.lock().expect("job entry lock poisoned");
@@ -452,6 +494,48 @@ impl JobRegistry {
             stderr,
             stdout_truncated,
             stderr_truncated,
+            next_cursor: JobOutputCursor {
+                job_id: id.to_owned(),
+                stdout: state.stdout.legacy_cursor,
+                stderr: state.stderr.legacy_cursor,
+            },
+            snapshot,
+        })
+    }
+
+    /// Read a bounded, non-consuming stream window from independent absolute
+    /// offsets. Old cursors report truncation if retention has evicted bytes;
+    /// future or cross-job cursors fail instead of silently skipping output.
+    pub fn read_since(
+        &self,
+        owner: &str,
+        id: &str,
+        cursor: &JobOutputCursor,
+    ) -> Result<JobRead, JobError> {
+        let job = self.expect_owned(owner, id)?;
+        let mut state = job.state.lock().expect("job entry lock poisoned");
+        if cursor.job_id != id
+            || cursor.stdout > state.stdout.end
+            || cursor.stderr > state.stderr.end
+        {
+            return Err(JobError::InvalidCursor { id: id.to_owned() });
+        }
+        let (stdout, stdout_truncated, next_stdout) = state.stdout.read_from(cursor.stdout);
+        let (stderr, stderr_truncated, next_stderr) = state.stderr.read_from(cursor.stderr);
+        if state.status.is_terminal() {
+            state.reported = true;
+        }
+        let snapshot = job.snapshot_with(&state);
+        Ok(JobRead {
+            stdout,
+            stderr,
+            stdout_truncated,
+            stderr_truncated,
+            next_cursor: JobOutputCursor {
+                job_id: id.to_owned(),
+                stdout: next_stdout,
+                stderr: next_stderr,
+            },
             snapshot,
         })
     }
