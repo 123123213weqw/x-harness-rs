@@ -64,8 +64,9 @@ Web 终端使用会话隔离 owner `web:session:<session_id>`（
 随插件分发（不入模块图，同 `desktop/updater.js` 先例）；每个 tab 持久化自己的
 xterm 实例与 DOM 容器，切换 tab 只迁移 DOM 节点以保留滚动回溯；主题色从
 `--dsw-alias-*` 设计令牌解析（canvas 归一化为 rgba）。Dock 高度持久化在
-`localStorage`。WebView 页面与聊天滚动容器阻止滚动串链，窗口弹性滚动不会露出
-页面外底色。交互模式与主题解析改写自 Apache-2.0 的 zai-org/ZCode 终端面板，
+`localStorage`。WebView 页面与聊天滚动容器限制滚动串链，HTML 底色跟随明暗
+主题，避免窗口弹性滚动露出白底。交互模式与主题解析改写自 Apache-2.0 的
+zai-org/ZCode 终端面板，
 署名见 `THIRD_PARTY_NOTICES.md`。
 
 ## 已知边界（2026-09-26 首版）
