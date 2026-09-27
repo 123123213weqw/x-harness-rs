@@ -426,12 +426,8 @@ async fn live_refresh_restart_and_fork_use_the_same_durable_projection() {
         HostConfig::new(&root),
         Arc::new(SnapshotRuntime(reopened.clone())),
     );
-    assert!(restored
-        .restore_from_store(reopened)
-        .await
-        .unwrap()
-        .issues
-        .is_empty());
+    let report = restored.restore_from_store(reopened).await.unwrap();
+    assert!(report.issues.is_empty(), "{:?}", report.issues);
     let after_restart = rpc_value(
         &restored,
         RpcMethod::SessionHistory,
