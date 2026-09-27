@@ -111,13 +111,21 @@ let checks=0;
 }
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
 const conversationBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',root),'utf8');
+const connectionBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-connection/client.js',root),'utf8');
+const runtimeBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-runtime/client.js',root),'utf8');
 assert.match(conversationBundle,/summary\.origin !== "subagent" && summary\.origin !== "fork"/);
 assert.match(conversationBundle,/forkMessage: \(seq, content\) => xhForkMessage/);
 assert.match(conversationBundle,/"message\.editFork": "编辑并 Fork 到新对话"/);
+assert.match(connectionBundle,/blank: !log\.slice\(0,cut\)\.some\(e => e\.type === "user\/message"\)/);
+assert.match(runtimeBundle,/blank: opts\.beforeUserSeq !== void 0,/);
 for(const [id,patch] of [['dsh-client-ui-conversation',patchConversationMessageEdit],['dsh-client-connection',patchMessageEditConnection],['dsh-client-runtime',patchMessageEditRuntime]]){
  const bytes=readFileSync(new URL(`ui/dist/plugins/@xharness/${id}/client.js`,root));new vm.Script(bytes.toString());
  assert.equal(patch(bytes).toString(),bytes.toString());assert.equal(graph.entries.find(e=>e.id===`@xharness/${id}`).rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));
  assert.throws(()=>patch(Buffer.from('upstream changed')),/signature changed/);
 }
 const html=readFileSync(new URL('ui/dist/index.html',root),'utf8');assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);
+for(const id of ['dsh-client-ui-conversation','dsh-client-connection','dsh-client-runtime']) {
+ const entry=graph.entries.find(e=>e.id===`@xharness/${id}`);
+ assert.ok(html.includes(entry.url),`index.html must preload the patched ${id} revision`);
+}
 console.log(`message editor: ${checks} lifecycle assertions plus 3 patch/schema/hash contracts passed`);
