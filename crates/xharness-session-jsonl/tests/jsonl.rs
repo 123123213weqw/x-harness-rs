@@ -13,7 +13,8 @@ use std::{
 
 use serde_json::Value;
 use xharness_session::{
-    EventData, Message, Revision, SessionEvent, SessionHeader, Store, StoreError,
+    EventData, Message, Revision, SessionCatalogEntry, SessionEvent, SessionHeader, Store,
+    StoreError,
 };
 use xharness_session_jsonl::JsonlSessionStore;
 
@@ -292,6 +293,46 @@ async fn startup_candidates_read_only_headers_and_defer_tail_validation() {
     let (validated, invalid) = store.scan_sessions().await.unwrap();
     assert_eq!(validated.len(), 1);
     assert_eq!(invalid.len(), 2);
+}
+
+#[tokio::test]
+async fn catalogue_is_rebuildable_and_never_trusts_a_stale_file() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("catalogued")).await.unwrap();
+    let entry = SessionCatalogEntry {
+        header: header("catalogued"),
+        updated_at_ms: 123,
+        title: Some("Example".into()),
+        agent_preset: None,
+        parent_session_id: None,
+        origin: None,
+        model_provider: "test".into(),
+        model: "model".into(),
+        reasoning_effort: None,
+        context_window_tokens: None,
+        permission_preset: "workspace-write".into(),
+        plan_active: false,
+        blank: true,
+        next_seq: 0,
+        needs_recovery: false,
+    };
+    assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
+    store.publish_catalog_entry(entry.clone()).await.unwrap();
+    assert_eq!(
+        store.catalog_entry("catalogued").await.unwrap(),
+        Some(entry)
+    );
+
+    let session = store.load("catalogued").await.unwrap().unwrap();
+    store
+        .append("catalogued", session.revision(), vec![turn_start(1)])
+        .await
+        .unwrap();
+    assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
+    fs::write(dir.path().join("catalogued.catalog"), b"broken").unwrap();
+    assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
+    assert!(store.load("catalogued").await.unwrap().is_some());
 }
 
 /// The strict seam still fails closed on the same directory: tolerating an

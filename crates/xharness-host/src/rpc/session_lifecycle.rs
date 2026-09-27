@@ -125,6 +125,7 @@ pub(crate) async fn create_with_visibility(
     let record = SessionRecord {
         dispatch_paused: false,
         delegated: false,
+        restoring: false,
         session_id: session_id.clone(),
         created_at: now,
         updated_at: now,
@@ -588,6 +589,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
     let child = SessionRecord {
         dispatch_paused: false,
         delegated: false,
+        restoring: false,
         session_id: child_id.clone(),
         created_at: now,
         updated_at: now,
