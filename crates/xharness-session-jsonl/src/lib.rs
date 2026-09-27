@@ -420,6 +420,10 @@ impl Store for JsonlSessionStore {
                 file.write_all(&bytes)
                     .and_then(|_| file.sync_all())
                     .map_err(|error| backend_error("write session catalogue", &tmp, error))?;
+                // ReplaceFileW cannot consume a staging path while our own
+                // write handle is still open. Unix rename allows this, which
+                // is why the cross-platform replay test caught it on Windows.
+                drop(file);
                 if sidecar.exists() {
                     replace_compacted_file(&sidecar, &tmp)?;
                 } else {
