@@ -141,6 +141,8 @@ pub(crate) async fn create_with_visibility(
         active_permission: None,
         plan_active: false,
         goal: None,
+        schedules: Vec::new(),
+        schedules_hydrated: true,
         events: Vec::new(),
         event_base_seq: 0,
         event_cache_bytes: 0,
@@ -605,6 +607,13 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         active_permission: None,
         plan_active,
         goal,
+        schedules: historical_state
+            .as_ref()
+            .map(|snapshot| xharness_schedule::active_schedules(snapshot))
+            .transpose()
+            .map_err(RpcError::internal)?
+            .unwrap_or_default(),
+        schedules_hydrated: true,
         events: child_events,
         event_base_seq: 0,
         event_cache_bytes: child_event_bytes,

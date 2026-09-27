@@ -41,6 +41,7 @@ struct ProjectionInputs {
     cursor: Option<u64>,
     cache_base_seq: u64,
     created_at: u64,
+    schedules_hydrated: bool,
     route: ModelRoute,
 }
 
@@ -50,6 +51,7 @@ impl ProjectionInputs {
             cursor: record.authoritative_seq,
             cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
+            schedules_hydrated: record.schedules_hydrated,
             route: ModelRoute {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
@@ -63,6 +65,7 @@ impl ProjectionInputs {
         self.cursor == record.authoritative_seq
             && self.cache_base_seq == record.event_base_seq
             && self.created_at == record.created_at
+            && self.schedules_hydrated == record.schedules_hydrated
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
             && self.route.reasoning_effort == record.model.reasoning_effort
@@ -408,13 +411,20 @@ impl BasicHost {
             );
             let prepared_events =
                 prepare_projection_events(&session, route, inputs.cursor.unwrap_or_default())?;
+            let schedule_projection = (!inputs.schedules_hydrated
+                || prepared_events.iter().any(|(event, _)| {
+                    event.get("type").and_then(Value::as_str) == Some("schedule/change")
+                }))
+            .then(|| xharness_schedule::active_schedules(&session))
+            .transpose()
+            .map_err(RpcError::internal)?;
             let has_turn = session
                 .events()
                 .iter()
                 .any(|event| matches!(event.data(), xharness_session::EventData::TurnStart { .. }));
-            let (new_events, queue_changed, permission_changed) = {
+            let (new_events, queue_changed, permission_changed, schedules_changed) = {
                 let mut state = self.state.write().await;
-                let (new_events, queue_changed, permission_changed) = {
+                let (new_events, queue_changed, permission_changed, schedules_changed) = {
                     let record = state.sessions.get_mut(session_id).ok_or_else(|| {
                         rpc_error(
                             RpcErrorCode::SessionNotFound,
@@ -447,6 +457,13 @@ impl BasicHost {
                     record.title = title;
                     record.plan_active = plan_active;
                     record.goal = goal.clone();
+                    let schedules_changed = schedule_projection.as_ref().is_some_and(|catalog| {
+                        !record.schedules_hydrated || record.schedules != *catalog
+                    });
+                    if let Some(catalog) = schedule_projection.as_ref() {
+                        record.schedules = catalog.clone();
+                        record.schedules_hydrated = true;
+                    }
                     record.mutation_receipts = mutation_receipts;
                     let queue_changed = record.projected_queue != projected_queue;
                     record.projected_queue = projected_queue;
@@ -457,14 +474,24 @@ impl BasicHost {
                     if has_turn {
                         record.blank = false;
                     }
-                    (new_events, queue_changed, permission_changed)
+                    (
+                        new_events,
+                        queue_changed,
+                        permission_changed,
+                        schedules_changed,
+                    )
                 };
                 if let Some(goal) = goal.as_ref() {
                     state.goals.insert(session_id.to_owned(), goal.clone());
                 } else {
                     state.goals.remove(session_id);
                 }
-                (new_events, queue_changed, permission_changed)
+                (
+                    new_events,
+                    queue_changed,
+                    permission_changed,
+                    schedules_changed,
+                )
             };
             for (event, updates, view) in new_events {
                 let seq = event.get("seq").and_then(Value::as_u64).unwrap_or_default();
@@ -480,6 +507,14 @@ impl BasicHost {
             }
             if queue_changed {
                 self.emit_queue(session_id).await;
+            }
+            if schedules_changed {
+                self.push_projection(
+                    session_id,
+                    "schedules",
+                    json!(schedule_projection.expect("changed schedule has a projection")),
+                )
+                .await;
             }
             self.push_projection(
                 session_id,

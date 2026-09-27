@@ -69,6 +69,11 @@ const ordered = plugin.orderScheduleRecords([
   { ...once, id: 'overdue', scheduledAt: '2026-09-02T00:00:00.000Z' },
 ], Date.parse('2026-09-02T00:10:00.000Z'))
 assert.equal(ordered[0].id, 'overdue')
+// A paginated history window may omit an older create. The host projection
+// must win even when the compatibility event view is empty or stale.
+assert.deepEqual(plugin.scheduleRecords([once], []), [once])
+assert.deepEqual(plugin.scheduleRecords([], [once]), [])
+assert.deepEqual(plugin.scheduleRecords(undefined, [once]), [once])
 assert.deepEqual(
   JSON.parse(JSON.stringify(plugin.inject)),
   ['slots', 'locale', 'conversationEvents', 'conversationViews'],
