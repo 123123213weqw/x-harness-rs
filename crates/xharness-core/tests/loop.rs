@@ -3936,14 +3936,18 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
         42
     );
     assert_eq!(header.options["contextComposition"]["totalInputTokens"], 42);
-    assert!(header.options["contextComposition"]["systemTokens"]
-        .as_u64()
-        .unwrap()
-        > 0);
-    assert!(header.options["contextComposition"]["userTokens"]
-        .as_u64()
-        .unwrap()
-        > 0);
+    assert!(
+        header.options["contextComposition"]["systemTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        header.options["contextComposition"]["userTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
     assert!(session
         .derive_messages()
         .iter()
