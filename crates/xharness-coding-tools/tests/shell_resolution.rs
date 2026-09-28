@@ -256,6 +256,9 @@ async fn no_ps7_search_runs_real_builtin_51_with_unicode_and_native_exit_7() {
     let mut search = ShellSearch::from_environment();
     search.configured = None;
     search.user_shell = None;
+    // This fixture models the unbundled CLI, not a desktop with its app-owned
+    // interpreter. Clearing PATH alone must no longer disable the bundle.
+    search.bundled_root = None;
     search.paths.clear();
     search.program_files = std::env::temp_dir().join("nonexistent-powershell-install");
     let shell = search.resolve(|path| path.is_file()).unwrap();
