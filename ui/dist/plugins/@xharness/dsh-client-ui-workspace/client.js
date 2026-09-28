@@ -1671,6 +1671,23 @@ window.__ModuleLoader__.load({
 		* @param props - composed slot props (shell owner share + store + injected actions).
 		* @returns the region element tree.
 		*/
+		function PluginOutline16({ size = 16 }) {
+			return (0, react_jsx_runtime.jsx)("svg", {
+				width: size,
+				height: size,
+				viewBox: "0 0 16 16",
+				fill: "none",
+				"aria-hidden": true,
+				children: (0, react_jsx_runtime.jsx)("path", {
+					d: "M2.4 2.5h3.05c-.15.64.26 1.18.9 1.18s1.05-.54.9-1.18h3.65v3.05c.64-.15 1.18.26 1.18.9s-.54 1.05-1.18.9v3.65H7.85c.15.64-.26 1.18-.9 1.18s-1.05-.54-.9-1.18H2.4V7.85c-.64.15-1.18-.26-1.18-.9s.54-1.05 1.18-.9V2.5Z",
+					transform: "translate(0 -0.75) scale(1.2)",
+					stroke: "currentColor",
+					strokeWidth: 1.15,
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				})
+			});
+		}
 		function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostDescription, renderSlot, t }) {
 			const home = useHostDescription((description) => description?.home);
 			const workspaces = useWorkspaces((state) => state.items);
@@ -1706,6 +1723,17 @@ window.__ModuleLoader__.load({
 			const searchRoot = (0, react.useRef)(null);
 			const searchInput = (0, react.useRef)(null);
 			const [wsPickerOpen, setWsPickerOpen] = (0, react.useState)(false);
+			const [pluginCenterOpen, setPluginCenterOpen] = (0, react.useState)(false);
+			(0, react.useEffect)(() => {
+				const opened = () => setPluginCenterOpen(true);
+				const closed = () => setPluginCenterOpen(false);
+				window.addEventListener("xharness:plugins:open", opened);
+				window.addEventListener("xharness:plugins:closed", closed);
+				return () => {
+					window.removeEventListener("xharness:plugins:open", opened);
+					window.removeEventListener("xharness:plugins:closed", closed);
+				};
+			}, []);
 			const wsPlusRef = (0, react.useRef)(null);
 			const composingRef = (0, react.useRef)(false);
 			const [searchOnExpand, setSearchOnExpand] = (0, react.useState)(false);
@@ -1970,7 +1998,20 @@ window.__ModuleLoader__.load({
 										},
 										children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconProjectAddOutline16, { size: wide ? 16 : 18 })
 									})
-								})]
+								}), wide && (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Tooltip, {
+									label: t("plugins.open"),
+									side: "bottom",
+									children: (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: WorkspaceBrowser_module_css_default.iconButton,
+										"data-xharness-plugin-nav": true,
+										"aria-label": t("plugins.open"),
+										"aria-current": pluginCenterOpen ? "page" : void 0,
+										style: pluginCenterOpen ? { background: "var(--dsw-alias-interactive-bg-hover)" } : void 0,
+										onClick: () => window.dispatchEvent(new Event("xharness:plugins:open")),
+											children: (0, react_jsx_runtime.jsx)(PluginOutline16, { size: 20 })
+									})
+							})]
 							}),
 							(0, react_jsx_runtime.jsx)(WorkspacePickFlow, {
 								t,
@@ -2007,6 +2048,22 @@ window.__ModuleLoader__.load({
 								},
 								children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconSearchOutline16, { size: 18 })
 							})
+						})
+					}),
+					!wide && (0, react_jsx_runtime.jsx)("div", {
+						className: WorkspaceBrowser_module_css_default.search,
+						children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.Tooltip, {
+								label: t("plugins.open"),
+								children: (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: WorkspaceBrowser_module_css_default.searchButton,
+									"data-xharness-plugin-nav": true,
+									"aria-label": t("plugins.open"),
+									"aria-current": pluginCenterOpen ? "page" : void 0,
+									style: pluginCenterOpen ? { background: "var(--dsw-alias-interactive-bg-hover)" } : void 0,
+									onClick: () => window.dispatchEvent(new Event("xharness:plugins:open")),
+									children: (0, react_jsx_runtime.jsx)(PluginOutline16, { size: 22 })
+								})
 						})
 					}),
 					(0, react_jsx_runtime.jsx)("div", {
@@ -2228,6 +2285,7 @@ window.__ModuleLoader__.load({
 			"empty.none": "暂无会话",
 			"empty.noMatches": "无匹配结果",
 			"workspace.add": "添加工作区",
+			"plugins.open": "插件",
 			"search.sessions.aria": "搜索会话",
 			"search.placeholder": "搜索会话…",
 			"search.clear": "清除搜索",
@@ -2293,6 +2351,7 @@ window.__ModuleLoader__.load({
 			"empty.none": "No sessions yet",
 			"empty.noMatches": "No matches",
 			"workspace.add": "Add workspace",
+			"plugins.open": "Plugins",
 			"search.sessions.aria": "Search sessions",
 			"search.placeholder": "Search sessions...",
 			"search.clear": "Clear search",
