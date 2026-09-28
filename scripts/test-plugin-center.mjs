@@ -60,7 +60,9 @@ assert.match(hub, /width: 30, height: 30/, 'empty-state icon fits the compact in
 assert.match(hub, /transform: 'translate\(0 -0\.75\) scale\(1\.2\)'/, 'empty-state glyph uses the centered sidebar geometry')
 assert.match(hub, /const options = \['public', 'personal'\]/, 'marketplace uses Public and Personal sections')
 assert.doesNotMatch(hub, /detailsTitle|detailsEmpty|updatesTitle|updatesBody/, 'old split pane and empty Updates tab are removed')
-assert.doesNotMatch(hub, /pluginInventory\/list|dynamicCordisRunner/, 'no unsupported Host RPC calls')
+assert.match(hub, /plugins\/catalog/, 'plugin hub loads its catalog from Host')
+assert.match(hub, /plugins\/installed/, 'plugin hub loads installed state from Host')
+assert.doesNotMatch(hub, /pluginInventory\/list|dynamicCordisRunner/, 'no unsupported upstream RPC calls')
 new vm.Script(hub)
 
 console.log('plugin center: first-level wide/compact navigation, shared settings content, removed Settings entry, rebuild and boot graph passed')

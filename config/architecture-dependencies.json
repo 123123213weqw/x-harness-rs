@@ -84,6 +84,7 @@
     "xharness-interaction",
     "xharness-jobs",
     "xharness-platform",
+    "xharness-plugins",
     "xharness-provider-openai",
     "xharness-schedule",
     "xharness-server",
@@ -106,6 +107,7 @@
     "xharness-process",
     "xharness-sandbox"
   ],
+  "xharness-plugins": [],
   "xharness-process": [
     "xharness-debug",
     "xharness-win32"

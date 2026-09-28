@@ -32,6 +32,7 @@ xharness-interaction = { path = "../xharness-interaction" }
 xharness-jobs = { path = "../xharness-jobs" }
 xharness-agent = { path = "../xharness-agent" }
 xharness-platform = { path = "../xharness-platform" }
+xharness-plugins = { path = "../xharness-plugins" }
 xharness-provider-openai = { path = "../xharness-provider-openai" }
 xharness-schedule = { path = "../xharness-schedule" }
 xharness-session = { path = "../xharness-session" }
@@ -45,6 +46,7 @@ xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
 fs2 = "0.4.3"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 futures.workspace = true
 reqwest.workspace = true
 tokio = { workspace = true, features = ["process"] }
