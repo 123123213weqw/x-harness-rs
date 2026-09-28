@@ -3587,6 +3587,7 @@ dependencies = [
  "xharness-web",
  "xharness-web-terminal",
  "xharness-win32",
+ "zip",
 ]
 
 [[package]]
