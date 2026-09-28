@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "lts_series": "7.6",
+  "version": "7.6.6",
+  "archives": {
+    "x86_64-pc-windows-msvc": {
+      "sha256": "02fe458be20493fbdf43f61ea20610b811ee6c738ab1676c61b9cfcd1a33c860",
+      "size": 106328873
+    }
+  }
+}

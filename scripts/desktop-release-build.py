@@ -200,6 +200,8 @@ def stage(platform, target):
     require(rg and Path(rg).is_file(), 'Native ripgrep is not available')
     for source, name in [(ROOT / 'target' / target / 'release' / ('xharness-host' + suffix), 'xharness-host'), (rg, 'rg')]:
         run(sys.executable, '-B', ROOT / 'scripts/stage-tauri-sidecar.py', source, target, '--name', name)
+    if suffix:
+        run(sys.executable, '-B', ROOT / 'scripts/powershell-runtime.py', 'stage', '--target', target)
 
 
 def collect(args):
