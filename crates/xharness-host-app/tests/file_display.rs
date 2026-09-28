@@ -11,9 +11,9 @@ use xharness_api::{
     display::{DisplayFile, DisplayRead},
     ApiBackend, RpcId, RpcMethod,
 };
-use xharness_host::{BasicHost, DisplayTool, HostConfig, PermissionPreset, SessionToolFactory};
+use xharness_host::{BasicHost, HostConfig, PermissionPreset, SessionToolFactory};
 use xharness_host_app::{configured_web_runtime, NativeToolFactory};
-use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+use xharness_tools::{ToolExecutor, ToolRequest};
 
 struct Fixture(PathBuf);
 impl Fixture {
@@ -109,6 +109,23 @@ async fn host(f: &Fixture) -> Arc<BasicHost> {
     assert!(created.is_ok(), "{created:?}");
     host
 }
+async fn display_executor(host: &Arc<BasicHost>, f: &Fixture) -> ToolExecutor {
+    let tools = factory();
+    tools.bind_agent_host(host).unwrap();
+    tools
+        .executor("s", f.0.to_str().unwrap(), PermissionPreset::WorkspaceWrite)
+        .await
+        .unwrap()
+}
+fn display_request(arguments: serde_json::Value) -> ToolRequest {
+    ToolRequest::new(
+        "plugin_mcp",
+        json!({"action":"call","plugin":"builtin",
+        "server":"ui","tool":"display","arguments":arguments})
+        .to_string(),
+    )
+}
+
 #[tokio::test]
 async fn file_display_reads_markdown_and_code_without_a_model() {
     let f = Fixture::new();
@@ -270,14 +287,9 @@ async fn display_tool_publishes_only_intent_not_content_and_has_no_strong_host_c
     let f = Fixture::new();
     let host = host(&f).await;
     let mut events = host.host_events();
-    let registry = Arc::new(ToolRegistry::new());
-    registry
-        .register(DisplayTool::for_host(&host, "s"))
-        .await
-        .unwrap();
-    let executor = ToolExecutor::new(registry);
+    let executor = display_executor(&host, &f).await;
     let result = executor
-        .execute(ToolRequest::new("display", r#"{"path":"docs/report.md"}"#))
+        .execute(display_request(json!({"path":"docs/report.md"})))
         .await;
     assert!(result.is_ok(), "{result:?}");
     let result = result.output.unwrap();
@@ -292,9 +304,8 @@ async fn display_tool_publishes_only_intent_not_content_and_has_no_strong_host_c
     assert!(payload.to_string().contains("display/open"));
     assert!(!payload.to_string().contains("# Report"));
     assert!(executor
-        .execute(ToolRequest::new(
-            "display",
-            r#"{"path":"main.rs","sessionId":"other"}"#
+        .execute(display_request(
+            json!({"path":"main.rs","sessionId":"other"})
         ))
         .await
         .failure
@@ -304,7 +315,7 @@ async fn display_tool_publishes_only_intent_not_content_and_has_no_strong_host_c
     assert!(weak.upgrade().is_none());
 }
 #[tokio::test]
-async fn production_registry_projects_one_display_tool_and_obeys_allowlist() {
+async fn production_registry_projects_only_mcp_ui_and_obeys_allowlist() {
     let f = Fixture::new();
     let tools = factory();
     let host = BasicHost::new(HostConfig::new(f.0.clone()), None, tools.clone());
@@ -319,9 +330,17 @@ async fn production_registry_projects_one_display_tool_and_obeys_allowlist() {
             .definitions()
             .await
             .iter()
-            .filter(|d| d.name == "display")
+            .filter(|d| d.name == "plugin_mcp")
             .count(),
         1
+    );
+    assert!(executor.registry().get("display").await.is_none());
+    let unknown = executor
+        .execute(ToolRequest::new("display", r#"{"path":"main.rs"}"#))
+        .await;
+    assert_eq!(
+        unknown.failure.unwrap().kind,
+        xharness_tools::ToolFailureKind::UnknownTool
     );
     let tools = factory();
     tools
@@ -337,7 +356,7 @@ async fn production_registry_projects_one_display_tool_and_obeys_allowlist() {
         .definitions()
         .await
         .iter()
-        .all(|d| d.name != "display"));
+        .all(|d| d.name != "plugin_mcp" && d.name != "display"));
 }
 
 #[tokio::test]
@@ -692,17 +711,9 @@ async fn same_display_tool_emits_git_scope_not_patch_text() {
     std::fs::write(f.0.join("main.rs"), "fn model_display() {}\n").unwrap();
     let host = host(&f).await;
     let mut events = host.host_events();
-    let registry = Arc::new(ToolRegistry::new());
-    registry
-        .register(DisplayTool::for_host(&host, "s"))
-        .await
-        .unwrap();
-    let executor = ToolExecutor::new(registry);
+    let executor = display_executor(&host, &f).await;
     let result = executor
-        .execute(ToolRequest::new(
-            "display",
-            r#"{"path":".","gitDiff":"working"}"#,
-        ))
+        .execute(display_request(json!({"path":".","gitDiff":"working"})))
         .await;
     assert!(result.is_ok(), "{result:?}");
     let text = result.output.unwrap().content;
@@ -716,10 +727,214 @@ async fn same_display_tool_emits_git_scope_not_patch_text() {
     assert!(payload.to_string().contains("\"gitDiff\":\"working\""));
     assert!(!payload.to_string().contains("model_display"));
     assert!(!executor
-        .execute(ToolRequest::new(
-            "display",
-            r#"{"path":".","gitDiff":"shell"}"#
-        ))
+        .execute(display_request(json!({"path":".","gitDiff":"shell"})))
         .await
         .is_ok());
+}
+
+#[tokio::test]
+async fn builtin_ui_is_discoverable_on_web_without_plugins_mcp_or_browser() {
+    let f = Fixture::new();
+    let host = host(&f).await;
+    let executor = display_executor(&host, &f).await;
+    for (arguments, expected) in [
+        (json!({"action":"list"}), "builtin"),
+        (json!({"action":"list","plugin":"builtin"}), "ui"),
+        (
+            json!({"action":"list","plugin":"builtin","server":"ui"}),
+            "display",
+        ),
+    ] {
+        let result = executor
+            .execute(ToolRequest::new("plugin_mcp", arguments.to_string()))
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        let text = result.output.unwrap().content;
+        assert!(text.contains(expected), "{text}");
+        assert!(
+            !text.contains("inputSchema"),
+            "compact indices do not eagerly load schemas"
+        );
+    }
+    let result = executor
+        .execute(ToolRequest::new(
+            "plugin_mcp",
+            json!({"action":"describe",
+        "plugin":"builtin","server":"ui","tool":"display"})
+            .to_string(),
+        ))
+        .await;
+    assert!(result.is_ok(), "{result:?}");
+    let description: serde_json::Value =
+        serde_json::from_str(&result.output.unwrap().content).unwrap();
+    assert_eq!(
+        description["tool"]["inputSchema"]["required"],
+        json!(["path"])
+    );
+    assert_eq!(
+        description["tool"]["inputSchema"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        description["tool"]["inputSchema"]["properties"]["gitDiff"]["enum"],
+        json!(["working", "staged", "head"])
+    );
+    assert_eq!(
+        executor.registry().get("plugin_mcp").await.unwrap().timeout,
+        std::time::Duration::from_secs(90)
+    );
+}
+
+#[tokio::test]
+async fn builtin_ui_does_not_weaken_foreign_or_durable_approval() {
+    use xharness_tools::ToolFailureKind;
+    let f = Fixture::new();
+    let host = host(&f).await;
+    let executor = display_executor(&host, &f).await;
+    // With no ApprovalProvider: UI is still usable, but foreign MCP/native
+    // browser calls and durable explicit approval overrides still fail closed.
+    assert!(executor
+        .execute(display_request(json!({"path":"main.rs"})))
+        .await
+        .is_ok());
+    for plugin in ["foreign", "@xharness/native-browser"] {
+        let result = executor
+            .execute(ToolRequest::new(
+                "plugin_mcp",
+                json!({"action":"call",
+            "plugin":plugin,"server":"ui","tool":"display","arguments":{"path":"main.rs"}})
+                .to_string(),
+            ))
+            .await;
+        assert_eq!(
+            result.failure.unwrap().kind,
+            ToolFailureKind::ApprovalUnavailable
+        );
+    }
+    let result = executor
+        .execute(display_request(json!({"path":"main.rs"})).requiring_approval(true))
+        .await;
+    assert_eq!(
+        result.failure.unwrap().kind,
+        ToolFailureKind::ApprovalUnavailable
+    );
+}
+
+#[tokio::test]
+async fn builtin_ui_keeps_nested_validation_filesystem_policy_and_cancellation() {
+    let f = Fixture::new();
+    let outside = Fixture::new();
+    let host = host(&f).await;
+    let executor = display_executor(&host, &f).await;
+    for arguments in [
+        json!({}),
+        json!({"path":""}),
+        json!({"path":"x".repeat(4097)}),
+        json!({"path":"main.rs","owner":"other"}),
+        json!({"path":"main.rs","sessionId":"other"}),
+        json!({"path":"main.rs","relativeTo":"elsewhere"}),
+        json!({"path":".","gitDiff":"shell"}),
+        json!({"path":outside.0.join("main.rs")}),
+        json!({"path":"missing.md"}),
+        json!({"path":"docs"}),
+    ] {
+        let result = executor.execute(display_request(arguments.clone())).await;
+        assert!(
+            !result.is_ok(),
+            "unexpected display success: {arguments} {result:?}"
+        );
+    }
+    let token = CancellationToken::new();
+    token.cancel();
+    let result = executor
+        .execute(display_request(json!({"path":"main.rs"})).with_cancellation(token))
+        .await;
+    assert_eq!(
+        result.failure.unwrap().kind,
+        xharness_tools::ToolFailureKind::Cancelled
+    );
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(outside.0.join("main.rs"), f.0.join("escape.rs")).unwrap();
+        assert!(!executor
+            .execute(display_request(json!({"path":"escape.rs"})))
+            .await
+            .is_ok());
+    }
+}
+
+#[tokio::test]
+async fn builtin_ui_owner_is_bound_and_unknown_targets_cannot_emit() {
+    use futures::StreamExt;
+    let f = Fixture::new();
+    let host = host(&f).await;
+    let executor = display_executor(&host, &f).await;
+    let mut events = host.host_events();
+    let result = executor
+        .execute(ToolRequest::new(
+            "plugin_mcp",
+            json!({"action":"call",
+        "plugin":"builtin","server":"ui","tool":"display","owner":"other","sessionId":"other",
+        "arguments":{"path":"main.rs"}})
+            .to_string(),
+        ))
+        .await;
+    assert!(result.is_ok(), "{result:?}");
+    let event = serde_json::to_value(events.next().await.unwrap()).unwrap();
+    assert!(event.to_string().contains("\"sessionId\":\"s\""), "{event}");
+    assert!(!event.to_string().contains("other"));
+    for (server, tool, action) in [
+        ("ui", "shell", "call"),
+        ("webview", "display", "call"),
+        ("ui", "display", "execute"),
+    ] {
+        let result = executor
+            .execute(ToolRequest::new(
+                "plugin_mcp",
+                json!({"action":action,
+            "plugin":"builtin","server":server,"tool":tool,"arguments":{"path":"main.rs"}})
+                .to_string(),
+            ))
+            .await;
+        assert!(!result.is_ok(), "{result:?}");
+        if action == "call" {
+            assert_eq!(
+                result.failure.unwrap().kind,
+                xharness_tools::ToolFailureKind::GuardDenied,
+                "unknown UI targets must not wait for human approval"
+            );
+        }
+    }
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), events.next())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn removed_display_allowlist_is_not_silently_expanded_to_foreign_mcp() {
+    let f = Fixture::new();
+    let host = host(&f).await;
+    for (selection, expected) in [("display", false), ("plugin_mcp", true)] {
+        let tools = factory();
+        tools.bind_agent_host(&host).unwrap();
+        tools
+            .restrict_tools(
+                xharness_host_app::tool_allowlist::ToolAllowlist::parse(selection).unwrap(),
+            )
+            .unwrap();
+        let executor = tools
+            .executor("s", f.0.to_str().unwrap(), PermissionPreset::WorkspaceWrite)
+            .await
+            .unwrap();
+        assert_eq!(tools.validate_executor(&executor).await.is_ok(), expected);
+        if expected {
+            assert_eq!(executor.registry().definitions().await.len(), 1);
+            assert!(executor
+                .execute(display_request(json!({"path":"main.rs"})))
+                .await
+                .is_ok());
+        }
+    }
 }
