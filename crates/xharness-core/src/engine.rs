@@ -47,11 +47,11 @@ use xharness_tools::{
 };
 
 use crate::{
-    tool_result_for_model, AgentMessage, ContextRequest, ContextSurface, FinishReason,
-    InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind, LoopRequest,
-    LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role, SessionSnapshot,
-    StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest, TokenUsage, ToolCall,
-    ToolResult,
+    tool_result_for_model, AgentMessage, ContextComposition, ContextRequest, ContextSurface,
+    FinishReason, InjectionMode, LoopCommand, LoopControlError, LoopEvent, LoopEventKind,
+    LoopRequest, LoopResult, LoopStatus, ProviderError, ProviderEvent, ProviderRequest, Role,
+    SessionSnapshot, StepUsage, TokenBudgetError, TokenBudgetReport, TokenEstimateRequest,
+    TokenUsage, ToolCall, ToolResult,
 };
 
 static NEXT_RUN_ID: AtomicU64 = AtomicU64::new(1);
@@ -2301,6 +2301,36 @@ impl Runner {
                     RunFailure::Failed(format!("could not serialize token budget report: {error}"))
                 })?,
             );
+            // The audit body may be disabled or archived separately. Persist a
+            // small, content-free request composition so live and restored UI
+            // describe the actual prepared request rather than the whole log.
+            let mut estimate_request = TokenEstimateRequest {
+                provider: header.provider.clone(),
+                model: Some(header.model.clone()),
+                tools: tools.to_vec(),
+                ..TokenEstimateRequest::default()
+            };
+            for message in &surface.messages {
+                if let Ok(encoded) = serde_json::to_value(message) {
+                    if message.role == Role::System {
+                        estimate_request.system_messages.push(encoded);
+                    } else {
+                        estimate_request.conversation_messages.push(encoded);
+                    }
+                }
+            }
+            if let Ok(composition) =
+                ContextComposition::estimate(&estimate_request, report.estimate.total_input_tokens)
+            {
+                header.options.insert(
+                    "contextComposition".to_owned(),
+                    serde_json::to_value(composition).map_err(|error| {
+                        RunFailure::Failed(format!(
+                            "could not serialize context composition: {error}"
+                        ))
+                    })?,
+                );
+            }
         }
         header
             .options

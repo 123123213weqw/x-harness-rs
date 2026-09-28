@@ -1920,6 +1920,10 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
         header.options["tokenBudget"]["estimate"]["totalInputTokens"],
         70_857
     );
+    let composition = &header.options["contextComposition"];
+    assert_eq!(composition["totalInputTokens"], 70_857);
+    assert_eq!(composition["accuracy"], "estimated");
+    assert!(composition["userTokens"].as_u64().unwrap() > 0);
     let contexts = session
         .events()
         .iter()
@@ -3931,6 +3935,19 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
     assert_eq!(
         header.options["tokenBudget"]["estimate"]["totalInputTokens"],
         42
+    );
+    assert_eq!(header.options["contextComposition"]["totalInputTokens"], 42);
+    assert!(
+        header.options["contextComposition"]["systemTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        header.options["contextComposition"]["userTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
     );
     assert!(session
         .derive_messages()
