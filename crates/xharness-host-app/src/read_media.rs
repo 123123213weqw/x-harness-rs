@@ -54,6 +54,7 @@ impl xharness_coding_tools::MediaReader for Reader {
                 metadata: Some(
                     json!({"xharnessContentBlocks":[xharness_session::ContentBlock::Text{text},xharness_session::ContentBlock::Image{attachment:item.reference}]}),
                 ),
+                command_failure: None,
             }));
         }
         let (fs, target) = self.platform.resolve_read_file(path).map_err(err)?;
@@ -107,6 +108,7 @@ impl xharness_coding_tools::MediaReader for Reader {
             metadata: Some(
                 json!({"xharnessContentBlocks":[xharness_session::ContentBlock::Text{text},xharness_session::ContentBlock::Image{attachment:r}]}),
             ),
+            command_failure: None,
         }))
     }
 }

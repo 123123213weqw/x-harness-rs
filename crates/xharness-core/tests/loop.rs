@@ -325,6 +325,7 @@ fn runtime_output(result: ToolResult) -> Result<RuntimeToolOutput, RuntimeToolHa
         Ok(RuntimeToolOutput {
             content: result.content,
             metadata: result.metadata,
+            command_failure: None,
         })
     } else {
         Err(RuntimeToolHandlerError::new(result.error))
