@@ -3,18 +3,28 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use xharness_host::PluginBackend;
+use xharness_mcp::McpRuntime;
 use xharness_plugins::PluginManager;
 
-pub struct NativePluginBackend(pub Arc<PluginManager>);
+pub struct NativePluginBackend {
+    manager: Arc<PluginManager>,
+    mcp: Arc<McpRuntime>,
+}
+
+impl NativePluginBackend {
+    pub fn new(manager: Arc<PluginManager>, mcp: Arc<McpRuntime>) -> Self {
+        Self { manager, mcp }
+    }
+}
 
 #[async_trait]
 impl PluginBackend for NativePluginBackend {
     async fn call(&self, endpoint: &str, payload: &Value) -> Result<Value, String> {
         let args = payload.get("args").unwrap_or(payload);
         match endpoint {
-            "plugins/catalog" => Ok(json!({"plugins": self.0.catalog().await})),
-            "plugins/installed" => Ok(json!({"plugins": self.0.installed().await})),
-            "plugins/updates" => Ok(json!({"updates": self.0.updates().await})),
+            "plugins/catalog" => Ok(json!({"plugins": self.manager.catalog().await})),
+            "plugins/installed" => Ok(json!({"plugins": self.manager.installed().await})),
+            "plugins/updates" => Ok(json!({"updates": self.manager.updates().await})),
             "plugins/importCatalog" => {
                 let content = required(args, "content")?;
                 let scope = args
@@ -22,7 +32,7 @@ impl PluginBackend for NativePluginBackend {
                     .and_then(Value::as_str)
                     .unwrap_or("public");
                 let items = self
-                    .0
+                    .manager
                     .import_catalog_scoped(content, scope)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -30,29 +40,50 @@ impl PluginBackend for NativePluginBackend {
             }
             "plugins/install" => {
                 let item = self
-                    .0
+                    .manager
                     .install(required(args, "name")?)
                     .await
                     .map_err(|e| e.to_string())?;
+                self.mcp.disconnect_plugin(&item.name).await;
                 Ok(json!({"plugin": item}))
             }
             "plugins/enable" | "plugins/disable" => {
                 let item = self
-                    .0
+                    .manager
                     .set_enabled(required(args, "name")?, endpoint == "plugins/enable")
                     .await
                     .map_err(|e| e.to_string())?;
                 Ok(json!({"plugin": item}))
             }
             "plugins/uninstall" => {
-                self.0
-                    .uninstall(required(args, "name")?)
+                let name = required(args, "name")?;
+                self.manager
+                    .uninstall(name)
                     .await
                     .map_err(|e| e.to_string())?;
+                self.mcp.disconnect_plugin(name).await;
                 Ok(json!({"ok": true}))
             }
-            "plugins/skills" => Ok(json!({"skills": self.0.enabled_skills().await.into_iter()
-                .map(|(plugin, skill)| json!({"plugin":plugin,"skill":skill})).collect::<Vec<_>>()})),
+            "plugins/mcpPreview" => Ok(
+                json!({"servers": self.manager.mcp_preview(required(args, "name")?).await.map_err(|e| e.to_string())?}),
+            ),
+            "plugins/mcpEnable" | "plugins/mcpDisable" => {
+                let name = required(args, "name")?;
+                let enabled = endpoint == "plugins/mcpEnable";
+                let item = self
+                    .manager
+                    .set_mcp_enabled(name, enabled)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if !enabled {
+                    self.mcp.disconnect_plugin(name).await;
+                }
+                Ok(json!({"plugin": item}))
+            }
+            "plugins/skills" => Ok(
+                json!({"skills": self.manager.enabled_skills().await.into_iter()
+                .map(|(plugin, skill)| json!({"plugin":plugin,"skill":skill})).collect::<Vec<_>>()}),
+            ),
             _ => Err(format!("unsupported plugin endpoint {endpoint}")),
         }
     }
@@ -77,8 +108,11 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let manager = Arc::new(PluginManager::open(root.join("plugins")).unwrap());
         let host = BasicHost::new(HostConfig::new(&root), None, Arc::new(NoTools));
-        host.install_plugins(Arc::new(NativePluginBackend(manager)))
-            .unwrap();
+        host.install_plugins(Arc::new(NativePluginBackend::new(
+            manager,
+            McpRuntime::new(),
+        )))
+        .unwrap();
         let result = host
             .call_dynamic(
                 RpcId::new("catalog-1"),

@@ -83,6 +83,7 @@
     "xharness-host",
     "xharness-interaction",
     "xharness-jobs",
+    "xharness-mcp",
     "xharness-platform",
     "xharness-plugins",
     "xharness-provider-openai",
@@ -101,6 +102,7 @@
     "xharness-tools"
   ],
   "xharness-jobs": [],
+  "xharness-mcp": [],
   "xharness-platform": [
     "xharness-debug",
     "xharness-fs",

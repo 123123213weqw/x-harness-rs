@@ -190,6 +190,8 @@ async fn run(
         Arc::clone(&questions),
         Arc::clone(&schedules),
     );
+    let mcp = xharness_mcp::McpRuntime::new();
+    tools.bind_mcp(Arc::clone(&mcp))?;
     let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
         Ok(manager) => {
             let manager = Arc::new(manager);
@@ -228,7 +230,7 @@ async fn run(
         questions,
     );
     if let Some(plugins) = plugins {
-        host.install_plugins(Arc::new(NativePluginBackend(plugins)))?;
+        host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
     }
     tools.bind_agent_host(&host)?;
     *failure_code = Some(StartupFailureCode::ProviderConfiguration);

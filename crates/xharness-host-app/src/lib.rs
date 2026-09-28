@@ -8,6 +8,7 @@
 #[cfg(target_os = "macos")]
 mod computer_media;
 pub mod ownership;
+mod plugin_mcp;
 mod plugin_service;
 mod read_media;
 pub use plugin_service::NativePluginBackend;
@@ -64,6 +65,7 @@ pub struct NativeToolFactory {
     schedules: Option<Arc<ScheduleManager>>,
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
     plugins: std::sync::OnceLock<Arc<xharness_plugins::PluginManager>>,
+    mcp: std::sync::OnceLock<Arc<xharness_mcp::McpRuntime>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +89,7 @@ impl NativeToolFactory {
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
+            mcp: std::sync::OnceLock::new(),
         })
     }
 
@@ -104,6 +107,7 @@ impl NativeToolFactory {
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
+            mcp: std::sync::OnceLock::new(),
         })
     }
 
@@ -122,6 +126,7 @@ impl NativeToolFactory {
             schedules: Some(schedules),
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
+            mcp: std::sync::OnceLock::new(),
         })
     }
 
@@ -138,6 +143,12 @@ impl NativeToolFactory {
         self.plugins
             .set(manager)
             .map_err(|_| "plugins already bound".into())
+    }
+
+    pub fn bind_mcp(&self, runtime: Arc<xharness_mcp::McpRuntime>) -> Result<(), String> {
+        self.mcp
+            .set(runtime)
+            .map_err(|_| "MCP runtime already bound".into())
     }
 
     async fn platform(
@@ -332,6 +343,15 @@ impl SessionToolFactory for NativeToolFactory {
                     },
                 ));
             }
+            if !plugins.enabled_mcp_plugins().await.is_empty() {
+                if let Some(mcp) = self.mcp.get() {
+                    specs.push(plugin_mcp::spec(
+                        Arc::clone(plugins),
+                        Arc::clone(mcp),
+                        session_id.into(),
+                    ));
+                }
+            }
         }
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
@@ -361,6 +381,9 @@ impl SessionToolFactory for NativeToolFactory {
     }
 
     async fn shutdown(&self) -> Result<(), String> {
+        if let Some(mcp) = self.mcp.get() {
+            mcp.shutdown().await;
+        }
         let report = self.jobs.shutdown(std::time::Duration::from_secs(8)).await;
         if report.is_graceful() {
             Ok(())
@@ -547,6 +570,10 @@ mod tests {
             writer
                 .write_all(b"---\ndescription: Ship code\n---\nRun the checks.")
                 .unwrap();
+            writer.start_file("demo/.mcp.json", options).unwrap();
+            writer
+                .write_all(br#"{"mcpServers":{"local":{"command":"fixture"}}}"#)
+                .unwrap();
             writer.finish().unwrap();
         }
         let archive = archive.into_inner();
@@ -559,6 +586,7 @@ mod tests {
             .unwrap();
         let factory = NativeToolFactory::new(WebRuntime::default());
         factory.bind_plugins(Arc::clone(&manager)).unwrap();
+        factory.bind_mcp(xharness_mcp::McpRuntime::new()).unwrap();
         let cwd = workspace.0.to_string_lossy();
         let before = factory
             .executor("plugin-test", &cwd, PermissionPreset::DangerFullAccess)
@@ -599,6 +627,36 @@ mod tests {
             .await;
         assert!(read.is_ok());
         assert!(read.output.unwrap().content.contains("Run the checks"));
+        manager.set_mcp_enabled("demo", true).await.unwrap();
+        let with_mcp = factory
+            .executor("plugin-test", &cwd, PermissionPreset::DangerFullAccess)
+            .await
+            .unwrap();
+        assert!(with_mcp
+            .registry()
+            .definitions()
+            .await
+            .iter()
+            .any(|tool| tool.name == "plugin_mcp"));
+        let mcp_list = with_mcp
+            .execute(xharness_tools::ToolRequest::new(
+                "plugin_mcp",
+                r#"{"action":"list"}"#,
+            ))
+            .await;
+        assert!(mcp_list.is_ok());
+        assert!(mcp_list.output.unwrap().content.contains("demo"));
+        manager.set_mcp_enabled("demo", false).await.unwrap();
+        let mcp_denied = with_mcp
+            .execute(xharness_tools::ToolRequest::new(
+                "plugin_mcp",
+                r#"{"action":"list","plugin":"demo"}"#,
+            ))
+            .await;
+        assert!(
+            !mcp_denied.is_ok(),
+            "MCP disable fences stale tool snapshots"
+        );
         manager.set_enabled("demo", false).await.unwrap();
         let denied = after
             .execute(xharness_tools::ToolRequest::new(
