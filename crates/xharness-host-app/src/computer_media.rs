@@ -70,6 +70,7 @@ impl ComputerMediaSink for Sink {
                     xharness_session::ContentBlock::Image { attachment }
                 ]
             })),
+            command_failure: None,
         })
     }
 }

@@ -7629,7 +7629,7 @@ requireIdle: boolean().optional(),
                         projectedTokens:b?.estimate?.totalInputTokens ?? b?.estimate?.total_input_tokens,
                         projectedAccuracy:b?.accuracy ?? 'estimated',
                         accuracy:b?.accuracy ?? 'estimated', phase:'in_flight',
-                        measurement:d.header?.options?.measurement ?? {turn:active?.[0] ?? null,step:active?.[1] ?? null,source:'legacy_request'}};
+                        measurement:d.header?.options?.measurement ?? {turn:active?.[0] ?? null,step:active?.[1] ?? null,source:'legacy_request'}, composition:d.header?.options?.contextComposition}; // xharness-context-composition-replay/v1
                 }
                 if(event.type === 'request/context') { contextSeen=true; value.contextWindow=d.contextWindow ?? d.context_window; }
                 const sample=usageSampleOf(event);

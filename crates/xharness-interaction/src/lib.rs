@@ -549,6 +549,7 @@ impl AskUserQuestionTool {
                         "status": resolution.status,
                         "requestsAgentMarkdown": resolution.requests_agent_markdown(),
                     })),
+                    command_failure: None,
                 })
             }
         })
