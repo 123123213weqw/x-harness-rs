@@ -12,6 +12,13 @@ fn main() {
         let Some(id) = input.get("id") else { continue };
         let result = match input.get("method").and_then(Value::as_str).unwrap_or("") {
             "initialize" => {
+                if let Ok(delay) = std::env::var("XH_MCP_FIXTURE_START_DELAY_MS") {
+                    if let Ok(milliseconds) = delay.parse::<u64>() {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            milliseconds.min(1000),
+                        ));
+                    }
+                }
                 json!({"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1.0"}})
             }
             "tools/list" => {
@@ -22,7 +29,12 @@ fn main() {
                 if value == "sleep" {
                     std::thread::sleep(std::time::Duration::from_secs(10));
                 }
-                json!({"content":[{"type":"text","text":value}],"isError":false})
+                let text = if value == "__pid" {
+                    std::process::id().to_string()
+                } else {
+                    value.to_owned()
+                };
+                json!({"content":[{"type":"text","text":text}],"isError":false})
             }
             _ => json!({}),
         };

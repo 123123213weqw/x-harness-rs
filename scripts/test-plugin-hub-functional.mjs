@@ -18,7 +18,7 @@ try {
   }
   await page.addScriptTag({ content: `
     window.__fixture = { catalog: [], installed: [], calls: [] };
-    window.confirm = () => true;
+    window.confirm = message => { window.__fixture.confirm = message; return true; };
     window.__ModuleLoader__ = { load({ factory }) { window.__hub = factory(name => {
       if (name === 'react') return React;
       throw Error('unexpected module ' + name);
@@ -55,7 +55,7 @@ try {
           } else if (endpoint === 'plugins/uninstall') {
             store.installed = []; value = { ok: true };
           } else if (endpoint === 'plugins/mcpPreview') {
-            value = { servers: [{ server: 'local', command: 'node', args: ['server.js'], envKeys: ['TOKEN'] }] };
+            value = { servers: [{ server: 'local', command: 'node', args: ['server.js'], envKeys: ['TOKEN'], envSources: { TOKEN: 'Host environment: DEEPSEEK_API_KEY' } }] };
           } else if (endpoint === 'plugins/mcpEnable' || endpoint === 'plugins/mcpDisable') {
             store.installed[0].mcpEnabled = endpoint === 'plugins/mcpEnable';
             value = { plugin: store.installed[0] };
@@ -83,6 +83,7 @@ try {
   await hub.getByRole('button', { name: 'Allow MCP', exact: true }).click()
   await hub.getByRole('button', { name: 'Disable MCP', exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].mcpEnabled), true)
+  assert.match(await page.evaluate(() => window.__fixture.confirm), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
   assert.ok((await page.evaluate(() => window.__fixture.calls)).includes('plugins/enable'))
   assert.deepEqual(errors, [])
   console.log('plugin hub functional: import, install, Skill enable, MCP consent and refresh passed')

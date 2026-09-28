@@ -48,6 +48,10 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                     return Ok(ToolOutput::text(json!({"plugins":manager.enabled_mcp_plugins().await}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
+                // Capture the runtime lease before reading enabled state. A
+                // concurrent disable revokes this exact lease even if the
+                // configuration lookup has already succeeded.
+                let lease = runtime.lease(plugin).await;
                 if action == "list" || action == "describe" {
                     let server = args.get("server").and_then(Value::as_str);
                     let previews = manager.mcp_preview(plugin).await.map_err(error)?;
@@ -61,7 +65,7 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                     }
                     let server = server.ok_or_else(|| error("server required"))?;
                     let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
-                    let tools = runtime.list_tools(&owner, &config).await.map_err(error)?;
+                    let tools = runtime.list_tools_with_lease(&owner, &config, &lease).await.map_err(error)?;
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                         let tool = tools.iter().find(|tool| tool.name == name).ok_or_else(|| error("unknown server tool"))?;
@@ -78,7 +82,7 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
                 let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
-                let call = runtime.call_tool(&owner, &config, tool, parameters);
+                let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
                     result = call => Ok(ToolOutput::text(result.map_err(error)?.to_string())),
                     _ = context.cancellation.cancelled() => {
