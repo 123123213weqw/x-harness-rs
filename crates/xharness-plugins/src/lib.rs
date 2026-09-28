@@ -1,6 +1,7 @@
 //! User-installed plugin data. No third-party JavaScript or executable code is
 //! loaded into the Host. Install is explicit, hash-checked and transactional;
-//! only SKILL.md is an active capability in this crate.
+//! Skill text and separately authorized MCP config are exposed to their own
+//! runtime boundaries.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

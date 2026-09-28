@@ -33,3 +33,13 @@ gh api -H 'Accept: application/vnd.github.raw+json' \
 - Rust：目录校验、非法 URL/IP、ZIP 路径穿越、SHA-256 失败、安装/启停/读取/重启/卸载、动态 Host RPC、真实 CDN 固定包测试；MCP 的 stdio 握手、发现、调用、跨会话隔离、配置篡改、在途取消和 Host 关闭。
 - Web：插件页源码与出厂 Bundle 同步、boot graph 校验、分类/搜索/操作入口测试。
 - **Rust 只在 WZU_Server 等远端运行 `cargo` 测试和检查**；本机只执行 `cargo fmt` 与 Node 测试。
+
+### 真实插件验收（隔离环境，手动触发）
+
+`plugin_mcp_live` 使用公开 CDN 中固定 SHA-256 的 `cloudbase-skills@0.1.0` ZIP，在临时插件状态目录中实际走目录导入、安装、MCP 命令预览、独立启用、`npx` stdio 握手、40 个 Tool 发现、只读 `searchKnowledgeBase(mode=docs, action=listModules)` 调用，以及停用后旧 Tool 快照拒绝访问。测试不会修改用户现有的 XHarness 状态或桌面安装；需要联网和 Node/npm，CI 默认忽略。V100 验收命令：
+
+```sh
+cargo test --locked -p xharness-host-app --test plugin_mcp_live -- --ignored --nocapture
+```
+
+此测试验证 Host/Tool 主链路，**不等于桌面端手工点击验收**；发布前仍需用新版桌面包检查预览弹窗、启停状态和错误呈现。
