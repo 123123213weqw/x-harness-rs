@@ -609,7 +609,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         goal,
         schedules: historical_state
             .as_ref()
-            .map(|snapshot| xharness_schedule::active_schedules(snapshot))
+            .map(xharness_schedule::active_schedules)
             .transpose()
             .map_err(RpcError::internal)?
             .unwrap_or_default(),
