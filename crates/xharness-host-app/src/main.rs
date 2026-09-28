@@ -16,7 +16,9 @@ use xharness_host::{
 };
 use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
-use xharness_host_app::{configured_web_runtime, ManagedAgentMarkdownSink, NativeToolFactory};
+use xharness_host_app::{
+    configured_web_runtime, ManagedAgentMarkdownSink, NativePluginBackend, NativeToolFactory,
+};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
@@ -188,6 +190,19 @@ async fn run(
         Arc::clone(&questions),
         Arc::clone(&schedules),
     );
+    let mcp = xharness_mcp::McpRuntime::new();
+    tools.bind_mcp(Arc::clone(&mcp))?;
+    let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
+        Ok(manager) => {
+            let manager = Arc::new(manager);
+            tools.bind_plugins(Arc::clone(&manager))?;
+            Some(manager)
+        }
+        Err(error) => {
+            eprintln!("plugin store unavailable; Agent startup continues: {error}");
+            None
+        }
+    };
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     *failure_code = Some(StartupFailureCode::RuntimeInitialization);
@@ -214,6 +229,9 @@ async fn run(
         control_store,
         questions,
     );
+    if let Some(plugins) = plugins {
+        host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
+    }
     tools.bind_agent_host(&host)?;
     *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let model_settings_base = match &args.providers_file {

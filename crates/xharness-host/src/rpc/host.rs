@@ -181,14 +181,35 @@ pub(super) async fn skill_list(host: &BasicHost, payload: &Value) -> Result<Valu
     if !host.state.read().await.sessions.contains_key(&session_id) {
         return Err(session_not_found(&session_id));
     }
-    Ok(json!({
-        "skills": [{
-            "name": "coding",
-            "description": "Inspect and modify a local workspace with XHarness coding tools.",
-            "whenToUse": "Use for software development, debugging, testing, and repository maintenance.",
-            "modelInvocable": true,
-        }],
-    }))
+    let mut skills = vec![json!({
+        "name": "coding",
+        "description": "Inspect and modify a local workspace with XHarness coding tools.",
+        "whenToUse": "Use for software development, debugging, testing, and repository maintenance.",
+        "modelInvocable": true,
+    })];
+    if let Some(plugins) = host.plugins.get() {
+        if let Ok(value) = plugins.call("plugins/skills", &json!({"args":{}})).await {
+            if let Some(rows) = value.get("skills").and_then(Value::as_array) {
+                for row in rows {
+                    let (Some(plugin), Some(skill)) =
+                        (row.get("plugin").and_then(Value::as_str), row.get("skill"))
+                    else {
+                        continue;
+                    };
+                    let Some(name) = skill.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    skills.push(json!({
+                        "name": format!("{plugin}/{name}"),
+                        "description": skill.get("description").and_then(Value::as_str).unwrap_or("Installed plugin skill"),
+                        "whenToUse": "Load with the plugin_skill tool when this skill is relevant.",
+                        "modelInvocable": true,
+                    }));
+                }
+            }
+        }
+    }
+    Ok(json!({"skills": skills}))
 }
 
 pub(super) async fn request_snapshot(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {

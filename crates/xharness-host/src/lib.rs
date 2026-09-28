@@ -30,6 +30,7 @@ mod model_processor;
 mod model_settings;
 #[cfg(test)]
 mod permission_tests;
+mod plugin_backend;
 mod preference_settings;
 mod preset_processor;
 mod questions;
@@ -66,6 +67,7 @@ pub use model_settings::{
     model_settings_schema, parse_model_settings, valid_credential_reference, ConfiguredModel,
     ModelSettingsBackend, ModelSettingsDocument, ProviderProfile, MODEL_SETTINGS_NAMESPACE,
 };
+pub use plugin_backend::PluginBackend;
 pub use questions::{
     managed_agent_memory, update_agent_markdown, AgentMarkdownSink, DurableQuestionHub,
     DurableQuestionProvider, NoopAgentMarkdownSink, QuestionHubError, AGENT_MEMORY_BEGIN,
@@ -193,6 +195,7 @@ pub struct BasicHost {
     pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
+    pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
     admission_gates: SessionGateMap,
     projection_gates: Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
@@ -289,6 +292,7 @@ impl BasicHost {
             event_gateway,
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),
+            plugins: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             projection_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),
