@@ -385,19 +385,16 @@ mod tests {
             }
         });
         let registry = Arc::new(ToolRegistry::new());
-        registry
-            .register(
-                crate::plugin_mcp::spec(
-                    None,
-                    xharness_mcp::McpRuntime::new(),
-                    Some(browser),
-                    "session-from-runtime".into(),
-                )
-                .requiring_approval(false),
-            )
-            .await
-            .unwrap();
-        let executor = ToolExecutor::new(registry);
+        let binding = crate::plugin_mcp::bind(
+            None,
+            Some(xharness_mcp::McpRuntime::new()),
+            Some(browser),
+            None,
+            "session-from-runtime".into(),
+            true,
+        );
+        registry.register(binding.spec).await.unwrap();
+        let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
         let list = executor
             .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
             .await;
