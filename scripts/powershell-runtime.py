@@ -113,7 +113,12 @@ def entries(archive):
     require(0 < len(infos) <= MAX_FILES, 'Invalid runtime ZIP entry count')
     seen, files, total = set(), [], 0
     for info in infos:
-        name = info.filename[:-1] if info.is_dir() else info.filename
+        # ZipInfo normalizes backslashes to slashes on Windows and truncates
+        # at NUL. Validate the original central-directory name, before relying
+        # on the normalized extraction name (same policy on every platform).
+        raw = info.orig_filename
+        require(raw == info.filename, 'Ambiguous normalized runtime ZIP path')
+        name = raw[:-1] if info.is_dir() else raw
         safe_relative(name)
         key = name.casefold()
         require(key not in seen, 'Duplicate or case-colliding runtime ZIP path')
@@ -211,11 +216,14 @@ def stage(root=STAGED, *, lock=None, archive=None, cache=None):
             cache.mkdir(parents=True, exist_ok=True)
             archive = cache / asset_name(lock)
             if not archive.exists():
-                # Unique download name; publish only a complete checked archive.
-                downloaded = temp / 'download.zip'
-                download(release_url(lock), downloaded, lock['archives'][TARGET]['size'])
-                require(downloaded.stat().st_size == lock['archives'][TARGET]['size'] and digest(downloaded) == lock['archives'][TARGET]['sha256'], 'PowerShell archive SHA256/size mismatch')
-                os.replace(downloaded, archive)
+                # Cache and staging can be on different Windows volumes (the
+                # hosted runner uses C: TEMP and D: workspace). Atomic publish
+                # must use a temporary file on the *cache* filesystem.
+                with tempfile.TemporaryDirectory(prefix='.powershell-download-', dir=cache) as download_dir:
+                    downloaded = Path(download_dir) / 'download.zip'
+                    download(release_url(lock), downloaded, lock['archives'][TARGET]['size'])
+                    require(downloaded.stat().st_size == lock['archives'][TARGET]['size'] and digest(downloaded) == lock['archives'][TARGET]['sha256'], 'PowerShell archive SHA256/size mismatch')
+                    os.replace(downloaded, archive)
         archive = Path(archive)
         require(archive.is_file() and not archive.is_symlink() and archive.stat().st_size == lock['archives'][TARGET]['size'] and digest(archive) == lock['archives'][TARGET]['sha256'], 'PowerShell archive SHA256/size mismatch')
         payload = temp / 'payload'
