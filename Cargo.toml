@@ -20,6 +20,7 @@ members = [
     "crates/xharness-provider-openai",
     "crates/xharness-process",
     "crates/xharness-platform",
+    "crates/xharness-plugins",
     "crates/xharness-prompt",
     "crates/xharness-projection",
     "crates/xharness-sandbox",
