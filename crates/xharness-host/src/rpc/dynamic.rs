@@ -19,6 +19,17 @@ pub(super) async fn call(
             .map(Some),
         "commands/list" => commands::list(host_backend, payload).await.map(Some),
         "commands/execute" => commands::execute(host_backend, payload).await,
+        name if name.starts_with("plugins/") => {
+            let backend = host_backend.plugins.get();
+            match backend {
+                Some(backend) => backend
+                    .call(name, payload)
+                    .await
+                    .map(Some)
+                    .map_err(|message| RpcError::bad_request(message, serde_json::json!([]))),
+                None => Err(RpcError::internal("plugin backend is not installed")),
+            }
+        }
         // The shipped Web client mutates Goals through namespaced remotes.
         // Every other upstream namespace stays unmounted on purpose.
         "goals/create" | "goals/edit" | "goals/pause" | "goals/resume" | "goals/complete"

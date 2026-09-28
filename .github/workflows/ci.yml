@@ -98,6 +98,7 @@ jobs:
       - run: node scripts/test-max-tokens-notice.mjs
       - run: node scripts/test-context-plugin.mjs
       - run: node scripts/test-profile-plugin.mjs
+      - run: node scripts/test-plugin-center.mjs
       - run: node scripts/test-terminal-plugin.mjs
       - run: node scripts/test-tasks-plugin.mjs
       - run: node scripts/test-motion-plugin.mjs
@@ -127,6 +128,8 @@ jobs:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-plugin-center-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-plugin-hub-functional.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=chromium node scripts/test-motion-tokens-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-motion-tokens-browser.mjs
