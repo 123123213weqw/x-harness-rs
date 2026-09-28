@@ -1149,7 +1149,7 @@ window.__ModuleLoader__.load({
 			agentLoopMaxParallel: "Parallel tool calls",
 			agentLoopMaxParallelHint: "Upper bound on parallel-safe calls running at once within one step.",
 			webSearchTitle: "Web search",
-			webSearchDescription: "The DeepSeek search provider.",
+			webSearchDescription: "Provider used for web search.",
 			webSearchApiKey: "API key",
 			webSearchApiKeyHint: "Stored outside the settings file. Leave blank to keep the current key.",
 			webSearchApiKeySet: "A key is configured.",
@@ -1189,7 +1189,7 @@ window.__ModuleLoader__.load({
 			agentLoopMaxParallel: "并行工具调用数",
 			agentLoopMaxParallelHint: "同一步内最多同时运行多少个可并行的调用。",
 			webSearchTitle: "网页搜索",
-			webSearchDescription: "DeepSeek 搜索提供方。",
+			webSearchDescription: "用于网页搜索的提供方。",
 			webSearchApiKey: "API Key",
 			webSearchApiKeyHint: "不写入设置文件。留空表示保持当前密钥。",
 			webSearchApiKeySet: "已配置密钥。",
@@ -1273,8 +1273,8 @@ window.__ModuleLoader__.load({
 					};
 				}
 			} } });
-			ctx.slots.inject("settings.section", () => ctx.slots.register({
-				name: "settings.section",
+			ctx.slots.inject("plugins.advanced", () => ctx.slots.register({
+				name: "plugins.advanced",
 				id: "plugins",
 				order: 15,
 				label: () => t("nav"),

@@ -2355,12 +2355,12 @@ window.__ModuleLoader__.load({
 		const WELCOME_NOTICE_COPY = {
 			zh: {
 				title: "内测声明",
-				body: "DeepSeek Harness 目前的 0.1 版本仍处在面向 Harness 开发者进行测试的阶段，还有许多地方需要持续改进和打磨，希望听取广大开发者的反馈建议。预计 DeepSeek Harness 的核心插件以及基础 API 都会在接下来的一段时间内快速迭代、持续演化。\n\n我们期待与全球开发者一起，在开源、开放、可复用、可组合的基础设施之上，共同探索智能上限。欢迎全球 Harness 开发者加入 DSH 插件生态。",
+				body: "",
 				continueLabel: "继续"
 			},
 			en: {
 				title: "Internal Testing Notice",
-				body: "DeepSeek Harness 0.1 remains in testing for Harness developers. Many areas need further improvement, and we welcome feedback from the developer community. DeepSeek Harness's core plugins and foundational APIs will continue to evolve rapidly over the coming months.\n\nWe look forward to exploring the limits of intelligence with developers around the world, building on open-source, open, reusable, and composable infrastructure. We welcome Harness developers everywhere to join the DSH plugin ecosystem.",
+				body: "",
 				continueLabel: "Continue"
 			}
 		};
@@ -2603,7 +2603,7 @@ window.__ModuleLoader__.load({
 			welcomeContinue: WELCOME_NOTICE_COPY.en.continueLabel,
 			welcomeError: "The acknowledgement could not be saved. Please try again.",
 			onboardingTitle: "Add an API key to get started",
-			onboardingDescription: "Configure the official DeepSeek provider to start building.",
+			onboardingDescription: "Add a provider API key to get started.",
 			onboardingLater: "Configure later",
 			onboardingSave: "Save and continue",
 			onboardingSaving: "Saving…",
@@ -2701,7 +2701,7 @@ window.__ModuleLoader__.load({
 			welcomeContinue: WELCOME_NOTICE_COPY.zh.continueLabel,
 			welcomeError: "暂时无法保存确认状态，请重试。",
 			onboardingTitle: "添加一个 API Key 开始使用",
-			onboardingDescription: "配置 DeepSeek 官方模型，即可开始使用。",
+			onboardingDescription: "添加模型提供方的 API 密钥即可开始使用。",
 			onboardingLater: "稍后配置",
 			onboardingSave: "保存并继续",
 			onboardingSaving: "保存中…",
@@ -2795,18 +2795,8 @@ window.__ModuleLoader__.load({
 				label: () => t("nav"),
 				inject: injected
 			}, ModelsSection));
-			ctx.slots.inject("settings.onboarding", () => ctx.slots.register({
-				name: "settings.onboarding",
-				id: "welcome-notice",
-				order: -100,
-				inject: welcomeInjected
-			}, WelcomeNotice));
-			ctx.slots.inject("settings.onboarding", () => ctx.slots.register({
-				name: "settings.onboarding",
-				id: "deepseek-official",
-				order: 0,
-				inject: deepSeekOnboardingInjected
-			}, DeepSeekOnboardingDialog));
+			// The upstream welcome notice is not a product notice.
+			// Model providers are configured from Settings, not an upstream-specific first-run prompt.
 		}
 		//#endregion
 		exports.apply = apply;

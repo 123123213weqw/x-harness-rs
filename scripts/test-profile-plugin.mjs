@@ -94,7 +94,7 @@ function text(node) {
 assert.match(text(view), /Usage profile/)
 assert.match(text(view), /496/)
 assert.match(text(view), /485/)
-assert.match(text(view), /Provider-reported tokens/)
+assert.doesNotMatch(text(view), /Provider-reported tokens|UTC event day|Session list is not ready/)
 assert.doesNotMatch(text(view), /NaN|Infinity/)
 function find(node, predicate) {
   if (Array.isArray(node)) return node.map(child => find(child, predicate)).find(Boolean)
@@ -102,6 +102,7 @@ function find(node, predicate) {
   return predicate(node) ? node : find(node.children, predicate)
 }
 const dayGrid = find(view, node => node.props?.className === 'xhp-weeks')
+assert.equal(find(view, node => node.props?.className === 'xhp-method'), undefined, 'implementation note is not a UI element')
 assert.equal(dayGrid.children[0].length, 26)
 const period = find(view, node => node.props?.className === 'xhp-period')
 assert.equal(period.children[0].length, 3)
