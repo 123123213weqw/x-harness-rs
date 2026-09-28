@@ -35,6 +35,89 @@ pub struct TokenBreakdown {
     pub total_input_tokens: u64,
 }
 
+/// Display-only composition of one prepared request. The category shares are
+/// local estimates even when `total_input_tokens` comes from an exact provider
+/// count: provider counters generally return one number, not role buckets.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextComposition {
+    pub system_tokens: u64,
+    pub user_tokens: u64,
+    pub assistant_tokens: u64,
+    pub tool_result_tokens: u64,
+    pub tool_definition_tokens: u64,
+    pub protocol_tokens: u64,
+    pub total_input_tokens: u64,
+    pub accuracy: TokenCountAccuracy,
+}
+
+impl ContextComposition {
+    /// Allocate an authoritative or estimated total across disjoint request
+    /// components. Integer remainders are assigned deterministically so the
+    /// displayed segments always sum to the reported request total.
+    pub fn estimate(
+        request: &TokenEstimateRequest,
+        total_input_tokens: u64,
+    ) -> Result<Self, TokenMeterError> {
+        let mut weights = [0_u64; 6];
+        for message in &request.system_messages {
+            weights[0] = weights[0]
+                .saturating_add(encoded_len(message)?)
+                .saturating_add(image_estimate(std::slice::from_ref(message))?)
+                .saturating_add(8);
+        }
+        for message in &request.conversation_messages {
+            let bucket = match message.get("role").and_then(Value::as_str) {
+                Some("user") => 1,
+                Some("tool") => 3,
+                Some("system") => 0,
+                _ => 2,
+            };
+            weights[bucket] = weights[bucket]
+                .saturating_add(encoded_len(message)?)
+                .saturating_add(image_estimate(std::slice::from_ref(message))?)
+                .saturating_add(8);
+        }
+        for tool in &request.tools {
+            weights[4] = weights[4]
+                .saturating_add(encoded_len(tool)?)
+                .saturating_add(12);
+        }
+        weights[5] = encoded_len(&(&request.provider, &request.model))?.saturating_add(32);
+        let weight_total: u128 = weights.iter().map(|weight| u128::from(*weight)).sum();
+        let mut allocated = [0_u64; 6];
+        if weight_total == 0 {
+            allocated[5] = total_input_tokens;
+        } else {
+            let mut remainders = [(0_u128, 0_usize); 6];
+            let mut allocated_total = 0_u64;
+            for (index, weight) in weights.iter().enumerate() {
+                let numerator = u128::from(*weight) * u128::from(total_input_tokens);
+                allocated[index] = (numerator / weight_total) as u64;
+                allocated_total = allocated_total.saturating_add(allocated[index]);
+                remainders[index] = (numerator % weight_total, index);
+            }
+            remainders.sort_by(|left, right| right.0.cmp(&left.0).then(left.1.cmp(&right.1)));
+            for (_, index) in remainders
+                .into_iter()
+                .take(total_input_tokens.saturating_sub(allocated_total) as usize)
+            {
+                allocated[index] += 1;
+            }
+        }
+        Ok(Self {
+            system_tokens: allocated[0],
+            user_tokens: allocated[1],
+            assistant_tokens: allocated[2],
+            tool_result_tokens: allocated[3],
+            tool_definition_tokens: allocated[4],
+            protocol_tokens: allocated[5],
+            total_input_tokens,
+            accuracy: TokenCountAccuracy::Estimated,
+        })
+    }
+}
+
 /// Confidence of the token count used for one admission decision.
 ///
 /// Exact request counts are produced by an endpoint that accepts the same
@@ -448,6 +531,44 @@ impl fmt::Debug for TokenGuard {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn request_composition_is_disjoint_and_uses_prepared_roles() {
+        let request = TokenEstimateRequest {
+            provider: "example".into(),
+            model: Some("model".into()),
+            system_messages: vec![json!({"role":"system","content":"rules"})],
+            conversation_messages: vec![
+                json!({"role":"user","content":"question"}),
+                json!({"role":"assistant","content":"answer","tool_calls":[{"name":"read"}]}),
+                json!({"role":"tool","content":"result"}),
+            ],
+            tools: vec![json!({"name":"read","parameters":{"type":"object"}})],
+        };
+        let composition = ContextComposition::estimate(&request, 1_001).unwrap();
+        assert_eq!(composition.total_input_tokens, 1_001);
+        assert_eq!(composition.accuracy, TokenCountAccuracy::Estimated);
+        assert!(composition.system_tokens > 0);
+        assert!(composition.user_tokens > 0);
+        assert!(composition.assistant_tokens > 0);
+        assert!(composition.tool_result_tokens > 0);
+        assert!(composition.tool_definition_tokens > 0);
+        assert_eq!(
+            composition.system_tokens
+                + composition.user_tokens
+                + composition.assistant_tokens
+                + composition.tool_result_tokens
+                + composition.tool_definition_tokens
+                + composition.protocol_tokens,
+            1_001
+        );
+        assert_eq!(
+            ContextComposition::estimate(&request, 0)
+                .unwrap()
+                .total_input_tokens,
+            0
+        );
+    }
     #[test]
     fn exceeded_reports_desired_and_minimum_output_without_changing_admission() {
         let guard = TokenGuard::conservative(TokenBudget {
