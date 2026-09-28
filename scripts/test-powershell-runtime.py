@@ -47,6 +47,13 @@ class ArchiveTests(unittest.TestCase):
                 if name not in omit:
                     z.writestr(name, pe_fixtures.fixture() if name in runtime.NATIVE else b'fixture')
             for name, value in (extras or []):
+                if isinstance(name, str):
+                    # ZipInfo also normalizes Windows separators when writing.
+                    # Emit the actual malicious central-directory bytes so the
+                    # regression is not accidentally a valid a/b file on Win.
+                    info = zipfile.ZipInfo(name)
+                    info.filename = name
+                    name = info
                 z.writestr(name, value)
         lock = copy.deepcopy(runtime.load_lock())
         lock['version'] = version
@@ -73,6 +80,21 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'SHA256/size'):
                 self.stage(lock)
             self.assertFalse(self.output.exists())
+
+    def test_atomic_download_publication_stays_on_cache_filesystem(self):
+        import shutil
+        lock = self.make()
+        cache = self.root / 'other volume/cache'
+        real_replace = runtime.os.replace
+        def replace(source, destination):
+            self.assertTrue(Path(source).is_relative_to(cache), 'cross-volume atomic move')
+            self.assertEqual(Path(destination).parent, cache)
+            return real_replace(source, destination)
+        def download(url, destination, limit):
+            shutil.copyfile(self.archive, destination)
+        with patch.object(runtime, 'download', side_effect=download), patch.object(runtime.os, 'replace', side_effect=replace):
+            receipt = runtime.stage(self.output, lock=lock, cache=cache)
+        self.assertEqual(receipt['version'], CURRENT)
 
     def test_missing_core_and_license_rejected(self):
         for name in runtime.CORE:
