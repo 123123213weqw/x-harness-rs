@@ -13,6 +13,7 @@ node_modules/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/binaries/xharness-host-*
 apps/desktop/src-tauri/binaries/rg-*
+apps/desktop/src-tauri/resources/powershell/
 
 # Local Python test cache, never a release input.
 __pycache__/
