@@ -15,6 +15,9 @@ try {
   const css = readFileSync(join(dir, 'monochrome.css'), 'utf8')
   assert.equal(css, readFileSync(new URL('../ui/dist/monochrome.css', import.meta.url), 'utf8'))
   assert.ok(css.includes('body[data-ds-dark-theme]'))
+  assert.match(css, /html, body, #root\s*\{[^}]*overflow:\s*hidden/)
+  assert.match(css, /html:has\(body\[data-ds-dark-theme\]\)\s*\{[^}]*background-color:\s*#171717/)
+  assert.match(css, /\[data-conversation-scroll\]\s*\{[^}]*overscroll-behavior-y:\s*contain/)
   assert.ok(!css.includes('filter:')) // Never desaturate images or semantic statuses.
   assert.ok(!/--dsw-alias-state-(error|success|warn).*:/.test(css))
   for (const match of css.matchAll(/#([0-9a-f]{6})(?:[0-9a-f]{2})?\b/g)) {
