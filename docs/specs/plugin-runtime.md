@@ -4,7 +4,7 @@
 
 1. **导入目录**：插件中心“添加目录”选择 `marketplace.json`；当前“公开／个人”标签决定导入目录归属，两个目录分别保存。Host 校验条目名称、`https` ZIP 来源、固定 SHA-256 和重复项，再以版本化状态快照保存。目录 JSON 是索引，不是可执行代码；私有 GitHub 仓库的访问凭据不进入软件和前端。
 2. **安装**：用户选条目并确认来源和摘要。Host 检查 DNS 公网地址、禁用重定向、限制压缩包 64 MiB / 解压 128 MiB / 2048 项、防路径穿越与符号链接，下载后核对 SHA-256；检查 `.zcode-plugin/plugin.json` 或 `.claude-plugin/plugin.json` 的名称匹配，再暂存并发布。安装后默认**停用**。
-3. **启用与使用**：`skills/<name>/SKILL.md` 由 `plugin_skill` 按需列出、读取；每个文本文件不超过 64 KiB，插件脚本只作为文本返回、不由 Skill 运行时执行。`.mcp.json` 的本地 stdio 服务需**另行预览命令、参数、环境变量名并确认启用**；随后新一轮 Tool Registry 才注册 `plugin_mcp`。模型先列出已启用插件／服务，再按需取 Tool Schema 和调用，不把全部 Schema 塞入每个请求。旧轮次的 Tool 快照不被中途改写；执行前仍复核当前启用状态。
+3. **启用与使用**：`skills/<name>/SKILL.md` 由 `plugin_skill` 按需列出、读取；每个文本文件不超过 64 KiB，插件脚本只作为文本返回、不由 Skill 运行时执行。`.mcp.json` 的本地 stdio 服务需**另行预览命令、参数、环境变量名并确认启用**；随后新一轮 Tool Registry 才注册 `plugin_mcp`。模型用 `list` 逐级列出插件、服务和简短 Tool 索引，再以 `describe` 读取单个 Tool Schema、`call` 调用；不把全部 Schema 塞入一个 Tool Result 或每个请求。旧轮次的 Tool 快照不被中途改写；执行前仍复核当前启用状态。
 4. **禁用、卸载、更新**：Skill 与 MCP 独立启停。禁用／卸载 MCP 会取消在途调用并关闭子进程；Host 退出也关闭全部 MCP 子进程。目录重新导入后按 SHA-256 比较产生更新提示。更新重新安装且默认停用，需再次检查、启用。
 5. **恢复**：状态写入不可变快照，启动读取最后一个有效版本；单个最新文件损坏可回退。插件状态若完全不可读，只让插件后端不可用，不阻断 Agent Host 启动。
 
@@ -36,7 +36,7 @@ gh api -H 'Accept: application/vnd.github.raw+json' \
 
 ### 真实插件验收（隔离环境，手动触发）
 
-`plugin_mcp_live` 使用公开 CDN 中固定 SHA-256 的 `cloudbase-skills@0.1.0` ZIP，在临时插件状态目录中实际走目录导入、安装、MCP 命令预览、独立启用、`npx` stdio 握手、40 个 Tool 发现、只读 `searchKnowledgeBase(mode=docs, action=listModules)` 调用，以及停用后旧 Tool 快照拒绝访问。测试不会修改用户现有的 XHarness 状态或桌面安装；需要联网和 Node/npm，CI 默认忽略。V100 验收命令：
+`plugin_mcp_live` 使用公开 CDN 中固定 SHA-256 的 `cloudbase-skills@0.1.0` ZIP，在临时插件状态目录中实际走目录导入、安装、MCP 命令预览、独立启用、`npx` stdio 握手、40 个 Tool 的简短索引与单个 Schema 读取、只读 `searchKnowledgeBase(mode=docs, action=listModules)` 调用，以及停用后旧 Tool 快照拒绝访问。测试不会修改用户现有的 XHarness 状态或桌面安装；需要联网和 Node/npm，CI 默认忽略。V100 验收命令：
 
 ```sh
 cargo test --locked -p xharness-host-app --test plugin_mcp_live -- --ignored --nocapture

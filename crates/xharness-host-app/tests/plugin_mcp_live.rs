@@ -95,13 +95,30 @@ async fn real_cloudbase_archive_reaches_mcp_discovery_and_revocation() {
         ))
         .await;
     assert!(discover.is_ok(), "MCP discovery failed: {discover:?}");
-    let parsed: Value = serde_json::from_str(&discover.output.unwrap().content).unwrap();
+    let discover_output = discover.output.unwrap().content;
+    println!("CloudBase MCP index bytes: {}", discover_output.len());
+    assert!(
+        discover_output.len() < 16 * 1024,
+        "tool index must stay compact"
+    );
+    let parsed: Value = serde_json::from_str(&discover_output).unwrap();
     let tools = parsed["tools"].as_array().unwrap();
     assert!(!tools.is_empty());
     println!(
         "CloudBase MCP tool names: {:?}",
         tools.iter().map(|tool| &tool["name"]).collect::<Vec<_>>()
     );
+    assert!(tools.iter().all(|tool| tool.get("inputSchema").is_none()));
+    let described = executor
+        .execute(ToolRequest::new(
+            "plugin_mcp",
+            r#"{"action":"describe","plugin":"cloudbase-skills","server":"cloudbase","tool":"searchKnowledgeBase"}"#,
+        ))
+        .await;
+    assert!(described.is_ok(), "MCP describe failed: {described:?}");
+    let described: Value = serde_json::from_str(&described.output.unwrap().content).unwrap();
+    assert_eq!(described["tool"]["name"], "searchKnowledgeBase");
+    assert_eq!(described["tool"]["inputSchema"]["type"], "object");
     // This action only lists public documentation modules; it does not need
     // credentials or modify a CloudBase environment.
     let called = executor

@@ -29,9 +29,9 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use user-enabled local MCP servers. action=list without plugin lists enabled plugins; with plugin lists its servers and tools. action=call invokes one tool by plugin, server and tool name. All servers start lazily and are isolated per chat. Never use this for plugins not enabled by the user.",
+            "Use user-enabled local MCP servers. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
             json!({"type":"object","properties":{
-                "action":{"type":"string","enum":["list","call"]},
+                "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
                 "arguments":{"type":"object"}
             },"required":["action"]}),
@@ -48,7 +48,7 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                     return Ok(ToolOutput::text(json!({"plugins":manager.enabled_mcp_plugins().await}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
-                if action == "list" {
+                if action == "list" || action == "describe" {
                     let server = args.get("server").and_then(Value::as_str);
                     let previews = manager.mcp_preview(plugin).await.map_err(error)?;
                     // A stale tool snapshot cannot start a server after the user
@@ -56,15 +56,24 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                     if !manager.enabled_mcp_plugins().await.iter().any(|name| name == plugin) {
                         return Err(error("MCP plugin is disabled"));
                     }
-                    if server.is_none() {
+                    if server.is_none() && action == "list" {
                         return Ok(ToolOutput::text(json!({"plugin":plugin,"servers":previews.iter().map(|p| &p.server).collect::<Vec<_>>()}).to_string()));
                     }
-                    let server = server.unwrap();
+                    let server = server.ok_or_else(|| error("server required"))?;
                     let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
                     let tools = runtime.list_tools(&owner, &config).await.map_err(error)?;
-                    return Ok(ToolOutput::text(json!({"tools":tools}).to_string()));
+                    if action == "describe" {
+                        let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
+                        let tool = tools.iter().find(|tool| tool.name == name).ok_or_else(|| error("unknown server tool"))?;
+                        return Ok(ToolOutput::text(json!({"tool":tool}).to_string()));
+                    }
+                    let index = tools.iter().map(|tool| json!({
+                        "name":tool.name,
+                        "description":tool.description.chars().take(160).collect::<String>()
+                    })).collect::<Vec<_>>();
+                    return Ok(ToolOutput::text(json!({"tools":index}).to_string()));
                 }
-                if action != "call" { return Err(error("action must be list or call")); }
+                if action != "call" { return Err(error("action must be list, describe or call")); }
                 let server = args.get("server").and_then(Value::as_str).ok_or_else(|| error("server required"))?;
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
