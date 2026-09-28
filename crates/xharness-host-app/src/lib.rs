@@ -811,6 +811,7 @@ mod tests {
                             Ok(ToolOutput {
                                 content: "independent work done".into(),
                                 metadata: None,
+                                command_failure: None,
                             })
                         },
                     ))

@@ -18,7 +18,7 @@ pub use xharness_context::{
     MAX_REQUEST_IMAGE_BYTES,
 };
 pub use xharness_token::{
-    ConservativeByteMeter, ProviderInputTokenCount, TokenBreakdown, TokenBudget, TokenBudgetError,
-    TokenBudgetReport, TokenCountAccuracy, TokenEstimateRequest, TokenGuard, TokenMeter,
-    TokenMeterError,
+    ConservativeByteMeter, ContextComposition, ProviderInputTokenCount, TokenBreakdown,
+    TokenBudget, TokenBudgetError, TokenBudgetReport, TokenCountAccuracy, TokenEstimateRequest,
+    TokenGuard, TokenMeter, TokenMeterError,
 };

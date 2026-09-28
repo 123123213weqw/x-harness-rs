@@ -190,6 +190,12 @@ pub trait Store: Send + Sync + 'static {
     /// Load one complete logical snapshot.
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError>;
 
+    /// Whether the caller must materialize a full request envelope for audit.
+    /// Stores retaining the original header keep the compatible default.
+    fn captures_full_request_audit(&self) -> bool {
+        true
+    }
+
     /// Store request audit data outside the hot journal when supported.
     /// This never changes the messages delivered to the provider.
     async fn archive_request(

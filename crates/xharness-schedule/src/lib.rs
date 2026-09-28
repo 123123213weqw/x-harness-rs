@@ -44,6 +44,14 @@ pub fn has_active_schedules(session: &Session) -> Result<bool, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Rebuild the current catalog from the durable session log. The browser must
+/// not infer this from a paginated chat window, which may omit old creates.
+pub fn active_schedules(session: &Session) -> Result<Vec<ScheduleRecord>, String> {
+    fold_schedule_events(session)
+        .map(|folded| folded.active)
+        .map_err(|error| error.to_string())
+}
+
 trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
 }

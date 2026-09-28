@@ -128,6 +128,7 @@ pub(crate) async fn validate_report(
             "Goal report recorded; finish this turn. Completion still requires user confirmation."
                 .into(),
         metadata: Some(json!({"goalReport":body})),
+        command_failure: None,
     })
 }
 

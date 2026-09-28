@@ -84,6 +84,71 @@ impl EventStore for NoToolArchive {
     }
 }
 
+#[derive(Default)]
+struct FailedRequestAudit(EventMemorySessionStore);
+#[async_trait]
+impl EventStore for FailedRequestAudit {
+    fn captures_full_request_audit(&self) -> bool {
+        false
+    }
+
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.0.list_headers().await
+    }
+    async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+        self.0.create(header).await
+    }
+    async fn load(&self, id: &str) -> Result<Option<Session>, StoreError> {
+        self.0.load(id).await
+    }
+    async fn archive_request(&self, header: RequestHeader) -> Result<RequestHeader, StoreError> {
+        assert!(header.input.is_empty() && header.tools.is_empty());
+        assert_eq!(header.options["inputMessageCount"], 1);
+        Err(StoreError::Backend {
+            message: "audit storage unavailable".into(),
+        })
+    }
+    async fn append(
+        &self,
+        id: &str,
+        revision: Revision,
+        events: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        self.0.append(id, revision, events).await
+    }
+    async fn flush(&self, id: &str) -> Result<Revision, StoreError> {
+        self.0.flush(id).await
+    }
+    async fn inspect(&self, id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.0.inspect(id).await
+    }
+}
+
+#[tokio::test]
+async fn optional_request_audit_failure_does_not_prevent_a_model_turn() {
+    let store = Arc::new(FailedRequestAudit::default());
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("hello")]);
+    request.session_id = Some("audit-unavailable".into());
+    request.journal_store = Some(store.clone());
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(provider.attempts(), 1);
+    let session = store.load("audit-unavailable").await.unwrap().unwrap();
+    let header = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => Some(header),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(header.options["auditSnapshot"]["kind"], "omitted");
+    assert_eq!(header.options["auditSnapshot"]["reason"], "archive_failed");
+    assert_eq!(header.options["inputMessageCount"], 1);
+    assert!(header.input.is_empty() && header.tools.is_empty());
+}
+
 #[tokio::test]
 async fn failed_archive_stops_before_next_provider_call_without_tool_retry() {
     let store = Arc::new(NoToolArchive::default());
@@ -148,9 +213,9 @@ use xharness_session::{
     AppendReceipt, ApprovalOutcome, AssistantChunk, CommandResultKind, CommandSource,
     EventData as SessionEventData, GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot,
     GoalSnapshotChange, GoalSnapshotOperation, InboxMessage, InboxTarget,
-    MemorySessionStore as EventMemorySessionStore, Revision, ScheduleChange, ScheduleKind,
-    ScheduleRecord, Session, SessionEvent, SessionHeader, SessionInspection, SessionTitleSource,
-    Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
+    MemorySessionStore as EventMemorySessionStore, RequestHeader, Revision, ScheduleChange,
+    ScheduleKind, ScheduleRecord, Session, SessionEvent, SessionHeader, SessionInspection,
+    SessionTitleSource, Store as EventStore, StoreError, ToolOutcome, TurnEndReason,
 };
 use xharness_tools::{
     ToolConcurrency as RuntimeToolConcurrency, ToolDefinition as RuntimeToolDefinition,
@@ -260,6 +325,7 @@ fn runtime_output(result: ToolResult) -> Result<RuntimeToolOutput, RuntimeToolHa
         Ok(RuntimeToolOutput {
             content: result.content,
             metadata: result.metadata,
+            command_failure: None,
         })
     } else {
         Err(RuntimeToolHandlerError::new(result.error))
@@ -1854,6 +1920,10 @@ async fn provider_exact_count_prevents_conservative_byte_false_positive() {
         header.options["tokenBudget"]["estimate"]["totalInputTokens"],
         70_857
     );
+    let composition = &header.options["contextComposition"];
+    assert_eq!(composition["totalInputTokens"], 70_857);
+    assert_eq!(composition["accuracy"], "estimated");
+    assert!(composition["userTokens"].as_u64().unwrap() > 0);
     let contexts = session
         .events()
         .iter()
@@ -3865,6 +3935,19 @@ async fn prompt_is_first_in_every_provider_request_and_audited_in_the_request_he
     assert_eq!(
         header.options["tokenBudget"]["estimate"]["totalInputTokens"],
         42
+    );
+    assert_eq!(header.options["contextComposition"]["totalInputTokens"], 42);
+    assert!(
+        header.options["contextComposition"]["systemTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        header.options["contextComposition"]["userTokens"]
+            .as_u64()
+            .unwrap()
+            > 0
     );
     assert!(session
         .derive_messages()

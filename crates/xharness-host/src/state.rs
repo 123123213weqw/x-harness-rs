@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use xharness_control::{ControlRevision, MutationReceipt};
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
 use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
-use xharness_session::SessionMutationReceipt;
+use xharness_session::{ScheduleRecord, SessionMutationReceipt};
 
 use crate::HostConfig;
 use xharness_projection::metrics::MetricsProjectionState;
@@ -284,6 +284,13 @@ pub struct SessionRecord {
     pub plan_active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalState>,
+    /// Rebuildable active Schedule catalog. Unlike the bounded event tail,
+    /// this includes rules created before the current history page.
+    #[serde(skip)]
+    pub(crate) schedules: Vec<ScheduleRecord>,
+    /// Metadata-only startup records have not yet replayed their full log.
+    #[serde(skip)]
+    pub(crate) schedules_hydrated: bool,
     /// Bounded tail cache for durable runtimes; complete history is served
     /// from the authoritative Session log. Ephemeral runtimes keep base zero
     /// and retain their complete compatibility history here.
@@ -425,6 +432,9 @@ impl SessionRecord {
                 .as_ref()
                 .map_or(Value::Null, GoalState::projection),
         );
+        if self.schedules_hydrated {
+            values.insert("schedules".to_owned(), json!(self.schedules));
+        }
         values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
         values.insert(
             "dailyTokenUsage".to_owned(),

@@ -218,6 +218,12 @@ window.__ModuleLoader__.load({
       }).map(({ record }) => record)
     }
 
+    // The host's whole-log projection is authoritative. Event-window folding
+    // remains only as a compatibility fallback for an older backend.
+    function scheduleRecords(projection, legacyRecords) {
+      return Array.isArray(projection) ? projection : legacyRecords
+    }
+
     function ClockIcon() {
       return h('svg', {
         width: 14,
@@ -231,9 +237,11 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    function ScheduleCatalogAction({ useSession, t }) {
+    function ScheduleCatalogAction({ useSession, useProjection, t }) {
       const openState = useSession(snapshot => snapshot.openState)
-      const records = useSession(snapshot => snapshot.views.get(TARGET) ?? EMPTY_RECORDS)
+      const projectedRecords = useProjection('schedules')
+      const legacyRecords = useSession(snapshot => snapshot.views.get(TARGET) ?? EMPTY_RECORDS)
+      const records = scheduleRecords(projectedRecords, legacyRecords)
       const visible = openState === 'open' && records.length > 0
       const [open, setOpen] = useState(false)
       const [now, setNow] = useState(() => Date.now())
@@ -365,6 +373,7 @@ window.__ModuleLoader__.load({
     exports.formatScheduleFrequency = formatScheduleFrequency
     exports.formatScheduleRelative = formatScheduleRelative
     exports.orderScheduleRecords = orderScheduleRecords
+    exports.scheduleRecords = scheduleRecords
     return module.exports
   },
 })
