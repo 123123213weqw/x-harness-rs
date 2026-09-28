@@ -64,13 +64,16 @@ pub enum ToolBatchPolicy {
     Standalone,
 }
 
-/// Successful handler payload before pipeline finalization.
+/// Handler payload before pipeline finalization. A command may return its
+/// captured output while still reporting a non-zero exit as a tool failure.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ToolOutput {
     #[serde(default)]
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_failure: Option<String>,
 }
 
 impl ToolOutput {
@@ -78,6 +81,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             metadata: None,
+            command_failure: None,
         }
     }
 }

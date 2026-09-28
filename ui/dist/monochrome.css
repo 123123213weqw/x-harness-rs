@@ -1,5 +1,19 @@
 /* XHarness product palette. Keep upstream token ABI and semantic status colors.
    Explicit priority survives dynamically injected upstream theme styles. */
+/* The app frame owns the viewport. Its conversation/sidebar panes scroll
+   internally; allowing the document to scroll lets macOS WKWebView rubber-band
+   past a resized terminal dock and reveal the white page canvas. */
+html, body, #root {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body, #root { background-color: var(--dsw-alias-bg-base, #fff); }
+html { background-color: #fff; }
+html:has(body[data-ds-dark-theme]) { background-color: #171717; }
+[data-conversation-scroll] { overscroll-behavior-y: contain; }
+
 body {
   --dsw-static-neutral-bluish-00: #ffffff !important;
   --dsw-static-neutral-bluish-50: #fafafa !important;
