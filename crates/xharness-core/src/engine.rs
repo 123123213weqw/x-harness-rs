@@ -387,6 +387,8 @@ impl LoopEngine {
             pending_continuation: None,
             continuation_text: String::new(),
             output_continuations: 0,
+            network_continuations: 0,
+            network_recovery_deadline: None,
             cumulative_output_tokens: 0,
             step: 0,
             tool_batch_complete: true,
@@ -482,6 +484,13 @@ fn continuation_instruction(had_tool_call_fragments: bool, visible_text_is_empty
     "Continue exactly from where the preceding assistant response stopped. Do not repeat already emitted text, and close any unfinished Markdown or code structure naturally. Do not refer to this recovery instruction.".to_owned()
 }
 
+fn network_continuation_instruction(had_tool_call_fragments: bool) -> String {
+    if had_tool_call_fragments {
+        return "The previous assistant stream was interrupted by a network transport failure. Its unfinished tool calls were discarded and were NOT executed. Continue the same task without repeating already emitted text or completed tools. If a tool is still needed, emit a fresh complete call. Do not mention this recovery instruction.".to_owned();
+    }
+    "The previous assistant stream was interrupted by a network transport failure. Continue the same task from the preserved assistant message without repeating already emitted text or completed tools. This is a new generation, not a byte-exact stream resume. Do not mention this recovery instruction.".to_owned()
+}
+
 fn surface_node(seq: u64, message: &AgentMessage) -> Result<SurfaceNode, RunFailure> {
     let tokens = estimate_message_tokens(message)?;
     if !message.tool_calls.is_empty() {
@@ -524,6 +533,10 @@ struct Runner {
     pending_continuation: Option<AgentMessage>,
     continuation_text: String,
     output_continuations: usize,
+    /// Bounded automatic continuations of a partially committed transport
+    /// stream. A successful model response resets this streak.
+    network_continuations: usize,
+    network_recovery_deadline: Option<tokio::time::Instant>,
     cumulative_output_tokens: u64,
     step: usize,
     tool_batch_complete: bool,
@@ -953,8 +966,15 @@ impl Runner {
             );
 
             if model.interrupted {
+                let network_error = model.recoverable_transport_error.take();
+                let had_tool_fragments = !model.calls_by_index.is_empty();
                 if !model.text.is_empty() || !model.reasoning.is_empty() {
-                    self.final_text = model.text.clone();
+                    if network_error.is_some() {
+                        self.continuation_text.push_str(&model.text);
+                        self.final_text = self.continuation_text.clone();
+                    } else {
+                        self.final_text = model.text.clone();
+                    }
                     self.messages.push(AgentMessage {
                         content_blocks: Vec::new(),
                         id: None,
@@ -974,10 +994,36 @@ impl Runner {
                     self.journal_assistant_message(&message, None).await?;
                     self.snapshot("assistant_interrupted", true).await?;
                 }
+                if let Some(error) = network_error {
+                    // The partial assistant has been committed before another
+                    // model request can start. A failed wait retains it in the
+                    // journal without creating a synthetic user turn.
+                    self.network_continuations = self.network_continuations.saturating_add(1);
+                    let mut deadline = self.network_recovery_deadline;
+                    let steered = self
+                        .wait_model_retry(self.network_continuations, &error, &mut deadline)
+                        .await?;
+                    self.network_recovery_deadline = deadline;
+                    self.journal_step_end().await?;
+                    if steered {
+                        self.network_continuations = 0;
+                        self.network_recovery_deadline = None;
+                        self.continuation_text.clear();
+                        self.settle_control_at_boundary().await?;
+                        continue 'steps;
+                    }
+                    self.pending_continuation = Some(AgentMessage::user(
+                        network_continuation_instruction(had_tool_fragments),
+                    ));
+                    continue 'steps;
+                }
                 self.journal_step_end().await?;
                 self.settle_control_at_boundary().await?;
                 continue;
             }
+
+            self.network_continuations = 0;
+            self.network_recovery_deadline = None;
 
             let finish_reason_was_explicit = model.finish_reason.is_some();
             let finish_reason = match model.finish_reason.take() {
@@ -3182,7 +3228,7 @@ impl Runner {
     async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
         let max_attempts = self.request.config.provider_retries.saturating_add(1);
         let mut round = ModelRound::default();
-        let mut recovery_deadline = None;
+        let mut recovery_deadline = self.network_recovery_deadline;
 
         for attempt in 1..=max_attempts {
             self.ensure_running()?;
@@ -3429,6 +3475,25 @@ impl Runner {
                 continue;
             }
             if round.saw_delta {
+                if error.is_transient_transport()
+                    && self.network_continuations < self.request.config.provider_retries
+                    && self.step < self.request.config.max_steps
+                    && recovery_deadline
+                        .is_none_or(|deadline| tokio::time::Instant::now() < deadline)
+                {
+                    // Never replay a committed stream. Close this attempt and
+                    // ask for a fresh continuation after the partial assistant
+                    // has been durably recorded by the step loop. Fragmented
+                    // tool calls are discarded; no handler has run yet.
+                    provider_cancellation.cancel();
+                    round.calls.clear();
+                    round.provider_items.clear();
+                    round.interrupted = true;
+                    round.recoverable_transport_error = Some(error);
+                    self.network_recovery_deadline = recovery_deadline;
+                    self.emit(LoopEventKind::ModelInterrupted).await?;
+                    return Ok(round);
+                }
                 // Never execute or replay an unacknowledged fragmented tool call.
                 // Keep the original text/reasoning as explicitly interrupted history.
                 let partial = AgentMessage {
@@ -3444,7 +3509,8 @@ impl Runner {
                 };
                 if !partial.content.is_empty() || !partial.reasoning.is_empty() {
                     self.journal_assistant_message(&partial, None).await?;
-                    self.final_text = partial.content.clone();
+                    self.continuation_text.push_str(&partial.content);
+                    self.final_text = self.continuation_text.clone();
                     self.messages.push(partial);
                     self.snapshot("network_interrupted", true).await?;
                 }
@@ -4089,6 +4155,7 @@ struct ModelRound {
     completed: bool,
     saw_delta: bool,
     interrupted: bool,
+    recoverable_transport_error: Option<ProviderError>,
 }
 
 struct PendingToolDelta {

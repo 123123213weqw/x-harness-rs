@@ -1717,10 +1717,13 @@ mod tls_disconnect_tests {
             .await
             .unwrap();
             if mode == "partial" {
-                assert_eq!(result.status, LoopStatus::Failed);
-                assert_eq!(result.final_text, "partial");
-                assert_eq!(retries, 0);
-                assert!(result.error.unwrap().contains("close_notify"));
+                assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+                assert_eq!(result.final_text, "partialrecovered");
+                assert_eq!(retries, 1);
+                assert!(result
+                    .messages
+                    .iter()
+                    .any(|message| message.interrupted && message.content == "partial"));
             } else {
                 assert_eq!(
                     result.status,

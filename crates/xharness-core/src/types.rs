@@ -240,6 +240,20 @@ impl ProviderError {
             || message.contains("exceeds the available context size")
             || (message.contains("context window") && message.contains("exceed"))
     }
+
+    /// A committed stream may only be continued automatically after a
+    /// transport failure. HTTP and protocol failures need their own policy;
+    /// treating them as a dropped connection could repeat unsafe work.
+    pub fn is_transient_transport(&self) -> bool {
+        self.retryable
+            && self.http_status.is_none()
+            && self.diagnostics.as_ref().is_some_and(|diagnostics| {
+                matches!(
+                    diagnostics.kind.as_str(),
+                    "connection" | "idle_timeout" | "response_body" | "body" | "transport"
+                )
+            })
+    }
 }
 
 #[async_trait]
