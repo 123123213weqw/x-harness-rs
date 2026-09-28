@@ -93,7 +93,7 @@ impl ContextComposition {
             let mut allocated_total = 0_u64;
             for (index, weight) in weights.iter().enumerate() {
                 let numerator = u128::from(*weight) * u128::from(total_input_tokens);
-                allocated[index] = (numerator / weight_total) as u64;
+                allocated[index] = numerator.checked_div(weight_total).unwrap_or(0) as u64;
                 allocated_total = allocated_total.saturating_add(allocated[index]);
                 remainders[index] = (numerator % weight_total, index);
             }
