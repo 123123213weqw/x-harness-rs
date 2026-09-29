@@ -339,11 +339,16 @@ async fn run(
                 Err(error) => eprintln!("xharness recovery issue for {session_id}: {error}"),
             }
         }
+        let (catalogued_sessions, catalogue_issues) =
+            hydration_host.startup_catalogue_counts().await;
         let _ = hydration_debug
             .record(DebugEvent::new(
                 "host",
                 "restore",
                 serde_json::json!({
+                    "catalogueComplete": true,
+                    "cataloguedSessions": catalogued_sessions,
+                    "catalogueIssues": catalogue_issues,
                     "indexedRecovery": necessary.len(), "resumedSessions": resumed,
                     "deferredLegacySessions": deferred.len(),
                 }),

@@ -893,6 +893,13 @@ impl BasicHost {
             });
     }
 
+    /// The background catalogue is the readiness boundary for cold sessions.
+    /// History may remain deliberately unhydrated until the user opens it.
+    pub async fn startup_catalogue_counts(&self) -> (usize, usize) {
+        let state = self.state.read().await;
+        (state.sessions.len(), state.startup_issues.len())
+    }
+
     /// Deduplicated journal replay, used for selected startup work and when a
     /// user opens a metadata-only conversation.
     pub async fn hydrate_session(&self, session_id: &str) -> Result<(), HostRestoreError> {
