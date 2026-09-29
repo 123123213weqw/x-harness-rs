@@ -31,18 +31,165 @@ window.__ModuleLoader__.load({
 		* @param details - details width preference in px (0 = closed).
 		* @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
 		*/
-		function computeColumns(viewport, sidebar, details) {
+		// xh-browser-window-controller/v1
+// Keep native window sizing separate from React/layout. No bridge in an
+// ordinary web tab: it returns 0 and AppFrame uses the non-resizing drawer.
+function xhCreateBrowserWindowController(tauri) {
+  const api = tauri?.window;
+  const LogicalSize = api?.LogicalSize ?? tauri?.dpi?.LogicalSize;
+  let lease = null;
+  let queue = Promise.resolve(0);
+  const resize = async (open, preferredWidth) => {
+    if (typeof api?.getCurrentWindow !== 'function' || typeof api?.currentMonitor !== 'function' || typeof LogicalSize !== 'function') return 0;
+    const nativeWindow = api.getCurrentWindow();
+    if (!nativeWindow || typeof nativeWindow.setSize !== 'function') return 0;
+    const size = await nativeWindow.innerSize();
+    const scale = await nativeWindow.scaleFactor();
+    if (!Number.isFinite(scale) || scale <= 0) return 0;
+    if (!open) {
+      if (lease !== null) {
+        const expected = Math.round((lease.baseWidth + lease.addedWidth) * scale);
+        const unchanged = Math.abs(size.width - expected) <= Math.max(8, Math.ceil(8 * scale));
+        if (unchanged) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, size.height / scale));
+        lease = null;
+      }
+      return 0;
+    }
+    if (await nativeWindow.isMaximized() || await nativeWindow.isFullscreen()) { lease = null; return 0; }
+    const monitor = await api.currentMonitor();
+    if (!monitor?.workArea?.position || !monitor?.workArea?.size) return 0;
+    const position = await nativeWindow.outerPosition();
+    const outer = await nativeWindow.outerSize();
+    const expected = lease === null ? 0 : Math.round((lease.baseWidth + lease.addedWidth) * scale);
+    if (lease !== null && Math.abs(size.width - expected) > Math.max(8, Math.ceil(8 * scale))) lease = null;
+    const baseWidth = lease?.baseWidth ?? size.width / scale;
+    const priorAdded = lease?.addedWidth ?? 0;
+    const rightEdge = monitor.workArea.position.x + monitor.workArea.size.width;
+    const available = Math.max(0, (rightEdge - position.x - outer.width) / scale - 8);
+    const maxAdded = priorAdded + available;
+    const wanted = Math.max(360, Math.min(900, Math.round(preferredWidth)));
+    const granted = Math.min(wanted, maxAdded);
+    if (granted < 360) return 0;
+    if (Math.abs(granted - priorAdded) > 1) {
+      await nativeWindow.setSize(new LogicalSize(baseWidth + granted, size.height / scale));
+    }
+    lease = { baseWidth, addedWidth: granted };
+    return granted;
+  };
+  return {
+    set(open, preferredWidth = 440) {
+      // Open, resize, and close can be triggered by separate render cycles.
+      // Serialize them so a late resize cannot undo a later close.
+      queue = queue.catch(() => 0).then(() => resize(open, preferredWidth));
+      return queue.catch(() => 0);
+    },
+  };
+}
+
+// xharness-workspace-pane/v1
+// This is injected into the upstream layout module at build time. The pane
+// owns tabs and placement; each item type owns only its content renderer.
+const xhWorkspaceEmpty = { items: [], activeId: null };
+const xhWorkspaceStorageKey = 'xharness:browser-spaces-v1';
+let xhBrowserPersistQueue = Promise.resolve();
+let xhLastBrowserSnapshot = null;
+
+function xhLoadBrowserSpaces(snapshot) {
+  try {
+    const stored = JSON.parse(snapshot ?? localStorage.getItem(xhWorkspaceStorageKey) ?? '{}');
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    const result = {};
+    for (const [key, space] of Object.entries(stored).slice(-50)) {
+      if (typeof key !== 'string' || !Array.isArray(space?.items)) continue;
+      const items = space.items.filter(item => item?.kind === 'browser' && typeof item.id === 'string' && /^[A-Za-z0-9:_-]{1,64}$/.test(item.id))
+        .slice(-128).map(item => {
+          const valid = (Array.isArray(item.entries) ? item.entries : []).filter(url => {
+            try { const parsed = new URL(url); return url.length <= 4096 && ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password; } catch { return false; }
+          });
+          return {
+            id: item.id, kind: 'browser', source: 'browser',
+            title: typeof item.title === 'string' ? item.title.slice(0, 160) : '新标签页',
+            entries: valid.slice(-50),
+            position: Number.isInteger(item.position) ? item.position - Math.max(0, valid.length - 50) : -1,
+          };
+        });
+      for (const item of items) item.position = Math.max(-1, Math.min(item.position, item.entries.length - 1));
+      if (items.length) result[key] = { items, activeId: items.some(item => item.id === space.activeId) ? space.activeId : items[0].id };
+    }
+    return result;
+  } catch { return {}; }
+}
+
+function xhSaveBrowserSpaces(spaces) {
+  const stored = {};
+  for (const [key, space] of Object.entries(spaces).slice(-50)) {
+    const items = space.items.filter(item => item.kind === 'browser');
+    if (items.length) stored[key] = { items, activeId: space.activeId };
+  }
+  const snapshot = JSON.stringify(xhLoadBrowserSpaces(JSON.stringify(stored)));
+  try { localStorage.setItem(xhWorkspaceStorageKey, snapshot); } catch { /* Origin storage can be blocked. */ }
+  if (window.__TAURI__?.core?.invoke && snapshot !== xhLastBrowserSnapshot) {
+    xhLastBrowserSnapshot = snapshot;
+    xhBrowserPersistQueue = xhBrowserPersistQueue.catch(() => {}).then(() =>
+      window.__TAURI__.core.invoke('desktop_browser_persist', { snapshot })).catch(() => {
+      xhLastBrowserSnapshot = null;
+    });
+  }
+}
+
+function xhNextWorkspaceId(spaces) {
+  return Math.max(0, ...Object.values(spaces).flatMap(space => space.items.map(item => Number(item.id.match(/^browser:(\d+)$/)?.[1]) || 0)));
+}
+
+function xhWorkspaceOpen(space, item, reuse = true) {
+  const existing = reuse && space.items.find(value => value.kind === item.kind && value.source === item.source);
+  if (existing) return { ...space, activeId: existing.id };
+  return { items: [...space.items, item], activeId: item.id };
+}
+
+function xhWorkspaceClose(space, id) {
+  const index = space.items.findIndex(item => item.id === id);
+  if (index < 0) return space;
+  const items = space.items.filter(item => item.id !== id);
+  return { items, activeId: space.activeId === id ? (items[Math.min(index, items.length - 1)]?.id ?? null) : space.activeId };
+}
+
+function XhWorkspacePane({ space, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
+  const h = react.createElement;
+  const active = space.items.find(item => item.id === space.activeId);
+  const closeItem = item => onClose(item.id);
+  return h('section', { className: 'xhworkspace', 'aria-label': '工作区' },
+    h('div', { className: 'xhworkspace-tabs', role: 'tablist', 'aria-label': '工作区标签' },
+      space.items.map(item => h('div', { className: 'xhworkspace-tab', key: item.id, 'data-active': item.id === space.activeId || undefined },
+        h('button', { type: 'button', role: 'tab', 'aria-selected': item.id === space.activeId,
+          onClick: () => onSelect(item.id), title: item.title },
+          h('span', { className: 'xhworkspace-kind', 'aria-hidden': true }, item.kind === 'browser' ? '◎' : item.kind === 'tool' ? '⌘' : '▤'),
+          h('span', { className: 'xhworkspace-title' }, item.title)),
+        h('button', { type: 'button', className: 'xhworkspace-tab-close', 'aria-label': `关闭 ${item.title}`,
+          onClick: () => closeItem(item), title: '关闭标签' }, '×'))),
+      h('button', { type: 'button', className: 'xhworkspace-new', 'aria-label': '新建浏览器标签',
+        onClick: onNewBrowser, title: '新建浏览器标签' }, '+')),
+    h('div', { className: 'xhworkspace-body' },
+      active && h('div', { key: active.id, className: `xhworkspace-item xhworkspace-${active.kind}`,
+        role: 'tabpanel' },
+        active.kind === 'tool' ? renderSlot('details', {}) : renderSlot('workspace.item', {
+          item: active, open: true, onUpdate: patch => onUpdate(active.id, patch),
+          onClose: () => onClose(active.id), onNewBrowser,
+        }))));
+}
+
+function computeColumns(viewport, sidebar, details, minCenter = 640) {
 			const s = sidebar === 0 ? 56 : clampWidth(sidebar, 264, 420);
 			const d0 = details === 0 ? 0 : clampWidth(details, 300, 520);
-			if (s + d0 + 640 <= viewport) return {
+			if (s + d0 + minCenter <= viewport) return {
 				sidebar: s,
 				center: viewport - s - d0,
 				details: d0
 			};
-			const d1 = d0 === 0 ? 0 : Math.max(300, viewport - s - 640);
-			if (s + d1 + 640 <= viewport) return {
+			const d1 = d0 === 0 ? 0 : Math.max(300, viewport - s - minCenter);
+			if (s + d1 + minCenter <= viewport) return {
 				sidebar: s,
-				center: 640,
+				center: minCenter,
 				details: d1
 			};
 			return {
@@ -53,7 +200,7 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region \0dsh-css:deepseek-harness/packages/client/ui-layout/src/client/AppFrame.module.css.mjs
-		const css = "._84hhiq_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}._84hhiq_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_frame{transition:none}}._84hhiq_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1);min-width:0;overflow:hidden}._84hhiq_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2);min-width:0;overflow:hidden}._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none}._84hhiq_handle{cursor:col-resize;z-index:2;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}._84hhiq_frame[data-dragging] ._84hhiq_handle{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_handle{transition:none}}._84hhiq_handle[data-side=details]:after{content:\"\";box-sizing:border-box;background:var(--dsw-alias-button-floating-fill);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);opacity:0;width:12px;height:32px;transition:opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out), background var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:10px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._84hhiq_detailsCol:hover~._84hhiq_handle[data-side=details]:after,._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{opacity:1}._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{background:var(--dsw-alias-button-floating-hover);border-color:var(--dsw-alias-border-l3)}._84hhiq_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}._84hhiq_overlayLayer>*{pointer-events:auto}";
+		const css = "._84hhiq_frame{background:var(--dsw-alias-bg-base);height:100%;transition:grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);grid-template-rows:100%;display:grid;position:relative;overflow:hidden}._84hhiq_frame[data-dragging]{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_frame{transition:none}}._84hhiq_sidebarCol{background:var(--dsw-specific-sidebar-fill);border-right:1px solid var(--dsw-alias-border-l1);min-width:0;overflow:hidden}._84hhiq_centerCol{flex-direction:column;min-width:0;display:flex;overflow:hidden}._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2);min-width:0;overflow:hidden}._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none}._84hhiq_handle{cursor:col-resize;z-index:2;touch-action:none;width:8px;transition:left var(--ds-transition-duration-slow) var(--ds-ease-in-out);margin-left:-4px;position:absolute;top:0;bottom:0}._84hhiq_frame[data-dragging] ._84hhiq_handle{transition:none}@media (prefers-reduced-motion:reduce){._84hhiq_handle{transition:none}}._84hhiq_handle[data-side=details]:after{content:\"\";box-sizing:border-box;background:var(--dsw-alias-button-floating-fill);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);opacity:0;width:12px;height:32px;transition:opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out), background var(--ds-transition-duration-slow) var(--ds-ease-in-out);border-radius:10px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._84hhiq_detailsCol:hover~._84hhiq_handle[data-side=details]:after,._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{opacity:1}._84hhiq_handle[data-side=details]:hover:after,._84hhiq_handle[data-side=details][data-dragging=true]:after{background:var(--dsw-alias-button-floating-hover);border-color:var(--dsw-alias-border-l3)}._84hhiq_overlayLayer{z-index:20;pointer-events:none;position:absolute;inset:0}._84hhiq_overlayLayer>*{pointer-events:auto}.xhworkspace{height:100%;min-width:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base)}.xhworkspace-tabs{display:flex;align-items:center;flex:none;min-height:40px;gap:2px;padding:4px 8px 0;border-bottom:1px solid var(--dsw-alias-border-l2);overflow-x:auto;scrollbar-width:thin}.xhworkspace-tab{display:flex;align-items:center;flex:none;max-width:180px;min-width:90px;height:35px;border-radius:7px 7px 0 0;color:var(--dsw-alias-label-tertiary)}.xhworkspace-tab[data-active]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}.xhworkspace-tab>button[role=tab]{display:flex;align-items:center;gap:6px;min-width:0;flex:1;padding:0 8px;border:0;background:none;color:inherit;font:inherit;font-size:12px;cursor:pointer}.xhworkspace-kind{flex:none}.xhworkspace-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhworkspace-tab-close,.xhworkspace-new{flex:none;width:25px;height:25px;border:0;border-radius:5px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}.xhworkspace-tab-close:hover,.xhworkspace-new:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}.xhworkspace-body,.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item[hidden]{display:none}.xhworkspace-tool>div>div:first-child{display:none}._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{position:absolute;right:0;top:0;bottom:0;width:min(560px,calc(100% - 44px));z-index:25;box-shadow:-14px 0 40px #0004}._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:24;border:0;background:#0008}";
 		const tagId = "@xharness/dsh-client-ui-layout/AppFrame.module.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 			const tag = document.createElement("style");
@@ -68,7 +215,8 @@ window.__ModuleLoader__.load({
 			"frame": "_84hhiq_frame",
 			"handle": "_84hhiq_handle",
 			"overlayLayer": "_84hhiq_overlayLayer",
-			"sidebarCol": "_84hhiq_sidebarCol"
+			"sidebarCol": "_84hhiq_sidebarCol",
+			"workspaceScrim": "_84hhiq_workspaceScrim"
 		};
 		//#endregion
 		//#region lib/types/client/AppFrame.js
@@ -155,6 +303,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** The three-column frame (see module doc). */
+		const xhWorkspaceWindow = xhCreateBrowserWindowController(typeof window === "undefined" ? void 0 : window.__TAURI__);
 		function AppFrame({ useStore, useSessions, actions, renderSlot }) {
 			const panels = useStore((s) => s);
 			const detailsSession = useSessions((s) => {
@@ -173,6 +322,34 @@ window.__ModuleLoader__.load({
 				return () => window.removeEventListener("xharness:plugins:open", open);
 			}, []);
 			const [viewport, setViewport] = (0, react.useState)(() => window.innerWidth);
+			const spaceKey = useSessions(s => s.current ?? "__global__");
+			const spaceKeyRef = (0, react.useRef)(spaceKey); spaceKeyRef.current = spaceKey;
+			const [spaces, setSpaces] = (0, react.useState)(xhLoadBrowserSpaces);
+			const [browserRestored, setBrowserRestored] = (0, react.useState)(!window.__TAURI__?.core?.invoke);
+			const space = spaces[spaceKey] ?? xhWorkspaceEmpty;
+			const nextWorkspaceId = (0, react.useRef)(xhNextWorkspaceId(spaces));
+			(0, react.useEffect)(() => { if (browserRestored) xhSaveBrowserSpaces(spaces); nextWorkspaceId.current = Math.max(nextWorkspaceId.current, xhNextWorkspaceId(spaces)); }, [spaces, browserRestored]);
+			(0, react.useEffect)(() => { if (!window.__TAURI__?.core?.invoke) return; let alive = true; window.__TAURI__.core.invoke("desktop_browser_restore").then(snapshot => { if (alive && snapshot) setSpaces(xhLoadBrowserSpaces(snapshot)); }).catch(() => {}).finally(() => { if (alive) setBrowserRestored(true); }); return () => { alive = false; }; }, []);
+			const [workspaceWidth, setWorkspaceWidth] = (0, react.useState)(440);
+			const [nativeWorkspaceWidth, setNativeWorkspaceWidth] = (0, react.useState)(0);
+			const updateSpace = fn => setSpaces(all => { const key = spaceKeyRef.current; return { ...all, [key]: fn(all[key] ?? xhWorkspaceEmpty) }; });
+			const openWorkspace = (kind, fresh = false, detail = {}) => {
+				const id = kind === "tool" ? "tool" : `${kind}:${++nextWorkspaceId.current}`;
+				const source = kind === "file" ? detail.source : kind;
+				const item = { id, kind, source, sessionId: detail.sessionId, title: kind === "tool" ? "工具详情" : kind === "file" ? (detail.title || source.split(/[\\/]/).pop()) : "新标签页", entries: detail.url ? [detail.url] : [], position: detail.url ? 0 : -1 };
+				updateSpace(value => xhWorkspaceOpen(value, item, !fresh));
+			};
+			const closeWorkspace = id => { if (id === "tool") actions.closeDetails(); if (space.items.some(item => item.id === id && item.kind === "browser")) window.dispatchEvent(new CustomEvent("xharness:browser-close", { detail: { id } })); updateSpace(value => xhWorkspaceClose(value, id)); };
+			(0, react.useEffect)(() => {
+				const onOpen = event => { const detail = event.detail; if (detail?.kind === "browser" || detail?.kind === "tool" || (detail?.kind === "file" && typeof detail.source === "string" && detail.source.length > 0)) openWorkspace(detail.kind, detail.fresh === true, detail); };
+				const onCloseTool = () => updateSpace(value => xhWorkspaceClose(value, "tool"));
+				window.addEventListener("xharness:workspace-open", onOpen);
+				window.addEventListener("xharness:workspace-close-tool", onCloseTool);
+				return () => { window.removeEventListener("xharness:workspace-open", onOpen); window.removeEventListener("xharness:workspace-close-tool", onCloseTool); };
+			}, []);
+			(0, react.useEffect)(() => { setSpaces(all => { let changed = false; const next = { ...all }; for (const key of Object.keys(next)) if (key !== spaceKey && next[key].items.some(item => item.kind === "tool")) { next[key] = xhWorkspaceClose(next[key], "tool"); changed = true; } return changed ? next : all; }); }, [spaceKey]);
+			(0, react.useEffect)(() => { let active = true; xhWorkspaceWindow.set(space.items.length > 0, workspaceWidth).then(width => { if (active) setNativeWorkspaceWidth(width); }); return () => { active = false; }; }, [space.items.length > 0, workspaceWidth]);
+			(0, react.useEffect)(() => () => { void xhWorkspaceWindow.set(false); }, []);
 			const lastSession = (0, react.useRef)(detailsSession);
 			(0, react.useLayoutEffect)(() => {
 				if (detailsSession === void 0) return;
@@ -202,11 +379,17 @@ window.__ModuleLoader__.load({
 				actions.setNarrow(narrow);
 			}, [actions, narrow]);
 			const sidebarCollapsed = narrow ? !panels.narrowExpanded : panels.sidebar === 0;
-			const cols = computeColumns(viewport, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, detailsSession === void 0 ? 0 : panels.details);
+			const sidebarWidth = sidebarCollapsed ? 56 : panels.sidebar === 0 ? 280 : clampWidth(panels.sidebar, 264, 420);
+			const workspaceOpen = space.items.length > 0;
+			const workspaceAvailable = viewport - sidebarWidth - 480;
+			const workspaceDrawer = workspaceOpen && (nativeWorkspaceWidth < 360 || workspaceAvailable < 360);
+			const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth, workspaceAvailable) : 0;
+			const cols = computeColumns(viewport - workspaceDockWidth, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, 0, workspaceDockWidth > 0 ? 480 : 640);
 			const colsRef = (0, react.useRef)(cols);
 			colsRef.current = cols;
 			const sidebarBase = (0, react.useRef)(0);
 			const detailsBase = (0, react.useRef)(0);
+			const workspaceBase = (0, react.useRef)(0);
 			const [dragging, setDragging] = (0, react.useState)(false);
 			const onDragEnd = (0, react.useCallback)(() => {
 				setDragging(false);
@@ -225,12 +408,16 @@ window.__ModuleLoader__.load({
 			const onDetailsDrag = (0, react.useCallback)((dx) => {
 				actions.setDetails(detailsBase.current - dx);
 			}, [actions]);
+			const onWorkspaceStart = () => { workspaceBase.current = workspaceDockWidth; setDragging(true); };
+			const onWorkspaceDrag = dx => setWorkspaceWidth(clampWidth(workspaceBase.current - dx, 360, 900));
 			return (0, react_jsx_runtime.jsxs)("div", {
 				ref: frameRef,
 				className: AppFrame_module_css_default.frame,
-				style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` },
+				style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px` },
+				"data-xhworkspace-open": workspaceOpen || void 0,
+				"data-xhworkspace-drawer": workspaceDrawer || void 0,
 				"data-sidebar-collapsed": sidebarCollapsed || void 0,
-				"data-details-collapsed": cols.details === 0 || void 0,
+				"data-details-collapsed": !workspaceOpen || void 0,
 				"data-dragging": dragging || void 0,
 				children: [
 					(0, react_jsx_runtime.jsx)("div", {
@@ -252,7 +439,8 @@ window.__ModuleLoader__.load({
 								onClick: closePluginCenter,
 								children: "← " + (navigator.language.startsWith("zh") ? "返回对话" : "Back to chat")
 							}), renderSlot("plugins.center", {})]
-						}) : renderSlot("conversation", {}) }), (0, react_jsx_runtime.jsx)(DetailsColumn, { children: renderSlot("details", {}) })] }),
+						}) : renderSlot("conversation", {}) }), workspaceDrawer && (0, react_jsx_runtime.jsx)("button", { type: "button", className: AppFrame_module_css_default.workspaceScrim, "aria-label": "关闭工作区", onClick: () => closeWorkspace(space.activeId) }),
+					(0, react_jsx_runtime.jsx)(DetailsColumn, { children: (0, react_jsx_runtime.jsx)(XhWorkspacePane, { space, renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) })), onNewBrowser: () => openWorkspace("browser", true) }) })] }),
 					(0, react_jsx_runtime.jsx)("div", {
 						className: AppFrame_module_css_default.overlayLayer,
 						"data-shell-overlay": true,
@@ -265,11 +453,11 @@ window.__ModuleLoader__.load({
 						onDrag: onSidebarDrag,
 						onEnd: onDragEnd
 					}),
-					cols.details > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
+					workspaceDockWidth > 0 && (0, react_jsx_runtime.jsx)(DragHandle, {
 						side: "details",
-						left: viewport - cols.details,
-						onStart: onDetailsStart,
-						onDrag: onDetailsDrag,
+						left: viewport - workspaceDockWidth,
+						onStart: onWorkspaceStart,
+						onDrag: onWorkspaceDrag,
 						onEnd: onDragEnd
 					})
 				]
@@ -351,10 +539,12 @@ window.__ModuleLoader__.load({
 			/** Open the details panel (no-op when already open). */
 			openDetails() {
 				this.#require().openDetails();
+				window.dispatchEvent(new CustomEvent("xharness:workspace-open", { detail: { kind: "tool" } }));
 			}
 			/** Close the details panel. */
 			closeDetails() {
 				this.#require().closeDetails();
+				window.dispatchEvent(new Event("xharness:workspace-close-tool"));
 			}
 			#require() {
 				if (this.#panels === void 0) throw new Error("layout: panel actions not wired (root entry not mounted)");
@@ -446,7 +636,8 @@ window.__ModuleLoader__.load({
 						"shell.overlay": {
 							kind: "list",
 							scope: "root"
-						}
+						},
+						"workspace.item": { kind: "list", scope: "root" }
 					},
 					store: createLayoutStore,
 					inject: (actions) => {

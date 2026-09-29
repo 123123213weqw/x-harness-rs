@@ -222,7 +222,8 @@ for (const command of ['desktop_status', 'desktop_check_update', 'desktop_update
   assert.ok(appBuild.includes('"' + command + '"'), 'application manifest missing ' + command)
   assert.ok(capability.permissions.includes('allow-' + command.replaceAll('_', '-')), 'loopback capability missing ' + command)
 }
-assert.deepEqual(capability.windows, ['main'])
+assert.deepEqual(capability.webviews, ['main'])
+assert.equal(capability.windows, undefined, 'window-wide ACL would grant browser child views desktop commands')
 assert.deepEqual(capability.remote.urls, ['http://127.0.0.1:*'])
 
 const config = JSON.parse(await readFile(new URL('../apps/desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'))

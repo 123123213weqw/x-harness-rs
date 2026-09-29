@@ -15,6 +15,7 @@ import { patchPluginCenter } from './patch-plugin-center.mjs'
 import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
 import { patchAgentPresetUi } from './patch-agent-preset-ui.mjs'
 import { patchChatReadingWidth } from './patch-chat-reading-width.mjs'
+import { patchBrowserDock } from './patch-browser-dock.mjs'
 import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
 import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
@@ -136,6 +137,7 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationScrollFollow(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-ui-layout') bytes = patchBrowserDock(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -145,6 +147,18 @@ for (const entry of composed) {
 // and immutable revisioning as upstream client packages, so a rebuild cannot
 // silently drop XHarness-only UI capabilities.
 const productPlugins = [
+  {
+    id: '@xlang/xharness-client-ui-browser',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-browser/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-runtime',
+        '@deepseek-ai/dsh-client-ui-layout',
+        '@deepseek-ai/dsh-client-ui-conversation',
+      ],
+    },
+  },
   {
     id: '@xlang/xharness-client-ui-plugin-hub',
     source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-plugin-hub/client.js'),
