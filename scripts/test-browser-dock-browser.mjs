@@ -64,9 +64,9 @@ try {
       drawer: Boolean(frame.dataset.xhworkspaceDrawer),
     }
   })
-  assert.equal(wide.drawer, true, 'ordinary Web cannot enlarge its containing browser window')
-  assert.equal(wide.center, centerBefore, 'opening the browser must not squeeze the conversation')
-  assert.ok(wide.browser >= 430, JSON.stringify(wide))
+  assert.equal(wide.drawer, false, 'a wide window docks the browser even without native outward expansion')
+  assert.equal(wide.center, centerBefore - 440, 'internal dock shares width with the conversation')
+  assert.equal(wide.browser, 440, JSON.stringify(wide))
   await page.getByRole('textbox', { name: '网址' }).fill('example.com')
   await page.getByRole('textbox', { name: '网址' }).press('Enter')
   await page.evaluate(() => { layoutService.attachPanels(layoutActions); layoutService.openDetails() })
