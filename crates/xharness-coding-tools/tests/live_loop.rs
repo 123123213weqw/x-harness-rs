@@ -117,9 +117,9 @@ async fn live_model_calls_real_tool_and_finishes_the_loop() {
     );
 }
 
-/// Behavioral probe for the managed-background contract. This deliberately
-/// mentions legacy PTY/nohup patterns, then verifies that a real model follows
-/// the advertised Harness-native API instead of synthesizing its own daemon.
+/// Behavioral probe for a task explicitly requesting a managed background job.
+/// A native session remains valid for genuinely interactive or external work,
+/// but should not replace the managed API for this non-interactive command.
 #[tokio::test]
 #[ignore = "requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)"]
 async fn live_model_uses_managed_jobs_instead_of_pty_or_nohup() {
@@ -167,10 +167,10 @@ async fn live_model_uses_managed_jobs_instead_of_pty_or_nohup() {
         Arc::new(provider),
         vec![
             AgentMessage::system(format!(
-                "For long-running non-interactive commands use {NATIVE_SHELL_TOOL} with \
+                "For long-running non-interactive commands prefer {NATIVE_SHELL_TOOL} with \
                  run_in_background=true, retain the returned job_id, and collect it with \
-                 job_output. Never emulate a managed background job with shell detachment, \
-                 nohup, disown, screen, tmux, or a PTY."
+                 job_output. Native session tools may suit genuinely interactive or existing \
+                 external sessions when their status, logs, and stop method remain trackable."
             )),
             AgentMessage::user(format!(
                 "Run this as a managed background job and return only after collecting its \

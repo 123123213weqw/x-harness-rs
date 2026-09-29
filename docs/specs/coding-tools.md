@@ -47,15 +47,15 @@ Readiness 尚未完整投影到 Web 工具目录。
 ## 原生 Shell 与后台选择
 
 - 短命令使用前台 `bash`，默认 120 秒、最大 600 秒，Tool 外层保留 610 秒清理窗口。
-- 长时间、非交互命令使用 `run_in_background=true`；该模式不接受 `timeout_ms`，必须使用
+- 长时间、非交互命令优先使用 `run_in_background=true`；该模式不接受 `timeout_ms`，必须使用
   `job_output`/`job_kill` 控制。
 - “N 秒/某时/每隔多久后提醒我”使用 `schedule_create`，不要启动 Bash/Job 后再 `sleep`；Schedule
   完整契约见[持久定时提醒](schedule.md)。
 - 每次调用都是新 Shell；Unix 使用 Bash，Windows 仅使用 PowerShell 7 (`pwsh`)；`cd`、变量、
   函数不会跨调用保存，应使用 `cwd`。Windows 可由 PowerShell 显式调用 `ssh` 或 Git Bash。
-- 禁止用 `&`、`nohup`、`disown`、`screen`、`tmux` 或 PTY 模拟受管后台任务。前台命令根进程
-  退出后，Process Runtime 会清理同一受管进程组；这些技巧既不能获得可靠状态，也可能形成逃逸
-  后代和 Capture EOF 故障。
+- 确需交互式或已有外部会话时可选择 `tmux` 等系统工具；需记录状态查看、日志读取和停止方法，
+  不要把脱离 Shell 当成持久化保证。前台命令根进程退出后，Process Runtime 会清理同一受管
+  进程组；`&`、`nohup` 等不能保证跨 Host 存活，也不能提供 Job Registry 的状态与取消语义。
 - 非零 Exit Code 是正常的已完成进程结果，不是 Harness 基础设施异常；模型必须检查
   `success/exit_code` 或 Job `detail`。
 
