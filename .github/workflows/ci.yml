@@ -121,6 +121,8 @@ jobs:
       - run: node --check scripts/assemble-static-ui.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-workspace-directory.mjs
+      - run: node scripts/test-browser-ui.mjs
+      - run: node scripts/test-browser-window-controller.mjs
       - run: node scripts/test-workspace-created-at.mjs
       - run: node scripts/test-settings-save-feedback.mjs
       - name: Real browser layout regression
@@ -146,6 +148,18 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-subagent-navigation.mjs
           UI_TEST_BROWSER=chromium node scripts/test-workspace-directory-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-workspace-directory-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-pane-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-pane-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-dock-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-dock-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-dock-native-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-dock-native-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-native-bridge.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-native-bridge.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-persistence-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-persistence-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-restore-runtime.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-restore-runtime.mjs
           UI_TEST_BROWSER=chromium node scripts/test-conversation-message-edit-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-conversation-message-edit-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-attachments-browser.mjs

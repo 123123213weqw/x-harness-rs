@@ -16,6 +16,13 @@ fn main() {
             "desktop_download_update",
             "desktop_install_update",
             "desktop_set_computer_activity",
+            "desktop_browser_navigate",
+            "desktop_browser_activate",
+            "desktop_browser_bounds",
+            "desktop_browser_action",
+            "desktop_browser_close",
+            "desktop_browser_restore",
+            "desktop_browser_persist",
         ]),
     ))
     .expect("failed to generate desktop IPC permissions")
