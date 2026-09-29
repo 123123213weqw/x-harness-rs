@@ -190,6 +190,14 @@ pub trait Store: Send + Sync + 'static {
     /// Load one complete logical snapshot.
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError>;
 
+    /// Idempotently remove the journal and per-session sidecars. The Host must
+    /// durably tombstone the id and stop all writers before calling this.
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), StoreError> {
+        Err(StoreError::Backend {
+            message: format!("session deletion is unsupported for {session_id:?}"),
+        })
+    }
+
     /// Whether the caller must materialize a full request envelope for audit.
     /// Stores retaining the original header keep the compatible default.
     fn captures_full_request_audit(&self) -> bool {
@@ -307,6 +315,15 @@ impl Store for MemorySessionStore {
 
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
         Ok(self.sessions.read().await.get(session_id).cloned())
+    }
+
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), StoreError> {
+        self.sessions.write().await.remove(session_id);
+        self.tool_archives
+            .write()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        Ok(())
     }
 
     async fn append(

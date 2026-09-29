@@ -37,6 +37,7 @@ const React = {
   useEffect() {},
   useRef() { return { current: null } },
   useState(value) { return [value, () => {}] },
+  useSyncExternalStore(_subscribe, getSnapshot) { return getSnapshot() },
 }
 const ReactDOM = { createPortal(element) { return element } }
 
@@ -66,6 +67,10 @@ sandbox.navigator = {}
 const plugin = registration.factory((id) => {
   if (id === 'react') return React
   if (id === 'react-dom') return ReactDOM
+  if (id === '@xharness/dsh-client-ui-primitives') return Object.fromEntries([
+    'IconSearchOutline16', 'IconFolderClose16', 'IconTrashOutline16',
+    'IconEllipsisOutline16', 'IconChevronDownOutline14', 'IconChecklistOutline14',
+  ].map((name) => [name, () => null]))
   throw new Error(`unexpected module dependency: ${id}`)
 })
 
@@ -121,6 +126,19 @@ const reordered = plugin.groupSessions(
 )
 assert.equal(ids(reordered.today), '["today","today-older"]')
 
+// Archived settings group by the durable workspace membership, not by a
+// client-only title snapshot. Search/project filters and sorting compose.
+const archivedSnapshots = {
+  newer: { title: 'Fix browser', updatedAt: 200, workspaceId: 'project-a' },
+  older: { title: 'Fix tests', updatedAt: 100, workspaceId: 'project-a' },
+  orphan: { title: 'Loose chat', updatedAt: 150, workspaceId: null },
+}
+const archivedWorkspaces = [{ workspaceId: 'project-a', title: 'Alpha', sessionIds: ['newer', 'older'] }]
+const archivedGroups = plugin.groupArchived(['orphan', 'older', 'newer'], archivedSnapshots, archivedWorkspaces)
+assert.equal(JSON.stringify(archivedGroups.map((group) => group.ids)), '[["newer","older"],["orphan"]]')
+assert.equal(JSON.stringify(plugin.groupArchived(['orphan', 'older', 'newer'], archivedSnapshots, archivedWorkspaces, 'FIX', 'project-a', 'oldest').map((group) => group.ids)), '[["older","newer"]]')
+assert.equal(JSON.stringify(plugin.groupArchived(['orphan', 'older'], archivedSnapshots, archivedWorkspaces, '', '__other__').map((group) => group.ids)), '[["orphan"]]')
+
 // RPC calls use the frozen client-request envelope and surface failure text.
 requests = []
 responses = new Map([[JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-1', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [] } } }]])
@@ -171,6 +189,45 @@ await plugin.store.fork('x')
 assert.equal(plugin.store.actionError, 'fork denied')
 assert.equal(plugin.store.busyId, null)
 
+// Restoring preserves the original identity; deleting requires an explicit
+// confirmation and removes the archived snapshot only after the RPC succeeds.
+plugin.store.archivedIds = ['archived']
+plugin.store.snapshots.archived = { title: 'Original task' }
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-6', method: 'workspace.unarchiveSession', payload: { sessionId: 'archived' } }), { result: { ok: true, value: { archivedSessionIds: [] } } })
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-7', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [{ sessionId: 'archived' }] } } })
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-8', method: 'workspace.list', payload: {} }), { result: { ok: true, value: { archivedSessionIds: [] } } })
+await plugin.store.restore('archived')
+assert.equal(plugin.store.archivedIds.length, 0)
+assert.equal(plugin.store.sessions[0].sessionId, 'archived')
+assert.equal(plugin.store.snapshots.archived, undefined)
+
+plugin.store.archivedIds = ['delete-me']
+plugin.store.snapshots['delete-me'] = { title: 'Delete me' }
+await plugin.store.deleteArchived('delete-me')
+assert.equal(plugin.store.archivedIds.length, 1, 'delete is inert before confirmation')
+plugin.store.deleteConfirmId = 'delete-me'
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-9', method: 'session.delete', payload: { sessionId: 'delete-me' } }), { result: { ok: true, value: { deleted: true } } })
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-10', method: 'session.list', payload: {} }), { result: { ok: true, value: { items: [] } } })
+responses.set(JSON.stringify({ type: 'client-request', rpcId: 'xharness-tasks-11', method: 'workspace.list', payload: {} }), { result: { ok: true, value: { archivedSessionIds: [] } } })
+await plugin.store.deleteArchived('delete-me')
+assert.equal(plugin.store.archivedIds.length, 0)
+assert.equal(plugin.store.snapshots['delete-me'], undefined)
+assert.equal(plugin.store.deleteConfirmId, null)
+
+plugin.store.archivedIds = ['batch-a', 'batch-b']
+plugin.store.snapshots['batch-a'] = { title: 'Batch A' }
+plugin.store.snapshots['batch-b'] = { title: 'Batch B' }
+const beforeBatch = requests.length
+await plugin.store.deleteArchivedBatch(['batch-a', 'batch-b'])
+assert.equal(requests.length, beforeBatch, 'bulk deletion requires confirmation')
+plugin.store.deleteConfirmId = 'all'
+await plugin.store.deleteArchivedBatch(['batch-a', 'batch-b'])
+assert.equal(plugin.store.archivedIds.length, 0)
+assert.equal(plugin.store.snapshots['batch-a'], undefined)
+assert.equal(plugin.store.snapshots['batch-b'], undefined)
+assert.equal(plugin.store.busyId, null)
+assert.equal(requests.filter(({ body }) => body.method === 'session.delete').length, 3)
+
 // Exit animation completion owns unmount; reopening invalidates stale timers.
 plugin.store.open = true
 plugin.store.setOpen(false)
@@ -182,7 +239,7 @@ plugin.apply({
   locale: { register() {} },
   slots: {
     inject(_name, register) { register() },
-    register(_options, component) { slotRegistrations.push(component) },
+    register(options, component) { slotRegistrations.push({ options, component }) },
   },
 })
 function findClass(node, name) {
@@ -203,7 +260,17 @@ function findClass(node, name) {
   }
   return null
 }
-const closingPanel = findClass(React.createElement(slotRegistrations[0]), 'xhtask-panel-wrap-closing')
+assert.deepEqual(slotRegistrations.map(({ options }) => options.name), ['sidebar.footer.action', 'settings.section'])
+assert.equal(slotRegistrations[1].options.id, 'archived-chats')
+plugin.store.archivedIds = ['example']
+plugin.store.snapshots.example = { title: 'Saved conversation', updatedAt: Date.now() }
+const archivedSettings = React.createElement(slotRegistrations[1].component)
+assert.ok(findClass(archivedSettings, 'xhtask-settings-list'))
+assert.ok(findClass(archivedSettings, 'xhtask-archived-item'))
+const archivedRow = findClass(archivedSettings, 'xhtask-archived-item')
+assert.ok(JSON.stringify(archivedRow).includes('Saved conversation'))
+const closingPanel = findClass(React.createElement(slotRegistrations[0].component), 'xhtask-panel-wrap-closing')
+assert.equal(findClass(React.createElement(slotRegistrations[0].component), 'xhtask-archived-toggle'), null)
 assert.ok(closingPanel)
 const ownTarget = {}
 closingPanel.props.onAnimationEnd({ target: {}, currentTarget: ownTarget, animationName: 'xhtask-panel-out' })

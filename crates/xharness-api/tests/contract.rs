@@ -7,7 +7,7 @@ use xharness_api::{
     ServerRequest, ServerResponse, UPSTREAM_CONTRACT_REVISION,
 };
 
-const UPSTREAM_METHODS: &[&str] = &[
+const SUPPORTED_METHODS: &[&str] = &[
     "session.list",
     "session.search",
     "session.create",
@@ -20,6 +20,7 @@ const UPSTREAM_METHODS: &[&str] = &[
     "session.attachment",
     "session.updateQueue",
     "session.cancel",
+    "session.delete",
     "subagent.list",
     "subagent.history",
     "subagent.prompt",
@@ -36,6 +37,7 @@ const UPSTREAM_METHODS: &[&str] = &[
     "workspace.insertBefore",
     "workspace.insertSessionBefore",
     "workspace.archiveSession",
+    "workspace.unarchiveSession",
     "skill.list",
     "agentPreset.list",
     "agentPreset.select",
@@ -63,15 +65,15 @@ const UPSTREAM_METHODS: &[&str] = &[
 ];
 
 #[test]
-fn method_directory_matches_upstream_exactly() {
+fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
     assert_eq!(UPSTREAM_CONTRACT_REVISION, "deepseek-harness@141eb6fef8");
     let actual = RpcMethod::ALL
         .iter()
         .map(|method| method.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(actual, UPSTREAM_METHODS);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 52);
-    for name in UPSTREAM_METHODS {
+    assert_eq!(actual, SUPPORTED_METHODS);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 54);
+    for name in SUPPORTED_METHODS {
         assert_eq!(name.parse::<RpcMethod>().unwrap().as_str(), *name);
     }
 }
@@ -205,6 +207,9 @@ fn canonical_request(method: RpcMethod) -> Value {
             "workspaceId":"workspace", "sessionId":"session", "beforeSessionId":"other"
         }),
         RpcMethod::WorkspaceArchiveSession => json!({"sessionId":"session"}),
+        RpcMethod::WorkspaceUnarchiveSession | RpcMethod::SessionDelete => {
+            json!({"sessionId":"session"})
+        }
         RpcMethod::SkillList => json!({"sessionId":"session"}),
         RpcMethod::AgentPresetList => json!({}),
         RpcMethod::AgentPresetSelect => json!({"sessionId":"session","agentPreset":"coding"}),

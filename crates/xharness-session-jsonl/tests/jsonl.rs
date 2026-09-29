@@ -74,6 +74,28 @@ fn user_message(content: &str) -> SessionEvent {
 }
 
 #[tokio::test]
+async fn delete_session_data_removes_only_selected_journal_and_is_idempotent() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap();
+    store.create(header("delete-me")).await.unwrap();
+    store.create(header("keep-me")).await.unwrap();
+    let reference = store
+        .archive_tool_result("delete-me", "private result")
+        .await
+        .unwrap();
+    store.delete_session_data("delete-me").await.unwrap();
+    store.delete_session_data("delete-me").await.unwrap();
+    assert!(!dir.session_file("delete-me").exists());
+    assert!(store.load("delete-me").await.unwrap().is_none());
+    assert!(store
+        .tool_result_archive("delete-me", &reference.sha256)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store.load("keep-me").await.unwrap().is_some());
+}
+
+#[tokio::test]
 async fn create_is_exclusive_and_header_is_first_jsonl_record() {
     let dir = TestDir::new();
     let store = JsonlSessionStore::new(dir.path()).unwrap();

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{json, Value};
-use xharness_api::{RpcError, RpcErrorCode};
+use xharness_api::{protocol::ArchivedSessionSummary, RpcError, RpcErrorCode};
 use xharness_control::ControlEvent;
 
 use crate::{control::workspace_snapshot, state::WorkspaceRecord};
@@ -19,6 +19,7 @@ pub(crate) struct WorkspaceStateView {
     pub(crate) workspaces: BTreeMap<String, WorkspaceRecord>,
     pub(crate) workspace_order: Vec<String>,
     pub(crate) archived_sessions: BTreeSet<String>,
+    pub(crate) archived_summaries: Vec<ArchivedSessionSummary>,
     pub(crate) session_ids: BTreeSet<String>,
 }
 
@@ -58,6 +59,7 @@ impl WorkspaceProcessor {
         json!({
             "items": items,
             "archivedSessionIds": self.state.archived_sessions,
+            "archivedSessions": self.state.archived_summaries,
         })
     }
 
@@ -265,6 +267,25 @@ impl WorkspaceProcessor {
         ))
     }
 
+    pub(crate) fn unarchive_session(
+        &self,
+        session_id: &str,
+    ) -> Result<WorkspaceMutation, RpcError> {
+        if !self.state.session_ids.contains(session_id) {
+            return Err(session_not_found(session_id));
+        }
+        let mut archived = self.state.archived_sessions.clone();
+        archived.remove(session_id);
+        let archived_ids = archived.iter().cloned().collect::<Vec<_>>();
+        Ok(WorkspaceMutation::new(
+            vec![ControlEvent::ArchivedSessionsSet {
+                session_ids: archived_ids,
+            }],
+            json!({"archivedSessionIds": archived}),
+            vec![json!({"type":"host/archived-sessions-changed","archivedSessionIds":archived})],
+        ))
+    }
+
     fn workspace(&self, workspace_id: &str) -> Result<&WorkspaceRecord, RpcError> {
         self.state
             .workspaces
@@ -320,6 +341,7 @@ mod tests {
             ]),
             workspace_order: vec!["a".to_owned(), "b".to_owned()],
             archived_sessions: BTreeSet::new(),
+            archived_summaries: Vec::new(),
             session_ids: BTreeSet::from(["s1".to_owned(), "s2".to_owned()]),
         })
     }
