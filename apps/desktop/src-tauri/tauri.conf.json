@@ -12,6 +12,8 @@
       {
         "label": "main",
         "title": "XHarness",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "url": "index.html",
         "dragDropEnabled": false,
         "width": 1360,

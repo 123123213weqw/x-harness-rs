@@ -8161,7 +8161,7 @@ keepMounted: index >= activeSuffix,
 			if (state === void 0) return void 0;
 			const settled = finalNode(state, context);
 			const blocks = settled?.blocks ?? compactBlocks(state.blocks);
-			const visible = hasVisibleContent(blocks);
+			const visible = hasVisibleContent(blocks) || settled === void 0 && blocks.some(xhPreparingCall);
 			const status = settled?.interrupted === true ? "interrupted" : settled === void 0 ? "running" : "settled";
 			const anchorSeq = settled?.seq ?? state.firstVisibleSeq ?? context.matches[0]?.event.seq ?? 0;
 			const time = settled?.time ?? state.firstVisibleTime ?? context.matches[0]?.event.time ?? 0;
@@ -9844,8 +9844,30 @@ const XhCheckpointView=(0,react.memo)(function XhCheckpointView({node}){
 		* @param props.t - conversation locale seat for the running status.
 		* @returns the reasoning disclosure.
 		*/
+		// XHARNESS UPSTREAM UI EXPERIENCE 0.1.7-rc.2
+// Shared presentation preference used by both the Tool and Conversation
+// bundles.  The settings plugin emits this event after persistence; no Host
+// event or session log is modified by a display-only choice.
+function xhUseProcessMode() {
+  const read = () => typeof document === 'undefined' ? 'standard' : document.documentElement.dataset.xhProcessMode || 'standard'
+  const [mode, setMode] = react.useState(read)
+  react.useEffect(() => {
+    const update = () => setMode(read())
+    window.addEventListener('xh-process-mode', update)
+    update()
+    return () => window.removeEventListener('xh-process-mode', update)
+  }, [])
+  return mode
+}
+
 		function ReasoningRow({ text, running, t }) {
 			const [expanded, setExpanded] = (0, react.useState)(false);
+			const processMode = xhUseProcessMode();
+			(0, react.useEffect)(() => {
+				if (processMode === "verbose") setExpanded(true);
+				else if (processMode === "compact") setExpanded(false);
+				else if (processMode === "detailed" && running && text.length < 8192) setExpanded(true);
+			}, [processMode, running]);
 			const summaryRef = (0, react.useRef)(null);
 			const summary = running ? latestLine(text) : firstLine(text);
 			const scheduleSummaryScroll = useThrottledVisualUpdate(() => {
@@ -9916,6 +9938,12 @@ const XhCheckpointView=(0,react.memo)(function XhCheckpointView({node}){
 		//#endregion
 		//#region lib/types/client/chat/AssistantMarkdown.js
 		/** Reasoning block as the Think variant summary row (figma 39:28304). */
+		function xhPreparingCall(block) {
+			if (block.kind !== "tool-call" || !block.name) return false;
+			if (!block.argsRaw || block.argsRaw.length > 8192) return true;
+			try { const value = JSON.parse(block.argsRaw); return value === null || typeof value !== "object" || Array.isArray(value); }
+			catch { return true; }
+		}
 		const AssistantMarkdown = (0, react.memo)(function AssistantMarkdown({ blocks, streaming, interrupted, renderMessageImages, mentions, t }) {
 			const codeLabels = (0, react.useMemo)(() => ({
 				copyLabel: t("copy"),
@@ -9958,7 +9986,12 @@ const XhCheckpointView=(0,react.memo)(function XhCheckpointView({node}){
 						}) }, start));
 						break;
 					}
-					case "tool-call": break;
+					case "tool-call":
+						if (streaming && xhPreparingCall(block)) rendered.push((0, react_jsx_runtime.jsx)("div", {
+							className: "xh-tool-preparing", role: "status", "aria-live": "polite",
+							children: [(document.documentElement.lang || "").startsWith("zh") ? "准备工具" : "Preparing tool", " · ", block.name]
+						}, i));
+						break;
 					default: rendered.push((0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.JsonBlock, {
 						label: t("message.unknownBlock"),
 						payload: block.block,

@@ -10,9 +10,14 @@ export function patchComposerAddMenu(id, bytes) {
   let text = bytes.toString('utf8').replaceAll('\r\n', '\n')
   if (text.includes(marker)) return Buffer.from(text)
   if (isPlugin(id, 'dsh-client-ui-conversation')) {
-    const helper = readFileSync(new URL('../ui/overrides/composer-add-menu.js', import.meta.url), 'utf8').replaceAll('\r\n', '\n')
+    const rawHelper = readFileSync(new URL('../ui/overrides/composer-add-menu.js', import.meta.url), 'utf8').replaceAll('\r\n', '\n')
+    // Rebuild patches run before rewriteUiNamespace; shipped-bundle refreshes
+    // run after it. Match the source module's actual import identifier.
+    const helper = text.includes('_deepseek_ai_dsh_client_ui_primitives')
+      ? rawHelper.replaceAll('_xharness_dsh_client_ui_primitives', '_deepseek_ai_dsh_client_ui_primitives')
+      : rawHelper
     text = once(text, '\t\tfunction InputBar(', helper + '\n\t\tfunction InputBar(')
-    const plus = /\(0, react_jsx_runtime\.jsx\)\(_xharness_dsh_client_ui_primitives\.Tooltip, \{\s*label: t\("input\.commands"\),[\s\S]*?children: \(0, react_jsx_runtime\.jsx\)\(_xharness_dsh_client_ui_primitives\.IconPlusOutline16, \{ size: 14 \}\)\s*\}\)\s*\}\)/g
+    const plus = /\(0, react_jsx_runtime\.jsx\)\(_(?:xharness|deepseek_ai)_dsh_client_ui_primitives\.Tooltip, \{\s*label: t\("input\.commands"\),[\s\S]*?children: \(0, react_jsx_runtime\.jsx\)\(_(?:xharness|deepseek_ai)_dsh_client_ui_primitives\.IconPlusOutline16, \{ size: 14 \}\)\s*\}\)\s*\}\)/g
     const matches = [...text.matchAll(plus)]
     if (matches.length !== 1) throw Error('Composer plus trigger signature changed')
     text = once(text, matches[0][0], `(0, react_jsx_runtime.jsx)(XHarnessComposerAddMenu, {

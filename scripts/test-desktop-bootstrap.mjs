@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 const html = readFileSync(new URL('../apps/desktop/frontend/index.html', import.meta.url), 'utf8')
-const source = html.match(/<script>([\s\S]*?)<\/script>/)[1]
+const source = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).find(script => script.includes('desktop_status'))
+assert.ok(source, 'desktop bootstrap script is present')
 async function boot(startupError, eventFirst = false) {
   const classes = new Set(), message = { textContent: '' }
   const main = { classList: { add: name => classes.add(name) } }

@@ -16,10 +16,18 @@
       .bar::after { content: ''; display: block; width: 44%; height: 100%; border-radius: inherit; background: #1f5eff; animation: loading 1.2s ease-in-out infinite; }
       .failed .bar { display: none; }
       .failed p { color: #ff9b9b; }
+      .titlebar-drag { display: none; }
+      html[data-xh-mac-titlebar="overlay"] .titlebar-drag { display: block; position: fixed; top: 0; left: 80px; right: 0; height: 32px; z-index: 1; }
       @keyframes loading { from { transform: translateX(-110%); } to { transform: translateX(340%); } }
     </style>
+    <script>
+      if (typeof navigator !== 'undefined' && /Macintosh|Mac OS X/.test(navigator.userAgent)) {
+        document.documentElement.dataset.xhMacTitlebar = 'overlay'
+      }
+    </script>
   </head>
   <body>
+    <div class="titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
     <main id="state">
       <div class="mark" aria-hidden="true">
         <svg viewBox="0 0 100 100">

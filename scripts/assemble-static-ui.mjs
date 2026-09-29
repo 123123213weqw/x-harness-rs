@@ -16,6 +16,7 @@ import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
 import { patchAgentPresetUi } from './patch-agent-preset-ui.mjs'
 import { patchChatReadingWidth } from './patch-chat-reading-width.mjs'
 import { patchBrowserDock } from './patch-browser-dock.mjs'
+import { patchToolExperience, patchConversationExperience, patchModelSwitchProgress } from './patch-upstream-ui-experience.mjs'
 import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
 import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
 
@@ -138,6 +139,9 @@ for (const entry of composed) {
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationScrollFollow(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-layout') bytes = patchBrowserDock(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-ui-tool') bytes = patchToolExperience(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') bytes = patchConversationExperience(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelSwitchProgress(bytes)
   const rev = revision(bytes)
   plugins.set(entry.name, { declaration, source, bytes, rev })
 }
@@ -181,6 +185,17 @@ const productPlugins = [
         '@deepseek-ai/dsh-client-runtime',
         '@deepseek-ai/dsh-client-locale',
         '@deepseek-ai/dsh-client-ui-settings-general',
+      ],
+    },
+  },
+  {
+    id: '@xlang/xharness-client-ui-experience',
+    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-experience/client.js'),
+    declaration: {
+      platform: 'web',
+      inject: [
+        '@deepseek-ai/dsh-client-locale',
+        '@deepseek-ai/dsh-client-ui-settings',
       ],
     },
   },
@@ -327,13 +342,21 @@ const desktopStartupBytes = portableBytes(readFileSync(desktopStartupSource))
 const desktopStartupRev = revision(desktopStartupBytes)
 writeFileSync(join(dist, 'desktop-startup.js'), desktopStartupBytes)
 const desktopStartupTag = `<script defer src="/desktop-startup.js?rev=${desktopStartupRev}"></script>`
+const desktopTitlebarScriptBytes = portableBytes(readFileSync(join(repoRoot, 'ui/desktop/titlebar.js')))
+const desktopTitlebarScriptRev = revision(desktopTitlebarScriptBytes)
+writeFileSync(join(dist, 'desktop-titlebar.js'), desktopTitlebarScriptBytes)
+const desktopTitlebarScriptTag = `<script defer src="/desktop-titlebar.js?rev=${desktopTitlebarScriptRev}"></script>`
+const desktopTitlebarStyleBytes = readFileSync(join(repoRoot, 'ui/desktop/titlebar.css'))
+const desktopTitlebarStyleRev = revision(desktopTitlebarStyleBytes)
+writeFileSync(join(dist, 'desktop-titlebar.css'), desktopTitlebarStyleBytes)
+const desktopTitlebarStyleTag = `<link rel="stylesheet" href="/desktop-titlebar.css?rev=${desktopTitlebarStyleRev}">`
 const motionTokensBytes = readFileSync(join(repoRoot, 'ui/overrides/motion-tokens.css'))
 const motionTokensRev = revision(motionTokensBytes)
 writeFileSync(join(dist, 'motion-tokens.css'), motionTokensBytes)
 const motionTokensTag = `<link rel="stylesheet" data-xh-motion-tokens href="/motion-tokens.css?rev=${motionTokensRev}">`
 if (!index.includes('</head>')) throw new Error('index.html does not contain </head>')
-index = index.replace(/<head(?:\s[^>]*)?>/, match => `${match}\n    ${motionTokensTag}`)
-index = index.replace('</head>', `    ${desktopUpdaterTag}\n    ${desktopStartupTag}\n  </head>`)
+index = index.replace(/<head(?:\s[^>]*)?>/, match => `${match}\n    ${motionTokensTag}\n    ${desktopTitlebarStyleTag}`)
+index = index.replace('</head>', `    ${desktopUpdaterTag}\n    ${desktopStartupTag}\n    ${desktopTitlebarScriptTag}\n  </head>`)
 writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
 writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
 // Ship the graph on our own scope: directories, ids, bundler-derived identifiers
