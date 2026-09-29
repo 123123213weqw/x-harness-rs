@@ -17,6 +17,15 @@ export function patchBrowserDock(bytes) {
     const end = source.indexOf('function computeColumns(', start)
     if (start < 0 || end < 0) throw Error('browser layout helper markers missing')
     source = source.slice(0, start) + controller + '\n' + workspace + '\n' + source.slice(end)
+    // Rebuilds usually start from the checked-in, already-patched bundle.
+    // Refresh the column policy as well as the embedded helper sources.
+    source = source.replace(
+      'const workspaceDrawer = workspaceOpen && (nativeWorkspaceWidth < 360 || workspaceAvailable < 360);',
+      'const workspaceDrawer = workspaceOpen && workspaceAvailable < 360;',
+    ).replace(
+      'const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth, workspaceAvailable) : 0;',
+      'const workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth >= 360 ? nativeWorkspaceWidth : workspaceAvailable, workspaceAvailable) : 0;',
+    )
     if (!source.includes('browserRestored')) {
       source = source.replace('const [spaces, setSpaces] = (0, react.useState)({});',
         'const [spaces, setSpaces] = (0, react.useState)(xhLoadBrowserSpaces);\n'
@@ -82,8 +91,8 @@ export function patchBrowserDock(bytes) {
     'const sidebarWidth = sidebarCollapsed ? 56 : panels.sidebar === 0 ? 280 : clampWidth(panels.sidebar, 264, 420);\n'
     + '\t\t\tconst workspaceOpen = space.items.length > 0;\n'
     + '\t\t\tconst workspaceAvailable = viewport - sidebarWidth - 480;\n'
-    + '\t\t\tconst workspaceDrawer = workspaceOpen && (nativeWorkspaceWidth < 360 || workspaceAvailable < 360);\n'
-    + '\t\t\tconst workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth, workspaceAvailable) : 0;\n'
+    + '\t\t\tconst workspaceDrawer = workspaceOpen && workspaceAvailable < 360;\n'
+    + '\t\t\tconst workspaceDockWidth = workspaceOpen && !workspaceDrawer ? Math.min(workspaceWidth, nativeWorkspaceWidth >= 360 ? nativeWorkspaceWidth : workspaceAvailable, workspaceAvailable) : 0;\n'
     + '\t\t\tconst cols = computeColumns(viewport - workspaceDockWidth, sidebarCollapsed ? 0 : panels.sidebar === 0 ? 280 : panels.sidebar, 0, workspaceDockWidth > 0 ? 480 : 640);')
   once('const detailsBase = (0, react.useRef)(0);', 'const detailsBase = (0, react.useRef)(0);\n\t\t\tconst workspaceBase = (0, react.useRef)(0);')
   once('const onDetailsDrag = (0, react.useCallback)((dx) => {\n\t\t\t\tactions.setDetails(detailsBase.current - dx);\n\t\t\t}, [actions]);',

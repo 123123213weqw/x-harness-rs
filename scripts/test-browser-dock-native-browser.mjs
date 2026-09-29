@@ -20,9 +20,10 @@ try {
   await page.addScriptTag({ content: `
     window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}};
     window.nativeSize={width:1280,height:780};
+    window.monitorWidth=2000;
     window.__TAURI__={window:{
       LogicalSize:class {constructor(width,height){this.width=width;this.height=height}},
-      currentMonitor:async()=>({workArea:{position:{x:0,y:0},size:{width:2000,height:1200}}}),
+      currentMonitor:async()=>({workArea:{position:{x:0,y:0},size:{width:window.monitorWidth,height:1200}}}),
       getCurrentWindow:()=>({
         innerSize:async()=>({...window.nativeSize}),
         outerSize:async()=>({...window.nativeSize}),
@@ -69,6 +70,17 @@ try {
   await page.waitForFunction(() => window.nativeSize.width === 1280)
   await page.setViewportSize({ width: 1280, height: 780 })
   assert.equal(await center(), original, 'closing restores original chat layout')
+  await page.evaluate(() => { window.monitorWidth = 1300 })
+  await page.getByRole('button', { name: '展开右侧工作区' }).click()
+  await page.waitForFunction(() => {
+    const frame = document.querySelector('[data-xhworkspace-open]:not([data-xhworkspace-drawer])')
+    return frame && frame.querySelector('._84hhiq_detailsCol').getBoundingClientRect().width === 440
+  })
+  assert.equal(await page.evaluate(() => window.nativeSize.width), 1280, 'screen-edge fallback keeps the native window size')
+  assert.equal(await center(), original - 440, 'screen-edge fallback docks beside chat instead of covering it')
+  await page.getByRole('button', { name: '关闭 新标签页' }).click()
+  await page.waitForFunction(() => document.querySelector('[data-xhworkspace-open]') === null)
+  assert.equal(await center(), original, 'closing the fallback dock restores chat width')
   await page.evaluate(() => root.unmount())
   assert.deepEqual(errors, [])
   console.log(`${engine}: native right-expanding browser layout passed`)
