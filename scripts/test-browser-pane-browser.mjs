@@ -48,6 +48,7 @@ try {
   assert.equal(await expand.locator('svg').count(), 1)
   assert.equal(await expand.locator('svg').getAttribute('width'), '14', 'expand glyph should match the header icon scale')
   assert.equal(await expand.locator('svg').getAttribute('viewBox'), '0 0 16 16')
+  assert.equal(await page.evaluate(() => api.normalizeAddress('example.com:8080').url), 'https://example.com:8080/')
   assert.equal(await page.getByText('浏览器', { exact: true }).count(), 0, 'do not show a vertical browser label')
   assert.equal(await page.getByRole('tab').count(), 0, 'browser content must not create nested tabs')
   await page.getByRole('textbox', { name: '网址' }).fill('example.com')

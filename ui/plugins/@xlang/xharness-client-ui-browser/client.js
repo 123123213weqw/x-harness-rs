@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
       if (!value) return { error: '请输入网址' }
       if (/\s/.test(value)) return { error: '请输入完整网址，暂不支持搜索词' }
       try {
-        const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `${/^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value) ? 'http' : 'https'}://${value}`)
+        const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `${/^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(value) ? 'http' : 'https'}://${value}`)
         if (!['http:', 'https:'].includes(url.protocol) || !url.hostname) throw Error('unsupported URL')
         return { url: url.href }
       } catch { return { error: '仅支持有效的 http/https 网址' } }
@@ -163,7 +163,7 @@ window.__ModuleLoader__.load({
             h('input', { ref: inputRef, type: 'text', value: draft,
               onChange: event => { setDraft(event.target.value); setError('') }, 'aria-label': '网址',
               placeholder: '输入网址，例如 example.com', autoComplete: 'url', spellCheck: false })),
-          address && h('a', { className: 'xhbrowser-external', href: address, target: '_blank', rel: 'noopener noreferrer',
+          !native && address && h('a', { className: 'xhbrowser-external', href: address, target: '_blank', rel: 'noopener noreferrer',
             'aria-label': '在系统浏览器打开', title: '在系统浏览器打开' }, glyph('external'))),
         error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error),
         h('div', { className: 'xhbrowser-content', ref: contentRef }, (!native || !address) && h('div', { className: 'xhbrowser-empty' },
