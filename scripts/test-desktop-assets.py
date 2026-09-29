@@ -38,6 +38,8 @@ def verify(app=None):
         assert png[25] == 6, f'Tauri requires RGBA PNG, got color type {png[25]}: {name}'
     assert (ROOT / 'ui/desktop/updater.js').read_bytes() == (ROOT / 'ui/dist/desktop-updater.js').read_bytes(), 'stale updater in ui/dist'
     assert (ROOT / 'ui/desktop/startup.js').read_bytes() == (ROOT / 'ui/dist/desktop-startup.js').read_bytes(), 'stale startup instrumentation in ui/dist'
+    assert (ROOT / 'ui/desktop/titlebar.js').read_bytes() == (ROOT / 'ui/dist/desktop-titlebar.js').read_bytes(), 'stale desktop title bar script in ui/dist'
+    assert (ROOT / 'ui/desktop/titlebar.css').read_bytes() == (ROOT / 'ui/dist/desktop-titlebar.css').read_bytes(), 'stale desktop title bar style in ui/dist'
     directory_plugin = 'plugins/@xlang/xharness-client-ui-directory/client.js'
     computer_plugin = 'plugins/@xlang/xharness-client-ui-computer/client.js'
     browser_plugin = 'plugins/@xlang/xharness-client-ui-browser/client.js'
@@ -65,6 +67,8 @@ def verify(app=None):
         assert info['CFBundleShortVersionString'] == config['version'], 'packaged version mismatch'
         assert (app / 'Contents/Resources/web/desktop-updater.js').read_bytes() == (ROOT / 'ui/desktop/updater.js').read_bytes(), 'packaged updater is stale'
         assert (app / 'Contents/Resources/web/desktop-startup.js').read_bytes() == (ROOT / 'ui/desktop/startup.js').read_bytes(), 'packaged startup instrumentation is stale'
+        assert (app / 'Contents/Resources/web/desktop-titlebar.js').read_bytes() == (ROOT / 'ui/desktop/titlebar.js').read_bytes(), 'packaged title bar script is stale'
+        assert (app / 'Contents/Resources/web/desktop-titlebar.css').read_bytes() == (ROOT / 'ui/desktop/titlebar.css').read_bytes(), 'packaged title bar style is stale'
         web = app / 'Contents/Resources/web'
         for relative in ['index.html', 'client-graph.json', 'favicon.png', 'app-icon-512.png', 'manifest.webmanifest',
                          directory_plugin,

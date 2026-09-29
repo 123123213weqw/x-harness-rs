@@ -195,6 +195,31 @@ node scripts/test-model-controls.mjs
 
 ## 黑白灰产品配色
 
+### 上游交互的选择性迁移
+
+`scripts/patch-upstream-ui-experience.mjs` 将 DeepSeek Harness
+`dsh-v0.1.7-rc.2` 的纯展示交互移植到现有 XHarness 客户端，不替换 Rust Host
+协议：工作步骤的四种展示密度、文件差异的行内/并排视图与同步滚动、
+WebFetch URL 入口、模型切换状态，以及“设置 → 显示与快捷键”中的本机快捷键。
+迁移后的控件采用下述黑白灰语义色；错误和警告仍使用状态色。
+
+这是**选择性适配而非整个上游 UI 的逐字复制**：现有会话结构没有上游的
+process-group / shortcut catalog 协议，因此不会改写历史数据或伪造所有上游
+快捷键。展示偏好只保存在当前设备，不影响 Agent 运行与服务端快照。
+
+验证：
+
+```bash
+node scripts/test-upstream-ui-experience.mjs
+UI_TEST_BROWSER=chromium node scripts/test-upstream-ui-experience-browser.mjs
+UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
+```
+
+本功能的产品源码在 `ui/plugins/@xlang/xharness-client-ui-experience/` 与
+`ui/overrides/{process-mode-hook,review-diff}.js`，发布时须一并提交生成的
+`ui/dist/`、`client-graph.json` 和 `index.html`。独立浏览器 Web UI 与 Tauri
+桌面版使用同一静态资源，但已经安装的桌面软件需要重新打包才会出现新版界面。
+
 `ui/overrides/monochrome.css` 统一覆盖上游语义 Token：浅色黑色强调、深色白色强调，
 背景与气泡使用中性灰。保留错误、警告、成功色，以及图片与代码高亮，不使用整页灰度滤镜。
 执行 `node scripts/patch-monochrome-theme.mjs` 更新静态包；完整重建也会自动应用。
