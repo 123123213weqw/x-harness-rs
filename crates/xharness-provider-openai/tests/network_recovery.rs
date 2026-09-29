@@ -227,7 +227,7 @@ async fn configured_retry_limit_counts_retries_not_initial_attempt() {
 }
 
 #[tokio::test]
-async fn visible_output_prevents_replay_but_uncommitted_tool_fragments_can_retry() {
+async fn visible_output_uses_a_new_continuation_while_uncommitted_tool_fragments_retry() {
     let deltas = [
         json!({"content":"partial"}),
         json!({"reasoning_content":"thinking"}),
@@ -244,15 +244,31 @@ async fn visible_output_prevents_replay_but_uncommitted_tool_fragments_can_retry
         ])
         .await;
         let (events, result) = run(&server, 2, Duration::from_secs(1)).await;
+        assert_eq!(
+            result.status,
+            LoopStatus::Completed,
+            "case={index}: {:?}",
+            result.error
+        );
+        assert_eq!(server.count(), 2);
+        assert_eq!(retry_count(&events), 1);
         if index < 2 {
-            assert_eq!(result.status, LoopStatus::Failed);
-            assert_eq!(server.count(), 1);
-            assert_eq!(retry_count(&events), 0);
+            assert_eq!(
+                result.final_text,
+                if index == 0 {
+                    "partialrecovered"
+                } else {
+                    "recovered"
+                }
+            );
+            let requests = server.requests.lock().unwrap();
+            assert_ne!(
+                requests[0], requests[1],
+                "a committed stream must not be replayed"
+            );
+            assert!(result.messages.iter().any(|message| message.interrupted));
         } else {
-            assert_eq!(result.status, LoopStatus::Completed);
             assert_eq!(result.final_text, "recovered");
-            assert_eq!(server.count(), 2);
-            assert_eq!(retry_count(&events), 1);
             assert!(!events.iter().any(|event| matches!(
                 &event.kind,
                 LoopEventKind::ToolCallDelta { .. } | LoopEventKind::ToolStarted { .. }
@@ -325,12 +341,11 @@ async fn idle_and_header_timeouts_retry_before_output_but_not_after() {
         (true, String::new()),
         (true, text_delta()),
     ] {
-        let had_delta = !prefix.is_empty();
         let server = FaultServer::start(vec![Reply::Stall { headers, prefix }; 4]).await;
         let (events, result) = run(&server, 2, Duration::from_millis(150)).await;
         assert_eq!(result.status, LoopStatus::Failed);
-        assert_eq!(server.count(), if had_delta { 1 } else { 3 });
-        assert_eq!(retry_count(&events), if had_delta { 0 } else { 2 });
+        assert_eq!(server.count(), 3);
+        assert_eq!(retry_count(&events), 2);
     }
 }
 
@@ -456,7 +471,9 @@ async fn partial_transport_failure_has_metadata_without_enabling_trace() {
         truncated: true,
     }])
     .await;
-    let (events, result) = run(&server, 2, Duration::from_secs(1)).await;
+    // With automatic continuation disabled, the original transport failure
+    // remains directly visible and retains its content-free diagnostics.
+    let (events, result) = run(&server, 0, Duration::from_secs(1)).await;
     assert_eq!(retry_count(&events), 0);
     assert_eq!(result.final_text, "partial");
     let error = result.error.unwrap();
