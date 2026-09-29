@@ -249,9 +249,9 @@ Tauri 更新包签名不等于 Apple 公证，也不等于 Windows Authenticode�
 - Unix 原生验收固定 Python 3.12；Mac 保持同一 session、使用独立 process group，Linux
   使用独立 session。BASE 构建复用当前 Runner 的 Cargo target 缓存，正式候选字节不修改。
 - 原生演练发现固定 `restoredSessions == 1` 的验收假设不成立：前端可能创建默认会话，
-  Intel Mac 的失败证据确认新 Host 已健康恢复两份会话、无 restore issues。改为停机边界的
-  精确库存校验，并增加双会话成功、库存丢失/变更/符号链接/数量不符的回归。
-  较早一次 Linux 超时缺少同等级诊断，不能追溯断言必为同一根因。
+  而新 Host 采用启动时完整建立目录、空闲会话按需恢复，不再急切重放全部会话。
+  验收改为等待目录完成事件，再与停机时的 journal 精确库存比较，并要求目录无问题、
+  活跃会话恢复计数自洽。覆盖双会话、库存丢失/变更/符号链接、目录不完整及数量不符。
 
 ## 9. 草稿 Release ID 绑定
 

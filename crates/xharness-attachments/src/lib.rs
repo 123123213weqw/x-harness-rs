@@ -68,6 +68,11 @@ impl ResolvedAttachment {
 
 #[async_trait]
 pub trait AttachmentStore: Send + Sync + std::fmt::Debug {
+    /// Idempotently remove attachments owned by this session only. Descendant
+    /// sessions must be deleted first because they may reference this owner.
+    async fn delete_session_data(&self, _session_id: &str) -> Result<(), AttachmentError> {
+        Err(AttachmentError::Unavailable)
+    }
     async fn put(&self, session_id: &str, upload: Upload)
         -> Result<AttachmentRef, AttachmentError>;
     async fn put_file(
@@ -176,6 +181,13 @@ pub struct MemoryAttachmentStore {
 }
 #[async_trait]
 impl AttachmentStore for MemoryAttachmentStore {
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), AttachmentError> {
+        self.entries
+            .lock()
+            .map_err(storage)?
+            .retain(|(id, _), _| id != session_id);
+        Ok(())
+    }
     async fn put_file(
         &self,
         session: &str,
@@ -368,6 +380,29 @@ impl FileAttachmentStore {
 }
 #[async_trait]
 impl AttachmentStore for FileAttachmentStore {
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), AttachmentError> {
+        if session_id.is_empty() {
+            return Err(AttachmentError::Unavailable);
+        }
+        let this = self.clone();
+        let session_id = session_id.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let _gate = this.gate.lock().map_err(storage)?;
+            let dir = this
+                .root
+                .join(format!("{:x}", Sha256::digest(session_id.as_bytes())));
+            match std::fs::symlink_metadata(&dir) {
+                Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                    std::fs::remove_dir_all(&dir).map_err(storage)
+                }
+                Ok(_) => Err(AttachmentError::Unavailable),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(storage(error)),
+            }
+        })
+        .await
+        .map_err(storage)?
+    }
     async fn put_file(
         &self,
         session: &str,
@@ -442,6 +477,17 @@ mod tests {
             media_type: "image/png".into(),
             data: data.into_inner(),
         }
+    }
+
+    #[tokio::test]
+    async fn deleting_one_session_keeps_other_session_attachments() {
+        let store = MemoryAttachmentStore::default();
+        let first = store.put("first", png()).await.unwrap();
+        let second = store.put("second", png()).await.unwrap();
+        store.delete_session_data("first").await.unwrap();
+        store.delete_session_data("first").await.unwrap();
+        assert!(store.resolve("first", &first.id).await.is_err());
+        assert!(store.resolve("second", &second.id).await.is_ok());
     }
     fn temp() -> PathBuf {
         // Wall-clock resolution is not a uniqueness guarantee on every OS.

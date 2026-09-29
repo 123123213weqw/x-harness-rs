@@ -760,6 +760,27 @@ impl Store for JsonlSessionStore {
         .await
     }
 
+    async fn delete_session_data(&self, session_id: &str) -> Result<(), StoreError> {
+        let (path, guard) = self.locked_path(session_id).await?;
+        let root = self.root.clone();
+        let cache = self.cache.clone();
+        let session_id = session_id.to_owned();
+        run_blocking(move || {
+            let _guard = guard;
+            let _file_lock = acquire_file_lock(&path)?;
+            for file in [&path, &catalog_path(&path)] {
+                match fs::remove_file(file) {
+                    Ok(()) => sync_parent_directory(file)?,
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
+                    Err(error) => return Err(backend_error("delete session data", file, error)),
+                }
+            }
+            results::delete(&root, &session_id)?;
+            cache_remove(&cache, &path)
+        })
+        .await
+    }
+
     async fn append(
         &self,
         session_id: &str,

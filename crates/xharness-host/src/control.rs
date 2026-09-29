@@ -138,6 +138,16 @@ impl BasicHost {
         if let Some(archived) = projection.archived_sessions {
             state.archived_sessions = archived.into_iter().collect();
         }
+        state.deleted_sessions = projection.deleted_sessions;
+        let deleted = state.deleted_sessions.clone();
+        state.archived_sessions.retain(|id| !deleted.contains(id));
+        for id in &deleted {
+            state.sessions.remove(id);
+            state.goals.remove(id);
+            for workspace in state.workspaces.values_mut() {
+                workspace.session_ids.retain(|candidate| candidate != id);
+            }
+        }
         for settings in projection.settings.values() {
             let namespace = state
                 .settings

@@ -78,6 +78,7 @@ impl ApiBackend for BasicHost {
             RpcMethod::SessionAttachment => turn::attachment(self, &payload).await,
             RpcMethod::SessionUpdateQueue => turn::update_queue(self, &payload).await,
             RpcMethod::SessionCancel => turn::cancel(self, &payload).await,
+            RpcMethod::SessionDelete => session_lifecycle::delete(self, rpc_id, &payload).await,
             method @ (RpcMethod::SubagentList
             | RpcMethod::SubagentHistory
             | RpcMethod::SubagentPrompt
@@ -93,7 +94,8 @@ impl ApiBackend for BasicHost {
             | RpcMethod::WorkspaceDelete
             | RpcMethod::WorkspaceInsertBefore
             | RpcMethod::WorkspaceInsertSessionBefore
-            | RpcMethod::WorkspaceArchiveSession) => {
+            | RpcMethod::WorkspaceArchiveSession
+            | RpcMethod::WorkspaceUnarchiveSession) => {
                 workspace::call(self, rpc_id, method, &payload).await
             }
             RpcMethod::SkillList => host::skill_list(self, &payload).await,
