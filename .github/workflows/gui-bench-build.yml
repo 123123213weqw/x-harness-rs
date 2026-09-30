@@ -1,0 +1,53 @@
+name: GUI Acceptance Candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/gui_bench/**'
+      - 'scripts/terminal_bench/broker.py'
+      - 'crates/xharness-computer*/**'
+      - 'crates/xharness-host-app/**'
+      - '.github/workflows/gui-bench-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gui-candidate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  budget-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -B -m unittest discover -s scripts/terminal_bench -p test_broker.py -v
+      - run: python3 -B -m unittest scripts.gui_bench.test_budget -v
+
+  macos-host:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked -p xharness-computer -p xharness-computer-macos
+      - run: cargo test --locked -p xharness-host-app deployment_allowlist
+      - run: cargo test --locked -p xharness-host-app tool_allowlist
+      - run: cargo build --locked --release -p xharness-host-app
+      - name: Record exact candidate source
+        run: |
+          mkdir -p dist/gui-candidate
+          cp target/release/xharness-host dist/gui-candidate/
+          git rev-parse HEAD > dist/gui-candidate/source-sha.txt
+          shasum -a 256 dist/gui-candidate/xharness-host > dist/gui-candidate/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gui-bench-host-macos-arm64
+          path: dist/gui-candidate/
+          if-no-files-found: error
+          retention-days: 7
