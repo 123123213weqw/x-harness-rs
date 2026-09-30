@@ -5640,7 +5640,7 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 				t
 			});
 		});
-		// xh-compaction-running/v1
+		// xh-compaction-running/v2
 		/** Automatic compaction keyed Chat renderer. */
 		const CompactionNodeView = (0, react.memo)(function CompactionNodeView({ node, t }) {
 			if (node.data.status === "running") return (0, react_jsx_runtime.jsxs)("div", {
@@ -8929,14 +8929,16 @@ keepMounted: index >= activeSuffix,
 					const marker = compactSummary(state.summary, state.checkpoint);
 					return chatNode(context, "compaction", marker.seq, marker);
 				}
-				if (state.end !== void 0 || state.start === void 0) return null;
+				if (state.start === void 0) return null;
 				const marker = {
 					kind: "compaction",
-					status: "running",
+					status: state.end === void 0 ? "running" : "ended",
 					seq: state.start.event.seq,
 					time: state.start.event.time
 				};
-				return chatNode(context, "compaction", marker.seq, marker);
+				return chatNode(context, "compaction", marker.seq, marker, {
+					visibility: state.end === void 0 ? "visible" : "hidden"
+				});
 			}
 		};
 		/**

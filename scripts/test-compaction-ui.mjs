@@ -15,7 +15,7 @@ const env={
  react_jsx_runtime:{jsx,jsxs:jsx}, MessageItem_module_css_default:{},
  _xharness_dsh_client_ui_primitives:{MarkdownText:'markdown'},
  _xharness_dsh_client_runtime_client:{isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace'},
- chatNode:(_context,kind,seq,data)=>({kind,seq,data}),
+ chatNode:(_context,kind,seq,data,options={})=>({kind,seq,data,visibility:options.visibility??'visible'}),
 };
 const itemStart=source.indexOf('const CompactionItem =');
 const itemEnd=source.indexOf('\n\t\t});',itemStart)+7;
@@ -33,7 +33,7 @@ for(const f of fixtures) {
  const matches=f.events.map(event=>({event}));
  const def=f.manual?api.commandDefinition:api.compactionDefinition;
  const relevant=matches.filter(m=>def.match(m.event));
- let view;
+ let view, running;
  if(f.manual) {
   // The manual checkpoint can rebuild its command identity even when the
   // page starts after command/run. The automatic contribution must ignore it.
@@ -44,10 +44,11 @@ for(const f of fixtures) {
  } else {
   const startMatch=relevant.find(m=>m.event.type==='compaction/start');
   const runningState=def.update({state:def.start()},startMatch);
-  const running=def.buildViewNode({state:runningState,matches:[startMatch]});
+  running=def.buildViewNode({state:runningState,matches:[startMatch]});
   assert.equal(running.kind,'compaction');
   assert.equal(running.data.status,'running');
   assert.equal(running.data.seq,startMatch.event.seq);
+  assert.equal(running.visibility,'visible');
   assert.deepEqual(running,def.buildViewNode({matches:[startMatch]}),'running live and restored contribution agree');
   let state=def.start();
   for(const match of relevant) {
@@ -57,7 +58,12 @@ for(const f of fixtures) {
   view=def.buildViewNode({state,matches:relevant});
   assert.deepEqual(view,def.buildViewNode({matches:relevant}),'live and restored contribution agree');
  }
- if(f.error) {assert.equal(view,null,'failed/cancelled compaction cannot appear as committed');continue;}
+ if(f.error) {
+  assert.equal(view.visibility,'hidden','failed/cancelled compaction hides its already-materialized running node');
+  assert.equal(view.data.status,'ended');
+  assert.equal(view.seq,running.seq,'the hidden update retains the running node identity');
+  continue;
+ }
  const node=f.manual?view.data.compaction:view.data;
  assert.equal(node.summary,'## 摘要\n保留任务 🧪');
  assert.equal(node.shadowedItemCount,1);assert.equal(node.shadowedTokenCount,128);
