@@ -9,11 +9,12 @@ window.__ModuleLoader__.load({
     const openBrowser = fresh => window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { kind: 'browser', fresh } }))
     const native = window.__TAURI__?.core?.invoke ? window.__TAURI__ : null
     let nativeQueue = Promise.resolve()
-    const invoke = (command, args) => {
-      const result = nativeQueue.then(() => native.core.invoke(command, args))
+    const enqueueNative = task => {
+      const result = nativeQueue.then(task)
       nativeQueue = result.catch(() => {})
       return result
     }
+    const invoke = (command, args) => enqueueNative(() => native.core.invoke(command, args))
 
     function normalizeAddress(raw) {
       const value = raw.trim()
@@ -82,41 +83,63 @@ window.__ModuleLoader__.load({
       itemRef.current = item
       const address = currentAddress(item)
       const recent = recentAddresses(item).filter(site => site.url !== address)
-      useEffect(() => {
-        if (!native || !open || !address) return
-        void invoke('desktop_browser_activate', { tabId: menuOpen || downloadsOpen ? null : item.id }).catch(() => {})
-      }, [menuOpen, downloadsOpen, open, address, item.id])
+      // One coordinator owns activation, including pending navigation and overlays.
+      const presentationRef = useRef(null)
+      presentationRef.current = { open, blocked: menuOpen || downloadsOpen }
+      const nativeSyncRef = useRef(null)
+      const navigationRef = useRef(null)
       useEffect(() => { setDraft(address); setError('') }, [address])
       useEffect(() => {
         if (!native || !open) return
         let disposed = false
+        let generation = 0
         let lastGeometry = ''
-        const syncBounds = () => {
-          if (disposed || !contentRef.current) return
-          const rect = contentRef.current.getBoundingClientRect()
-          if (rect.width < 1 || rect.height < 1) return
-          const modal = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')]
-            .some(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
-          const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${modal}`
-          if (geometry === lastGeometry) return
-          lastGeometry = geometry
-          if (modal) {
-            void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
-            return
-          }
-          void invoke('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
-            .then(() => invoke('desktop_browser_activate', { tabId: item.id }))
-            .then(exists => {
-              const url = currentAddress(itemRef.current)
-              if (url && !exists) return invoke('desktop_browser_navigate', { tabId: item.id, url })
-            })
-            .catch(error => { if (!disposed) setError(String(error)) })
+        const send = (command, args) => native.core.invoke(command, args)
+        const visible = () => {
+          if (disposed || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
+          const rect = contentRef.current?.getBoundingClientRect()
+          if (!rect || rect.width < 1 || rect.height < 1) return false
+          return ![...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')].some(element =>
+            element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
         }
+        const hide = async () => {
+          await send('desktop_browser_activate', { tabId: null })
+          lastGeometry = 'hidden'
+        }
+        const syncBounds = () => {
+          const requested = ++generation
+          void enqueueNative(async () => {
+            if (disposed || requested !== generation) return
+            const current = () => requested === generation && visible()
+            if (!current()) {
+              if (lastGeometry !== 'hidden') await hide()
+              return
+            }
+            const rect = contentRef.current.getBoundingClientRect()
+            const url = currentAddress(itemRef.current)
+            const pending = navigationRef.current?.tabId === item.id ? navigationRef.current : null
+            const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`
+            if (geometry === lastGeometry && !pending) return
+            await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
+            if (!current()) { await hide(); return }
+            const exists = await send('desktop_browser_activate', { tabId: item.id })
+            if (!current()) { await hide(); return }
+            if (!exists || pending) {
+              await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
+              if (navigationRef.current === pending) navigationRef.current = null
+              if (!current()) { await hide(); return }
+            }
+            lastGeometry = geometry
+          }).catch(error => {
+            if (!disposed && requested === generation) { setStatus('failed'); setError(String(error)) }
+          })
+        }
+        nativeSyncRef.current = syncBounds
         const observer = new ResizeObserver(syncBounds)
         observer.observe(contentRef.current)
         const overlay = document.querySelector('[data-shell-overlay="true"]')
         const overlayObserver = new MutationObserver(syncBounds)
-        if (overlay) overlayObserver.observe(overlay, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden', 'aria-modal'] })
+        if (overlay) overlayObserver.observe(overlay, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden', 'role', 'aria-modal', 'aria-hidden'] })
         window.addEventListener('resize', syncBounds)
         requestAnimationFrame(syncBounds)
         let unlisten = null
@@ -144,10 +167,12 @@ window.__ModuleLoader__.load({
           else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
         }).then(fn => { if (disposed) fn(); else unlisten = fn }).catch(error => { if (!disposed) setError(String(error)) })
         return () => {
-          disposed = true; observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
+          disposed = true; generation++; observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
+          if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
           void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
         }
       }, [item.id, open])
+      useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open])
       useEffect(() => {
         if (!open) return
         const onKey = event => {
@@ -171,24 +196,25 @@ window.__ModuleLoader__.load({
         setDraft(result.url); setError('')
         if (native) {
           setStatus('loading')
-          const rect = contentRef.current?.getBoundingClientRect()
-          const bounds = rect && { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
-          void (bounds ? invoke('desktop_browser_bounds', { bounds }) : Promise.reject(Error('浏览器面板尚未布局')))
-            .then(() => invoke('desktop_browser_navigate', { tabId: item.id, url: result.url }))
-            .catch(error => { setStatus('failed'); setError(String(error)) })
+          navigationRef.current = { tabId: item.id, url: result.url }
+          nativeSyncRef.current?.()
         }
       }
       const navigate = event => { event.preventDefault(); navigateTo(draft) }
+      const composerTarget = () => [...document.querySelectorAll('[data-composer-seat] textarea, [data-composer-card] textarea')]
+        .find(element => !element.disabled && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
       const focusChat = () => {
-        const composer = document.querySelector('[contenteditable="true"][role="textbox"], textarea[placeholder="Message the agent"], [aria-label="Message the agent"]')
+        if (!composerTarget()) { setError('当前页面没有可用的聊天输入框'); return }
+        setError('')
         if (document.querySelector('[data-xhworkspace-drawer]')) onClose()
-        if (composer) requestAnimationFrame(() => composer.focus())
-        else onClose()
+        requestAnimationFrame(() => composerTarget()?.focus())
       }
       const openTerminal = () => {
-        const terminal = document.querySelector('button[aria-label="Terminal"], button[title="Terminal"]')
-        if (terminal) terminal.click()
-        else setError('当前页面没有可用的终端')
+        const terminal = [...document.querySelectorAll('[data-xh-terminal-trigger]')]
+          .find(element => !element.disabled && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+        if (!terminal) { setError('当前页面没有可用的终端'); return }
+        setError('')
+        if (terminal.getAttribute('data-xh-terminal-open') !== 'true') terminal.click()
       }
       const copyAddress = async () => {
         if (!address) return
