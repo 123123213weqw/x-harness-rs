@@ -222,6 +222,12 @@ fn project_tools(specs: &mut Vec<ToolSpec>, readiness: &NativeToolReadiness) {
 
 #[async_trait]
 impl SessionToolFactory for NativeToolFactory {
+    fn allows_host_tool(&self, name: &str) -> bool {
+        self.tool_allowlist
+            .get()
+            .is_none_or(|list| list.contains(name))
+    }
+
     async fn goal_dependencies(
         &self,
         id: &str,
@@ -530,6 +536,7 @@ mod tests {
     async fn deployment_allowlist_removes_execution_not_just_definitions() {
         let workspace = TempWorkspace::new();
         let factory = NativeToolFactory::new(WebRuntime::default());
+        assert!(factory.allows_host_tool("history"));
         factory
             .restrict_tools(tool_allowlist::ToolAllowlist::parse("read").unwrap())
             .unwrap();
@@ -544,6 +551,8 @@ mod tests {
             )
             .await
             .unwrap();
+        assert!(!factory.allows_host_tool("history"));
+        assert!(!factory.allows_host_tool("goal"));
         let definitions = executor.registry().definitions().await;
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "read");

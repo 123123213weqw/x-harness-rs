@@ -25,6 +25,10 @@ impl ToolAllowlist {
         Ok(Self(names))
     }
 
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.0.contains(name)
+    }
+
     pub(crate) fn apply(&self, specs: &mut Vec<ToolSpec>) -> Result<(), String> {
         for name in &self.0 {
             if !specs.iter().any(|spec| &spec.definition.name == name) {
