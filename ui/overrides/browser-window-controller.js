@@ -1,6 +1,8 @@
 // xh-browser-window-controller/v1
-// Keep native window sizing separate from React/layout. No bridge in an
-// ordinary web tab: it returns 0 and AppFrame uses the non-resizing drawer.
+// Prefer a full rightward native expansion when the monitor has room. If it
+// does not, AppFrame borrows the same width from the conversation on the left.
+// Never partially grow the native window: a partial lease makes the layout
+// jump between two directions and is hard to restore safely.
 function xhCreateBrowserWindowController(tauri) {
   const api = tauri?.window;
   const LogicalSize = api?.LogicalSize ?? tauri?.dpi?.LogicalSize;
@@ -13,40 +15,41 @@ function xhCreateBrowserWindowController(tauri) {
     const size = await nativeWindow.innerSize();
     const scale = await nativeWindow.scaleFactor();
     if (!Number.isFinite(scale) || scale <= 0) return 0;
+    const logicalWidth = size.width / scale;
+    const logicalHeight = size.height / scale;
+    const unchanged = lease !== null && Math.abs(logicalWidth - lease.baseWidth - lease.addedWidth) <= 8;
+    if (!unchanged) lease = null; // A manual resize belongs to the user.
     if (!open) {
-      if (lease !== null) {
-        const expected = Math.round((lease.baseWidth + lease.addedWidth) * scale);
-        const unchanged = Math.abs(size.width - expected) <= Math.max(8, Math.ceil(8 * scale));
-        if (unchanged) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, size.height / scale));
-        lease = null;
-      }
+      if (lease !== null) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, logicalHeight));
+      lease = null;
       return 0;
     }
-    if (await nativeWindow.isMaximized() || await nativeWindow.isFullscreen()) { lease = null; return 0; }
+    if (await nativeWindow.isMaximized() || await nativeWindow.isFullscreen()) {
+      // The OS owns maximized/fullscreen geometry. Retain a valid lease so a
+      // later close can undo our earlier growth if the window is restored.
+      return lease?.addedWidth ?? 0;
+    }
     const monitor = await api.currentMonitor();
-    if (!monitor?.workArea?.position || !monitor?.workArea?.size) return 0;
+    if (!monitor?.workArea?.position || !monitor?.workArea?.size) return lease?.addedWidth ?? 0;
     const position = await nativeWindow.outerPosition();
     const outer = await nativeWindow.outerSize();
-    const expected = lease === null ? 0 : Math.round((lease.baseWidth + lease.addedWidth) * scale);
-    if (lease !== null && Math.abs(size.width - expected) > Math.max(8, Math.ceil(8 * scale))) lease = null;
-    const baseWidth = lease?.baseWidth ?? size.width / scale;
-    const priorAdded = lease?.addedWidth ?? 0;
-    const rightEdge = monitor.workArea.position.x + monitor.workArea.size.width;
-    const available = Math.max(0, (rightEdge - position.x - outer.width) / scale - 8);
-    const maxAdded = priorAdded + available;
     const wanted = Math.max(360, Math.min(900, Math.round(preferredWidth)));
-    const granted = Math.min(wanted, maxAdded);
-    if (granted < 360) return 0;
-    if (Math.abs(granted - priorAdded) > 1) {
-      await nativeWindow.setSize(new LogicalSize(baseWidth + granted, size.height / scale));
+    const rightEdge = monitor.workArea.position.x + monitor.workArea.size.width;
+    const spare = Math.max(0, (rightEdge - position.x - outer.width) / scale - 8);
+    const priorAdded = lease?.addedWidth ?? 0;
+    if (spare + priorAdded < wanted) {
+      if (lease !== null) await nativeWindow.setSize(new LogicalSize(lease.baseWidth, logicalHeight));
+      lease = null;
+      return 0;
     }
-    lease = { baseWidth, addedWidth: granted };
-    return granted;
+    const baseWidth = lease?.baseWidth ?? logicalWidth;
+    if (Math.abs(wanted - priorAdded) > 1) await nativeWindow.setSize(new LogicalSize(baseWidth + wanted, logicalHeight));
+    lease = { baseWidth, addedWidth: wanted };
+    return wanted;
   };
   return {
     set(open, preferredWidth = 440) {
-      // Open, resize, and close can be triggered by separate render cycles.
-      // Serialize them so a late resize cannot undo a later close.
+      // React can request open, drag, and close on successive render cycles.
       queue = queue.catch(() => 0).then(() => resize(open, preferredWidth));
       return queue.catch(() => 0);
     },

@@ -129,6 +129,21 @@ assert.match(source, /\.xhterm-dock\{order:1;display:flex/)
 assert.doesNotMatch(source, /\.xhterm-dock\{position:fixed/)
 assert.match(source, /\.xhterm-viewport \.xterm-viewport\{overscroll-behavior-y:contain\}/)
 
+// Browser shortcuts consume stable markers, never localized titles.
+const triggerRoot = slotRegistrations[0].registration.component({ sessionId: 'chat-a' })
+const trigger = () => triggerRoot.type(triggerRoot.props)
+for (const lang of ['zh-CN', 'en']) {
+  documentState.lang = lang
+  for (const [open, closing, expected] of [[false, false, 'false'], [true, false, 'true'], [true, true, 'false']]) {
+    storeA.open = open; storeA.closing = closing
+    const element = trigger()
+    assert.equal(element.type, 'button')
+    assert.equal(element.props['data-xh-terminal-trigger'], '')
+    assert.equal(element.props['data-xh-terminal-open'], expected)
+    assert.equal(element.props.title, lang === 'zh-CN' ? (open ? '关闭终端' : '终端') : (open ? 'Close terminal' : 'Terminal'))
+  }
+}
+storeA.open = false; storeA.closing = false
 // The rendered height must track the store even while a drag is in progress.
 storeA.open = true
 assert.equal(storeB.open, false, 'opening chat A must leave chat B closed')

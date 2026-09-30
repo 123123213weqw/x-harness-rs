@@ -51,6 +51,13 @@ try {
   assert.equal(await page.evaluate(() => api.normalizeAddress('example.com:8080').url), 'https://example.com:8080/')
   assert.equal(await page.getByText('浏览器', { exact: true }).count(), 0, 'do not show a vertical browser label')
   assert.equal(await page.getByRole('tab').count(), 0, 'browser content must not create nested tabs')
+  const toolbar = page.locator('.xhbrowser-toolbar')
+  assert.deepEqual(await toolbar.locator(':scope > *').evaluateAll(nodes => nodes.map(node => node.className)),
+    ['xhbrowser-nav', 'xhbrowser-annotate', 'xhbrowser-address-form', 'xhbrowser-actions', 'xhbrowser-more'])
+  assert.equal(await page.getByRole('button', { name: '标注（尚未接入）' }).isDisabled(), true, 'preview must not imply annotation is implemented')
+  await page.getByRole('button', { name: '下载记录' }).click()
+  await page.getByRole('region', { name: '下载记录' }).getByText('网页版没有内置下载记录。').waitFor()
+  await page.getByRole('button', { name: '下载记录' }).click()
   await page.getByRole('textbox', { name: '网址' }).fill('example.com')
   await page.getByRole('textbox', { name: '网址' }).press('Enter')
   await page.getByText('网页版不能嵌入 example.com').waitFor()
