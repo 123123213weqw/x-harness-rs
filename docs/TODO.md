@@ -328,7 +328,11 @@ Commit、Issue、PR 应引用这些 ID。
 规范见 [历史存储的无损渐进迁移](specs/session-history-storage-migration.md)。
 
 - [x] `HISTORY-01` 启动候选只读取 JSONL Header，Host 完整 load 后才发布；严格扫描接口不变，旧数据零迁移。V100 定向及包级回归。
-- [ ] `HISTORY-02` 版本化可丢弃索引/快照与失配回退，降低长会话恢复和历史读取成本。
+- [ ] `HISTORY-02` 总项：版本化可丢弃索引/快照与失配回退；以下分阶段验收，不能把历史分页优化等同于恢复快照完成。
+- [x] `HISTORY-02a` 只读历史偏移索引与 Host 分页接线；损坏/过期/超界回退及跨页投影回归。V100 全工作区与 Clippy 通过；144.50 MiB 隔离合成历史分页中位 14.327s→0.715s、测试进程峰值 30→12.5 MiB，不能代替 App 实测。见 [规范](specs/history-offset-index.md) 与 [验收](reports/history-offset-index-20260930.md)。
+- [x] `HISTORY-02b1` 闲置恢复快照 + 受限设置尾段重放：源戳/前缀摘要/Schema 校验、精确指标与去重回执恢复；中断工具、Inbox、审批、问题、Goal、Schedule 等回退原完整恢复；终态标题后台检查不重新物化历史。V100 全工作区 917 项、Clippy 与历史前端回归通过。见 [规范](specs/idle-recovery-checkpoint.md) 与 [验收](reports/idle-recovery-checkpoint-20261001.md)。原日志/模型历史不删减，未替换 App。
+- [ ] `HISTORY-02b2` 活动 Runtime 状态的快照加速：在不弱化完整 Session/副作用保护的前提下，分别验收 Inbox、审批/问题/迟到答案、Goal、Schedule、Compaction；当前这些工作保留完整权威恢复，不宣称已经加速。
+- [ ] `HISTORY-02c` 索引增量维护/缓存命中后刷新与真实最大旧日志分页验收；GitHub 跨平台 CI、合并和 App 安装验收另行完成。
 - [x] `HISTORY-03a` 显式单会话 v1→v2 冷批次 gzip 迁移；完整校验后单文件原子切换，旧数据双读、后续追加、审计与损坏兜底回归。
 - [ ] `HISTORY-03b` 冷会话自动选择、迁移限速/断点续跑、真实最大旧日志的内存与磁盘块数验收；当前不会自动迁移本机数据。
 - [ ] `HISTORY-04` 跨会话 request-audit 引用扫描和保守回收，损坏或未知日志时禁止删除共享对象。

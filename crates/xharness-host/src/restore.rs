@@ -50,6 +50,8 @@ pub struct HostRestoreReport {
     pub discovered_sessions: usize,
     pub model_settings_error: Option<String>,
     pub restored_sessions: usize,
+    pub checkpoint_restored_sessions: usize,
+    pub checkpoint_tail_events: usize,
     pub resumed_pending_turns: usize,
     pub resumed_pending_approvals: usize,
     pub resumed_user_questions: usize,
@@ -213,6 +215,36 @@ impl BasicHost {
                 continue;
             }
             let session_id = header.id.clone();
+            // Read-only idle acceleration; unsupported work and stale sources
+            // must enter the exact existing lifecycle recovery below.
+            if self.agent_runtime.supports_idle_restore_checkpoint() {
+                if let Ok(Some(tail)) = store
+                    .recovery_tail(&session_id, crate::restore_checkpoint::SCHEMA)
+                    .await
+                {
+                    if tail.checkpoint.header == header {
+                        if let Some(record) = crate::restore_checkpoint::restore(self, &tail) {
+                            let mut state = self.state.write().await;
+                            attach_workspace(
+                                &mut state,
+                                &session_id,
+                                &record.cwd,
+                                record.created_at,
+                            );
+                            if let Some(goal) = record.goal.clone() {
+                                state.goals.insert(session_id.clone(), goal);
+                            } else {
+                                state.goals.remove(&session_id);
+                            }
+                            state.sessions.insert(session_id, record);
+                            report.restored_sessions += 1;
+                            report.checkpoint_restored_sessions += 1;
+                            report.checkpoint_tail_events += tail.events.len();
+                            continue;
+                        }
+                    }
+                }
+            }
             // A candidate header is not proof that its event tail is valid.
             // Validate the complete journal exactly once here, and keep one
             // damaged session from hiding every healthy conversation.
@@ -418,6 +450,10 @@ impl BasicHost {
                 || runtime_resume_unknown
                 || !xharness_session::incomplete_tool_calls(session.events()).is_empty()
                 || !inbox.next_step().is_empty();
+            if let Some(checkpoint) = crate::restore_checkpoint::checkpoint(self, &session, &record)
+            {
+                let _ = store.publish_recovery_checkpoint(checkpoint).await;
+            }
             // The journal is authoritative; a failed rebuild only means next
             // startup must treat this session as unknown and replay it.
             if let Err(error) = store
@@ -1143,7 +1179,7 @@ pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
     items
 }
 
-fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
+pub(crate) fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
     let session_id = &session.header().id;
     let mut admissions = BTreeMap::new();
     for event in session.events() {
@@ -1299,6 +1335,42 @@ mod tests {
 
     struct OfflineSnapshotRuntime {
         store: Arc<dyn Store>,
+    }
+
+    struct CountedSnapshotRuntime {
+        store: Arc<dyn Store>,
+        loads: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl AgentRuntime for CountedSnapshotRuntime {
+        fn has_available_route(&self) -> bool {
+            true
+        }
+        fn can_route(&self, _route: &ModelRoute) -> bool {
+            true
+        }
+        fn has_authoritative_sessions(&self) -> bool {
+            true
+        }
+        async fn authoritative_session(
+            &self,
+            id: &str,
+        ) -> Result<Option<Session>, AgentRuntimeError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            self.store
+                .load(id)
+                .await
+                .map_err(|e| AgentRuntimeError::Preparation {
+                    message: e.to_string(),
+                })
+        }
+        async fn start_turn(
+            &self,
+            _request: AgentTurnRequest,
+        ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+            panic!("read-only history must never execute model work")
+        }
     }
 
     #[async_trait]
@@ -2399,6 +2471,337 @@ mod tests {
             assert_eq!(value["projections"]["asOfSeq"], 41);
             assert_eq!(value["hasMore"], false);
         }
+    }
+
+    #[tokio::test]
+    async fn indexed_history_rpc_equals_full_replay_and_all_invalid_indices_fall_back() {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-indexed-rpc-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let store: Arc<dyn Store> = Arc::new(
+            JsonlSessionStore::new(&dir)
+                .unwrap()
+                .with_cache_limits(0, 0)
+                .for_runtime(),
+        );
+        let id = "indexed-rpc";
+        let mut header = SessionHeader::new(id);
+        header.cwd = Some(dir.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let mut revision = Revision::ZERO;
+        for turn in 1..=4 {
+            revision = store
+                .append(id, revision, closed_text_turn(turn, "你好 🧪", "完整回答"))
+                .await
+                .unwrap()
+                .revision;
+        }
+        let durable = store.load(id).await.unwrap().unwrap();
+        let runtime = Arc::new(CountedSnapshotRuntime {
+            store: store.clone(),
+            loads: AtomicUsize::new(0),
+        });
+        let host = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
+        host.restore_from_store(store.clone()).await.unwrap();
+        assert!(host.lazy_store.set(store.clone()).is_ok());
+        let reference = BasicHost::with_agent_runtime(
+            config(&dir),
+            Arc::new(OfflineSnapshotRuntime {
+                store: store.clone(),
+            }),
+        );
+        reference.restore_from_store(store.clone()).await.unwrap();
+        for before in (0..=durable.next_seq() + 1).map(Some).chain([None]) {
+            for max in [1, 3, 50] {
+                let mut args = json!({"sessionId":id, "maxMessages":max});
+                if let Some(seq) = before {
+                    args["beforeSeq"] = json!(seq);
+                }
+                runtime.loads.store(0, Ordering::SeqCst);
+                let indexed = host
+                    .call(
+                        RpcId::new("indexed"),
+                        RpcMethod::SessionHistory,
+                        args.clone(),
+                        CancellationToken::new(),
+                    )
+                    .await;
+                assert_eq!(
+                    runtime.loads.load(Ordering::SeqCst),
+                    0,
+                    "indexed page must avoid full replay"
+                );
+                let full = reference
+                    .call(
+                        RpcId::new("full"),
+                        RpcMethod::SessionHistory,
+                        args,
+                        CancellationToken::new(),
+                    )
+                    .await;
+                let (
+                    RpcResult::Success {
+                        value: Some(indexed),
+                    },
+                    RpcResult::Success { value: Some(full) },
+                ) = (indexed, full)
+                else {
+                    panic!("history RPC failed");
+                };
+                assert_eq!(indexed, full, "cursor {before:?}, size {max}");
+            }
+        }
+        let path = dir.join(format!("{id}.history-index"));
+        for corrupt in [false, true] {
+            if corrupt {
+                std::fs::write(&path, b"broken index").unwrap();
+            } else {
+                std::fs::remove_file(&path).unwrap();
+            }
+            runtime.loads.store(0, Ordering::SeqCst);
+            let history = host
+                .call(
+                    RpcId::new("fallback"),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":id}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(history, RpcResult::Success { .. }));
+            assert!(
+                runtime.loads.load(Ordering::SeqCst) > 0,
+                "unusable index must invoke authoritative fallback"
+            );
+        }
+        // Even with a good index, an active turn retains the original synchronization path.
+        host.state
+            .write()
+            .await
+            .sessions
+            .get_mut(id)
+            .unwrap()
+            .running = true;
+        runtime.loads.store(0, Ordering::SeqCst);
+        let history = host
+            .call(
+                RpcId::new("active"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId":id}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(history, RpcResult::Success { .. }));
+        assert!(runtime.loads.load(Ordering::SeqCst) > 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    async fn assert_indexed_projection_pages(store: &dyn Store, id: &str) {
+        let session = store.load(id).await.unwrap().unwrap();
+        let route = ModelRoute::new("test", "test-model");
+        for before in (0..=session.next_seq() + 1).map(Some).chain([None]) {
+            for max in [1, 2, 3, 50] {
+                let window = store
+                    .history_window(id, session.next_seq(), before, max)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let full =
+                    xharness_projection::project_session_history(&session, &route, before, max);
+                assert_eq!(
+                    xharness_projection::project_history_window(&window, &route),
+                    full.events,
+                    "{id}, {before:?}, {max}"
+                );
+                assert_eq!(window.has_more, full.has_more);
+                for event in &window.events {
+                    assert_eq!(
+                        xharness_projection::project_history_window_view(&window, event),
+                        xharness_projection::project_session_event_view(&session, event)
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn indexed_history_keeps_cross_page_tool_prompt_compaction_and_chunk_context() {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-indexed-context-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let store = JsonlSessionStore::new(&dir)
+            .unwrap()
+            .with_cache_limits(0, 0)
+            .for_runtime();
+        let tool = closed_tool_session(
+            "bash",
+            "{\"command\":\"echo ok\"}".to_owned(),
+            ToolResultData {
+                call_id: "indexed-call".to_owned(),
+                outcome: ToolOutcome::Success,
+                content: "ok".to_owned(),
+                metadata: Some(
+                    json!({"kind":"foreground", "exit_code":0, "stdout":"ok", "stderr":""}),
+                ),
+            },
+        );
+        store.create(tool.header().clone()).await.unwrap();
+        // Assistant and mirrored calls are one atomic batch; a result-only
+        // page must still seek the preceding batch for its terminal view.
+        let mut revision = store
+            .append(
+                &tool.header().id,
+                Revision::ZERO,
+                tool.events()[..6].iter().map(|e| e.event.clone()).collect(),
+            )
+            .await
+            .unwrap()
+            .revision;
+        for event in &tool.events()[6..] {
+            revision = store
+                .append(&tool.header().id, revision, vec![event.event.clone()])
+                .await
+                .unwrap()
+                .revision;
+        }
+        assert_indexed_projection_pages(&store, &tool.header().id).await;
+        let id = "indexed-prompt";
+        store.create(SessionHeader::new(id)).await.unwrap();
+        let mut input = xharness_session::InboxMessage::user("user-1", "你好");
+        input.source = Some(
+            json!({"content":[{"type":"text","text":"你好"},{"type":"attachment","name":"sample.png"}], "source":{"kind":"user"}, "rpcFingerprint":"fixture"}),
+        );
+        let mut events = vec![
+            EventData::AgentInboxSpliced {
+                target: xharness_session::InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted: vec![input],
+                outcome: None,
+            }
+            .into(),
+            EventData::AgentInboxSpliced {
+                target: xharness_session::InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 1,
+                inserted: vec![],
+                outcome: None,
+            }
+            .into(),
+        ];
+        let mut text = closed_text_turn(1, "你好", "answer");
+        text.insert(
+            4,
+            EventData::AssistantChunk {
+                turn: 1,
+                step: 1,
+                chunk: AssistantChunk::ReasoningDelta("thought".to_owned()),
+            }
+            .into(),
+        );
+        text.insert(
+            5,
+            EventData::AssistantChunk {
+                turn: 1,
+                step: 1,
+                chunk: AssistantChunk::TextDelta("answer".to_owned()),
+            }
+            .into(),
+        );
+        events.extend(text);
+        let mut revision = Revision::ZERO;
+        for event in events {
+            revision = store
+                .append(id, revision, vec![event])
+                .await
+                .unwrap()
+                .revision;
+        }
+        assert_indexed_projection_pages(&store, id).await;
+        let id = "indexed-interrupted";
+        store.create(SessionHeader::new(id)).await.unwrap();
+        let mut partial = closed_text_turn(1, "unfinished", "unused")[..4].to_vec();
+        for chunk in [
+            AssistantChunk::ReasoningDelta("思考一".to_owned()),
+            AssistantChunk::ReasoningDelta("思考二".to_owned()),
+            AssistantChunk::TextDelta("正文一".to_owned()),
+            AssistantChunk::TextDelta("正文二".to_owned()),
+        ] {
+            partial.push(
+                EventData::AssistantChunk {
+                    turn: 1,
+                    step: 1,
+                    chunk,
+                }
+                .into(),
+            );
+        }
+        store.append(id, Revision::ZERO, partial).await.unwrap();
+        assert_indexed_projection_pages(&store, id).await;
+        let id = "indexed-compaction";
+        store.create(SessionHeader::new(id)).await.unwrap();
+        let prefix = vec![
+            EventData::TurnStart { turn: 1 }.into(),
+            EventData::UserMessage {
+                message: Message::user("old"),
+                surface_replace: None,
+            }
+            .into(),
+            EventData::StepStart { turn: 1, step: 1 }.into(),
+            EventData::CompactionStart {
+                compaction_id: "compact-index".to_owned(),
+                source_command_id: Some("command-index".to_owned()),
+                turn: Some(1),
+            }
+            .into(),
+        ];
+        let receipt = store.append(id, Revision::ZERO, prefix).await.unwrap();
+        let range = SequenceRange { start: 1, end: 1 };
+        store
+            .append(
+                id,
+                receipt.revision,
+                vec![
+                    EventData::CompactionSummary {
+                        compaction_id: "compact-index".to_owned(),
+                        source_command_id: Some("command-index".to_owned()),
+                        summary: "summary".to_owned(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![1],
+                        shadowed_token_count: 10,
+                        provider: "test".to_owned(),
+                        model: "test-model".to_owned(),
+                        max_tokens: Some(64),
+                        usage: None,
+                    }
+                    .into(),
+                    EventData::UserMessage {
+                        message: Message::user("checkpoint"),
+                        surface_replace: Some(SurfaceReplace {
+                            compaction_id: "compact-index".to_owned(),
+                            shadowed_range: range,
+                            shadowed_seqs: vec![1],
+                        }),
+                    }
+                    .into(),
+                    EventData::CompactionEnd {
+                        compaction_id: "compact-index".to_owned(),
+                        source_command_id: Some("command-index".to_owned()),
+                        turn: Some(1),
+                        error: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_indexed_projection_pages(&store, id).await;
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Replays Host startup against an isolated journal copy 100 times. With

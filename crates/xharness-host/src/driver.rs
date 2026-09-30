@@ -582,6 +582,16 @@ impl BasicHost {
             next_seq: session.next_seq(),
             needs_recovery,
         };
+        let checkpoint = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session.header().id)
+                .and_then(|record| crate::restore_checkpoint::checkpoint(self, session, record))
+        };
+        if let Some(checkpoint) = checkpoint {
+            let _ = store.publish_recovery_checkpoint(checkpoint).await;
+        }
         if let Err(error) = store.publish_catalog_entry(entry).await {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.

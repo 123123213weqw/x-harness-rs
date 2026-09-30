@@ -4,8 +4,46 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::{
-    AppendReceipt, Revision, Session, SessionError, SessionEvent, SessionHeader, SessionInspection,
+    AppendReceipt, LoggedEvent, Revision, Session, SessionError, SessionEvent, SessionHeader,
+    SessionInspection,
 };
+
+/// Read-only presentation cut, never an executable/recovery Session. Context
+/// contains only out-of-window dependencies (inbox provenance, compaction
+/// origin and tool calls). Sequence numbers are the original journal cursors.
+#[derive(Clone, Debug)]
+pub struct SessionHistoryWindow {
+    pub next_seq: u64,
+    pub has_more: bool,
+    pub events: Vec<LoggedEvent>,
+    pub context: Vec<LoggedEvent>,
+    pub initial_request_header_seq: Option<u64>,
+    pub completed_steps: Vec<(u32, u32)>,
+}
+
+/// Disposable application-owned recovery projection, not a partial `Session`.
+/// Execution and model history MUST still use `Store::load`. The schema belongs
+/// to the projection owner; a mismatched schema is a cache miss.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionRecoveryCheckpoint {
+    pub schema: String,
+    pub header: SessionHeader,
+    pub next_seq: u64,
+    pub revision: Revision,
+    pub state: serde_json::Value,
+}
+
+/// Source-bound checkpoint plus a bounded, contiguous suffix. The suffix has
+/// physical/CAS integrity checks, NOT full Session semantic validation. Its
+/// owner must reject unsupported transitions and fall back to `load`.
+#[derive(Clone, Debug)]
+pub struct SessionRecoveryTail {
+    pub checkpoint: SessionRecoveryCheckpoint,
+    pub events: Vec<LoggedEvent>,
+    pub next_seq: u64,
+    pub revision: Revision,
+}
 
 /// Rebuildable, bounded catalogue projection. The journal remains authoritative.
 /// A disk store returns this only when its recorded file identity still matches
@@ -77,6 +115,39 @@ pub enum StartupCandidate {
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Optional read-only acceleration. None (including corruption, a torn
+    /// tail or exceeded acceleration budget) requires authoritative full replay.
+    async fn recovery_tail(
+        &self,
+        _session_id: &str,
+        _schema: &str,
+    ) -> Result<Option<SessionRecoveryTail>, StoreError> {
+        Ok(None)
+    }
+
+    /// Publish only against an exact source already validated by this Store.
+    /// Failures must not invalidate or mutate the authoritative journal.
+    async fn publish_recovery_checkpoint(
+        &self,
+        _checkpoint: SessionRecoveryCheckpoint,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    /// Optional bounded historical read at an already projected cursor. None
+    /// means unsupported, stale, damaged, too wide or a preferred warm-cache
+    /// path: callers MUST use their
+    /// existing authoritative history path, not fabricate an empty page.
+    async fn history_window(
+        &self,
+        _session_id: &str,
+        _expected_next_seq: u64,
+        _before_seq: Option<u64>,
+        _max_messages: usize,
+    ) -> Result<Option<SessionHistoryWindow>, StoreError> {
+        Ok(None)
+    }
+
     /// Optional fast catalogue lookup. None means missing/stale/unusable and
     /// must never be interpreted as proof that no work needs recovery.
     async fn catalog_entry(
