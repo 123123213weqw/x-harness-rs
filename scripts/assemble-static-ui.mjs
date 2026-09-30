@@ -10,6 +10,8 @@ import { patchPermissionSelection } from './patch-permission-selection.mjs'
 import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
+import { patchCompactionViewModel } from './patch-compaction-view-model.mjs'
+import { patchConversationViewMatch } from './patch-conversation-view-match.mjs'
 import { patchConversationScrollFollow } from './patch-conversation-scroll-follow.mjs'
 import { patchPluginCenter } from './patch-plugin-center.mjs'
 import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
@@ -121,13 +123,14 @@ for (const entry of composed) {
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextCompositionConnection(patchContextConnection(patchModelConnection(bytes)))
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchStartupCatalogRefresh(patchLiveAnswerRecovery(patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes)))))
+  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchConversationViewMatch(patchStartupCatalogRefresh(patchLiveAnswerRecovery(patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes))))))
   bytes = patchAttachments(entry.name, bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-settings-models') bytes = patchReasoningSettings(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
   bytes = patchQuestionContinuation(entry.name, bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionRunningUi(bytes)
+  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionViewModel(bytes)
   if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
   bytes = patchWorkspaceCreatedAt(entry.name, bytes)
   bytes = patchSettingsSaveFeedback(entry.name, bytes)
