@@ -47,6 +47,12 @@ try {
   assert.equal(await page.getByText('网页版不能嵌入 example.com').count(), 0, 'desktop mode must not show Web-only fallback')
   await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'url', value: 'https://example.com/next' } })))
   await page.waitForFunction(() => document.querySelector('input[aria-label="网址"]')?.value === 'https://example.com/next')
+  await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'download-complete', value: '/Users/test/Downloads/example.pdf' } })))
+  await page.getByRole('button', { name: '下载记录' }).click()
+  await page.getByRole('region', { name: '下载记录' }).getByText('example.pdf').waitFor()
+  assert.equal(await page.getByRole('region', { name: '下载记录' }).getByText('/Users/test/Downloads/').count(), 0,
+    'download popover should not display a local absolute path')
+  await page.getByRole('button', { name: '下载记录' }).click()
   await page.getByRole('button', { name: '后退' }).click()
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_action' && call.args.action === 'back'))
   await page.evaluate(() => {
