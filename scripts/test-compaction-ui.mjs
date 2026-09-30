@@ -29,7 +29,7 @@ const find=(tree,predicate)=>{
 };
 assert.match(source,/data-compaction-running/);
 assert.match(source,/t\("message\.compaction\.running"\)/);
-assert.match(source,/xh-compaction-view-model\/v1/);
+assert.match(source,/xh-compaction-view-model\/v2/);
 assert.match(read('ui/dist/plugins/@xharness/dsh-client-runtime/client.js'),/definition\.match\(input\.event, input\.view\)/);
 for(const f of fixtures) {
  const matches=f.events.map(event=>({event}));
