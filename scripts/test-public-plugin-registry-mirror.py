@@ -29,6 +29,8 @@ class MirrorTests(unittest.TestCase):
             calls.append((path,method))
             if path == '/user': return {'login':'wangyue2006'}
             if path.endswith('/branches'): return []
+            if method == 'PATCH':
+                self.assertEqual(data, {'name':'xharness-plugin-registry','private':'false'})
             return {'private':False if method == 'PATCH' else True,'empty_repo':True,'description':mirror.MARKER}
         mirror.ensure_target(api)
         self.assertEqual(calls[-1], ('/repos/'+mirror.TARGET, 'PATCH'))

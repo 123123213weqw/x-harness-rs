@@ -43,7 +43,7 @@ def ensure_target(call=api):
         branches = call('/repos/'+TARGET+'/branches')
         if branches != []:
             raise RuntimeError('Refusing to expose a private repository that already has branches')
-        repo = call('/repos/'+TARGET, {'public':'1', 'private':'false'}, method='PATCH')
+        repo = call('/repos/'+TARGET, {'name': TARGET.split('/')[1], 'private':'false'}, method='PATCH')
     if repo.get('private') is not False or repo.get('description') != MARKER:
         raise RuntimeError('Refusing to overwrite a private or unrelated Gitee repository')
     return repo
