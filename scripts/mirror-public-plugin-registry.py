@@ -9,12 +9,12 @@ class Absent(Exception): pass
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args): return None
 
-def api(path, data=None):
+def api(path, data=None, method=None):
     token = os.environ.get('GITEE_TOKEN')
     if not token: raise RuntimeError('GITEE_TOKEN is not configured')
     req = urllib.request.Request('https://gitee.com/api/v5'+path,
         data=urllib.parse.urlencode(data).encode() if data is not None else None,
-        headers={'Authorization': 'token '+token, 'Accept': 'application/json'})
+        headers={'Authorization': 'token '+token, 'Accept': 'application/json'}, method=method)
     try:
         with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
             if int(response.headers.get('Content-Length', '0')) > 2*1024*1024:
@@ -33,7 +33,17 @@ def ensure_target(call=api):
     try: repo = call('/repos/'+TARGET)
     except Absent:
         repo = call('/user/repos', {'name': TARGET.split('/')[1], 'private':'false',
-            'auto_init':'false', 'description':MARKER})
+            'public':'1', 'auto_init':'false', 'description':MARKER})
+    print('Gitee registry state: private=%s public=%s managed=%s empty=%s' %
+        (repo.get('private'), repo.get('public'), repo.get('description') == MARKER, repo.get('empty_repo')))
+    # Only a new, empty repository carrying this exact publication marker may
+    # be promoted if Gitee ignored the public flag. Unrelated/private data is
+    # never exposed. Existing nonempty private repositories fail closed.
+    if repo.get('description') == MARKER and repo.get('private') is True:
+        branches = call('/repos/'+TARGET+'/branches')
+        if branches != []:
+            raise RuntimeError('Refusing to expose a private repository that already has branches')
+        repo = call('/repos/'+TARGET, {'public':'1', 'private':'false'}, method='PATCH')
     if repo.get('private') is not False or repo.get('description') != MARKER:
         raise RuntimeError('Refusing to overwrite a private or unrelated Gitee repository')
     return repo
