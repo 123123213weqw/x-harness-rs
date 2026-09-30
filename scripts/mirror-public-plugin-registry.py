@@ -39,36 +39,69 @@ def api(path, data=None, method=None):
         reason = safe_api_reason(e.read(4096), token)
         raise RuntimeError(f'Gitee API returned HTTP {e.code}' + (': '+reason if reason else '')) from None
 
-def ensure_target(call=api):
+def ensure_target(call=api, public_commits=frozenset()):
     user = call('/user')
     if user.get('login') != TARGET.split('/')[0]:
         raise RuntimeError('Gitee token owner does not match the intended mirror owner')
     try: repo = call('/repos/'+TARGET)
     except Absent:
-        repo = call('/user/repos', {'name': TARGET.split('/')[1], 'private':'false',
-            'public':'1', 'auto_init':'false', 'description':MARKER})
-    print('Gitee registry state: private=%s public=%s managed=%s empty=%s' %
-        (repo.get('private'), repo.get('public'), repo.get('description') == MARKER, repo.get('empty_repo')))
-    # Only a new, empty repository carrying this exact publication marker may
-    # be promoted if Gitee ignored the public flag. Unrelated/private data is
-    # never exposed. Existing nonempty private repositories fail closed.
-    if repo.get('description') == MARKER and repo.get('private') is True:
+        # Gitee only supports private creation and rejects making empty repos
+        # public. Initialize exclusively from the already-public vetted source.
+        repo = call('/user/repos', {'name': TARGET.split('/')[1], 'private':'true',
+            'auto_init':'false', 'description':MARKER})
+    if repo.get('description') != MARKER or not isinstance(repo.get('private'), bool):
+        raise RuntimeError('Refusing to overwrite an unrelated or unclassified Gitee repository')
+    if repo['private']:
         branches = call('/repos/'+TARGET+'/branches')
-        if branches != []:
-            raise RuntimeError('Refusing to expose a private repository that already has branches')
-        repo = call('/repos/'+TARGET, {'name': TARGET.split('/')[1], 'private':'false'}, method='PATCH')
-    if repo.get('private') is not False or repo.get('description') != MARKER:
-        raise RuntimeError('Refusing to overwrite a private or unrelated Gitee repository')
+        if not isinstance(branches, list):
+            raise RuntimeError('Invalid Gitee branch metadata')
+        # An interrupted first publication is resumable only when the sole main
+        # branch is a commit from the exact public source history. Never expose
+        # unrelated private content or additional branches.
+        if branches and (len(branches) != 1 or branches[0].get('name') != 'main'
+                or branches[0].get('commit', {}).get('sha') not in public_commits):
+            raise RuntimeError('Refusing to expose a private repository with unrelated branches')
+        tags = call('/repos/'+TARGET+'/tags')
+        if tags != []:
+            raise RuntimeError('Refusing to expose a private repository with tags')
     return repo
 
+def promote_target(call=api):
+    repo = call('/repos/'+TARGET, {'name': TARGET.split('/')[1],
+        'private':'false', 'default_branch':'main'}, method='PATCH')
+    if repo.get('private') is not False or repo.get('description') != MARKER:
+        raise RuntimeError('Gitee public visibility has not been confirmed')
+    return repo
+
+def verify_anonymous(repo):
+    # Successful authenticated git push is not evidence of public downloads.
+    opener = urllib.request.build_opener(NoRedirect)
+    catalog = json.loads((repo/'catalog.json').read_text())
+    paths = ['catalog.json'] + ['packages/'+p['name']+'/'+p['version']+'/plugin.zip'
+                               for p in catalog['plugins']]
+    import base64
+    for path in paths:
+        expected = (repo/path).read_bytes()
+        if len(expected) > 64*1024*1024: raise RuntimeError('Plugin exceeds package budget')
+        wire_limit = ((len(expected)+2)//3)*4+8192
+        req = urllib.request.Request('https://gitee.com/api/v5/repos/'+TARGET+'/contents/'+path)
+        with opener.open(req, timeout=30) as response:
+            body = response.read(wire_limit+1)
+        if len(body) > wire_limit: raise RuntimeError('Gitee verification response too large')
+        envelope = json.loads(body)
+        if envelope.get('type') != 'file' or envelope.get('encoding') != 'base64':
+            raise RuntimeError('Gitee anonymous download is not a file')
+        data = base64.b64decode(''.join(envelope['content'].split()), validate=True)
+        if data != expected or envelope.get('size') != len(data):
+            raise RuntimeError('Gitee anonymous download differs from the vetted public source')
+
 def sync(call=api, run=subprocess.run):
-    ensure_target(call)
     # Credentials are requested only for this HTTPS Gitee push. The source is
     # public; no GitHub access token or private source checkout is needed.
     with tempfile.TemporaryDirectory(prefix='xh-public-registry-') as temp:
         root = Path(temp); repo = root/'registry'
         askpass = root/'askpass.py'
-        askpass.write_text('#!/usr/bin/env python3\nimport os,sys\nprint("oauth2" if "username" in sys.argv[1].lower() else os.environ["GITEE_TOKEN"])\n')
+        askpass.write_text('#!/usr/bin/env python3\nimport os,sys\nprint("wangyue2006" if "username" in sys.argv[1].lower() else os.environ["GITEE_TOKEN"])\n')
         askpass.chmod(0o700)
         env = dict(os.environ, GIT_ASKPASS=str(askpass), GIT_TERMINAL_PROMPT='0')
         def git(*args):
@@ -79,12 +112,17 @@ def sync(call=api, run=subprocess.run):
         run(['python3', str(repo/'scripts/test_registry.py')], check=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         source_sha = git('-C', str(repo), 'rev-parse', 'HEAD')
+        public_commits = frozenset(git('-C', str(repo), 'rev-list', 'HEAD').splitlines())
+        metadata = ensure_target(call, public_commits)
         target = 'https://gitee.com/'+TARGET+'.git'
         # Non-fast-forward is a real conflict, never force-overwrite other work.
         git('-C', str(repo), 'push', '--quiet', target, 'HEAD:refs/heads/main')
         remote = git('ls-remote', target, 'refs/heads/main').split()
         if not remote or remote[0] != source_sha:
             raise RuntimeError('Gitee main SHA differs after push')
+        if metadata['private'] or metadata.get('default_branch') != 'main':
+            promote_target(call)
+        verify_anonymous(repo)
         return source_sha
 
 if __name__ == '__main__':
