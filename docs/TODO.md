@@ -1,5 +1,11 @@
 # XHarness 总任务清单
 
+## 旧公开接口清理（2026-09-30）
+
+- [x] `LEGACY-API-01` 删除无调用的参数裁剪阈值常量；保留历史审计字段、参数完整性保护和现有 Context 策略。
+- [x] `LEGACY-API-02` 删除消费式 `JobRegistry::read()`、共享 `legacy_cursor` 和内部 `take()`；输出读取统一使用调用方独立维护的 `read_since()` Cursor，不改变模型 `job_output` 接口或持久格式。
+- [x] `LEGACY-API-03` 迁移旧测试，覆盖分片 Unicode、容量淘汰、多读者重放、三种终态及错误 Owner/游标不修改 `reported`。WZU_Server 上 Jobs/Context/Coding Tools 共 41 项测试通过，全 Workspace `cargo check --all-targets` 通过；跨平台由 PR CI 验证，不在本机编译 Rust。
+
 ## Web 产品文案清理（2026-09-27）
 
 - [x] `BRAND-COPY-01` 将跨模型等待／流式／工具阶段的 `Deep diving...` 改为双语 `Working…`／`正在处理…`，状态动效改用中性主题色；取消上游欢迎声明和指定 DeepSeek 的首次配置弹窗，侧栏兜底品牌改为 XHarness，网页搜索说明改为中性文案。保留真实 DeepSeek 提供方及模型名称。静态 Bundle 与重建脚本均有同一补丁，并通过 Node 与浏览器回归。
