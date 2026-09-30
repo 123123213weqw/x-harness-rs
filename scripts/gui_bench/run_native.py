@@ -145,6 +145,8 @@ def main():
                 config['mcpServers']['browser']['env'] = {
                     'XHARNESS_BROWSER_DEPS': os.environ.get('UI_TEST_DEPS', '/tmp/xharness-ui-deps'),
                     'XHARNESS_BROWSER_ALLOWED_ORIGINS': json.dumps([fixture['origin'], 'https://github.com'])}
+                if os.environ.get('XHARNESS_BROWSER_PROXY'):
+                    config['mcpServers']['browser']['env']['XHARNESS_BROWSER_PROXY'] = os.environ['XHARNESS_BROWSER_PROXY']
                 config_bytes = json.dumps(config).encode()
                 digest = hashlib.sha256((source / 'server.mjs').read_bytes() + config_bytes).hexdigest()
                 plugin_root = root / 'state/plugins'

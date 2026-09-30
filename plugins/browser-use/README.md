@@ -16,3 +16,6 @@ Current limits: semantic observation only, one page, no cross-frame/shadow-DOM g
 The manifest and `.mcp.json` follow the existing plugin package layout. Enabling a plugin and enabling its MCP server remain separate explicit operator decisions. The evaluator bootstraps only its disposable state; no production catalog or user configuration is changed. Dependency availability and allowed origins must be configured by the operator before enabling it.
 
 Run `UI_TEST_DEPS=/path/to/test/deps node scripts/gui_bench/test_browser.mjs` for real Chromium/stdio contracts without paid API calls. The GUI candidate CI runs these contracts and remote Rust regressions. Public task replay uses `scripts/gui_bench/run_native.py --mode browser`; its separate credential controller enforces the original shared CNY ledger and deadline. Preserve the ledger on retry/resume; never create a second budget to bypass the ceiling.
+
+
+An operator may optionally put `XHARNESS_BROWSER_PROXY` in the MCP server's explicit environment (e.g. a locally owned SOCKS tunnel). It affects only the isolated browser; loopback fixture requests bypass it. Proxy URLs with embedded authentication, queries or fragments are rejected. This is not a model action, does not change system proxy settings, and does not import ambient credentials.
