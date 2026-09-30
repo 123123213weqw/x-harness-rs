@@ -309,7 +309,6 @@ struct OutputBuffer {
     bytes: Vec<u8>,
     start: u64,
     end: u64,
-    legacy_cursor: u64,
     limit: usize,
 }
 
@@ -319,7 +318,6 @@ impl OutputBuffer {
             bytes: Vec::with_capacity(limit.min(8192)),
             start: 0,
             end: 0,
-            legacy_cursor: 0,
             limit,
         }
     }
@@ -332,12 +330,6 @@ impl OutputBuffer {
             self.bytes.drain(..overflow);
         }
         self.start = self.end.saturating_sub(self.bytes.len() as u64);
-    }
-
-    fn take(&mut self) -> (String, bool) {
-        let (text, truncated, next) = self.read_from(self.legacy_cursor);
-        self.legacy_cursor = next;
-        (text, truncated)
     }
 
     fn read_from(&self, requested: u64) -> (String, bool, u64) {
@@ -476,31 +468,6 @@ impl JobRegistry {
 
     pub fn get(&self, owner: &str, id: &str) -> Result<JobSnapshot, JobError> {
         Ok(self.expect_owned(owner, id)?.snapshot())
-    }
-
-    /// Legacy single-reader cursor. New model-facing callers should use
-    /// `read_since` so another reader cannot consume their output.
-    pub fn read(&self, owner: &str, id: &str) -> Result<JobRead, JobError> {
-        let job = self.expect_owned(owner, id)?;
-        let mut state = job.state.lock().expect("job entry lock poisoned");
-        let (stdout, stdout_truncated) = state.stdout.take();
-        let (stderr, stderr_truncated) = state.stderr.take();
-        if state.status.is_terminal() {
-            state.reported = true;
-        }
-        let snapshot = job.snapshot_with(&state);
-        Ok(JobRead {
-            stdout,
-            stderr,
-            stdout_truncated,
-            stderr_truncated,
-            next_cursor: JobOutputCursor {
-                job_id: id.to_owned(),
-                stdout: state.stdout.legacy_cursor,
-                stderr: state.stderr.legacy_cursor,
-            },
-            snapshot,
-        })
     }
 
     /// Read a bounded, non-consuming stream window from independent absolute
