@@ -6,12 +6,21 @@ const marker = '// xh-transcript-windowing/v1';
 const startMarker = '// xh-transcript-implementation:start';
 const endMarker = '// xh-transcript-implementation:end';
 const implementation = readFileSync(new URL('../ui/overrides/transcript-windowing.js', import.meta.url), 'utf8');
+function boundedActiveTail(s) {
+  const old = "keepMounted: index >= activeSuffix,";
+  const previous = "keepMounted: running && nodeKey === lastKey,";
+  const next = "keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeStore.get(nodeKey))),";
+  if (![old, previous, next].some(value => s.split(value).length === 2))
+    throw Error("Transcript live policy anchor changed");
+  return s.replace(/const activeSuffix = running \? Math.max\(0, order.findLastIndex\(key => nodeStore.get\(key\)\?\.kind === "user"\)\) : order.length;/, "// Only live tips and pending tools need offscreen rendering; row state survives eviction.")
+    .replace(old, next).replace(previous, next);
+}
 export function patchTranscriptWindowing(bytes) {
   let s = bytes.toString();
   if (s.includes(marker)) {
     if (s.split(startMarker).length !== 2 || s.split(endMarker).length !== 2) throw Error('Transcript implementation anchors changed');
     const start = s.indexOf(startMarker), end = s.indexOf(endMarker, start);
-    return Buffer.from(s.slice(0, start) + startMarker + '\n' + implementation + endMarker + s.slice(end + endMarker.length));
+    return Buffer.from(boundedActiveTail(s.slice(0, start) + startMarker + '\n' + implementation + endMarker + s.slice(end + endMarker.length)));
   }
   const once = (from, to) => {
     if (s.split(from).length !== 2) throw Error('Transcript windowing anchor changed: ' + from);
@@ -34,7 +43,7 @@ export function patchTranscriptWindowing(bytes) {
        'const selectedCallId = useStore((s) => s.selection?.callId);\nconst activeSuffix = running ? Math.max(0, order.findLastIndex(key => nodeStore.get(key)?.kind === "user")) : order.length;');
   once('order.map((nodeKey) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {',
        'order.map((nodeKey, index) => (0, react_jsx_runtime.jsx)(ChatNodeSeat, {\nkeepMounted: index >= activeSuffix,');
-  return Buffer.from(marker + '\n' + s);
+  return Buffer.from(marker + '\n' + boundedActiveTail(s));
 }
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const dist = resolve(process.argv[2] ?? 'ui/dist');

@@ -11,7 +11,7 @@ const dist = resolve(root, 'ui/dist');
 const shipped = readFileSync(resolve(dist,'plugins/@xharness/dsh-client-ui-conversation/client.js'));
 new Script(shipped.toString());
 assert.deepEqual(patchTranscriptWindowing(shipped), shipped);
-assert.deepEqual(patchTranscriptWindowing(Buffer.from(shipped.toString().replace("Product-owned transcript DOM", "Older transcript DOM"))), shipped);
+assert.deepEqual(patchTranscriptWindowing(Buffer.from(shipped.toString().replace("Product-owned bounded transcript DOM", "Older transcript DOM"))), shipped);
 assert.throws(()=>patchTranscriptWindowing(Buffer.from('upstream changed')), /anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
 const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-ui-conversation');
@@ -37,10 +37,12 @@ try {
  await page.addScriptTag({content:helper});
  await page.evaluate(()=>{
   const R=staticModules.react,D=staticModules['react-dom'],WindowRow=createTranscriptWindowing(R);
+  const identity=globalThis.__xhTranscriptState.get(R.createElement);createTranscriptWindowing({...R});
+  if(identity!==globalThis.__xhTranscriptState.get(R.createElement))throw Error('React namespace wrappers must share row state');
   const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
   window.rows=Array.from({length:350},(_,i)=>({id:String(i),lines:Array.from({length:40},(_,j)=>`row ${i} line ${j} const value = ${i+j}; `+'content '.repeat(12))}));
   window.active=false;window.virtual=false;
-  function Heavy({row}){const [expanded,setExpanded]=R.useState(false);return R.createElement('section',{},R.createElement('button',{onClick:()=>setExpanded(v=>!v)},expanded?'Collapse':'Expand'),expanded&&R.createElement('div',{'data-expanded':row.id},'saved expansion'),R.createElement('pre',{style:{margin:0,whiteSpace:'pre-wrap'}},row.lines.map((line,i)=>R.createElement('span',{key:i,style:{display:'block'}},line))))}
+  function Heavy({row}){const [expanded,setExpanded]=globalThis.__xhTranscriptState.get(R.createElement).useState("fixture-expanded",false);return R.createElement('section',{},R.createElement('button',{onClick:()=>setExpanded(v=>!v)},expanded?'Collapse':'Expand'),expanded&&R.createElement('div',{'data-expanded':row.id},'saved expansion'),R.createElement('pre',{style:{margin:0,whiteSpace:'pre-wrap'}},row.lines.map((line,i)=>R.createElement('span',{key:i,style:{display:'block'}},line))))}
   window.render=()=>D.flushSync(()=>root.render(R.createElement('div',{'data-conversation-scroll':'',style:{height:600,width:'900px',overflow:'auto',overflowAnchor:'none'}},rows.map(row=>R.createElement(virtual?WindowRow:'div',{key:row.id,'data-row':row.id,className:'fixture-row',...(virtual?{keepMounted:active&&row.id===rows.at(-1).id}:{})},R.createElement(Heavy,{row}))))));
   render();
  });
@@ -48,30 +50,56 @@ try {
  const cdp=engine==='chromium'?await page.context().newCDPSession(page):null;
  async function metrics(){if(!cdp)return {dom:await page.locator('*').count()};await cdp.send('HeapProfiler.collectGarbage');const dom=await cdp.send('Memory.getDOMCounters');const heap=await cdp.send('Runtime.getHeapUsage');return {dom:dom.nodes,heapBytes:heap.usedSize};}
  const baseline=await metrics();
- await page.evaluate(()=>{virtual=true;render()});
+ const firstWindowed = await page.evaluate(()=>{virtual=true;render();return document.querySelectorAll("[data-transcript-mounted=true]").length});
+ assert.equal(firstWindowed,0,"first windowed commit never mounts full history");
  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="false"]').length>300);
  const optimized=await metrics();
+ assert.ok(await page.locator('[data-row]').count()===350,'lightweight row keys and complete data remain');
  assert.ok(optimized.dom<baseline.dom*.35,JSON.stringify({baseline,optimized}));
- // Eviction preserves scroll extent; exact initial measurements, not estimates.
+ // Unmeasured seats preserve estimated extent; near rows progressively correct it.
  const initialHeight=await scroll.evaluate(e=>e.scrollHeight);
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
  await page.locator('[data-row="349"] button').waitFor();
  await page.waitForTimeout(100);
- assert.equal(await scroll.evaluate(e=>e.scrollHeight),initialHeight);
- // Interaction pins local upstream state even when the row leaves the window.
+ assert.ok(await scroll.evaluate(e=>e.scrollHeight)>80000,"unvisited history still has scroll extent");
+ // Row-owned state survives eviction, without permanently mounting clicked rows.
  await page.locator('[data-row="349"] button').click();
  await scroll.evaluate(e=>{e.scrollTop=0});
  await page.locator('[data-row="0"] button').waitFor();
- assert.equal(await page.locator('[data-expanded="349"]').count(),1);
- // Active suffix remains mounted even when offscreen; settling allows eviction.
+ await page.waitForFunction(()=>document.querySelector('[data-row="349"]').dataset.transcriptMounted==='false');
+ assert.equal(await page.locator('[data-expanded="349"]').count(),0);
+ await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
+ await page.locator('[data-expanded="349"]').waitFor();
+ await scroll.evaluate(e=>{e.scrollTop=0});
+ await page.locator('[data-row="0"] button').waitFor();
+ // A genuine text selection is temporarily protected, then released.
+ await page.evaluate(()=>{
+  const text=document.querySelector('[data-row="0"] pre span').firstChild;
+  const range=document.createRange();range.selectNodeContents(text);
+  const selection=document.getSelection();selection.removeAllRanges();selection.addRange(range);
+ });
+ await page.waitForTimeout(100);
+ await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(100);
+ assert.equal(await page.locator('[data-row="0"] button').count(),1,'selected text is not evicted');
+ await page.evaluate(()=>document.getSelection().removeAllRanges());
+ await page.waitForFunction(()=>document.querySelector('[data-row="0"]').dataset.transcriptMounted==='false');
+ await scroll.evaluate(e=>{e.scrollTop=0});await page.locator('[data-row="0"] button').waitFor();
+ // The live tip remains mounted even when offscreen; settling allows eviction.
  await page.evaluate(()=>{active=true;rows.push({id:'350',lines:['streaming']});render()});
  await page.locator('[data-row="350"] button').waitFor({state:'attached'});
  await page.evaluate(()=>{active=false;render()});
  await page.waitForFunction(()=>document.querySelector('[data-row="350"]').dataset.transcriptMounted==='false');
- // Width changes remount and remeasure rather than retaining stale wrapped sizes.
+ // Width changes must never remount all offscreen messages.
+ await page.evaluate(()=>{
+  window.resizePeak=document.querySelectorAll('[data-transcript-mounted=true]').length;
+  window.resizeObserver=new MutationObserver(()=>{resizePeak=Math.max(resizePeak,document.querySelectorAll('[data-transcript-mounted=true]').length)});
+  resizeObserver.observe(document.getElementById('root'),{childList:true,subtree:true});
+ });
  await scroll.evaluate(e=>{e.style.width='420px'});
+ for (const width of [900,420,760,380,900]) { await scroll.evaluate((e,width)=>{e.style.width=width+'px'},width); await page.waitForTimeout(100); }
  await page.waitForTimeout(350);
- assert.ok(await scroll.evaluate(e=>e.scrollHeight)>initialHeight);
+ assert.ok(await page.evaluate(()=>resizePeak)<25,"resize peak is bounded");
+ const resizePeak=await page.evaluate(()=>{resizeObserver.disconnect();return window.resizePeak});
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});
  await page.locator('[data-row="350"] button').waitFor();
  // Session unmount cleans observers; mounting a new conversation is still functional.
@@ -82,9 +110,48 @@ try {
  await page.evaluate(()=>{fixtureRoot.unmount();window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
   let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
-  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.apply = apply;');
+  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.ReasoningRow = ReasoningRow; exports.CompactionItem = CompactionItem; exports.apply = apply;');
+  if(name==='dsh-client-ui-tool')source=source.replace('exports.apply = apply;', 'exports.ToolRow = ToolRow; exports.apply = apply;');
   await page.addScriptTag({content:source});
  }
+ await page.evaluate(()=>{
+  const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
+  const R=staticModules.react,D=staticModules['react-dom'],Row=createTranscriptWindowing(R);
+  const {ToolRow}=load('@xharness/dsh-client-ui-tool');
+  const {ReasoningRow}=load('@xharness/dsh-client-ui-conversation');
+  const root=D.createRoot(document.getElementById('root'));window.fixtureRoot=root;
+  const api=globalThis.__xhTranscriptState.get(R.createElement);
+  document.documentElement.dataset.xhProcessMode='compact';
+  function Editable(){const [value,set]=api.useState('draft','');return R.createElement('input',{'data-draft':'',value,onChange:e=>set(e.target.value)})}
+  const children=()=>R.createElement('section',{},
+    ...['one','two'].map(stateKey=>R.createElement('div',{'data-tool':stateKey,key:stateKey},R.createElement(ToolRow,{stateKey,t:k=>k,variant:'bash',toolName:'bash',icon:null,title:stateKey,summary:'echo '+stateKey,summarySuffix:null,body:'command',output:'output',errorSummary:null,state:'ok'}))),
+    R.createElement('div',{'data-reasoning':''},R.createElement(ReasoningRow,{stateKey:0,text:'reasoning content',running:false,t:k=>k})),
+    R.createElement('details',{'data-native-detail':''},R.createElement('summary',{},'native detail'),R.createElement('p',{},'body')),
+    R.createElement(Editable));
+  window.renderState=()=>D.flushSync(()=>root.render(R.createElement('div',{'data-conversation-scroll':'',style:{height:600,width:900,overflow:'auto',overflowAnchor:'none'}},
+    R.createElement(Row,{'data-state-row':'',estimatedHeight:300},children()),
+    R.createElement('div',{style:{height:15000}},'padding'))));renderState();
+ });
+ await page.locator('[data-tool="one"] [aria-expanded]').waitFor();
+ await page.locator('[data-tool="one"] [aria-expanded]').click();
+ await page.locator('[data-reasoning] [aria-expanded]').click();
+ await page.locator('[data-native-detail] summary').click();
+ await page.locator('[data-draft]').fill('retain draft');
+ // Focused text entry is temporarily protected, not every clicked button.
+ await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(150);
+ assert.equal(await page.locator('[data-draft]').count(),1,'focused input is not evicted');
+ await page.evaluate(()=>document.activeElement.blur());
+ await page.waitForFunction(()=>document.querySelector('[data-state-row]').dataset.transcriptMounted==='false');
+ await scroll.evaluate(e=>{e.scrollTop=0});
+ await page.locator('[data-tool="one"] [aria-expanded=true]').waitFor();
+ assert.equal(await page.locator('[data-tool="two"] [aria-expanded=false]').count(),1,'tool call states stay independent');
+ await page.locator('[data-reasoning] [aria-expanded=true]').waitFor();
+ assert.equal(await page.locator('[data-native-detail]').evaluate(e=>e.open),true,'native details state restored');
+ assert.equal(await page.locator('[data-draft]').inputValue(),'retain draft','row-owned input draft restored');
+ // Compact preference must not overwrite manually expanded state on remount.
+ await page.waitForTimeout(100);
+ assert.equal(await page.locator('[data-tool="one"] [aria-expanded=true]').count(),1);
+ await page.evaluate(()=>{fixtureRoot.unmount();delete document.documentElement.dataset.xhProcessMode});
  await page.evaluate(()=>{
   const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
   const R=staticModules.react,D=staticModules['react-dom'],View=load('@xharness/dsh-client-ui-conversation/client').ChatView;
@@ -152,5 +219,5 @@ try {
  assert.ok(Math.abs(after-anchor.top)<2,'prepend preserves real ChatView anchor');
  await page.evaluate(()=>fixtureRoot.unmount());
  assert.deepEqual(errors.filter(e=>!e.includes('fixture stop boot')),[]);
- console.log(JSON.stringify({engine,baseline,optimized,checks:'extent, offscreen eviction, interaction state, active row, resize, cleanup, shipped ChatView bottom/append/prepend anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
+ console.log(JSON.stringify({engine,baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
 } finally {await browser.close()}
