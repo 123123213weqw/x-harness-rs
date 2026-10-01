@@ -1626,7 +1626,7 @@ mod tests {
         async fn executor(
             &self,
             session_id: &str,
-            cwd: &str,
+            _cwd: &str,
             _permission: PermissionPreset,
         ) -> Result<ToolExecutor, String> {
             let registry = Arc::new(ToolRegistry::new());
