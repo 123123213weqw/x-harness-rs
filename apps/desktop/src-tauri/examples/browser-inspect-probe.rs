@@ -110,6 +110,15 @@ async fn bridge_call(
 }
 
 async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<(), String> {
+    let origin = main
+        .app_handle()
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?
+        .0
+        .url()
+        .map_err(|e| e.to_string())?
+        .origin()
+        .ascii_serialization();
     let state = app.state::<browser_bridge::BrowserBridge>();
     let connection = state.start(app).await?;
     let wrong = browser_bridge::Connection {
@@ -131,6 +140,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         "probe".into(),
         Some("parent".into()),
         true,
+        Some(origin.clone()),
     )
     .await
     .is_ok()
@@ -141,14 +151,52 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
         return Err("native bridge appeared before user delegation".into());
     }
+    if browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("parent".into()),
+        true,
+        Some("https://changed.example".into()),
+    )
+    .await
+    .is_ok()
+    {
+        return Err("late UI confirmation granted an unreviewed origin".into());
+    }
     browser_delegation::desktop_browser_delegate(
         main.clone(),
         app.state(),
         "probe".into(),
         Some("parent".into()),
         false,
+        Some(origin.clone()),
     )
     .await?;
+    let status = browser_delegation::desktop_browser_access(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        "parent".into(),
+    )
+    .await?;
+    let status = serde_json::to_value(status).map_err(|e| e.to_string())?;
+    if status["origin"] != origin
+        || status["grant"]["allowActions"] != false
+        || status["grant"]["remainingMs"].as_u64().unwrap_or(0) == 0
+    {
+        return Err("UI access receipt did not reflect native read-only lease".into());
+    }
+    let status = browser_delegation::desktop_browser_access(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        "child".into(),
+    )
+    .await?;
+    if !serde_json::to_value(status).map_err(|e| e.to_string())?["grant"].is_null() {
+        return Err("UI status leaked another session's lease".into());
+    }
     if bridge_call(connection, "child", "observe", json!({})).await?["ok"] != false {
         return Err("subagent inherited browser consent".into());
     }
@@ -171,6 +219,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         "probe".into(),
         Some("parent".into()),
         true,
+        Some(origin.clone()),
     )
     .await?;
     let view = bridge_call(connection, "parent", "observe", json!({})).await?;
@@ -556,6 +605,7 @@ fn main() {
         .manage(browser_bridge::BrowserBridge::default())
         .invoke_handler(tauri::generate_handler![
             browser_delegation::desktop_browser_delegate,
+            browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
             browser_perform::desktop_browser_perform
         ])

@@ -97,6 +97,7 @@ pub fn run() {
             browser::desktop_browser_restore,
             browser::desktop_browser_persist,
             browser_delegation::desktop_browser_delegate,
+            browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
             browser_perform::desktop_browser_perform,
         ])
