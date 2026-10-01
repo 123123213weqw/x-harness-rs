@@ -18,7 +18,7 @@ const require = createRequire(resolve(deps, 'package.json'))
 const { chromium } = require('playwright')
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 900, height: 700 } })
+  const page = await browser.newPage({ viewport: { width: 900, height: 700 }, locale: 'en-US' })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.setContent('<div id="root"></div>')
@@ -68,6 +68,7 @@ try {
   await page.getByText('Chat content').waitFor()
   assert.deepEqual(errors, [])
 
+  // English selectors require a deterministic locale, independent of the runner.
   // Load the actual shipped bundles at both sidebar widths. This catches
   // duplicate responsive controls that AppFrame-only fixtures cannot see.
   const dist = resolve(fileURLToPath(root), 'ui/dist')
@@ -90,7 +91,7 @@ try {
   try {
     const url = `http://127.0.0.1:${server.address().port}/`
     for (const width of [800, 1200]) {
-      const shipped = await browser.newPage({ viewport: { width, height: 700 } })
+      const shipped = await browser.newPage({ viewport: { width, height: 700 }, locale: 'en-US' })
       const shippedErrors = []
       shipped.on('pageerror', error => shippedErrors.push(error.message))
       await shipped.goto(url, { waitUntil: 'domcontentloaded' })
