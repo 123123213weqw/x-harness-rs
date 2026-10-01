@@ -1633,7 +1633,6 @@ mod tests {
             AskUserQuestionTool::new(Arc::new(crate::DurableQuestionProvider::new(
                 Arc::clone(&self.hub),
                 session_id,
-                cwd,
             )))
             .register(&registry)
             .await
@@ -4557,10 +4556,7 @@ mod tests {
             .unwrap();
         store.flush("question-restart").await.unwrap();
 
-        let questions = crate::DurableQuestionHub::new(
-            Arc::clone(&store),
-            Arc::new(crate::NoopAgentMarkdownSink),
-        );
+        let questions = crate::DurableQuestionHub::new(Arc::clone(&store));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let provider: Arc<dyn ModelProvider> = Arc::new(ApprovalRecoveryProvider {
             requests: Arc::clone(&requests),
