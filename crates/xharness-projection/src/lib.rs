@@ -222,7 +222,11 @@ fn event_view_from_sources(
 /// A self-contained presentation update for automatic compaction. The end
 /// update repeats the committed summary so a paged history window does not
 /// need to load the start, summary and replacement events to render it.
-fn automatic_compaction_view(events: &[LoggedEvent], context: &[LoggedEvent], event: &LoggedEvent) -> Option<Value> {
+fn automatic_compaction_view(
+    events: &[LoggedEvent],
+    context: &[LoggedEvent],
+    event: &LoggedEvent,
+) -> Option<Value> {
     match event.data() {
         EventData::CompactionStart {
             compaction_id,
@@ -247,14 +251,26 @@ fn automatic_compaction_view(events: &[LoggedEvent], context: &[LoggedEvent], ev
             let mut start = None;
             let mut summary = None;
             let mut replacement = None;
-            let mut sources: Vec<_> = events.iter().chain(context).filter(|e| {
-                e.seq < event.seq && match e.data() {
-                    EventData::CompactionStart { compaction_id: id, .. }
-                    | EventData::CompactionSummary { compaction_id: id, .. } => id == compaction_id,
-                    EventData::UserMessage { surface_replace: Some(replace), .. } => replace.compaction_id == *compaction_id,
-                    _ => false,
-                }
-            }).collect();
+            let mut sources: Vec<_> = events
+                .iter()
+                .chain(context)
+                .filter(|e| {
+                    e.seq < event.seq
+                        && match e.data() {
+                            EventData::CompactionStart {
+                                compaction_id: id, ..
+                            }
+                            | EventData::CompactionSummary {
+                                compaction_id: id, ..
+                            } => id == compaction_id,
+                            EventData::UserMessage {
+                                surface_replace: Some(replace),
+                                ..
+                            } => replace.compaction_id == *compaction_id,
+                            _ => false,
+                        }
+                })
+                .collect();
             sources.sort_unstable_by_key(|e| e.seq);
             sources.dedup_by_key(|e| e.seq);
             for candidate in sources.into_iter().rev() {
@@ -1420,6 +1436,22 @@ mod projection_encoding_tests {
             project_web_event_view(&projected[6], &projected),
             Some(end_view)
         );
+        let window = SessionHistoryWindow {
+            next_seq: session.next_seq(),
+            has_more: true,
+            events: vec![session.events()[6].clone()],
+            context: vec![
+                session.events()[5].clone(),
+                session.events()[3].clone(),
+                session.events()[4].clone(),
+            ],
+            initial_request_header_seq: None,
+            completed_steps: Vec::new(),
+        };
+        assert_eq!(
+            project_history_window_view(&window, &window.events[0]),
+            project_session_event_view(&session, &session.events()[6])
+        );
         // A history page containing only the terminal event still has a
         // complete summary because it is projected from the durable Session.
         assert_eq!(
@@ -1466,5 +1498,17 @@ mod projection_encoding_tests {
         assert_eq!(terminal["view"]["anchorSeq"], 2);
         assert!(terminal["view"].get("summary").is_none());
         assert_eq!(project_web_event_view(&events[3], &events), Some(terminal));
+        let window = SessionHistoryWindow {
+            next_seq: session.next_seq(),
+            has_more: true,
+            events: vec![session.events()[3].clone()],
+            context: vec![session.events()[2].clone()],
+            initial_request_header_seq: None,
+            completed_steps: Vec::new(),
+        };
+        assert_eq!(
+            project_history_window_view(&window, &window.events[0]),
+            project_session_event_view(&session, &session.events()[3])
+        );
     }
 }

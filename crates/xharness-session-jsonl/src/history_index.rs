@@ -110,7 +110,10 @@ impl Builder {
         for event in &batch.events {
             let compaction_id = match event.data() {
                 EventData::CompactionSummary { compaction_id, .. } => Some(compaction_id),
-                EventData::UserMessage { surface_replace: Some(replace), .. } => Some(&replace.compaction_id),
+                EventData::UserMessage {
+                    surface_replace: Some(replace),
+                    ..
+                } => Some(&replace.compaction_id),
                 _ => None,
             };
             if let Some(sources) = compaction_id.and_then(|id| self.compactions.get_mut(id)) {
@@ -130,7 +133,8 @@ impl Builder {
                     }
                 }
                 EventData::CompactionStart { compaction_id, .. } => {
-                    self.compactions.insert(compaction_id.clone(), vec![event.seq]);
+                    self.compactions
+                        .insert(compaction_id.clone(), vec![event.seq]);
                 }
                 EventData::ToolCall { call, .. } => {
                     self.calls.insert(call.id.clone(), event.seq);

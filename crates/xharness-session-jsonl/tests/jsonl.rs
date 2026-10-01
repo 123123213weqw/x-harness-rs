@@ -1995,3 +1995,103 @@ async fn audit_preserves_multimodal_opaque_reasoning_and_crlf_legacy_history() {
     );
     assert_eq!(fs::read_to_string(path).unwrap(), text);
 }
+
+#[tokio::test]
+async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_and_compression() {
+    use xharness_session::{SequenceRange, SurfaceReplace};
+    let dir = TestDir::new();
+    let id = "compact-context";
+    let store = JsonlSessionStore::new(dir.path())
+        .unwrap()
+        .with_cache_limits(0, 0);
+    store.create(header(id)).await.unwrap();
+    store
+        .append(
+            id,
+            Revision::ZERO,
+            vec![
+                turn_start(1),
+                user_message("prior user history"),
+                EventData::StepStart { turn: 1, step: 1 }.into(),
+                EventData::CompactionStart {
+                    compaction_id: "c1".into(),
+                    source_command_id: None,
+                    turn: Some(1),
+                }
+                .into(),
+            ],
+        )
+        .await
+        .unwrap();
+    let range = SequenceRange { start: 1, end: 1 };
+    store
+        .append(
+            id,
+            Revision(1),
+            vec![EventData::CompactionSummary {
+                compaction_id: "c1".into(),
+                source_command_id: None,
+                summary: "摘要 🧪".into(),
+                shadowed_range: range,
+                shadowed_seqs: vec![1],
+                shadowed_token_count: 128,
+                provider: "test".into(),
+                model: "test".into(),
+                max_tokens: Some(64),
+                usage: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            id,
+            Revision(2),
+            vec![EventData::UserMessage {
+                message: Message::user("checkpoint"),
+                surface_replace: Some(SurfaceReplace {
+                    compaction_id: "c1".into(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![1],
+                }),
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    store
+        .append(
+            id,
+            Revision(3),
+            vec![EventData::CompactionEnd {
+                compaction_id: "c1".into(),
+                source_command_id: None,
+                turn: Some(1),
+                error: None,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    for compressed in [false, true] {
+        if compressed {
+            assert!(store.compress_cold_session(id).await.unwrap().changed);
+        }
+        let session = store.load(id).await.unwrap().unwrap();
+        let reopened = JsonlSessionStore::new(dir.path())
+            .unwrap()
+            .with_cache_limits(0, 0);
+        let page = reopened
+            .history_window(id, session.next_seq(), None, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(page.events, session.events()[5..]);
+        assert_eq!(
+            page.context.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        assert_eq!(reopened.cache_stats().entries, 0);
+    }
+}
