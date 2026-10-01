@@ -10,12 +10,53 @@ import urllib.request
 
 from scripts.gui_bench.budget import BudgetLedger
 from scripts.gui_bench.native_fixture import Fixture
-from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary
+from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed
 from scripts.gui_bench.webview_contract import Contract
 from scripts.terminal_bench.broker import Broker
 
 
 class WebviewTests(unittest.TestCase):
+    def test_task_success_cannot_hide_unverified_accounting(self):
+        result = dict(passed=True,cleanup_passed=True,tier='genuine-host-model-tauri-webview',
+            provider_settled_before_teardown=True,pending_requests=0,model_calls=5)
+        self.assertTrue(acceptance_passed(result))
+        for patch in [dict(provider_settled_before_teardown=False),dict(pending_requests=1),
+                      dict(accounting_pending=True),dict(model_calls=None),dict(model_calls=0),
+                      dict(cleanup_passed=False),dict(passed=False)]:
+            self.assertFalse(acceptance_passed(dict(result,**patch)))
+        self.assertTrue(acceptance_passed(dict(passed=True,cleanup_passed=True,tier='native-binding-contract',model_calls=0)))
+
+    def test_settlement_retries_only_transient_side_effect_free_receipts(self):
+        clock = itertools.count(0,.1)
+        samples = iter([urllib.error.URLError('temporary'),{'requests':2,'pending_requests':0}])
+        def sample(*args,**kwargs):
+            self.assertLessEqual(kwargs['timeout'],3)
+            value=next(samples,{'requests':2,'pending_requests':0})
+            if isinstance(value,Exception): raise value
+            return value
+        with patch('scripts.gui_bench.run_webview.time.monotonic',side_effect=lambda:next(clock)), \
+             patch('scripts.gui_bench.run_webview.time.sleep'), \
+             patch('scripts.gui_bench.run_webview.budget_receipt',side_effect=sample):
+            self.assertTrue(settle_quiet({},timeout=5))
+        with patch('scripts.gui_bench.run_webview.budget_receipt',side_effect=urllib.error.HTTPError('local',403,'denied',{},None)) as receipt:
+            self.assertFalse(settle_quiet({}))
+            self.assertEqual(receipt.call_count,1)
+
+    def test_native_proxy_is_explicit_loopback_only_and_never_ambient(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict('os.environ', {'HTTPS_PROXY':'http://secret@ambient','DEEPSEEK_API_KEY':'secret'}, clear=True):
+                direct = native_environment(Path(directory))
+                self.assertNotIn('HTTPS_PROXY',direct)
+                self.assertNotIn('DEEPSEEK_API_KEY',direct)
+            routed = Path(directory)/'routed'; routed.mkdir()
+            env = native_environment(routed,'socks5://127.0.0.1:12345')
+            self.assertEqual(env['https_proxy'],'socks5://127.0.0.1:12345')
+            self.assertEqual(env['no_proxy'],'127.0.0.1,localhost')
+            for value in ['http://example.com:123','http://user:secret@127.0.0.1:123','socks5://127.0.0.1',
+                          'http://127.0.0.1:0','http://127.0.0.1:65536','http://127.0.0.1:123/path',
+                          'http://127.0.0.1:123?key=secret','http://127.0.0.1:123#fragment','ftp://127.0.0.1:123']:
+                with self.assertRaises(ValueError): native_environment(Path(directory),value)
+
     def test_contract_unknown_effect_is_never_replayed(self):
         calls = []
         def call(op, arguments):
@@ -102,7 +143,7 @@ class WebviewTests(unittest.TestCase):
         last = {'requests':2,'pending_requests':0}
         with patch('scripts.gui_bench.run_webview.time.monotonic', side_effect=lambda: next(clock)), \
              patch('scripts.gui_bench.run_webview.time.sleep'), \
-             patch('scripts.gui_bench.run_webview.budget_receipt', side_effect=lambda _: next(samples,last)) as receipts:
+             patch('scripts.gui_bench.run_webview.budget_receipt', side_effect=lambda *_,**__: next(samples,last)) as receipts:
             self.assertTrue(settle_quiet({},timeout=5))
             self.assertGreater(receipts.call_count,2)
         clock = itertools.count(0,.2)
