@@ -4,6 +4,8 @@
 //! persistence and live model activation. This processor only receives a
 //! settings snapshot and calculates the next namespace state.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 
 use serde_json::{json, Map, Value};
