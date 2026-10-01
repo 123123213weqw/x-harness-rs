@@ -1,6 +1,6 @@
 {
   "kind": "deterministic-genuine-native-dom-contract",
-  "base_commit": "fbe8ab1e08bca0cdfa77333597b28c683130f4e5",
+  "base_commit": "12bf8dcbb057e18041a54eaa82ad2baf7af42855",
   "model_calls": 0,
   "model_competence_score": null,
   "os_input": false,
@@ -13,38 +13,16 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.574,
+      "total_seconds": 5.552,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "fill",
-            "label": "Search issues"
-          },
-          {
-            "action": "click",
-            "label": "Search"
-          },
-          {
-            "action": "click",
-            "label": "#105 Compaction recovery does not settle"
-          },
-          {
-            "action": "fill",
-            "label": "Recovery marker answer"
-          }
-        ],
-        "denials": [
-          "invalid_schema",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
     },
     {
       "task": "pr",
@@ -54,32 +32,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.559,
+      "total_seconds": 5.647,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "New draft"
-          },
-          {
-            "action": "fill",
-            "label": "Title"
-          },
-          {
-            "action": "fill",
-            "label": "Description"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     },
     {
       "task": "dynamic",
@@ -89,39 +50,17 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 6.123,
+      "total_seconds": 6.089,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Configure provider"
-          },
-          {
-            "action": "select",
-            "label": "Provider"
-          },
-          {
-            "action": "select",
-            "label": "Reasoning level"
-          },
-          {
-            "action": "click",
-            "label": "Save settings"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "modal_background",
-          "modal_page_scroll",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
     },
     {
       "task": "game",
@@ -131,57 +70,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.495,
+      "total_seconds": 5.558,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     },
     {
       "task": "issue",
@@ -191,38 +88,16 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.63,
+      "total_seconds": 5.571,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "fill",
-            "label": "Search issues"
-          },
-          {
-            "action": "click",
-            "label": "Search"
-          },
-          {
-            "action": "click",
-            "label": "#105 Compaction recovery does not settle"
-          },
-          {
-            "action": "fill",
-            "label": "Recovery marker answer"
-          }
-        ],
-        "denials": [
-          "invalid_schema",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
     },
     {
       "task": "pr",
@@ -232,32 +107,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.524,
+      "total_seconds": 5.537,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "New draft"
-          },
-          {
-            "action": "fill",
-            "label": "Title"
-          },
-          {
-            "action": "fill",
-            "label": "Description"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     },
     {
       "task": "dynamic",
@@ -267,39 +125,17 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.999,
+      "total_seconds": 6.03,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Configure provider"
-          },
-          {
-            "action": "select",
-            "label": "Provider"
-          },
-          {
-            "action": "select",
-            "label": "Reasoning level"
-          },
-          {
-            "action": "click",
-            "label": "Save settings"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "modal_background",
-          "modal_page_scroll",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
     },
     {
       "task": "game",
@@ -309,57 +145,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.473,
+      "total_seconds": 5.526,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     },
     {
       "task": "issue",
@@ -369,38 +163,16 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.606,
+      "total_seconds": 5.515,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "fill",
-            "label": "Search issues"
-          },
-          {
-            "action": "click",
-            "label": "Search"
-          },
-          {
-            "action": "click",
-            "label": "#105 Compaction recovery does not settle"
-          },
-          {
-            "action": "fill",
-            "label": "Recovery marker answer"
-          }
-        ],
-        "denials": [
-          "invalid_schema",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 5,
+      "denial_categories": [
+        "consumed_frame",
+        "invalid_schema"
+      ]
     },
     {
       "task": "pr",
@@ -410,32 +182,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.566,
+      "total_seconds": 5.569,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "New draft"
-          },
-          {
-            "action": "fill",
-            "label": "Title"
-          },
-          {
-            "action": "fill",
-            "label": "Description"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 3,
+      "denial_count": 3,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     },
     {
       "task": "dynamic",
@@ -445,39 +200,17 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 6.003,
+      "total_seconds": 5.972,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Configure provider"
-          },
-          {
-            "action": "select",
-            "label": "Provider"
-          },
-          {
-            "action": "select",
-            "label": "Reasoning level"
-          },
-          {
-            "action": "click",
-            "label": "Save settings"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "modal_background",
-          "modal_page_scroll",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 4,
+      "denial_count": 6,
+      "denial_categories": [
+        "consumed_frame",
+        "modal_background",
+        "modal_page_scroll"
+      ]
     },
     {
       "task": "game",
@@ -487,57 +220,15 @@
       "model_calls": 0,
       "os_input": false,
       "host_sha256": "a7c74e1278b64c4d0171fd8ad8392e564095804edce20497124f7eedb96e433e",
-      "native_sha256": "bcfba1f9fd7173e1bbaa30d7b450bc0b3d010bbbf9609bd61929d0c4eb8aff6d",
+      "native_sha256": "163a1d450c933e1baaded48a7b044509c73b9e3af3cc7fcb474c8c43d2b841f7",
       "ui_sha256": "233a07b7a31a2bca0b30a3bc44384d8d18bfdd01aaeec9f7044ea62550faddb4",
-      "total_seconds": 5.539,
+      "total_seconds": 5.506,
       "cleanup_passed": true,
-      "contract": {
-        "actions": [
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          },
-          {
-            "action": "click",
-            "label": "Target"
-          }
-        ],
-        "denials": [
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame",
-          "consumed_frame"
-        ],
-        "model_task_passed": null
-      }
+      "action_count": 8,
+      "denial_count": 8,
+      "denial_categories": [
+        "consumed_frame"
+      ]
     }
   ],
   "native_callback_probe": {
@@ -545,15 +236,20 @@
     "platform": "linux",
     "model_calls": 0,
     "os_input": false,
-    "binary_sha256": "3fff798b1a14bdb9cc324e6fc3e087300d5981c969980b21c98dbf78223dd3a6",
+    "binary_sha256": "44bad484b7276f47202491154e69dde7d4b04192342b63eac223c51227dc6b7f",
     "cleanup_passed": true,
     "exit_code": 0,
-    "seconds": 9.439,
+    "seconds": 9.287,
     "passed": true
   },
   "limitations": [
     "Evaluator-driven actions, not new model repetitions",
     "No full packaged AppFrame navigation or native OS input",
     "V100 public GitHub TCP connections still time out before model admission"
-  ]
+  ],
+  "legacy_feature_fault_injection": {
+    "array_find_last_and_at_unavailable": "passed_chromium_and_webkit",
+    "unsupported_modal_selector": "passed_chromium_and_webkit",
+    "policy": "conservatively block a visible open dialog if :modal is unsupported"
+  }
 }

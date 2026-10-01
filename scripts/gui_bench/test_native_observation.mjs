@@ -146,6 +146,20 @@ for (const [name, engine] of Object.entries({ chromium, webkit })) {
     await page.locator('[role=dialog]').evaluate(node => node.style.display = 'block');
     check((await observe()).nodes.find(node => node.label === 'Background').disabled);
     check((await act({ action: 'fill', ref: await reference('Background'), text: 'blocked' })).effect === 'not_started');
+    // The fixed native script is not transpiled. New modal code must not depend
+    // on ES2022/2023 helpers absent in older supported WKWebView installations.
+    await page.evaluate(() => { Array.prototype.findLast = undefined; Array.prototype.at = undefined; });
+    check((await observe()).nodes.find(node => node.label === 'Background').disabled);
+    await page.setContent('<main><input aria-label="Background" value="keep"></main><dialog open><button>Legacy dialog</button></dialog>');
+    await page.evaluate(() => {
+      const matches = Element.prototype.matches;
+      Element.prototype.matches = function(selector) {
+        if (selector === ':modal') throw new DOMException('unsupported selector');
+        return matches.call(this, selector);
+      };
+    });
+    check((await observe()).nodes.find(node => node.label === 'Background').disabled);
+    check((await observe({scope:'dialog'})).nodes.some(node => node.label === 'Legacy dialog'));
     check(await page.evaluate(() => typeof window.__TAURI__ === 'undefined'));
     console.log(`${name}: native DOM observation/action contract passed (${checks} checks; not a native callback test)`);
   } finally {
