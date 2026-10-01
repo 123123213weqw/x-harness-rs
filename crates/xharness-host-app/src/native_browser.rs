@@ -181,6 +181,32 @@ mod tests {
             .any(|tool| tool.to_string().contains("token")));
     }
     #[tokio::test]
+    async fn predispatch_rejection_preserves_not_started_and_tool_failure() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let browser = NativeBrowser {
+            address: listener.local_addr().unwrap(),
+            token: "a".repeat(64),
+        };
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let length = stream.read_u32().await.unwrap() as usize;
+            let mut bytes = vec![0; length];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let reply = serde_json::to_vec(&json!({"ok":true,"result":{"ok":false,"effect":"not_started","message":"invalid native action arguments"}})).unwrap();
+            stream.write_u32(reply.len() as u32).await.unwrap();
+            stream.write_all(&reply).await.unwrap();
+        });
+        let result = browser
+            .call("owner", "perform", Map::new(), &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result["isError"], true);
+        let receipt: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(receipt["effect"], "not_started");
+        server.await.unwrap();
+    }
+    #[tokio::test]
     async fn cancelled_action_has_unknown_effect_and_never_connects() {
         let browser =
             NativeBrowser::configuration(Some("127.0.0.1:1".into()), Some("a".repeat(64)))

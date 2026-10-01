@@ -92,6 +92,41 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             BudgetLedger(self.path)
 
+    def test_explicit_continuation_preserves_totals_and_increment_after_crash(self):
+        ticket = self.ledger.reserve(self.ledger.token, 1)
+        self.ledger.settle(ticket, {'prompt_tokens': 1000, 'completion_tokens': 100}, 200, .1)
+        self.ledger.close()
+        self.ledger.release()
+        self.ledger = BudgetLedger(self.path, seconds=600, continuation_cny='5')
+        self.assertEqual(self.ledger.spent, Decimal('.0028'))
+        self.assertEqual(self.ledger.calls, 1)
+        self.assertEqual(self.ledger.admission_limit, Decimal('5.0028'))
+        deadline = self.ledger.wall_deadline
+        self.ledger.reserve(self.ledger.token, 1)
+        self.ledger.release()
+        self.ledger = BudgetLedger(self.path, seconds=3600)
+        self.assertEqual(self.ledger.wall_deadline, deadline)
+        self.assertEqual(self.ledger.admission_limit, Decimal('5.0028'))
+        self.ledger.reserve(self.ledger.token, 1)
+        with self.assertRaises(BudgetError):
+            self.ledger.reserve(self.ledger.token, 1)
+        self.assertEqual(len(self.ledger.continuations), 1)
+
+    def test_continuation_requires_existing_closed_settled_budget(self):
+        for increment in ['1', '0', '-1', 'NaN', 'Infinity', '201']:
+            self.ledger.release()
+            with self.assertRaises(ValueError):
+                BudgetLedger(self.path, continuation_cny=increment)
+            self.ledger = BudgetLedger(self.path)
+        self.ledger.reserve(self.ledger.token, 1)
+        self.ledger.close()
+        self.ledger.release()
+        with self.assertRaises(ValueError):
+            BudgetLedger(self.path, continuation_cny='5')
+        self.assertTrue(json.loads(self.path.read_text())['closed'])
+        with self.assertRaises(ValueError):
+            BudgetLedger(Path(self.temp.name) / 'missing.json', continuation_cny='5')
+
     def test_write_failure_denies_before_forwarding(self):
         with patch.object(self.ledger, '_save', side_effect=OSError('fixture')):
             with self.assertRaises(OSError):

@@ -158,3 +158,40 @@ Remaining: full real-model → Host → native consented WebView repetitions, se
 The updated 3091 component preview is isolated and uses the production BrowserPane without a native bridge/Host/model. No local desktop application, production Web service or running user job was replaced or restarted. No paid model calls, merge or release occurred. The original paid ledger remains closed at CNY 40.089932. Exact-SHA CI must be checked separately after pushing this revision; earlier CI applies only to the earlier manual-UI commit.
 
 Still not claimed: real DeepSeek → Host → native WebView end-to-end results, session-end lifecycle outside UI visibility, public benchmark/SOTA, native OS-input or screenshot capability on Linux/Windows.
+
+## Genuine native WebView model continuation (2026-10-01 evening)
+
+The user approved continuing the experiment with an **additional CNY 20 ceiling on the original cumulative ledger**, not a new budget. Checkpoint `02443d9` passed general CI [36852681605](https://github.com/123123213weqw/x-harness-rs/actions/runs/36852681605); the changes in this section require their own exact-SHA CI.
+
+### What was tested
+
+A small disposable Tauri example reuses the existing native browser, private bridge, inspection/action modules and production BrowserPane. The trusted test renderer mounts that actual component, including its automatic session binding; a genuine isolated Host exposes only `plugin_mcp`. DeepSeek discovers the native tools and drives the actual WebKitGTK guest. The evaluator serves fixtures and grades their reported state; it does not complete tasks or inject target refs. Neither a substitute Chromium browser nor simulated Tauri IPC is used. This is component/Host/native integration, **not a full packaged-AppFrame navigation test or OS-pointer/screenshot test**.
+
+Natural prompts specify tasks but not tool names, discovery steps, frame ids or action schemas. Model: official `deepseek-flash` alias, low thinking, deliberately capped at 8192 output tokens per request. [Official pricing/model page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/) maps this alias to V4.1-Flash; that mapping is not a measured backend build identifier. Three fresh processes/sessions per task, fixed executable hashes, separate disposable Xvfb/DBus/profile for every trial:
+
+| Local task | Passes | Model-loop seconds (three trials) | Model requests (including helpers) |
+|---|---:|---|---|
+| Issue search, open, marker answer | 3/3 | 68.466 / 60.948 / 77.190 | 17 / 17 / 17 |
+| PR draft, exact title/body, never submit | 3/3 | 63.272 / 49.341 / 35.761 | 17 / 13 / 14 |
+| Modal, dependent provider/reasoning options, save | 3/3 | 54.817 / 56.983 / 51.698 | 17 / 17 / 17 |
+| Eight moving Targets, zero Decoys | 3/3 | 90.976 / 95.758 / 91.338 | 23 / 25 / 25 |
+
+All 12 trials passed, including teardown. The game moves after each click and has semantic labels; this is not a visual-only/realtime game benchmark. 219 admitted model requests, 796.548 summed model-loop seconds. Host-reported usage across these trials: 115455 uncached input, 1000064 cache-read, 25445 output tokens; 3993 reasoning tokens are a subset of output, not additive. The ledger also accounts for background title requests; Host turn usage is not an invoice. Sanitized, machine-readable trial receipts are in `docs/evaluations/2026-10-01-native-webview.json`.
+
+### Findings and corrections
+
+- The natural model can recover from lazy-discovery guesses and malformed action arguments. A real malformed `perform` was incorrectly reported as **unknown effect**, although native validation rejected it before scheduling any JS. The native bridge now returns a failed `not_started` receipt for pre-dispatch/validation/authorization/frame denials. Anything after scheduling remains `unknown` when its callback/navigation/result is uncertain. Host transport interruption still remains unknown. No automatic replay or extra tool is added.
+- Remote regressions cover this classification through the actual framed Host transport and native callback probe. The probe sends forbidden `eval` arguments, checks `not_started`, then successfully fills using the same untouched frame; consumed-frame, read-only and after-effect guards remain tested. Actual native probe: 9.235 seconds including the deliberate seven-second stall, zero model calls, cleanup passed.
+- The evaluator previously killed the Host while a background title request still awaited its final usage event. Unknown usage remained charged at the full reservation rather than being erased. Teardown now waits for no inflight broker requests and a stable request counter before killing only its owned process groups. A bounded authenticated numeric receipt endpoint does not forward a model request or reveal keys/bodies.
+- A shared Cargo output changed to a different executable hash that lacked the candidate CLI option. That zero-paid setup failure is retained, not counted as model performance. The evaluator now freezes its input binaries once per suite and records their hashes. We do not attribute the replacement to a particular task without evidence.
+- Disconnected portal FUSE mounts initially prevented profile cleanup. Only mounts under the generated disposable profile are unmounted; arbitrary user paths are rejected. No user's display/profile/apps are touched.
+
+The classifier-fix candidate additionally completed two genuine natural-model Issue trials (54.453 / 65.422 seconds). The third timed out **before paid prompt admission** while the test tunnel was unstable; the exact failing transport stage was not recorded, so a provider/browser failure is not asserted. New receipts now record closed lifecycle phase labels for diagnosis. The second completed the page task but its per-trial accounting receipt timed out; the original local ledger reconciles all requests. This is **not a verified 3/3 fix-candidate series**. Real GitHub native loading also timed out before model admission; V100's direct connection probe timed out. No signed-in GitHub state, public submission, or model score is invented for that blocked case.
+
+### Accounting, regression and remaining work
+
+The original ledger is closed again, pending reservations empty, local capability removed and remote benchmark capability removal acknowledged. Requests: 527 → 895. Additional conservative bound **CNY 14.280580**, cumulative **CNY 54.370512**, below the incremental CNY 20 and original CNY 200 ceilings. Five missing-usage requests retain full reservations; known usage at conservative peak cache-miss rates accounts for CNY 3.952900 of the increment. These are conservative bounds, **not exact billed fees**; cache/off-peak discounts and unknown usage prevent an invoice claim. Explicit continuation preserves old counters, rows, policy and global cap; normal closed-ledger reopening still fails, and crash resumption cannot silently extend the incremental cap/deadline.
+
+V100: 40 Host App library tests, 38 Desktop library tests and Desktop all-target clippy passed. Python benchmark contracts: 29 passed; existing broker transport contracts: 6 passed. Three zero-paid genuine BrowserPane→native binding probes passed before paid runs; the fixed candidate's zero-paid binding probe also passed. CI now includes the actual component→Host→native binding probe on Linux, in addition to existing cross-platform native probes and mocked Chromium/WebKit UI contracts. Exact-SHA CI for this continuation remains a separate gate.
+
+Remaining: repeat the classifier-fixed series after a stable test tunnel, real GitHub search/view and realistic PR draft UI without submission, keyboard/default-form behavior, public benchmark comparison, full packaged desktop navigation and screenshot/native OS input. Lazy discovery and observe/action round trips dominate the simple-fixture latency; that is a measured optimization target, not a reason to bypass one-shot/unknown-effect guards or add a second Agent loop. No SOTA claim, merge, release, local mouse/keyboard use, app replacement or production deployment is made. Goal completion is not asserted.

@@ -37,7 +37,7 @@ class Ticket:
 class BudgetLedger:
     protocol = None
 
-    def __init__(self, path, *, limit_cny='200', calls=2000, seconds=3600):
+    def __init__(self, path, *, limit_cny='200', calls=2000, seconds=3600, continuation_cny=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.path.is_symlink():
@@ -60,6 +60,7 @@ class BudgetLedger:
         self.active, self.started = True, True
         self.denials, self.inflight = 0, 0
         self.limit, self.max_calls = limit, calls
+        self.admission_limit, self.continuations = limit, []
         self.spent, self.calls, self.rows, self.pending = Decimal(0), 0, [], {}
         self.wall_deadline = time.time() + seconds
         try:
@@ -67,18 +68,34 @@ class BudgetLedger:
                 doc = json.loads(self.path.read_text())
                 if doc['policy'] != POLICY or Decimal(doc['limit_cny']) != limit or doc['max_calls'] != calls:
                     raise ValueError('resume cannot change budget policy or ceiling')
-                if doc['closed']:
-                    raise ValueError('budget already closed; do not create a replacement budget')
                 self.spent = Decimal(doc['conservative_cny'])
                 self.calls, self.rows = doc['requests'], doc['rows']
                 self.denials = doc['budget_denials']
-                self.wall_deadline = min(self.wall_deadline, doc['wall_deadline'])
+                self.admission_limit = Decimal(doc.get('admission_limit_cny', str(limit)))
+                self.continuations = doc.get('continuations', [])
                 if (not self.spent.is_finite() or self.spent < 0 or self.spent > limit
                         or type(self.calls) is not int or not 0 <= self.calls <= calls):
                     raise ValueError('invalid budget checkpoint')
+                if (not self.admission_limit.is_finite() or not self.spent <= self.admission_limit <= limit):
+                    raise ValueError('invalid admission ceiling')
+                if continuation_cny is None:
+                    if doc['closed']:
+                        raise ValueError('budget already closed; explicit continuation required')
+                    self.wall_deadline = min(self.wall_deadline, doc['wall_deadline'])
+                else:
+                    extra = Decimal(str(continuation_cny))
+                    if (not doc['closed'] or doc['pending'] or not extra.is_finite()
+                            or not 0 < extra <= limit - self.spent):
+                        raise ValueError('continuation requires closed, settled ledger and remaining funds')
+                    self.admission_limit = self.spent + extra
+                    self.continuations.append({'start_request': self.calls,
+                        'start_cny': str(self.spent), 'increment_cny': str(extra),
+                        'wall_deadline': self.wall_deadline})
                 for sequence in doc['pending']:
                     self.rows.append({'sequence': int(sequence), 'status': 'crash_unknown',
                                       'usage': None, 'conservative_cny': str(RESERVATION)})
+            elif continuation_cny is not None:
+                raise ValueError('continuation requires the original checkpoint')
             self.deadline = time.monotonic() + max(0, self.wall_deadline - time.time())
             self._save()
         except BaseException:
@@ -88,6 +105,8 @@ class BudgetLedger:
     def _document(self):
         return {'version': 1, 'policy': POLICY, 'limit_cny': str(self.limit),
                 'max_calls': self.max_calls, 'wall_deadline': self.wall_deadline,
+                'admission_limit_cny': str(self.admission_limit),
+                'continuations': list(self.continuations),
                 'requests': self.calls, 'conservative_cny': str(self.spent),
                 'rows': list(self.rows), 'pending': dict(self.pending),
                 'budget_denials': self.denials, 'closed': not self.active}
@@ -116,11 +135,19 @@ class BudgetLedger:
             if not self.active or not hmac.compare_digest(token, self.token):
                 raise PermissionError('invalid benchmark capability')
 
+    def receipt(self, token):
+        with self.lock:
+            if not hmac.compare_digest(token, self.token):
+                raise PermissionError('invalid benchmark capability')
+            return {'requests': self.calls, 'conservative_cny': str(self.spent),
+                    'admission_limit_cny': str(self.admission_limit),
+                    'pending_requests': self.inflight, 'closed': not self.active}
+
     def reserve(self, token, _request_bytes):
         with self.lock:
             if not self.active or time.monotonic() >= self.deadline or not hmac.compare_digest(token, self.token):
                 raise PermissionError('invalid or expired benchmark capability')
-            if self.calls >= self.max_calls or self.spent + RESERVATION > self.limit:
+            if self.calls >= self.max_calls or self.spent + RESERVATION > self.admission_limit:
                 self.denials += 1
                 self._save()
                 raise BudgetError('GUI benchmark budget exhausted')

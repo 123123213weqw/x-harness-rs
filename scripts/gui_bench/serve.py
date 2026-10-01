@@ -43,6 +43,7 @@ def main():
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--deadline', required=True, help='timezone-aware ISO time')
     parser.add_argument('--state-dir', type=Path, default=Path.home() / 'Library/Application Support/com.xlang.xharness/state')
+    parser.add_argument('--continuation-cny', help='Explicit increment on the original closed ledger; does not reset totals')
     args = parser.parse_args()
     deadline = datetime.fromisoformat(args.deadline)
     if deadline.tzinfo is None:
@@ -50,7 +51,7 @@ def main():
     seconds = deadline.timestamp() - datetime.now().timestamp()
     args.root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(args.root, 0o700)
-    ledger = BudgetLedger(args.root / 'budget.json', seconds=seconds)
+    ledger = BudgetLedger(args.root / 'budget.json', seconds=seconds, continuation_cny=args.continuation_cny)
     broker, control = None, args.root / 'capability.json'
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -63,13 +64,14 @@ def main():
         fd = os.open(control, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump({'base_url': broker.url, 'capability': ledger.token}, stream)
-        print('GUI benchmark budget controller ready; ceiling CNY 200', flush=True)
+        print(f'GUI benchmark controller ready; cumulative admission ceiling CNY {ledger.admission_limit}', flush=True)
         stop.wait(max(0, ledger.wall_deadline - datetime.now().timestamp()))
         ledger.close(wait_seconds=120)
         (args.root / 'account-balance.json').write_text(json.dumps({
             'start': start_balance, 'end': balance(key),
             'caveat': 'Other account clients may consume balance; not a per-run invoice.'}, indent=2))
     finally:
+        ledger.close(wait_seconds=120)
         control.unlink(missing_ok=True)
         if broker:
             broker.stop()

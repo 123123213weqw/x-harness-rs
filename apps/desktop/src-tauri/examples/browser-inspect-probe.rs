@@ -210,8 +210,9 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         json!({"action":"fill","text":"bridge-value"}),
     )?)
     .unwrap();
-    if bridge_call(connection, "parent", "perform", request).await?["ok"] != false {
-        return Err("read-only grant admitted an effect".into());
+    let denied = bridge_call(connection, "parent", "perform", request).await?;
+    if denied["result"]["ok"] != false || denied["result"]["effect"] != "not_started" {
+        return Err("read-only denial did not report an unstarted action".into());
     }
     browser_delegation::desktop_browser_delegate(
         main.clone(),
@@ -229,6 +230,18 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         json!({"action":"fill","text":"bridge-value"}),
     )?)
     .unwrap();
+    let malformed = bridge_call(
+        connection,
+        "parent",
+        "perform",
+        json!({"action":"eval","script":"document.querySelector('#answer').value='forbidden'"}),
+    )
+    .await?;
+    if malformed["result"]["ok"] != false || malformed["result"]["effect"] != "not_started" {
+        return Err("invalid schema was classified as an uncertain effect".into());
+    }
+    // The following valid fill uses the SAME frame: the rejected request neither
+    // scheduled arbitrary JS nor consumed the observation capability.
     // An automatic visible-context renewal must not consume an observed frame.
     browser_delegation::desktop_browser_delegate(
         main.clone(),
@@ -243,7 +256,8 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if result["result"]["effect"] != "applied" {
         return Err("delegated action did not produce a receipt".into());
     }
-    if bridge_call(connection, "parent", "perform", request).await?["ok"] != false {
+    let replay = bridge_call(connection, "parent", "perform", request).await?;
+    if replay["result"]["ok"] != false || replay["result"]["effect"] != "not_started" {
         return Err("bridge replayed an already consumed action".into());
     }
     let actual = bridge_call(connection, "parent", "observe", json!({})).await?;
