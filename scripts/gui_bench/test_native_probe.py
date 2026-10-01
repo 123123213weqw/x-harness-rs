@@ -27,6 +27,19 @@ class NativeProbeTests(unittest.TestCase):
             self.assertEqual(env["XDG_CONFIG_HOME"], str(Path(root) / "config"))
             self.assertTrue(Path(env["XDG_RUNTIME_DIR"]).is_dir())
 
+    def test_explicit_runtime_paths_do_not_forward_cargo_or_provider_environment(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+            "Path": "/bin", "CARGO_HOME": "/private-cargo", "DEEPSEEK_API_KEY": "fake-sensitive",
+        }, clear=True):
+            runtime = Path(root) / "deps"
+            runtime.mkdir()
+            env = environment(Path(root), [runtime])
+            self.assertEqual(env["Path"], str(runtime.resolve()) + os.pathsep + "/bin")
+            self.assertNotIn("CARGO_HOME", env)
+            self.assertNotIn("DEEPSEEK_API_KEY", env)
+            with self.assertRaises(FileNotFoundError):
+                environment(Path(root), [Path(root) / "missing"])
+
 
 if __name__ == "__main__":
     unittest.main()

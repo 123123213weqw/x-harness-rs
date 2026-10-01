@@ -23,9 +23,15 @@ def command(binary: Path, platform: str) -> list[str]:
     return [str(binary)]
 
 
-def environment(root: Path) -> dict[str, str]:
+def environment(root: Path, runtime_dirs: list[Path] | None = None) -> dict[str, str]:
     allowed = {"path", "home", "lang", "lc_all", "systemroot", "windir", "comspec", "userprofile", "appdata", "localappdata", "temp", "tmp"}
     env = {key: value for key, value in os.environ.items() if key.lower() in allowed}
+    # Direct execution does not get Cargo's target/deps DLL search paths. Only
+    # explicitly supplied build directories are prepended; never forward the
+    # rest of Cargo's/provider environment or scan arbitrary user directories.
+    if runtime_dirs:
+        key = next((key for key in env if key.lower() == "path"), "PATH")
+        env[key] = os.pathsep.join([*(str(path.resolve(strict=True)) for path in runtime_dirs), env.get(key, "")])
     for name, suffix in [("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"), ("XDG_CACHE_HOME", "cache"), ("XDG_RUNTIME_DIR", "runtime")]:
         path = root / suffix
         path.mkdir(mode=0o700)
@@ -38,6 +44,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--runtime-dir", type=Path, action="append", default=[])
     args = parser.parse_args()
     binary = args.binary.resolve(strict=True)
     args.evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +59,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="xh-native-dom-") as directory:
         with (args.evidence_dir / "native-probe.log").open("wb") as log:
             try:
-                result = subprocess.run(command(binary, sys.platform), env=environment(Path(directory)),
+                result = subprocess.run(command(binary, sys.platform), env=environment(Path(directory), args.runtime_dir),
                                         stdout=log, stderr=subprocess.STDOUT, timeout=90, check=False)
                 code = result.returncode
             except subprocess.TimeoutExpired:
