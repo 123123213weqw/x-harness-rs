@@ -1606,6 +1606,7 @@ impl BasicHost {
             }
             LoopEventKind::ModelRetry {
                 retry_id,
+                policy_key,
                 attempt,
                 max_retries,
                 error,
@@ -1619,8 +1620,8 @@ impl BasicHost {
                         "turn": turn,
                         "step": step,
                         "provider": self.config.provider_id,
-                        "mode": "normal",
-                        "policyKey": format!("xharness:normal:{max_retries}"),
+                        "mode": if max_retries.is_some() { "normal" } else { "always" },
+                        "policyKey": policy_key,
                         "retry": attempt,
                         "maxRetries": max_retries,
                         "delayMs": delay_ms,

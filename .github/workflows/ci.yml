@@ -117,6 +117,7 @@ jobs:
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
       - run: node scripts/test-retry-turn-projection.mjs
+      - run: node scripts/test-network-wait-ui.mjs
       - run: node scripts/test-atomic-history.mjs
       - run: node scripts/test-ui-lifecycle-recovery.mjs
       - run: node scripts/test-live-answer-recovery.mjs
