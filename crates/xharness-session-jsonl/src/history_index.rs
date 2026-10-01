@@ -4,7 +4,7 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use xharness_session::{EventData, SessionHistoryWindow};
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_INDEX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
 const MAX_WINDOW_BYTES: u64 = 32 * 1024 * 1024;
@@ -26,7 +26,7 @@ pub(super) struct Builder {
     records: Vec<Record>,
     messages: Vec<u64>,
     inbox: BTreeMap<String, u64>,
-    compactions: BTreeMap<String, u64>,
+    compactions: BTreeMap<String, Vec<u64>>,
     calls: BTreeMap<String, u64>,
     completed: BTreeSet<(u32, u32)>,
     initial_request: Option<u64>,
@@ -108,6 +108,14 @@ impl Builder {
             sha256: format!("{:x}", Sha256::digest(line)),
         });
         for event in &batch.events {
+            let compaction_id = match event.data() {
+                EventData::CompactionSummary { compaction_id, .. } => Some(compaction_id),
+                EventData::UserMessage { surface_replace: Some(replace), .. } => Some(&replace.compaction_id),
+                _ => None,
+            };
+            if let Some(sources) = compaction_id.and_then(|id| self.compactions.get_mut(id)) {
+                sources.push(event.seq);
+            }
             match event.data() {
                 EventData::UserMessage { .. } | EventData::ToolResult { .. } => {
                     self.messages.push(event.seq)
@@ -122,7 +130,7 @@ impl Builder {
                     }
                 }
                 EventData::CompactionStart { compaction_id, .. } => {
-                    self.compactions.insert(compaction_id.clone(), event.seq);
+                    self.compactions.insert(compaction_id.clone(), vec![event.seq]);
                 }
                 EventData::ToolCall { call, .. } => {
                     self.calls.insert(call.id.clone(), event.seq);
@@ -268,7 +276,7 @@ fn valid(index: &Index, id: &str, fingerprint: FileFingerprint, next: u64) -> bo
             .data
             .inbox
             .values()
-            .chain(index.data.compactions.values())
+            .chain(index.data.compactions.values().flatten())
             .chain(index.data.calls.values())
             .all(|&s| s < next)
         && index.data.initial_request.is_none_or(|s| s < next)
@@ -430,6 +438,7 @@ pub(super) fn read(
                 if let Some(seq) = surface_replace
                     .as_ref()
                     .and_then(|r| index.data.compactions.get(&r.compaction_id))
+                    .and_then(|sources| sources.first())
                 {
                     needed.insert(*seq);
                 }
@@ -437,6 +446,11 @@ pub(super) fn read(
             EventData::AssistantMessage { message, .. } => {
                 if let Some(seq) = message.id.as_ref().and_then(|id| index.data.inbox.get(id)) {
                     needed.insert(*seq);
+                }
+            }
+            EventData::CompactionEnd { compaction_id, .. } => {
+                if let Some(sources) = index.data.compactions.get(compaction_id) {
+                    needed.extend(sources);
                 }
             }
             EventData::ToolResult { result, .. } => {
