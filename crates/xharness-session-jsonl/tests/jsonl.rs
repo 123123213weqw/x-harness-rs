@@ -389,6 +389,13 @@ async fn catalogue_is_rebuildable_and_never_trusts_a_stale_file() {
         blank: true,
         next_seq: 0,
         needs_recovery: false,
+        metric_snapshot: Some(serde_json::json!({"version":1,"values":{
+            "dailyTokenUsage": (0..400).map(|day| serde_json::json!({
+                "dayStartMs": day * 86_400_000_u64, "uncachedInputTokens":100,
+                "cacheReadTokens":200, "cacheWriteTokens":0, "outputTokens":10,
+            })).collect::<Vec<_>>(),
+            "tokenUsage":{}, "sessionStats":{}, "contextPressure":{},
+        }})),
     };
     assert_eq!(store.catalog_entry("catalogued").await.unwrap(), None);
     store.publish_catalog_entry(entry.clone()).await.unwrap();
@@ -431,6 +438,7 @@ async fn catalogue_publication_rejects_stale_snapshot_even_when_large_cache_is_d
         blank: true,
         next_seq: 0,
         needs_recovery: false,
+        metric_snapshot: None,
     };
     store.publish_catalog_entry(entry.clone()).await.unwrap();
     store

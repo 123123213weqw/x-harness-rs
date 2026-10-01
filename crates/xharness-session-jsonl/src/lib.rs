@@ -45,7 +45,10 @@ const MAX_RECORD_BYTES: u64 = 128 * 1024 * 1024;
 const MIN_COMPRESS_BYTES: usize = 4096;
 const FILE_SUFFIX: &str = ".jsonl";
 const CATALOG_FORMAT_VERSION: u32 = 1;
-const MAX_CATALOG_BYTES: u64 = 32 * 1024;
+// Daily metric views grow by calendar day, not by token/event count. Keep the
+// sidecar bounded while allowing years of usage (the former 32 KiB limit was
+// too small for a metric-bearing catalogue).
+const MAX_CATALOG_BYTES: u64 = 1024 * 1024;
 const MAX_SESSION_ID_BYTES: usize = 200;
 const FINGERPRINT_SAMPLE_BYTES: usize = 4 * 1_024;
 #[cfg(windows)]
@@ -455,7 +458,7 @@ impl Store for JsonlSessionStore {
             let bytes = serde_json::to_vec(&record)
                 .map_err(|error| backend_message(format!("encode session catalogue: {error}")))?;
             if bytes.len() as u64 > MAX_CATALOG_BYTES {
-                return Err(backend_message("session catalogue exceeds 32 KiB"));
+                return Err(backend_message("session catalogue exceeds 1 MiB"));
             }
             static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let tmp = sidecar.with_file_name(format!(
