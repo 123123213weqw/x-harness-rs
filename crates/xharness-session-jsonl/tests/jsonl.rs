@@ -2028,19 +2028,30 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
         .append(
             id,
             Revision(1),
-            vec![EventData::CompactionSummary {
-                compaction_id: "c1".into(),
-                source_command_id: None,
-                summary: "摘要 🧪".into(),
-                shadowed_range: range,
-                shadowed_seqs: vec![1],
-                shadowed_token_count: 128,
-                provider: "test".into(),
-                model: "test".into(),
-                max_tokens: Some(64),
-                usage: None,
-            }
-            .into()],
+            vec![
+                EventData::CompactionSummary {
+                    compaction_id: "c1".into(),
+                    source_command_id: None,
+                    summary: "摘要 🧪".into(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![1],
+                    shadowed_token_count: 128,
+                    provider: "test".into(),
+                    model: "test".into(),
+                    max_tokens: Some(64),
+                    usage: None,
+                }
+                .into(),
+                EventData::UserMessage {
+                    message: Message::user("checkpoint"),
+                    surface_replace: Some(SurfaceReplace {
+                        compaction_id: "c1".into(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![1],
+                    }),
+                }
+                .into(),
+            ],
         )
         .await
         .unwrap();
@@ -2048,29 +2059,21 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
         .append(
             id,
             Revision(2),
-            vec![EventData::UserMessage {
-                message: Message::user("checkpoint"),
-                surface_replace: Some(SurfaceReplace {
+            vec![
+                EventData::CompactionEnd {
                     compaction_id: "c1".into(),
-                    shadowed_range: range,
-                    shadowed_seqs: vec![1],
-                }),
-            }
-            .into()],
-        )
-        .await
-        .unwrap();
-    store
-        .append(
-            id,
-            Revision(3),
-            vec![EventData::CompactionEnd {
-                compaction_id: "c1".into(),
-                source_command_id: None,
-                turn: Some(1),
-                error: None,
-            }
-            .into()],
+                    source_command_id: None,
+                    turn: Some(1),
+                    error: None,
+                }
+                .into(),
+                EventData::StepEnd { turn: 1, step: 1 }.into(),
+                EventData::TurnEnd {
+                    turn: 1,
+                    reason: xharness_session::TurnEndReason::Completed,
+                }
+                .into(),
+            ],
         )
         .await
         .unwrap();
