@@ -685,3 +685,49 @@ async fn sustained_network_wait_continues_after_partial_idle_timeout_past_short_
     assert_eq!(result.final_text, "partialrecovered");
     assert_eq!(server.count(), 3);
 }
+
+#[tokio::test]
+async fn peer_protocol_version_alert_fails_immediately_instead_of_waiting_for_network() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("https://{}/v1", listener.local_addr().unwrap());
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let count = attempts.clone();
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                count.fetch_add(1, Ordering::SeqCst);
+                // Read the complete ClientHello TLS record before rejecting the
+                // version. Fatal Alert record: level=2, protocol_version=70.
+                let mut header = [0u8; 5];
+                socket.read_exact(&mut header).await.unwrap();
+                let mut hello = vec![0u8; u16::from_be_bytes([header[3], header[4]]) as usize];
+                socket.read_exact(&mut hello).await.unwrap();
+                socket.write_all(&[21, 3, 3, 0, 2, 2, 70]).await.unwrap();
+                socket.shutdown().await.unwrap();
+            }
+        });
+        let mut config = OpenAiProviderConfig::new(protocol, url, "fixture-only", "fixture");
+        config.connect_timeout = Duration::from_secs(1);
+        config.request_timeout = Duration::from_secs(1);
+        let provider = Arc::new(OpenAiProvider::new(config).unwrap());
+        let mut request = LoopRequest::new(provider, vec![AgentMessage::user("go")]);
+        request.config.provider_retry_base_delay_ms = 1;
+        let run = LoopEngine.start(request);
+        let outcome = tokio::time::timeout(Duration::from_secs(5), async move {
+            let mut run = run;
+            let mut events = Vec::new();
+            while let Some(event) = run.next().await {
+                events.push(event);
+            }
+            (events, run.result().await)
+        })
+        .await;
+        server.abort();
+        let (events, result) = outcome.expect("permanent TLS failure must not wait indefinitely");
+        assert_eq!(result.status, LoopStatus::Failed, "{:?}", result.error);
+        assert_eq!(retry_count(&events), 0);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(result.error.unwrap().contains("ProtocolVersion"));
+    }
+}

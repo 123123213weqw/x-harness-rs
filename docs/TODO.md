@@ -1391,7 +1391,9 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 独立 retry 策略模块；结构化传输故障持续等待，有限 HTTP 重试保持不变。
 - [x] 复用 Always 持久重试事件；按 policy/phase 分离 retryId，UI 展示等待连接恢复。
 - [x] 保留取消、暂停、Steer、部分流和工具副作用边界；追加真实 HTTP / UI / journal 回归。
-- [x] V100：Core / OpenAI Provider / Host 的 all-targets 回归 407 项通过、5 项原有测试忽略；三包 Clippy -D warnings 通过。
+- [x] 审核修复：跨步骤共享退避指数、持久 attempt 独立计数；完整响应/Steer 重置，Pause/NextStep 保留。
+- [x] 审核修复：永久 TLS peer Alert 与 io 包装叶子原因识别；临时 Alert / EOF 保持可恢复，真实双协议 TLS 拒绝验证不重试。
+- [x] V100：Core / OpenAI Provider / Host 的 all-targets 回归 413 项通过、5 项原有测试忽略；三包 Clippy -D warnings 通过。
 - [x] 本机 Node 7 组关联回归及 WebKit 历史缓存 32 项检查通过。
 - [ ] PR 的 GitHub 跨平台 CI 验收。
 - [ ] 跨平台网络变化通知提前唤醒；UI 总等待时间。

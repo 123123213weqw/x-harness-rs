@@ -6677,3 +6677,164 @@ async fn sustained_network_wait_does_not_repeat_a_previously_completed_side_effe
         );
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_backoff_survives_partial_steps_and_journal_chain_resets() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Err(transport_error("connect_or_headers")),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("a".into())),
+            Err(transport_error("body")),
+        ]),
+        Err(transport_error("connect_or_headers")),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("b".into())),
+            Err(transport_error("body")),
+        ]),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("c".into())),
+            Err(transport_error("body")),
+        ]),
+        Ok(vec![Ok(completed())]),
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("go")]);
+    request.config.provider_retry_jitter_percent = 0;
+    request.session_id = Some("cross-step-backoff".into());
+    request.journal_store = Some(journal.clone());
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let waits = events
+        .iter()
+        .filter_map(|e| match e.kind {
+            LoopEventKind::ModelRetry {
+                attempt, delay_ms, ..
+            } => Some((attempt, delay_ms)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // Delays are run-scoped, journal attempts are chain-scoped.
+    assert_eq!(
+        waits,
+        vec![(1, 500), (1, 1000), (1, 2000), (1, 4000), (1, 8000)]
+    );
+    let session = journal.load("cross-step-backoff").await.unwrap().unwrap();
+    assert!(xharness_session::Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec()
+    )
+    .is_ok());
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_complete_model_response_resets_backoff() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Err(transport_error("connect_or_headers")),
+        Err(transport_error("connect_or_headers")),
+        Ok(vec![
+            Ok(tool_delta(0, "once", "read", "{}")),
+            Ok(completed_for_calls()),
+        ]),
+        Err(transport_error("connect_or_headers")),
+        Ok(vec![Ok(completed())]),
+    ]));
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("go")]);
+    request.config.provider_retry_jitter_percent = 0;
+    install_tool(
+        &mut request,
+        TestToolSpec::new("read", "fixture", json!({"type":"object"}), |_, _| async {
+            ToolResult::success("read")
+        }),
+    )
+    .await;
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let delays = events
+        .iter()
+        .filter_map(|e| match e.kind {
+            LoopEventKind::ModelRetry { delay_ms, .. } => Some(delay_ms),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(delays, vec![500, 1000, 500]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_steering_resets_backoff_but_pause_and_next_step_do_not() {
+    for action in ["steer", "interrupt", "pause", "next_step"] {
+        let provider = Arc::new(ScriptProvider::with_attempts([
+            Err(transport_error("connect_or_headers")),
+            Err(transport_error("connect_or_headers")),
+            Err(transport_error("connect_or_headers")),
+            Ok(vec![Ok(completed())]),
+            // NextStep is queued work and can start a second completed round.
+            Ok(vec![Ok(completed())]),
+        ]));
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+        request.config.provider_retry_jitter_percent = 0;
+        let mut run = LoopEngine.start(request);
+        let mut delays = vec![];
+        while let Some(e) = run.next().await {
+            if let LoopEventKind::ModelRetry { delay_ms, .. } = e.kind {
+                delays.push(delay_ms);
+                if delays.len() == 2 {
+                    break;
+                }
+            }
+        }
+        match action {
+            "steer" => run
+                .send(LoopCommand::Steer(AgentMessage::user("new scope")))
+                .await
+                .unwrap(),
+            "interrupt" | "next_step" => run
+                .send(LoopCommand::InjectMessage {
+                    message: AgentMessage::user("new scope"),
+                    mode: if action == "interrupt" {
+                        InjectionMode::InterruptModel
+                    } else {
+                        InjectionMode::NextStep
+                    },
+                })
+                .await
+                .unwrap(),
+            "pause" => {
+                run.send(LoopCommand::Pause).await.unwrap();
+                while let Some(e) = run.next().await {
+                    if matches!(e.kind, LoopEventKind::RunPaused) {
+                        break;
+                    }
+                }
+                tokio::time::advance(Duration::from_secs(180)).await;
+                assert_eq!(provider.attempts(), 2);
+                run.send(LoopCommand::Resume).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let (events, result) = collect(run).await;
+        assert_eq!(
+            result.status,
+            LoopStatus::Completed,
+            "{action}: {:?}",
+            result.error
+        );
+        delays.extend(events.iter().filter_map(|e| match e.kind {
+            LoopEventKind::ModelRetry { delay_ms, .. } => Some(delay_ms),
+            _ => None,
+        }));
+        assert_eq!(
+            delays,
+            vec![
+                500,
+                1000,
+                if matches!(action, "steer" | "interrupt") {
+                    500
+                } else {
+                    2000
+                }
+            ],
+            "{action}"
+        );
+    }
+}

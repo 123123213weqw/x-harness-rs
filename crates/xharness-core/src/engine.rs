@@ -1,4 +1,4 @@
-use crate::retry::{RetryPlan, RetryState};
+use crate::retry::{NetworkBackoff, RetryPlan, RetryState};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     pin::Pin,
@@ -389,6 +389,7 @@ impl LoopEngine {
             continuation_text: String::new(),
             output_continuations: 0,
             network_continuations: 0,
+            network_backoff: NetworkBackoff::default(),
             network_recovery_deadline: None,
             cumulative_output_tokens: 0,
             step: 0,
@@ -537,6 +538,7 @@ struct Runner {
     /// Bounded automatic continuations of a partially committed transport
     /// stream. A successful model response resets this streak.
     network_continuations: usize,
+    network_backoff: NetworkBackoff,
     network_recovery_deadline: Option<tokio::time::Instant>,
     cumulative_output_tokens: u64,
     step: usize,
@@ -1001,8 +1003,14 @@ impl Runner {
                     // journal without creating a synthetic user turn.
                     self.network_continuations = self.network_continuations.saturating_add(1);
                     let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
+                    let entropy = self.retry_entropy();
                     let plan = recovery
-                        .next(&self.request.config, &error, self.retry_entropy())
+                        .next(
+                            &self.request.config,
+                            &error,
+                            entropy,
+                            &mut self.network_backoff,
+                        )
                         .map_err(RunFailure::Failed)?
                         .ok_or_else(|| RunFailure::Failed(error.diagnostic_message()))?;
                     let steered = self
@@ -1029,6 +1037,7 @@ impl Runner {
 
             self.network_continuations = 0;
             self.network_recovery_deadline = None;
+            self.network_backoff.reset();
 
             let finish_reason_was_explicit = model.finish_reason.is_some();
             let finish_reason = match model.finish_reason.take() {
@@ -2973,6 +2982,9 @@ impl Runner {
                 })
                 .await?;
                 self.pending_messages.push_back(message);
+                if mode == InjectionMode::InterruptModel {
+                    self.network_backoff.reset();
+                }
                 Ok(allow_model_interrupt && mode == InjectionMode::InterruptModel)
             }
             LoopCommand::Steer(message) => {
@@ -2982,6 +2994,7 @@ impl Runner {
                 })
                 .await?;
                 self.pending_messages.push_back(message);
+                self.network_backoff.reset();
                 Ok(allow_model_interrupt)
             }
             LoopCommand::Pause => {
@@ -3309,8 +3322,14 @@ impl Runner {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
                     if !round.saw_delta {
+                        let entropy = self.retry_entropy();
                         if let Some(plan) = recovery
-                            .next(&self.request.config, &error, self.retry_entropy())
+                            .next(
+                                &self.request.config,
+                                &error,
+                                entropy,
+                                &mut self.network_backoff,
+                            )
                             .map_err(RunFailure::Failed)?
                         {
                             provider_cancellation.cancel();
@@ -3495,8 +3514,14 @@ impl Runner {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
             if !round.saw_delta {
+                let entropy = self.retry_entropy();
                 if let Some(plan) = recovery
-                    .next(&self.request.config, &error, self.retry_entropy())
+                    .next(
+                        &self.request.config,
+                        &error,
+                        entropy,
+                        &mut self.network_backoff,
+                    )
                     .map_err(RunFailure::Failed)?
                 {
                     provider_cancellation.cancel();
