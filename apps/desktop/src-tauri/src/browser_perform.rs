@@ -1,5 +1,5 @@
 //! One-shot DOM actions over the native WebView seam. This is not native input
-//! synthesis and is not yet delegated to models. Main-only IPC, current tab,
+//! synthesis. Model calls use the existing Host approval policy. Main-only IPC,
 //! native frame consumption and navigation epochs own authorization; page-local
 //! refs are only untrusted identity evidence. No arbitrary JS/selector is accepted.
 

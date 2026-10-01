@@ -1,5 +1,5 @@
-//! Ephemeral consent belongs to the native tab, not page evidence or model args.
-//! A grant is for one exact session and origin, never inherited by a subagent.
+//! Ephemeral chat/page binding belongs to the native tab, not model args.
+//! One exact session and origin; model calls still use the Host approval policy.
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -53,6 +53,25 @@ impl Delegation {
             expires: Instant::now() + Duration::from_secs(600),
         });
         Ok(())
+    }
+
+    // Visible UI renews the same binding without invalidating in-flight frames.
+    // Expired bindings or any owner/origin/mode change require a fresh frame.
+    fn renew(&self, owner: &str, url: &Url, actions: bool) -> Result<bool, String> {
+        let mut slot = self
+            .0
+            .lock()
+            .map_err(|_| "browser delegation unavailable")?;
+        if let Some(grant) = slot.as_mut().filter(|grant| {
+            grant.owner == owner
+                && grant.origin == url.origin().ascii_serialization()
+                && grant.actions == actions
+                && Instant::now() < grant.expires
+        }) {
+            grant.expires = Instant::now() + Duration::from_secs(600);
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     pub(super) fn revoke(&self) {
@@ -122,9 +141,9 @@ pub async fn desktop_browser_access(
     )
 }
 
-/// Trusted UI must explicitly grant the CURRENT tab to its current session.
-/// Nothing is persisted; hide/close/UI reload, another grant or ten minutes revoke
-/// it. This command does not itself resume an Agent or execute a page action.
+/// Trusted presentation UI binds the visible tab to its actual current chat.
+/// Nothing is persisted; hide/close/UI reload or stale binding revokes it.
+/// Renewal preserves frames. This does not approve or execute any model action.
 #[tauri::command]
 pub async fn desktop_browser_delegate(
     caller: Webview,
@@ -136,15 +155,20 @@ pub async fn desktop_browser_delegate(
 ) -> Result<AccessStatus, String> {
     ensure_main(&caller)?;
     let (target, inspector) = state.inspection_target(&tab_id)?;
-    inspector.revoke();
     let url = target.url().map_err(|_| "browser URL unavailable")?;
     let requested_owner = owner.clone().unwrap_or_default();
     if let Some(owner) = owner {
-        // A delayed confirmation must not authorize a redirected/new origin.
+        // A delayed binding must not target a redirected/new origin.
         if expected_origin.as_deref() != Some(url.origin().ascii_serialization().as_str()) {
-            return Err("browser origin changed; review access again".into());
+            inspector.revoke();
+            return Err("browser origin changed; synchronize the visible page again".into());
         }
-        inspector.delegation.grant(owner, &url, allow_actions)?;
+        if !inspector.delegation.renew(&owner, &url, allow_actions)? {
+            inspector.revoke();
+            inspector.delegation.grant(owner, &url, allow_actions)?;
+        }
+    } else {
+        inspector.revoke();
     }
     let current = target.url().map_err(|_| "browser URL unavailable")?;
     inspector.delegation.navigate(&current);
@@ -154,6 +178,30 @@ pub async fn desktop_browser_delegate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn renewal_only_preserves_a_live_identical_scope() {
+        let bindings = Delegation::default();
+        let url = Url::parse("https://example.com/page").unwrap();
+        assert!(!bindings.renew("parent", &url, true).unwrap());
+        bindings.grant("parent".into(), &url, true).unwrap();
+        let expiry = bindings.0.lock().unwrap().as_ref().unwrap().expires;
+        assert!(bindings.renew("parent", &url, true).unwrap());
+        assert!(bindings.0.lock().unwrap().as_ref().unwrap().expires >= expiry);
+        assert!(!bindings.renew("child", &url, true).unwrap());
+        assert!(!bindings.renew("parent", &url, false).unwrap());
+        assert!(!bindings
+            .renew(
+                "parent",
+                &Url::parse("https://other.example.com").unwrap(),
+                true
+            )
+            .unwrap());
+        bindings.0.lock().unwrap().as_mut().unwrap().expires = Instant::now();
+        assert!(!bindings.renew("parent", &url, true).unwrap());
+        bindings.revoke();
+        assert!(!bindings.renew("parent", &url, true).unwrap());
+    }
+
     #[test]
     fn exact_owner_origin_scope_expiry_and_revocation() {
         let grants = Delegation::default();

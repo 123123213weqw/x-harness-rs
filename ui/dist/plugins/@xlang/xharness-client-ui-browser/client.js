@@ -58,9 +58,6 @@ window.__ModuleLoader__.load({
         download: [h('path', { d: 'M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3', key: 1 })],
         more: [h('circle', { cx: 5, cy: 12, r: 1, key: 1 }), h('circle', { cx: 12, cy: 12, r: 1, key: 2 }), h('circle', { cx: 19, cy: 12, r: 1, key: 3 })],
         external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
-        shield: [h('path', { d: 'M12 3 4 6v6c0 4 8 9 8 9s8-5 8-9V6l-8-3Z', key: 1 })],
-        down: [h('path', { d: 'm6 9 6 6 6-6', key: 1 })],
-        up: [h('path', { d: 'm6 15 6-6 6 6', key: 1 })],
         sidebar: [h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 1.6, key: 1 }), h('path', { d: 'M10.5 2.5v11', key: 2 }), h('path', { d: 'm13 6.5-1.5 1.5L13 9.5', key: 3 })],
       }
       return h('svg', { width: size, height: size, viewBox: name === 'sidebar' ? '0 0 16 16' : '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: name === 'sidebar' ? 1.4 : 1.8,
@@ -77,104 +74,6 @@ window.__ModuleLoader__.load({
     const pageOrigin = address => {
       try { const url = new URL(address); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.origin : '' } catch { return '' }
     }
-    // The view never grants optimistically or persists a lease. Native owns consent.
-    function useBrowserAccess({ tabId, sessionId, address, open, blocked, syncRef }) {
-      const origin = pageOrigin(address)
-      const key = JSON.stringify([tabId, sessionId, address, open, blocked])
-      const current = useRef(key); current.current = key
-      const serial = useRef(0)
-      const inFlightGrant = useRef(null)
-      const [receipt, setReceipt] = useState(null)
-      const [known, setKnown] = useState(false)
-      const [pending, setPending] = useState(null)
-      const [failure, setFailure] = useState('')
-      const eligible = Boolean(native && sessionId && origin && open && !blocked)
-      const request = async (mode = null) => {
-        if (!eligible || inFlightGrant.current !== null) return
-        const sequence = ++serial.current
-        const valid = () => current.current === key && sequence === serial.current
-        if (mode !== null) { inFlightGrant.current = sequence; setPending(key); setFailure('') }
-        try {
-          const ready = await syncRef.current?.()
-          if (!valid()) return
-          if (!ready) throw Error(accessText('网页不可见或正在切换，请稍后再确认。', 'The page is hidden or switching. Review access again.'))
-          const result = await enqueueNative(async () => {
-            if (!valid()) return null
-            const result = await native.core.invoke(mode === null ? 'desktop_browser_access' : 'desktop_browser_delegate', {
-              tabId, owner: mode === 'revoke' ? null : sessionId,
-              ...(mode === null ? {} : { allowActions: mode === 'interactive', expectedOrigin: origin }),
-            })
-            // Cancellation after native dispatch must also undo a late grant.
-            const validGrant = result?.origin === origin && result.grant?.owner === sessionId
-              && result.grant?.allowActions === (mode === 'interactive')
-              && Number.isFinite(result.grant?.remainingMs) && result.grant.remainingMs > 0 && result.grant.remainingMs <= 600000
-            if (mode !== null && mode !== 'revoke' && (!valid() || !validGrant)) {
-              await native.core.invoke('desktop_browser_delegate', { tabId, owner: null, allowActions: false, expectedOrigin: null })
-              if (valid() && !validGrant) throw Error(accessText('授权状态不可用，已尝试撤销。', 'Access status unavailable; revocation was attempted.'))
-            }
-            if (mode === 'revoke' && result?.grant !== null) throw Error(accessText('撤销状态无法确认，请重试。', 'Revocation could not be confirmed. Retry.'))
-            return result
-          })
-          if (!valid()) return
-          if (!result || result.origin !== origin || !Object.hasOwn(result, 'grant')) throw Error(accessText('授权状态不可用；请检查桌面版本或网页是否已改变。', 'Access status unavailable; check the desktop version or changed page.'))
-          const grant = result.grant
-          if (grant && (grant.owner !== sessionId || typeof grant.allowActions !== 'boolean' || !Number.isFinite(grant.remainingMs) || grant.remainingMs <= 0 || grant.remainingMs > 600000)) throw Error(accessText('无效的原生授权状态', 'Invalid native access status'))
-          setReceipt(grant ? { key, grant, deadline: performance.now() + grant.remainingMs } : null)
-          setKnown(true); setFailure('')
-        } catch (error) {
-          if (valid()) { setReceipt(null); setKnown(false); setFailure(String(error)) }
-        } finally {
-          if (inFlightGrant.current === sequence) inFlightGrant.current = null
-          if (valid() && mode !== null) setPending(null)
-        }
-      }
-      useEffect(() => {
-        setReceipt(null); setKnown(false); setPending(null); setFailure('')
-        if (!eligible) return
-        let alive = true, timer
-        const poll = async () => {
-          await request()
-          if (alive) timer = setTimeout(poll, 2000)
-        }
-        void poll()
-        return () => { alive = false; clearTimeout(timer); serial.current++ }
-      }, [key])
-      useEffect(() => {
-        if (!receipt || receipt.key !== key) return
-        const timer = setTimeout(() => setReceipt(null), Math.max(0, receipt.deadline - performance.now()))
-        return () => clearTimeout(timer)
-      }, [receipt, key])
-      return { origin, eligible, grant: receipt?.key === key ? receipt.grant : null,
-        busy: pending === key, known, failure, request }
-    }
-    function BrowserAccess({ access, sessionId, expanded, setExpanded, mode, setMode }) {
-      const t = accessText
-      const grant = access.grant
-      return h(React.Fragment, null,
-        h('div', { className: 'xhbrowser-access-bar' },
-          h('button', { type: 'button', 'aria-expanded': expanded, 'aria-controls': 'xhbrowser-access-panel',
-            onClick: () => setExpanded(value => !value), className: 'xhbrowser-access-trigger' },
-            glyph('shield', 14), t('Agent 访问', 'Agent access'), h('span', null, '·'),
-            grant ? t(grant.allowActions ? '交互' : '只读', grant.allowActions ? 'Interactive' : 'Read-only') :
-              native && !access.known ? t('状态未确认', 'Unconfirmed') : t('未授权', 'Not granted'),
-            glyph(expanded ? 'up' : 'down', 12)),
-          (grant || (native && access.failure)) && h('button', { type: 'button', className: 'xhbrowser-access-revoke', disabled: !access.eligible || access.busy,
-            onClick: () => access.request('revoke') }, t('撤销', 'Revoke'))),
-        expanded && h('section', { id: 'xhbrowser-access-panel', className: 'xhbrowser-access-panel', 'aria-label': t('浏览器 Agent 访问', 'Browser Agent access') },
-          h('dl', null,
-            h('dt', null, t('当前会话', 'Current session')), h('dd', { title: sessionId || '' }, sessionId || t('未选择会话', 'No session selected')),
-            h('dt', null, t('网页范围', 'Page scope')), h('dd', { title: access.origin }, access.origin || t('请先打开网页', 'Open a page first'))),
-          h('div', { className: 'xhbrowser-access-modes', role: 'radiogroup', 'aria-label': t('访问权限', 'Access permission') },
-            [['read-only', t('只读', 'Read-only'), t('读取文字和控件', 'Read text and controls')], ['interactive', t('交互', 'Interactive'), t('点击、填写、选择、滚动', 'Click, fill, select and scroll')]].map(([value, label, description]) =>
-              h('label', { key: value }, h('input', { type: 'radio', name: 'browser-access-mode', value, checked: mode === value, disabled: access.busy,
-                onChange: () => setMode(value) }), h('span', null, h('strong', null, label), h('small', null, description))))),
-          h('p', null, !native ? t('这是 Web 界面预览，不能授予原生网页访问。请在新版桌面软件使用。', 'Web UI preview only. Native page access requires the updated desktop app.') :
-            t('仅此会话和域名，有效 10 分钟。隐藏、关闭或跨域后撤销；子 Agent 不继承。', 'This session and origin only, for 10 minutes. Hide, close or cross-origin navigation revokes access; subagents do not inherit it.')),
-          mode === 'interactive' && h('p', { className: 'xhbrowser-access-caution' }, t('点击可能触发页面提交；授权不会自动启动任务。', 'Clicks may submit page forms. Granting access does not start a task.')),
-          access.failure && h('p', { role: 'status', className: 'xhbrowser-access-caution' }, access.failure),
-          h('button', { type: 'button', className: 'xhbrowser-access-grant', disabled: !access.eligible || access.busy,
-            onClick: () => access.request(mode) }, access.busy ? t('确认中…', 'Confirming…') : t(mode === 'interactive' ? '授予交互访问' : '授予只读访问', mode === 'interactive' ? 'Grant interactive access' : 'Grant read-only access'))))
-    }
     function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }) {
       const [draft, setDraft] = useState(() => currentAddress(item))
       const [error, setError] = useState('')
@@ -182,12 +81,11 @@ window.__ModuleLoader__.load({
       const [menuOpen, setMenuOpen] = useState(false)
       const [downloadsOpen, setDownloadsOpen] = useState(false)
       const [downloads, setDownloads] = useState([])
-      const [accessOpen, setAccessOpen] = useState(false)
-      const [accessMode, setAccessMode] = useState('read-only')
       const inputRef = useRef(null)
       const contentRef = useRef(null)
       const itemRef = useRef(item)
       itemRef.current = item
+      const sessionRef = useRef(sessionId); sessionRef.current = sessionId
       const address = currentAddress(item)
       const recent = recentAddresses(item).filter(site => site.url !== address)
       // One coordinator owns activation, including pending navigation and overlays.
@@ -195,17 +93,16 @@ window.__ModuleLoader__.load({
       presentationRef.current = { open, blocked: menuOpen || downloadsOpen }
       const nativeSyncRef = useRef(null)
       const navigationRef = useRef(null)
-      const access = useBrowserAccess({ tabId: item.id, sessionId, address, open, blocked: menuOpen || downloadsOpen, syncRef: nativeSyncRef })
-      useEffect(() => { setAccessOpen(false); setAccessMode('read-only') }, [item.id, sessionId])
       useEffect(() => { setDraft(address); setError('') }, [address])
       useEffect(() => {
         if (!native || !open) return
         let disposed = false
         let generation = 0
         let lastGeometry = ''
+        let binding = null, renewalTimer = null, loading = false
         const send = (command, args) => native.core.invoke(command, args)
         const visible = () => {
-          if (disposed || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
+          if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
           const rect = contentRef.current?.getBoundingClientRect()
           if (!rect || rect.width < 1 || rect.height < 1) return false
           return ![...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')].some(element =>
@@ -213,7 +110,8 @@ window.__ModuleLoader__.load({
         }
         const hide = async () => {
           await send('desktop_browser_activate', { tabId: null })
-          lastGeometry = 'hidden'
+          lastGeometry = 'hidden'; binding = null
+          clearTimeout(renewalTimer)
         }
         const syncBounds = () => {
           const requested = ++generation
@@ -228,17 +126,41 @@ window.__ModuleLoader__.load({
             const url = currentAddress(itemRef.current)
             const pending = navigationRef.current?.tabId === item.id ? navigationRef.current : null
             const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`
-            if (geometry === lastGeometry && !pending) return true
-            await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
-            if (!current()) { await hide(); return false }
-            const exists = await send('desktop_browser_activate', { tabId: item.id })
-            if (!current()) { await hide(); return false }
-            if (!exists || pending) {
-              await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
-              if (navigationRef.current === pending) navigationRef.current = null
+            if (geometry !== lastGeometry || pending) {
+              await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
               if (!current()) { await hide(); return false }
+              const exists = await send('desktop_browser_activate', { tabId: item.id })
+              if (!current()) { await hide(); return false }
+              if (!exists || pending) {
+                loading = true
+                await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
+                if (navigationRef.current === pending) navigationRef.current = null
+                if (!current()) { await hide(); return false }
+              }
+              lastGeometry = geometry
             }
-            lastGeometry = geometry
+            // Bind only the actual visible chat/page. The model chooses observe or
+            // perform through plugin_mcp; its existing approval policy still applies.
+            const origin = pageOrigin(url)
+            const key = JSON.stringify([sessionId, origin])
+            if (!loading && sessionId && origin && (binding?.key !== key || binding.until <= performance.now())) {
+              let result
+              try { result = await send('desktop_browser_delegate', { tabId: item.id, owner: sessionId, allowActions: true, expectedOrigin: origin }) }
+              catch (error) { await hide(); throw error }
+              if (!current() || pageOrigin(currentAddress(itemRef.current)) !== origin) { await hide(); return false }
+              const grant = result?.grant
+              if (result?.origin !== origin || grant?.owner !== sessionId || grant.allowActions !== true
+                || !Number.isFinite(grant.remainingMs) || grant.remainingMs <= 0 || grant.remainingMs > 600000) {
+                await hide()
+                throw Error(accessText('浏览器会话绑定失败，请检查桌面版本。', 'Browser session binding failed; check the desktop version.'))
+              }
+              // No status polling or extra permission UI. Refresh the same binding
+              // before expiry; native renewal preserves the current observation frame.
+              const delay = Math.max(1000, Math.min(300000, grant.remainingMs / 2))
+              binding = { key, until: performance.now() + delay }
+              clearTimeout(renewalTimer)
+              renewalTimer = setTimeout(syncBounds, delay)
+            }
             return true
           }).catch(error => {
             if (!disposed && requested === generation) { setStatus('failed'); setError(String(error)) }
@@ -258,6 +180,7 @@ window.__ModuleLoader__.load({
           const payload = event.payload
           if (disposed || payload?.tabId !== item.id) return
           if (payload.kind === 'url') {
+            loading = true
             const current = itemRef.current
             const entries = current.entries ?? []
             if (entries[current.position] === payload.value) return
@@ -268,8 +191,8 @@ window.__ModuleLoader__.load({
             itemRef.current = { ...current, ...patch }
             onUpdate(patch)
           } else if (payload.kind === 'title') onUpdate({ title: payload.value || item.title })
-          else if (payload.kind === 'loading') setStatus('loading')
-          else if (payload.kind === 'loaded') setStatus('loaded')
+          else if (payload.kind === 'loading') { loading = true; setStatus('loading') }
+          else if (payload.kind === 'loaded') { loading = false; setStatus('loaded'); void syncBounds() }
           else if (payload.kind.startsWith('download-')) {
             setStatus(payload.kind)
             setDownloads(previous => [{ kind: payload.kind, name: String(payload.value || '').split(/[/\\]/).pop() || '下载文件' }, ...previous].slice(0, 5))
@@ -278,12 +201,12 @@ window.__ModuleLoader__.load({
           else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
         }).then(fn => { if (disposed) fn(); else unlisten = fn }).catch(error => { if (!disposed) setError(String(error)) })
         return () => {
-          disposed = true; generation++; observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
+          disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
           if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
           void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
         }
       }, [item.id, open, sessionId])
-      useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, accessOpen, address, item.id, open, sessionId])
+      useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open, sessionId])
       useEffect(() => {
         if (!open) return
         const onKey = event => {
@@ -370,7 +293,6 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false) } }, '新建标签页'),
           h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'),
           address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')),
-        h(BrowserAccess, { access, sessionId, expanded: accessOpen, setExpanded: setAccessOpen, mode: accessMode, setMode: setAccessMode }),
         error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error),
         h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef },
           !address ? h('div', { className: 'xhbrowser-home' },
@@ -400,13 +322,6 @@ window.__ModuleLoader__.load({
 .xhbrowser-icon{display:inline-grid;place-items:center;flex:none;width:29px;height:29px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);cursor:pointer}.xhbrowser-icon:hover:not(:disabled){color:var(--dsw-alias-label-primary,#fff);background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-icon:disabled{opacity:.35;cursor:default}
 .xhbrowser-toolbar{display:flex;align-items:center;gap:4px;flex:none;height:49px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}.xhbrowser-address-form{display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:31px;padding:0 10px;margin-left:3px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;background:var(--dsw-alias-bg-layer-2,#2b2b30);color:var(--dsw-alias-label-tertiary,#aaa)}.xhbrowser-address-form:focus-within{border-color:var(--dsw-alias-label-primary,#eee)}.xhbrowser-address-form input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px}.xhbrowser-address-form input::placeholder{color:var(--dsw-alias-label-tertiary,#888)}.xhbrowser-external{display:grid;place-items:center;flex:none;width:28px;height:28px;color:var(--dsw-alias-label-secondary,#aaa);border-radius:6px}.xhbrowser-external:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}
 .xhbrowser-content{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;background:var(--dsw-alias-bg-base,#1c1c1e)}.xhbrowser-empty{text-align:center;max-width:320px;padding:28px}.xhbrowser-empty-mark{display:grid;place-items:center;margin:0 auto 18px;width:66px;height:66px;border:1px solid var(--dsw-alias-border-l2,#404047);border-radius:18px;color:var(--dsw-alias-label-secondary,#bbb);background:var(--dsw-alias-bg-layer-2,#252529)}.xhbrowser-empty h2{margin:0 0 8px;font-size:15px;font-weight:600}.xhbrowser-empty p{margin:0;color:var(--dsw-alias-label-tertiary,#999);font-size:12px;line-height:1.7;overflow-wrap:anywhere}.xhbrowser-open-link{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;color:var(--dsw-alias-label-primary,#eee);font-size:12px;text-decoration:none}.xhbrowser-open-link:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-footer{display:flex;align-items:center;gap:7px;height:32px;flex:none;padding:0 15px;border-top:1px solid var(--dsw-alias-border-l1,#34343a);color:var(--dsw-alias-label-tertiary,#888);font-size:10px}.xhbrowser-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d39b42)}.xhbrowser-error{padding:7px 16px;color:var(--dsw-alias-state-error-primary,#e87979);font-size:11px}
-.xhbrowser-access-bar{display:flex;align-items:center;justify-content:space-between;flex:none;min-height:32px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}
-.xhbrowser-access-trigger,.xhbrowser-access-revoke{display:flex;align-items:center;gap:6px;padding:5px 0;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);font:inherit;font-size:11px;cursor:pointer}.xhbrowser-access-trigger:hover,.xhbrowser-access-revoke:hover{color:var(--dsw-alias-label-primary,#eee)}
-.xhbrowser-access-panel{box-sizing:border-box;flex:none;max-height:50%;overflow:auto;padding:10px 12px 12px;border-bottom:1px solid var(--dsw-alias-border-l1,#34343a);background:var(--dsw-alias-bg-layer-2,#29292e);font-size:11px}
-.xhbrowser-access-panel dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 12px;margin:0 0 10px}.xhbrowser-access-panel dt{color:var(--dsw-alias-label-tertiary,#999)}.xhbrowser-access-panel dd{margin:0;overflow-wrap:anywhere}
-.xhbrowser-access-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.xhbrowser-access-modes label{display:flex;gap:6px;align-items:flex-start;padding:9px 7px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:8px;cursor:pointer}.xhbrowser-access-modes input{margin:2px 0;accent-color:var(--dsw-alias-label-primary,#eee)}.xhbrowser-access-modes span{min-width:0}.xhbrowser-access-modes strong{display:block;font-weight:500}.xhbrowser-access-modes small{display:block;margin-top:3px;color:var(--dsw-alias-label-tertiary,#999);font-size:10px;line-height:1.4}
-.xhbrowser-access-panel p{margin:8px 0;color:var(--dsw-alias-label-tertiary,#999);line-height:1.6;overflow-wrap:anywhere}.xhbrowser-access-panel .xhbrowser-access-caution{color:var(--dsw-alias-label-secondary,#bbb)}
-.xhbrowser-access-grant{display:block;width:100%;min-height:30px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;background:var(--dsw-alias-label-primary,#eee);color:var(--dsw-alias-bg-base,#1c1c1e);font:inherit;font-size:11px;cursor:pointer}.xhbrowser-access-grant:disabled,.xhbrowser-access-revoke:disabled{opacity:.4;cursor:default}
 .xhbrowser-pane{position:relative}
 .xhbrowser-toolbar{gap:8px;height:54px;padding:0 12px}
 .xhbrowser-nav{display:flex;align-items:center;gap:1px;flex:none;padding:2px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:11px;background:var(--dsw-alias-bg-layer-2,#29292e)}
