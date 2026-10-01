@@ -5391,8 +5391,8 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 		}
 		function ModelRetryItem({ node, active, t }) {
 			const deadline = (0, react.useMemo)(() => Date.now() + node.delayMs, [node.delayMs, node.seq]);
-			const scheduledSeconds = retrySeconds(node.delayMs);
-			const maximum = node.mode === "normal" ? node.maxRetries : "∞";
+			const scheduledSeconds = node.delayMs === undefined ? "—" : retrySeconds(node.delayMs);
+			const maximum = node.partial ? "—" : node.mode === "normal" ? node.maxRetries : "∞";
 			const [countdown, setCountdown] = (0, react.useState)(() => ({
 				deadline,
 				seconds: retrySeconds(deadline - Date.now())
@@ -5416,7 +5416,7 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 					window.clearInterval(timer);
 				};
 			}, [active, deadline]);
-			const label = active ? t("message.retry.active") : node.retryState === "cancelled" ? t("message.retry.cancelled") : node.retryState === "started" ? t("message.retry.started") : t("message.retry.scheduled");
+			const label = active ? t(node.mode === "always" && (node.policyKey === "xharness:network-wait" || node.policyKey === "xharness:network-wait:continuation") ? "message.retry.networkWaiting" : "message.retry.active") : node.retryState === "cancelled" ? t("message.retry.cancelled") : node.retryState === "started" ? t("message.retry.started") : t("message.retry.scheduled");
 			const seconds = active ? remainingSeconds : scheduledSeconds;
 			return (0, react_jsx_runtime.jsxs)("details", {
 				className: MessageItem_module_css_default.retryRow,
@@ -5440,12 +5440,12 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 							className: MessageItem_module_css_default.retryDetailLabel,
 							children: t("message.retry.delay")
 						}),
-						Math.round(node.delayMs),
+						node.delayMs === undefined ? "—" : Math.round(node.delayMs),
 						"ms"
 					] }), (0, react_jsx_runtime.jsxs)("div", { children: [(0, react_jsx_runtime.jsx)("span", {
 						className: MessageItem_module_css_default.retryDetailLabel,
 						children: t("message.retry.failure")
-					}), node.failure.message] })]
+					}), node.failure?.message ?? "—"] })]
 				})]
 			});
 		}
@@ -6666,6 +6666,7 @@ keepMounted: index >= activeSuffix,
 			"message.retry.started": "已重试模型请求",
 			"message.retry.scheduled": "等待重试模型请求",
 			"message.retry.status": "{label}（{retry}/{maximum}） · {seconds}s",
+			"message.retry.networkWaiting": "连接中断，等待恢复",
 			"message.retry.delay": "重试延迟：",
 			"message.retry.failure": "失败原因：",
 			"message.turnError": "本轮运行失败",
@@ -6862,6 +6863,7 @@ keepMounted: index >= activeSuffix,
 			"message.retry.started": "Retried model request",
 			"message.retry.scheduled": "Waiting to retry model request",
 			"message.retry.status": "{label} ({retry}/{maximum}) · {seconds}s",
+			"message.retry.networkWaiting": "Connection interrupted; waiting to reconnect",
 			"message.retry.delay": "Retry delay: ",
 			"message.retry.failure": "Failure reason: ",
 			"message.turnError": "This turn failed",
@@ -8182,6 +8184,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Per-step Assistant streaming/final/interruption Definition. */
 		const assistantDefinition = {
+            historyReuse: "local",
 			kind: "assistant-step",
 			target: "chat",
 			match: (event) => {
@@ -8814,27 +8817,27 @@ keepMounted: index >= activeSuffix,
 		* @returns adopted State, preserving reference identity when the Match adds no evidence.
 		*/
 		function updateCompactionState(state, match) {
-			if (match.event.type === "compaction/start") return {
-				...state,
-				start: match,
-				end: void 0
+			const presentation = projectedCompactionView(match.view);
+			let next = state;
+			if (match.event.type === "compaction/start") next = {
+				...state, start: match, end: void 0
 			};
-			if (match.event.type === "compaction/end") return {
-				...state,
-				end: match
+			else if (match.event.type === "compaction/end") next = {
+				...state, presentation: void 0, end: match
 			};
-			if (match.event.type === "compaction/summary") return {
-				...state,
-				summary: match
+			else if (match.event.type === "compaction/summary") next = {
+				...state, summary: match
 			};
-			if (compactSource(match.event) !== void 0) return {
-				...state,
-				checkpoint: match
+			else if (compactSource(match.event) !== void 0) next = {
+				...state, checkpoint: match
 			};
-			return state;
+			// Retain lifecycle evidence even when a wire view is available. A
+			// reconnect to a legacy carrier must still be able to end this node.
+			return presentation === void 0 ? next : { ...next, presentation };
 		}
 		/** Slash-command lifecycle, including integrated manual compaction, Definition. */
 		const commandDefinition = {
+            historyReuse: "local",
 			kind: "command",
 			target: "chat",
 			match: (event) => {
@@ -8888,23 +8891,31 @@ keepMounted: index >= activeSuffix,
 		}
 		//#endregion
 		//#region lib/types/client/conversation-nodes/compaction.js
+// xh-compaction-view-model/v2
+		function projectedCompactionView(envelope) {
+			if (envelope?.for !== "compaction" || envelope.view?.schemaVersion !== 1) return void 0;
+			const view = envelope.view;
+			if (typeof view.id !== "string" || view.id === "" || !Number.isSafeInteger(view.anchorSeq) || view.anchorSeq < 0 || !Number.isFinite(view.time)) return void 0;
+			if (!["running", "succeeded", "failed"].includes(view.phase)) return void 0;
+			if (view.phase === "succeeded" && (typeof view.summary !== "string" || !Number.isSafeInteger(view.summaryEventSeq) || view.summaryEventSeq < 0 || !Number.isSafeInteger(view.shadowedItemCount) || view.shadowedItemCount < 0 || !Number.isSafeInteger(view.shadowedTokenCount) || view.shadowedTokenCount < 0)) return void 0;
+			return view;
+		}
 		function fallbackState$2(context) {
-			const start = context.matches.find((match) => match.event.type === "compaction/start");
-			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
-			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
-			const end = context.matches.find((match) => match.event.type === "compaction/end");
-			return {
-				...start === void 0 ? {} : { start },
-				...summary === void 0 ? {} : { summary },
-				...checkpoint === void 0 ? {} : { checkpoint },
-				...end === void 0 ? {} : { end }
-			};
+			return context.matches.reduce(updateCompactionState, {});
 		}
 		/** Automatic compaction lifecycle and landed checkpoint Definition. */
 		const compactionDefinition = {
+            historyReuse: "local",
 			kind: "compaction",
 			target: "chat",
-			match: (event) => {
+			match: (event, view) => {
+				if (view?.for === "compaction") {
+					const presentation = projectedCompactionView(view);
+					if (presentation !== void 0) return {
+						id: presentation.id,
+						role: presentation.phase === "running" ? "start" : "update"
+					};
+				}
 				const checkpoint = compactSource(event);
 				if (checkpoint !== void 0 && checkpoint.sourceCommandId === void 0) return {
 					id: checkpoint.compactionId,
@@ -8921,10 +8932,30 @@ keepMounted: index >= activeSuffix,
 				}
 				return null;
 			},
-			start: (_context, match) => match === void 0 ? {} : { start: match },
+			start: (_context, match) => match === void 0 ? {} : updateCompactionState({}, match),
 			update: (context, match) => updateCompactionState(context.state, match),
 			buildViewNode: (context) => {
 				const state = context.state ?? fallbackState$2(context);
+				if (state.presentation !== void 0) {
+					const view = state.presentation;
+					const data = view.phase === "succeeded" ? {
+						kind: "compaction",
+						seq: view.anchorSeq,
+						time: view.time,
+						summary: view.summary,
+						summaryEventSeq: view.summaryEventSeq,
+						shadowedItemCount: view.shadowedItemCount,
+						shadowedTokenCount: view.shadowedTokenCount
+					} : {
+						kind: "compaction",
+						status: view.phase === "running" ? "running" : "ended",
+						seq: view.anchorSeq,
+						time: view.time
+					};
+					return chatNode(context, "compaction", data.seq, data, {
+						visibility: view.phase === "failed" ? "hidden" : "visible"
+					});
+				}
 				if (state.checkpoint !== void 0) {
 					const marker = compactSummary(state.summary, state.checkpoint);
 					return chatNode(context, "compaction", marker.seq, marker);
@@ -9025,6 +9056,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** User, steering, and injected-context message classification Definition. */
 		const messageDefinition = {
+            historyReuse: "local",
 			kind: "input-message",
 			target: "chat",
 			match: (event) => event.type === "user/message" && (0, _xharness_dsh_client_runtime_client.isAppendSurfaceEvent)(event) && !isCompactionCheckpoint(event) ? {
@@ -9088,7 +9120,32 @@ keepMounted: index >= activeSuffix,
 			return location.kind === "step" && location.step.status === "closed" || (location.kind === "step" || location.kind === "turn") && location.turn.status === "closed";
 		}
 		/** Producer-correlated model retry chain Definition. */
-		const retryDefinition = {
+		// xh-conversation-lifecycle/v1
+// One fold for incremental and history-only retry evidence. Started-only pages
+// retain the observed attempt without inventing its failure, delay or policy.
+function updateRetryState(state, match) {
+  const event = match.event;
+  if (event.type !== 'llm/retry' && event.type !== 'llm/retry-started') return state;
+  const attempts = state?.attempts ?? [];
+  const index = attempts.findIndex(attempt => attempt.retry === event.data.retry);
+  if (event.type === 'llm/retry') {
+    const node = scheduledNode(match);
+    const next = index < 0 ? [...attempts, node] : attempts.map((old, at) => at === index ? { ...node, retryState: old.retryState } : old);
+    return { turn: event.data.turn, step: event.data.step, attempts: next };
+  }
+  const started = index < 0 ? {
+    kind: 'model-retry', seq: event.seq, time: event.time,
+    ...event.data, retryState: 'started', partial: true,
+  } : { ...attempts[index], retryState: 'started' };
+  return { turn: event.data.turn, step: event.data.step,
+    attempts: index < 0 ? [...attempts, started] : attempts.map((old, at) => at === index ? started : old) };
+}
+function fallbackRetryState(context) {
+  return context.matches.reduce(updateRetryState, undefined);
+}
+
+const retryDefinition = {
+            historyReuse: "local",
 			kind: "model-retry",
 			target: "chat",
 			match: (event) => {
@@ -9109,37 +9166,13 @@ keepMounted: index >= activeSuffix,
 				}
 				return null;
 			},
-			start: (_context, match) => {
-				const node = scheduledNode(match);
-				if (node === void 0) throw new Error("model-retry start requires a valid llm/retry event");
-				return {
-					turn: node.turn,
-					step: node.step,
-					attempts: [node]
-				};
-			},
-			update: (context, match) => {
-				if (match.event.type === "llm/retry") {
-					const node = scheduledNode(match);
-					return node === void 0 ? context.state : {
-						...context.state,
-						attempts: [...context.state.attempts, node]
-					};
-				}
-				if (match.event.type !== "llm/retry-started") return context.state;
-				const retry = match.event.data.retry;
-				return {
-					...context.state,
-					attempts: context.state.attempts.map((attempt) => attempt.retry === retry ? {
-						...attempt,
-						retryState: "started"
-					} : attempt)
-				};
-			},
-			buildViewNode: (context) => {
-				if (context.state === void 0 || context.state.attempts.length === 0) return null;
+			start: (_context, match) => updateRetryState(undefined, match),
+            update: (context, match) => updateRetryState(context.state, match),
+            buildViewNode: (context) => {
+				const state = context.state ?? fallbackRetryState(context);
+            if (state === undefined || state.attempts.length === 0) return null;
 				const location = context.start?.location ?? context.matches[0]?.location ?? { kind: "unresolved" };
-				const stateAttempts = context.state.attempts;
+				const stateAttempts = state.attempts;
 				const attempts = stateAttempts.map((attempt, index) => index === stateAttempts.length - 1 && attempt.retryState === "scheduled" && isClosed(location) ? {
 					...attempt,
 					retryState: "cancelled"
@@ -9363,6 +9396,7 @@ keepMounted: index >= activeSuffix,
 		}
 		/** Root Tool lifecycle and nested Code Dispatch Definition. */
 		const toolDefinition = {
+            historyReuse: "local",
 			kind: "tool-call",
 			target: "chat",
 			match: (event) => {

@@ -810,3 +810,152 @@ fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
     assert_eq!(crate::delegation::restored_delegation(&session), None);
     assert!(!crate::delegation::restored_dispatch_paused(&session));
 }
+
+#[tokio::test]
+async fn automatic_compaction_views_match_live_history_and_restart() {
+    use std::collections::BTreeMap;
+    use xharness_session::{SequenceRange, SurfaceReplace};
+
+    for error in [
+        None,
+        Some("network timeout"),
+        Some("cancelled"),
+        Some("output token limit"),
+    ] {
+        let (host, store) = fixture().await;
+        let initial = store.load(ID).await.unwrap().unwrap();
+        let history_seq = initial.next_seq() + 1;
+        let started = store
+            .append(
+                ID,
+                initial.revision(),
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::UserMessage {
+                        message: Message::user("large history"),
+                        surface_replace: None,
+                    }
+                    .into(),
+                    EventData::StepStart { turn: 1, step: 1 }.into(),
+                    EventData::CompactionStart {
+                        compaction_id: "compact-view".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let mut receiver = host.event_gateway.subscribe_mux();
+        host.sync_authoritative_session(ID).await.unwrap();
+        let mut live = BTreeMap::new();
+        while let Ok(frame) = receiver.try_recv() {
+            if frame.payload["type"] == "session/event"
+                && frame.payload["view"]["for"] == "compaction"
+            {
+                live.insert(
+                    frame.payload["event"]["seq"].as_u64().unwrap(),
+                    frame.payload["view"].clone(),
+                );
+            }
+        }
+        assert_eq!(live.len(), 1);
+        assert_eq!(live.values().next().unwrap()["view"]["phase"], "running");
+
+        let mut end_events: Vec<SessionEvent> = Vec::new();
+        if error.is_none() {
+            let range = SequenceRange {
+                start: history_seq,
+                end: history_seq,
+            };
+            end_events.extend([
+                EventData::CompactionSummary {
+                    compaction_id: "compact-view".into(),
+                    source_command_id: None,
+                    summary: "摘要 🧪".into(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![history_seq],
+                    shadowed_token_count: 128,
+                    provider: "test".into(),
+                    model: "test".into(),
+                    max_tokens: Some(64),
+                    usage: None,
+                }
+                .into(),
+                EventData::UserMessage {
+                    message: Message::user("checkpoint"),
+                    surface_replace: Some(SurfaceReplace {
+                        compaction_id: "compact-view".into(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![history_seq],
+                    }),
+                }
+                .into(),
+            ]);
+        }
+        end_events.extend([
+            EventData::CompactionEnd {
+                compaction_id: "compact-view".into(),
+                source_command_id: None,
+                turn: Some(1),
+                error: error.map(str::to_owned),
+            }
+            .into(),
+            EventData::StepEnd { turn: 1, step: 1 }.into(),
+            EventData::TurnEnd {
+                turn: 1,
+                reason: error.map_or(TurnEndReason::Completed, |error| TurnEndReason::Failed {
+                    error: error.into(),
+                }),
+            }
+            .into(),
+        ]);
+        store
+            .append(ID, started.revision, end_events)
+            .await
+            .unwrap();
+        host.sync_authoritative_session(ID).await.unwrap();
+        while let Ok(frame) = receiver.try_recv() {
+            if frame.payload["type"] == "session/event"
+                && frame.payload["view"]["for"] == "compaction"
+            {
+                live.insert(
+                    frame.payload["event"]["seq"].as_u64().unwrap(),
+                    frame.payload["view"].clone(),
+                );
+            }
+        }
+        assert_eq!(live.len(), 2);
+        assert_eq!(
+            live.values().last().unwrap()["view"]["phase"],
+            if error.is_some() {
+                "failed"
+            } else {
+                "succeeded"
+            }
+        );
+        let expected = live;
+        let restarted = BasicHost::with_agent_runtime(
+            HostConfig::new(std::env::temp_dir()),
+            Arc::new(SnapshotRuntime(store.clone())),
+        );
+        restarted.restore_from_store(store.clone()).await.unwrap();
+        for candidate in [&host, &restarted] {
+            let history = rpc_value(
+                candidate,
+                RpcMethod::SessionHistory,
+                json!({"sessionId": ID}),
+            )
+            .await;
+            let actual = history["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["view"]["for"] == "compaction")
+                .map(|row| (row["event"]["seq"].as_u64().unwrap(), row["view"].clone()))
+                .collect::<BTreeMap<_, _>>();
+            assert_eq!(actual, expected, "live/history/restart mismatch: {error:?}");
+        }
+    }
+}

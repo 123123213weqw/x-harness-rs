@@ -118,4 +118,19 @@ const historicalView = sections[0].component({
 const historicalPeriod = find(historicalView, node => node.props?.className === 'xhp-period')
 assert.equal(historicalPeriod.children[0][0].props.disabled, false)
 assert.equal(historicalPeriod.children[0][2].props.disabled, true)
+
+// Cold-start rows have unknown metrics until their old sidecar is rebuilt.
+// Never label this as an empty history or silently present complete totals.
+const pendingRows = [{id:'cold',projectionValues:{sessionListMetadata:{metricsPending:true}}}]
+assert.equal(plugin.summarize(pendingRows).pending, 1)
+const pendingView = sections[0].component({...props,list:{
+  subscribe:()=>()=>{}, getSnapshot:()=>({phase:'ready',byId:{cold:pendingRows[0]}}),
+}})
+assert.match(text(pendingView), /Restoring historical usage/)
+assert.match(text(pendingView), /Partial totals/)
+assert.doesNotMatch(text(pendingView), /No reported token usage yet/)
+const restartedRows = JSON.parse(JSON.stringify(rows))
+assert.equal(plugin.summarize(restartedRows).total, result.total)
+assert.deepEqual([...plugin.summarize(restartedRows).daily], [...result.daily])
+
 console.log('profile settings plugin tests passed')

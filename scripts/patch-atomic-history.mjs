@@ -7,7 +7,7 @@ const implementation = readFileSync(new URL('../ui/overrides/atomic-history.js',
 const start = '// xh-atomic-history:start', end = '// xh-atomic-history:end';
 export function patchAtomicHistory(bytes) {
   let source = bytes.toString().replace(/\r\n/g, '\n');
-  const block = `${start}\n${implementation}\ninstallAtomicHistory(ConversationNodeAssembler, Session);\n${end}\n`;
+  const block = `${start}\n${implementation}\ninstallAtomicHistory(ConversationNodeAssembler, Session, SessionManager);\n${end}\n`;
   if (source.includes(start)) {
     if (source.split(start).length !== 2 || source.split(end).length !== 2) throw Error('Atomic history anchors changed');
     return Buffer.from(source.slice(0, source.indexOf(start)) + block.trimEnd() + source.slice(source.indexOf(end) + end.length));

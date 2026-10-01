@@ -1,0 +1,31 @@
+name: Sync public plugin registry to Gitee
+on:
+  push:
+    branches: [master, feature/public-plugin-registry-mirror]
+    paths:
+      - '.github/workflows/sync-public-plugin-registry.yml'
+      - 'scripts/mirror-public-plugin-registry.py'
+      - 'scripts/test-public-plugin-registry-mirror.py'
+  schedule:
+    - cron: '23,53 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-plugin-registry-gitee
+  cancel-in-progress: false
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITEE_TOKEN: ${{ secrets.XHARNESS_GITEE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate mirror guardrails
+        run: python3 scripts/test-public-plugin-registry-mirror.py
+      - name: Mirror vetted public registry only
+        run: python3 scripts/mirror-public-plugin-registry.py
