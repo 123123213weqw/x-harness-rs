@@ -440,6 +440,61 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("native click did not update the actual page".into());
     }
+    // DOM setters bypass native modal input blocking unless the fixed action
+    // function enforces it. Open after observing to exercise that race too.
+    let before_modal = observe(app, &main).await?;
+    guest
+        .eval(r#"document.body.insertAdjacentHTML('beforeend','<dialog id="modal"><label for="modal-edit">Modal field</label><input id="modal-edit"><button id="modal-close" onclick="this.closest(\'dialog\').close()">Close modal</button></dialog>');document.querySelector('#modal').showModal()"#)
+        .map_err(|error| error.to_string())?;
+    if perform(
+        app,
+        &main,
+        action(
+            &before_modal,
+            "Answer",
+            json!({"action":"fill","text":"behind modal"}),
+        )?,
+    )
+    .await?
+    .effect
+        != browser_perform::Effect::NotStarted
+    {
+        return Err("native action bypassed a newly opened modal".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"].as_array().unwrap().iter().any(|node| {
+        node["label"] == "Answer" && node["value"] == "native action" && node["disabled"] == true
+    }) {
+        return Err("modal observation exposed actionable background or changed its value".into());
+    }
+    if !perform(
+        app,
+        &main,
+        action(
+            &snapshot,
+            "Modal field",
+            json!({"action":"fill","text":"inside modal"}),
+        )?,
+    )
+    .await?
+    .ok
+    {
+        return Err("modal guard incorrectly blocked its own input".into());
+    }
+    let snapshot = observe(app, &main).await?;
+    if !snapshot["nodes"].as_array().unwrap().iter().any(|node| {
+        node["label"] == "Modal field"
+            && node["value"] == "inside modal"
+            && node["disabled"] == false
+    }) {
+        return Err("native modal fill did not change actual page state".into());
+    }
+    perform(
+        app,
+        &main,
+        action(&snapshot, "Close modal", json!({"action":"click"}))?,
+    )
+    .await?;
     let snapshot = observe(app, &main).await?;
     guest.eval("document.querySelector('#apply').replaceWith(document.querySelector('#apply').cloneNode(true))").map_err(|error| error.to_string())?;
     if perform(

@@ -4,7 +4,12 @@
 (function observeBrowser(args) {
   const slot = Symbol.for("xharness.browser.dom-frame");
   const visible = element => element.isConnected && element.getClientRects().length && getComputedStyle(element).visibility !== "hidden";
-  const disabled = element => element.matches(":disabled") || element.getAttribute("aria-disabled") === "true" || !!element.closest("[inert]");
+  // DOM .click()/value setters bypass the browser's modal input barrier. Treat
+  // background controls as blocked on BOTH observation and action, including
+  // when a dialog opens between the two. Non-modal/hidden dialogs do not block.
+  const modals = Array.from(document.querySelectorAll('dialog[open],[role="dialog"][aria-modal="true"],[role="alertdialog"][aria-modal="true"]')).filter(element => visible(element) && (element.tagName !== "DIALOG" || element.matches(":modal")));
+  const modal = modals.findLast(element => element.contains(document.activeElement)) || modals.at(-1);
+  const disabled = element => element.matches(":disabled") || element.getAttribute("aria-disabled") === "true" || !!element.closest("[inert]") || !!modal && !modal.contains(element);
   const label = element => (element.getAttribute("aria-label") || Array.from(element.labels || []).map(x => x.innerText).join(" ") || element.getAttribute("placeholder") || element.innerText || element.getAttribute("title") || "").trim().slice(0, 240);
   const fingerprint = element => JSON.stringify([
     element.tagName, element.getAttribute("type"), element.getAttribute("role"), label(element),
@@ -33,6 +38,8 @@
         if (element.tagName !== "SELECT" || !option || !option.isConnected || !Array.from(element.options).includes(option) || option.disabled || option.parentElement?.disabled || option.value !== args.value) return reply(false, "option is no longer available; observe its option page again");
       }
       if (args.action === "scroll" && (!Number.isInteger(args.delta_y) || args.delta_y === 0 || Math.abs(args.delta_y) > 5000)) return reply(false, "invalid scroll delta");
+      if (args.action === "scroll" && modal && frame.area !== modal) return reply(false, "modal blocks page scrolling; observe dialog scope");
+      if (args.action === "scroll" && frame.area !== document.body && !visible(frame.area)) return reply(false, "observation scope disappeared; observe again");
       effect = "unknown";
       if (args.action === "click") element.click();
       if (args.action === "fill") {
@@ -46,7 +53,7 @@
         element.dispatchEvent(new Event("input", { bubbles: true }));
         element.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      if (args.action === "scroll") window.scrollBy({ top: args.delta_y, behavior: "instant" });
+      if (args.action === "scroll") (modal || window).scrollBy({ top: args.delta_y, behavior: "instant" });
       effect = "applied";
       return reply(true);
     } catch (_) {
@@ -56,7 +63,7 @@
   try {
     window[slot] = null;
     const area = args.scope === "main" ? document.querySelector("main")
-      : args.scope === "dialog" ? document.querySelector('dialog[open],[role="dialog"]')
+      : args.scope === "dialog" ? modal || Array.from(document.querySelectorAll('dialog[open],[role="dialog"]')).findLast(visible)
         : document.body;
     if (!area) return JSON.stringify({ error: "observation scope is not present; observe page again" });
     const selector = 'button,input,textarea,select,a[href],summary,[role="button"],[role="checkbox"],[role="tab"],[contenteditable="true"]';
