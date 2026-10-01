@@ -1385,3 +1385,17 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] Context / Harness 区分“未开启捕获”和“捕获失败”，旧快照保持可读；补 JSONL、Core、Chromium 与 WebKit 回归。
 - [ ] 旧 `request-audit` 对象的安全引用扫描与垃圾回收，独立备份、迁移和崩溃恢复验收；不得按文件年龄直接删除。
 - [ ] 如需产品级按会话诊断开关、保存配额和保留期限，另设配置及隐私交互；目前只复用全局 Full Debug。
+
+## 断网持续恢复（2026-10-01）
+
+- [x] 独立 retry 策略模块；结构化传输故障持续等待，有限 HTTP 重试保持不变。
+- [x] 复用 Always 持久重试事件；按 policy/phase 分离 retryId，UI 展示等待连接恢复。
+- [x] 保留取消、暂停、Steer、部分流和工具副作用边界；追加真实 HTTP / UI / journal 回归。
+- [x] V100：Core / OpenAI Provider / Host 的 all-targets 回归 407 项通过、5 项原有测试忽略；三包 Clippy -D warnings 通过。
+- [x] 本机 Node 7 组关联回归及 WebKit 历史缓存 32 项检查通过。
+- [ ] PR 的 GitHub 跨平台 CI 验收。
+- [ ] 跨平台网络变化通知提前唤醒；UI 总等待时间。
+- [ ] 普通进行中轮在进程重启后的自动恢复；须与 outcome_unknown / 用户停止权威联合验收。
+- [ ] token-count / capability 等独立前置请求的网络恢复策略。
+
+详见 `docs/specs/network-wait-recovery.md`。

@@ -1387,7 +1387,7 @@ async fn retries_only_before_the_first_delta() {
     assert_eq!(retry_events[0].0, retry_events[1].0);
     assert_eq!(retry_events[0].1, 1);
     assert_eq!(retry_events[1].1, 2);
-    assert_eq!(retry_events[0].2, 2);
+    assert_eq!(retry_events[0].2, Some(2));
 
     let session = journal.load("durable-retry").await.unwrap().unwrap();
     let durable_retries = session
@@ -1556,6 +1556,7 @@ async fn automatic_transport_continuation_is_bounded_and_http_is_not_continued()
         ],
     ]));
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.network_wait_enabled = false;
     request.config.provider_retry_base_delay_ms = 1;
     request.config.provider_retry_jitter_percent = 0;
     let (_, result) = collect(LoopEngine.start(request)).await;
@@ -1615,6 +1616,7 @@ async fn partial_transport_budget_exhaustion_keeps_the_committed_answer() {
         Err(transport_error("response_body")),
     ]]));
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
+    request.config.network_wait_enabled = false;
     request.config.provider_retry_base_delay_ms = 100;
     request.config.provider_retry_budget_ms = 10;
     request.config.provider_retry_jitter_percent = 0;
@@ -6451,4 +6453,227 @@ async fn text_after_a_continuation_is_not_glued_into_final_text() {
         result.final_text, "FINAL",
         "final_text must report the answer, not the latched continuation buffer"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_survives_short_budget_and_restores_durable_retry_policy() {
+    let mut scripts = (0..7)
+        .map(|_| Err(transport_error("connect_or_headers")))
+        .collect::<Vec<_>>();
+    scripts.push(Ok(vec![
+        Ok(ProviderEvent::TextDelta("online".into())),
+        Ok(completed()),
+    ]));
+    let provider = Arc::new(ScriptProvider::with_attempts(scripts));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    request.config.provider_retry_budget_ms = 1;
+    request.config.provider_retry_jitter_percent = 0;
+    request.session_id = Some("network-wait-durable".into());
+    request.journal_store = Some(journal.clone());
+    let (events, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 8);
+    let waits = events
+        .iter()
+        .filter_map(|e| match e.kind {
+            LoopEventKind::ModelRetry {
+                attempt,
+                max_retries,
+                delay_ms,
+                ..
+            } => Some((attempt, max_retries, delay_ms)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(waits.len(), 7);
+    assert_eq!(waits[6], (7, None, 30_000));
+    let session = journal.load("network-wait-durable").await.unwrap().unwrap();
+    let recorded = session
+        .events()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.data(),
+                SessionEventData::LlmRetry {
+                    mode: xharness_session::LlmRetryMode::Always,
+                    max_retries: None,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(recorded, 7);
+    let rebuilt = xharness_session::Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec(),
+    );
+    assert!(rebuilt.is_ok(), "{rebuilt:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_policy_switch_keeps_retry_chains_valid() {
+    let provider = Arc::new(ScriptProvider::with_attempts([
+        Err(transport_error("connect_or_headers")),
+        Err(ProviderError::http(503, "busy")),
+        Err(transport_error("connect_or_headers")),
+        Ok(vec![
+            Ok(ProviderEvent::TextDelta("partial".into())),
+            Err(transport_error("body")),
+        ]),
+        Ok(vec![Ok(completed())]),
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    request.session_id = Some("mixed-retry-chains".into());
+    request.journal_store = Some(journal.clone());
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 5);
+    let session = journal.load("mixed-retry-chains").await.unwrap().unwrap();
+    assert!(xharness_session::Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec()
+    )
+    .is_ok());
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_partial_continuations_do_not_execute_fragments() {
+    let mut scripts = (0..5)
+        .map(|_| {
+            vec![
+                Ok(ProviderEvent::ReasoningDelta("thought".into())),
+                Ok(tool_delta(0, "abandoned", "mutate", "{}")),
+                Err(transport_error("body")),
+            ]
+        })
+        .collect::<Vec<_>>();
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    let provider = Arc::new(ScriptProvider::new(scripts));
+    let executions = Arc::new(AtomicUsize::new(0));
+    let counter = executions.clone();
+    let tool = TestToolSpec::new(
+        "mutate",
+        "fixture",
+        json!({"type":"object"}),
+        move |_, _| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("mutated") }
+        },
+    );
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    request.session_id = Some("partial-network-wait".into());
+    request.journal_store = Some(journal);
+    request.config.provider_retry_budget_ms = 1;
+    install_tool(&mut request, tool).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.attempts(), 6);
+    assert_eq!(executions.load(Ordering::SeqCst), 0);
+    assert_eq!(result.messages.iter().filter(|m| m.interrupted).count(), 5);
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_cancel_pause_and_steer_remain_responsive() {
+    for action in ["cancel", "steer", "pause"] {
+        let provider = Arc::new(ScriptProvider::with_attempts([
+            Err(transport_error("connect_or_headers")),
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("new".into())),
+                Ok(completed()),
+            ]),
+        ]));
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+        request.config.provider_retries = 0;
+        request.config.provider_retry_budget_ms = 1;
+        let mut run = LoopEngine.start(request);
+        while let Some(e) = run.next().await {
+            if matches!(
+                e.kind,
+                LoopEventKind::ModelRetry {
+                    max_retries: None,
+                    ..
+                }
+            ) {
+                break;
+            }
+        }
+        if action == "cancel" {
+            run.cancel();
+        }
+        if action == "steer" {
+            run.send(LoopCommand::Steer(AgentMessage::user("new scope")))
+                .await
+                .unwrap();
+        }
+        if action == "pause" {
+            run.send(LoopCommand::Pause).await.unwrap();
+            while let Some(e) = run.next().await {
+                if matches!(e.kind, LoopEventKind::RunPaused) {
+                    break;
+                }
+            }
+            tokio::time::advance(Duration::from_secs(180)).await;
+            assert_eq!(provider.attempts(), 1);
+            run.send(LoopCommand::Resume).await.unwrap();
+        }
+        let (_, result) = collect(run).await;
+        assert_eq!(
+            result.status,
+            if action == "cancel" {
+                LoopStatus::Cancelled
+            } else {
+                LoopStatus::Completed
+            }
+        );
+        assert_eq!(provider.attempts(), if action == "cancel" { 1 } else { 2 });
+        if action == "steer" {
+            assert!(result.messages.iter().any(|m| m.content == "new scope"));
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn sustained_network_wait_does_not_repeat_a_previously_completed_side_effect() {
+    let mut scripts = vec![Ok(vec![
+        Ok(tool_delta(0, "once", "mutate", "{}")),
+        Ok(completed_for_calls()),
+    ])];
+    scripts.extend((0..5).map(|_| Err(transport_error("connect_or_headers"))));
+    scripts.push(Ok(vec![Ok(completed())]));
+    let provider = Arc::new(ScriptProvider::with_attempts(scripts));
+    let counter = Arc::new(AtomicUsize::new(0));
+    let executions = counter.clone();
+    let tool = TestToolSpec::new(
+        "mutate",
+        "fixture",
+        json!({"type":"object"}),
+        move |_, _| {
+            executions.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("changed") }
+        },
+    );
+    let mut req = LoopRequest::new(provider.clone(), vec![AgentMessage::user("go")]);
+    install_tool(&mut req, tool).await;
+    let (_, result) = collect(LoopEngine.start(req)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.attempts(), 7);
+    for request in provider.requests().iter().skip(1) {
+        assert_eq!(
+            request
+                .messages
+                .iter()
+                .filter(|m| m.role == Role::Tool)
+                .count(),
+            1
+        );
+    }
 }
