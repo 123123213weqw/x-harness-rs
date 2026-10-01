@@ -81,6 +81,21 @@ impl BrowserState {
         let tab = inner.tabs.get(tab_id).ok_or("browser tab is not open")?;
         Ok((tab.webview.clone(), Arc::clone(&tab.inspector)))
     }
+    pub(super) fn delegated_tab(&self, owner: &str) -> Result<String, String> {
+        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        let id = inner.active.as_ref().ok_or("native browser is hidden")?;
+        let tab = inner.tabs.get(id).ok_or("native browser is not open")?;
+        if inner.bounds.is_none()
+            || !tab.inspector.delegation.permits(
+                owner,
+                &tab.webview.url().map_err(|_| "browser URL unavailable")?,
+                false,
+            )
+        {
+            return Err("native browser is not delegated to this session".into());
+        }
+        Ok(id.clone())
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -260,6 +275,7 @@ pub async fn desktop_browser_navigate(
             .map(|(id, _)| id.clone())
             .ok_or("no inactive browser tab can be suspended")?;
         if let Some(tab) = inner.tabs.remove(&oldest) {
+            tab.inspector.revoke();
             tab.webview.close().map_err(|error| error.to_string())?;
             emit(&app, &oldest, "suspended", "");
         }
@@ -294,6 +310,7 @@ pub async fn desktop_browser_navigate(
         .data_directory(browser_data)
         .on_navigation(move |url| {
             if matches!(url.scheme(), "http" | "https") {
+                navigation_inspector.delegation.navigate(url);
                 navigation_inspector.invalidate();
                 emit(&event_app, &event_id, "url", url.as_str());
                 true
@@ -405,7 +422,7 @@ pub async fn desktop_browser_activate(
             .flatten()
         {
             if let Some(tab) = inner.tabs.get(id) {
-                tab.inspector.invalidate();
+                tab.inspector.revoke();
             }
         }
     }
@@ -483,6 +500,7 @@ pub async fn desktop_browser_close(
         inner.active = None;
     }
     if let Some(tab) = inner.tabs.remove(&tab_id) {
+        tab.inspector.revoke();
         tab.webview.close().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -494,6 +512,7 @@ pub fn close_all(app: &AppHandle) {
     };
     if let Ok(mut inner) = state.0.lock() {
         for (_, tab) in inner.tabs.drain() {
+            tab.inspector.revoke();
             let _ = tab.webview.close();
         }
         inner.active = None;

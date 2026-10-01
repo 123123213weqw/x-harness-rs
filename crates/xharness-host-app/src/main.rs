@@ -195,6 +195,9 @@ async fn run(
     }
     let mcp = xharness_mcp::McpRuntime::new();
     tools.bind_mcp(Arc::clone(&mcp))?;
+    if let Some(browser) = xharness_host_app::native_browser::NativeBrowser::from_env()? {
+        tools.bind_native_browser(browser)?;
+    }
     let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
         Ok(manager) => {
             let manager = Arc::new(manager);

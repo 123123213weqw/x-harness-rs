@@ -262,12 +262,16 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         path_text(&state.start_file),
     ]);
 
+    let bridge_state = app.state::<crate::browser_bridge::BrowserBridge>();
+    let bridge = bridge_state.start(app).await?;
     let mut command = app
         .shell()
         .sidecar("xharness-host")
         .map_err(|error| format!("无法定位 xharness-host sidecar：{error}"))?
         .args(args)
         .env("XHARNESS_DESKTOP_TOKEN", &state.token)
+        .env("XHARNESS_NATIVE_BROWSER_ADDRESS", &bridge.address)
+        .env("XHARNESS_NATIVE_BROWSER_TOKEN", &bridge.token)
         .env(
             "XHARNESS_DIAGNOSTICS_DIR",
             state.diagnostics.root.join("host"),

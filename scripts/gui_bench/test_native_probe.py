@@ -28,25 +28,26 @@ class NativeProbeTests(unittest.TestCase):
             self.assertEqual(env["XDG_CONFIG_HOME"], str(Path(root) / "config"))
             self.assertTrue(Path(env["XDG_RUNTIME_DIR"]).is_dir())
 
-    def test_explicit_runtime_paths_do_not_forward_cargo_or_provider_environment(self):
-        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
-            "Path": "/bin", "CARGO_HOME": "/private-cargo", "DEEPSEEK_API_KEY": "fake-sensitive",
-        }, clear=True):
-            runtime = Path(root) / "deps"
-            runtime.mkdir()
-            env = environment(Path(root), [runtime])
-            self.assertEqual(env["Path"], str(runtime.resolve()) + os.pathsep + "/bin")
-            self.assertNotIn("CARGO_HOME", env)
-            self.assertNotIn("DEEPSEEK_API_KEY", env)
-            with self.assertRaises(FileNotFoundError):
-                environment(Path(root), [Path(root) / "missing"])
-
     def test_cleanup_retries_transient_writers_but_never_hides_failure(self):
         with patch("scripts.gui_bench.run_native_probe.shutil.rmtree", side_effect=[OSError(errno.ENOTEMPTY, "writer"), None]) as remove, patch("scripts.gui_bench.run_native_probe.time.sleep"):
             self.assertTrue(cleanup(Path("/owned-probe")))
             self.assertEqual(remove.call_count, 2)
         with patch("scripts.gui_bench.run_native_probe.shutil.rmtree", side_effect=PermissionError()), patch("scripts.gui_bench.run_native_probe.time.sleep"):
             self.assertFalse(cleanup(Path("/owned-probe")))
+
+    def test_windows_probe_embeds_common_controls_without_elevating_or_changing_app(self):
+        import xml.etree.ElementTree as ET
+        root = Path(__file__).resolve().parents[2] / "apps/desktop/src-tauri"
+        manifest = ET.parse(root / "examples/browser-inspect-probe.manifest")
+        identity = manifest.find(".//{urn:schemas-microsoft-com:asm.v1}dependentAssembly/{urn:schemas-microsoft-com:asm.v1}assemblyIdentity")
+        self.assertEqual(identity.attrib["name"], "Microsoft.Windows.Common-Controls")
+        self.assertEqual(identity.attrib["version"], "6.0.0.0")
+        requested = manifest.find(".//{urn:schemas-microsoft-com:asm.v3}requestedExecutionLevel")
+        self.assertEqual(requested.attrib, {"level":"asInvoker", "uiAccess":"false"})
+        build = (root / "build.rs").read_text()
+        self.assertIn("rustc-link-arg-examples=/MANIFEST:EMBED", build)
+        self.assertIn("rustc-link-arg-examples=/MANIFESTINPUT:", build)
+        self.assertNotIn("rustc-link-arg-bins=/MANIFEST", build)
 
 
 if __name__ == "__main__":

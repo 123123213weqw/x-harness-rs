@@ -36,11 +36,16 @@ fn config(spec: McpServerSpec) -> Result<StdioServerConfig, ToolHandlerError> {
     })
 }
 
-pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String) -> ToolSpec {
+pub fn spec(
+    manager: Option<Arc<PluginManager>>,
+    runtime: Arc<McpRuntime>,
+    native: Option<Arc<crate::native_browser::NativeBrowser>>,
+    owner: String,
+) -> ToolSpec {
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use user-enabled local MCP servers. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+            "Use user-enabled local MCP servers and, when explicitly delegated by the desktop UI, its native browser. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -48,7 +53,8 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
             },"required":["action"]}),
         ),
         move |context| {
-            let manager = Arc::clone(&manager);
+            let manager = manager.clone();
+            let native = native.clone();
             let runtime = Arc::clone(&runtime);
             let owner = owner.clone();
             async move {
@@ -56,9 +62,35 @@ pub fn spec(manager: Arc<PluginManager>, runtime: Arc<McpRuntime>, owner: String
                 let action = args.get("action").and_then(Value::as_str).ok_or_else(|| error("action required"))?;
                 let plugin = args.get("plugin").and_then(Value::as_str);
                 if action == "list" && plugin.is_none() {
-                    return Ok(ToolOutput::text(json!({"plugins":manager.enabled_mcp_plugins().await}).to_string()));
+                    let mut plugins = match &manager { Some(manager) => manager.enabled_mcp_plugins().await, None => Vec::new() };
+                    if let Some(native) = &native {
+                        if native.available(&owner, &context.cancellation).await { plugins.push(crate::native_browser::PLUGIN.into()); }
+                    }
+                    return Ok(ToolOutput::text(json!({"plugins":plugins}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
+                if plugin == crate::native_browser::PLUGIN {
+                    let native = native.ok_or_else(|| error("native browser is unavailable"))?;
+                    if action == "list" && args.get("server").is_none() {
+                        if !native.available(&owner, &context.cancellation).await { return Err(error("native browser is not delegated to this chat")); }
+                        return Ok(ToolOutput::text(json!({"servers":[crate::native_browser::SERVER]}).to_string()));
+                    }
+                    if args.get("server").and_then(Value::as_str) != Some(crate::native_browser::SERVER) { return Err(error("unknown native browser server")); }
+                    if action == "call" {
+                        let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
+                        let parameters = match args.get("arguments") { None => Map::new(), Some(Value::Object(parameters)) => parameters.clone(), _ => return Err(error("native arguments must be an object")) };
+                        return call_output(native.call(&owner, tool, parameters, &context.cancellation).await.map_err(error)?);
+                    }
+                    if !native.available(&owner, &context.cancellation).await { return Err(error("native browser is not delegated to this chat")); }
+                    let tools = crate::native_browser::tools();
+                    if action == "describe" {
+                        let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
+                        return Ok(ToolOutput::text(json!({"tool":tools.iter().find(|tool| tool["name"] == name).ok_or_else(|| error("unknown native browser tool"))?}).to_string()));
+                    }
+                    if action != "list" { return Err(error("action must be list, describe or call")); }
+                    return Ok(ToolOutput::text(json!({"tools":tools.iter().map(|tool| json!({"name":tool["name"],"description":tool["description"]})).collect::<Vec<_>>()}).to_string()));
+                }
+                let manager = manager.ok_or_else(|| error("plugin store unavailable"))?;
                 // Capture the runtime lease before reading enabled state. A
                 // concurrent disable revokes this exact lease even if the
                 // configuration lookup has already succeeded.

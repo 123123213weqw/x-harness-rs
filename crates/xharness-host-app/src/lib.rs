@@ -7,6 +7,7 @@
 
 #[cfg(target_os = "macos")]
 mod computer_media;
+pub mod native_browser;
 pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
@@ -67,6 +68,7 @@ pub struct NativeToolFactory {
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
     plugins: std::sync::OnceLock<Arc<xharness_plugins::PluginManager>>,
     mcp: std::sync::OnceLock<Arc<xharness_mcp::McpRuntime>>,
+    native_browser: std::sync::OnceLock<Arc<native_browser::NativeBrowser>>,
     tool_allowlist: std::sync::OnceLock<tool_allowlist::ToolAllowlist>,
 }
 
@@ -92,6 +94,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            native_browser: std::sync::OnceLock::new(),
             tool_allowlist: std::sync::OnceLock::new(),
         })
     }
@@ -111,6 +114,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            native_browser: std::sync::OnceLock::new(),
             tool_allowlist: std::sync::OnceLock::new(),
         })
     }
@@ -131,6 +135,7 @@ impl NativeToolFactory {
             agent_host: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
+            native_browser: std::sync::OnceLock::new(),
             tool_allowlist: std::sync::OnceLock::new(),
         })
     }
@@ -161,6 +166,15 @@ impl NativeToolFactory {
         self.mcp
             .set(runtime)
             .map_err(|_| "MCP runtime already bound".into())
+    }
+
+    pub fn bind_native_browser(
+        &self,
+        browser: native_browser::NativeBrowser,
+    ) -> Result<(), String> {
+        self.native_browser
+            .set(Arc::new(browser))
+            .map_err(|_| "native browser already bound".into())
     }
 
     async fn platform(
@@ -361,14 +375,19 @@ impl SessionToolFactory for NativeToolFactory {
                     },
                 ));
             }
-            if !plugins.enabled_mcp_plugins().await.is_empty() {
-                if let Some(mcp) = self.mcp.get() {
-                    specs.push(plugin_mcp::spec(
-                        Arc::clone(plugins),
-                        Arc::clone(mcp),
-                        session_id.into(),
-                    ));
-                }
+        }
+        if let Some(mcp) = self.mcp.get() {
+            let enabled = match self.plugins.get() {
+                Some(plugins) => !plugins.enabled_mcp_plugins().await.is_empty(),
+                None => false,
+            };
+            if enabled || self.native_browser.get().is_some() {
+                specs.push(plugin_mcp::spec(
+                    self.plugins.get().cloned(),
+                    Arc::clone(mcp),
+                    self.native_browser.get().cloned(),
+                    session_id.into(),
+                ));
             }
         }
         if let Some(questions) = &self.questions {

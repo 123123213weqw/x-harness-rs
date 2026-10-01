@@ -57,6 +57,7 @@ impl InspectRequest {
 pub(super) struct Inspector {
     pub(super) gate: Mutex<()>,
     pub(super) navigation_epoch: AtomicU64,
+    pub(super) delegation: crate::browser_delegation::Delegation,
     latest: StdMutex<Option<Frame>>,
 }
 
@@ -69,6 +70,11 @@ struct Frame {
 impl Inspector {
     pub(super) fn invalidate(&self) {
         self.navigation_epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(super) fn revoke(&self) {
+        self.delegation.revoke();
+        self.invalidate();
     }
 
     fn remember(&self, snapshot: &Value, epoch: u64) -> Result<(), String> {
@@ -189,27 +195,38 @@ pub async fn desktop_browser_inspect(
     request: InspectRequest,
 ) -> Result<Value, String> {
     ensure_main(&caller)?;
+    inspect(&state, &tab_id, request, None).await
+}
+
+pub(super) async fn inspect(
+    state: &BrowserState,
+    tab_id: &str,
+    request: InspectRequest,
+    owner: Option<&str>,
+) -> Result<Value, String> {
     request.validate()?;
-    let (target, inspector) = state.inspection_target(&tab_id)?;
+    let (target, inspector) = state.inspection_target(tab_id)?;
     let _gate = tokio::time::timeout(TIMEOUT, inspector.gate.lock())
         .await
         .map_err(|_| "native observation is busy")?;
     // Selection/close can change while waiting for the per-tab gate.
-    let (current, current_inspector) = state.inspection_target(&tab_id)?;
+    let (current, current_inspector) = state.inspection_target(tab_id)?;
     if current.label() != target.label() || !Arc::ptr_eq(&inspector, &current_inspector) {
         return Err("browser tab changed before inspection".into());
     }
+    authorize(&target, &inspector, owner, false)?;
     let frame = frame_id()?;
     inspector.forget()?;
     let navigation_epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
     let raw = evaluate(&target, script(&request, &frame)?).await?;
-    let (current, current_inspector) = state.inspection_target(&tab_id)?;
+    let (current, current_inspector) = state.inspection_target(tab_id)?;
     if current.label() != target.label() || !Arc::ptr_eq(&inspector, &current_inspector) {
         return Err("browser tab changed during inspection".into());
     }
     if inspector.navigation_epoch.load(Ordering::SeqCst) != navigation_epoch {
         return Err("browser navigation changed during inspection; observe again".into());
     }
+    authorize(&target, &inspector, owner, false)?;
     let mut snapshot = decode(&raw, &frame)?;
     snapshot["source"] = json!({
         "engine": "tauri-webview", "untrusted": true,
@@ -227,6 +244,21 @@ pub async fn desktop_browser_inspect(
     }
     inspector.remember(&snapshot, navigation_epoch)?;
     Ok(snapshot)
+}
+
+pub(super) fn authorize(
+    target: &Webview,
+    inspector: &Inspector,
+    owner: Option<&str>,
+    action: bool,
+) -> Result<(), String> {
+    if let Some(owner) = owner {
+        let url = target.url().map_err(|_| "browser URL unavailable")?;
+        if !inspector.delegation.permits(owner, &url, action) {
+            return Err("native browser is not delegated to this session and origin".into());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

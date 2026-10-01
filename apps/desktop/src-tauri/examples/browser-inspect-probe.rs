@@ -4,6 +4,10 @@
 #[path = "../src/browser.rs"]
 #[allow(dead_code)] // The probe intentionally omits persistence/download UI paths.
 mod browser;
+#[path = "../src/browser_bridge.rs"]
+mod browser_bridge;
+#[path = "../src/browser_delegation.rs"]
+mod browser_delegation;
 #[path = "../src/browser_inspect.rs"]
 mod browser_inspect;
 #[path = "../src/browser_perform.rs"]
@@ -68,6 +72,145 @@ async fn perform(
         .await
 }
 
+async fn bridge_call(
+    connection: &browser_bridge::Connection,
+    owner: &str,
+    op: &str,
+    arguments: Value,
+) -> Result<Value, String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(&connection.address)
+        .await
+        .map_err(|_| "bridge connection failed")?;
+    let request = serde_json::to_vec(
+        &json!({"token":connection.token,"owner":owner,"op":op,"arguments":arguments}),
+    )
+    .unwrap();
+    stream
+        .write_u32(request.len() as u32)
+        .await
+        .map_err(|_| "bridge header failed")?;
+    stream
+        .write_all(&request)
+        .await
+        .map_err(|_| "bridge request failed")?;
+    let length = stream
+        .read_u32()
+        .await
+        .map_err(|_| "bridge response failed")? as usize;
+    if length > 65536 {
+        return Err("bridge reply was not bounded".into());
+    }
+    let mut reply = vec![0; length];
+    stream
+        .read_exact(&mut reply)
+        .await
+        .map_err(|_| "bridge response interrupted")?;
+    serde_json::from_slice(&reply).map_err(|_| "invalid bridge JSON".into())
+}
+
+async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<(), String> {
+    let state = app.state::<browser_bridge::BrowserBridge>();
+    let connection = state.start(app).await?;
+    let wrong = browser_bridge::Connection {
+        address: connection.address.clone(),
+        token: "bad".repeat(22),
+    };
+    if bridge_call(&wrong, "parent", "list", json!({}))
+        .await
+        .is_ok()
+    {
+        return Err("native bridge accepted an invalid private credential".into());
+    }
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    if browser_delegation::desktop_browser_delegate(
+        guest,
+        app.state(),
+        "probe".into(),
+        Some("parent".into()),
+        true,
+    )
+    .await
+    .is_ok()
+    {
+        return Err("guest page granted itself browser control".into());
+    }
+
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+        return Err("native bridge appeared before user delegation".into());
+    }
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("parent".into()),
+        false,
+    )
+    .await?;
+    if bridge_call(connection, "child", "observe", json!({})).await?["ok"] != false {
+        return Err("subagent inherited browser consent".into());
+    }
+    let view = bridge_call(connection, "parent", "observe", json!({})).await?;
+    if view["ok"] != true {
+        return Err("delegated observation failed".into());
+    }
+    let request = serde_json::to_value(action(
+        &view["result"],
+        "Answer",
+        json!({"action":"fill","text":"bridge-value"}),
+    )?)
+    .unwrap();
+    if bridge_call(connection, "parent", "perform", request).await?["ok"] != false {
+        return Err("read-only grant admitted an effect".into());
+    }
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("parent".into()),
+        true,
+    )
+    .await?;
+    let view = bridge_call(connection, "parent", "observe", json!({})).await?;
+    let request = serde_json::to_value(action(
+        &view["result"],
+        "Answer",
+        json!({"action":"fill","text":"bridge-value"}),
+    )?)
+    .unwrap();
+    let result = bridge_call(connection, "parent", "perform", request.clone()).await?;
+    if result["result"]["effect"] != "applied" {
+        return Err("delegated action did not produce a receipt".into());
+    }
+    if bridge_call(connection, "parent", "perform", request).await?["ok"] != false {
+        return Err("bridge replayed an already consumed action".into());
+    }
+    let actual = bridge_call(connection, "parent", "observe", json!({})).await?;
+    if !actual["result"]["nodes"].as_array().is_some_and(|nodes| {
+        nodes
+            .iter()
+            .any(|node| node["label"] == "Answer" && node["value"] == "bridge-value")
+    }) {
+        return Err("bridge receipt was not backed by actual native page state".into());
+    }
+    let restore = serde_json::to_value(action(
+        &actual["result"],
+        "Answer",
+        json!({"action":"fill","text":"unchanged"}),
+    )?)
+    .unwrap();
+    bridge_call(connection, "parent", "perform", restore).await?;
+    browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+    browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+        return Err("hide/reselect resurrected browser consent".into());
+    }
+    println!("Private native bridge passed: explicit consent, exact owner, read-only denial, real fill, consumed-frame denial, hide/reselect revocation (no model)");
+    Ok(())
+}
+
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     let main = app.get_webview("main").ok_or("missing main view")?;
     browser::desktop_browser_bounds(
@@ -103,6 +246,8 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     if observation.is_null() {
         return Err("native callback did not produce fixture evidence".into());
     }
+    delegation_probe(app, &main).await?;
+    observation = observe(app, &main).await?;
     let nodes = observation["nodes"].as_array().ok_or("missing nodes")?;
     if !nodes
         .iter()
@@ -408,7 +553,9 @@ fn main() {
     context.config_mut().app.windows.clear();
     let app = tauri::Builder::default()
         .manage(browser::BrowserState::default())
+        .manage(browser_bridge::BrowserBridge::default())
         .invoke_handler(tauri::generate_handler![
+            browser_delegation::desktop_browser_delegate,
             browser_inspect::desktop_browser_inspect,
             browser_perform::desktop_browser_perform
         ])
