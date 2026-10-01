@@ -1,5 +1,6 @@
 mod browser;
 mod browser_inspect;
+mod browser_perform;
 mod computer_activity;
 mod diagnostics;
 mod sidecar;
@@ -93,6 +94,7 @@ pub fn run() {
             browser::desktop_browser_restore,
             browser::desktop_browser_persist,
             browser_inspect::desktop_browser_inspect,
+            browser_perform::desktop_browser_perform,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {

@@ -351,6 +351,19 @@ jobs:
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           node scripts/test-desktop-updater.mjs
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+      - name: Native WebView DOM callback/actions on Windows (no model or OS input)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          if ($LASTEXITCODE) { throw 'Windows native DOM probe build failed' }
+          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --evidence-dir dist/native-browser-evidence/windows
+          if ($LASTEXITCODE) { throw 'Windows native DOM probe failed' }
+      - name: Upload Windows native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-windows
+          path: dist/native-browser-evidence/windows/
+          if-no-files-found: warn
       - name: Build installable Windows application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         id: windows-bundle
@@ -443,6 +456,17 @@ jobs:
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Native WebView DOM callback/actions on macOS (no model or OS input)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/macos
+      - name: Upload macOS native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-macos
+          path: dist/native-browser-evidence/macos/
+          if-no-files-found: warn
       - name: Build installable macOS application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: tauri-apps/tauri-action@v0.6.2
@@ -521,18 +545,17 @@ jobs:
       - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
-      - name: Native WebView observation callback and guest isolation (no model)
+      - name: Native WebView DOM callback/actions on Linux (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
-          ROOT=$(mktemp -d)
-          trap 'rm -rf -- "$ROOT"' EXIT
-          mkdir -p "$ROOT/config" "$ROOT/data" "$ROOT/cache" "$ROOT/runtime"
-          chmod 700 "$ROOT/runtime"
-          timeout 90s xvfb-run -a dbus-run-session -- env \
-            XDG_CONFIG_HOME="$ROOT/config" XDG_DATA_HOME="$ROOT/data" \
-            XDG_CACHE_HOME="$ROOT/cache" XDG_RUNTIME_DIR="$ROOT/runtime" \
-            LIBGL_ALWAYS_SOFTWARE=1 \
-            apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe
+          python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/linux
+      - name: Upload Linux native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-linux
+          path: dist/native-browser-evidence/linux/
+          if-no-files-found: warn
       - run: node scripts/test-desktop-updater.mjs
       - run: node scripts/test-model-settings-ui.mjs
       - run: node scripts/test-updater-signature.mjs
