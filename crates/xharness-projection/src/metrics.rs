@@ -24,6 +24,17 @@ pub struct MetricsProjectionState {
 }
 
 impl MetricsProjectionState {
+    /// Compact read-only catalogue views. These are not incremental reducer
+    /// state: opening a cold conversation must still replay its journal.
+    pub fn catalog_snapshot(&self) -> Value {
+        json!({"version": 1, "values": {
+            "tokenUsage": self.token_usage(),
+            "dailyTokenUsage": self.daily_token_usage(),
+            "sessionStats": self.session_stats(),
+            "contextPressure": self.context_pressure(),
+        }})
+    }
+
     pub fn rebuild<'a>(events: impl IntoIterator<Item = &'a Value>) -> Self {
         let mut state = Self::default();
         for event in events {
@@ -113,6 +124,20 @@ impl MetricsProjectionState {
     pub fn context_pressure(&self) -> Value {
         self.context_pressure.view()
     }
+}
+
+/// An unknown snapshot version is a cache miss, never an empty usage history.
+pub fn catalog_metric_values(snapshot: Option<&Value>) -> Option<&Map<String, Value>> {
+    let snapshot = snapshot?;
+    if snapshot.get("version").and_then(Value::as_u64) != Some(1) {
+        return None;
+    }
+    let values = snapshot.get("values")?.as_object()?;
+    (values.get("tokenUsage")?.is_object()
+        && values.get("dailyTokenUsage")?.is_array()
+        && values.get("sessionStats")?.is_object()
+        && values.get("contextPressure")?.is_object())
+    .then_some(values)
 }
 
 /// Latest provider prompt pressure paired with the latest known route
@@ -1111,6 +1136,30 @@ mod tests {
             })
         );
         assert_eq!(typed.context_pressure()["phase"], "history_changed");
+    }
+
+    #[test]
+    fn catalog_metrics_are_read_only_versioned_public_views() {
+        let events = [event(
+            0,
+            DAY_MS,
+            "assistant/message",
+            json!({"turn":1,"step":1,"usage":{"inputTokens":10,"outputTokens":3}}),
+        )];
+        let metrics = MetricsProjectionState::rebuild(&events);
+        let mut snapshot = metrics.catalog_snapshot();
+        let values = catalog_metric_values(Some(&snapshot)).unwrap();
+        assert_eq!(values["dailyTokenUsage"], metrics.daily_token_usage());
+        assert_eq!(values.len(), 4);
+        snapshot["version"] = json!(2);
+        assert!(catalog_metric_values(Some(&snapshot)).is_none());
+        snapshot["version"] = json!(1);
+        snapshot["values"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dailyTokenUsage");
+        assert!(catalog_metric_values(Some(&snapshot)).is_none());
+        assert!(catalog_metric_values(None).is_none());
     }
 
     #[test]
