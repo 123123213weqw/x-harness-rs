@@ -543,7 +543,7 @@ impl BasicHost {
             return;
         };
         let route = restored_route(session, &self.config);
-        let (parent_session_id, origin, updated_at, blank) = {
+        let (parent_session_id, origin, updated_at, blank, metric_snapshot) = {
             let state = self.state.read().await;
             let Some(record) = state.sessions.get(&session.header().id) else {
                 return;
@@ -553,6 +553,8 @@ impl BasicHost {
                 record.origin.clone(),
                 record.updated_at,
                 record.blank,
+                (!record.restoring && record.next_event_seq() == session.next_seq())
+                    .then(|| record.metrics.catalog_snapshot()),
             )
         };
         let needs_recovery = self
@@ -581,7 +583,18 @@ impl BasicHost {
             blank,
             next_seq: session.next_seq(),
             needs_recovery,
+            metric_snapshot,
         };
+        let checkpoint = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session.header().id)
+                .and_then(|record| crate::restore_checkpoint::checkpoint(self, session, record))
+        };
+        if let Some(checkpoint) = checkpoint {
+            let _ = store.publish_recovery_checkpoint(checkpoint).await;
+        }
         if let Err(error) = store.publish_catalog_entry(entry).await {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
@@ -1593,6 +1606,7 @@ impl BasicHost {
             }
             LoopEventKind::ModelRetry {
                 retry_id,
+                policy_key,
                 attempt,
                 max_retries,
                 error,
@@ -1606,8 +1620,8 @@ impl BasicHost {
                         "turn": turn,
                         "step": step,
                         "provider": self.config.provider_id,
-                        "mode": "normal",
-                        "policyKey": format!("xharness:normal:{max_retries}"),
+                        "mode": if max_retries.is_some() { "normal" } else { "always" },
+                        "policyKey": policy_key,
                         "retry": attempt,
                         "maxRetries": max_retries,
                         "delayMs": delay_ms,

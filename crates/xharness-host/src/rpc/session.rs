@@ -6,7 +6,9 @@
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use xharness_api::{RpcError, RpcErrorCode, RpcMethod};
-use xharness_projection::project_session_history;
+use xharness_projection::{
+    project_history_window, project_history_window_view, project_session_history,
+};
 
 use crate::{
     driver::{agent_runtime_error, rpc_error},
@@ -118,12 +120,16 @@ fn check_search_cancelled(cancellation: &CancellationToken) -> Result<(), RpcErr
 
 pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let session_id = required_string(payload, "sessionId")?;
-    host.sync_authoritative_session(&session_id).await?;
     let before_seq = optional_u64(payload, "beforeSeq")?;
     let max_messages = optional_u64(payload, "maxMessages")?
         .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(DEFAULT_HISTORY_MESSAGES)
         .clamp(1, MAX_HISTORY_MESSAGES);
+
+    if let Some(page) = indexed_history(host, &session_id, before_seq, max_messages).await {
+        return Ok(page);
+    }
+    host.sync_authoritative_session(&session_id).await?;
 
     if host.agent_runtime.has_authoritative_sessions() {
         let durable = host
@@ -219,6 +225,76 @@ pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, 
         );
     }
     Ok(value)
+}
+
+/// Only an already hydrated, idle, exactly synchronized session can bypass
+/// full replay. Active turns and all unusable indices retain the old path.
+async fn indexed_history(
+    host: &BasicHost,
+    id: &str,
+    before: Option<u64>,
+    max: usize,
+) -> Option<Value> {
+    if !host.agent_runtime.has_authoritative_sessions() {
+        return None;
+    }
+    let store = host.lazy_store.get()?.clone();
+    let _gate = host.lock_projection(id).await;
+    let (expected, route, projections) = {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id)?;
+        if record.restoring || record.running {
+            return None;
+        }
+        (
+            record.authoritative_seq?,
+            ModelRoute {
+                provider: record.model.provider.clone(),
+                model: record.model.model.clone(),
+                reasoning_effort: record.model.reasoning_effort.clone(),
+                context_window_tokens: record.model.context_window_tokens,
+            },
+            record.projection_values(),
+        )
+    };
+    let window = store
+        .history_window(id, expected, before, max)
+        .await
+        .ok()??;
+    {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id)?;
+        if record.restoring
+            || record.running
+            || record.authoritative_seq != Some(expected)
+            || record.model.provider != route.provider
+            || record.model.model != route.model
+            || record.model.reasoning_effort != route.reasoning_effort
+            || record.model.context_window_tokens != route.context_window_tokens
+        {
+            return None;
+        }
+    }
+    let events = project_history_window(&window, &route)
+        .into_iter()
+        .map(|event| {
+            let view = event
+                .get("seq")
+                .and_then(Value::as_u64)
+                .and_then(|seq| window.events.binary_search_by_key(&seq, |e| e.seq).ok())
+                .and_then(|n| project_history_window_view(&window, &window.events[n]))
+                .or_else(|| EventGateway::live_view(&event, &[]));
+            EventGateway::history_event(event, view)
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({"events": events, "hasMore": window.has_more});
+    if before.is_none() {
+        value["projections"] = json!({
+            "asOfSeq": window.next_seq.checked_sub(1).and_then(|s| i64::try_from(s).ok()).unwrap_or(-1),
+            "values": projections,
+        });
+    }
+    Some(value)
 }
 
 async fn models(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {

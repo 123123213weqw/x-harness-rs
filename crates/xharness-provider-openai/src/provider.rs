@@ -505,10 +505,12 @@ impl OpenAiProvider {
             result = tokio::time::timeout(self.config.request_timeout, pending) => {
                 match result {
                     Ok(Ok(response)) => Ok(response),
-                    Ok(Err(error)) => Err(ProviderError::retryable(format!(
-                        "{operation} network error: {}",
-                        reqwest_error_summary(&error),
-                    ))),
+                    Ok(Err(error)) => {
+                        let mut failure = ProviderError::retryable(format!(
+                            "{operation} network error: {}", reqwest_error_summary(&error)));
+                        failure.retryable = !error.is_builder() && !permanent_transport_source(&error);
+                        Err(failure)
+                    },
                     Err(_) => Err(ProviderError::retryable(format!(
                         "{operation} response-header timeout after {}",
                         format_duration(self.config.request_timeout),
@@ -1198,6 +1200,49 @@ fn retry_after_ms(value: &str, now: SystemTime) -> Option<u64> {
         .map(|at| duration_ms(at.duration_since(now).unwrap_or_default()))
 }
 
+// Inspect typed causes rather than locale/provider-specific error text.
+fn permanent_transport_source(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut source = Some(error);
+    while let Some(error) = source {
+        if error.downcast_ref::<rustls::Error>().is_some_and(|error| {
+            matches!(
+                error,
+                rustls::Error::InvalidCertificate(_)
+                    | rustls::Error::InvalidCertRevocationList(_)
+                    | rustls::Error::NoCertificatesPresented
+                    | rustls::Error::UnsupportedNameType
+                    | rustls::Error::PeerIncompatible(_)
+                    | rustls::Error::AlertReceived(
+                        rustls::AlertDescription::ProtocolVersion
+                            | rustls::AlertDescription::HandshakeFailure
+                            | rustls::AlertDescription::InsufficientSecurity
+                            | rustls::AlertDescription::UnsupportedExtension
+                            | rustls::AlertDescription::MissingExtension
+                            | rustls::AlertDescription::NoApplicationProtocol
+                            | rustls::AlertDescription::BadCertificate
+                            | rustls::AlertDescription::UnsupportedCertificate
+                            | rustls::AlertDescription::CertificateRevoked
+                            | rustls::AlertDescription::CertificateExpired
+                            | rustls::AlertDescription::CertificateUnknown
+                            | rustls::AlertDescription::UnknownCA
+                            | rustls::AlertDescription::AccessDenied
+                            | rustls::AlertDescription::CertificateRequired
+                    )
+            )
+        }) {
+            return true;
+        }
+        // io::Error::source can skip the wrapped error and expose only its
+        // source. rustls errors are leaves, so inspect get_ref explicitly.
+        source = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(|error| error.get_ref())
+            .map(|inner| inner as &(dyn std::error::Error + 'static))
+            .or_else(|| error.source());
+    }
+    false
+}
+
 fn reqwest_error_kind(error: &reqwest::Error) -> &'static str {
     if error.is_timeout() {
         "idle_timeout"
@@ -1703,6 +1748,7 @@ mod tls_disconnect_tests {
                 .build()
                 .unwrap();
             let mut request = LoopRequest::new(Arc::new(provider), vec![AgentMessage::user("go")]);
+            request.config.network_wait_enabled = false;
             request.config.provider_retry_base_delay_ms = 10;
             let mut run = LoopEngine.start(request);
             let mut retries = 0;
@@ -1997,5 +2043,61 @@ mod multimodal_tests {
         assert_eq!(body["input"][1]["id"], "opaque");
         assert_eq!(body["input"][3]["type"], "function_call_output");
         assert_eq!(body["input"][4]["content"][1]["type"], "input_image");
+    }
+}
+
+#[cfg(test)]
+mod network_wait_certificate_tests {
+    use super::*;
+    #[test]
+    fn permanent_peer_alerts_stop_network_wait_but_temporary_alerts_do_not() {
+        use rustls::AlertDescription::*;
+        for alert in [
+            ProtocolVersion,
+            HandshakeFailure,
+            InsufficientSecurity,
+            UnsupportedExtension,
+            MissingExtension,
+            NoApplicationProtocol,
+            BadCertificate,
+            UnsupportedCertificate,
+            CertificateRevoked,
+            CertificateExpired,
+            CertificateUnknown,
+            UnknownCA,
+            AccessDenied,
+            CertificateRequired,
+        ] {
+            let error = rustls::Error::AlertReceived(alert);
+            assert!(permanent_transport_source(&error), "{alert:?}");
+            let nested = std::io::Error::other(error);
+            assert!(permanent_transport_source(&nested), "nested {alert:?}");
+        }
+        for alert in [InternalError, CloseNotify, UserCanceled, Unknown(255)] {
+            assert!(
+                !permanent_transport_source(&rustls::Error::AlertReceived(alert)),
+                "{alert:?}"
+            );
+        }
+        assert!(!permanent_transport_source(&rustls::Error::General(
+            "EOF".into()
+        )));
+    }
+    #[test]
+    fn permanent_tls_failures_are_not_treated_as_a_network_outage() {
+        assert!(permanent_transport_source(
+            &rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+        ));
+        assert!(permanent_transport_source(
+            &rustls::Error::NoCertificatesPresented
+        ));
+        assert!(!permanent_transport_source(&std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "connection cut"
+        )));
+        assert!(!permanent_transport_source(&std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "offline"
+        )));
     }
 }

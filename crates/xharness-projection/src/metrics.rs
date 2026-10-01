@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use xharness_core::TokenUsage;
 use xharness_session::{AssistantChunk, EventData, LoggedEvent};
@@ -15,7 +15,7 @@ pub struct MetricsProjectionUpdate {
 /// Deterministic, rebuildable metric projection over Web-compatible Session
 /// events. The append-only Session remains the source of truth; this state is
 /// only a Host cache used by History, Session List and live projection frames.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MetricsProjectionState {
     token_usage: TokenUsageProjectionState,
     daily_token_usage: DailyTokenUsageProjectionState,
@@ -24,6 +24,17 @@ pub struct MetricsProjectionState {
 }
 
 impl MetricsProjectionState {
+    /// Compact read-only catalogue views. These are not incremental reducer
+    /// state: opening a cold conversation must still replay its journal.
+    pub fn catalog_snapshot(&self) -> Value {
+        json!({"version": 1, "values": {
+            "tokenUsage": self.token_usage(),
+            "dailyTokenUsage": self.daily_token_usage(),
+            "sessionStats": self.session_stats(),
+            "contextPressure": self.context_pressure(),
+        }})
+    }
+
     pub fn rebuild<'a>(events: impl IntoIterator<Item = &'a Value>) -> Self {
         let mut state = Self::default();
         for event in events {
@@ -38,12 +49,17 @@ impl MetricsProjectionState {
     pub fn rebuild_logged<'a>(events: impl IntoIterator<Item = &'a LoggedEvent>) -> Self {
         let mut state = Self::default();
         for event in events {
-            state.token_usage.apply_logged(event.data());
-            state.daily_token_usage.apply_logged(event);
-            state.session_stats.apply_logged(event);
-            state.context_pressure.apply_logged(event.data());
+            state.apply_logged(event);
         }
         state
+    }
+
+    /// Advance a private recovery fold without materializing Web event JSON.
+    pub fn apply_logged(&mut self, event: &LoggedEvent) {
+        self.token_usage.apply_logged(event.data());
+        self.daily_token_usage.apply_logged(event);
+        self.session_stats.apply_logged(event);
+        self.context_pressure.apply_logged(event.data());
     }
 
     /// Apply one event and return only public views that changed. In-flight
@@ -110,10 +126,24 @@ impl MetricsProjectionState {
     }
 }
 
+/// An unknown snapshot version is a cache miss, never an empty usage history.
+pub fn catalog_metric_values(snapshot: Option<&Value>) -> Option<&Map<String, Value>> {
+    let snapshot = snapshot?;
+    if snapshot.get("version").and_then(Value::as_u64) != Some(1) {
+        return None;
+    }
+    let values = snapshot.get("values")?.as_object()?;
+    (values.get("tokenUsage")?.is_object()
+        && values.get("dailyTokenUsage")?.is_array()
+        && values.get("sessionStats")?.is_object()
+        && values.get("contextPressure")?.is_object())
+    .then_some(values)
+}
+
 /// Latest provider prompt pressure paired with the latest known route
 /// capacity. `request/context` is authoritative for new logs; the request
 /// header fallback keeps pre-migration sessions useful after restart.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct ContextPressureProjectionState {
     pressure_tokens: Option<u64>,
     projected_tokens: Option<u64>,
@@ -382,7 +412,7 @@ fn usage_u64(usage: &Value, camel: &str, snake: &str) -> Option<u64> {
         .and_then(Value::as_u64)
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TokenUsageProjection {
     uncached_input_tokens: u64,
@@ -426,14 +456,14 @@ impl TokenUsageProjection {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct UsageSample {
     turn: u32,
     step: u32,
     buckets: TokenUsageProjection,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct TokenUsageProjectionState {
     totals: TokenUsageProjection,
     last: Option<UsageSample>,
@@ -490,7 +520,7 @@ impl TokenUsageProjectionState {
 
 const DAY_MS: u64 = 86_400_000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct DailyUsageSample {
     turn: u32,
     step: u32,
@@ -500,7 +530,7 @@ struct DailyUsageSample {
 
 /// Rebuildable UTC-day accounting. A usage chunk and the final assistant
 /// message for one step are revisions of one sample, never two requests.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct DailyTokenUsageProjectionState {
     days: BTreeMap<u64, TokenUsageProjection>,
     last: Option<DailyUsageSample>,
@@ -616,7 +646,7 @@ fn usage_sample(event: &Value) -> Option<(u32, u32, &Value)> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 struct OpenStep {
     turn: u32,
     step: u32,
@@ -624,7 +654,7 @@ struct OpenStep {
     first_token_time: Option<u64>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionStatsProjection {
     turns: u64,
@@ -637,7 +667,7 @@ struct SessionStatsProjection {
     decode_tokens: u64,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct SessionStatsProjectionState {
     totals: SessionStatsProjection,
     last_turn: Option<u32>,
@@ -1109,6 +1139,30 @@ mod tests {
     }
 
     #[test]
+    fn catalog_metrics_are_read_only_versioned_public_views() {
+        let events = [event(
+            0,
+            DAY_MS,
+            "assistant/message",
+            json!({"turn":1,"step":1,"usage":{"inputTokens":10,"outputTokens":3}}),
+        )];
+        let metrics = MetricsProjectionState::rebuild(&events);
+        let mut snapshot = metrics.catalog_snapshot();
+        let values = catalog_metric_values(Some(&snapshot)).unwrap();
+        assert_eq!(values["dailyTokenUsage"], metrics.daily_token_usage());
+        assert_eq!(values.len(), 4);
+        snapshot["version"] = json!(2);
+        assert!(catalog_metric_values(Some(&snapshot)).is_none());
+        snapshot["version"] = json!(1);
+        snapshot["values"]
+            .as_object_mut()
+            .unwrap()
+            .remove("dailyTokenUsage");
+        assert!(catalog_metric_values(Some(&snapshot)).is_none());
+        assert!(catalog_metric_values(None).is_none());
+    }
+
+    #[test]
     fn daily_usage_replaces_stream_sample_across_midnight_and_excludes_fork_prefix() {
         let old = json!({"inputTokens": 30, "outputTokens": 2});
         let revised = json!({"inputTokens": 40, "outputTokens": 4});
@@ -1506,5 +1560,31 @@ mod tests {
             json!({"provider":"other","model":"small"}),
         ));
         assert!(s.context_pressure().get("contextWindow").is_none());
+    }
+    #[test]
+    fn checkpoint_roundtrip_at_every_cut_preserves_future_metric_folds() {
+        let events = vec![
+            json!({"type":"step/start","time":1,"data":{"turn":0,"step":1}}),
+            json!({"type":"request/context","time":2,"data":{"contextWindow":8192}}),
+            json!({"type":"assistant/chunk","time":3,"data":{"turn":0,"step":1,"chunk":{"type":"text-delta","text":"hello"}}}),
+            json!({"type":"assistant/chunk","time":86399999,"data":{"turn":0,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":100,"outputTokens":10,"cacheReadTokens":40,"cacheWriteTokens":5}}}}),
+            json!({"type":"assistant/message","time":86400001,"data":{"turn":0,"step":1,"usage":{"inputTokens":100,"outputTokens":20,"cacheReadTokens":40,"cacheWriteTokens":5}}}),
+            json!({"type":"tool/call","time":86400002,"data":{"call":{"id":"call"}}}),
+            json!({"type":"tool/result","time":86400020,"data":{"result":{"callId":"call"}}}),
+            json!({"type":"step/end","time":86400021,"data":{"turn":0,"step":1}}),
+            json!({"type":"turn/end","time":86400022,"data":{"turn":0}}),
+            json!({"type":"session/model-selected","data":{"provider":"p","model":"m"}}),
+            json!({"type":"xharness/internal","data":{"kind":"fork-origin"}}),
+        ];
+        let full = serde_json::to_value(MetricsProjectionState::rebuild(&events)).unwrap();
+        for cut in 0..=events.len() {
+            let prefix = MetricsProjectionState::rebuild(&events[..cut]);
+            let encoded = serde_json::to_vec(&prefix).unwrap();
+            let mut recovered: MetricsProjectionState = serde_json::from_slice(&encoded).unwrap();
+            for e in &events[cut..] {
+                recovered.apply(e);
+            }
+            assert_eq!(serde_json::to_value(recovered).unwrap(), full, "cut {cut}");
+        }
     }
 }

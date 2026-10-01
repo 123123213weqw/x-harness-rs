@@ -198,6 +198,19 @@ impl BasicHost {
         {
             return Ok(Some(Duration::from_secs(2)));
         }
+        // Recovery checkpoints also certify terminal title ownership/budget.
+        // Without this fast check, startup backfill would immediately reload
+        // every newly hydrated long transcript and recreate its memory peak.
+        if let Some(store) = self.lazy_store.get() {
+            if let Ok(Some(tail)) = store
+                .recovery_tail(id, crate::restore_checkpoint::SCHEMA)
+                .await
+            {
+                if crate::restore_checkpoint::title_is_settled(self, &tail) {
+                    return Ok(None);
+                }
+            }
+        }
         let Some(mut session) = self.title_session(id).await? else {
             return Ok(None);
         };
@@ -380,6 +393,16 @@ fn last_title_seq(session: &Session) -> Option<u64> {
         .find(|e| matches!(e.data(), EventData::SessionTitle { .. }))
         .map(|e| e.seq)
 }
+pub(crate) fn title_recovery_settled(session: &Session) -> bool {
+    let (attempt, phase, _) = generation_state(session);
+    title_owned(session)
+        || attempt >= ATTEMPTS
+        || matches!(
+            phase,
+            Some(TitleGenerationPhase::Completed | TitleGenerationPhase::Exhausted)
+        )
+}
+
 fn title_owned(session: &Session) -> bool {
     session
         .events()

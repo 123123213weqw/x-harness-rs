@@ -593,6 +593,13 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(false)
     }
 
+    /// Opt in only if an idle, closed Session has no custom recovery work
+    /// beyond the standard durable inbox/interactions/Goal/schedules. Unknown
+    /// runtime implementations keep authoritative full replay by default.
+    fn supports_idle_restore_checkpoint(&self) -> bool {
+        false
+    }
+
     /// Whether startup must activate a session even when its ordinary inbox
     /// and human-interaction recovery sets are empty.
     fn needs_session_resume(&self, _session: &Session) -> Result<bool, AgentRuntimeError> {
@@ -1338,6 +1345,10 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     fn has_authoritative_sessions(&self) -> bool {
+        true
+    }
+
+    fn supports_idle_restore_checkpoint(&self) -> bool {
         true
     }
 

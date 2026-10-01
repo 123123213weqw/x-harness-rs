@@ -105,6 +105,7 @@ jobs:
       - run: node scripts/test-motion-plugin.mjs
       - run: node scripts/test-motion-tokens.mjs
       - run: node scripts/test-compaction-ui.mjs
+      - run: node scripts/test-compaction-projection.mjs
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs
       - run: node scripts/test-brand-headline.mjs
@@ -116,7 +117,9 @@ jobs:
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
       - run: node scripts/test-retry-turn-projection.mjs
+      - run: node scripts/test-network-wait-ui.mjs
       - run: node scripts/test-atomic-history.mjs
+      - run: node scripts/test-ui-lifecycle-recovery.mjs
       - run: node scripts/test-live-answer-recovery.mjs
       - run: node scripts/test-startup-catalog-refresh.mjs
       - run: node scripts/test-permission-selection.mjs
