@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -60,10 +60,28 @@ struct BrowserInner {
 struct BrowserTab {
     webview: Webview,
     last_used: u64,
+    inspector: Arc<crate::browser_inspect::Inspector>,
 }
 
 #[derive(Default)]
 pub struct BrowserState(Mutex<BrowserInner>);
+
+impl BrowserState {
+    pub(super) fn inspection_target(
+        &self,
+        tab_id: &str,
+    ) -> Result<(Webview, Arc<crate::browser_inspect::Inspector>), String> {
+        if !valid_tab_id(tab_id) {
+            return Err("invalid browser tab".into());
+        }
+        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active.as_deref() != Some(tab_id) || inner.bounds.is_none() {
+            return Err("only the active, laid-out browser tab can be inspected".into());
+        }
+        let tab = inner.tabs.get(tab_id).ok_or("browser tab is not open")?;
+        Ok((tab.webview.clone(), Arc::clone(&tab.inspector)))
+    }
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,7 +103,7 @@ fn emit(app: &AppHandle, tab_id: &str, kind: &'static str, value: impl Into<Stri
     );
 }
 
-fn ensure_main(webview: &Webview) -> Result<(), String> {
+pub(super) fn ensure_main(webview: &Webview) -> Result<(), String> {
     if webview.label() == "main" {
         Ok(())
     } else {
@@ -269,10 +287,14 @@ pub async fn desktop_browser_navigate(
     let popup_id = tab_id.clone();
     let download_app = app.clone();
     let download_id = tab_id.clone();
+    let inspector = Arc::new(crate::browser_inspect::Inspector::default());
+    let navigation_inspector = Arc::clone(&inspector);
+    let load_inspector = Arc::clone(&inspector);
     let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
         .data_directory(browser_data)
         .on_navigation(move |url| {
             if matches!(url.scheme(), "http" | "https") {
+                navigation_inspector.invalidate();
                 emit(&event_app, &event_id, "url", url.as_str());
                 true
             } else {
@@ -285,7 +307,10 @@ pub async fn desktop_browser_navigate(
         })
         .on_page_load(move |_, payload| {
             let status = match payload.event() {
-                PageLoadEvent::Started => "loading",
+                PageLoadEvent::Started => {
+                    load_inspector.invalidate();
+                    "loading"
+                }
                 PageLoadEvent::Finished => "loaded",
             };
             emit(&load_app, &load_id, status, payload.url().as_str());
@@ -354,6 +379,7 @@ pub async fn desktop_browser_navigate(
         BrowserTab {
             webview: child,
             last_used,
+            inspector,
         },
     );
     Ok(())

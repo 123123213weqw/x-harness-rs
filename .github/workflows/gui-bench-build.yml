@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/gui_bench/**'
       - 'plugins/browser-use/**'
+      - 'apps/desktop/src-tauri/**'
       - 'scripts/terminal_bench/broker.py'
       - 'crates/xharness-computer*/**'
       - 'crates/xharness-host-app/**'
@@ -40,11 +41,13 @@ jobs:
       - name: Install isolated browser dependency
         run: |
           npm install --prefix "$RUNNER_TEMP/gui-tests" --no-save --package-lock=false playwright@1.62.1
-          node "$RUNNER_TEMP/gui-tests/node_modules/playwright/cli.js" install --with-deps chromium
+          node "$RUNNER_TEMP/gui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
       - name: Real Chromium MCP regression (no API spending)
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/gui-tests
-        run: node scripts/gui_bench/test_browser.mjs
+        run: |
+          node scripts/gui_bench/test_browser.mjs
+          node scripts/gui_bench/test_native_observation.mjs
 
   macos-host:
     runs-on: macos-15

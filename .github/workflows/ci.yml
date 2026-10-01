@@ -502,7 +502,7 @@ jobs:
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -521,6 +521,18 @@ jobs:
       - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Native WebView observation callback and guest isolation (no model)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          ROOT=$(mktemp -d)
+          trap 'rm -rf -- "$ROOT"' EXIT
+          mkdir -p "$ROOT/config" "$ROOT/data" "$ROOT/cache" "$ROOT/runtime"
+          chmod 700 "$ROOT/runtime"
+          timeout 90s xvfb-run -a dbus-run-session -- env \
+            XDG_CONFIG_HOME="$ROOT/config" XDG_DATA_HOME="$ROOT/data" \
+            XDG_CACHE_HOME="$ROOT/cache" XDG_RUNTIME_DIR="$ROOT/runtime" \
+            LIBGL_ALWAYS_SOFTWARE=1 \
+            apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe
       - run: node scripts/test-desktop-updater.mjs
       - run: node scripts/test-model-settings-ui.mjs
       - run: node scripts/test-updater-signature.mjs
