@@ -20,6 +20,12 @@ JobLease.finish(completed / failed / killed)
 
 NativeToolFactory 在创建工具执行器之前绑定 Controller；Host App 在配置、Hosted 执行许可就绪之后启动监听，在历史恢复完成之后恢复订阅。嵌入方显式启用同一接口，未绑定时不向模型广告不可用的 action。
 
+## 架构依赖审阅
+
+本功能新增唯一内部依赖边 `xharness-host → xharness-jobs`：Host Controller 需要订阅中性的 Job 生命周期，依赖 Registry 和 continuation port，而不是 Bash、NativePlatform 或 Provider。Jobs 本身没有内部 crate 依赖，不反向依赖 Host/Core/Session；Core、Provider 与 Session 不依赖 Jobs，因此不形成循环，也不把原生执行搬进 Loop。
+
+这条边已逐项审阅并登记在 `config/architecture-dependencies.json`，未放宽或禁用架构检查；未声明依赖仍必须报错。
+
 ## 工具接口
 
 ```json
