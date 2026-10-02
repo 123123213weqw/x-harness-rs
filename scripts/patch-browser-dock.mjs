@@ -5,6 +5,16 @@ import { readFileSync } from 'node:fs'
 export const WORKSPACE_MARKER = 'xharness-workspace-pane/v1'
 export const BROWSER_DOCK_MARKER = WORKSPACE_MARKER // Existing rebuild/test import.
 
+// Chat and workspace are peer stacking contexts. A small-window drawer may
+// temporarily cover chat, but neither it nor its local menus outrank shell UI.
+function patchPeerLayers(source) {
+  return source
+    .replace('._84hhiq_centerCol{flex-direction:', '._84hhiq_centerCol{isolation:isolate;z-index:0;flex-direction:')
+    .replace('._84hhiq_detailsCol{border-left:1px', '._84hhiq_detailsCol{isolation:isolate;z-index:0;border-left:1px')
+    .replace('z-index:25;box-shadow:-14px 0 40px #0004', 'z-index:10;box-shadow:-14px 0 40px #0004')
+    .replace('._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:24;', '._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:9;')
+}
+
 export function patchBrowserDock(bytes) {
   let source = bytes.toString()
   const controller = readFileSync(new URL('../ui/overrides/browser-window-controller.js', import.meta.url), 'utf8')
@@ -54,7 +64,7 @@ export function patchBrowserDock(bytes) {
     source = source.replace('const onWorkspaceDrag = dx => setWorkspaceWidth(clampWidth(workspaceBase.current - dx, 360, 900));',
       'const onWorkspaceDrag = dx => { if (dx < 0) setWorkspaceWidth(Math.max(workspaceBase.current, Math.min(900, workspaceAvailable, workspaceBase.current - dx))); };')
     if (!source.includes("._84hhiq_frame:not([data-xhworkspace-open]){transition:none}")) source = source.replace("._84hhiq_overlayLayer>*{pointer-events:auto}", "._84hhiq_overlayLayer>*{pointer-events:auto}._84hhiq_frame:not([data-xhworkspace-open]){transition:none}._84hhiq_handle[data-side=details]{cursor:w-resize}")
-    return Buffer.from(source.replace(".xhworkspace-body,.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}", ".xhworkspace-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}"))
+    return Buffer.from(patchPeerLayers(source.replace(".xhworkspace-body,.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}", ".xhworkspace-body{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden}.xhworkspace-item{flex:1;min-height:0;min-width:0;overflow:hidden}")))
   }
   const once = (before, after) => {
     if (source.split(before).length !== 2) throw Error(`workspace layout anchor changed: ${before.slice(0, 100)}`)
@@ -127,5 +137,5 @@ export function patchBrowserDock(bytes) {
   once('"shell.overlay": {\n\t\t\t\t\t\t\tkind: "list",\n\t\t\t\t\t\t\tscope: "root"\n\t\t\t\t\t\t}',
     '"shell.overlay": {\n\t\t\t\t\t\t\tkind: "list",\n\t\t\t\t\t\t\tscope: "root"\n\t\t\t\t\t\t},\n'
     + '\t\t\t\t\t\t"workspace.item": { kind: "list", scope: "root" }')
-  return Buffer.from(source)
+  return Buffer.from(patchPeerLayers(source))
 }

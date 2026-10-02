@@ -18,11 +18,12 @@ try {
     await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
   }
   await page.addScriptTag({ content: `
-    window.commands=[];
+    window.commands=[];window.activeTab=null;window.nativeTabs=new Set();
     window.__TAURI__={core:{invoke:async(command,args)=>{
       commands.push({command,args});
       if(command==='desktop_browser_restore') return JSON.stringify({__global__:{activeId:'browser:7',items:[{id:'browser:7',kind:'browser',title:'example.com',entries:['https://example.com/'],position:0}]}});
-      if(command==='desktop_browser_activate') return false;
+      if(command==='desktop_browser_activate'){activeTab=args.tabId;return nativeTabs.has(args.tabId)}
+      if(command==='desktop_browser_navigate'){nativeTabs.add(args.tabId);activeTab=args.tabId}
     }},event:{listen:async()=>()=>{}}};
     window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}};
   ` })
@@ -52,6 +53,19 @@ try {
   })
   await page.getByRole('tab', { name: 'example.com' }).waitFor()
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_navigate'))
+  assert.equal(await page.evaluate(() => window.activeTab), 'browser:7', 'an empty viewport-sized shell carrier must not hide its peer')
+  await page.evaluate(() => {
+    const menu = document.createElement('div'); menu.id = 'shell-card'
+    menu.style.cssText = 'position:absolute;right:20px;top:150px;width:220px;height:160px;background:white'
+    menu.textContent = 'Shell command popup'; document.querySelector('[data-shell-overlay]').append(menu)
+  })
+  await page.waitForFunction(() => window.activeTab === null)
+  await page.setViewportSize({ width: 1240, height: 760 })
+  await page.waitForTimeout(100)
+  assert.equal(await page.evaluate(() => window.activeTab), null, 'a resize cannot raise the native peer above shell UI')
+  await page.evaluate(() => document.getElementById('shell-card').remove())
+  await page.waitForFunction(() => window.activeTab === 'browser:7')
+  assert.equal(await page.evaluate(() => commands.filter(call => call.command === 'desktop_browser_navigate').length), 1, 'restoring presentation must not replay navigation')
   const commands = await page.evaluate(() => window.commands)
   assert.equal(commands.find(call => call.command === 'desktop_browser_navigate').args.url, 'https://example.com/')
   assert.ok(commands.some(call => call.command === 'desktop_browser_restore'))
