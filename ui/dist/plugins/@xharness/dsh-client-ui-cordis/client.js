@@ -281,8 +281,8 @@ function xhUseTranscriptState(key, initial) {
 			const card = cordisDefineCard(block);
 			const inventory = useInventory((snapshot) => snapshot);
 			const loaded = useLoaded((snapshot) => snapshot);
-			const [expanded, setExpanded] = xhUseTranscriptState("cordis-expanded", false);
-			const [selectedSource, setSelectedSource] = xhUseTranscriptState("cordis-source", card.clientCode !== null ? "client" : "host");
+			const [expanded, setExpanded] = xhUseTranscriptState("cordis-expanded:" + callId, false);
+			const [selectedSource, setSelectedSource] = xhUseTranscriptState("cordis-source:" + callId, card.clientCode !== null ? "client" : "host");
 			const sourcePanelId = (0, react.useId)();
 			const row = card.pluginId === null ? void 0 : inventory.rows.find((candidate) => candidate.pluginId === card.pluginId);
 			const reading = card.pluginId !== null && inventory.removed.has(card.pluginId) ? "removed" : row !== void 0 && card.packageId !== null ? cordisVisibleStatus(row, card.packageId, loaded) : "idle";
