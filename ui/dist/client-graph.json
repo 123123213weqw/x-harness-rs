@@ -1,5 +1,5 @@
 {
-  "rev": "b93211badc43d2e6",
+  "rev": "21110206b1bfc27b",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -251,8 +251,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-cordis",
-      "url": "/plugins/@xharness/dsh-client-ui-cordis/client.js?rev=03335b7e68e61291",
-      "rev": "03335b7e68e61291",
+      "url": "/plugins/@xharness/dsh-client-ui-cordis/client.js?rev=371183f481e29d07",
+      "rev": "371183f481e29d07",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-connection",
