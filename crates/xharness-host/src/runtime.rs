@@ -907,14 +907,16 @@ impl TurnRequestFactory for DurableTurnFactory {
             .executor(agent_id, &config.cwd, config.permission)
             .await?;
         let snapshot = self.store.load(agent_id).await.map_err(|e| e.to_string())?;
-        tool_executor
-            .registry()
-            .register(crate::history_tool::spec(
-                Arc::clone(&self.store),
-                agent_id.into(),
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
+        if self.tool_factory.allows_host_tool("history") {
+            tool_executor
+                .registry()
+                .register(crate::history_tool::spec(
+                    Arc::clone(&self.store),
+                    agent_id.into(),
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
         let fence = snapshot
             .as_ref()
             .and_then(xharness_session::goal::execution_state)
@@ -922,7 +924,12 @@ impl TurnRequestFactory for DurableTurnFactory {
                 s.definition.execution_enabled && (s.pending.is_some() || s.running.is_some())
             })
             .map(|s| (s.definition, s.activation_epoch));
-        if let Some(host) = self.goals.host.get() {
+        if let Some(host) = self
+            .goals
+            .host
+            .get()
+            .filter(|_| self.tool_factory.allows_host_tool("goal"))
+        {
             tool_executor
                 .registry()
                 .register(crate::goal_tool::spec(

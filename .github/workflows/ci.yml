@@ -164,6 +164,8 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-browser-dock-native-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-native-bridge.mjs
           UI_TEST_BROWSER=webkit node scripts/test-browser-native-bridge.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-browser-access.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-browser-access.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-persistence-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-browser-persistence-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-browser-restore-runtime.mjs
@@ -354,6 +356,25 @@ jobs:
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           node scripts/test-desktop-updater.mjs
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+      - name: Native WebView DOM callback/actions on Windows (no model or OS input)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          if ($LASTEXITCODE) { throw 'Windows native DOM probe build failed' }
+          ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe -EvidenceDir dist/native-browser-evidence/windows
+          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --evidence-dir dist/native-browser-evidence/windows
+          if ($LASTEXITCODE) {
+            # Preserve loader evidence rather than treating pre-main failure as
+            # a DOM/model failure or silently skipping the native contract.
+            Get-ChildItem apps/desktop/src-tauri/target/debug -Filter '*.dll' -Recurse | Select-Object FullName,Length | ConvertTo-Json > dist/native-browser-evidence/windows/build-dlls.json
+            throw 'Windows native DOM probe failed'
+          }
+      - name: Upload Windows native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-windows
+          path: dist/native-browser-evidence/windows/
+          if-no-files-found: warn
       - name: Build installable Windows application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         id: windows-bundle
@@ -446,6 +467,17 @@ jobs:
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Native WebView DOM callback/actions on macOS (no model or OS input)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/macos
+      - name: Upload macOS native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-macos
+          path: dist/native-browser-evidence/macos/
+          if-no-files-found: warn
       - name: Build installable macOS application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: tauri-apps/tauri-action@v0.6.2
@@ -505,7 +537,7 @@ jobs:
       - name: Install Tauri Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -524,6 +556,28 @@ jobs:
       - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Native WebView DOM callback/actions on Linux (no model or OS input)
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/linux
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Production BrowserPane and native task/action contracts (zero API)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/native-react" --no-save --package-lock=false react@18.3.1 react-dom@18.3.1
+          mkdir -p "$RUNNER_TEMP/native-assets"
+          cp "$RUNNER_TEMP/native-react/node_modules/react/umd/react.production.min.js" "$RUNNER_TEMP/native-assets/react.js"
+          cp "$RUNNER_TEMP/native-react/node_modules/react-dom/umd/react-dom.production.min.js" "$RUNNER_TEMP/native-assets/react-dom.js"
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example native-browser-bench
+          python3 -B -m scripts.gui_bench.run_webview --contract --tasks issue,pr,dynamic,game --host-binary target/debug/xharness-host --native-binary apps/desktop/src-tauri/target/debug/examples/native-browser-bench --assets "$RUNNER_TEMP/native-assets" --evidence-dir dist/native-browser-evidence/linux/binding
+      - name: Upload Linux native DOM evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-dom-linux
+          path: dist/native-browser-evidence/linux/
+          if-no-files-found: warn
       - run: node scripts/test-desktop-updater.mjs
       - run: node scripts/test-model-settings-ui.mjs
       - run: node scripts/test-updater-signature.mjs

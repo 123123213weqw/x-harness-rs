@@ -157,7 +157,7 @@ function xhWorkspaceClose(space, id) {
   return { items, activeId: space.activeId === id ? (items[Math.min(index, items.length - 1)]?.id ?? null) : space.activeId };
 }
 
-function XhWorkspacePane({ space, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
+function XhWorkspacePane({ space, sessionId, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
   const h = react.createElement;
   const active = space.items.find(item => item.id === space.activeId);
   const closeItem = item => onClose(item.id);
@@ -176,7 +176,7 @@ function XhWorkspacePane({ space, renderSlot, onSelect, onClose, onUpdate, onNew
       active && h('div', { key: active.id, className: `xhworkspace-item xhworkspace-${active.kind}`,
         role: 'tabpanel' },
         active.kind === 'tool' ? renderSlot('details', {}) : renderSlot('workspace.item', {
-          item: active, open: true, onUpdate: patch => onUpdate(active.id, patch),
+          item: active, sessionId, open: true, onUpdate: patch => onUpdate(active.id, patch),
           onClose: () => onClose(active.id), onNewBrowser,
         }))));
 }
@@ -442,7 +442,7 @@ function computeColumns(viewport, sidebar, details, minCenter = 640) {
 								children: "← " + (navigator.language.startsWith("zh") ? "返回对话" : "Back to chat")
 							}), renderSlot("plugins.center", {})]
 						}) : renderSlot("conversation", {}) }), workspaceDrawer && (0, react_jsx_runtime.jsx)("button", { type: "button", className: AppFrame_module_css_default.workspaceScrim, "aria-label": "关闭工作区", onClick: () => closeWorkspace(space.activeId) }),
-					(0, react_jsx_runtime.jsx)(DetailsColumn, { children: (0, react_jsx_runtime.jsx)(XhWorkspacePane, { space, renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) })), onNewBrowser: () => openWorkspace("browser", true) }) })] }),
+					(0, react_jsx_runtime.jsx)(DetailsColumn, { children: (0, react_jsx_runtime.jsx)(XhWorkspacePane, { space, sessionId: spaceKey === "__global__" ? null : spaceKey, renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) })), onNewBrowser: () => openWorkspace("browser", true) }) })] }),
 					(0, react_jsx_runtime.jsx)("div", {
 						className: AppFrame_module_css_default.overlayLayer,
 						"data-shell-overlay": true,

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "browser": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server.mjs"],
+      "env": {
+        "XHARNESS_BROWSER_DEPS": "${XHARNESS_BROWSER_DEPS}",
+        "XHARNESS_BROWSER_ALLOWED_ORIGINS": "${XHARNESS_BROWSER_ALLOWED_ORIGINS}"
+      }
+    }
+  }
+}

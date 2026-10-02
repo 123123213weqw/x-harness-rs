@@ -190,8 +190,14 @@ async fn run(
         Arc::clone(&questions),
         Arc::clone(&schedules),
     );
+    if let Some(allowlist) = args.tool_allowlist {
+        tools.restrict_tools(allowlist)?;
+    }
     let mcp = xharness_mcp::McpRuntime::new();
     tools.bind_mcp(Arc::clone(&mcp))?;
+    if let Some(browser) = xharness_host_app::native_browser::NativeBrowser::from_env()? {
+        tools.bind_native_browser(browser)?;
+    }
     let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
         Ok(manager) => {
             let manager = Arc::new(manager);
@@ -523,6 +529,7 @@ async fn shutdown_file_signal(shutdown_file: Option<PathBuf>) -> std::io::Result
 }
 
 struct Args {
+    tool_allowlist: Option<xharness_host_app::tool_allowlist::ToolAllowlist>,
     delegation_concurrency: DelegationConcurrency,
     bind: SocketAddr,
     workspace: PathBuf,
@@ -592,12 +599,18 @@ impl Args {
         let mut startup_progress_file =
             env::var_os("XHARNESS_STARTUP_PROGRESS_FILE").map(PathBuf::from);
         let mut desktop_start_file = None;
+        let mut tool_allowlist = None;
 
         while let Some(argument) = arguments.next() {
             let value = arguments
                 .next()
                 .ok_or_else(|| format!("missing value for {argument}"))?;
             match argument.as_str() {
+                "--tool-allowlist" => {
+                    tool_allowlist = Some(xharness_host_app::tool_allowlist::ToolAllowlist::parse(
+                        &value,
+                    )?);
+                }
                 "--delegation-concurrency" => delegation_setting = Some(value.into()),
                 "--bind" => {
                     bind = value
@@ -654,6 +667,7 @@ impl Args {
             .unwrap_or_default();
         validate_desktop_boundary(bind, desktop_token.as_deref())?;
         Ok(Self {
+            tool_allowlist,
             delegation_concurrency,
             bind,
             workspace,
@@ -856,6 +870,24 @@ fn diagnostic_base_url(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_allowlist_is_opt_in_and_rejects_ambiguous_names() {
+        let parse = |cli: &[&str]| {
+            Args::parse_with_delegation_setting(cli.iter().map(|s| (*s).to_owned()), None)
+        };
+        assert!(parse(&[]).unwrap().tool_allowlist.is_none());
+        assert!(parse(&["--tool-allowlist", "computer"])
+            .unwrap()
+            .tool_allowlist
+            .is_some());
+        assert!(parse(&["--tool-allowlist", ""])
+            .unwrap()
+            .tool_allowlist
+            .is_some());
+        assert!(parse(&["--tool-allowlist", "computer, bash"]).is_err());
+        assert!(parse(&["--tool-allowlist"]).is_err());
+    }
 
     #[test]
     fn delegation_startup_defaults_to_four_and_cli_overrides_environment() {
