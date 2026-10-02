@@ -1,0 +1,17 @@
+=== test-compaction-progress ===
+compaction progress: stage/count validation, manual/auto live/reload, progress-only page, explicit failure, maintained source and idempotence passed
+compaction progress: stage/count validation, manual/auto live/reload, progress-only page, explicit failure, maintained source and idempotence passed
+compaction progress: manual cold-page fallback and upstream/product namespace assembly passed
+=== test-compaction-projection ===
+compaction projection: 705 checks; shipped assembler live/reload/batched/all page splits/duplicate/mixed/terminal-only passed
+=== test-compaction-wire ===
+compaction wire: baseline reproduced at indexes 67/70; actual unary, SSE, WebSocket decode, 33 compatibility cases, loader revisions passed
+=== test-ui-lifecycle-recovery ===
+history reuse: 100 existing + 50 older -> 50 reducers / 50 node builds
+history reuse: 1000 existing + 50 older -> 50 reducers / 50 node builds
+history reuse: 10000 existing + 50 older -> 50 reducers / 50 node builds
+UI lifecycle: reconnect baseline ordering, stale waits, retry suffixes, atomic selective history reuse passed
+Assistant match rebinding, boundary invalidation and real Session pagination passed
+Started-only retry renderer accepts missing schedule/failure metadata
+Repeated pagination releases transaction closures and rebinds retained Matches
+Fresh retry patch matches the shipped reducer

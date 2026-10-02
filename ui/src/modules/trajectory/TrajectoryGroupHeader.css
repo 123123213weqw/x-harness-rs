@@ -1,0 +1,27 @@
+/* Message / Step group title row inside a turn body. */
+
+.xharness-trajectory-TrajectoryGroupHeader-root {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 20px;
+  gap: 24px;
+  min-width: 0;
+}
+
+.xharness-trajectory-TrajectoryGroupHeader-title {
+  flex: none;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-primary);
+}
+
+.xharness-trajectory-TrajectoryGroupHeader-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}

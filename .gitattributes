@@ -1,0 +1,16 @@
+# UI input pins and generated asset hashes must survive Windows checkouts.
+/ui/** text=auto eol=lf
+/scripts/*.mjs text eol=lf
+/scripts/rebuild-ui.sh text eol=lf
+
+# Generated JS can contain vendor code-generation templates whose literal
+# trailing spaces are data. The source emitter trims code trivia only; do not
+# "fix" template contents merely to satisfy a diff whitespace warning.
+ui/dist/plugins/**/client.js whitespace=-blank-at-eol
+
+# Preserve immutable golden bytes and genuine pinned vendor/codegen text.
+ui/reference/master-a613970/** whitespace=-blank-at-eol,-blank-at-eof
+ui/dist/assets/*.js whitespace=-blank-at-eol
+ui/src/modules/trajectory/vendor/** whitespace=-blank-at-eol,-blank-at-eof
+# This literal stylesheet is compared to the frozen CSS, including its text.
+ui/src/modules/user-questions/QuestionComposer.css whitespace=-blank-at-eol,-blank-at-eof

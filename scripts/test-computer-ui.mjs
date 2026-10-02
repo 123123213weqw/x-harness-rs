@@ -1,12 +1,13 @@
+import {assertRebuildInput} from './fixtures/repository-ui-input.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
-const sourceUrl = new URL('../ui/plugins/@xlang/xharness-client-ui-computer/client.js', import.meta.url)
+const sourceUrl = new URL('../ui/dist/plugins/@xlang/xharness-client-ui-computer/client.js', import.meta.url)
 const shippedUrl = new URL('../ui/dist/plugins/@xlang/xharness-client-ui-computer/client.js', import.meta.url)
 const source = readFileSync(sourceUrl, 'utf8')
 const shipped = readFileSync(shippedUrl, 'utf8')
-assert.equal(shipped, source, 'shipped Computer UI must match its product source')
+assertRebuildInput('@xlang/xharness-client-ui-computer')
 
 let registration
 const sandbox = { window: { __ModuleLoader__: { load(value) { registration = value } } } }

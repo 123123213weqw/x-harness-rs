@@ -1,49 +1,60 @@
 // Real shipped attachment React UI, isolated from user sessions and paid models.
+import {exposeConversation,verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs'
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-const root=fileURLToPath(new URL('../',import.meta.url)),dist=resolve(root,'ui/dist')
+const root=fileURLToPath(new URL('../',import.meta.url))
+const implementation=process.env.UI_TEST_IMPL??'source';assert.ok(['source','native','legacy','frozen'].includes(implementation),'known attachment implementation')
+const frozen=implementation==='legacy'||implementation==='frozen'
+const dist=resolve(root,frozen?'ui/reference/master-a613970':'ui/dist')
+const shippedConversation=frozen?legacyConversation().toString():verifyConversationArtifact()
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'))
 const engine=process.env.UI_TEST_BROWSER??'chromium'
 const browser=await require('playwright')[engine].launch({headless:true,...(process.env.UI_TEST_EXECUTABLE?{executablePath:process.env.UI_TEST_EXECUTABLE}:{})})
 try {
   const page=await browser.newPage({viewport:{width:960,height:720}}),errors=[]
   page.setDefaultTimeout(8000)
-  page.on('pageerror',e=>{if(!e.message.includes('isolated fixture')){errors.push(e.message);console.error('PAGE ERROR',e.message)}})
-  const assets=readdirSync(resolve(dist,'assets')),entry=assets.find(n=>/^index-.*\.js$/.test(n))
-  await page.route('**/*',route=>{
-    const url=new URL(route.request().url())
-    // WebKit routes blob requests; Chromium resolves them without interception.
-    // Keep fixture network blocked, but allow locally selected File previews.
-    if(url.protocol==='blob:')return route.continue()
-    const pathname=url.pathname,name=pathname.slice('/assets/'.length)
-    if(pathname.startsWith('/assets/')&&assets.includes(name))return route.fulfill({body:readFileSync(resolve(dist,'assets',name)),contentType:name.endsWith('.css')?'text/css':'application/javascript'})
-    if(pathname==='/')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head>${assets.filter(n=>n.endsWith('.css')).map(n=>`<link rel="stylesheet" href="/assets/${n}">`).join('')}<script>window.__ModuleLoader__={create:options=>{window.staticModules=options.staticModules;throw Error('isolated fixture')}}</script><script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>`})
-    return route.abort()
-  })
-  await page.goto('https://attachment-fixture.test/')
+  page.on('pageerror',e=>{if(e.message!=='owned feature fixture: stop Host boot'){errors.push(e.message);console.error('PAGE ERROR',e.message)}})
+  await installOwnedViewPlatform(page,frozen?'legacy':'source')
+  // The original attachment fixture was HTTPS: real File intake uses the
+  // secure-context crypto.randomUUID API. Keep that environment, not a shim.
+  await page.goto('https://owned-platform-fixture.test/')
   await page.waitForFunction(()=>window.staticModules)
+  // WebKit may route local File previews. Permit only URLs actually minted by
+  // this isolated page, never arbitrary blob: addresses or external requests.
+  await page.evaluate(()=>{
+    window.__testBlobUrls=new Set()
+    const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL)
+    URL.createObjectURL=value=>{const url=create(value);__testBlobUrls.add(url);return url}
+    URL.revokeObjectURL=url=>{__testBlobUrls.delete(url);revoke(url)}
+  })
+  await page.route('blob:**',async route=>{
+    const allowed=await page.evaluate(url=>__testBlobUrls.has(url),route.request().url())
+    return allowed?route.continue():route.abort()
+  })
   await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>registrations[r.id]=r}})
   for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
     let content=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8')
-    if(name==='dsh-client-ui-conversation') content=content.replace('exports.ConversationController =', 'exports.InputBar = InputBar; exports.SessionInputShell = SessionInputShell; exports.ConversationController =')
+    if(name==='dsh-client-ui-conversation'){
+      assert.equal(content,shippedConversation,'actual selected fresh/immutable Conversation factory')
+      content=exposeConversation(shippedConversation,['InputBar','SessionInputShell','ConversationController'])
+    }
     await page.addScriptTag({content})
   }
   await page.evaluate(()=>{
     const React=staticModules.react,h=React.createElement,ReactDOM=staticModules['react-dom']
-    const runtime=registrations['@xharness/dsh-client-runtime'].factory(id=>staticModules[id])
-    const readModule=id=>id==='@xharness/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]
+    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;if(cache[name])return cache[name];if(!registrations[name])throw Error('Missing actual attachment dependency: '+id);return cache[name]=registrations[name].factory(load)}
     const ctx={effect:fn=>fn(),provide:(name,value)=>{ctx[name]=value},on:()=>{},emit:()=>{},settingsScope:{bind:()=>({subscribe:()=>()=>{},getSnapshot:()=>({value:{preference:'light'}})})},locale:{register:()=>()=>{}},slots:{inject:()=>{}}}
-    registrations['@xharness/dsh-client-ui-theme'].factory(readModule).apply(ctx)
+    load('@xharness/dsh-client-ui-theme/client').apply(ctx)
     document.documentElement.dataset.theme='light'
     for(const [name,value] of Object.entries(ctx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value)
     document.body.style.fontFamily='system-ui,sans-serif'
     document.body.style.background='var(--dsw-alias-bg-base)'
     document.body.style.color='var(--dsw-alias-label-primary)'
     const slots={}
-    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??(cache[name]=registrations[name].factory(load))}
     const api=load('@xharness/dsh-client-ui-attachment/client')
     api.apply({slots:{inject(_name,callback){callback()},register(definition,component){slots[definition.name]=component}}})
     const Composer=slots['conversation.input.attachments'],History=slots['conversation.message.images']
@@ -84,16 +95,16 @@ try {
   assert.equal(await page.locator('.xh-attachment-toolbar').count(),0)
   assert.equal(await page.locator('[data-composer-card] [data-composer-add-menu]').count(),1)
   const evidence=resolve(root,'dist/attachment-ui-evidence');mkdirSync(evidence,{recursive:true})
-  await page.screenshot({path:resolve(evidence,engine+'-empty.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-empty.png')})
   await textarea.fill('保留当前草稿')
   await textarea.evaluate(el=>el.setSelectionRange(2,4))
   await plus.click()
   const menu=page.getByRole('menu')
   await menu.waitFor()
-  await page.screenshot({path:resolve(evidence,engine+'-plus-menu.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-plus-menu.png')})
   const cardBox=await page.locator('[data-composer-card]').boundingBox(),menuBox=await menu.boundingBox()
   const clipTop=Math.min(cardBox.y,menuBox.y)-12
-  await page.screenshot({path:resolve(evidence,engine+'-menu-detail.png'),clip:{x:cardBox.x-12,y:clipTop,width:cardBox.width+24,height:cardBox.y+cardBox.height-clipTop+12}})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-menu-detail.png'),clip:{x:cardBox.x-12,y:clipTop,width:cardBox.width+24,height:cardBox.y+cardBox.height-clipTop+12}})
   assert.equal(await page.getByRole('menuitem',{name:'添加图片或文件'}).evaluate(el=>el===document.activeElement),true)
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
@@ -118,9 +129,10 @@ try {
   catch(error) {
     console.error('Image diagnostic',await page.evaluate(()=>Array.from(document.images).map(i=>({alt:i.alt,complete:i.complete,width:i.naturalWidth,source:i.currentSrc}))))
     const evidence=resolve(root,'dist/attachment-ui-evidence');mkdirSync(evidence,{recursive:true})
-    await page.screenshot({path:resolve(evidence,engine+'-failure.png')})
+    await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-failure.png')})
     throw error
   }
+  assert.ok(await thumbnail.evaluate(image=>__testBlobUrls.has(image.currentSrc)), 'preview is a real fixture-owned blob URL')
   await thumbnail.click()
   const lightbox=page.getByRole('dialog',{name:'image.preview'})
   await lightbox.waitFor()
@@ -164,18 +176,18 @@ try {
   await page.evaluate(()=>{const input=document.querySelector('[data-composer-add-menu] input');const data=new DataTransfer();data.items.add(new File(['late'],'late.txt'));Object.defineProperty(input,'files',{configurable:true,value:data.files});input.dispatchEvent(new Event('change',{bubbles:true}));delete input.files})
   assert.equal(await page.evaluate(()=>added.length),lockedCount,'late file dialog result while locked is ignored')
   await page.evaluate(()=>toggleLock())
-  await page.screenshot({path:resolve(evidence,engine+'-mixed.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-mixed.png')})
   await page.setViewportSize({width:375,height:700})
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true)
-  await page.screenshot({path:resolve(evidence,engine+'-narrow.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-narrow.png')})
   await plus.click();await menu.waitFor()
   const bounds=await menu.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=375&&bounds.y>=0)
-  await page.screenshot({path:resolve(evidence,engine+'-narrow-menu.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-narrow-menu.png')})
   const lightMenu=await menu.evaluate(el=>getComputedStyle(el).backgroundColor)
   await page.evaluate(()=>setTheme('dark'))
   assert.notEqual(await menu.evaluate(el=>getComputedStyle(el).backgroundColor),lightMenu,'dark theme must actually change menu palette')
-  await page.screenshot({path:resolve(evidence,engine+'-dark-menu.png')})
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-dark-menu.png')})
   await page.evaluate(()=>changeSession());await menu.waitFor({state:'detached'})
   assert.deepEqual(errors,[])
-  console.log(engine+': actual composer plus, commands/caret, keyboard/outside close, mixed picker, image/lightbox, drop/paste, cancel/reselect, late locked result, session switch and narrow layout passed')
+  console.log(engine+'/'+implementation+': actual composer plus, commands/caret, keyboard/outside close, mixed picker, image/lightbox, drop/paste, cancel/reselect, late locked result, session switch and narrow layout passed')
 } finally {await browser.close()}

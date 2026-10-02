@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install locked source UI toolchain for desktop script contracts
+        run: npm ci --prefix ui --ignore-scripts
       - run: node scripts/test-update-channel-bridge.mjs
       - run: node scripts/test-macos-preview-bridge.mjs
       - run: node scripts/test-migration-acceptance-guards.mjs
@@ -87,6 +89,39 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Check repository UI build and types
+        run: |
+          npm ci --prefix ui --ignore-scripts
+          npm run typecheck --prefix ui
+          npm run check:plugin-api --prefix ui
+          npm run check:build --prefix ui
+          npm run build --prefix ui
+          npm run check:build --prefix ui
+          node --test scripts/test-standalone-ui-build.mjs
+          node --test scripts/test-ui-migration-reference.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs scripts/test-plugin-api-types.mjs scripts/test-owned-script-assets.mjs
+          node scripts/test-foundation-source-modules.mjs
+          node scripts/test-product-source-modules.mjs
+          node scripts/test-view-source-modules.mjs
+          node scripts/test-model-selection-source.mjs
+          node scripts/test-attachment-source.mjs
+          node scripts/test-settings-models-source.mjs
+          node scripts/test-preset-source-modules.mjs
+          node scripts/test-renderer-source-module.mjs
+          node scripts/test-workspace-source-module.mjs
+          node scripts/test-cordis-source-module.mjs
+          node scripts/test-owned-cordis-services.mjs
+          node scripts/test-conversation-service-boundaries.mjs
+          node scripts/test-conversation-main-differential.mjs
+          node scripts/test-conversation-history-rollback.mjs
+          node scripts/test-conversation-connection-boundaries.mjs
+          UI_TEST_IMPL=source node scripts/test-layout-workspace-source.mjs
+          UI_TEST_IMPL=legacy node scripts/test-layout-workspace-source.mjs
+          node scripts/test-question-source-module.mjs
+          node scripts/test-tool-source-module.mjs
+          node scripts/test-conversation-source.mjs
+          node scripts/test-goal-source.mjs
+          node scripts/test-trajectory-source-module.mjs
+          node --test scripts/test-plugin-api.mjs
       - name: Install isolated UI test dependencies
         run: |
           npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
@@ -133,6 +168,44 @@ jobs:
       - run: node scripts/test-browser-window-controller.mjs
       - run: node scripts/test-workspace-created-at.mjs
       - run: node scripts/test-settings-save-feedback.mjs
+      - name: Source migration browser differential regression
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: |
+          for browser in chromium webkit; do
+            UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
+            for implementation in source legacy; do
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-model-selection-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-attachment-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-settings-models-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-tool-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-conversation-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-trajectory-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-tasks-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-profile-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-cordis-source-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-owned-view-persistence-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-plugin-hub-functional.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-dock-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-dock-native-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-persistence-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-restore-runtime.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-question-continuation-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-goal-runtime-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-approval-prompt-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-directory-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-request-audit-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-conversation-message-edit-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-attachments-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-execution-checkpoints-browser.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-streaming-math.mjs
+              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-compaction-progress-browser.mjs
+            done
+          done
+          node scripts/test-platform-source-browser.mjs
+          node scripts/test-owned-ui-boot-differential.mjs
       - name: Real browser layout regression
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
@@ -141,6 +214,8 @@ jobs:
           UI_TEST_BROWSER=chromium node scripts/test-plugin-center-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-plugin-hub-functional.mjs
           UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-plugin-center-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-plugin-hub-functional.mjs
           UI_TEST_BROWSER=chromium node scripts/test-motion-tokens-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-motion-tokens-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-terminal-layout-browser.mjs
@@ -221,6 +296,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install locked UI toolchain for native wire and desktop contracts
+        run: npm ci --prefix ui --ignore-scripts
       - name: Regression harness and architecture contract
         run: |
           python3 -B scripts/regression/check-architecture.py
@@ -251,6 +331,12 @@ jobs:
         run: |
           cargo test -p xharness-host-app --test goal_remotes
           node scripts/test-goal-remote-contract.mjs "$XHARNESS_GOAL_REMOTE_FIXTURE"
+      - name: Native plugin replies match checked TypeScript DTOs
+        env:
+          XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
+        run: |
+          cargo test --locked -p xharness-host-app --test plugin_wire_contract
+          node scripts/test-plugin-wire-contract.mjs "$XHARNESS_PLUGIN_WIRE_FIXTURE"
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -264,6 +350,11 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install locked UI toolchain for native wire and desktop contracts
+        run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -431,6 +522,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install locked UI toolchain for native wire and desktop contracts
+        run: npm ci --prefix ui --ignore-scripts
       - name: Verify native Apple Silicon runner
         run: test "$(uname -s)-$(uname -m)" = "Darwin-arm64"
       - uses: dtolnay/rust-toolchain@stable
@@ -568,6 +664,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Install locked UI toolchain for native desktop contracts
+        run: npm ci --prefix ui --ignore-scripts
       - name: Production BrowserPane and native task/action contracts (zero API)
         run: |
           npm install --prefix "$RUNNER_TEMP/native-react" --no-save --package-lock=false react@18.3.1 react-dom@18.3.1

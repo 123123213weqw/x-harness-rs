@@ -1,10 +1,12 @@
+import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
+import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 // Browser content is one workspace item; workspace owns the surrounding tabs.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 
-const deps = resolve(process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests')
+const deps = resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps')
 const require = createRequire(resolve(deps, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
@@ -12,12 +14,10 @@ const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 800, height: 700 } })
   const errors = []
-  page.on('pageerror', error => errors.push(error.message))
-  await page.setContent('<html><head></head><body><div id="root"></div></body></html>')
-  for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js'])
-    await page.addScriptTag({ path: resolve(deps, 'node_modules', file) })
+  page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body><div id="root"></div></body></html>')
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>window.registration=x}' })
-  await page.addScriptTag({ content: readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-browser/client.js', import.meta.url), 'utf8') })
+  await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.evaluate(() => {
     const api = registration.factory(id => id === 'react' ? React : {})
     window.api = api

@@ -1,0 +1,16 @@
+=== test-conversation-message-edit ===
+✔ legacy: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures (757.838458ms)
+✔ legacy: native continuable subagent guards all upload/reference attachment kinds without silently dropping them (2844.45225ms)
+✔ source: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures (2532.508042ms)
+✔ source: native continuable subagent guards all upload/reference attachment kinds without silently dropping them (11571.823458ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18965.588625
+message editor: 94 native + golden lifecycle assertions plus 3 golden/schema/hash/boot/source-freshness contracts passed
+=== test-compaction-ui ===
+compaction UI: automatic/manual, failure/cancel, replay/history, late summary, expand/collapse, counts and Context compatibility passed

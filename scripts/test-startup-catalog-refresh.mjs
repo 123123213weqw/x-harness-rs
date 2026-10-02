@@ -1,19 +1,21 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { frozenRuntime, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs'
 import { patchStartupCatalogRefresh } from './patch-startup-catalog-refresh.mjs'
 
 const runtime = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url))
 const connection = readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js', import.meta.url), 'utf8')
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url), 'utf8'))
 const html = readFileSync(new URL('../ui/dist/index.html', import.meta.url), 'utf8')
-const source = runtime.toString('utf8')
+const source = frozenRuntime
 const marker = 'if (frame.event === "xharness/catalog-updated") {'
 assert.equal(source.split(marker).length, 2, 'catalogue refresh hook must exist exactly once')
 assert.ok(source.includes('if (this.listInflight !== null) await this.listInflight;'), 'a batch racing initial list must replay after the in-flight baseline')
 assert.equal(source.includes('case "host/session-catalog-batch"'), false, 'do not emit an unregistered wire type')
-assert.ok(connection.includes('type: literal("host/remote-event")'), 'existing validated Host frame carries refresh')
-assert.deepEqual(patchStartupCatalogRefresh(runtime), runtime, 'rebuild patch must be idempotent')
+const frozenConnection = readFileSync(new URL('../ui/reference/master-a613970/plugins/@xharness/dsh-client-connection/client.js', import.meta.url),'utf8')
+assert.ok(frozenConnection.includes('type: literal("host/remote-event")'), 'existing validated Host frame carries refresh')
+assert.deepEqual(patchStartupCatalogRefresh(Buffer.from(frozenRuntime)), Buffer.from(frozenRuntime), 'rebuild patch must be idempotent')
 const entry = graph.entries.find(row => row.id === '@xharness/dsh-client-runtime')
 assert.ok(entry)
 assert.equal(entry.rev, createHash('sha256').update(runtime).digest('hex').slice(0, 16))
@@ -51,3 +53,5 @@ firstRefresh.resolve()
 await new Promise(resolve => setImmediate(resolve))
 assert.equal(manager.refreshes, 3, 'a batch arriving during refresh must trigger a final replay')
 console.log('startup catalogue UI refresh: PASS')
+
+runFrozenSourceDifferential('native catalog-updated|complete shipped DTO schemas');

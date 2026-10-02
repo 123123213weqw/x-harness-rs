@@ -2,18 +2,18 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {runtimeTestApi} from './runtime-source-test-harness.mjs';
+import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
+import {verifyConnectionArtifact} from './connection-artifact-test.mjs';
+import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs';
+import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import {patchConversationLifecycle} from './patch-conversation-lifecycle.mjs';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
 const source=read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
-const ui=read('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
-assert.equal(patchConversationLifecycle(Buffer.from(ui)).toString(),ui);
+const ui=verifyConversationArtifact(),golden=legacyConversation().toString();
+assert.equal(patchConversationLifecycle(Buffer.from(golden)).toString(),golden);
 assert.throws(()=>patchConversationLifecycle(Buffer.from('changed upstream')),/anchor changed/);
-let reg;
-vm.runInNewContext(source.replace('exports.apply = apply;','exports.Session = Session; exports.SessionManager = SessionManager; exports.apply = apply;'),{
- window:{__ModuleLoader__:{load:x=>reg=x}},console,URL,AbortController,setTimeout,clearTimeout,queueMicrotask,
- requestAnimationFrame:f=>setTimeout(f,0),cancelAnimationFrame:clearTimeout,
-});
-const runtime=reg.factory(id=>id==='@xharness/cordis'?{Service:class{}}:{});
+const runtime=runtimeTestApi();
 const plain=x=>JSON.parse(JSON.stringify(x));
 const empty={events:{entries:()=>[],fallbackEntry:()=>undefined},views:{entries:()=>[]}};
 const ok=events=>({result:{ok:true,value:{events,hasMore:false}}});
@@ -56,10 +56,9 @@ manager.handleDisconnected();release(ok([]));await oldOpen;assert.notEqual(loadi
 const fresh=patchConversationLifecycle(Buffer.from(read('../tests/fixtures/retry-definition-legacy.js'))).toString();
 assert.equal(patchConversationLifecycle(Buffer.from(fresh)).toString(),fresh,'fresh patch is idempotent');
 assert.ok(fresh.includes('fallbackRetryState(context)'));
-const connection=read('../ui/dist/plugins/@xharness/dsh-client-connection/client.js');
-const cStart=connection.indexOf('const CONNECTION_DEFAULTS ='),cEnd=connection.indexOf('//#endregion',cStart);
-const conn=vm.createContext({console,AbortController,setTimeout,clearTimeout});
-vm.runInContext(connection.slice(cStart,cEnd)+'\nglobalThis.Controller=ConnectionController;',conn);
+const connection=verifyConnectionArtifact();let connRegistration;
+vm.runInNewContext(exposeModuleUnit(connection,'client-connection','controller','ConnectionController'),{window:{__ModuleLoader__:{load:value=>connRegistration=value}},console,URL,AbortController,setTimeout,clearTimeout});
+const conn={Controller:connRegistration.factory(name=>{throw Error(name)}).ConnectionController};
 let resolveDescribe,connectedResolve;
 const description=new Promise(r=>resolveDescribe=r),completed=new Promise(r=>connectedResolve=r);
 const connectedManager=new runtime.SessionManager({sessions:{history:async()=>ok([])}},{},undefined,undefined,empty);
@@ -73,14 +72,12 @@ const controller=new conn.Controller({events:{mux:(_,s,o)=>stream(s,o,true),host
 controller.start();await completed;
 
 // Retry restoration: all suffixes, reconnects, prepend splits and duplicates.
-const ctx=vm.createContext({_xharness_dsh_client_runtime_client:runtime});
-for(const name of ['contextLocation','chatNode']){const s=ui.indexOf(`function ${name}(`),e=ui.indexOf('\n\t\t}',s);vm.runInContext(ui.slice(s,e+4),ctx);}
-const rStart=ui.indexOf('function scheduledNode('),rEnd=ui.indexOf('//#endregion',rStart);
-vm.runInContext(ui.slice(rStart,rEnd)+'\nglobalThis.definition=retryDefinition;',ctx);
+const api=conversationFixture(ui,['retryDefinition','assistantDefinition','chatNode','contextLocation','ModelRetryItem'],{runtime,react:{useMemo:f=>f()}}).api;
+const ctx={definition:api.retryDefinition,assistant:api.assistantDefinition};
 function assembler(def,build=()=>{let nodes=new Map();return{empty:[],replace:x=>{nodes=new Map(x.nodes.map(n=>[n.key,n]));return [...nodes.values()]},apply:x=>{for(const n of x.upserts)nodes.set(n.key,n);return [...nodes.values()]}}}) {
  return new runtime.ConversationNodeAssembler({entries:()=>[def],fallbackEntry:()=>undefined},{entries:()=>[{target:def.target,create:build}]});
 }
-const rows=['turn/start','step/start','llm/retry','llm/retry-started','llm/retry','llm/retry-started','step/end','turn/end'].map((type,seq)=>({event:{seq,time:seq+1,type,data:{turn:0,step:1,...(type.startsWith('llm/')?{retryId:'chain',retry:seq<4?1:2,...(type==='llm/retry'?{delayMs:500,mode:'normal',maxRetries:2,failure:{message:'network'}}:{})}:{})}}}));
+const rows=['turn/start','step/start','llm/retry','llm/retry-started','llm/retry','llm/retry-started','step/end','turn/end'].map((type,seq)=>({event:{seq,time:seq+1,type,data:{turn:0,step:1,...(type.startsWith('llm/')?{retryId:'chain',retry:seq<4?1:2,...(type==='llm/retry'?{delayMs:500,mode:'normal',maxRetries:2,policyKey:'default',provider:'fixture',failure:{code:'network',message:'network'}}:{})}:{})}}}));
 const full=assembler(ctx.definition);full.replaceWindow(rows,false);full.flush();
 const expected=plain(full.snapshot('chat'));
 for(let split=0;split<=rows.length;split++) {
@@ -123,8 +120,6 @@ d.prepend([entry(5)],false);d.flush();const now=[...d.contexts.values()].find(c=
 console.log('UI lifecycle: reconnect baseline ordering, stale waits, retry suffixes, atomic selective history reuse passed');
 // Audited Assistant state keeps final Match metadata. Reuse must rebind that
 // Match and its mutable Location reader, rather than retaining an old timeline.
-const assistantStart=ui.indexOf('function initialState(turn, step)'),assistantEnd=ui.indexOf('//#endregion',assistantStart);
-vm.runInContext('const CHAT_SYNTHETIC_SEQ_OFFSETS={interruptedAssistant:-0.9};\n'+ui.slice(assistantStart,assistantEnd)+'\nglobalThis.assistant=assistantDefinition;',ctx);
 function turn(turn,base){return [
  {event:{seq:base,time:base+1,type:'turn/start',data:{turn}}},
  {event:{seq:base+1,time:base+2,type:'step/start',data:{turn,step:1}}},
@@ -149,8 +144,7 @@ const pagedSession=new runtime.Session('audit',{sessions:{history:async()=>({res
 pagedSession.installWindow([entry(10)],true);pagedSession.openState='open';sessionBuilds=0;await pagedSession.loadOlder();assert.equal(sessionBuilds,1);assert.equal(pagedSession.openState,'open');
 console.log('Assistant match rebinding, boundary invalidation and real Session pagination passed');
 // Started-only metadata must be renderable, not merely accepted by the reducer.
-const renderContext=vm.createContext({react:{useMemo:f=>f(),useState:f=>[f(),()=>{}],useEffect:()=>{}},react_jsx_runtime:{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},MessageItem_module_css_default:{},Date,window:{setInterval,clearInterval}});
-for(const name of ['retrySeconds','ModelRetryItem']){const s=ui.indexOf(`function ${name}(`),e=ui.indexOf('\n\t\t}',s);vm.runInContext(ui.slice(s,e+4),renderContext);}
+const renderContext=api;
 assert.doesNotThrow(()=>renderContext.ModelRetryItem({node:partial,active:false,t:(_key,args)=>args??'label'}));
 console.log('Started-only retry renderer accepts missing schedule/failure metadata');
 
@@ -170,7 +164,7 @@ console.log('Repeated pagination releases transaction closures and rebinds retai
 
 // Fresh assembly and checked-in production code execute the same retry reducer.
 const freshCtx=vm.createContext({_xharness_dsh_client_runtime_client:runtime});
-for(const name of ['contextLocation','chatNode']){const s=ui.indexOf(`function ${name}(`),e=ui.indexOf('\n\t\t}',s);vm.runInContext(ui.slice(s,e+4),freshCtx);}
+Object.assign(freshCtx,{contextLocation:api.contextLocation,chatNode:api.chatNode});
 const fs=fresh.indexOf('function scheduledNode('),fe=fresh.indexOf('function registerRetryConversationNode',fs);
 vm.runInContext(fresh.slice(fs,fe)+'\nglobalThis.definition=retryDefinition;',freshCtx);
 const freshAssembler=assembler(freshCtx.definition);freshAssembler.replaceWindow(rows.slice(4),true);freshAssembler.flush();

@@ -1,0 +1,829 @@
+{
+  "schemaVersion": 1,
+  "files": {
+    ".xharness-ui-output.json": {
+      "sha256": "eb60ec094b665905e48314a0eabdadb005d4ebe0e29bbac364310da5fde1023d",
+      "bytes": 59
+    },
+    "app-icon-512.png": {
+      "sha256": "c83d3f2d9d3fcb981793fa6e29d7ff7608bd791d015a87fdf517a7549de5ba8f",
+      "bytes": 221733
+    },
+    "assets/fonts/KaTeX_AMS-Regular-CYEKBG2K.woff": {
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251",
+      "bytes": 33516
+    },
+    "assets/fonts/KaTeX_AMS-Regular-JKX5W2C4.ttf": {
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",
+      "bytes": 63632
+    },
+    "assets/fonts/KaTeX_AMS-Regular-U6PRYMIZ.woff2": {
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "bytes": 28076
+    },
+    "assets/fonts/KaTeX_Caligraphic-Bold-5QL5CMTE.woff2": {
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "bytes": 6912
+    },
+    "assets/fonts/KaTeX_Caligraphic-Bold-WZ3QSGD3.woff": {
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed",
+      "bytes": 7716
+    },
+    "assets/fonts/KaTeX_Caligraphic-Bold-ZTS3R3HK.ttf": {
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268",
+      "bytes": 12368
+    },
+    "assets/fonts/KaTeX_Caligraphic-Regular-3LKEU76G.woff": {
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c",
+      "bytes": 7656
+    },
+    "assets/fonts/KaTeX_Caligraphic-Regular-A7XRTZ5Q.ttf": {
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7",
+      "bytes": 12344
+    },
+    "assets/fonts/KaTeX_Caligraphic-Regular-KX5MEWCF.woff2": {
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "bytes": 6908
+    },
+    "assets/fonts/KaTeX_Fraktur-Bold-2QVFK6NQ.woff2": {
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "bytes": 11348
+    },
+    "assets/fonts/KaTeX_Fraktur-Bold-T4SWXBMT.woff": {
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb",
+      "bytes": 13296
+    },
+    "assets/fonts/KaTeX_Fraktur-Bold-WGHVTYOR.ttf": {
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1",
+      "bytes": 19584
+    },
+    "assets/fonts/KaTeX_Fraktur-Regular-2PEIFJSJ.woff2": {
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "bytes": 11316
+    },
+    "assets/fonts/KaTeX_Fraktur-Regular-5U4OPH2X.ttf": {
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3",
+      "bytes": 19572
+    },
+    "assets/fonts/KaTeX_Fraktur-Regular-PQMHCIK6.woff": {
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463",
+      "bytes": 13208
+    },
+    "assets/fonts/KaTeX_Main-Bold-2GA4IZIN.woff": {
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822",
+      "bytes": 29912
+    },
+    "assets/fonts/KaTeX_Main-Bold-W5FBVCZM.ttf": {
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8",
+      "bytes": 51336
+    },
+    "assets/fonts/KaTeX_Main-Bold-YP5VVQRP.woff2": {
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "bytes": 25324
+    },
+    "assets/fonts/KaTeX_Main-BoldItalic-4P4C7HJH.woff": {
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c",
+      "bytes": 19412
+    },
+    "assets/fonts/KaTeX_Main-BoldItalic-N4V3DX7S.woff2": {
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "bytes": 16780
+    },
+    "assets/fonts/KaTeX_Main-BoldItalic-ODMLBJJQ.ttf": {
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f",
+      "bytes": 32968
+    },
+    "assets/fonts/KaTeX_Main-Italic-I43T2HSR.ttf": {
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a",
+      "bytes": 33580
+    },
+    "assets/fonts/KaTeX_Main-Italic-RELBIK7M.woff2": {
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "bytes": 16988
+    },
+    "assets/fonts/KaTeX_Main-Italic-SASNQFN2.woff": {
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf",
+      "bytes": 19676
+    },
+    "assets/fonts/KaTeX_Main-Regular-ARRPAO67.woff2": {
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "bytes": 26272
+    },
+    "assets/fonts/KaTeX_Main-Regular-P5I74A2A.woff": {
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc",
+      "bytes": 30772
+    },
+    "assets/fonts/KaTeX_Main-Regular-W74P5G27.ttf": {
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830",
+      "bytes": 53580
+    },
+    "assets/fonts/KaTeX_Math-BoldItalic-6EBV3DK5.woff": {
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e",
+      "bytes": 18668
+    },
+    "assets/fonts/KaTeX_Math-BoldItalic-K4WTGH3J.woff2": {
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "bytes": 16400
+    },
+    "assets/fonts/KaTeX_Math-BoldItalic-VB447A4D.ttf": {
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5",
+      "bytes": 31196
+    },
+    "assets/fonts/KaTeX_Math-Italic-6KGCHLFN.woff2": {
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "bytes": 16440
+    },
+    "assets/fonts/KaTeX_Math-Italic-KKK3USB2.woff": {
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571",
+      "bytes": 18748
+    },
+    "assets/fonts/KaTeX_Math-Italic-SON4MRCA.ttf": {
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a",
+      "bytes": 31308
+    },
+    "assets/fonts/KaTeX_SansSerif-Bold-RRNVJFFW.woff2": {
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "bytes": 12216
+    },
+    "assets/fonts/KaTeX_SansSerif-Bold-STQ6RXC7.ttf": {
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0",
+      "bytes": 24504
+    },
+    "assets/fonts/KaTeX_SansSerif-Bold-X5M5EMOD.woff": {
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba",
+      "bytes": 14408
+    },
+    "assets/fonts/KaTeX_SansSerif-Italic-HMPFTM52.woff2": {
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "bytes": 12028
+    },
+    "assets/fonts/KaTeX_SansSerif-Italic-PSN4QKYX.woff": {
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2",
+      "bytes": 14112
+    },
+    "assets/fonts/KaTeX_SansSerif-Italic-WTBAZBGY.ttf": {
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083",
+      "bytes": 22364
+    },
+    "assets/fonts/KaTeX_SansSerif-Regular-2TL3USAE.ttf": {
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad",
+      "bytes": 19436
+    },
+    "assets/fonts/KaTeX_SansSerif-Regular-OQCII6EP.woff": {
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605",
+      "bytes": 12316
+    },
+    "assets/fonts/KaTeX_SansSerif-Regular-XIQ62X4E.woff2": {
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "bytes": 10344
+    },
+    "assets/fonts/KaTeX_Script-Regular-72OLXYNA.ttf": {
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67",
+      "bytes": 16648
+    },
+    "assets/fonts/KaTeX_Script-Regular-A5IFOEBS.woff": {
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a",
+      "bytes": 10588
+    },
+    "assets/fonts/KaTeX_Script-Regular-APUWIHLP.woff2": {
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "bytes": 9644
+    },
+    "assets/fonts/KaTeX_Size1-Regular-4HRHTS65.woff": {
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9",
+      "bytes": 6496
+    },
+    "assets/fonts/KaTeX_Size1-Regular-5LRUTBFT.woff2": {
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "bytes": 5468
+    },
+    "assets/fonts/KaTeX_Size1-Regular-7K6AASVL.ttf": {
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b",
+      "bytes": 12228
+    },
+    "assets/fonts/KaTeX_Size2-Regular-222HN3GT.ttf": {
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b",
+      "bytes": 11508
+    },
+    "assets/fonts/KaTeX_Size2-Regular-K5ZHAIS6.woff": {
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d",
+      "bytes": 6188
+    },
+    "assets/fonts/KaTeX_Size2-Regular-LELKET5D.woff2": {
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "bytes": 5208
+    },
+    "assets/fonts/KaTeX_Size3-Regular-TLFPAHDE.woff": {
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949",
+      "bytes": 4420
+    },
+    "assets/fonts/KaTeX_Size3-Regular-UFCO6WCA.ttf": {
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082",
+      "bytes": 7588
+    },
+    "assets/fonts/KaTeX_Size3-Regular-WQRQ47UD.woff2": {
+      "sha256": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+      "bytes": 3624
+    },
+    "assets/fonts/KaTeX_Size4-Regular-7PGNVPQK.ttf": {
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877",
+      "bytes": 10364
+    },
+    "assets/fonts/KaTeX_Size4-Regular-CDMV7U5C.woff2": {
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "bytes": 4928
+    },
+    "assets/fonts/KaTeX_Size4-Regular-PKMWZHNC.woff": {
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58",
+      "bytes": 5980
+    },
+    "assets/fonts/KaTeX_Typewriter-Regular-3F5K6SQ6.ttf": {
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa",
+      "bytes": 27556
+    },
+    "assets/fonts/KaTeX_Typewriter-Regular-MJMFSK64.woff": {
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7",
+      "bytes": 16028
+    },
+    "assets/fonts/KaTeX_Typewriter-Regular-VBYJ4NRC.woff2": {
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "bytes": 13568
+    },
+    "assets/loader-35NVWEMD.js": {
+      "sha256": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+      "bytes": 1484
+    },
+    "assets/loader-35NVWEMD.js.map": {
+      "sha256": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+      "bytes": 2784
+    },
+    "assets/platform-SNWQJ5HU.js": {
+      "sha256": "261d9482e4245d6e84d67e0312b09f384e56196580bd1d958e0c063c4afba380",
+      "bytes": 1737231
+    },
+    "assets/platform-SNWQJ5HU.js.map": {
+      "sha256": "815734a5f76215076e6410d216ef280ca6457972cb81be2c6c7cbcc3a4669c3b",
+      "bytes": 3578853
+    },
+    "assets/platform-XD5TLYYA.css": {
+      "sha256": "38950eca201b78db28697a2fe2088ea22049638f59c239c36c26b9a265df9ae0",
+      "bytes": 70817
+    },
+    "assets/platform-XD5TLYYA.css.map": {
+      "sha256": "14a0aa27c5af0ae1a3189a67186f80ff94ed838566fe39d95f81e29d95ef2a81",
+      "bytes": 133798
+    },
+    "assets/platform/c-FHZF47JL.js": {
+      "sha256": "935668e0a53a44583dddfaf9ad9dcdf916f7d00b109d6dba7a941b7aafb5dd89",
+      "bytes": 155
+    },
+    "assets/platform/c-FHZF47JL.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/chunk-2D66HAW7.js": {
+      "sha256": "a4594608cebd5037f4a6f87cf5e87fbd6237ed7309a265006aead53263555bf6",
+      "bytes": 72330
+    },
+    "assets/platform/chunk-2D66HAW7.js.map": {
+      "sha256": "ff75ef16f79e2143c8e69c020352a3a7247fbde9cc7f9cea6a2c57858133c725",
+      "bytes": 95344
+    },
+    "assets/platform/chunk-3HFYEBY4.js": {
+      "sha256": "8997d6403a6ad8f826a9178f542780a395e0dc9c7f8082a7dfda431e2df5d42f",
+      "bytes": 49264
+    },
+    "assets/platform/chunk-3HFYEBY4.js.map": {
+      "sha256": "967d37ba9066c88dbcc18ff0527bd81db4f2b8e509557b85dfc2dd73b9413d8a",
+      "bytes": 60602
+    },
+    "assets/platform/chunk-3YI5PCIY.js": {
+      "sha256": "454dcee05c9d3032442f15112821f30500f69d87b3a84716f7a185e67deb16c4",
+      "bytes": 638387
+    },
+    "assets/platform/chunk-3YI5PCIY.js.map": {
+      "sha256": "02055fe600cf8ba26cce62d303daf0a6252802fafc910dacc7c08f51de0fe814",
+      "bytes": 831388
+    },
+    "assets/platform/chunk-73HS3GNO.js": {
+      "sha256": "05e93fabfdac177602516f85deeb7ecc8731fef6620b62b41acd5c8bf1db2469",
+      "bytes": 232886
+    },
+    "assets/platform/chunk-73HS3GNO.js.map": {
+      "sha256": "ca7cbcd53ec0e8ac52c52e229ce748bcadffcaa245a0a46c0af6e2a367efd172",
+      "bytes": 309387
+    },
+    "assets/platform/chunk-BT4E2EJW.js": {
+      "sha256": "0402c157e7664b2d4d425b77920ff10a3c609971631344cc12e76706bfd76b67",
+      "bytes": 27445
+    },
+    "assets/platform/chunk-BT4E2EJW.js.map": {
+      "sha256": "b52d24f44cdd5f52b0bb152c18758c47b79b508a8221c7e8fce3eb33d7981cb4",
+      "bytes": 38589
+    },
+    "assets/platform/chunk-ELGTYTKL.js": {
+      "sha256": "e0e95f2efa7e9396d1a84d40d773563929314a30bc085b57f7f5707f2ba556f0",
+      "bytes": 222927
+    },
+    "assets/platform/chunk-ELGTYTKL.js.map": {
+      "sha256": "045591fd64d3a818320c2acefe3c4cdd2141b00c534c76ea6a4a8d8e5470d890",
+      "bytes": 300742
+    },
+    "assets/platform/chunk-F5UVVWXI.js": {
+      "sha256": "244c74e6c17ab38e8db1aef7cbee338f94c51b6c66eb3bee6ffa69e17ebc2fdd",
+      "bytes": 15789
+    },
+    "assets/platform/chunk-F5UVVWXI.js.map": {
+      "sha256": "e6fc91bae6c759101a30207a8574c734e38c9d7a4e34769bd165b7a1051283a1",
+      "bytes": 22077
+    },
+    "assets/platform/chunk-RUEIDT5F.js": {
+      "sha256": "6d126a0dfcc123c6fdfafb06d8cf22ab5e4a5f893c388adba80b03299ff9688a",
+      "bytes": 5641
+    },
+    "assets/platform/chunk-RUEIDT5F.js.map": {
+      "sha256": "18726d85b6f7977bd21d385790271c3208a37221c8ddaa2952f60215a754bcd8",
+      "bytes": 7798
+    },
+    "assets/platform/chunk-ST2J62G7.js": {
+      "sha256": "da462a4f0d75fe30ee797f2849146935c1d92a01f929b928af3b574ee9614ac0",
+      "bytes": 3050
+    },
+    "assets/platform/chunk-ST2J62G7.js.map": {
+      "sha256": "b141ef4c6a77329fb72939b7d96d8cffb7e5fe94c658dc7ce774700ffda1f64f",
+      "bytes": 4278
+    },
+    "assets/platform/chunk-WRACKSAQ.js": {
+      "sha256": "59a1719d0dbd3cc8b8bc4309db2acaf3a7539c4ba8778e3b50b67715768c0346",
+      "bytes": 23651
+    },
+    "assets/platform/chunk-WRACKSAQ.js.map": {
+      "sha256": "b04260f4734a94caa6e54bf0cfe4b734f80a605b9f4f2138a8a43b7879b9e264",
+      "bytes": 27895
+    },
+    "assets/platform/chunk-XKKJEABJ.js": {
+      "sha256": "10c1127eeb94bacdf5f9ad63bba5919881362b8c24565f9fd6352cd3e75f7498",
+      "bytes": 10732
+    },
+    "assets/platform/chunk-XKKJEABJ.js.map": {
+      "sha256": "7312bdb632e135048ee0ba9ab42a8a374627acc037329f6285e0b60186f5576b",
+      "bytes": 14858
+    },
+    "assets/platform/chunk-YOCBWPQK.js": {
+      "sha256": "bd3a6f6826c8586a8e5366cb643bdb59b6294777eb0861dcfd861d5da1412a04",
+      "bytes": 2056
+    },
+    "assets/platform/chunk-YOCBWPQK.js.map": {
+      "sha256": "90ce9a92139fdc52c064b4d703497b8696fe5ca5afb0c6d133afdf7ef1756ac1",
+      "bytes": 203
+    },
+    "assets/platform/cpp-TRPLO25C.js": {
+      "sha256": "ccb5d92b5ee20737aad333927963a41a12334a11a1af32eae5856add7786ee05",
+      "bytes": 221
+    },
+    "assets/platform/cpp-TRPLO25C.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/csharp-XRAE7N37.js": {
+      "sha256": "621e24ea83ed7ef4f202ac7b30622e510b02f86a707e9593937d02ff067844bb",
+      "bytes": 90432
+    },
+    "assets/platform/csharp-XRAE7N37.js.map": {
+      "sha256": "401693e9a45b744f6ab994de064efdcc8fd6403b00afc2fcef1c2735107d182f",
+      "bytes": 126305
+    },
+    "assets/platform/css-7FCRZHMO.js": {
+      "sha256": "bdbc7ce54bfce8b8c9e06b76ba9a3b8536f9c9f93cec9f59a8107a47bd6af026",
+      "bytes": 161
+    },
+    "assets/platform/css-7FCRZHMO.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/go-ZQGODOV5.js": {
+      "sha256": "ef568f957c6c75481b3bb79699a09ce0be36be7539d1a4123ecca5579f8d262e",
+      "bytes": 47045
+    },
+    "assets/platform/go-ZQGODOV5.js.map": {
+      "sha256": "b6f066e66f4eb851528e62807a7738ec3b3609dd7a86220dad99b43459c722dc",
+      "bytes": 66566
+    },
+    "assets/platform/html-P2WV46NV.js": {
+      "sha256": "32bdeab871c420eefc381e01c019df0f5e2d79fd9f79f225742db45b66a2c917",
+      "bytes": 194
+    },
+    "assets/platform/html-P2WV46NV.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/ini-7CZJGSDF.js": {
+      "sha256": "ac6a4f4b1747f6daa773b06f8020727ddf72b4f8ee7aa635bc3676ce40831643",
+      "bytes": 1756
+    },
+    "assets/platform/ini-7CZJGSDF.js.map": {
+      "sha256": "069d34693418cc2af57fdc8b17e7cda5505a686183981ddd692a263bacfdcc91",
+      "bytes": 2429
+    },
+    "assets/platform/java-TEXK3R62.js": {
+      "sha256": "b77615e72362bcfbb18be77907e32b1584cfa7a2b79261c99a305bb1d97610b5",
+      "bytes": 164
+    },
+    "assets/platform/java-TEXK3R62.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/kotlin-27BVSPCN.js": {
+      "sha256": "535e35d6ecaa6131e056282958c921cdbe739a4b98f79448e3e503701db64b1a",
+      "bytes": 9028
+    },
+    "assets/platform/kotlin-27BVSPCN.js.map": {
+      "sha256": "cb72d26735c77b9d198a532d240216085f9b31269b3e2e8101686ebcf37fe450",
+      "bytes": 12739
+    },
+    "assets/platform/less-XJSW6QT4.js": {
+      "sha256": "ba4cdf986e8a7dc245da120b751cd21d59bc13fa9d5805cfb70dc432c0edc8ae",
+      "bytes": 98848
+    },
+    "assets/platform/less-XJSW6QT4.js.map": {
+      "sha256": "8a438c60aebfb71ea0d71bf8ab64433e312b75d872c926df9c7ceec653d810f0",
+      "bytes": 132999
+    },
+    "assets/platform/lua-YGHFLW63.js": {
+      "sha256": "2b040e1f04364ecaf8932f20843719c8946339e267f6cc7174730eed2a6e2e6e",
+      "bytes": 191
+    },
+    "assets/platform/lua-YGHFLW63.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/markdown-OC5T4DHW.js": {
+      "sha256": "5f206d90f0c9f2b4b3df58ce48ba669982c2126a958b5676afc0038cd626cdca",
+      "bytes": 59586
+    },
+    "assets/platform/markdown-OC5T4DHW.js.map": {
+      "sha256": "2e2ba4abd0f6697243df5edcca403e5dbefb7b5c76b11cc6ed83dabb1947e091",
+      "bytes": 82281
+    },
+    "assets/platform/mdx-GTI6RKTQ.js": {
+      "sha256": "86f1b6f74200e997972d2c143ead8d8e6615ed11c757d97266485359270f936f",
+      "bytes": 136345
+    },
+    "assets/platform/mdx-GTI6RKTQ.js.map": {
+      "sha256": "e1918760d6ef3fdd41b0322eccad79f4855f480d4c50f49bb36d109a88296278",
+      "bytes": 176679
+    },
+    "assets/platform/php-OZOXY4UV.js": {
+      "sha256": "9dfa3b1b228bd2c8eb9528831ceca13ada8bcb678b1fc8c11eeccc2c5972ad00",
+      "bytes": 113493
+    },
+    "assets/platform/php-OZOXY4UV.js.map": {
+      "sha256": "fa1746c4c932d617340524494be2c239b67af8f5ee584c8796f421cecf6c4cf0",
+      "bytes": 141992
+    },
+    "assets/platform/python-ETCUCBXH.js": {
+      "sha256": "2f85948cf9790fbb3e210d87d60fe522da2ff6a46d5ed15e105d42c0e03e0fc6",
+      "bytes": 70195
+    },
+    "assets/platform/python-ETCUCBXH.js.map": {
+      "sha256": "459b77c27aecc9e1fbd4d9611daa2fe5eb7768cc5bef531d5018cc2ffbea017c",
+      "bytes": 95193
+    },
+    "assets/platform/ruby-JZGNQ46O.js": {
+      "sha256": "89b2b40cfd23fbbfb755f5dc206926fd07940307c4bab412774908e1c4e5874c",
+      "bytes": 427023
+    },
+    "assets/platform/ruby-JZGNQ46O.js.map": {
+      "sha256": "d4242bf8d6ba888f62e9ab82df5363e9813f8aaea08d8684ed0b93b25a2d200e",
+      "bytes": 579121
+    },
+    "assets/platform/rust-7F2HKJI5.js": {
+      "sha256": "0dea05b41622ec850e995ac93f13c61b74c5bf8a4a095dc3fcdc80af880bb9f0",
+      "bytes": 15304
+    },
+    "assets/platform/rust-7F2HKJI5.js.map": {
+      "sha256": "1924c2520d49aa4655fb00f5cdb030f2b4928c032797aebf898cd640a6518076",
+      "bytes": 21423
+    },
+    "assets/platform/scss-PYTWQYZT.js": {
+      "sha256": "e2ba890fb26da1cc8fbc00c7a604772592d82a34955fbff078e4497a79dbb942",
+      "bytes": 27472
+    },
+    "assets/platform/scss-PYTWQYZT.js.map": {
+      "sha256": "4e6785dece0cb4235a70da5d800e47d0c4dac3e67ccc3c6194f01e5d37347859",
+      "bytes": 38283
+    },
+    "assets/platform/sql-ELCFMKM3.js": {
+      "sha256": "8dabc3f06018d9b53741cc52a210ca91b79f38119492e3b3b974a57d0de2e31e",
+      "bytes": 161
+    },
+    "assets/platform/sql-ELCFMKM3.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/swift-YDT54AMB.js": {
+      "sha256": "767a669e7a7509c75775dfd41a64437c165426e236c715fcf999e45d5cbbce5f",
+      "bytes": 88323
+    },
+    "assets/platform/swift-YDT54AMB.js.map": {
+      "sha256": "ba7f6a11fac1cbeba174baa8a80161a0369cd35d79328325f7d19405d6351f24",
+      "bytes": 116149
+    },
+    "assets/platform/toml-JWLQEKZH.js": {
+      "sha256": "23d4668f9ade045f5052192517f809920da1db49682630a6c90ab20f0b953a7d",
+      "bytes": 6661
+    },
+    "assets/platform/toml-JWLQEKZH.js.map": {
+      "sha256": "23f9c74178475278d2801cf0b0eb47d710e4447f2467420ecd38f236a7d329bb",
+      "bytes": 9433
+    },
+    "assets/platform/xml-KMXWDCDL.js": {
+      "sha256": "18a4865edac39e877bd0cdffa9679c4477a18514ffe94aed95eb83401e639d61",
+      "bytes": 191
+    },
+    "assets/platform/xml-KMXWDCDL.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "assets/platform/yaml-O3JHHXZ5.js": {
+      "sha256": "ac67738ec0b8fdb95c45882478f1e4a7888f2a5c14e3297db51d11a1be48e672",
+      "bytes": 164
+    },
+    "assets/platform/yaml-O3JHHXZ5.js.map": {
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9",
+      "bytes": 93
+    },
+    "client-graph.json": {
+      "sha256": "1701546a23a71c98da7e13dd15c36d07c6b28d861622c5947e2203fc019f56b2",
+      "bytes": 24447
+    },
+    "desktop-startup.js": {
+      "sha256": "e72442854656fb49c910ef80c6e5e22c7510870562bc9cefef8a02a0680fd359",
+      "bytes": 1266
+    },
+    "desktop-titlebar.css": {
+      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84",
+      "bytes": 587
+    },
+    "desktop-titlebar.js": {
+      "sha256": "d0ca4dc6408fc740d1ba7bb50d932d91038253126c44ea822e40925f7150e6a8",
+      "bytes": 876
+    },
+    "desktop-updater.js": {
+      "sha256": "94f640dff2ac7a8aaa982ea1a4fa0ce9c0e2ba5a0d4fff50308cbfd670e373c5",
+      "bytes": 14154
+    },
+    "favicon.png": {
+      "sha256": "e5ed34820e7aa887e799a148057cc0825c7b0e5e642eebdef6c6c180c8f14a91",
+      "bytes": 4729
+    },
+    "index.html": {
+      "sha256": "bccfc45d74bc04f21a0c20ce616200be6db67f4a3b8e8eeb93f20898bde54049",
+      "bytes": 21160
+    },
+    "logo-motion.css": {
+      "sha256": "2d34fc5ec1473d3513e1968dd686116d402b10efb4d0cf51e9a2966ca7b7e8a7",
+      "bytes": 1393
+    },
+    "logo-motion.js": {
+      "sha256": "d0f3c4454ab44fc78fb794100ffd4384db0690d7f3094cea7fcb2fbd14c47bfa",
+      "bytes": 254
+    },
+    "manifest.webmanifest": {
+      "sha256": "a3afb2088b64cedaa3269998b2ff90bbd979dea08b1f9684e63d3507f8442469",
+      "bytes": 263
+    },
+    "monochrome.css": {
+      "sha256": "2905f1eccd5e04776bd48cb55bae51446096b776868e10ac1572aa779daad8cc",
+      "bytes": 6476
+    },
+    "motion-tokens.css": {
+      "sha256": "ffe8b346f9d0721ce9dbc7c471cc47db309819049c92fc7eca4c1e6c5ad4db8d",
+      "bytes": 600
+    },
+    "plugins/@xharness/dsh-api-gateway/client.js": {
+      "sha256": "879973d6a05423507e294a0789b6a663cd7cbb2547395aac434d40394e08b092",
+      "bytes": 26151
+    },
+    "plugins/@xharness/dsh-api-remotes/client.js": {
+      "sha256": "4c61895afefd2b2dcfb305109750de2f2e9d819ffba5e921536653bfe80eb227",
+      "bytes": 799838
+    },
+    "plugins/@xharness/dsh-client-connection/client.js": {
+      "sha256": "9a7f5772b02302018071c9d687ef5fde5679c8f2b9b9b5172b086b8a5dae48fb",
+      "bytes": 1039861
+    },
+    "plugins/@xharness/dsh-client-hmr/client.js": {
+      "sha256": "c8348588a17097f5ff0a9798febbca83b76dea7c65fc050f8eec40446180ca28",
+      "bytes": 8283
+    },
+    "plugins/@xharness/dsh-client-locale/client.js": {
+      "sha256": "359baac0afefbbcf6b9e93a1f2e3876209bb0d13dbb3b55e32c6aa17759518d3",
+      "bytes": 25079
+    },
+    "plugins/@xharness/dsh-client-modules/client.js": {
+      "sha256": "03839e8573357edc07cfd0a99394cfa5afaa71c8d7e50e9721b38c0b83686632",
+      "bytes": 18939
+    },
+    "plugins/@xharness/dsh-client-runtime/client.js": {
+      "sha256": "30bb424015d5052b3db7ea91aabb19dffd99f46d4a93e3508537f20e924f2d90",
+      "bytes": 1150206
+    },
+    "plugins/@xharness/dsh-client-ui-agent-preset/client.js": {
+      "sha256": "d323ea922a1d5bee0772a6df74e01b6207ded6c92180e1f2eec5b719a972e2e4",
+      "bytes": 58327
+    },
+    "plugins/@xharness/dsh-client-ui-attachment/client.js": {
+      "sha256": "c957e4b673a876bcdf756d9001fd6bc4c1d71a12cae3878d72859b57dba48220",
+      "bytes": 37320
+    },
+    "plugins/@xharness/dsh-client-ui-brand-official/client.js": {
+      "sha256": "eca37c4c65762e4ec7f2a4424bf0d1a714bebe959573e72d6e07b6d5b821fff3",
+      "bytes": 2940
+    },
+    "plugins/@xharness/dsh-client-ui-commands/client.js": {
+      "sha256": "52d6456fe6a9617dd607a48391dec904990c35348149064dbcdc2c39f2e9df02",
+      "bytes": 59312
+    },
+    "plugins/@xharness/dsh-client-ui-conversation/client.js": {
+      "sha256": "47b85231641fc30b973e186ff02a5435946ea3fd7cc9c83e284ea7e24cc13d44",
+      "bytes": 1354325
+    },
+    "plugins/@xharness/dsh-client-ui-cordis/client.js": {
+      "sha256": "806599dc2b8a73a39d65c5ce991a3efc3d4548f564ec422d1e1f3acbcfdda909",
+      "bytes": 805774
+    },
+    "plugins/@xharness/dsh-client-ui-deliverables/client.js": {
+      "sha256": "0231fcd8a83d995726326569b0e6c78bf184da1c3eacc46ab5dd3701d7bf67e9",
+      "bytes": 21837
+    },
+    "plugins/@xharness/dsh-client-ui-goal/client.js": {
+      "sha256": "499570ce70bf42d3afc69331b0593a8d87d4b60e4d1d947436795508dbefc00c",
+      "bytes": 28300
+    },
+    "plugins/@xharness/dsh-client-ui-input-trigger/client.js": {
+      "sha256": "a1c00319eb51afcc61d9cd40b13bafc9137c51b3ffd2d911d51bf4ccf3e6c617",
+      "bytes": 50130
+    },
+    "plugins/@xharness/dsh-client-ui-jobs/client.js": {
+      "sha256": "d964a6c31b3a43eeb3321ecd0457e6c5891ed0f7d05d7caa640404d80f55a215",
+      "bytes": 16365
+    },
+    "plugins/@xharness/dsh-client-ui-layout/client.js": {
+      "sha256": "2866653445c9470dd937580bd409bdc03a7cddc0787c5c219facc3df56a800f4",
+      "bytes": 52125
+    },
+    "plugins/@xharness/dsh-client-ui-message-feedback/client.js": {
+      "sha256": "2d6f961ab42edb154db4d89b0422d310b5d07fc66196aa60c79f4aa39c41287c",
+      "bytes": 39175
+    },
+    "plugins/@xharness/dsh-client-ui-model-selection/client.js": {
+      "sha256": "433477e33634872cf8644f147fc752033e2234e4fc83fe8907c9c4397a411567",
+      "bytes": 86300
+    },
+    "plugins/@xharness/dsh-client-ui-permission-presets/client.js": {
+      "sha256": "a93a88670a10692e846fdc33fe5303b7e9753d68c63efc943e2cf56407d7a094",
+      "bytes": 28464
+    },
+    "plugins/@xharness/dsh-client-ui-plan/client.js": {
+      "sha256": "b4b7991e520f95d73eaecd9c65827fefe524f2ad4c7dd6703fb89ff0496f089f",
+      "bytes": 9207
+    },
+    "plugins/@xharness/dsh-client-ui-reference/client.js": {
+      "sha256": "a7fd86ce133facfffdf09f7c13c45a91c1fccc88b41775048c6ea52adbcc6cb0",
+      "bytes": 10439
+    },
+    "plugins/@xharness/dsh-client-ui-renderer/client.js": {
+      "sha256": "6e5cf6817f5a8810874df9a0f3b440b94081bdc1c95b9ea3b630e4d763edf037",
+      "bytes": 54730
+    },
+    "plugins/@xharness/dsh-client-ui-settings-general/client.js": {
+      "sha256": "12c5b5f9610eb85df9263a184b9225b3a419d7142c83bd64defb889a6fa76ed3",
+      "bytes": 35710
+    },
+    "plugins/@xharness/dsh-client-ui-settings-models/client.js": {
+      "sha256": "75c956204b822ffd97a0b72e8fe86cb08ac76a1ca286bd4e1d0ed33fdb6f70b2",
+      "bytes": 149839
+    },
+    "plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js": {
+      "sha256": "7ab5dab9511d05a8a48581d2380e07a9307b04eb3c546485fd938dd9893a4dd1",
+      "bytes": 20106
+    },
+    "plugins/@xharness/dsh-client-ui-settings-plugins/client.js": {
+      "sha256": "504a8f05b35f701e5bc026c914b88835d5122c328c3e4cf069ae2765d5f56564",
+      "bytes": 68032
+    },
+    "plugins/@xharness/dsh-client-ui-settings/client.js": {
+      "sha256": "ce8441f73f4bdf8b87ec2dcb0229f14d4db582bb7f90339565e3ca17c961da56",
+      "bytes": 71352
+    },
+    "plugins/@xharness/dsh-client-ui-sidebar/client.js": {
+      "sha256": "8cbcb311fef20f6fd05817c4ec4b691e5056515fdf566e3f970ecb110dafa38d",
+      "bytes": 21113
+    },
+    "plugins/@xharness/dsh-client-ui-skill/client.js": {
+      "sha256": "2aaa498f725aa6ebea59db1324ed7c88035975ca891a2804f4588c4dff454ec2",
+      "bytes": 21393
+    },
+    "plugins/@xharness/dsh-client-ui-subagent/client.js": {
+      "sha256": "b8f2d8342a043968803d1e6f76a628145121088dfbf400d9c7ed51dc1b86b368",
+      "bytes": 39750
+    },
+    "plugins/@xharness/dsh-client-ui-theme/client.js": {
+      "sha256": "6e59df070659fc097a4a5e2d5d81bb4bc67ebc68b937c23bbb5791d6adaa332d",
+      "bytes": 56553
+    },
+    "plugins/@xharness/dsh-client-ui-tool/client.js": {
+      "sha256": "18824b78d3927a50a97e1fe33b4f99549e0664bda1af8aaa16ff7bc04d0f3605",
+      "bytes": 852964
+    },
+    "plugins/@xharness/dsh-client-ui-trajectory/client.js": {
+      "sha256": "c37024c5c907cf96f8f4d06c9ac4f12c5da27a97ec6fa99a49a085f9a1671dc0",
+      "bytes": 1216431
+    },
+    "plugins/@xharness/dsh-client-ui-user-questions/client.js": {
+      "sha256": "307ec76f3198fe786e32b561975597bf822d613fdd24093491152a4eca06df36",
+      "bytes": 46713
+    },
+    "plugins/@xharness/dsh-client-ui-workflow-run/client.js": {
+      "sha256": "9e107abb29cd4096ba24ed85102c0096dd9aa6d4433aab4ea7db955afd748499",
+      "bytes": 32263
+    },
+    "plugins/@xharness/dsh-client-ui-workspace/client.js": {
+      "sha256": "50ac6be0729b1ae9b15f7f9f4748a6cf5f67643eaa32b1c195dc0cc4592e6f5e",
+      "bytes": 853785
+    },
+    "plugins/@xharness/dsh-cordis-client-runner/client.js": {
+      "sha256": "b9aeb5bfed35f67148444834c56c34c3e4ee430a1f24ebc2c6ad3a92defd4f6e",
+      "bytes": 987428
+    },
+    "plugins/@xharness/dsh-session-log-export/client.js": {
+      "sha256": "59681e1f7f38704640ddd587de3d730daa9d1cfd835c4c708ea10e3dc63da1ed",
+      "bytes": 17216
+    },
+    "plugins/@xharness/dsh-typert-registry/client.js": {
+      "sha256": "3e9b37b38aaf7b6c04a638264aedfb3a53491ccd87a8bbb1007f5943a700d0d2",
+      "bytes": 743197
+    },
+    "plugins/@xlang/xharness-client-plugin-api/client.js": {
+      "sha256": "df710cb3f74a746bb296abd277852efa3ba27620c5cc4ce61f1234c36a20be5a",
+      "bytes": 12545
+    },
+    "plugins/@xlang/xharness-client-ui-browser/client.js": {
+      "sha256": "a1ad3602b57c10326a38a5afb0bd8d954cdd22769460aabd2b0fefcf986ccd6b",
+      "bytes": 44509
+    },
+    "plugins/@xlang/xharness-client-ui-computer/client.js": {
+      "sha256": "c200f064a82f0933f7909c1b550df1d3ffebc142f5175b295464899432a614ce",
+      "bytes": 23265
+    },
+    "plugins/@xlang/xharness-client-ui-context/client.js": {
+      "sha256": "090db52474b430ed30be4c042982c82bb6df97094a3ad27c83cc9ed828b9ef45",
+      "bytes": 56846
+    },
+    "plugins/@xlang/xharness-client-ui-directory/client.js": {
+      "sha256": "d21f7489a892c77a3802cf78e7d8400b8cbce248353b2b875bda9353f3eec333",
+      "bytes": 22617
+    },
+    "plugins/@xlang/xharness-client-ui-experience/client.js": {
+      "sha256": "9a839f79143b0332cc00039b40a8c63509a4a94597ca3fef156421f271a015c4",
+      "bytes": 15094
+    },
+    "plugins/@xlang/xharness-client-ui-motion/client.js": {
+      "sha256": "7a48f9eee224b4e1e462b53508572504b22edab84c4e68189dca5790f8c6c56d",
+      "bytes": 9457
+    },
+    "plugins/@xlang/xharness-client-ui-plugin-hub/client.js": {
+      "sha256": "a6050f1649f98990d37d9d01478c4c5a203cd7dd373386eec27bbe329e061fa0",
+      "bytes": 18453
+    },
+    "plugins/@xlang/xharness-client-ui-profile/client.js": {
+      "sha256": "9f120c5a93d0e2dc931ea0b47d20d0f95b0f360527e97482fc44d73f3ea0d9d5",
+      "bytes": 22310
+    },
+    "plugins/@xlang/xharness-client-ui-schedule/client.js": {
+      "sha256": "632f0b56d8710835ba54acab5195495f6b921094c6491f5546228a060896d0d3",
+      "bytes": 20688
+    },
+    "plugins/@xlang/xharness-client-ui-tasks/client.js": {
+      "sha256": "40c004fafb66af3c72d54c4b2cb5f489b6befe5be4023d93f5d8cdea59e1034e",
+      "bytes": 56359
+    },
+    "plugins/@xlang/xharness-client-ui-terminal/client.js": {
+      "sha256": "e8ac0e487cffe5dfcf9c1d71b0e07d2307901e3878cad487c5318480aa1ebe12",
+      "bytes": 36714
+    },
+    "plugins/@xlang/xharness-client-ui-terminal/vendor/LICENSE-xterm.txt": {
+      "sha256": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd",
+      "bytes": 1261
+    },
+    "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.css": {
+      "sha256": "ba8e6985669488981ccf40c0cefe3aba80722cb6c92de7ad628b0bd717faf2b6",
+      "bytes": 5559
+    },
+    "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js": {
+      "sha256": "1f991ac3b4b283ebf96e60ae23a00a52765dd3a2e46fa6fdda9f1aab032f7495",
+      "bytes": 289441
+    }
+  }
+}

@@ -1,0 +1,8 @@
+=== question chromium source ===
+chromium/source: question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation, automatic fold, restored fold, normal composer, approval isolation, narrow layout, multiselect/custom, IME, rejected/failed retry, one-shot, skip and plan decision passed
+=== question chromium legacy ===
+chromium/legacy: question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation, automatic fold, restored fold, normal composer, approval isolation, narrow layout, multiselect/custom, IME, rejected/failed retry, one-shot, skip and plan decision passed
+=== question webkit source ===
+webkit/source: question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation, automatic fold, restored fold, normal composer, approval isolation, narrow layout, multiselect/custom, IME, rejected/failed retry, one-shot, skip and plan decision passed
+=== question webkit legacy ===
+webkit/legacy: question deferred banner, draft preserved, no implicit answer, repeated frame, session isolation, automatic fold, restored fold, normal composer, approval isolation, narrow layout, multiselect/custom, IME, rejected/failed retry, one-shot, skip and plan decision passed

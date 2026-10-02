@@ -2,8 +2,9 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
+import {scriptAsset,scriptAssetDist} from './fixtures/script-asset-test.mjs'
 
-const source = await readFile(new URL('../ui/desktop/updater.js', import.meta.url), 'utf8')
+const source = scriptAsset('desktop-updater.js')
 const window = {}
 vm.runInNewContext(source, { window }) // Browser/SSR: no Tauri or DOM must be harmless.
 const { updateView, createController } = window.__XHARNESS_DESKTOP_UPDATER_TEST__
@@ -136,9 +137,12 @@ class Element {
   remove() { this.removed = true }
   attachShadow() { return this.root = new Root() }
 }
+class ButtonElement extends Element {}
+class ProgressElement extends Element {}
+class KeyEvent {constructor(key) {this.key = key}}
 class Root extends Element {
   constructor() { super(); this.nodes = new Map() }
-  querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, new Element()); return this.nodes.get(selector) }
+  querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, (selector === '.action' ? new ButtonElement() : selector === 'progress' ? new ProgressElement() : new Element())); return this.nodes.get(selector) }
 }
 async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null } = {}) {
   const calls = [], timers = [], intervals = [], attached = []
@@ -155,7 +159,7 @@ async function boot({ configured = true, initial = snapshot(0, 'idle'), statusEr
     clearTimeout: () => {}, clearInterval: () => {},
     addEventListener: (name, callback) => { if (name === 'pagehide') pagehide = callback },
   }
-  vm.runInNewContext(source, { window: win, document: dom })
+  vm.runInNewContext(source, { window: win, document: dom, HTMLElement: Element, HTMLButtonElement: ButtonElement, HTMLProgressElement: ProgressElement, KeyboardEvent: KeyEvent })
   await new Promise(resolve => setImmediate(resolve))
   return { host: attached[0], calls, timers, intervals, setRemote: value => { remote = value }, emit: value => listener?.({ payload: value }), exit: () => pagehide(), get unlistened() { return unlistened } }
 }
@@ -179,7 +183,7 @@ await test('real DOM bridge shows left blue icon, safe notes, confirmation and c
   assert.equal($('.action').textContent, '重启更新')
   await $('.action').listeners.click()
   assert.equal($('.confirm').hidden, false)
-  b.host.root.listeners.keydown({ key: 'Escape' })
+  b.host.root.listeners.keydown(new KeyEvent('Escape'))
   assert.equal($('.confirm').hidden, true)
   assert.equal($('.panel').hidden, true)
   assert.equal(b.calls.some(([command]) => command === 'desktop_install_update'), false)
@@ -229,9 +233,11 @@ assert.deepEqual(capability.remote.urls, ['http://127.0.0.1:*'])
 const config = JSON.parse(await readFile(new URL('../apps/desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'))
 assert.equal(typeof config.plugins?.updater?.pubkey, 'string')
 assert.equal(config.bundle.createUpdaterArtifacts, true)
-const built = await readFile(new URL('../ui/dist/desktop-updater.js', import.meta.url), 'utf8')
+if (process.env.UI_TEST_SCRIPT_ONLY !== '1') {
+const built = await readFile(scriptAssetDist('desktop-updater.js'), 'utf8')
 assert.equal(built, source, 'checked-in Web bundle must contain current updater')
-const index = await readFile(new URL('../ui/dist/index.html', import.meta.url), 'utf8')
+const index = await readFile(scriptAssetDist('index.html'), 'utf8')
 const updaterRev = createHash('sha256').update(source.replaceAll('\r\n', '\n')).digest('hex').slice(0, 16)
 assert.ok(index.includes('/desktop-updater.js?rev=' + updaterRev), 'updater cache revision must match shipped source')
-console.log(assertions + ' desktop updater tests passed, plus bundle/config checks')
+}
+console.log(assertions + ' desktop updater tests passed; ' + (process.env.UI_TEST_SCRIPT_ONLY === '1' ? 'batch unit/config only (bundle freshness not accepted)' : 'bundle/config verified'))

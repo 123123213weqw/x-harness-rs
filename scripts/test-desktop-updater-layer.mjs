@@ -1,5 +1,7 @@
 // Real browser stacking/hit-testing with shipped chat overlay CSS; no user data.
+import {verifyArtifact,shippedUnitValue} from './fixtures/shipped-source-values.mjs'
 import assert from 'node:assert/strict'
+import {scriptAsset} from './fixtures/script-asset-test.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve, dirname, join } from 'node:path'
@@ -9,12 +11,11 @@ const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? repo, 'package
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
-const bundle = readFileSync(join(repo, 'ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js'), 'utf8')
-const line = bundle.split('\n').find(line => line.includes('const css') && line.includes('overlayLayer'))
-assert.ok(line, 'Shipped chat layout overlay CSS must exist')
-const css = JSON.parse(line.trim().match(/^const \S+ = (".*");$/)[1])
+const bundle = verifyArtifact('@xharness/dsh-client-ui-layout')
+const css = shippedUnitValue(bundle,'src/modules/layout/AppFrame.css')
+assert.ok(css.includes('overlayLayer'),'actual layout overlay CSS')
 const overlayClass = css.match(/\.([\w-]*overlayLayer)\s*\{/)[1]
-const source = readFileSync(join(repo, 'ui/desktop/updater.js'), 'utf8')
+const source = scriptAsset('desktop-updater.js')
 const output = process.env.UI_TEST_OUTPUT
 if (output) mkdirSync(output, { recursive: true })
 const browser = await ({ chromium, webkit }[engine]).launch({

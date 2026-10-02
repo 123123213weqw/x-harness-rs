@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {resolve} from 'node:path';
+import {sourceDeclaration} from './fixtures/source-declaration.mjs';
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/xharness-model-ui-tests','package.json'));
 const {chromium,webkit}=require('playwright');
 const browser=await ({chromium,webkit}[process.env.UI_TEST_BROWSER??'chromium']).launch({headless:true,
@@ -13,7 +14,11 @@ try {
   page.on('pageerror',error=>errors.push(error.message));
   await page.setContent('<html lang="zh"><body style="font:16px system-ui;background:#f5f5f5"><dialog style="width:440px;border:1px solid #ddd;border-radius:12px;padding:24px"><h2>设置 / Settings</h2><label>外观 <select><option>深色 / Dark</option></select></label><p>隔离的保存失败测试，不连接客户端。</p></dialog></body></html>');
   await page.evaluate(()=>document.querySelector('dialog').showModal());
-  await page.addScriptTag({content:readFileSync(new URL('../ui/overrides/settings-save-feedback.js',import.meta.url),'utf8')});
+  const shipped=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-settings/client.js',import.meta.url),'utf8');
+  const noticeCode=process.env.UI_TEST_IMPL==='legacy'
+    ? readFileSync(new URL('../ui/overrides/settings-save-feedback.js',import.meta.url),'utf8')
+    : sourceDeclaration(shipped,'settingsSaveFeedback')+'\nwindow.xhSettingsSaveFeedback=settingsSaveFeedback;';
+  await page.addScriptTag({content:noticeCode});
   await page.locator('select').focus();
   await page.evaluate(()=>{for(let i=0;i<20;i++) xhSettingsSaveFeedback('ui-theme',true)});
   const notice=page.getByRole('alert');

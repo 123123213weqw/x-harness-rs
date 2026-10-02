@@ -1,0 +1,6 @@
+=== test-assistant-projection ===
+source assistant projection: text-first/interleaving/Unicode/tools/reasoning-only/text-only/empty/final/interrupted/refresh passed
+legacy assistant projection: text-first/interleaving/Unicode/tools/reasoning-only/text-only/empty/final/interrupted/refresh passed
+=== test-retry-turn-projection ===
+source retry turn projection: live/reload/all page splits/duplicate delivery/error ownership passed; old numbering reproduces the failure
+legacy retry turn projection: live/reload/all page splits/duplicate delivery/error ownership passed; old numbering reproduces the failure

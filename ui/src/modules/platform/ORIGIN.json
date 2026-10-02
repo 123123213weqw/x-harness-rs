@@ -1,0 +1,433 @@
+{
+  "formatVersion": 1,
+  "sourceRepository": "https://github.com/deepseek-ai/deepseek-harness",
+  "sourceRevision": "141eb6fef83422698aef7a981029e843e8161534",
+  "sourceMode": "one-time real TypeScript source import; local owned adaptation, no external build reads",
+  "files": [
+    {
+      "original": "apps/web/src/main.ts",
+      "local": "main.ts",
+      "sha256": "93f3a8ebe05b129e20767f163ee39f0c986e6996823d35aa21f4824c69820646"
+    },
+    {
+      "original": "apps/web/src/node-module-stub.ts",
+      "local": "node-module-stub.ts",
+      "sha256": "d2164a8356d534a2a4fd5524c0e55b08146e959bac142e4beea1b57ff59c7bdc"
+    },
+    {
+      "original": "packages/client/web/src/boot-page.ts",
+      "local": "web/boot-page.ts",
+      "sha256": "6a25433fd9db125253a0c80973ec55962f2a890b1f8a551da118a41d0e275dec"
+    },
+    {
+      "original": "packages/client/web/src/invariant.ts",
+      "local": "web/invariant.ts",
+      "sha256": "f5f8363dca9203adf2ed68e8722ed221c2270f3c5b4c9113962208b297fe7444"
+    },
+    {
+      "original": "packages/client/web/src/loader-status.ts",
+      "local": "web/loader-status.ts",
+      "sha256": "030f657975cefa65ad44a735170c2894a9d1a8f545a867e84af22eb8cf442a8c"
+    },
+    {
+      "original": "packages/client/web/src/seed.ts",
+      "local": "web/seed.ts",
+      "sha256": "23d1e8619ac2dfc0dbf8008903bf0f7d1e5ea5c94861e3684495ef05d5fe0828"
+    },
+    {
+      "original": "packages/client/web/src/platform.ts",
+      "local": "web/platform.ts",
+      "sha256": "30f3434a1c1b1b30b9543cfe37db57091adb855eb871ec8b20b8b01cb82078cd"
+    },
+    {
+      "original": "packages/client/web/src/boot-page.module.css",
+      "local": "web/boot-page.module.css",
+      "sha256": "8f2b9e3bed7d22f544400cf62123c0ad88d0b6dfa14d30fe5c3c185a3601b90d"
+    },
+    {
+      "original": "packages/client/web/src/css-modules.d.ts",
+      "local": "web/css-modules.d.ts",
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f"
+    },
+    {
+      "original": "packages/client/web/src/boot.ts",
+      "local": "web/boot.ts",
+      "sha256": "c0a0d59b14cffc09fb3ce62963806d2c669c2dfa04005c9f2d53bf50c337385e"
+    },
+    {
+      "original": "packages/client/web/src/index.ts",
+      "local": "web/index.ts",
+      "sha256": "d9ea9554d6a2e141decf619e09d341220fde4f1917b1d5e245c0fdf33c422579"
+    },
+    {
+      "original": "packages/client/web/src/base.css",
+      "local": "web/base.css",
+      "sha256": "d4b536f3ead1e892804df4899637f6a391be33cf3d9c1ff6dafc1f6be2176faa"
+    },
+    {
+      "original": "packages/client/ui-slots/src/invariant.ts",
+      "local": "slots/invariant.ts",
+      "sha256": "527ec255598117aaeb015beebca0267185a1d311dbff1d5e06da73268a670edb"
+    },
+    {
+      "original": "packages/client/ui-slots/src/renderer.ts",
+      "local": "slots/renderer.ts",
+      "sha256": "bca7143c736144006e7d9629a312834c6c71f7faa883c57654c468a50127a2c7"
+    },
+    {
+      "original": "packages/client/ui-slots/src/index.ts",
+      "local": "slots/index.ts",
+      "sha256": "e6864a24048dc40a4d874694d237713b7803e27c2877566c99050d597d9b4c8c"
+    },
+    {
+      "original": "packages/client/ui-slots/src/store.ts",
+      "local": "slots/store.ts",
+      "sha256": "4e585f35facf55899826a34d53a022614b8c5c52bdb18b50f196607a28b607bb"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Modal.module.css",
+      "local": "primitives/Modal.module.css",
+      "sha256": "ebfe5549125cb0e1b1d86858e2f1021d0209c25d590a466be9cd5127097a74dc"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/BrandWordmark.tsx",
+      "local": "primitives/BrandWordmark.tsx",
+      "sha256": "146a7382ff79d13910b7cf062eecbb034b61ec69b3f3292a16d4b68fb3c33ff7"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/OnboardingSurface.module.css",
+      "local": "primitives/OnboardingSurface.module.css",
+      "sha256": "82c4cd7e345a8e64d2b4817d15823692fa344f3458852207c0863bf3dd414b56"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/ConnectionBanner.module.css",
+      "local": "primitives/ConnectionBanner.module.css",
+      "sha256": "17588efc8567f1bf595e339619b9abf90d6129c048c93854ce58f0fa6a6d87fd"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/clipboard.ts",
+      "local": "primitives/clipboard.ts",
+      "sha256": "f3c5ff3d5ac550adda2366e245d33cf4d91d219bfb8692ef1943866d83748a0f"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/StateDot.module.css",
+      "local": "primitives/StateDot.module.css",
+      "sha256": "44b426f2016989477e5e7702f817057f328f6f46428c07ce0deae10dd8fad3b9"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Toast.module.css",
+      "local": "primitives/Toast.module.css",
+      "sha256": "83b40e61e998525bdc2f3bf2457868d6ca1533c23fc31e04ef01e0bf5b96dc48"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/ansi.ts",
+      "local": "primitives/ansi.ts",
+      "sha256": "774b3063a6f7ad108f2123887d089c022f92af89d718f71493667de3effd9196"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/invariant.ts",
+      "local": "primitives/invariant.ts",
+      "sha256": "f606f6d99f93f3eb93bbe9f1834f5067830ef6eb1774d263680a5528ca24e099"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/TerminalBlock.tsx",
+      "local": "primitives/TerminalBlock.tsx",
+      "sha256": "703b1a7b5b3499b727e76de36d53b18b71f7012987abf7e86d0d3d2bc2d7c0c5"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Button.module.css",
+      "local": "primitives/Button.module.css",
+      "sha256": "4666bf191abc8b6bcfd4e22355bab0c2f04391b85c2e918bd882a37ff68ef2b9"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/head-tail-cap.ts",
+      "local": "primitives/head-tail-cap.ts",
+      "sha256": "e93b5f6972fa57109f25bfe36e1d3e6f2c68981c425f4a7c486ceed92b1fbb19"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/RiskConfirmation.tsx",
+      "local": "primitives/RiskConfirmation.tsx",
+      "sha256": "c207b7394393c190e6bc2b0eff21251f6902084702325d0df57313af880348bb"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Tooltip.tsx",
+      "local": "primitives/Tooltip.tsx",
+      "sha256": "9e2c238d1c940df71910ffe1cefc7cd8a9e400216296f537108029b3b4c71409"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/pointer-grace.ts",
+      "local": "primitives/pointer-grace.ts",
+      "sha256": "9b0504ccb33be56fdefef78ea7c2b73f396f5e98f381f0e101a769916c66a4e2"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/TerminalBlock.module.css",
+      "local": "primitives/TerminalBlock.module.css",
+      "sha256": "fccd47134a144ec41c4780c5b9d3a49a35bcba29c96eb29c8b86e9ba325b0621"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/ConnectionBanner.tsx",
+      "local": "primitives/ConnectionBanner.tsx",
+      "sha256": "cab4f37d2eb351141af37f32b81425b767209e6d905a4931ad2675f82b2a535c"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/HoverCard.tsx",
+      "local": "primitives/HoverCard.tsx",
+      "sha256": "c799c45a97074e7dbd0a6ea549a39ba11dea349c9760ef9f417ef1e650c2ab35"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/WebBlock.tsx",
+      "local": "primitives/WebBlock.tsx",
+      "sha256": "2cd934d5d26fb96ec7c4d913a7c5aecee3338e705468e5c9966b810f025f7a15"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/ReadBlock.module.css",
+      "local": "primitives/ReadBlock.module.css",
+      "sha256": "f792edcceb6ad66fa2fd53500997c0a271a8b812cf1f6465bf752a063bcb491b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/ReadBlock.tsx",
+      "local": "primitives/ReadBlock.tsx",
+      "sha256": "20b382517bb9f22e29dcb7ed8a19033a87b39a4438f145da51abb52703ff41e9"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/RiskConfirmation.module.css",
+      "local": "primitives/RiskConfirmation.module.css",
+      "sha256": "c4c8e339a9f12ebf21c785cd6217898733f8a053f63d5aee936611fcd319ef27"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/OnboardingSurface.tsx",
+      "local": "primitives/OnboardingSurface.tsx",
+      "sha256": "281b1e6e3888e23ccb036d6a5ca24b9f88a767cfc9f5fd169e829e70b40bd3b6"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/HoverCard.module.css",
+      "local": "primitives/HoverCard.module.css",
+      "sha256": "4d8fbf2368bd9f232f09422af94bf3527b4c9715445deaae18cf04fc1306475b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Pill.tsx",
+      "local": "primitives/Pill.tsx",
+      "sha256": "7acf38a1d501cddcdbfcf14b07e9d4d04b45abb25367d596a2f7406c13f6391f"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/FishLogo.tsx",
+      "local": "primitives/FishLogo.tsx",
+      "sha256": "eddcc2bb93dca66614c6cbf9073465140eebc4e75b954412ec34cbbc4bd1ccc1"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/css-modules.d.ts",
+      "local": "primitives/css-modules.d.ts",
+      "sha256": "e28410d74a0d763364c04fa690c2ca2202ad3019c74f8f5205e8dc6cba69c02f"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/DisclosureRow.module.css",
+      "local": "primitives/DisclosureRow.module.css",
+      "sha256": "79a4b0fa82a516d76c7b7d7b0da0e354a1e2862536ca0386b9c0a7a995ad5ffe"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/DiffBlock.module.css",
+      "local": "primitives/DiffBlock.module.css",
+      "sha256": "15b39aceeff5f9e0d26aa9f3fbc04222e9436b0efb9f6d29e15c4b7466b1650b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/JsonTree.module.css",
+      "local": "primitives/JsonTree.module.css",
+      "sha256": "7814c49cc5e2bb8970878d7d382b7a912ea81205da2c18973444efa6e9d7fe32"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/JsonTree.tsx",
+      "local": "primitives/JsonTree.tsx",
+      "sha256": "114c854472540e19db5ee758e1f90233d98588e9dd11a2e6fda5036c1677bda0"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/useAnchoredPosition.ts",
+      "local": "primitives/useAnchoredPosition.ts",
+      "sha256": "26ec34ed7433d28c7ae1abc6bee0d2f468ea6bbe067319788e9ef5ed799aacf6"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Tooltip.module.css",
+      "local": "primitives/Tooltip.module.css",
+      "sha256": "9286defa4a20872df113af062b9b78d2ec465f857ffada668dbe32f9d55e41c5"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Pill.module.css",
+      "local": "primitives/Pill.module.css",
+      "sha256": "c1c39eb6adc0e40326f7a33598a32195b388cb9db2627a9c723c009b44a94dab"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/SearchBlock.tsx",
+      "local": "primitives/SearchBlock.tsx",
+      "sha256": "890302d6802eedb9608cd9a09724f86d6a106ccd46f6b385e19c1375f2cb2868"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Menu.tsx",
+      "local": "primitives/Menu.tsx",
+      "sha256": "28500b6e8e3b4e24ea292ee30cf2a11e3eb92b7b027cbacde16f779c69849ca7"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/use-copy-feedback.ts",
+      "local": "primitives/use-copy-feedback.ts",
+      "sha256": "b03ae0baacc2159bcd372980e6ff41c90973a677a55f11d318be30a465ebef5f"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/index.ts",
+      "local": "primitives/index.ts",
+      "sha256": "ec4e4dddd2cb2d299f922c44b36f4849acbfb1ac2f8da6737102728b9cd0bfd5"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/WebBlock.module.css",
+      "local": "primitives/WebBlock.module.css",
+      "sha256": "04d8f1c0b4f9c009f81032dc7c78fba19df743c5a4498da29262fc2f082d890e"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/SearchBlock.module.css",
+      "local": "primitives/SearchBlock.module.css",
+      "sha256": "95011c4d66a328615face9249956d8bdcb3dc1c0b72ce3f24a83fef2bdacd6ad"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/useAnchoredMaxHeight.ts",
+      "local": "primitives/useAnchoredMaxHeight.ts",
+      "sha256": "f017bd3133a67e7ca0b95aee66d34cac7c95541671b7c082f446f0220b4c5e65"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Button.tsx",
+      "local": "primitives/Button.tsx",
+      "sha256": "5f1db06042fa372c45d777feffaab3b1d0c9395a89fa00b735bd9cbc8a389371"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Modal.tsx",
+      "local": "primitives/Modal.tsx",
+      "sha256": "1a285b6de8912d5d2410bb3721cdcdf178c7726e57153c74b6734b0060fb2bd2"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Toast.tsx",
+      "local": "primitives/Toast.tsx",
+      "sha256": "e7f6395c0b142cd41bf6b5b107951f34ec191dc3604b100cbe393dcfe24fe72b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Menu.module.css",
+      "local": "primitives/Menu.module.css",
+      "sha256": "1eee2a9fc186c7f872c466781ffda894d14a3f514cbb3cabd1777397e33405b8"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/DiffBlock.tsx",
+      "local": "primitives/DiffBlock.tsx",
+      "sha256": "fa033c77f78ece12fb81f79606e500a9877066d5db2bbc6a3a593a1e3bf0582e"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Input.tsx",
+      "local": "primitives/Input.tsx",
+      "sha256": "dcb73dad681f3f37975c08ed3aa97922a1f5337548b406806324877a5d398c51"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/DisclosureRow.tsx",
+      "local": "primitives/DisclosureRow.tsx",
+      "sha256": "0c65c0f0f14f9fdaf4dda6aeea6c73bf803c4591d64f53784928aaa559cc9b96"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/useDismissOnOutsidePointer.ts",
+      "local": "primitives/useDismissOnOutsidePointer.ts",
+      "sha256": "ee42494da6a34ea099d24daee25c339bb80a994c4332f396d95fbb90ef3a80bc"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/Input.module.css",
+      "local": "primitives/Input.module.css",
+      "sha256": "790195c01e1416a590e0b0353c5beeab1ae510151b2bd580fdea4ddbd4dca399"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/StateDot.tsx",
+      "local": "primitives/StateDot.tsx",
+      "sha256": "0e30ac9c250626eeea02da547275e7779562234a847267ec11805b1ec9b594b9"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/incremental.ts",
+      "local": "primitives/markdown/incremental.ts",
+      "sha256": "2975a332ac74b931a7cb489e2eea28469aa3d9596328d5a474d41379b6c7b640"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/MessageText.module.css",
+      "local": "primitives/markdown/MessageText.module.css",
+      "sha256": "95d227acaec1b949140345184a127bd53a72621af78c39af818bade0ec99e0a0"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/JsonBlock.module.css",
+      "local": "primitives/markdown/JsonBlock.module.css",
+      "sha256": "4b97662e09b18c7febf0697f566c57444ed9044c4e3f8432e75968ccce7af72e"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/MessageText.tsx",
+      "local": "primitives/markdown/MessageText.tsx",
+      "sha256": "3170d64381baaf3f253476beb07b1f783fa49bb32d086969f5dda1515075caea"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/mathCompatibility.ts",
+      "local": "primitives/markdown/mathCompatibility.ts",
+      "sha256": "5f8cec86fd613fd2f67510e22b0a9d661f4173b3d49fb13fef71b25f4abb652b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/MarkdownText.tsx",
+      "local": "primitives/markdown/MarkdownText.tsx",
+      "sha256": "b0ce4cf0986cadf624436136186b16f108ed2365aec0350b195f02dae036017a"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/parse.ts",
+      "local": "primitives/markdown/parse.ts",
+      "sha256": "6be57559995c4e717d6d704207eb2fec86db9714c2a4bcc5b0c3f6648c8990f0"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/highlight.ts",
+      "local": "primitives/markdown/highlight.ts",
+      "sha256": "2a091572a23ec461007cc8a4ad5edc7230b7ff6c99d43e7dbd60a22b858f9ef3"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/katex.tsx",
+      "local": "primitives/markdown/katex.tsx",
+      "sha256": "8227e04d29333d2568021ed012143237b457852bce25d82cf394d72b941e74a5"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/cjkFriendlyStrong.ts",
+      "local": "primitives/markdown/cjkFriendlyStrong.ts",
+      "sha256": "bc4adf3183f7d0feea17e3a176e7c4b1db5bdddc29e7fc87261f627ff8a39b53"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/CodeBlock.module.css",
+      "local": "primitives/markdown/CodeBlock.module.css",
+      "sha256": "cdc295dff342fbcc33db61d8260938228a29245da72e987287db870cc3a95821"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/plain-text.ts",
+      "local": "primitives/markdown/plain-text.ts",
+      "sha256": "98a63f70ea7d227712915c56de7e9f12fada855d03c2041fcabf9fdcdaf9f878"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/JsonBlock.tsx",
+      "local": "primitives/markdown/JsonBlock.tsx",
+      "sha256": "4efa8030ba642e2f7f91463407b9ea3544bb1406ac0648cc95b1a922249ce184"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/MarkdownText.module.css",
+      "local": "primitives/markdown/MarkdownText.module.css",
+      "sha256": "3e4ed740dd404ca75c786f675e7611de6c8fe6da66ddf05da7b670b196ebe2d0"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/CodeBlock.tsx",
+      "local": "primitives/markdown/CodeBlock.tsx",
+      "sha256": "ae9db6dbf6dd6f0c7528bc1d878b5ccffc76ad9bd6172e577c6c88938c2293f6"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/markdown/render.tsx",
+      "local": "primitives/markdown/render.tsx",
+      "sha256": "f607d0bc8d8cd21ad4ba5ce84cf8246f6bf4b5c7bdbdb06f494c155b4dc90a23"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/icons/index.tsx",
+      "local": "primitives/icons/index.tsx",
+      "sha256": "b3b988bc9b2089c44d762be3d87ccf80021cadbafde11b6923ebb30cbf65da9b"
+    },
+    {
+      "original": "packages/client/ui-primitives/src/icons/props.ts",
+      "local": "primitives/icons/props.ts",
+      "sha256": "98d350861746bca58f07d5301a0caff7270035c9331ed5b605e702d7f590f1fb"
+    }
+  ]
+}

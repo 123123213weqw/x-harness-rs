@@ -1,0 +1,627 @@
+{
+  "schemaVersion": 1,
+  "bootTemplate": {
+    "source": "src/index.template.html"
+  },
+  "modules": [
+    {
+      "id": "@xharness/dsh-typert-registry",
+      "kind": "source-module",
+      "source": "src/modules/typert-registry/index.ts",
+      "inject": [],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-api-gateway",
+      "kind": "source-module",
+      "source": "src/modules/api-gateway/index.ts",
+      "inject": [
+        "@xharness/dsh-typert-registry",
+        "@xharness/dsh-client-connection"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-session-log-export",
+      "kind": "source-module",
+      "source": "src/modules/session-log-export/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-commands",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-hmr",
+      "kind": "source-module",
+      "source": "src/modules/client-hmr/index.ts",
+      "inject": [],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-modules",
+      "kind": "source-module",
+      "source": "src/modules/client-modules/index.ts",
+      "inject": [],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-connection",
+      "kind": "source-module",
+      "source": "src/modules/client-connection/index.ts",
+      "inject": [],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-api-remotes",
+      "kind": "source-module",
+      "source": "src/modules/api-remotes/index.ts",
+      "inject": [
+        "@xharness/dsh-api-gateway"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-runtime",
+      "kind": "source-module",
+      "source": "src/modules/client-runtime/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-typert-registry",
+        "@xharness/dsh-api-remotes"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-cordis-client-runner",
+      "kind": "source-module",
+      "source": "src/modules/cordis-client-runner/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-modules",
+        "@xharness/dsh-client-ui-theme"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-theme",
+      "kind": "source-module",
+      "source": "src/modules/theme/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-api-remotes"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-locale",
+      "kind": "source-module",
+      "source": "src/modules/client-locale/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-api-remotes"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-ui-layout",
+      "kind": "source-module",
+      "source": "src/modules/layout/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-theme"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-renderer",
+      "kind": "source-module",
+      "source": "src/modules/renderer/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime"
+      ],
+      "immediately": true
+    },
+    {
+      "id": "@xharness/dsh-client-ui-sidebar",
+      "kind": "source-module",
+      "source": "src/modules/sidebar/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings",
+      "kind": "source-module",
+      "source": "src/modules/settings/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-general",
+      "kind": "source-module",
+      "source": "src/modules/settings-general/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-ui-sidebar"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-models",
+      "kind": "source-module",
+      "source": "src/modules/settings-models/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-plugin-inventory",
+      "kind": "source-module",
+      "source": "src/modules/settings-plugin-inventory/index.ts",
+      "inject": [
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-conversation",
+      "kind": "source-module",
+      "source": "src/modules/conversation/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-ui-layout"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-brand-official",
+      "kind": "source-module",
+      "source": "src/modules/brand-official/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-sidebar"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-attachment",
+      "kind": "source-module",
+      "source": "src/modules/attachment/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-tool",
+      "kind": "source-module",
+      "source": "src/modules/tool/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-computer",
+      "kind": "source-module",
+      "source": "src/modules/computer/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-ui-tool",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-cordis",
+      "kind": "source-module",
+      "source": "src/modules/cordis/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-cordis-client-runner",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-input-trigger",
+        "@xharness/dsh-client-ui-tool",
+        "@xharness/dsh-client-ui-sidebar"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-workflow-run",
+      "kind": "source-module",
+      "source": "src/modules/workflow-run/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-deliverables",
+      "kind": "source-module",
+      "source": "src/modules/deliverables/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-workspace",
+      "kind": "source-module",
+      "source": "src/modules/workspace/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-sidebar"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-input-trigger",
+      "kind": "source-module",
+      "source": "src/modules/input-trigger/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-commands",
+      "kind": "source-module",
+      "source": "src/modules/commands/index.ts",
+      "inject": [
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-input-trigger",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-skill",
+      "kind": "source-module",
+      "source": "src/modules/skill/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-tool",
+        "@xharness/dsh-client-ui-input-trigger",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-subagent",
+      "kind": "source-module",
+      "source": "src/modules/subagent/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-primitives",
+        "@xharness/dsh-client-ui-input-trigger"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-reference",
+      "kind": "source-module",
+      "source": "src/modules/reference/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-input-trigger"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-jobs",
+      "kind": "source-module",
+      "source": "src/modules/jobs/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-primitives"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-goal",
+      "kind": "source-module",
+      "source": "src/modules/goal/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-message-feedback",
+      "kind": "source-module",
+      "source": "src/modules/message-feedback/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-model-selection",
+      "kind": "source-module",
+      "source": "src/modules/model-selection/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-commands",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-permission-presets",
+      "kind": "source-module",
+      "source": "src/modules/permission-presets/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-commands",
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-ui-settings"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-agent-preset",
+      "kind": "source-module",
+      "source": "src/modules/agent-preset/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-plugins",
+      "kind": "source-module",
+      "source": "src/modules/settings-plugins/index.ts",
+      "inject": [
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-api-remotes"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-plan",
+      "kind": "source-module",
+      "source": "src/modules/plan/index.ts",
+      "inject": [
+        "@xharness/dsh-api-remotes",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-user-questions",
+      "kind": "source-module",
+      "source": "src/modules/user-questions/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-trajectory",
+      "kind": "source-module",
+      "source": "src/modules/trajectory/index.ts",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-context",
+      "kind": "source-module",
+      "source": "src/modules/context/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-schedule",
+      "kind": "source-module",
+      "source": "src/modules/schedule/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-directory",
+      "kind": "source-module",
+      "source": "src/modules/directory/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-workspace",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-terminal",
+      "kind": "source-module",
+      "source": "src/modules/terminal/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-tasks",
+      "kind": "source-module",
+      "source": "src/modules/tasks/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-ui-primitives"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-motion",
+      "kind": "source-module",
+      "source": "src/modules/motion/index.ts"
+    },
+    {
+      "id": "@xlang/xharness-client-ui-profile",
+      "kind": "source-module",
+      "source": "src/modules/profile/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings-general"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-plugin-api",
+      "kind": "plugin-api-ts",
+      "source": "src/plugin-api/client.ts",
+      "inject": []
+    },
+    {
+      "id": "@xlang/xharness-client-ui-plugin-hub",
+      "kind": "source-module",
+      "source": "src/modules/plugin-hub/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-ui-settings-plugins"
+      ],
+      "external": [
+        "@xlang/xharness-client-plugin-api"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-browser",
+      "kind": "source-module",
+      "source": "src/modules/browser/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-ui-conversation"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-experience",
+      "kind": "source-module",
+      "source": "src/modules/experience/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings"
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "path": "app-icon-512.png",
+      "source": "overrides/app-icon-512.png"
+    },
+    {
+      "path": "desktop-startup.js",
+      "source": "src/desktop/startup.ts",
+      "kind": "script-ts"
+    },
+    {
+      "path": "desktop-updater.js",
+      "source": "src/desktop/updater.ts",
+      "kind": "script-ts"
+    },
+    {
+      "path": "favicon.png",
+      "source": "overrides/favicon.png"
+    },
+    {
+      "path": "logo-motion.css",
+      "source": "overrides/logo-motion.css"
+    },
+    {
+      "path": "logo-motion.js",
+      "source": "src/desktop/logo-motion.ts",
+      "kind": "script-ts"
+    },
+    {
+      "path": "manifest.webmanifest",
+      "source": "src/resources/manifest.webmanifest",
+      "sha256": "a3afb2088b64cedaa3269998b2ff90bbd979dea08b1f9684e63d3507f8442469"
+    },
+    {
+      "path": "monochrome.css",
+      "source": "overrides/monochrome.css"
+    },
+    {
+      "path": "motion-tokens.css",
+      "source": "overrides/motion-tokens.css"
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/LICENSE-xterm.txt",
+      "source": "plugins/@xlang/xharness-client-ui-terminal/vendor/LICENSE-xterm.txt",
+      "sha256": "b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd"
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.css",
+      "source": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.css",
+      "sha256": "ba8e6985669488981ccf40c0cefe3aba80722cb6c92de7ad628b0bd717faf2b6"
+    },
+    {
+      "path": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js",
+      "source": "plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js",
+      "sha256": "1f991ac3b4b283ebf96e60ae23a00a52765dd3a2e46fa6fdda9f1aab032f7495"
+    },
+    {
+      "path": "desktop-titlebar.js",
+      "source": "src/desktop/titlebar.ts",
+      "kind": "script-ts"
+    },
+    {
+      "path": "desktop-titlebar.css",
+      "source": "desktop/titlebar.css",
+      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84"
+    }
+  ],
+  "platform": {
+    "kind": "source-platform",
+    "source": "src/modules/platform/main.ts"
+  }
+}

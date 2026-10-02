@@ -1,0 +1,1162 @@
+{
+  "schemaVersion": 1,
+  "baseline": "a613970c78a36a024de56100078323df25b96004",
+  "canonical": {
+    "graphSha256": "1701546a23a71c98da7e13dd15c36d07c6b28d861622c5947e2203fc019f56b2",
+    "graphRevision": "98d9274175676f9b",
+    "manifestSha256": "578db3c05802a89c3acd167c91e21d5533071a1ab8e5a3028f9bb245e0a8ea27",
+    "modules": 53,
+    "assets": 154,
+    "totalBytes": 24398412
+  },
+  "gates": {
+    "hardPolicyAndPluginApi": {
+      "pass": 115,
+      "fail": 0,
+      "split": [
+        69,
+        46
+      ]
+    },
+    "cleanBuild": {
+      "pass": 15,
+      "fail": 0
+    },
+    "fullBoot": {
+      "sourceFrozenBrowserRuns": 4,
+      "pixelPairs": 2
+    },
+    "canonicalBrowserEntries": {
+      "initialPass": 46,
+      "initialFail": 9,
+      "correctedReruns": 9,
+      "finalPass": 55,
+      "records": [
+        {
+          "path": "scripts/test-plugin-center-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 4742,
+          "initialExitCode": 0,
+          "logSha256": "dd946785a3d3d56dea424fd3f46aeb350f872dd93e5b9969e3205343c2f3d94c"
+        },
+        {
+          "path": "scripts/test-plugin-hub-functional.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 9261,
+          "initialExitCode": 0,
+          "logSha256": "6ed4be4d20a699dc6c4efaecbe5c2142d03d4a36d880ceb99ba4db6f496503d5"
+        },
+        {
+          "path": "scripts/test-context-layout.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 14892,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "conversation-context-terminal-canonical-4runs-current.log",
+            "sha256": "c1ccb898ef6ce35221419107c12bb52d036af692d8ac269a6aeb51f0876619c0",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-plugin-center-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 9145,
+          "initialExitCode": 0,
+          "logSha256": "432abf40906e11a93501967f28f3901036733ab8b300c5555d6c982bfe0f4637"
+        },
+        {
+          "path": "scripts/test-context-layout.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 13965,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "conversation-context-terminal-canonical-4runs-current.log",
+            "sha256": "c1ccb898ef6ce35221419107c12bb52d036af692d8ac269a6aeb51f0876619c0",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-motion-tokens-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 1034,
+          "initialExitCode": 0,
+          "logSha256": "ab000fcbf4217f54a047c4131f6cd08efffcfc5534f8dcbc0701389be4557123"
+        },
+        {
+          "path": "scripts/test-motion-tokens-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 1424,
+          "initialExitCode": 0,
+          "logSha256": "deec2115a9e4e36b3cc4fee33af825cb110747029e9601cd70b945ef37bc6436"
+        },
+        {
+          "path": "scripts/test-plugin-hub-functional.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 10781,
+          "initialExitCode": 0,
+          "logSha256": "fb7c108ea118dd51fbce499dc6004e152125a38fa8b77a78b398f8fe9bee8a0b"
+        },
+        {
+          "path": "scripts/test-terminal-layout-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 23996,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "conversation-context-terminal-canonical-4runs-current.log",
+            "sha256": "c1ccb898ef6ce35221419107c12bb52d036af692d8ac269a6aeb51f0876619c0",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-settings-save-feedback-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 3490,
+          "initialExitCode": 0,
+          "logSha256": "81d0590e018899b0901a2a802e90f2336a86ff684d2c9c53ad1ebca6bbd725a9"
+        },
+        {
+          "path": "scripts/test-settings-save-feedback-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 4346,
+          "initialExitCode": 0,
+          "logSha256": "81d0590e018899b0901a2a802e90f2336a86ff684d2c9c53ad1ebca6bbd725a9"
+        },
+        {
+          "path": "scripts/test-terminal-layout-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 38564,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "conversation-context-terminal-canonical-4runs-current.log",
+            "sha256": "c1ccb898ef6ce35221419107c12bb52d036af692d8ac269a6aeb51f0876619c0",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-runtime-diagnostics-browser.mjs",
+          "browser": null,
+          "signal": null,
+          "elapsedMs": 2693,
+          "initialExitCode": 0,
+          "logSha256": "5181e7d30dcdaaa26067164e400eb655449058af18e021f207c5967d1c1599f7"
+        },
+        {
+          "path": "scripts/test-desktop-updater-layer.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 61210,
+          "initialExitCode": 0,
+          "logSha256": "7b2ab91b4cee1ffcd421e5dd44a720a7ad78a59e0ac374558aaa26469670d6da"
+        },
+        {
+          "path": "scripts/test-model-controls-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 4956,
+          "initialExitCode": 0,
+          "logSha256": "2488bd17c26a58cb37ebe3b26beb0771be88d2bc4f4b792c54e2d922642e3711"
+        },
+        {
+          "path": "scripts/test-model-controls-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 7046,
+          "initialExitCode": 0,
+          "logSha256": "e1a9fd406b5f0b3c217963a587c03c8d5c7113a0898fa4cd7d4a955505fbd32d"
+        },
+        {
+          "path": "scripts/test-desktop-updater-layer.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 65059,
+          "initialExitCode": 0,
+          "logSha256": "7888f2aebc23813c7b2429cb87129c4c4af51132a3b097edaf1f3498b6517a40"
+        },
+        {
+          "path": "scripts/test-upstream-ui-experience-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 38777,
+          "initialExitCode": 0,
+          "logSha256": "afc7920ccb38f6701911276e36e925b71c2c58b4c0f8672dd602411766e8a46b"
+        },
+        {
+          "path": "scripts/test-upstream-ui-experience-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 37612,
+          "initialExitCode": 0,
+          "logSha256": "d7b45d61b7604c9596f03a9292803a72256b138911e289224fcefa4012458bb1"
+        },
+        {
+          "path": "scripts/test-subagent-navigation.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 28011,
+          "initialExitCode": 0,
+          "logSha256": "edb4bb80bb3cf8ebaaa6ceba6a8dc5702dfba51bb36701236fc06540f802b81d"
+        },
+        {
+          "path": "scripts/test-subagent-navigation.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 25932,
+          "initialExitCode": 0,
+          "logSha256": "e9282fde07d1df95c962f1ea3a0bbf3357c991645adf91233dd408ee33ffb269"
+        },
+        {
+          "path": "scripts/test-browser-pane-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 9764,
+          "initialExitCode": 0,
+          "logSha256": "e8d36fc8a7c755e5ca612a415f0e6bbcd61361e219ab91ad4bb60f08821f6274"
+        },
+        {
+          "path": "scripts/test-browser-pane-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 11434,
+          "initialExitCode": 0,
+          "logSha256": "10ab5f46a546036de0caa1675acc790ebea8b0f1c216a58baa83689424d55869"
+        },
+        {
+          "path": "scripts/test-browser-dock-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 14115,
+          "initialExitCode": 0,
+          "logSha256": "548234d7c958a0d762b36a809c9aa7844ae5e64bfcbc17dfacc543d54cb78ecc"
+        },
+        {
+          "path": "scripts/test-browser-dock-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 16150,
+          "initialExitCode": 0,
+          "logSha256": "869af8cdc0c39ab87952fffe16c17bc48316146970a715997116dbda52f5f160"
+        },
+        {
+          "path": "scripts/test-browser-dock-native-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 10134,
+          "initialExitCode": 0,
+          "logSha256": "e95e033e2594fdd4d372ba9aa9ccff1ee315147b34e6718e41a8e9b631e7c2c4"
+        },
+        {
+          "path": "scripts/test-browser-dock-native-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 13848,
+          "initialExitCode": 0,
+          "logSha256": "4fd52800a10246dcffc62c511707596fef8baa1465f82cccdaebc4bc3b890070"
+        },
+        {
+          "path": "scripts/test-browser-native-bridge.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 18282,
+          "initialExitCode": 0,
+          "logSha256": "5f7a4bb721d0cc0a1b71bd7ef1ba4eddad58ced6dea8faa135d9a42ba51bee2a"
+        },
+        {
+          "path": "scripts/test-browser-native-bridge.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 23408,
+          "initialExitCode": 0,
+          "logSha256": "9e123e80ea70a901d0194d6fc671b92ea8aa0b16eb573710658f81a56dd3f990"
+        },
+        {
+          "path": "scripts/test-browser-access.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 18581,
+          "initialExitCode": 0,
+          "logSha256": "35599d81e68c40a3752342ee4ffc6218785968a49c309ff40fac7d3a699ddba3"
+        },
+        {
+          "path": "scripts/test-browser-persistence-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 10732,
+          "initialExitCode": 0,
+          "logSha256": "cf342fcd81e4102f268111ae81dc79808f55afdd55af837c6c7d4fa28c81789e"
+        },
+        {
+          "path": "scripts/test-browser-access.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 16714,
+          "initialExitCode": 0,
+          "logSha256": "ff3b235ca5d3c2745b9563bd67b3fb9d6bfff3608e6ab0ef1b8c043a662f322f"
+        },
+        {
+          "path": "scripts/test-browser-restore-runtime.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 5949,
+          "initialExitCode": 0,
+          "logSha256": "a34ca27edc8e907a0199d7330502a2e83809a0f19fc079ecb20f71dbe4d4a267"
+        },
+        {
+          "path": "scripts/test-browser-persistence-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 12271,
+          "initialExitCode": 0,
+          "logSha256": "38ea020d8747c48098b3605f520bd970d270a6ac7f1ce6a1bfb95205e6e4b337"
+        },
+        {
+          "path": "scripts/test-streaming-math.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 97,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "xh-streaming-math-source-chromium.log",
+            "sha256": "c169281706212eb876acb5284378b3acff25502afc22ae71030b9f23336494ae",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-streaming-math.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 93,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "xh-streaming-math-source-webkit.log",
+            "sha256": "034b156801cc529965ead4143b66765a4f8389fb90aaaec04fe9b82a189113a8",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-browser-restore-runtime.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 6273,
+          "initialExitCode": 0,
+          "logSha256": "dbad84eebddbe4dfb0199eb10b8afdc463e05987a8ba20223fd2c080e9e54bce"
+        },
+        {
+          "path": "scripts/test-session-history-cache.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 38716,
+          "initialExitCode": 0,
+          "logSha256": "0c207dd9d809538ae9c2de722444b64fb8308f764731edb2f84b4caaf61ae72c"
+        },
+        {
+          "path": "scripts/test-transcript-row-state.mjs",
+          "browser": null,
+          "signal": null,
+          "elapsedMs": 100,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "xh-row-state-native-final.log",
+            "sha256": "0e00865852dfa4e64165fa8687747bc07948b996f02d6137ff93d7a40efede8c",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-session-history-cache.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 39171,
+          "initialExitCode": 0,
+          "logSha256": "52d61385a4878952f719031ba1cc6a2f9234085468f71d2515da866ff8345ba7"
+        },
+        {
+          "path": "scripts/test-transcript-windowing.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 17987,
+          "initialExitCode": 0,
+          "logSha256": "8e185f04970493090632cf215bdc00c528684716ce6c915b44ace40230e7412e"
+        },
+        {
+          "path": "scripts/test-compaction-progress-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 88,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "xh-compaction-progress-chromium-source.log",
+            "sha256": "e7f62ec01bcf4225ccaaef48f3e159f0d5ff54644fc2f7e938fad506921eefe4",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-compaction-progress-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 76,
+          "initialExitCode": 1,
+          "correctedRerun": {
+            "log": "xh-compaction-progress-webkit-source.log",
+            "sha256": "0e3cb325573adc662b0293f7639824bcf35b16816afdb40474ff92258c6a0261",
+            "exitCode": 0,
+            "scope": "same original assertions; loader/fixture seam repaired"
+          }
+        },
+        {
+          "path": "scripts/test-transcript-windowing.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 18460,
+          "initialExitCode": 0,
+          "logSha256": "a1804553e37308c7ca38ab4b89422f0f3eafa306eba5456b0e51ea625b8e6666"
+        },
+        {
+          "path": "scripts/test-question-continuation-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 9262,
+          "initialExitCode": 0,
+          "logSha256": "a68247153785a84438c28e83dce75b740c6d4b4860ed1d257f798eac1e3c1e99"
+        },
+        {
+          "path": "scripts/test-question-continuation-patch.mjs",
+          "browser": null,
+          "signal": null,
+          "elapsedMs": 16457,
+          "initialExitCode": 0,
+          "logSha256": "8813a5454d4fda096ec4eb18cd900b5551b833fd070757c0394975043ade4562"
+        },
+        {
+          "path": "scripts/test-question-continuation-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 12647,
+          "initialExitCode": 0,
+          "logSha256": "88062a8bcb2cd918e39afe7b2e8c85a52061fa38990104fb59c2fb7b3d491083"
+        },
+        {
+          "path": "scripts/test-approval-prompt-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 23592,
+          "initialExitCode": 0,
+          "logSha256": "1956f7b7754683ee9b21bc094732fed6294326eb446f68e740ffd60c3e815806"
+        },
+        {
+          "path": "scripts/test-approval-prompt-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 30258,
+          "initialExitCode": 0,
+          "logSha256": "ee4115fe96e6f6364544bedac52550d834743f588bd4b41f74fdfcc782aa710d"
+        },
+        {
+          "path": "scripts/test-ui-namespace.mjs",
+          "browser": null,
+          "signal": null,
+          "elapsedMs": 991,
+          "initialExitCode": 0,
+          "logSha256": "84ec5d8142abe64c4f694771a1cd218b5067baee9f35d3d9c359ca3c42a01ae4"
+        },
+        {
+          "path": "scripts/test-goal-runtime-patch.mjs",
+          "browser": null,
+          "signal": null,
+          "elapsedMs": 27680,
+          "initialExitCode": 0,
+          "logSha256": "ecfc5dc062dc7b3200f782efe9c87cdacf322ad76ce523858ccec1e6c4fa1ceb"
+        },
+        {
+          "path": "scripts/test-goal-runtime-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 22267,
+          "initialExitCode": 0,
+          "logSha256": "c462b17e0f90aa30de89e381bab68cd953973948f27d0d1829d490f03512a91f"
+        },
+        {
+          "path": "scripts/test-goal-runtime-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 22142,
+          "initialExitCode": 0,
+          "logSha256": "bc39a91dab1364ecbf0699a9199099a4ff7ca70064ee65e83bfd10699f2f77dc"
+        },
+        {
+          "path": "scripts/test-computer-ui-browser.mjs",
+          "browser": "chromium",
+          "signal": null,
+          "elapsedMs": 18083,
+          "initialExitCode": 0,
+          "logSha256": "f318d90aee4d9341d83b9e4d05ab3daa97e62566bac22ddc08f2b5ddee777e02"
+        },
+        {
+          "path": "scripts/test-computer-ui-browser.mjs",
+          "browser": "webkit",
+          "signal": null,
+          "elapsedMs": 14521,
+          "initialExitCode": 0,
+          "logSha256": "349757852588337c473b3133460a7c13ee7025b5b3ef91d71e39db6467485b08"
+        }
+      ]
+    },
+    "nativeRust": {
+      "location": "WZU_Server",
+      "pluginWireTests": 1,
+      "goalHttpTests": 1,
+      "localRustCompilation": false,
+      "actualGoalReplies": 6
+    },
+    "canonicalNodeEntries": {
+      "finalFullRoundPass": 59,
+      "finalFullRoundFail": 1,
+      "correctedReruns": 1,
+      "finalAccepted": 60,
+      "records": [
+        {
+          "path": "scripts/test-foundation-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 74153
+        },
+        {
+          "path": "scripts/test-product-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5530
+        },
+        {
+          "path": "scripts/test-view-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14280
+        },
+        {
+          "path": "scripts/test-model-selection-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 9111
+        },
+        {
+          "path": "scripts/test-attachment-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 4028
+        },
+        {
+          "path": "scripts/test-settings-models-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 9828
+        },
+        {
+          "path": "scripts/test-preset-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 8557
+        },
+        {
+          "path": "scripts/test-renderer-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 2118
+        },
+        {
+          "path": "scripts/test-workspace-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7374
+        },
+        {
+          "path": "scripts/test-cordis-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 4178
+        },
+        {
+          "path": "scripts/test-owned-cordis-services.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5607
+        },
+        {
+          "path": "scripts/test-conversation-service-boundaries.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6035
+        },
+        {
+          "path": "scripts/test-conversation-main-differential.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7820
+        },
+        {
+          "path": "scripts/test-conversation-history-rollback.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7555
+        },
+        {
+          "path": "scripts/test-question-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 2730
+        },
+        {
+          "path": "scripts/test-tool-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5766
+        },
+        {
+          "path": "scripts/test-conversation-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11133
+        },
+        {
+          "path": "scripts/test-goal-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6628
+        },
+        {
+          "path": "scripts/test-trajectory-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 19895
+        },
+        {
+          "path": "scripts/test-execution-checkpoints.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 16668
+        },
+        {
+          "path": "scripts/test-attachments.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 50601
+        },
+        {
+          "path": "scripts/test-conversation-message-edit.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 27595
+        },
+        {
+          "path": "scripts/test-internal-queue.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6714
+        },
+        {
+          "path": "scripts/test-max-tokens-notice.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 17837
+        },
+        {
+          "path": "scripts/test-context-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 74
+        },
+        {
+          "path": "scripts/test-profile-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 208
+        },
+        {
+          "path": "scripts/test-plugin-center.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 10593
+        },
+        {
+          "path": "scripts/test-terminal-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 12149
+        },
+        {
+          "path": "scripts/test-tasks-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 377
+        },
+        {
+          "path": "scripts/test-motion-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11659
+        },
+        {
+          "path": "scripts/test-motion-tokens.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 76
+        },
+        {
+          "path": "scripts/test-compaction-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 20045
+        },
+        {
+          "path": "scripts/test-compaction-progress.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6876
+        },
+        {
+          "path": "scripts/test-compaction-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11945
+        },
+        {
+          "path": "scripts/test-compaction-wire.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 3973
+        },
+        {
+          "path": "scripts/test-conversation-scroll-follow.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6519
+        },
+        {
+          "path": "scripts/test-computer-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11165
+        },
+        {
+          "path": "scripts/test-brand-headline.mjs",
+          "status": 1,
+          "signal": null,
+          "elapsedMs": 212
+        },
+        {
+          "path": "scripts/test-brand-identity.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5245
+        },
+        {
+          "path": "scripts/test-logo-gradient.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 3856
+        },
+        {
+          "path": "scripts/test-logo-motion.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 1309
+        },
+        {
+          "path": "scripts/test-monochrome-theme.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 92
+        },
+        {
+          "path": "scripts/test-silver-surface.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7331
+        },
+        {
+          "path": "scripts/test-context-accounting.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 23513
+        },
+        {
+          "path": "scripts/test-assistant-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 41212
+        },
+        {
+          "path": "scripts/test-retry-turn-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 37275
+        },
+        {
+          "path": "scripts/test-network-wait-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 8365
+        },
+        {
+          "path": "scripts/test-atomic-history.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 25549
+        },
+        {
+          "path": "scripts/test-ui-lifecycle-recovery.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 18067
+        },
+        {
+          "path": "scripts/test-live-answer-recovery.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 38569
+        },
+        {
+          "path": "scripts/test-startup-catalog-refresh.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 48617
+        },
+        {
+          "path": "scripts/test-permission-selection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7136
+        },
+        {
+          "path": "scripts/test-model-controls.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 16176
+        },
+        {
+          "path": "scripts/test-upstream-ui-experience.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14295
+        },
+        {
+          "path": "scripts/test-workspace-directory.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11829
+        },
+        {
+          "path": "scripts/test-workspace-created-at.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 190
+        },
+        {
+          "path": "scripts/test-settings-save-feedback.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11631
+        },
+        {
+          "path": "scripts/test-question-continuation-patch.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 13997
+        },
+        {
+          "path": "scripts/test-goal-runtime-patch.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14197
+        },
+        {
+          "path": "scripts/test-ui-namespace.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 425
+        }
+      ],
+      "correction": "BrandHeadline uses independently pinned immutable baseline for original idempotent patch assertions, not removed legacy/mixed new dist."
+    },
+    "ciToolchainGuard": {
+      "pass": 6,
+      "fail": 0,
+      "allSixJobsInstallBeforeTypedContracts": true
+    }
+  },
+  "logs": [
+    {
+      "name": "xh-build-final-computer-state.log",
+      "sha256": "41d5c450e2057e9d3d801ea79bea5c8d890221fbafb3e82598351297bb7937ae"
+    },
+    {
+      "name": "xh-hard-policy-final-computer-state.log",
+      "sha256": "4e38e3b089a610ef448e578cc7b0b97f1536244e46df15e99aaf0e18302fab88"
+    },
+    {
+      "name": "xh-plugin-api-final-computer-state.log",
+      "sha256": "1405238097d6480150906b69a8a7704cc94588dfe886fec08bc4bb7bdfaaf1c8"
+    },
+    {
+      "name": "xh-clean-build-final-computer-state.log",
+      "sha256": "04f3ae44489dafaf51fdce6957f38d0e5f46497a7e9c33d23079d625ebe82e6c"
+    },
+    {
+      "name": "xh-full-boot-final-computer-state.log",
+      "sha256": "6530a9842a8930c5b0cb4769f20c1d7870bd2efde0b0cee76742bf93f5e9425a"
+    },
+    {
+      "name": "xh-final-goal-remote-rust.log",
+      "sha256": "58c15c872fb490c17508b3a56fe68b8ce259928e336559b2227e3099306d3650"
+    },
+    {
+      "name": "xh-remote-plugin-wire-final-frozen.log",
+      "sha256": "49157b31655937c421ea43add9650b15154b43ae4a3e8eb20d7fa18ab1f64787"
+    },
+    {
+      "name": "xh-row-state-native-final.log",
+      "sha256": "0e00865852dfa4e64165fa8687747bc07948b996f02d6137ff93d7a40efede8c"
+    },
+    {
+      "name": "conversation-context-terminal-canonical-4runs-current.log",
+      "sha256": "c1ccb898ef6ce35221419107c12bb52d036af692d8ac269a6aeb51f0876619c0"
+    },
+    {
+      "name": "xh-unix-update-typed-contract-final.log",
+      "sha256": "09cde7c38691e95d802b6cafadc878bc0546e2e78d7f24a130af59ec1a103d6b"
+    },
+    {
+      "name": "xh-streaming-math-source-chromium.log",
+      "sha256": "c169281706212eb876acb5284378b3acff25502afc22ae71030b9f23336494ae"
+    },
+    {
+      "name": "xh-streaming-math-source-webkit.log",
+      "sha256": "034b156801cc529965ead4143b66765a4f8389fb90aaaec04fe9b82a189113a8"
+    },
+    {
+      "name": "xh-streaming-math-frozen-chromium.log",
+      "sha256": "2195600cc3de3b11c4d7a81f2936af60ae51b8232cdade125d989adf7918560b"
+    },
+    {
+      "name": "xh-streaming-math-frozen-webkit.log",
+      "sha256": "fb1901d7b60407f3bc902f81f4da610c9dcf279fae5d5c88eccf56eaae32c39f"
+    },
+    {
+      "name": "xh-compaction-progress-chromium-source.log",
+      "sha256": "e7f62ec01bcf4225ccaaef48f3e159f0d5ff54644fc2f7e938fad506921eefe4"
+    },
+    {
+      "name": "xh-compaction-progress-webkit-source.log",
+      "sha256": "0e3cb325573adc662b0293f7639824bcf35b16816afdb40474ff92258c6a0261"
+    },
+    {
+      "name": "xh-compaction-progress-chromium-frozen.log",
+      "sha256": "45d4e12829735e885f95ce875d837a661ca54e374c2bd6905b05b5272ba65e79"
+    },
+    {
+      "name": "xh-compaction-progress-webkit-frozen.log",
+      "sha256": "5321ed7b43c568e4a8e47769809b1e6c3e37e94980c0e46cf6ef42002af4a44b"
+    },
+    {
+      "name": "xh-canonical-static-runner4.log",
+      "sha256": "f7bb1c1875ee07fc0b6e792808ef60e0a17c53b5be8876fa90a4908874269798"
+    },
+    {
+      "name": "xh-brand-headline-final.log",
+      "sha256": "652fc4c092c85bb8d898d2e3d4fde407a72392ef4044e7fa1a4b99c1458868b4"
+    },
+    {
+      "name": "xh-desktop-linux-node-corrected-final.log",
+      "sha256": "c28a595cb13dd4bd73045db0f3f7c2b0034064f2cb004935bfde5c072b140ab6"
+    },
+    {
+      "name": "xh-ci-toolchain-guard-final.log",
+      "sha256": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2"
+    },
+    {
+      "name": "xh-model-settings-source-final.log",
+      "sha256": "16c3f35681f8ac83be25db7783d12a0f27fa152206d8a33814c1718780275e7a"
+    },
+    {
+      "name": "xh-model-settings-frozen-final.log",
+      "sha256": "c738109742be1f30a8b7d12d1e97f666cb73d7c7c08c000f2d78ca07cd564863"
+    },
+    {
+      "name": "xh-model-settings-default-final.log",
+      "sha256": "83e3627ca673a48f4a16eefc7ca7a2e706d7154883878260b989c02894c762a1"
+    },
+    {
+      "name": "xh-pr194-context-job-initial.log",
+      "sha256": "2991eb8ed5324d4e081e9df3d42fb7af9070209e34fa549eb7cba03b920270b3"
+    },
+    {
+      "name": "xh-pr194-tauri-linux-job.log",
+      "sha256": "195f45714452eb55ae60caa2c0a24db57abd772e66dc8b9917e2c76e5d27590b"
+    },
+    {
+      "name": "xh-pr194-ci-followup-failed.log",
+      "sha256": "5bd9f7abfdeeb5f08ac4e6692de3123434d887bbc7753874ea37b3e0384ea897"
+    },
+    {
+      "name": "xh-script-assets-causal-chromium-final.log",
+      "sha256": "485e911d3619abf13f5c03b053d21ac516baf1cdb3f3cb1217427709b39df475"
+    },
+    {
+      "name": "xh-script-assets-causal-webkit-final.log",
+      "sha256": "9f4ba639d1b566ea99b6086829bd18ac09f55a97cd1c7e4f42de480dd0c9de7b"
+    },
+    {
+      "name": "conversation-linux-webkit-checkpoint-differential.log",
+      "sha256": "f1d99564d9bb0eb91f0e76a858fabb7c31a3b438a89be368566612526d6ac256"
+    },
+    {
+      "name": "conversation-checkpoint-semantic-mac-4runs.log",
+      "sha256": "4fb8163121c89fddbcc66e666db626f84f2fcd598071b67be9f3c2594e5c45b2"
+    },
+    {
+      "name": "xh-v100-browser-matrix-verified-environment.log",
+      "sha256": "c203511c24ee14c8cc35359269ad6fc1e0f9b0a169801f8d844135e15746639f"
+    },
+    {
+      "name": "xh-v100-full-boot-locale-diagnostic.log",
+      "sha256": "8c2d4c900d9ca3c91c262a0501c8b58b31c471842556ba53be31c8c4ae37e436"
+    },
+    {
+      "name": "xh-full-boot-en-us-local-confirmed.log",
+      "sha256": "a59351602f78660bda6390b2e6fb7d3dbdc8d4922b319b6f7d89d5bc063da1c7"
+    },
+    {
+      "name": "xh-full-boot-en-us-v100-confirmed.log",
+      "sha256": "4b66d2e05e4c190168594e5d613a338143fe0dc7777a1d48bad05ec85638757f"
+    },
+    {
+      "name": "xh-v100-checkpoint-corrected-full-boot-final.log",
+      "sha256": "aeaac6279c531d86125eefb7dc38fa40204225c1a1df2a1c20f12fa9b884437c"
+    },
+    {
+      "name": "conversation-linux-transcript-scroll-barrier.log",
+      "sha256": "bfb4f33dce50f618c23338616f680eb525b6155028a5891ebe4b65e175b60606"
+    }
+  ],
+  "limitations": [
+    "No app restart/replacement/deploy or release",
+    "Browser fixtures are not native desktop end-to-end acceptance",
+    "No memory or performance improvement claimed",
+    "CI is independently required after commit; local pass is not CI pass",
+    "Initial failures retained separately from corrected reruns"
+  ],
+  "ciInitial": {
+    "head": "f0592cb2c19092cbb6f5c7eb6df520b0f04c5fea",
+    "runUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/37015845695",
+    "passed": [
+      "Rust Linux",
+      "Rust macOS arm64",
+      "Rust Windows x86_64",
+      "Update channel contract"
+    ],
+    "failed": [
+      {
+        "job": "Tauri Desktop Linux",
+        "cause": "typed Node contract could not import typescript: desktop job missed locked UI toolchain installation",
+        "fix": "npm ci --prefix ui --ignore-scripts before native/typed Node contracts; six-job regression added"
+      },
+      {
+        "job": "Context and Harness layout",
+        "cause": "test-brand-headline read removed ui/legacy rather than independent pinned reference",
+        "fix": "original positive/idempotent patch fixture now uses frozen master for all files"
+      }
+    ],
+    "additionalPreflight": "actual model-settings unit seam restored, original Rust schema extraction/valid assertions retained; frozen and source passed through real Cordis service lifecycle",
+    "productionChangedInCiCorrection": false,
+    "mergeAllowed": false,
+    "nextRunRequired": true
+  },
+  "ciFollowup": {
+    "head": "f1bc06189c3b610342725a0caf11dfd82003fc69",
+    "runUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/37018400691",
+    "nativeJobsPassed": [
+      "Rust Linux",
+      "Rust macOS arm64",
+      "Rust Windows x86_64",
+      "Tauri Desktop Linux",
+      "Update channel contract"
+    ],
+    "failedJob": "Context and Harness layout",
+    "failedPath": "scripts/test-script-assets-browser.mjs",
+    "cause": "test imposed total order across independent first-frame RAF and updater promise chains",
+    "productionChangedInCorrection": false,
+    "correction": "exact phase and updater causal chains, arguments and counts; deliberately cover both legal interleavings and original natural scheduling; retain UI/confirmation/Escape/XSS/pagehide/error assertions",
+    "localBrowserCases": 36,
+    "browsers": [
+      "chromium",
+      "webkit"
+    ],
+    "roundsPerEngine": 3,
+    "schedules": [
+      "startup-first",
+      "updater-first",
+      "natural"
+    ],
+    "rejectedInvalidTraceCases": 14,
+    "nextRunRequired": true,
+    "mergeAllowed": false
+  },
+  "supplementaryLinuxCheckpoint": {
+    "runtime": "WZU_Server Ubuntu 22.04, Node 20.20.2, cached Playwright 1.59.1; supplementary, not latest CI runtime",
+    "initialFailure": "aggregate details.innerText includes layout-generated final LF in both implementations",
+    "realFrozenSourceDomComparisonPassed": 2,
+    "outerHtmlEqual": true,
+    "rawInnerTextEqual": true,
+    "producerTextEqual": true,
+    "correctedMacBrowserCombinationsPassed": 4,
+    "testCorrection": "exact separate summary/body textContent plus exactly one open details; no whitespace trimming or producer changes",
+    "matrixStillRunning": false,
+    "productionChanged": false
+  },
+  "supplementaryLinuxMatrix": {
+    "receipt": "ui-source-v100-browser-matrix-20261003.json",
+    "totalEntries": 172,
+    "initialPass": 169,
+    "initialFail": 3,
+    "independentCorrectedPass": 2,
+    "accepted": 171,
+    "unresolved": 1,
+    "knownExistingDefect": "UI-LINUX-ANCHOR-01",
+    "notLatestCiRuntime": true
+  },
+  "fullBootLocaleCorrection": {
+    "initialFailure": "OS locale zh-CN in Linux Chromium, identical Settings localization in frozen and source; exact English fixture locators timeout",
+    "testChange": "explicit en-US browser locale and exact navigator.language assertion, no production changes",
+    "localPass": 4,
+    "v100Pass": 4,
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "implementations": [
+      "source",
+      "legacy"
+    ],
+    "pixelComparison": "exact bytes within each engine/platform",
+    "v100ChromiumPngSha256": "ba6ba58332391c5517aeb174353bb628a49d205811e80a0edce8b5919fc6439b",
+    "v100WebkitPngSha256": "e0d0395e8c1a25c5571d56947807914ad6c06fe9a4c20569e110f8500b51bde5",
+    "confirmedRemoteNodeExit": 0
+  }
+}
