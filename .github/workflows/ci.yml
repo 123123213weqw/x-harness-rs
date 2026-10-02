@@ -180,6 +180,7 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-streaming-math.mjs
           UI_TEST_BROWSER=chromium node scripts/test-session-history-cache.mjs
           UI_TEST_BROWSER=webkit node scripts/test-session-history-cache.mjs
+          node scripts/test-transcript-row-state.mjs
           UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
           node scripts/test-question-continuation-patch.mjs

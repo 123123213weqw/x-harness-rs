@@ -6,6 +6,12 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     const React = require('react')
+// xh-transcript-row-state/v1
+function xhUseTranscriptState(key, initial) {
+  const api = globalThis.__xhTranscriptState?.get(React.createElement);
+  return api ? api.useState(key, initial) : React.useState(initial);
+}
+
     const h = React.createElement
     const NS = 'xharness-computer'
     const GLOBAL_KEY = '__XHARNESS_COMPUTER_ACTIVITY_V1__'
@@ -297,7 +303,7 @@ window.__ModuleLoader__.load({
     }
 
     function ComputerRow({ callId, block, inspect, t }) {
-      const [expanded, setExpanded] = React.useState(false)
+      const [expanded, setExpanded] = xhUseTranscriptState("computer:" + callId, false)
       const args = React.useMemo(() => callArguments(block), [block])
       const descriptor = React.useMemo(() => actionDescriptor(args, t), [args, t])
       const state = settledState(block)

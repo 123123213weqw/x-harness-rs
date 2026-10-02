@@ -90,6 +90,7 @@ async fn run(workspace: &Path, mode: SandboxMode, spec: SpawnSpec) -> ProcessOut
 async fn restricted_child_has_no_console_and_keeps_streams_and_exit_code() {
     let tree = TestTree::new();
     let workspace = tree.directory("workspace");
+    let progress_path = workspace.join("console-probe.progress");
     let output = run(
         &workspace,
         SandboxMode::WorkspaceWrite,
@@ -97,12 +98,21 @@ async fn restricted_child_has_no_console_and_keeps_streams_and_exit_code() {
             &workspace,
             include_str!("../../../scripts/fixtures/windows-no-console.ps1"),
             &[],
-        ),
+        )
+        .env("XHARNESS_CONSOLE_PROBE_PROGRESS", progress_path.as_os_str()),
     )
     .await;
-    assert_eq!(output.status.code, Some(17), "{}", output.stderr.text);
+    let progress = fs::read_to_string(&progress_path)
+        .unwrap_or_else(|error| format!("no script progress file: {error}"));
+    eprintln!("restricted console probe: phases={progress:?}, output={output:?}");
+    assert_eq!(
+        output.status.code,
+        Some(17),
+        "phases={progress:?}, output={output:?}"
+    );
     assert_eq!(output.stdout.text, "no-console-stdout-你好");
     assert_eq!(output.stderr.text, "no-console-stderr-错误");
+    assert!(progress.contains("streams-written"), "{progress}");
 }
 
 #[tokio::test]

@@ -7,6 +7,12 @@ window.__ModuleLoader__.load({
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let _xharness_dsh_client_ui_primitives = require("@xharness/dsh-client-ui-primitives");
 		let react = require("react");
+// xh-transcript-row-state/v1
+function xhUseTranscriptState(key, initial) {
+  const api = globalThis.__xhTranscriptState?.get(react.createElement);
+  return api ? api.useState(key, initial) : react.useState(initial);
+}
+
 		//#region lib/types/client/card-model.js
 		/** Replay-stable view models for Cordis lifecycle Tool calls. */
 		function firstLine(text) {
@@ -275,8 +281,8 @@ window.__ModuleLoader__.load({
 			const card = cordisDefineCard(block);
 			const inventory = useInventory((snapshot) => snapshot);
 			const loaded = useLoaded((snapshot) => snapshot);
-			const [expanded, setExpanded] = (0, react.useState)(false);
-			const [selectedSource, setSelectedSource] = (0, react.useState)(card.clientCode !== null ? "client" : "host");
+			const [expanded, setExpanded] = xhUseTranscriptState("cordis-expanded", false);
+			const [selectedSource, setSelectedSource] = xhUseTranscriptState("cordis-source", card.clientCode !== null ? "client" : "host");
 			const sourcePanelId = (0, react.useId)();
 			const row = card.pluginId === null ? void 0 : inventory.rows.find((candidate) => candidate.pluginId === card.pluginId);
 			const reading = card.pluginId !== null && inventory.removed.has(card.pluginId) ? "removed" : row !== void 0 && card.packageId !== null ? cordisVisibleStatus(row, card.packageId, loaded) : "idle";

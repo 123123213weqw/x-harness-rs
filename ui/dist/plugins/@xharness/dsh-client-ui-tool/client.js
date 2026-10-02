@@ -6,6 +6,12 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let react = require("react");
+// xh-transcript-row-state/v1
+function xhUseTranscriptState(key, initial) {
+  const api = globalThis.__xhTranscriptState?.get(react.createElement);
+  return api ? api.useState(key, initial) : react.useState(initial);
+}
+
 		let _xharness_dsh_client_ui_primitives = require("@xharness/dsh-client-ui-primitives");
 		let _xharness_dsh_client_runtime_client = require("@xharness/dsh-client-runtime/client");
 		//#region lib/types/client/tool/models/tool-call-model.js
@@ -736,11 +742,11 @@ function xhDiffLines(text) {
   if (typeof text !== 'string' || text === '') return []
   return (text.endsWith('\n') ? text.slice(0, -1) : text).split('\n')
 }
-function XHReviewDiffBlock({ diffs, maxLines, className }) {
+function XHReviewDiffBlock({ diffs, maxLines, className, stateKey = "" }) {
   const [layout, setLayout] = react.useState(() => {
     try { return localStorage.getItem('xharness.ui.diff-layout.v1') === 'split' ? 'split' : 'inline' } catch { return 'inline' }
   })
-  const [expanded, setExpanded] = react.useState(false)
+  const [expanded, setExpanded] = globalThis.__xhTranscriptState?.get(react.createElement) ? globalThis.__xhTranscriptState.get(react.createElement).useState("diff:" + stateKey, false) : react.useState(false)
   const [copied, setCopied] = react.useState(false)
   const translate = (zh, en) => (document.documentElement.lang || '').toLowerCase().startsWith('zh') ? zh : en
   const changeLayout = value => {
@@ -803,14 +809,17 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			if (toolName !== "web_fetch") return null;
 			try { const url = new URL(summary); return url.protocol === "http:" || url.protocol === "https:" ? url.href : null; } catch { return null; }
 		}
-		function ToolRow({ t, variant, toolName, icon, title, summary, summarySuffix, body, output, errorSummary, terminal, diff, read, search, web, state, filePath, onOpenFile, inspect }) {
-			const [expanded, setExpanded] = (0, react.useState)(false);
+		function ToolRow({ stateKey = "", t, variant, toolName, icon, title, summary, summarySuffix, body, output, errorSummary, terminal, diff, read, search, web, state, filePath, onOpenFile, inspect }) {
+			const [expanded, setExpanded] = xhUseTranscriptState("tool:" + stateKey, false);
 			const processMode = xhUseProcessMode();
+const [appliedMode, setAppliedMode] = xhUseTranscriptState("tool-mode:" + stateKey, null);
 			(0, react.useEffect)(() => {
+				if (appliedMode === processMode) return;
+setAppliedMode(processMode);
 				if (processMode === "verbose") setExpanded(true);
 				else if (processMode === "compact") setExpanded(false);
 				else if (processMode === "detailed" && (state === "running" || state === "preparing") && (body?.length ?? 0) < 4096) setExpanded(true);
-			}, [processMode, state]);
+			}, [processMode, state, appliedMode]);
 			const terminalBody = terminal ?? null;
 			const diffBody = diff ?? null;
 			const readBody = read ?? null;
@@ -889,6 +898,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 							className: ToolRow_module_css_default.terminalBody
 						}) : diffBody !== null ? (0, react_jsx_runtime.jsx)(XHReviewDiffBlock, {
 							...diffBody.card,
+stateKey,
 							maxLines: 8,
 							className: ToolRow_module_css_default.diffBody
 						}) : readBody !== null ? (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.ReadBlock, {
@@ -975,6 +985,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const state = model.state === "ok" && terminal !== null && terminalFailed(terminal) ? "error" : model.state;
 			const singleFile = model.filePath !== void 0;
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1220,6 +1231,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			} else if (model.state === "running") summary = t("ask.waiting");
 			else if ("kind" in block && model.state === "ok") summary = answeredSummary(block.content.filter((b) => b.type === "text").map((b) => b.text).join(""), t) ?? model.summary;
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1312,7 +1324,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const terminal = terminalCardModel(block, useSessions((list) => list.byId[sessionId]?.cwd));
 			const state = model.state === "ok" && terminal !== null && terminalFailed(terminal) ? "error" : model.state;
 			const status = stateStatus(state, t);
-			const [expanded, setExpanded] = (0, react.useState)(false);
+			const [expanded, setExpanded] = xhUseTranscriptState("bash:" + block.callId, false);
 			const genericError = terminal === null && model.state === "error" && (model.body !== null || model.output !== null);
 			const expandable = terminal !== null || genericError;
 			const open = expanded && expandable;
@@ -1443,6 +1455,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const model = toolRowModel(toolName, block, cwd, home);
 			const diff = diffCardModel(block);
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1497,6 +1510,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const model = toolRowModel(toolName, block, cwd, home);
 			const read = readCardModel(block, cwd, home);
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1550,6 +1564,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const model = toolRowModel(toolName, block);
 			const search = searchCardModel(block);
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1664,6 +1679,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 				extra: 0
 			};
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,
@@ -1714,6 +1730,7 @@ function XHReviewDiffBlock({ diffs, maxLines, className }) {
 			const web = webCardModel(block);
 			const icon = toolName === "web_fetch" ? (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconBrowseOutline16, { size: 14 }) : (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconGlobeOutline14, { size: 14 });
 			return (0, react_jsx_runtime.jsx)(ToolRow, {
+stateKey: block.callId,
 				t,
 				variant: model.variant,
 				toolName,

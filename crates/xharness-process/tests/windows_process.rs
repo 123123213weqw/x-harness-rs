@@ -6,7 +6,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use xharness_process::{
@@ -60,22 +60,36 @@ fn pwsh(cwd: &Path, command: &str) -> SpawnSpec {
 #[tokio::test]
 async fn non_interactive_child_has_no_console_and_keeps_streams_and_exit_code() {
     let dir = TestDir::new();
+    let progress_path = dir.path().join("console-probe.progress");
+    let started = Instant::now();
     let output = ProcessRuntime::new()
         .spawn(
             pwsh(
                 dir.path(),
                 include_str!("../../../scripts/fixtures/windows-no-console.ps1"),
             )
-            .timeout(Duration::from_secs(30)),
+            .timeout(Duration::from_secs(30))
+            .env("XHARNESS_CONSOLE_PROBE_PROGRESS", progress_path.as_os_str()),
         )
         .unwrap()
         .wait()
         .await
         .unwrap();
-    assert_eq!(output.termination, TerminationReason::Exited);
+    let progress = fs::read_to_string(&progress_path)
+        .unwrap_or_else(|error| format!("no script progress file: {error}"));
+    eprintln!(
+        "console probe: elapsed_ms={}, phases={progress:?}, output={output:?}",
+        started.elapsed().as_millis()
+    );
+    assert_eq!(
+        output.termination,
+        TerminationReason::Exited,
+        "phases={progress:?}, output={output:?}"
+    );
     assert_eq!(output.status.code, Some(17), "{}", output.stderr.text);
     assert_eq!(output.stdout.text, "no-console-stdout-你好");
     assert_eq!(output.stderr.text, "no-console-stderr-错误");
+    assert!(progress.contains("streams-written"), "{progress}");
 }
 
 #[tokio::test]
