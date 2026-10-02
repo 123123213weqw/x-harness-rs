@@ -13,6 +13,12 @@ assert.equal(read(`ui/dist/plugins/${browser}/client.js`), read(`ui/plugins/${br
 assert.doesNotMatch(read(`ui/plugins/${browser}/client.js`), /BrowserAccess|useBrowserAccess|xhbrowser-access-/,
   'manual browser access controls must not return in fresh builds')
 assert.equal(patchBrowserDock(Buffer.from(read(`ui/dist/plugins/${layout}/client.js`))).toString(), read(`ui/dist/plugins/${layout}/client.js`))
+const shippedLayout = read(`ui/dist/plugins/${layout}/client.js`)
+const previousLayers = shippedLayout.replaceAll('isolation:isolate;z-index:0;', '')
+  .replace('z-index:10;box-shadow:-14px 0 40px #0004', 'z-index:25;box-shadow:-14px 0 40px #0004')
+  .replace('._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:9;', '._84hhiq_workspaceScrim{position:absolute;inset:0;z-index:24;')
+assert.equal(patchBrowserDock(Buffer.from(previousLayers)).toString(), shippedLayout,
+  'refresh an already-patched release, not just fresh upstream builds')
 assert.match(read('ui/dist/index.html'), /@xlang\/xharness-client-ui-browser/)
 assert.match(read(`ui/dist/plugins/${layout}/client.js`), /sessionId: spaceKey === "__global__" \? null : spaceKey/, 'the live session, not a persisted tab, owns browser binding')
 assert.match(read('ui/overrides/workspace-pane.js'), /item: active, sessionId, open: true/)

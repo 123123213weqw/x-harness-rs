@@ -74,6 +74,75 @@ window.__ModuleLoader__.load({
     const pageOrigin = address => {
       try { const url = new URL(address); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.origin : '' } catch { return '' }
     }
+    // Native child views cannot participate in CSS stacking. Yield only while
+    // a rendered modal or a floating UI surface covers their page rectangle.
+    // ARIA surfaces and body portals share this policy; no hashed CSS names.
+    const MODAL_SURFACE = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]'
+    const OVERLAY_SURFACE = `${MODAL_SURFACE}, [role="menu"], [role="listbox"], [role="tooltip"], [popover], [data-xh-overlay]`
+    const floating = element => ['fixed', 'absolute'].includes(getComputedStyle(element).position)
+    function browserSurfaces(content) {
+      const surfaces = new Set(document.querySelectorAll(OVERLAY_SURFACE))
+      const addFloating = root => {
+        if (root.contains(content)) return
+        if (floating(root)) surfaces.add(root)
+        else for (const child of root.querySelectorAll('*')) if (floating(child)) surfaces.add(child)
+      }
+      // The shell carrier spans the viewport even when empty; only its entries
+      // are overlays. Treating the carrier as one would hide every native page.
+      for (const root of document.querySelectorAll('[data-shell-overlay]')) for (const entry of root.children) addFloating(entry)
+      for (const root of document.body.children) if (!root.contains(content)) addFloating(root)
+      return [...surfaces].filter(element => !content.contains(element))
+    }
+    function browserOccluded(content) {
+      const page = content.getBoundingClientRect()
+      return browserSurfaces(content).some(element => {
+        if (element.closest('[hidden], [aria-hidden="true"], [inert]') || !element.getClientRects().length) return false
+        if (getComputedStyle(element).visibility !== 'visible') return false
+        const rect = element.getBoundingClientRect()
+        if (rect.width < 1 || rect.height < 1 || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return false
+        if (element.matches(MODAL_SURFACE)) return true
+        // A static listbox in chat is content, not a floating menu.
+        let surface = element
+        while (surface && surface !== document.body && !surface.contains(content) && !floating(surface)) surface = surface.parentElement
+        if (!surface || surface === document.body || surface.contains(content)) return false
+        return rect.left < page.right && rect.right > page.left && rect.top < page.bottom && rect.bottom > page.top
+      })
+    }
+    function watchBrowserSurfaces(content, sync) {
+      let frame = null, surfaces = []
+      const resize = new ResizeObserver(() => schedule())
+      const refresh = () => {
+        frame = null
+        const next = browserSurfaces(content)
+        if (next.length !== surfaces.length || next.some((element, index) => element !== surfaces[index])) {
+          resize.disconnect(); next.forEach(element => resize.observe(element)); surfaces = next
+        }
+        void sync()
+      }
+      const schedule = () => { frame ??= requestAnimationFrame(refresh) }
+      const relevant = node => node instanceof Element && (
+        node.closest(`${OVERLAY_SURFACE}, [data-shell-overlay]`) || node.querySelector(OVERLAY_SURFACE)
+        || surfaces.some(surface => node.contains(surface))
+        || [...document.body.children].some(root => !root.contains(content) && root.contains(node)))
+      const observer = new MutationObserver(records => {
+        // Ignore streaming text/tool rows. Only overlay/portal ownership changes
+        // invalidate native presentation; coalesce them once per animation frame.
+        if (records.some(record => record.target === document.body || relevant(record.target)
+          || [...record.addedNodes, ...record.removedNodes].some(relevant))) schedule()
+      })
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'inert', 'role', 'aria-modal', 'aria-hidden', 'popover', 'data-xh-overlay'] })
+      window.addEventListener('scroll', schedule, true)
+      const settled = event => { if (relevant(event.target)) schedule() }
+      document.addEventListener('transitionend', settled)
+      document.addEventListener('animationend', settled)
+      schedule()
+      return () => {
+        observer.disconnect(); resize.disconnect(); if (frame !== null) cancelAnimationFrame(frame)
+        window.removeEventListener('scroll', schedule, true)
+        document.removeEventListener('transitionend', settled); document.removeEventListener('animationend', settled)
+      }
+    }
     function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }) {
       const [draft, setDraft] = useState(() => currentAddress(item))
       const [error, setError] = useState('')
@@ -105,8 +174,7 @@ window.__ModuleLoader__.load({
           if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
           const rect = contentRef.current?.getBoundingClientRect()
           if (!rect || rect.width < 1 || rect.height < 1) return false
-          return ![...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')].some(element =>
-            element.getAttribute('aria-hidden') !== 'true' && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden')
+          return !contentRef.current.closest('[hidden], [aria-hidden="true"], [inert]') && !browserOccluded(contentRef.current)
         }
         const hide = async () => {
           await send('desktop_browser_activate', { tabId: null })
@@ -170,9 +238,7 @@ window.__ModuleLoader__.load({
         nativeSyncRef.current = syncBounds
         const observer = new ResizeObserver(syncBounds)
         observer.observe(contentRef.current)
-        const overlay = document.querySelector('[data-shell-overlay="true"]')
-        const overlayObserver = new MutationObserver(syncBounds)
-        if (overlay) overlayObserver.observe(overlay, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden', 'role', 'aria-modal', 'aria-hidden'] })
+        const stopWatchingSurfaces = watchBrowserSurfaces(contentRef.current, syncBounds)
         window.addEventListener('resize', syncBounds)
         requestAnimationFrame(syncBounds)
         let unlisten = null
@@ -201,7 +267,7 @@ window.__ModuleLoader__.load({
           else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
         }).then(fn => { if (disposed) fn(); else unlisten = fn }).catch(error => { if (!disposed) setError(String(error)) })
         return () => {
-          disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
+          disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); stopWatchingSurfaces(); window.removeEventListener('resize', syncBounds); unlisten?.()
           if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
           void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
         }
@@ -210,7 +276,13 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!open) return
         const onKey = event => {
-          if (event.key === 'Escape') { onClose(); return }
+          if (event.key !== 'Escape' && !((event.metaKey || event.ctrlKey) && ['l', 't'].includes(event.key.toLowerCase()))) return
+          if (event.defaultPrevented || (contentRef.current && browserOccluded(contentRef.current))) return
+          if (event.key === 'Escape') {
+            if (menuOpen || downloadsOpen) { event.preventDefault(); setMenuOpen(false); setDownloadsOpen(false); return }
+            if (event.target instanceof Element && event.target.closest('.xhbrowser-pane')) onClose()
+            return
+          }
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
             event.preventDefault(); inputRef.current?.focus(); inputRef.current?.select()
           }
@@ -220,7 +292,7 @@ window.__ModuleLoader__.load({
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
-      }, [open, onClose, onNewBrowser])
+      }, [open, onClose, onNewBrowser, menuOpen, downloadsOpen])
       const navigateTo = raw => {
         const result = normalizeAddress(raw)
         if (result.error) { setError(result.error); return }
