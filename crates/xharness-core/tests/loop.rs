@@ -5916,14 +5916,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             ..CompactionConfig::default()
         });
         let (_, result) = collect(LoopEngine.start(request)).await;
-        assert_eq!(
-            result.status,
-            if input == 900 {
-                LoopStatus::Completed
-            } else {
-                LoopStatus::Failed
-            }
-        );
+        assert_eq!(result.status, LoopStatus::Failed);
         let session = journal.load("candidate-budget").await.unwrap().unwrap();
         assert!(session
             .derive_messages()
@@ -5934,7 +5927,11 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             .iter()
             .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
         assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionEnd { error: Some(message), .. } if message.contains("candidate still exceeds"))));
-        assert_eq!(provider.inner.attempts(), if input == 900 { 2 } else { 1 });
+        assert_eq!(
+            provider.inner.attempts(),
+            1,
+            "failed pressure compaction must not silently continue"
+        );
     }
 }
 
@@ -6188,19 +6185,11 @@ async fn summary_fault_matrix_keeps_history_and_never_sends_overbudget_main_requ
                     .unwrap();
             assert_eq!(
                 result.status,
-                if pressure {
-                    LoopStatus::Completed
-                } else {
-                    LoopStatus::Failed
-                },
+                LoopStatus::Failed,
                 "case={case} pressure={pressure}: {:?}",
                 result.error
             );
-            assert_eq!(
-                provider.inner.attempts(),
-                if pressure { 2 } else { 1 },
-                "case={case}"
-            );
+            assert_eq!(provider.inner.attempts(), 1, "case={case}");
             let session = probe
                 .journal
                 .load("candidate-probe")
@@ -6836,5 +6825,161 @@ async fn sustained_network_wait_steering_resets_backoff_but_pause_and_next_step_
             ],
             "{action}"
         );
+    }
+}
+
+#[tokio::test]
+async fn compaction_progress_is_durable_and_network_recovery_holds_the_main_request() {
+    let (mut request, probe) = candidate_probe(false).await;
+    let provider = Arc::new(SequencedCountingProvider {
+        inner: ScriptProvider::with_attempts([
+            Err(transport_error("response_body")),
+            Err(transport_error("connect_or_headers")),
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("CHECKPOINT".into())),
+                Ok(completed()),
+            ]),
+            Ok(vec![
+                Ok(ProviderEvent::TextDelta("done".into())),
+                Ok(completed()),
+            ]),
+        ]),
+        counts: Arc::new(Mutex::new(VecDeque::from([980, 500, 500, 500, 300, 300]))),
+    });
+    request.provider = provider.clone();
+    request.config.provider_retry_base_delay_ms = 1;
+    request.config.network_wait_max_delay_ms = 2;
+    request.config.provider_retry_jitter_percent = 0;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(provider.inner.attempts(), 4);
+    let session = probe
+        .journal
+        .load("candidate-probe")
+        .await
+        .unwrap()
+        .unwrap();
+    let progress = session
+        .events()
+        .iter()
+        .filter_map(|e| match e.data() {
+            SessionEventData::CompactionProgress { progress, .. } => Some(progress),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        progress
+            .iter()
+            .filter(|p| p.stage == xharness_session::CompactionStage::Retrying)
+            .count(),
+        2
+    );
+    let last = progress.last().unwrap();
+    assert_eq!(last.stage, xharness_session::CompactionStage::Committing);
+    assert_eq!(last.calls, 3);
+    assert_eq!(last.completed_parts, 1);
+    assert_eq!(last.retries, 2);
+    assert_eq!(last.input_tokens_before, Some(980));
+    assert_eq!(last.input_tokens_after, Some(300));
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), SessionEventData::CompactionStart { .. }))
+            .count(),
+        1
+    );
+    for request in &provider.inner.requests()[..3] {
+        assert!(request.tools.is_empty());
+    }
+    let encoded = serde_json::to_string(&progress).unwrap();
+    assert!(!encoded.contains("CHECKPOINT"));
+    assert!(!encoded.contains("offline"));
+}
+
+#[tokio::test]
+async fn compaction_backoff_accepts_pause_resume_steer_and_cancel_without_tools() {
+    for command in [
+        LoopCommand::Cancel,
+        LoopCommand::Steer(AgentMessage::user("changed work")),
+    ] {
+        let (mut request, probe) = candidate_probe(false).await;
+        let provider = Arc::new(SequencedCountingProvider {
+            inner: ScriptProvider::with_attempts([
+                Err(transport_error("response_body")),
+                Ok(vec![
+                    Ok(ProviderEvent::TextDelta("done".into())),
+                    Ok(completed()),
+                ]),
+            ]),
+            counts: Arc::new(Mutex::new(VecDeque::from([900, 500, 300, 300]))),
+        });
+        request.provider = provider.clone();
+        request.config.provider_retry_base_delay_ms = 30_000;
+        request.config.provider_retry_max_delay_ms = 30_000;
+        request.config.network_wait_max_delay_ms = 30_000;
+        let run = LoopEngine.start(request);
+        tokio::time::timeout(Duration::from_secs(5),async {
+            loop {
+                let s=probe.journal.load("candidate-probe").await.unwrap().unwrap();
+                if s.events().iter().any(|e|matches!(e.data(),SessionEventData::CompactionProgress {progress,..} if progress.stage==xharness_session::CompactionStage::Retrying)) {break;}
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }).await.unwrap();
+        run.send(LoopCommand::Pause).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        run.send(LoopCommand::Resume).await.unwrap();
+        let cancelled = matches!(&command, LoopCommand::Cancel);
+        run.send(command).await.unwrap();
+        let (_, result) = tokio::time::timeout(Duration::from_secs(5), collect(run))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.status,
+            if cancelled {
+                LoopStatus::Cancelled
+            } else {
+                LoopStatus::Completed
+            },
+            "{:?}",
+            result.error
+        );
+        let s = probe
+            .journal
+            .load("candidate-probe")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(s.events().iter().any(|e|matches!(e.data(),SessionEventData::CompactionProgress {progress,..} if progress.stage==xharness_session::CompactionStage::Paused)));
+        let retry_delays = s
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                SessionEventData::CompactionProgress { progress, .. }
+                    if progress.stage == xharness_session::CompactionStage::Retrying =>
+                {
+                    progress.delay_ms
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(retry_delays.len(), 2);
+        assert!(
+            retry_delays[1] < retry_delays[0],
+            "resume must not restart the countdown"
+        );
+        assert!(s.events().iter().any(|e| matches!(
+            e.data(),
+            SessionEventData::CompactionEnd { error: Some(_), .. }
+        )));
+        assert!(!s.events().iter().any(|e| matches!(
+            e.data(),
+            SessionEventData::CompactionSummary { .. } | SessionEventData::ToolCall { .. }
+        )));
+        assert!(s
+            .derive_messages()
+            .iter()
+            .any(|m| m.content.contains("OLD-CONTEXT")));
+        assert_eq!(provider.inner.attempts(), if cancelled { 1 } else { 2 });
     }
 }

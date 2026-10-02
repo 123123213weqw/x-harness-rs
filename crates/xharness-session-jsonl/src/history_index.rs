@@ -4,7 +4,7 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use xharness_session::{EventData, SessionHistoryWindow};
 
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const MAX_INDEX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
 const MAX_WINDOW_BYTES: u64 = 32 * 1024 * 1024;
@@ -135,6 +135,14 @@ impl Builder {
                 EventData::CompactionStart { compaction_id, .. } => {
                     self.compactions
                         .insert(compaction_id.clone(), vec![event.seq]);
+                }
+                EventData::CompactionProgress { compaction_id, .. } => {
+                    // Only the latest numeric snapshot is a page dependency.
+                    // A sustained network wait must not create an unbounded context vector.
+                    if let Some(sources) = self.compactions.get_mut(compaction_id) {
+                        sources.truncate(1);
+                        sources.push(event.seq);
+                    }
                 }
                 EventData::ToolCall { call, .. } => {
                     self.calls.insert(call.id.clone(), event.seq);
@@ -452,7 +460,8 @@ pub(super) fn read(
                     needed.insert(*seq);
                 }
             }
-            EventData::CompactionEnd { compaction_id, .. } => {
+            EventData::CompactionProgress { compaction_id, .. }
+            | EventData::CompactionEnd { compaction_id, .. } => {
                 if let Some(sources) = index.data.compactions.get(compaction_id) {
                     needed.extend(sources);
                 }

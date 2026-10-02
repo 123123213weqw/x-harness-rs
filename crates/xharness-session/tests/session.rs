@@ -1702,3 +1702,105 @@ fn only_explicit_user_stop_projects_a_model_marker_not_a_user_event() {
         assert_eq!(messages, session.derive_messages());
     }
 }
+
+#[test]
+fn compaction_progress_is_metadata_only_and_rejects_invalid_lifecycles() {
+    use xharness_session::{CompactionProgress, CompactionStage};
+    let progress = |id: &str, p: CompactionProgress| {
+        event(EventData::CompactionProgress {
+            compaction_id: id.into(),
+            source_command_id: None,
+            turn: Some(1),
+            progress: p,
+        })
+    };
+    let mut session = Session::new(header("progress")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                event(EventData::TurnStart { turn: 1 }),
+                event(EventData::UserMessage {
+                    message: Message::user("keep full original"),
+                    surface_replace: None,
+                }),
+            ],
+            10,
+        )
+        .unwrap();
+    assert!(session
+        .append(Revision(1), progress("c", Default::default()))
+        .is_err());
+    session
+        .append(
+            Revision(1),
+            event(EventData::CompactionStart {
+                compaction_id: "c".into(),
+                source_command_id: None,
+                turn: Some(1),
+            }),
+        )
+        .unwrap();
+    let valid = CompactionProgress {
+        stage: CompactionStage::Retrying,
+        calls: 3,
+        completed_parts: 1,
+        splits: 1,
+        retries: 2,
+        delay_ms: Some(1000),
+        input_tokens_before: Some(100),
+        input_tokens_after: None,
+    };
+    let before = session.derive_messages();
+    session
+        .append(Revision(2), progress("c", valid.clone()))
+        .unwrap();
+    assert_eq!(session.derive_messages(), before);
+    for invalid in [
+        CompactionProgress {
+            calls: 2,
+            ..valid.clone()
+        },
+        CompactionProgress {
+            completed_parts: 4,
+            ..valid.clone()
+        },
+        CompactionProgress {
+            delay_ms: None,
+            ..valid.clone()
+        },
+        CompactionProgress {
+            stage: CompactionStage::Merging,
+            ..valid.clone()
+        },
+        CompactionProgress {
+            retries: 1,
+            ..valid.clone()
+        },
+    ] {
+        assert!(session.append(Revision(3), progress("c", invalid)).is_err());
+        assert_eq!(session.revision(), Revision(3));
+    }
+    assert!(session
+        .append(Revision(3), progress("wrong", valid.clone()))
+        .is_err());
+    session
+        .append(
+            Revision(3),
+            event(EventData::CompactionEnd {
+                compaction_id: "c".into(),
+                source_command_id: None,
+                turn: Some(1),
+                error: Some("cancelled".into()),
+            }),
+        )
+        .unwrap();
+    assert!(session.append(Revision(4), progress("c", valid)).is_err());
+    let restart = Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec(),
+    )
+    .unwrap();
+    assert_eq!(restart.derive_messages(), before);
+}
