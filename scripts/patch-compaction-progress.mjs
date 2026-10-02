@@ -74,17 +74,12 @@ export function patchCompactionProgress(bytes) {
     return (0, react_jsx_runtime.jsx)(CompactionItem, {node:node.data,t});
   });`);
   once('if (compaction !== void 0) return (0, react_jsx_runtime.jsx)(CompactionItem, {', 'if (compaction?.status) return (0, react_jsx_runtime.jsx)(XhCompactionProgressCard, {data:compaction,t});\n\t\t\tif (compaction !== void 0) return (0, react_jsx_runtime.jsx)(CompactionItem, {');
-  // Assembly patches upstream bytes before the product namespace rewrite;
-  // maintenance patches the already rewritten checked-in bundle.
-  const primitives=s.includes('_deepseek_ai_dsh_client_ui_primitives.MarkdownText')
-    ? '_deepseek_ai_dsh_client_ui_primitives' : '_xharness_dsh_client_ui_primitives';
-  once(`children: (0, react_jsx_runtime.jsx)(${primitives}.MarkdownText, { text: node.summary })`, `children: (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, {children:[(0, react_jsx_runtime.jsx)(XhCompactionMetrics, {data:node,t}), (0, react_jsx_runtime.jsx)(${primitives}.MarkdownText, {text:node.summary})]})`);
   const catalogs = [
-    {anchor:'"view.chat": "对话",', labels:{failed:'压缩未完成',unchanged:'原始历史未改变',counts:'已完成 {parts} 份摘要 · {calls} 次请求 · {splits} 次拆分 · {retries} 次重试',tokens:'请求输入 {before} → {after} tokens',retry:'第 {retry} 次重试 · {seconds} 秒后重试',controls:'任务在压缩边界等待；可使用对话中的暂停或停止。',preparing:'准备与计数',summarizing:'生成摘要',splitting:'拆分历史',merging:'合并摘要',retrying:'等待网络恢复',paused:'已暂停',validating:'验证输入预算',committing:'保存检查点'}},
-    {anchor:'"view.chat": "Chat",', labels:{failed:'Compaction not completed',unchanged:'Original history unchanged',counts:'{parts} summaries completed · {calls} requests · {splits} splits · {retries} retries',tokens:'Request input {before} → {after} tokens',retry:'Retry {retry} · retrying in {seconds}s',controls:'Task waits at the compaction boundary; use the conversation pause or stop controls.',preparing:'Preparing and counting',summarizing:'Generating summary',splitting:'Splitting history',merging:'Merging summaries',retrying:'Waiting for network',paused:'Paused',validating:'Validating input budget',committing:'Saving checkpoint'}},
+    {anchor:'"view.chat": "对话",', labels:{failed:'压缩未完成',unchanged:'原始历史未改变',takesMinutes:'可能需要几分钟',paused:'压缩已暂停',resume:'恢复后继续'}},
+    {anchor:'"view.chat": "Chat",', labels:{failed:'Compaction not completed',unchanged:'Original history unchanged',takesMinutes:'May take a few minutes',paused:'Compaction paused',resume:'Resume to continue'}},
   ];
   for(const {anchor,labels} of catalogs) {
-    const entries=Object.entries(labels).map(([key,value]) => `${JSON.stringify('xh.compact.'+(['preparing','summarizing','splitting','merging','retrying','paused','validating','committing'].includes(key)?'stage.':'')+key)}: ${JSON.stringify(value)},`).join('\n\t\t\t');
+    const entries=Object.entries(labels).map(([key,value]) => `${JSON.stringify('xh.compact.'+key)}: ${JSON.stringify(value)},`).join('\n\t\t\t');
     once(anchor, anchor+'\n\t\t\t'+entries);
   }
   return Buffer.from(s);

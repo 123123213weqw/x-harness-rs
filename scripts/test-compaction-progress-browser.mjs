@@ -49,54 +49,54 @@ try {
   window.running={status:'running',seq:10,time:Date.now()-154000,progressTime:Date.now(),progress:{stage:'retrying',calls:3,completedParts:1,splits:1,retries:2,delayMs:5000,inputTokensBefore:180000}};
   render(running);
  },{helper,hook,classes,dicts});
- await page.waitForFunction(()=>timerCount()===1);
  const card=page.locator('[data-compaction-progress]');
- assert.equal(await card.locator('button').getAttribute('aria-expanded'),'false');
- const bar=card.getByRole('progressbar');
- assert.equal(await bar.count(),1);
- assert.equal(await bar.getAttribute('aria-valuenow'),null,'unknown total is indeterminate, not a fabricated percentage');
- assert.ok((await card.innerText()).includes('第 2 次重试'),'retry countdown stays visible without expanded metrics');
- assert.ok(!(await card.innerText()).includes('3 次请求'),'statistics are collapsed by default');
- assert.ok((await card.innerText()).includes('等待网络恢复'));
- const clockSeconds=async()=>{
-  const match=(await card.innerText()).match(/(\d+)m (\d{2})s/);
-  assert.ok(match,'elapsed clock is visible');return Number(match[1])*60+Number(match[2]);
- };
- const initialClock=await clockSeconds();assert.ok(initialClock>=154);
- await card.locator('button').click();
- assert.ok((await card.innerText()).includes('第 2 次重试'));
- assert.ok((await card.innerText()).includes('3 次请求'));
- await page.waitForTimeout(1100);
- assert.ok(await clockSeconds()>initialClock,'elapsed clock advances without a provider event');
- await page.evaluate(()=>render({...running,progress:{...running.progress,stage:'merging',delayMs:undefined}}));
- assert.equal(await card.locator('button').getAttribute('aria-expanded'),'true','progress update preserves expansion');
- assert.equal(await card.locator('.xhCompactSweep').evaluate(e=>getComputedStyle(e).animationName),'xh-compact-sweep');
+ assert.equal(await page.evaluate(()=>timerCount()),0,'minimal status does not allocate a per-row clock or countdown');
+ assert.equal(await card.getByRole('button').count(),0,'running state is a single status, not another detail control');
+ assert.equal(await card.getByRole('progressbar').count(),0);
+ assert.ok((await card.getByRole('status').innerText()).endsWith('正在压缩… · 可能需要几分钟'));
+ const minimalText=await card.innerText();
+ for(const stage of ['preparing','summarizing','splitting','merging','retrying','validating','committing']) {
+  await page.evaluate(stage=>render({...running,progress:{...running.progress,stage,calls:77,retries:70,delayMs:stage==='retrying'?30000:undefined}}),stage);
+  assert.equal(await card.innerText(),minimalText,'internal stage/count updates must not expand or flicker the status');
+  assert.equal(await page.evaluate(()=>timerCount()),0);
+ }
  await page.evaluate(()=>render({...running,progress:{...running.progress,stage:'paused',delayMs:undefined}}));
- assert.equal(await card.locator('.xhCompactSweep').evaluate(e=>getComputedStyle(e).animationPlayState),'paused');
- await page.emulateMedia({reducedMotion:'reduce'});
- assert.equal(await card.locator('.xhCompactSweep').evaluate(e=>getComputedStyle(e).animationName),'none','reduced motion disables the sweep');
- await page.emulateMedia({reducedMotion:'no-preference'});
- assert.equal(await page.locator('#xh-compaction-progress-style').count(),1,'style is injected once, not per update or row');
- await page.evaluate(()=>render(running,'en','session-b'));
- assert.equal(await card.locator('button').getAttribute('aria-expanded'),'false','session identity isolates expansion');
- assert.ok((await card.innerText()).includes('Waiting for network'));
+ assert.ok((await card.getByRole('status').innerText()).endsWith('压缩已暂停 · 恢复后继续'),'pause is truthful, not a running placeholder');
+ await page.evaluate(()=>render(running,'en'));
+ assert.ok((await card.getByRole('status').innerText()).endsWith('Compacting context… · May take a few minutes'));
+ assert.doesNotMatch(await card.innerText(),/\d|%|Retry|requests/,'no visible counter, time or fabricated percentage');
+ const failure={status:'failed',seq:10,time:1000,error:'network failed / '+ 'long-identifier-'.repeat(80)};
+ await page.evaluate(failure=>render(failure,'en'),failure);
+ assert.ok((await card.getByRole('alert').innerText()).includes('Original history unchanged'),'failure stays visible even before details expand');
+ assert.equal(await card.locator('button').getAttribute('aria-expanded'),'false');
+ await card.locator('button').click();
+ assert.ok((await card.innerText()).includes('network failed'));
+ await page.evaluate(failure=>render({...failure,error:'HTTP 401: invalid credentials'},'en'),failure);
+ assert.equal(await card.locator('button').getAttribute('aria-expanded'),'true','updates preserve error disclosure');
+ await page.evaluate(failure=>render(failure,'en','session-b'),failure);
+ assert.equal(await card.locator('button').getAttribute('aria-expanded'),'false','session identity isolates error disclosure');
  for(const theme of ['light','dark']) for(const width of [360,715,1440]) {
   await page.setViewportSize({width,height:720});
-  await page.evaluate(theme=>{document.body.style.background=theme==='dark'?'#101010':'#fff';document.body.style.color=theme==='dark'?'#f5f5f5':'#171717';},theme);
+  await page.evaluate(theme=>{document.body.style.background=theme==='dark'?'#101010':'#fff';document.body.style.color=theme==='dark'?'#f5f5f5':'#171717';document.body.style.setProperty('--dsw-alias-label-secondary',theme==='dark'?'#a3a3a3':'#717171');},theme);
   for(const locale of ['zh','en']) {
-   await page.evaluate(locale=>render({...running,status:'failed',endedAt:running.time+154000,error:'network failed / '+ 'long-identifier-'.repeat(80)},locale,'failure-'+locale),locale);
+   await page.evaluate(locale=>render(running,locale,'responsive-'+locale),locale);
+   assert.equal(await card.getByRole('status').count(),1);
+   await page.evaluate(({failure,locale})=>render(failure,locale,'failure-'+locale),{failure,locale});
+   assert.equal(await card.getByRole('alert').count(),1);
+   assert.equal(await card.getByRole('status').count(),0,'terminal errors cannot remain running');
    await card.locator('button').click();
-   assert.ok(await card.locator('[role=alert]').count());
-   assert.equal(await card.getByRole('progressbar').count(),0,'terminal errors must not keep showing a running bar');
+   assert.ok((await card.innerText()).includes('network failed'));
    const size=await page.evaluate(()=>({full:document.documentElement.scrollWidth,window:innerWidth}));
    assert.ok(size.full<=size.window+1,JSON.stringify({theme,width,locale,size}));
   }
  }
+ await page.evaluate(()=>render({status:'failed',seq:10,time:1000},'zh','without-error'));
+ assert.equal(await card.locator('button').isEnabled(),false,'legacy terminal errors without detail are not empty disclosures');
  await page.setViewportSize({width:1000,height:720});
- await page.evaluate(()=>{document.body.style.background='#fff';document.body.style.color='#171717';render(running,'zh','preview');});
- await card.locator('button').click();
+ await page.evaluate(()=>{document.body.style.background='#fff';document.body.style.color='#171717';document.body.style.setProperty('--dsw-alias-label-secondary','#717171');render(running,'zh','preview');});
  if(artifacts) await page.screenshot({path:resolve(artifacts,`compaction-progress-${engine}.png`),fullPage:true});
- await page.evaluate(()=>render(null));await page.waitForFunction(()=>timerCount()===0);
+ await page.evaluate(()=>render(null));
+ assert.equal(await page.evaluate(()=>timerCount()),0);
  assert.deepEqual(errors,[]);
- console.log(`${engine}: compaction shipped React UI passed; live clock, countdown, expand, session isolation, 12 responsive locale/theme cases, visible failure, unmount timer cleanup; no Host/model calls`);
+ console.log(`${engine}: minimal shipped compaction UI passed; stable bilingual status through seven stages/70 retries, truthful pause, no clocks/bars/counts, error disclosure/session isolation, 12 responsive locale/theme cases, no leaked timers; no Host/model calls`);
 } finally {await browser.close();}
