@@ -1444,3 +1444,15 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] V100 静态及 Chromium 八组关联回归、本机 macOS WebKit 窗口化回归；350 行首次重组件挂载 0，五轮宽度变化峰值 1（模拟用例，不代表真实进程 footprint）。
 - [ ] Linux WebKit 回归：V100 缺失测试库已补齐；Safari 26.4 的既有测高滚动补偿缺口已复现并单列 `UI-LINUX-ANCHOR-01`，不使用强制点击/等待绕过失败。最新 GitHub CI 与原生 WebView 结果不冒充该版本通过。
 - [ ] 发布后对真实 macOS WKWebView footprint／启动峰值验收；源码修改不代表本机已升级。
+
+## Read 契约兼容（2026-10-03）
+
+- [x] 分页字段公开单位／范围，保留 limit 字节语义；严格拒绝负数／非法数值，不再静默默认。
+- [x] 授权工作区内绝对路径只读兼容；复用 FsService no-follow／版本保护，write/edit 权限不变。
+- [x] V100 原型 46 项回归通过，旧实现新测试 8 通过／3 失败；新增 11 项覆盖 UTF-8／长行、路径／symlink、stale cursor、取消及参数边界。
+- [x] DeepSeek 12 次开发对照，两臂全验收各 6/6；read 失败 2/19→0/19。均值改善但任务间有退化，**不声称稳定泛化性能收益**。
+- [x] 基于 master `d705aa6` 整理独立 PR；V100 重新执行 46 项回归通过，本机 fmt／diff 检查通过。
+- [ ] PR CI 与审查通过后再决定合并；不替换或重启软件。
+- [ ] Windows/macOS 实机回归及未调优任务确认；Unix symlink 测试不等同于 Windows reparse-point 验证。
+
+见 [Read 规范](specs/read-contract-ab.md)与[完整实验报告](reports/read-contract-ab-20261003.md)。实验设施和私有证据保留在独立实验工作区，不混入生产修复 PR。
