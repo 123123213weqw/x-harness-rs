@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><title>XHarness GUI Acceptance</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      background: #fafafa;
+      color: #18181b;
+      font: 16px system-ui;
+    }
+    header {
+      padding: 20px 28px;
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+    }
+    nav {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+    button {
+      border: 1px solid #d4d4d8;
+      border-radius: 9px;
+      padding: 9px 16px;
+      background: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    main {
+      max-width: 920px;
+      margin: 26px auto;
+      padding: 0 26px;
+    }
+    input,
+    textarea,
+    select {
+      padding: 10px;
+      border: 1px solid #aaa;
+      border-radius: 7px;
+      width: 100%;
+    }
+    label {
+      display: block;
+      margin: 18px 0 7px;
+    }
+    article,
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 15px 0;
+      background: white;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .row input {
+      flex: 1;
+    }
+    .muted {
+      color: #777;
+    }
+    dialog {
+      border: 1px solid #ccc;
+      border-radius: 12px;
+      width: 440px;
+      padding: 26px;
+    }
+    dialog::backdrop {
+      background: #0005;
+    }
+    .board {
+      position: relative;
+      width: 780px;
+      height: 420px;
+      border: 1px solid #aaa;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .target {
+      position: absolute;
+      background: #161616;
+      color: white;
+      width: 84px;
+      height: 60px;
+    }
+    .wrong {
+      position: absolute;
+      border-style: dashed;
+      width: 84px;
+      height: 60px;
+    }
+    .footer {
+      font-size: 13px;
+      color: #777;
+      margin-top: 24px;
+    }
+    h1 {
+      font-size: 24px;
+    }
+    textarea {
+      min-height: 150px;
+    }
+  </style>
+  <header>
+    <strong>XHarness GUI Acceptance</strong
+    ><span class="muted"> · Disposable local tasks</span>
+    <nav>
+      <button onclick="navigate('issue')">Issues</button
+      ><button onclick="navigate('pr')">Pull requests</button
+      ><button onclick="navigate('dynamic')">Settings</button
+      ><button onclick="navigate('game')">Target game</button>
+    </nav>
+  </header>
+  <main id="main"></main>
+  <script>
+    const task = new URLSearchParams(location.search).get("task") || "issue";
+    const state = {
+      task,
+      openedIssue: null,
+      marker: "",
+      pr: { title: "", body: "" },
+      submitted: false,
+      dynamic: { provider: "", reasoning: "", saved: false },
+      game: { hits: 0, misses: 0, started: null, ended: null },
+    };
+    function navigate(name) {
+      const next = new URL(location.href);
+      next.searchParams.set("task", name);
+      location.href = next.href;
+    }
+    const issues = [
+      {
+        id: 60,
+        title: "Search provider wiring",
+        body: "Search projection test is missing an optional provider.",
+      },
+      {
+        id: 105,
+        title: "Compaction recovery does not settle",
+        body: "Inspect the recovery checkpoint. Recovery marker: ORBIT-7319. The missing completion event must be restored.",
+      },
+      {
+        id: 143,
+        title: "Harden local plugin paths",
+        body: "Validate archive entries before extraction.",
+      },
+      {
+        id: 78,
+        title: "Provider base model refresh",
+        body: "New deployments must not be shadowed by persisted defaults.",
+      },
+    ];
+    function issue() {
+      main.innerHTML =
+        '<h1>Issues</h1><label for="search">Search issues</label><div class="row"><input id="search" placeholder="Filter by title or issue number"><button id="searchButton">Search</button></div><section id="results"></section><section id="detail"></section><label for="marker">Recovery marker answer</label><input id="marker" placeholder="Enter the marker from the opened issue">';
+      marker.oninput = () => (state.marker = marker.value);
+      searchButton.onclick = filter;
+      search.onkeydown = (e) => {
+        if (e.key === "Enter") filter();
+      };
+      filter();
+    }
+    function filter() {
+      const q = search.value.toLowerCase();
+      results.innerHTML = "";
+      for (const item of issues.filter(
+        (x) => x.title.toLowerCase().includes(q) || String(x.id).includes(q),
+      )) {
+        const row = document.createElement("article");
+        const b = document.createElement("button");
+        b.textContent = "#" + item.id + " " + item.title;
+        b.onclick = () => {
+          state.openedIssue = item.id;
+          detail.innerHTML =
+            "<article><h2>" +
+            item.title +
+            "</h2><p>" +
+            item.body +
+            "</p></article>";
+        };
+        row.append(b);
+        results.append(row);
+      }
+    }
+    function pr() {
+      main.innerHTML =
+        '<h1>Pull requests</h1><button id="newDraft">New draft</button><section id="draft"></section>';
+      newDraft.onclick = () => {
+        draft.innerHTML =
+          '<article><h2>Draft pull request</h2><label for="title">Title</label><input id="title" placeholder="Give your change a clear title"><label for="body">Description</label><textarea id="body" placeholder="Describe the change and tests"></textarea><p class="muted">Draft only. Do not submit.</p><button id="submit">Create pull request</button></article>';
+        title.oninput = () => (state.pr.title = title.value);
+        body.oninput = () => (state.pr.body = body.value);
+        submit.onclick = () => {
+          state.submitted = true;
+          submit.textContent = "Submitted (fixture only)";
+        };
+      };
+    }
+    function dynamic() {
+      main.innerHTML =
+        '<h1>Model settings</h1><button id="configure">Configure provider</button><p id="saved" role="status"></p><dialog id="settings"><h2>Provider configuration</h2><label for="provider">Provider</label><select id="provider"><option value="">Choose provider</option><option value="alpha">Alpha</option><option value="gamma">Gamma</option></select><section id="dependent"></section><div class="row" style="margin-top:24px"><button id="save" disabled>Save settings</button><button id="cancel">Cancel</button></div></dialog>';
+      configure.onclick = () => settings.showModal();
+      cancel.onclick = () => settings.close();
+      provider.onchange = () => {
+        state.dynamic.provider = provider.value;
+        save.disabled = true;
+        dependent.innerHTML = '<p role="status">Loading reasoning levels…</p>';
+        setTimeout(() => {
+          dependent.innerHTML =
+            '<label for="reasoning">Reasoning level</label><select id="reasoning"><option value="">Choose level</option><option value="low">Low</option><option value="high">High</option></select>';
+          reasoning.onchange = () => {
+            state.dynamic.reasoning = reasoning.value;
+            save.disabled = !reasoning.value;
+          };
+        }, 650);
+      };
+      save.onclick = () => {
+        state.dynamic.saved = true;
+        settings.close();
+        saved.textContent =
+          "Settings saved: " +
+          state.dynamic.provider +
+          " / " +
+          state.dynamic.reasoning;
+      };
+    }
+    const positions = [
+      [70, 36],
+      [570, 300],
+      [330, 120],
+      [150, 295],
+      [610, 58],
+      [365, 292],
+      [35, 185],
+      [565, 185],
+    ];
+    function game() {
+      main.innerHTML =
+        '<h1>Target game</h1><p>Click the solid dark Target eight times. Do not click the dashed decoy.</p><p id="score" role="status"></p><div class="board" id="board"></div>';
+      draw();
+    }
+    function draw() {
+      score.textContent =
+        "Hits: " + state.game.hits + " / 8 · Misses: " + state.game.misses;
+      if (state.game.hits >= 8) {
+        state.game.ended = performance.now();
+        board.innerHTML = '<h2 style="padding:30px">Complete</h2>';
+        return;
+      }
+      const [x, y] = positions[state.game.hits];
+      board.innerHTML = "";
+      const target = document.createElement("button");
+      target.className = "target";
+      target.textContent = "Target";
+      target.style.left = x + "px";
+      target.style.top = y + "px";
+      target.onclick = () => {
+        state.game.started ??= performance.now();
+        state.game.hits++;
+        draw();
+      };
+      const wrong = document.createElement("button");
+      wrong.className = "wrong";
+      wrong.textContent = "Decoy";
+      wrong.style.left = ((x + 310) % 680) + "px";
+      wrong.style.top = ((y + 120) % 350) + "px";
+      wrong.onclick = () => {
+        state.game.misses++;
+        draw();
+      };
+      board.append(target, wrong);
+    }
+    (({ issue, pr, dynamic, game })[task] || issue)();
+    main.insertAdjacentHTML(
+      "beforeend",
+      '<p class="footer">Local acceptance fixture · no public changes or account access</p>',
+    );
+    window.__acceptanceState = state;
+    const runId = new URLSearchParams(location.search).get("run");
+    function report() {
+      if (runId)
+        fetch("/report?run=" + encodeURIComponent(runId), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(state),
+        }).catch(() => {});
+    }
+    for (const event of ["click", "input", "change"])
+      document.addEventListener(event, () => setTimeout(report, 0));
+    report();
+  </script>
+</html>

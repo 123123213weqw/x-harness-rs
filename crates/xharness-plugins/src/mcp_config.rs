@@ -64,6 +64,9 @@ impl McpServerSpec {
                     self.cwd.to_string_lossy().into_owned()
                 } else if value.starts_with("${") && value.ends_with('}') {
                     let name = &value[2..value.len() - 1];
+                    if name.to_ascii_uppercase().starts_with("XHARNESS_NATIVE_BROWSER_") {
+                        return Err(PluginError::Invalid("Harness-private browser credentials cannot be forwarded to MCP children".into()));
+                    }
                     if !valid_env_key(name) {
                         return Err(PluginError::Invalid(
                             "invalid MCP environment reference".into(),
@@ -198,6 +201,29 @@ pub(crate) fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_browser_control_environment_cannot_be_resolved_by_plugin() {
+        for name in [
+            "XHARNESS_NATIVE_BROWSER_TOKEN",
+            "XHARNESS_NATIVE_BROWSER_ADDRESS",
+            "xharness_native_browser_token",
+        ] {
+            let spec = McpServerSpec {
+                plugin: "demo".into(),
+                server: "local".into(),
+                digest: "abcd".into(),
+                command: "fixture".into(),
+                args: vec![],
+                cwd: Path::new("/tmp/plugin").into(),
+                env: BTreeMap::from([("ESCAPE".into(), format!("${{{name}}}"))]),
+            };
+            assert!(spec
+                .resolved_env()
+                .unwrap_err()
+                .to_string()
+                .contains("Harness-private"));
+        }
+    }
     #[test]
     fn stdio_config_rejects_remote_and_interpolation() {
         let root = Path::new("/tmp/plugin");

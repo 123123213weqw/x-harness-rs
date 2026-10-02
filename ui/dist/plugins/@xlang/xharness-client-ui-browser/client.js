@@ -70,7 +70,11 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: 'xhbrowser-header-trigger', 'aria-label': '展开右侧工作区',
         title: '展开右侧工作区', onClick: () => openBrowser(false) }, glyph('sidebar', 14))
     }
-    function BrowserPane({ item, open = false, onUpdate, onClose, onNewBrowser }) {
+    const accessText = (zh, en) => document.documentElement.lang.toLowerCase().startsWith('zh') ? zh : en
+    const pageOrigin = address => {
+      try { const url = new URL(address); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.origin : '' } catch { return '' }
+    }
+    function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }) {
       const [draft, setDraft] = useState(() => currentAddress(item))
       const [error, setError] = useState('')
       const [status, setStatus] = useState('idle')
@@ -81,6 +85,7 @@ window.__ModuleLoader__.load({
       const contentRef = useRef(null)
       const itemRef = useRef(item)
       itemRef.current = item
+      const sessionRef = useRef(sessionId); sessionRef.current = sessionId
       const address = currentAddress(item)
       const recent = recentAddresses(item).filter(site => site.url !== address)
       // One coordinator owns activation, including pending navigation and overlays.
@@ -94,9 +99,10 @@ window.__ModuleLoader__.load({
         let disposed = false
         let generation = 0
         let lastGeometry = ''
+        let binding = null, renewalTimer = null, loading = false
         const send = (command, args) => native.core.invoke(command, args)
         const visible = () => {
-          if (disposed || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
+          if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
           const rect = contentRef.current?.getBoundingClientRect()
           if (!rect || rect.width < 1 || rect.height < 1) return false
           return ![...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [aria-modal="true"]')].some(element =>
@@ -104,34 +110,61 @@ window.__ModuleLoader__.load({
         }
         const hide = async () => {
           await send('desktop_browser_activate', { tabId: null })
-          lastGeometry = 'hidden'
+          lastGeometry = 'hidden'; binding = null
+          clearTimeout(renewalTimer)
         }
         const syncBounds = () => {
           const requested = ++generation
-          void enqueueNative(async () => {
-            if (disposed || requested !== generation) return
+          return enqueueNative(async () => {
+            if (disposed || requested !== generation) return false
             const current = () => requested === generation && visible()
             if (!current()) {
               if (lastGeometry !== 'hidden') await hide()
-              return
+              return false
             }
             const rect = contentRef.current.getBoundingClientRect()
             const url = currentAddress(itemRef.current)
             const pending = navigationRef.current?.tabId === item.id ? navigationRef.current : null
             const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`
-            if (geometry === lastGeometry && !pending) return
-            await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
-            if (!current()) { await hide(); return }
-            const exists = await send('desktop_browser_activate', { tabId: item.id })
-            if (!current()) { await hide(); return }
-            if (!exists || pending) {
-              await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
-              if (navigationRef.current === pending) navigationRef.current = null
-              if (!current()) { await hide(); return }
+            if (geometry !== lastGeometry || pending) {
+              await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
+              if (!current()) { await hide(); return false }
+              const exists = await send('desktop_browser_activate', { tabId: item.id })
+              if (!current()) { await hide(); return false }
+              if (!exists || pending) {
+                loading = true
+                await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
+                if (navigationRef.current === pending) navigationRef.current = null
+                if (!current()) { await hide(); return false }
+              }
+              lastGeometry = geometry
             }
-            lastGeometry = geometry
+            // Bind only the actual visible chat/page. The model chooses observe or
+            // perform through plugin_mcp; its existing approval policy still applies.
+            const origin = pageOrigin(url)
+            const key = JSON.stringify([sessionId, origin])
+            if (!loading && sessionId && origin && (binding?.key !== key || binding.until <= performance.now())) {
+              let result
+              try { result = await send('desktop_browser_delegate', { tabId: item.id, owner: sessionId, allowActions: true, expectedOrigin: origin }) }
+              catch (error) { await hide(); throw error }
+              if (!current() || pageOrigin(currentAddress(itemRef.current)) !== origin) { await hide(); return false }
+              const grant = result?.grant
+              if (result?.origin !== origin || grant?.owner !== sessionId || grant.allowActions !== true
+                || !Number.isFinite(grant.remainingMs) || grant.remainingMs <= 0 || grant.remainingMs > 600000) {
+                await hide()
+                throw Error(accessText('浏览器会话绑定失败，请检查桌面版本。', 'Browser session binding failed; check the desktop version.'))
+              }
+              // No status polling or extra permission UI. Refresh the same binding
+              // before expiry; native renewal preserves the current observation frame.
+              const delay = Math.max(1000, Math.min(300000, grant.remainingMs / 2))
+              binding = { key, until: performance.now() + delay }
+              clearTimeout(renewalTimer)
+              renewalTimer = setTimeout(syncBounds, delay)
+            }
+            return true
           }).catch(error => {
             if (!disposed && requested === generation) { setStatus('failed'); setError(String(error)) }
+            return false
           })
         }
         nativeSyncRef.current = syncBounds
@@ -147,6 +180,7 @@ window.__ModuleLoader__.load({
           const payload = event.payload
           if (disposed || payload?.tabId !== item.id) return
           if (payload.kind === 'url') {
+            loading = true
             const current = itemRef.current
             const entries = current.entries ?? []
             if (entries[current.position] === payload.value) return
@@ -157,8 +191,8 @@ window.__ModuleLoader__.load({
             itemRef.current = { ...current, ...patch }
             onUpdate(patch)
           } else if (payload.kind === 'title') onUpdate({ title: payload.value || item.title })
-          else if (payload.kind === 'loading') setStatus('loading')
-          else if (payload.kind === 'loaded') setStatus('loaded')
+          else if (payload.kind === 'loading') { loading = true; setStatus('loading') }
+          else if (payload.kind === 'loaded') { loading = false; setStatus('loaded'); void syncBounds() }
           else if (payload.kind.startsWith('download-')) {
             setStatus(payload.kind)
             setDownloads(previous => [{ kind: payload.kind, name: String(payload.value || '').split(/[/\\]/).pop() || '下载文件' }, ...previous].slice(0, 5))
@@ -167,12 +201,12 @@ window.__ModuleLoader__.load({
           else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
         }).then(fn => { if (disposed) fn(); else unlisten = fn }).catch(error => { if (!disposed) setError(String(error)) })
         return () => {
-          disposed = true; generation++; observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
+          disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); overlayObserver.disconnect(); window.removeEventListener('resize', syncBounds); unlisten?.()
           if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
           void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
         }
-      }, [item.id, open])
-      useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open])
+      }, [item.id, open, sessionId])
+      useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open, sessionId])
       useEffect(() => {
         if (!open) return
         const onKey = event => {
