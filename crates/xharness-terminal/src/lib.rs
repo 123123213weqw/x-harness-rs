@@ -684,24 +684,7 @@ impl TerminalSession {
                 io::Error::from_raw_os_error(error as i32),
             )
         })?;
-        // A child can exit between status inspection and TIOCGPGRP. Never let
-        // a stale PTY foreground group terminate the Host's own process group.
-        if group == getpgrp() {
-            return Err(terminal_io(
-                "signal PTY foreground process group",
-                io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "refusing to signal the host process group",
-                ),
-            ));
-        }
-        match killpg(group, signal.as_nix()) {
-            Ok(()) | Err(Errno::ESRCH) => Ok(()),
-            Err(error) => Err(terminal_io(
-                "signal PTY foreground process group",
-                io::Error::from_raw_os_error(error as i32),
-            )),
-        }
+        dispatch_signal_to_group(group, getpgrp(), signal.as_nix(), killpg)
     }
 
     #[cfg(windows)]
@@ -1072,6 +1055,43 @@ const fn tiocsctty_request() -> libc::c_ulong {
     libc::TIOCSCTTY as libc::c_ulong
 }
 
+#[cfg(unix)]
+fn dispatch_signal_to_group(
+    group: Pid,
+    host_group: Pid,
+    signal: Signal,
+    send: impl FnOnce(Pid, Signal) -> Result<(), Errno>,
+) -> Result<(), TerminalError> {
+    // A child can exit between status inspection and TIOCGPGRP, which can
+    // then return zero. killpg(0, ...) targets the caller's process group.
+    // Reject it before dispatch, as well as invalid negative and Host groups.
+    if group.as_raw() <= 0 {
+        return Err(terminal_io(
+            "signal PTY foreground process group",
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "refusing to signal a non-positive process group",
+            ),
+        ));
+    }
+    if group == host_group {
+        return Err(terminal_io(
+            "signal PTY foreground process group",
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "refusing to signal the host process group",
+            ),
+        ));
+    }
+    match send(group, signal) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(error) => Err(terminal_io(
+            "signal PTY foreground process group",
+            io::Error::from_raw_os_error(error as i32),
+        )),
+    }
+}
+
 fn checked_key(owner: &str, name: &str) -> Result<(String, String), TerminalError> {
     validate_owner(owner)?;
     validate_name(name)?;
@@ -1106,5 +1126,105 @@ fn terminal_io(operation: &'static str, source: io::Error) -> TerminalError {
 impl Default for TerminalRegistry {
     fn default() -> Self {
         Self::with_defaults()
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_positive_process_groups_never_dispatch_signals() {
+        for group in [0, -1, i32::MIN] {
+            for signal in [
+                Signal::SIGINT,
+                Signal::SIGTERM,
+                Signal::SIGKILL,
+                Signal::SIGTSTP,
+                Signal::SIGHUP,
+            ] {
+                let error = dispatch_signal_to_group(
+                    Pid::from_raw(group),
+                    Pid::from_raw(1234),
+                    signal,
+                    |_, _| panic!("non-positive process group reached the signal sender"),
+                )
+                .unwrap_err();
+                let TerminalError::Io { operation, source } = error else {
+                    panic!("expected a process-group validation error");
+                };
+                assert_eq!(operation, "signal PTY foreground process group");
+                assert_eq!(source.kind(), io::ErrorKind::InvalidInput);
+            }
+        }
+    }
+
+    #[test]
+    fn host_process_group_never_dispatches_signals() {
+        let host_group = Pid::from_raw(1234);
+        let error = dispatch_signal_to_group(host_group, host_group, Signal::SIGTERM, |_, _| {
+            panic!("Host process group reached the signal sender");
+        })
+        .unwrap_err();
+        let TerminalError::Io { operation, source } = error else {
+            panic!("expected a Host process-group validation error");
+        };
+        assert_eq!(operation, "signal PTY foreground process group");
+        assert_eq!(source.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            source.to_string(),
+            "refusing to signal the host process group"
+        );
+    }
+
+    #[test]
+    fn positive_child_process_group_dispatches_exactly_once() {
+        let group = Pid::from_raw(4321);
+        let mut calls = 0;
+        dispatch_signal_to_group(
+            group,
+            Pid::from_raw(1234),
+            Signal::SIGTERM,
+            |pid, signal| {
+                calls += 1;
+                assert_eq!(pid, group);
+                assert_eq!(signal, Signal::SIGTERM);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn disappeared_child_process_group_remains_successful() {
+        let mut calls = 0;
+        dispatch_signal_to_group(
+            Pid::from_raw(4321),
+            Pid::from_raw(1234),
+            Signal::SIGKILL,
+            |_, _| {
+                calls += 1;
+                Err(Errno::ESRCH)
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn other_signal_errors_are_preserved() {
+        let error = dispatch_signal_to_group(
+            Pid::from_raw(4321),
+            Pid::from_raw(1234),
+            Signal::SIGINT,
+            |_, _| Err(Errno::EPERM),
+        )
+        .unwrap_err();
+        let TerminalError::Io { operation, source } = error else {
+            panic!("expected the signal sender's error");
+        };
+        assert_eq!(operation, "signal PTY foreground process group");
+        assert_eq!(source.raw_os_error(), Some(Errno::EPERM as i32));
     }
 }
