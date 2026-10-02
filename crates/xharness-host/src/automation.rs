@@ -143,11 +143,7 @@ impl AutomationTargetProvider for HostAutomationTargets {
                 state.prompt_sections(target)?,
             )
         };
-        request.prompt = Some(
-            host.instructions
-                .assemble(request.cwd.clone(), sections)
-                .await?,
-        );
+        request.prompt = Some(host.assemble_prompt(request.cwd.clone(), sections).await?);
         host.start_background_turn_listener();
         let handle = host
             .agent_runtime

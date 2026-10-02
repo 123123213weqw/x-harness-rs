@@ -294,8 +294,7 @@ impl crate::BasicHost {
             )
         };
         request.prompt = Some(
-            self.instructions
-                .assemble(request.cwd.clone(), sections)
+            self.assemble_prompt(request.cwd.clone(), sections)
                 .await
                 .map_err(xharness_api::RpcError::internal)?,
         );

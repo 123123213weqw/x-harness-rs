@@ -3861,6 +3861,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-diagnostics",
+ "xharness-fs",
  "xharness-host",
  "xharness-interaction",
  "xharness-jobs",

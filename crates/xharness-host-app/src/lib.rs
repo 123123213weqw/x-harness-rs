@@ -31,6 +31,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use xharness_coding_tools::CodingToolBundle;
+mod workspace_memory;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
     DurableQuestionHub, DurableQuestionProvider, PermissionPreset, SessionToolFactory,
@@ -375,6 +376,11 @@ impl SessionToolFactory for NativeToolFactory {
             session_id,
         );
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            bundle = bundle.with_file_mount(Arc::new(workspace_memory::Mount {
+                host: Arc::downgrade(&host),
+                session: session_id.into(),
+                filesystem: tokio::sync::Mutex::new(None),
+            }));
             bundle = bundle.with_media_reader(Arc::new(read_media::Reader {
                 host: Arc::downgrade(&host),
                 platform: platform.clone(),
@@ -385,6 +391,7 @@ impl SessionToolFactory for NativeToolFactory {
         let mut guards = Vec::new();
         let mut builtin_ui = None;
         if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
+            read.definition.description.push_str(" When workspace memory is available, memory://MEMORY.md reads its local notes using normal pagination; it does not read another workspace.");
             read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Recent uploaded images are provided directly; an earlier deferred image can be inspected with read(path=\"attachment://<image id>\") as shown in its history marker. Image reads do not accept text pagination options.");
         }
         project_tools(&mut specs, &readiness);
@@ -634,7 +641,7 @@ mod tests {
     const BACKGROUND_COMMAND: &str =
         r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
 
-    struct TempWorkspace(std::path::PathBuf);
+    pub(crate) struct TempWorkspace(pub(crate) std::path::PathBuf);
 
     #[tokio::test]
     async fn exa_search_is_projected_only_with_an_explicit_key() {
@@ -778,7 +785,7 @@ mod tests {
     }
 
     impl TempWorkspace {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "xharness-host-app-permission-{}-{}",
                 std::process::id(),

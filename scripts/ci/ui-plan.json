@@ -320,6 +320,10 @@
     {"id":"browser-212","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
     {"id":"browser-213","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90},
     {"id":"browser-214","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
-    {"id":"browser-215","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90}
+    {"id":"browser-215","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90},
+    {"id":"browser-216","suite":"browser","argv":["node","scripts/test-memory-source-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":60},
+    {"id":"browser-217","suite":"browser","argv":["node","scripts/test-memory-source-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium","UI_TEST_IMPL":"source"},"weight":60},
+    {"id":"browser-218","suite":"browser","argv":["node","scripts/test-memory-source-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":60},
+    {"id":"browser-219","suite":"browser","argv":["node","scripts/test-memory-source-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit","UI_TEST_IMPL":"source"},"weight":60}
   ]
 }
