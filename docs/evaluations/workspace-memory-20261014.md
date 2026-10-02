@@ -72,3 +72,39 @@ secret scanning/encryption, or native macOS GUI acceptance. Clear does not erase
 historical request/tool records. File publication and control receipts remain
 separate stores, with identical-content retry recovery and stale-write rejection.
 GitHub CI must be reviewed separately; this report does not claim it has passed.
+
+## Global Settings follow-up
+
+The same PR now also provides profile-global notes. Settings defaults to Global
+memory; no workspace/session is required for UI editing. Workspace notes keep
+their original storage paths and a separate tab, mode, draft and CAS observation.
+The existing file tools accept exactly one additional URI, not an additional
+model tool. Global facts are shared only within one local app profile, not an
+account synchronization service. Project facts are not automatically promoted.
+
+- V100 full four-package run (`xharness-host`, `xharness-host-app`,
+  `xharness-coding-tools`, `xharness-server`): **584 pass / 16 existing ignored**;
+  strict all-targets Clippy passed. This run includes the earlier HTTP case;
+  do not add the previous 581 count to it.
+- New coverage: global CRUD without any workspace, restart persistence, scope
+  validation and receipt replay/conflicts; cross-workspace sharing with isolated
+  project facts; independent modes and live revocation; alternating native file
+  mounts retaining both observation ledgers and rejecting stale writes. Actual
+  scripted Host/Loop snapshots now check global notes as well. Real HTTP checks
+  that neither global nor workspace note bodies leak into RPC debug records.
+- Chromium/WebKit × source/committed UI: **4/4 pass**, scripted RPC. Global
+  editing works even when workspace discovery fails; scoped drafts, late replies,
+  conflict handling and confirmed clear preserve the other scope. Both languages,
+  strict build/typecheck/parity and 71 contract checks pass. Full frozen/generated
+  UI differential passes three runs on each engine.
+- Previous GitHub failures were inspected, not ignored: Windows Clippy reported
+  a Unix-only `mut`; the builder is now mutable only inside the Unix block. A
+  second migration allowlist also needed the exact Memory module ABI; a negative
+  mutation test was added. The downstream layout gate was failing on that same
+  UI-contract failure, not an independent layout issue. No frozen reference,
+  strict lint, contract or pixel guard was weakened.
+
+Complete remote/local receipts for this follow-up are retained at
+`dist/regression/global-memory-20261014/`. As above, there were no paid model
+calls, local Rust compilation, native macOS GUI control, merge, release or desktop
+replacement. The latest GitHub CI run is tracked separately from V100 results.

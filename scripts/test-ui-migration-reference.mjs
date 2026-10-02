@@ -8,6 +8,7 @@ const metadata=JSON.parse(readFileSync(join(root,'REFERENCE.json'),'utf8'))
 const approvedAdditions = [
   {"id":"@xlang/xharness-client-ui-runtime","kind":"source-module","source":"src/modules/runtime-environment/index.ts","inject":["@xharness/dsh-client-ui-conversation","@xharness/dsh-client-locale"]},
   { id: '@xlang/xharness-client-ui-performance', kind: 'source-module', source: 'src/modules/performance/index.ts', inject: ['@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-runtime', '@xharness/dsh-client-locale'] },
+  { id: '@xlang/xharness-client-ui-memory', kind: 'source-module', source: 'src/modules/memory/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-locale', '@xharness/dsh-client-ui-settings-general'] },
   { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
   { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },
   { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime', '@xlang/xharness-client-ui-assistant'] },
@@ -107,4 +108,21 @@ test('performance allowance cannot add eager boot work', () => {
   const row = manifest.modules.find(row => row.id === '@xlang/xharness-client-ui-performance')
   assert.ok(row); row.immediately = true
   assert.throws(() => assertReviewedAdditions(manifest, baseline), /must not add eager boot work/)
+})
+
+test('memory allowance is exact and never grants eager boot or an unreviewed ABI', () => {
+  const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
+  const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
+  for (const mutate of [
+    row => { row.source = 'src/modules/wip/index.ts' },
+    row => { row.kind = 'source-library' },
+    row => { row.inject.push('@xharness/dsh-client-connection') },
+    row => { row.inject.reverse() },
+    row => { row.immediately = true },
+  ]) {
+    const candidate = structuredClone(manifest)
+    const row = candidate.modules.find(row => row.id === '@xlang/xharness-client-ui-memory')
+    assert.ok(row); mutate(row)
+    assert.throws(() => assertReviewedAdditions(candidate, baseline), /only reviewed source\/transport additions|must not add eager boot work/)
+  }
 })

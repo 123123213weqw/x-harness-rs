@@ -332,3 +332,145 @@ async fn unconfigured_embedding_does_not_advertise_or_create_memory() {
         .is_err());
     assert_eq!(std::fs::read_dir(&root.0).unwrap().count(), 0);
 }
+
+#[tokio::test]
+async fn global_ui_crud_needs_no_workspace_and_receipts_cannot_change_scope() {
+    let root = Root::new();
+    let host = root.host();
+    assert!(host.state.read().await.sessions.is_empty());
+    let first = value(rpc(&host, "g-view", json!({"scope":"global","action":"view"})).await);
+    assert_eq!(first["mode"], "manual");
+    assert_eq!(first["uri"], GLOBAL_MEMORY_URI);
+    let save = json!({"scope":"global","action":"save","content":"GENERAL_FACT","version":null});
+    let saved = value(rpc(&host, "g-save", save.clone()).await);
+    assert_eq!(saved, value(rpc(&host, "g-save", save).await));
+    assert_eq!(
+        root.host().memory_view(MemoryScope::Global).await.unwrap()["content"],
+        "GENERAL_FACT"
+    );
+    for bad in [
+        json!({"scope":"global","action":"view","sessionId":"x"}),
+        json!({"scope":"global","action":"view","workspaceId":"x"}),
+        json!({"scope":"global","action":"view","cwd":root.cwd()}),
+        json!({"scope":"../global","action":"view"}),
+        json!({"scope":"workspace","action":"view"}),
+    ] {
+        assert!(!rpc(&host, "g-invalid", bad).await.is_ok());
+    }
+    create(&host, "a", &root.cwd()).await;
+    assert!(!rpc(
+        &host,
+        "g-save",
+        json!({"sessionId":"a","action":"save","content":"GENERAL_FACT","version":null})
+    )
+    .await
+    .is_ok());
+    assert!(!rpc(
+        &host,
+        "g-stale",
+        json!({"scope":"global","action":"save","content":"STALE","version":null})
+    )
+    .await
+    .is_ok());
+    host.memory_update(
+        root.cwd(),
+        "save",
+        &json!({"content":"WORKSPACE_FACT","version":null}),
+    )
+    .await
+    .unwrap();
+    assert!(rpc(
+        &host,
+        "g-clear",
+        json!({"scope":"global","action":"clear","version":saved["version"]})
+    )
+    .await
+    .is_ok());
+    assert_eq!(
+        host.memory_view(root.cwd()).await.unwrap()["content"],
+        "WORKSPACE_FACT"
+    );
+    assert_eq!(
+        host.memory_view(MemoryScope::Global).await.unwrap()["content"],
+        ""
+    );
+    let receipts = serde_json::to_string(&host.state.read().await.mutation_receipts).unwrap();
+    assert!(!receipts.contains("GENERAL_FACT"));
+}
+
+#[tokio::test]
+async fn global_is_shared_but_modes_and_facts_stay_independent_per_scope() {
+    let root = Root::new();
+    let other = Root::new();
+    let host = root.host();
+    create(&host, "a", &root.cwd()).await;
+    create(&host, "b", &other.cwd()).await;
+    let a = host.global_memory_filesystem("a").await.unwrap();
+    let b = host.global_memory_filesystem("b").await.unwrap();
+    assert!(Arc::ptr_eq(&a, &b));
+    assert!(!Arc::ptr_eq(
+        &a,
+        &host.memory_filesystem("a").await.unwrap()
+    ));
+    assert!(host.global_memory_filesystem("unknown").await.is_err());
+    host.memory_update(
+        MemoryScope::Global,
+        "save",
+        &json!({"content":"GLOBAL_SHARED","version":null}),
+    )
+    .await
+    .unwrap();
+    host.memory_update(
+        root.cwd(),
+        "save",
+        &json!({"content":"PROJECT_ONLY","version":null}),
+    )
+    .await
+    .unwrap();
+    for cwd in [root.cwd(), other.cwd()] {
+        let prompt = host.assemble_prompt(cwd.clone(), vec![]).await.unwrap();
+        assert!(prompt.system().contains("GLOBAL_SHARED"));
+        assert_eq!(prompt.system().matches(POLICY).count(), 1);
+        assert_eq!(prompt.system().contains("PROJECT_ONLY"), cwd == root.cwd());
+        assert!(
+            prompt.system().find(GLOBAL_MEMORY_URI).unwrap()
+                < prompt.system().rfind("PROJECT_ONLY").unwrap_or(usize::MAX)
+        );
+    }
+    host.memory_update(
+        MemoryScope::Global,
+        "configure",
+        &json!({"mode":"off","settingsVersion":null}),
+    )
+    .await
+    .unwrap();
+    assert!(host.global_memory_filesystem("a").await.is_err());
+    assert!(host.memory_filesystem("a").await.is_ok());
+    let prompt = host.assemble_prompt(root.cwd(), vec![]).await.unwrap();
+    assert!(!prompt.system().contains("GLOBAL_SHARED"));
+    assert!(prompt.system().contains("PROJECT_ONLY"));
+    let global = host.memory_view(MemoryScope::Global).await.unwrap();
+    host.memory_update(
+        MemoryScope::Global,
+        "configure",
+        &json!({"mode":"auto","settingsVersion":global["settingsVersion"]}),
+    )
+    .await
+    .unwrap();
+    host.memory_update(
+        root.cwd(),
+        "configure",
+        &json!({"mode":"off","settingsVersion":null}),
+    )
+    .await
+    .unwrap();
+    assert!(host.global_memory_filesystem("a").await.is_ok());
+    assert!(host.memory_filesystem("a").await.is_err());
+    let prompt = host.assemble_prompt(root.cwd(), vec![]).await.unwrap();
+    assert!(prompt.system().contains("GLOBAL_SHARED"));
+    assert!(!prompt.system().contains("PROJECT_ONLY"));
+    assert_eq!(
+        root.host().memory_view(MemoryScope::Global).await.unwrap()["mode"],
+        "auto"
+    );
+}

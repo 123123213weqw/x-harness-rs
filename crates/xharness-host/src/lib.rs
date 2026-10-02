@@ -28,7 +28,7 @@ mod instructions;
 mod memory;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
-pub use memory::{MemoryMode, MEMORY_MAX_BYTES, MEMORY_URI};
+pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};
 mod display;
 mod driver;
 mod event_gateway;
@@ -102,7 +102,7 @@ pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, Workspa
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
-    /// Local per-workspace memory, outside Git. Embeddings opt in explicitly.
+    /// Local profile-global and workspace memory, outside Git. Embeddings opt in explicitly.
     pub memory_dir: Option<PathBuf>,
     pub cwd: PathBuf,
     pub home: PathBuf,
