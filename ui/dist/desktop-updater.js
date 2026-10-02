@@ -132,12 +132,12 @@
     const host = document.createElement("div");
     host.id = "xharness-desktop-updater";
     host.hidden = true;
-    host.style.cssText = "position:fixed;left:11px;bottom:64px";
+    host.style.cssText = "position:fixed;left:11px;bottom:64px;z-index:11";
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML = `
     <style>
       :host{color-scheme:light dark} *{box-sizing:border-box}
-      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));padding:16px;border-radius:16px;
+      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 126px);overflow:auto;padding:16px;border-radius:16px;
         background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,CanvasText 15%,transparent);
         box-shadow:0 12px 40px #0003;font:13px/1.5 ui-sans-serif,system-ui,sans-serif}
       [hidden]{display:none!important}.header{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -153,7 +153,7 @@
       progress{width:100%;height:6px;accent-color:#2463eb}.confirm{margin-top:12px;padding:10px;border:1px solid #d99b3444;border-radius:8px}
       @media(prefers-reduced-motion:no-preference){.busy svg{animation:pulse 1.5s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}}
     </style>
-    <section class="panel" hidden aria-label="XHarness \u8F6F\u4EF6\u66F4\u65B0">
+    <section class="panel" hidden role="dialog" aria-modal="false" aria-label="XHarness \u8F6F\u4EF6\u66F4\u65B0">
       <div class="header"><span class="title">XHarness \u66F4\u65B0</span><button class="close" aria-label="\u5173\u95ED\u66F4\u65B0\u9762\u677F">\xD7</button></div>
       <div class="text" role="status" aria-live="polite"></div>
       <progress hidden aria-label="\u66F4\u65B0\u4E0B\u8F7D\u8FDB\u5EA6"></progress>
@@ -221,6 +221,8 @@
     action.addEventListener("click", () => controller.confirming ? controller.confirm() : controller.act());
     root.addEventListener("keydown", (event) => {
       if (event instanceof KeyboardEvent && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         collapse();
         toggle.focus();
       }
