@@ -58,6 +58,12 @@
 
 测试不排序、不删原 UI/确认/取消/注入防护/生命周期断言，也不改生产调度。改为精确比较两个因果链的命令、参数、次数和必要先后关系；真实 RAF/Promise 主动覆盖两种合法交错，保留自然加载方式。Chromium/WebKit 各三轮、三调度、两实现，36/36 实际 DOM cases 通过；14 类坏顺序/错误参数/重复或未知命令及错误 UI/lifecycle trace 必须拒绝。更正前 CI 失败与更正后日志各自保留，仍需下一轮完整 CI 全绿。
 
+## Linux 补充验证的布局文本边界
+
+V100 的 Ubuntu 22.04 / Node 20.20.2 / 已缓存 Playwright 1.59.1 用于补充矩阵，不替代 GitHub 最新 Node 22 / Playwright 验收。预先检查浏览器后补齐缺失的 AVIF/GStreamer 测试库；最初浏览器缺失的预检查失败独立保留，不计为产品通过。
+
+其中 Linux WebKit 的 checkpoint 聚合 `innerText` 在两实现均添加布局尾 LF。单独 source/frozen 诊断完整功能 2/2 通过，outerHTML、summary/body 和 raw innerText 均相同；因此测试改为一个展开 details 加两个内容座位的精确 `textContent`，不 trim 数据，也不改生产。Mac 四组合再跑 4/4 通过；原输入、附件、编辑、reasoning、compact、历史失败、权限、审批及 queue 断言保留。
+
 ## 明确限制
 
 - 浏览器使用真实平台/组件/SDK，Host/Tauri/外部响应由隔离 fixture 控制；不读取当前用户对话、不调用付费模型。

@@ -71,7 +71,12 @@ try {
  // Context seat is stable when missing/pending, and seven segments match actual reading.
  await page.evaluate(()=>setMode('meter'));assert.equal(await page.locator('svg circle').count(),8);await page.getByRole('button').click();await page.getByRole('dialog').waitFor();assert.match(await page.getByRole('dialog').innerText(),/25%/);await page.keyboard.press('Escape');await page.evaluate(()=>setPressure({phase:'preparing'}));assert.equal(await page.getByRole('button').isDisabled(),true);await page.evaluate(()=>setPressure(undefined));assert.equal(await page.locator('svg').count(),1);
  // Actual resident conversation tree: user editing, reasoning, compaction disclosure, limit notices.
- await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();assert.equal(await page.locator('details[open]').innerText(),'执行已停止：步骤硬上限\nsaved checkpoint');assert.ok(await page.locator('[data-message-edit]').count()>0);
+ await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();
+ // Linux WebKit appends a layout LF to aggregate details.innerText. Verify
+ // the exact producer content in each DOM seat, without trimming either.
+ const checkpoint=page.locator('details[open]');assert.equal(await checkpoint.count(),1);
+ assert.equal(await checkpoint.locator(':scope > summary').textContent(),'执行已停止：步骤硬上限');
+ assert.equal(await checkpoint.locator(':scope > div').textContent(),'saved checkpoint');assert.ok(await page.locator('[data-message-edit]').count()>0);
  // A failed history open is an alert with the same runtime retry action, not a silent dead end.
  await page.evaluate(()=>snapshot.set({...snapshot.getSnapshot(),openState:'error',openError:{message:'history offline',code:'offline'},chat:{...snapshot.getSnapshot().chat,order:[],nodes:new Map()}}));
  await page.getByRole('alert').filter({hasText:'history offline'}).waitFor();await page.locator('[data-history-retry]').click();assert.ok(await page.evaluate(()=>calls.some(x=>x.older)));
