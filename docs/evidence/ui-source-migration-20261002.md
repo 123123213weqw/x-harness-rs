@@ -16,7 +16,7 @@
 | 干净隔离完整构建 | 15 / 15 通过 | 无 dist、reference、legacy、外部仓库和历史补丁链；离线锁定依赖、重复字节一致、错误/损坏输入保留旧产物、源码修改进入新字节 |
 | 整张实际应用图启动 | source/frozen × Chromium/WebKit，4 / 4 通过 | 真正的 Core/Loader/React 单例、全部模块注册；首次页面、Providers、模型/思考强度/上下文入口及 High→Off 操作 |
 | 整图首帧图片 | 两引擎各一对，字节一致 | Chromium SHA `07dd3bb9e5c17bc837326e05f07b2a5eb8a5892f7605c5e9c62bdfc2f561f2d0`；WebKit SHA `87fc4d930435ae3e5efb447615db69d97dd39c0a379bf845960abc9236c01583` |
-| canonical Node 页面/交互门禁 | 60 个入口最终通过 | 第一次 58/60；Message Edit 与 Compact 原测试中的旧提取器/无效 fixture 已修正，分别独立复跑通过，未删原断言 |
+| canonical Node 页面/交互门禁 | 60 个入口最终通过 | 首次 58/60，修复 Message Edit 与 Compact 的旧测试提取器后，最后整轮 59/60；剩余 BrandHeadline 的旧路径 fixture 修复并单独通过，原断言未删 |
 | 原生 Host wire → TS 解码 | WZU_Server 上 Plugin wire 和 Goal remotes 各 1 个 Rust 集成测试通过，真实 JSON 解码通过 | Plugin：13 个原生响应、11 个 UI 端点、2 个错误；Goal：6 个真实 HTTP 响应；网络安装仅使用一个明确标记的 serde DTO fixture，不声称公网安装验收 |
 | Unix 更新验收隔离器 | 43 / 43 通过 | 旧/新编译器的精确单一 timer anchor；缺失/重复 anchor 拒绝，不修改生产更新器 |
 
@@ -40,6 +40,17 @@
 - 删除迁移 helper 对未合并插件目录端点/字段的猜测；未知接口保持原拒绝，不能伪造成功。
 
 测试迁移仅替换旧压缩器变量/区域和 `index-*` 假设为 actual artifact + 测试期 AST scope；不新增生产私有 exports。残缺 mock 补成真实已知 Host DTO，而不是降低生产 decoder 或删断言。
+
+## PR CI 首轮与测试入口纠正
+
+[PR #194 的首轮 CI](https://github.com/123123213weqw/x-harness-rs/actions/runs/37015845695) 中，Rust Linux/macOS/Windows、更新契约及额外 GUI/Mirror 门禁通过，但两个 CI job 失败，不能合并：
+
+- Desktop Linux 未安装锁定 TypeScript 工具链，typed Node 测试无法 import；已在该 job 补 `npm ci`，增加覆盖六个 job 的先安装后测试回归，6/6 通过。
+- Context job 的 BrandHeadline 正向补丁 fixture 仍读已移除的 `ui/legacy`；改为独立冻结基线（不是新源码/旧模块混合），标题与幂等原断言通过。
+- 另外提前复查 Desktop model-settings 测试，改为实际模块 AST scope 和真实 Cordis service lifecycle，保留原 Rust schema 提取与有效值断言；source/frozen 均通过，desktop 三个 Node 门禁串行通过。
+- 测试工具的本机路径使用 `fileURLToPath` 而非 URL.pathname，以支持 Windows 和包含空格的目录。
+
+这次纠正未修改生产 UI 源码或构建产物。首轮失败与更正后复跑日志分别记录；必须等待更正提交的新一轮 CI 真正全绿才能合并。
 
 ## 明确限制
 

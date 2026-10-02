@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 /** Read-only acceptance of static values in actual shipped source units. */
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -14,7 +15,7 @@ export function verifyArtifact(id){
  const digest=value=>createHash('sha256').update(value).digest('hex')
  assert.equal(row?.rev,digest(bytes).slice(0,16))
  assert.ok(readFileSync(new URL('dist/index.html',ui),'utf8').includes(row.url))
- if(entry.kind==='source-module')assert.equal(digest(bytes),digest(compileSourceModules(ui.pathname,[entry]).get(id).bytes),`actual ${id} must be source fresh`)
+ if(entry.kind==='source-module')assert.equal(digest(bytes),digest(compileSourceModules(fileURLToPath(ui),[entry]).get(id).bytes),`actual ${id} must be source fresh`)
  return bytes.toString()
 }
 /** No eval, no synthetic CSS: only an exact factory's own literal or const. */

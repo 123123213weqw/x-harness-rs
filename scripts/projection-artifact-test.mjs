@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 /** Real production factories and their true Core/React/SlotCore/primitive imports.
  * Pure projector gates do not mount a UI, but loading their full closures must
  * still obey the real platform ABI (in particular the shared React context).
@@ -18,7 +19,7 @@ function load(source,externals){
  vm.runInNewContext(source,{...globals,window:{__ModuleLoader__:{load:row=>registration=row}}})
  return registration.factory(name=>{if(name in externals)return externals[name];throw Error(`Unexpected projection artifact external ${name}`)})
 }
-const platform=compileSourceModules(ui.pathname,[
+const platform=compileSourceModules(fileURLToPath(ui),[
  {id:'projection:real-slot-core',source:'src/modules/platform/slots/index.ts'},
  {id:'projection:real-primitives',source:'src/modules/platform/primitives/index.ts'},
 ])

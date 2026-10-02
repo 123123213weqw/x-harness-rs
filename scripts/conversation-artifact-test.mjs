@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url'
 /** Acceptance seam over the actual shipped ModuleLoader factory, not a replacement component. */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -33,7 +34,7 @@ export function verifyConversationArtifact(){
  const bytes=readFileSync(new URL(`dist/plugins/${id}/client.js`,ui)),graph=JSON.parse(readFileSync(new URL('dist/client-graph.json',ui))),entry=graph.entries.find(e=>e.id===id),html=readFileSync(new URL('dist/index.html',ui),'utf8');
  new Script(bytes.toString());assert.ok(entry,'shipped graph must contain conversation');assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,16));assert.ok(html.includes(entry.url));assert.deepEqual(JSON.parse(html.match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)[1]),graph);
  const manifest=JSON.parse(readFileSync(new URL('modules.json',ui)));const row=manifest.modules.find(e=>e.id===id);
- if(row?.kind==='source-module')assert.equal(createHash('sha256').update(bytes).digest('hex'),createHash('sha256').update(compileSourceModules(ui.pathname,[row]).get(id).bytes).digest('hex'),'shipped conversation must match its strict owned source, not a stale/frozen bundle');
+ if(row?.kind==='source-module')assert.equal(createHash('sha256').update(bytes).digest('hex'),createHash('sha256').update(compileSourceModules(fileURLToPath(ui),[row]).get(id).bytes).digest('hex'),'shipped conversation must match its strict owned source, not a stale/frozen bundle');
  return bytes.toString();
 }
 /** Expose maintained unit members by AST scope, independent of emitter formatting/signatures. */

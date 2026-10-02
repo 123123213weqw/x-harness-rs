@@ -40,6 +40,20 @@ class CiTieringContract(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
         self.assertIn("cancel-in-progress: true", source)
 
+    def test_native_and_web_contracts_install_locked_owned_toolchain(self) -> None:
+        source = workflow_source()
+        for name in ("context-layout", "update-channel-contract", "rust-linux", "rust-windows", "rust-macos-arm64", "desktop-linux"):
+            with self.subTest(job=name):
+                body = job(source, name)
+                self.assertIn("actions/setup-node@", body)
+                self.assertIn("npm ci --prefix ui --ignore-scripts", body)
+                setup = body.index("actions/setup-node@")
+                install = body.index("npm ci --prefix ui --ignore-scripts")
+                self.assertLess(setup, install)
+                script_calls = list(re.finditer(r"(?m)^\s+(?:- run: )?node scripts/", body))
+                for call in script_calls:
+                    self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
+
     def test_pull_requests_run_portable_contracts_once(self) -> None:
         body = job(workflow_source(), "update-channel-contract")
         self.assertIn("github.event_name == 'pull_request'", body)

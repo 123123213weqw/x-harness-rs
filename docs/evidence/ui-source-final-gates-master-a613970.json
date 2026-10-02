@@ -525,6 +525,380 @@
       "goalHttpTests": 1,
       "localRustCompilation": false,
       "actualGoalReplies": 6
+    },
+    "canonicalNodeEntries": {
+      "finalFullRoundPass": 59,
+      "finalFullRoundFail": 1,
+      "correctedReruns": 1,
+      "finalAccepted": 60,
+      "records": [
+        {
+          "path": "scripts/test-foundation-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 74153
+        },
+        {
+          "path": "scripts/test-product-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5530
+        },
+        {
+          "path": "scripts/test-view-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14280
+        },
+        {
+          "path": "scripts/test-model-selection-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 9111
+        },
+        {
+          "path": "scripts/test-attachment-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 4028
+        },
+        {
+          "path": "scripts/test-settings-models-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 9828
+        },
+        {
+          "path": "scripts/test-preset-source-modules.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 8557
+        },
+        {
+          "path": "scripts/test-renderer-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 2118
+        },
+        {
+          "path": "scripts/test-workspace-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7374
+        },
+        {
+          "path": "scripts/test-cordis-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 4178
+        },
+        {
+          "path": "scripts/test-owned-cordis-services.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5607
+        },
+        {
+          "path": "scripts/test-conversation-service-boundaries.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6035
+        },
+        {
+          "path": "scripts/test-conversation-main-differential.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7820
+        },
+        {
+          "path": "scripts/test-conversation-history-rollback.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7555
+        },
+        {
+          "path": "scripts/test-question-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 2730
+        },
+        {
+          "path": "scripts/test-tool-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5766
+        },
+        {
+          "path": "scripts/test-conversation-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11133
+        },
+        {
+          "path": "scripts/test-goal-source.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6628
+        },
+        {
+          "path": "scripts/test-trajectory-source-module.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 19895
+        },
+        {
+          "path": "scripts/test-execution-checkpoints.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 16668
+        },
+        {
+          "path": "scripts/test-attachments.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 50601
+        },
+        {
+          "path": "scripts/test-conversation-message-edit.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 27595
+        },
+        {
+          "path": "scripts/test-internal-queue.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6714
+        },
+        {
+          "path": "scripts/test-max-tokens-notice.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 17837
+        },
+        {
+          "path": "scripts/test-context-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 74
+        },
+        {
+          "path": "scripts/test-profile-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 208
+        },
+        {
+          "path": "scripts/test-plugin-center.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 10593
+        },
+        {
+          "path": "scripts/test-terminal-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 12149
+        },
+        {
+          "path": "scripts/test-tasks-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 377
+        },
+        {
+          "path": "scripts/test-motion-plugin.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11659
+        },
+        {
+          "path": "scripts/test-motion-tokens.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 76
+        },
+        {
+          "path": "scripts/test-compaction-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 20045
+        },
+        {
+          "path": "scripts/test-compaction-progress.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6876
+        },
+        {
+          "path": "scripts/test-compaction-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11945
+        },
+        {
+          "path": "scripts/test-compaction-wire.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 3973
+        },
+        {
+          "path": "scripts/test-conversation-scroll-follow.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 6519
+        },
+        {
+          "path": "scripts/test-computer-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11165
+        },
+        {
+          "path": "scripts/test-brand-headline.mjs",
+          "status": 1,
+          "signal": null,
+          "elapsedMs": 212
+        },
+        {
+          "path": "scripts/test-brand-identity.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 5245
+        },
+        {
+          "path": "scripts/test-logo-gradient.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 3856
+        },
+        {
+          "path": "scripts/test-logo-motion.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 1309
+        },
+        {
+          "path": "scripts/test-monochrome-theme.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 92
+        },
+        {
+          "path": "scripts/test-silver-surface.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7331
+        },
+        {
+          "path": "scripts/test-context-accounting.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 23513
+        },
+        {
+          "path": "scripts/test-assistant-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 41212
+        },
+        {
+          "path": "scripts/test-retry-turn-projection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 37275
+        },
+        {
+          "path": "scripts/test-network-wait-ui.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 8365
+        },
+        {
+          "path": "scripts/test-atomic-history.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 25549
+        },
+        {
+          "path": "scripts/test-ui-lifecycle-recovery.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 18067
+        },
+        {
+          "path": "scripts/test-live-answer-recovery.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 38569
+        },
+        {
+          "path": "scripts/test-startup-catalog-refresh.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 48617
+        },
+        {
+          "path": "scripts/test-permission-selection.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 7136
+        },
+        {
+          "path": "scripts/test-model-controls.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 16176
+        },
+        {
+          "path": "scripts/test-upstream-ui-experience.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14295
+        },
+        {
+          "path": "scripts/test-workspace-directory.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11829
+        },
+        {
+          "path": "scripts/test-workspace-created-at.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 190
+        },
+        {
+          "path": "scripts/test-settings-save-feedback.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 11631
+        },
+        {
+          "path": "scripts/test-question-continuation-patch.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 13997
+        },
+        {
+          "path": "scripts/test-goal-runtime-patch.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 14197
+        },
+        {
+          "path": "scripts/test-ui-namespace.mjs",
+          "status": 0,
+          "signal": null,
+          "elapsedMs": 425
+        }
+      ],
+      "correction": "BrandHeadline uses independently pinned immutable baseline for original idempotent patch assertions, not removed legacy/mixed new dist."
+    },
+    "ciToolchainGuard": {
+      "pass": 6,
+      "fail": 0,
+      "allSixJobsInstallBeforeTypedContracts": true
     }
   },
   "logs": [
@@ -599,6 +973,42 @@
     {
       "name": "xh-compaction-progress-webkit-frozen.log",
       "sha256": "5321ed7b43c568e4a8e47769809b1e6c3e37e94980c0e46cf6ef42002af4a44b"
+    },
+    {
+      "name": "xh-canonical-static-runner4.log",
+      "sha256": "f7bb1c1875ee07fc0b6e792808ef60e0a17c53b5be8876fa90a4908874269798"
+    },
+    {
+      "name": "xh-brand-headline-final.log",
+      "sha256": "652fc4c092c85bb8d898d2e3d4fde407a72392ef4044e7fa1a4b99c1458868b4"
+    },
+    {
+      "name": "xh-desktop-linux-node-corrected-final.log",
+      "sha256": "c28a595cb13dd4bd73045db0f3f7c2b0034064f2cb004935bfde5c072b140ab6"
+    },
+    {
+      "name": "xh-ci-toolchain-guard-final.log",
+      "sha256": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2"
+    },
+    {
+      "name": "xh-model-settings-source-final.log",
+      "sha256": "16c3f35681f8ac83be25db7783d12a0f27fa152206d8a33814c1718780275e7a"
+    },
+    {
+      "name": "xh-model-settings-frozen-final.log",
+      "sha256": "c738109742be1f30a8b7d12d1e97f666cb73d7c7c08c000f2d78ca07cd564863"
+    },
+    {
+      "name": "xh-model-settings-default-final.log",
+      "sha256": "83e3627ca673a48f4a16eefc7ca7a2e706d7154883878260b989c02894c762a1"
+    },
+    {
+      "name": "xh-pr194-context-job-initial.log",
+      "sha256": "2991eb8ed5324d4e081e9df3d42fb7af9070209e34fa549eb7cba03b920270b3"
+    },
+    {
+      "name": "xh-pr194-tauri-linux-job.log",
+      "sha256": "195f45714452eb55ae60caa2c0a24db57abd772e66dc8b9917e2c76e5d27590b"
     }
   ],
   "limitations": [
@@ -607,5 +1017,31 @@
     "No memory or performance improvement claimed",
     "CI is independently required after commit; local pass is not CI pass",
     "Initial failures retained separately from corrected reruns"
-  ]
+  ],
+  "ciInitial": {
+    "head": "f0592cb2c19092cbb6f5c7eb6df520b0f04c5fea",
+    "runUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/37015845695",
+    "passed": [
+      "Rust Linux",
+      "Rust macOS arm64",
+      "Rust Windows x86_64",
+      "Update channel contract"
+    ],
+    "failed": [
+      {
+        "job": "Tauri Desktop Linux",
+        "cause": "typed Node contract could not import typescript: desktop job missed locked UI toolchain installation",
+        "fix": "npm ci --prefix ui --ignore-scripts before native/typed Node contracts; six-job regression added"
+      },
+      {
+        "job": "Context and Harness layout",
+        "cause": "test-brand-headline read removed ui/legacy rather than independent pinned reference",
+        "fix": "original positive/idempotent patch fixture now uses frozen master for all files"
+      }
+    ],
+    "additionalPreflight": "actual model-settings unit seam restored, original Rust schema extraction/valid assertions retained; frozen and source passed through real Cordis service lifecycle",
+    "productionChangedInCiCorrection": false,
+    "mergeAllowed": false,
+    "nextRunRequired": true
+  }
 }
