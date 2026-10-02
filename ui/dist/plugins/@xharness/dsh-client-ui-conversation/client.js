@@ -5648,26 +5648,10 @@ function XHarnessForkAction({ content, seq, forkMessage, t }) {
 		});
 		// xh-compaction-running/v2
 		/** Automatic compaction keyed Chat renderer. */
-		const CompactionNodeView = (0, react.memo)(function CompactionNodeView({ node, t }) {
-			if (node.data.status === "running") return (0, react_jsx_runtime.jsxs)("div", {
-				className: MessageItem_module_css_default.compactionRow + " " + MessageItem_module_css_default.retryRow,
-				"data-active": true,
-				"data-compaction-running": true,
-				"aria-live": "polite",
-				children: [(0, react_jsx_runtime.jsx)("span", {
-					className: MessageItem_module_css_default.compactionLeading,
-					"aria-hidden": true,
-					children: (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconApiOutline14, {})
-				}), (0, react_jsx_runtime.jsx)("span", {
-					className: MessageItem_module_css_default.retryText,
-					children: t("message.compaction.running")
-				})]
-			});
-			return (0, react_jsx_runtime.jsx)(CompactionItem, {
-				node: node.data,
-				t
-			});
-		});
+		const CompactionNodeView = (0, react.memo)(function CompactionNodeView({node,t}) {
+    if (node.data.status) return (0, react_jsx_runtime.jsx)(XhCompactionProgressCard, {data:node.data,t});
+    return (0, react_jsx_runtime.jsx)(CompactionItem, {node:node.data,t});
+  });
 		/** Correlated retry-chain keyed Chat renderer. */
 		const RetryNodeView = (0, react.memo)(function RetryNodeView({ node, t }) {
 			const data = node.data;
@@ -6626,6 +6610,11 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 		/** Simplified Chinese dictionary (the key-set source of truth). */
 		const zh = {
 			"view.chat": "对话",
+			"xh.compact.failed": "压缩未完成",
+			"xh.compact.unchanged": "原始历史未改变",
+			"xh.compact.takesMinutes": "可能需要几分钟",
+			"xh.compact.paused": "压缩已暂停",
+			"xh.compact.resume": "恢复后继续",
 			"xh.turn.working": "正在处理…",
 			"hint.plan": PLAN_NEXT_ACTION_ZH,
 			"hint.goal": "输入目标，智能体将持续执行",
@@ -6823,6 +6812,11 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 		/** English dictionary, checked complete against the zh key set. */
 		const en = {
 			"view.chat": "Chat",
+			"xh.compact.failed": "Compaction not completed",
+			"xh.compact.unchanged": "Original history unchanged",
+			"xh.compact.takesMinutes": "May take a few minutes",
+			"xh.compact.paused": "Compaction paused",
+			"xh.compact.resume": "Resume to continue",
 			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_EN,
 			"hint.goal": "describe the objective for a long-running task",
@@ -8809,6 +8803,73 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 		}
 		//#endregion
 		//#region lib/types/client/conversation-nodes/command.js
+		// xh-compaction-progress/v1
+// Minimal status; durable progress and recovery remain owned by the runtime.
+function xhCompactProgress(value) {
+  if (!value || !['preparing','summarizing','splitting','merging','retrying','paused','validating','committing'].includes(value.stage)) return undefined;
+  for (const key of ['calls','completedParts','splits','retries']) if (!Number.isSafeInteger(value[key]) || value[key] < 0) return undefined;
+  if (value.completedParts > value.calls) return undefined;
+  for (const key of ['delayMs','inputTokensBefore','inputTokensAfter']) if (value[key] != null && (!Number.isSafeInteger(value[key]) || value[key] < 0)) return undefined;
+  return value;
+}
+function xhCompactLifecycle(state) {
+  const view = state.presentation;
+  const start = state.start?.event;
+  const end = state.end?.event;
+  const update = state.progress?.event;
+  const progress = xhCompactProgress(view?.progress ?? update?.data.progress);
+  if (view?.phase === 'succeeded') return {
+    kind:'compaction', seq:view.anchorSeq, time:view.time, summary:view.summary,
+    summaryEventSeq:view.summaryEventSeq, shadowedItemCount:view.shadowedItemCount,
+    shadowedTokenCount:view.shadowedTokenCount, progress,
+    startedAt:view.startedAt, endedAt:view.endedAt,
+  };
+  if (!view && !start) return null;
+  return {
+    kind:'compaction', status:(view?.phase === 'failed' || end) ? 'failed' : 'running',
+    seq:view?.anchorSeq ?? start.seq, time:view?.time ?? start.time,
+    progress, progressTime:view?.progressTime ?? update?.time,
+    error:view?.error ?? end?.data.error ?? null, endedAt:view?.endedAt ?? end?.time,
+  };
+}
+function XhCompactionProgressCard({ data, t }) {
+  const [open, setOpen] = xhUseTranscriptState('compact-progress', false);
+  const active = data.status === 'running';
+  const paused = active && data.progress?.stage === 'paused';
+  const title = paused ? t('xh.compact.paused') : active ? t('message.compaction.running') : t('xh.compact.failed');
+  const detail = paused ? t('xh.compact.resume') : active ? t('xh.compact.takesMinutes') : t('xh.compact.unchanged');
+  const content = [
+    (0, react_jsx_runtime.jsx)(_xharness_dsh_client_ui_primitives.IconApiOutline14, {'aria-hidden':true}),
+    (0, react_jsx_runtime.jsx)('span', {
+      style:{minWidth:0, overflowWrap:'anywhere'}, children:title + ' · ' + detail,
+    }),
+  ];
+  return (0, react_jsx_runtime.jsxs)('div', {
+    className:MessageItem_module_css_default.compactionRow,
+    'data-compaction-progress':true, 'data-compaction-running':active || undefined,
+    'data-active':active || undefined, 'data-state':active ? 'running' : 'error',
+    'data-stage':data.progress?.stage, style:{display:'block', width:'100%', minWidth:0},
+    children:[
+      active ? (0, react_jsx_runtime.jsx)('div', {
+        role:'status', 'aria-live':'polite', 'aria-atomic':true,
+        style:{display:'flex', gap:8, alignItems:'center', padding:'8px 0', fontSize:13, color:'var(--dsw-alias-label-secondary)'},
+        children:content,
+      }) : (0, react_jsx_runtime.jsx)('div', {
+        role:'alert', children:(0, react_jsx_runtime.jsxs)('button', {
+          type:'button', className:MessageItem_module_css_default.compactionButton,
+          'aria-expanded':open, disabled:!data.error, onClick:() => setOpen(value => !value),
+          style:{width:'100%', textAlign:'left', display:'flex', gap:8, alignItems:'center', padding:'8px 0'},
+          children:[...content, data.error && (0, react_jsx_runtime.jsx)(open ? _xharness_dsh_client_ui_primitives.IconChevronDownOutline14 : _xharness_dsh_client_ui_primitives.IconChevronRightOutline14, {'aria-hidden':true})],
+        }),
+      }),
+      !active && open && data.error && (0, react_jsx_runtime.jsx)('div', {
+        style:{padding:'4px 0 10px 22px', fontSize:12, color:'var(--dsw-alias-label-secondary)', overflowWrap:'anywhere'},
+        children:data.error,
+      }),
+    ],
+  });
+}
+
 		const COMPACT_PLUGIN = "compact";
 		function commandFromRun(match) {
 			if (match.event.type !== "command/run") throw new Error("command start requires command/run");
@@ -8885,6 +8946,18 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 			};
 		}
 		function fallbackState$3(context) {
+    const lifecycle = context.matches.find(m => typeof projectedCompactionView(m.view)?.sourceCommandId === "string" || (m.event.type === "compaction/start" && m.event.data.sourceCommandId));
+    if(lifecycle) {
+      const view=projectedCompactionView(lifecycle.view);
+      const run=context.matches.find(m=>m.event.type === "command/run");
+      const done=context.matches.find(m=>m.event.type === "command/done");
+      const command=done ? commandFromDone(done) : run ? commandFromRun(run) : {
+        kind:"command", seq:view?.anchorSeq ?? lifecycle.event.seq, time:view?.time ?? lifecycle.event.time,
+        commandId:view?.sourceCommandId ?? lifecycle.event.data.sourceCommandId, name:"compact", args:null, outcome:null,
+      };
+      return context.matches.reduce(updateCompactionState,{command});
+    }
+
 			const done = context.matches.find((match) => match.event.type === "command/done");
 			const checkpoint = context.matches.find((match) => compactSource(match.event) !== void 0);
 			const summary = context.matches.find((match) => match.event.type === "compaction/summary");
@@ -8915,11 +8988,13 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 		* @returns adopted State, preserving reference identity when the Match adds no evidence.
 		*/
 		function updateCompactionState(state, match) {
+    if(match.event.type === "compaction/progress" && (state.end || ["failed","succeeded"].includes(state.presentation?.phase))) return state;
 			const presentation = projectedCompactionView(match.view);
 			let next = state;
 			if (match.event.type === "compaction/start") next = {
 				...state, start: match, end: void 0
 			};
+			else if (match.event.type === "compaction/progress") next = state.end ? state : { ...state, progress:match };
 			else if (match.event.type === "compaction/end") next = {
 				...state, presentation: void 0, end: match
 			};
@@ -8938,8 +9013,10 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
             historyReuse: "local",
 			kind: "command",
 			target: "chat",
-			match: (event) => {
-				if (event.type === "command/run") return {
+			match: (event, view) => {
+      const projected=projectedCompactionView(view);
+      if(typeof projected?.sourceCommandId === "string") return {id:projected.sourceCommandId,role:"update"};
+      if (event.type === "command/run") return {
 					id: String(event.data.commandId),
 					role: "start"
 				};
@@ -8952,7 +9029,7 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 					id: String(checkpoint.sourceCommandId),
 					role: "update"
 				};
-				if (event.type === "compaction/start" || event.type === "compaction/summary" || event.type === "compaction/end") {
+				if (event.type === "compaction/start" || event.type === "compaction/progress" || event.type === "compaction/summary" || event.type === "compaction/end") {
 					if (event.data.sourceCommandId !== void 0) return {
 						id: String(event.data.sourceCommandId),
 						role: "update"
@@ -8960,7 +9037,14 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 				}
 				return null;
 			},
-			start: (_context, match) => ({ command: commandFromRun(match) }),
+			start: (_context, match) => {
+      const view=projectedCompactionView(match.view);
+      if(match.event.type === "command/run") return {command:commandFromRun(match)};
+      if(match.event.type === "command/done") return {command:commandFromDone(match)};
+      const command={kind:"command",seq:view?.anchorSeq ?? match.event.seq,time:view?.time ?? match.event.time,
+        commandId:view?.sourceCommandId ?? match.event.data.sourceCommandId,name:"compact",args:null,outcome:null};
+      return updateCompactionState({command},match);
+    },
 			update: (context, match) => {
 				if (match.event.type === "command/done") return {
 					...context.state,
@@ -8972,7 +9056,7 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 				const state = context.state ?? fallbackState$3(context);
 				if (state === void 0) return null;
 				if (state.command.name !== "compact") return chatNode(context, "command", state.command.seq, state.command);
-				const compaction = state.checkpoint === void 0 ? null : compactSummary(state.summary, state.checkpoint);
+				const compaction = state.checkpoint === void 0 ? xhCompactLifecycle(state) : {...compactSummary(state.summary,state.checkpoint), progress:xhCompactProgress(state.progress?.event.data.progress)};
 				const data = {
 					command: state.command,
 					compaction
@@ -9009,9 +9093,10 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 			match: (event, view) => {
 				if (view?.for === "compaction") {
 					const presentation = projectedCompactionView(view);
+					if (typeof presentation?.sourceCommandId === "string") return null;
 					if (presentation !== void 0) return {
 						id: presentation.id,
-						role: presentation.phase === "running" ? "start" : "update"
+						role: event.type === "compaction/progress" ? "update" : presentation.phase === "running" ? "start" : "update"
 					};
 				}
 				const checkpoint = compactSource(event);
@@ -9019,7 +9104,7 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 					id: checkpoint.compactionId,
 					role: "update"
 				};
-				if (event.type === "compaction/start" || event.type === "compaction/summary" || event.type === "compaction/end") {
+				if (event.type === "compaction/start" || event.type === "compaction/progress" || event.type === "compaction/summary" || event.type === "compaction/end") {
 					if (event.data.sourceCommandId !== void 0) return null;
 					const compactionId = event.data.compactionId;
 					if (typeof compactionId !== "string" || compactionId === "") return null;
@@ -9033,43 +9118,15 @@ keepMounted: running && (nodeKey === lastKey || xhTranscriptHasPendingTool(nodeS
 			start: (_context, match) => match === void 0 ? {} : updateCompactionState({}, match),
 			update: (context, match) => updateCompactionState(context.state, match),
 			buildViewNode: (context) => {
-				const state = context.state ?? fallbackState$2(context);
-				if (state.presentation !== void 0) {
-					const view = state.presentation;
-					const data = view.phase === "succeeded" ? {
-						kind: "compaction",
-						seq: view.anchorSeq,
-						time: view.time,
-						summary: view.summary,
-						summaryEventSeq: view.summaryEventSeq,
-						shadowedItemCount: view.shadowedItemCount,
-						shadowedTokenCount: view.shadowedTokenCount
-					} : {
-						kind: "compaction",
-						status: view.phase === "running" ? "running" : "ended",
-						seq: view.anchorSeq,
-						time: view.time
-					};
-					return chatNode(context, "compaction", data.seq, data, {
-						visibility: view.phase === "failed" ? "hidden" : "visible"
-					});
-				}
-				if (state.checkpoint !== void 0) {
-					const marker = compactSummary(state.summary, state.checkpoint);
-					return chatNode(context, "compaction", marker.seq, marker);
-				}
-				if (state.start === void 0) return null;
-				const marker = {
-					kind: "compaction",
-					status: state.end === void 0 ? "running" : "ended",
-					seq: state.start.event.seq,
-					time: state.start.event.time
-				};
-				return chatNode(context, "compaction", marker.seq, marker, {
-					visibility: state.end === void 0 ? "visible" : "hidden"
-				});
-			}
-		};
+    const state = context.state ?? fallbackState$2(context);
+    if (state.checkpoint && !state.presentation) {
+      const data = {...compactSummary(state.summary,state.checkpoint), progress:xhCompactProgress(state.progress?.event.data.progress)};
+      return chatNode(context,"compaction",data.seq,data);
+    }
+    const data = xhCompactLifecycle(state);
+    return data ? chatNode(context,"compaction",data.seq,data) : null;
+  }
+};
 		/**
 		* Register the automatic-compaction business contribution.
 		* @param ctx - owning UI Conversation context.
@@ -10268,6 +10325,7 @@ stateKey: i,
 		//#region lib/types/client/chat/CompactionCommandCard.js
 		/** Render one manual compaction lifecycle without duplicating its checkpoint marker. */
 		function CompactionCommandCard({ node, compaction, t }) {
+			if (compaction?.status) return (0, react_jsx_runtime.jsx)(XhCompactionProgressCard, {data:compaction,t});
 			if (compaction !== void 0) return (0, react_jsx_runtime.jsx)(CompactionItem, {
 				node: compaction,
 				title: "compact",

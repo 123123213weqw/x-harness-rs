@@ -187,7 +187,7 @@ fn event_view_from_sources(
     context: &[LoggedEvent],
     event: &LoggedEvent,
 ) -> Option<Value> {
-    if let Some(view) = automatic_compaction_view(events, context, event) {
+    if let Some(view) = compaction_view(events, context, event) {
         return Some(view);
     }
     match event.data() {
@@ -219,10 +219,10 @@ fn event_view_from_sources(
     }
 }
 
-/// A self-contained presentation update for automatic compaction. The end
+/// A self-contained presentation update for automatic or manual compaction. The end
 /// update repeats the committed summary so a paged history window does not
 /// need to load the start, summary and replacement events to render it.
-fn automatic_compaction_view(
+fn compaction_view(
     events: &[LoggedEvent],
     context: &[LoggedEvent],
     event: &LoggedEvent,
@@ -230,27 +230,42 @@ fn automatic_compaction_view(
     match event.data() {
         EventData::CompactionStart {
             compaction_id,
-            source_command_id: None,
+            source_command_id,
             ..
         } => Some(json!({
             "for": "compaction",
             "view": {
                 "schemaVersion": 1,
                 "id": compaction_id,
+                "sourceCommandId":source_command_id,
                 "phase": "running",
                 "anchorSeq": event.seq,
                 "time": event.timestamp_ms,
             }
         })),
+        EventData::CompactionProgress {
+            compaction_id,
+            source_command_id,
+            progress,
+            ..
+        } => {
+            let start = events.iter().chain(context).find(|e| e.seq < event.seq && matches!(e.data(), EventData::CompactionStart { compaction_id: id, .. } if id == compaction_id))?;
+            Some(json!({"for":"compaction", "view": {
+                "schemaVersion":1, "id":compaction_id, "sourceCommandId":source_command_id, "phase":"running",
+                "anchorSeq":start.seq, "time":start.timestamp_ms,
+                "progress":progress, "progressTime":event.timestamp_ms,
+            }}))
+        }
         EventData::CompactionEnd {
             compaction_id,
-            source_command_id: None,
+            source_command_id,
             error,
             ..
         } => {
             let mut start = None;
             let mut summary = None;
             let mut replacement = None;
+            let mut progress = None;
             let mut sources: Vec<_> = events
                 .iter()
                 .chain(context)
@@ -261,6 +276,9 @@ fn automatic_compaction_view(
                                 compaction_id: id, ..
                             }
                             | EventData::CompactionSummary {
+                                compaction_id: id, ..
+                            }
+                            | EventData::CompactionProgress {
                                 compaction_id: id, ..
                             } => id == compaction_id,
                             EventData::UserMessage {
@@ -280,6 +298,11 @@ fn automatic_compaction_view(
                     } if id == compaction_id => {
                         start = Some(candidate);
                         break;
+                    }
+                    EventData::CompactionProgress {
+                        progress: value, ..
+                    } if progress.is_none() => {
+                        progress = Some(value);
                     }
                     EventData::CompactionSummary {
                         compaction_id: id,
@@ -306,9 +329,13 @@ fn automatic_compaction_view(
                     "view": {
                         "schemaVersion": 1,
                         "id": compaction_id,
+                "sourceCommandId":source_command_id,
                         "phase": "failed",
                         "anchorSeq": start.seq,
                         "time": start.timestamp_ms,
+                        "endedAt": event.timestamp_ms,
+                        "error": error,
+                        "progress": progress,
                     }
                 }));
             }
@@ -319,6 +346,7 @@ fn automatic_compaction_view(
                 "view": {
                     "schemaVersion": 1,
                     "id": compaction_id,
+                "sourceCommandId":source_command_id,
                     "phase": "succeeded",
                     "anchorSeq": replacement.seq,
                     "time": replacement.timestamp_ms,
@@ -326,6 +354,9 @@ fn automatic_compaction_view(
                     "summaryEventSeq": summary_seq,
                     "shadowedItemCount": shadowed_seqs.len(),
                     "shadowedTokenCount": shadowed_token_count,
+                    "startedAt": start.timestamp_ms,
+                    "endedAt": event.timestamp_ms,
+                    "progress": progress,
                 }
             }))
         }
@@ -339,7 +370,7 @@ fn automatic_compaction_view(
 /// only the distinctive native-shell foreground-result shape, so arbitrary JSON tool
 /// output cannot accidentally become executable-looking terminal chrome.
 pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value> {
-    if let Some(view) = automatic_compaction_web_view(event, history) {
+    if let Some(view) = compaction_web_view(event, history) {
         return Some(view);
     }
     match event.get("type").and_then(Value::as_str)? {
@@ -377,33 +408,40 @@ pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value>
 }
 
 /// Compatibility path for an embedded, non-durable Host. Production live and
-/// history use `automatic_compaction_view` on the authoritative Session.
-fn automatic_compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
+/// history use `compaction_view` on the authoritative Session.
+fn compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
     let kind = event.get("type")?.as_str()?;
-    if kind != "compaction/start" && kind != "compaction/end" {
+    if !matches!(
+        kind,
+        "compaction/start" | "compaction/progress" | "compaction/end"
+    ) {
         return None;
     }
     let data = event.get("data")?;
-    if data.get("sourceCommandId").is_some() {
-        return None;
-    }
     let id = data.get("compactionId")?.as_str()?;
     let seq = event.get("seq")?.as_u64()?;
     let time = event.get("time")?.as_u64()?;
     if kind == "compaction/start" {
         return Some(json!({"for":"compaction", "view": {
-            "schemaVersion":1, "id":id, "phase":"running",
+            "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"running",
             "anchorSeq":seq, "time":time,
         }}));
     }
     let mut start = None;
     let mut summary = None;
     let mut replacement = None;
+    let mut progress = None;
     for prior in history.iter().rev() {
         if prior.get("seq").and_then(Value::as_u64) >= Some(seq) {
             continue;
         }
         let prior_data = prior.get("data");
+        if progress.is_none()
+            && prior.get("type").and_then(Value::as_str) == Some("compaction/progress")
+            && prior.pointer("/data/compactionId").and_then(Value::as_str) == Some(id)
+        {
+            progress = prior.pointer("/data/progress");
+        }
         if prior.get("type").and_then(Value::as_str) == Some("compaction/start")
             && prior_data
                 .and_then(|data| data.get("compactionId"))
@@ -432,11 +470,19 @@ fn automatic_compaction_web_view(event: &Value, history: &[Value]) -> Option<Val
         }
     }
     let start = start?;
+    if kind == "compaction/progress" {
+        return Some(json!({"for":"compaction", "view": {
+            "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"running",
+            "anchorSeq":start.get("seq")?.as_u64()?, "time":start.get("time")?.as_u64()?,
+            "progress":data.get("progress")?, "progressTime":time,
+        }}));
+    }
     if data.get("error").is_some_and(|error| !error.is_null()) {
         return Some(json!({"for":"compaction", "view": {
-            "schemaVersion":1, "id":id, "phase":"failed",
+            "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"failed",
             "anchorSeq":start.get("seq")?.as_u64()?,
             "time":start.get("time")?.as_u64()?,
+            "endedAt":time, "error":data.get("error"), "progress":progress,
         }}));
     }
     let summary = summary?;
@@ -453,13 +499,14 @@ fn automatic_compaction_web_view(event: &Value, history: &[Value]) -> Option<Val
         })
         .collect::<String>();
     Some(json!({"for":"compaction", "view": {
-        "schemaVersion":1, "id":id, "phase":"succeeded",
+        "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"succeeded",
         "anchorSeq":replacement.get("seq")?.as_u64()?,
         "time":replacement.get("time")?.as_u64()?,
         "summary":summary_text,
         "summaryEventSeq":summary.get("seq")?.as_u64()?,
         "shadowedItemCount":summary_data.get("shadowedSeqs")?.as_array()?.len(),
         "shadowedTokenCount":summary_data.get("shadowedTokenCount")?.as_u64()?,
+        "startedAt":start.get("time")?.as_u64()?, "endedAt":time, "progress":progress,
     }}))
 }
 
@@ -943,7 +990,9 @@ pub fn restored_web_event(
             }
             (kind, data, surface)
         }
-        EventData::CompactionStart { turn, .. } | EventData::CompactionEnd { turn, .. } => {
+        EventData::CompactionStart { turn, .. }
+        | EventData::CompactionEnd { turn, .. }
+        | EventData::CompactionProgress { turn, .. } => {
             let (kind, mut data, surface) = tagged_event_data(event.data());
             if let Some(turn) = turn {
                 data["turn"] = json!(web_turn(*turn));
@@ -1458,6 +1507,97 @@ mod projection_encoding_tests {
             project_session_event_view(&session, &session.events()[6]).unwrap()["view"]["summary"],
             "摘要 🧪"
         );
+    }
+
+    #[test]
+    fn progress_snapshot_is_identical_live_web_paged_and_restarted() {
+        use xharness_session::{CompactionProgress, CompactionStage, Revision, SessionHeader};
+        for source_command_id in [None, Some("cmd".to_string())] {
+            let mut session = Session::new(SessionHeader::new("compact-progress")).unwrap();
+            session
+                .append_batch_at(
+                    Revision::ZERO,
+                    vec![
+                        EventData::TurnStart { turn: 1 }.into(),
+                        EventData::CompactionStart {
+                            compaction_id: "c".into(),
+                            source_command_id: source_command_id.clone(),
+                            turn: Some(1),
+                        }
+                        .into(),
+                        EventData::CompactionProgress {
+                            compaction_id: "c".into(),
+                            source_command_id: source_command_id.clone(),
+                            turn: Some(1),
+                            progress: CompactionProgress {
+                                stage: CompactionStage::Retrying,
+                                calls: 3,
+                                completed_parts: 1,
+                                splits: 1,
+                                retries: 2,
+                                delay_ms: Some(8000),
+                                input_tokens_before: Some(180000),
+                                input_tokens_after: None,
+                            },
+                        }
+                        .into(),
+                    ],
+                    1000,
+                )
+                .unwrap();
+            session
+                .append_batch_at(
+                    Revision(1),
+                    vec![EventData::CompactionEnd {
+                        compaction_id: "c".into(),
+                        source_command_id: source_command_id.clone(),
+                        turn: Some(1),
+                        error: Some("fixture permanent error".into()),
+                    }
+                    .into()],
+                    2000,
+                )
+                .unwrap();
+            let web = project_session_event_range(&session, &TestRoute, 0, session.events().len());
+            let restarted = Session::restore(
+                session.header().clone(),
+                session.revision(),
+                session.events().to_vec(),
+            )
+            .unwrap();
+            for index in [2, 3] {
+                let live = project_session_event_view(&session, &session.events()[index]).unwrap();
+                assert_eq!(live["view"]["anchorSeq"], 1);
+                assert_eq!(live["view"]["time"], 1000);
+                assert_eq!(live["view"]["progress"]["retries"], 2);
+                assert_eq!(
+                    project_session_event_view(&restarted, &restarted.events()[index]),
+                    Some(live.clone())
+                );
+                assert_eq!(
+                    project_web_event_view(&web[index], &web),
+                    Some(live.clone())
+                );
+                let window = SessionHistoryWindow {
+                    next_seq: session.next_seq(),
+                    has_more: true,
+                    events: vec![session.events()[index].clone()],
+                    context: session.events()[1..index].to_vec(),
+                    initial_request_header_seq: None,
+                    completed_steps: vec![],
+                };
+                assert_eq!(
+                    project_history_window_view(&window, &window.events[0]),
+                    Some(live)
+                );
+                assert_eq!(web[index]["data"]["turn"], 0);
+            }
+            assert_eq!(
+                project_session_event_view(&session, &session.events()[3]).unwrap()["view"]
+                    ["error"],
+                "fixture permanent error"
+            );
+        }
     }
 
     #[test]

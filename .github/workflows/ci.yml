@@ -105,7 +105,9 @@ jobs:
       - run: node scripts/test-motion-plugin.mjs
       - run: node scripts/test-motion-tokens.mjs
       - run: node scripts/test-compaction-ui.mjs
+      - run: node scripts/test-compaction-progress.mjs
       - run: node scripts/test-compaction-projection.mjs
+      - run: node scripts/test-compaction-wire.mjs
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs
       - run: node scripts/test-brand-headline.mjs
@@ -183,6 +185,8 @@ jobs:
           node scripts/test-transcript-row-state.mjs
           UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-compaction-progress-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-compaction-progress-browser.mjs
           node scripts/test-question-continuation-patch.mjs
           UI_TEST_BROWSER=chromium node scripts/test-question-continuation-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-question-continuation-browser.mjs

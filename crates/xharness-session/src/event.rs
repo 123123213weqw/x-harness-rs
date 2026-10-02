@@ -9,6 +9,37 @@ use xharness_interaction::{QuestionAnswer, QuestionInvocation, QuestionResolutio
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// Work stages, not percentages: splitting discovers more work dynamically.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompactionStage {
+    #[default]
+    Preparing,
+    Summarizing,
+    Splitting,
+    Merging,
+    Retrying,
+    Paused,
+    Validating,
+    Committing,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompactionProgress {
+    pub stage: CompactionStage,
+    pub calls: u64,
+    pub completed_parts: u64,
+    pub splits: u64,
+    pub retries: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delay_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens_before: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens_after: Option<u64>,
+}
+
 /// Inclusive durable coordinates shadowed by one context-surface mutation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -784,6 +815,22 @@ pub enum EventData {
         source_command_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turn: Option<u32>,
+    },
+    /// Low-frequency, self-contained progress. Never contains draft summaries
+    /// or provider response bodies; it cannot alter the model surface.
+    #[serde(rename = "compaction/progress")]
+    CompactionProgress {
+        #[serde(rename = "compactionId")]
+        compaction_id: String,
+        #[serde(
+            rename = "sourceCommandId",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        source_command_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn: Option<u32>,
+        progress: CompactionProgress,
     },
     /// Auditable summary and exact evidence for the range it replaces.
     #[serde(rename = "compaction/summary")]
