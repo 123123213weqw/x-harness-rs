@@ -107,6 +107,7 @@ jobs:
       - run: node scripts/test-compaction-ui.mjs
       - run: node scripts/test-compaction-progress.mjs
       - run: node scripts/test-compaction-projection.mjs
+      - run: node scripts/test-compaction-wire.mjs
       - run: node scripts/test-conversation-scroll-follow.mjs
       - run: node scripts/test-computer-ui.mjs
       - run: node scripts/test-brand-headline.mjs

@@ -13,6 +13,7 @@ import { patchGoalRuntime } from './patch-goal-runtime.mjs'
 import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
 import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
 import { patchCompactionProgress } from './patch-compaction-progress.mjs'
+import { patchCompactionWire } from './patch-compaction-wire.mjs'
 import { patchCompactionViewModel } from './patch-compaction-view-model.mjs'
 import { patchConversationViewMatch } from './patch-conversation-view-match.mjs'
 import { patchConversationScrollFollow } from './patch-conversation-scroll-follow.mjs'
@@ -125,7 +126,7 @@ for (const entry of composed) {
   }
   if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
   if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextCompositionConnection(patchContextConnection(patchModelConnection(bytes)))
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchMessageEditConnection(bytes)
+  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchCompactionWire(patchMessageEditConnection(bytes))
   if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchConversationViewMatch(patchStartupCatalogRefresh(patchLiveAnswerRecovery(patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes))))))
   bytes = patchAttachments(entry.name, bytes)
   if (entry.name === '@deepseek-ai/dsh-client-ui-settings-models') bytes = patchReasoningSettings(bytes)
