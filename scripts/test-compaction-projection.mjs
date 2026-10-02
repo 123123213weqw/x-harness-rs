@@ -2,28 +2,18 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import {runtimeTestApi} from './runtime-source-test-harness.mjs';
+import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
+import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import {patchCompactionProgressModel,patchCompactionProgress} from './patch-compaction-progress.mjs';
 import { patchCompactionViewModel } from './patch-compaction-view-model.mjs';
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const runtimeSource = read('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js');
-const ui = read('../ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
+const ui=verifyConversationArtifact(),golden=legacyConversation().toString();
 const fixtures = JSON.parse(read('../tests/fixtures/compaction-ui.json')).filter(f => !f.manual);
-let registration;
-vm.runInNewContext(runtimeSource, {
-  window: { __ModuleLoader__: { load: value => { registration = value; } } },
-  console, URL, AbortController, setTimeout, clearTimeout,
-});
-const runtime = registration.factory(id => id === '@xharness/cordis' ? { Service: class {} } : {});
-const context = vm.createContext({ _xharness_dsh_client_runtime_client: runtime });
-for (const name of ['contextLocation', 'chatNode']) {
-  const start = ui.indexOf(`function ${name}(`), end = ui.indexOf('\n\t\t}', start);
-  assert.ok(start >= 0 && end > start);
-  vm.runInContext(ui.slice(start, end + 4), context);
-}
-const start = ui.indexOf('// xh-compaction-progress/v1');
-const end = ui.indexOf('//#endregion', ui.indexOf('function registerCompactionConversationNode', start));
-vm.runInContext(ui.slice(start, end) + '\nglobalThis.definition=compactionDefinition;', context);
-const definition = context.definition;
+const runtime=runtimeTestApi();
+const context=conversationFixture(ui,['compactionDefinition','compactSource','chatNode'],{runtime}).api;
+const definition=context.compactionDefinition;
 const plain = value => JSON.parse(JSON.stringify(value));
 let checks = 0;
 function assembler(def = definition) {
@@ -149,13 +139,13 @@ for (const name of ['updateCompactionState', 'fallbackState$2', 'projectedCompac
     assert.ok(start >= 0 && end > start);
     return source.slice(start, end + 4);
   };
-  assert.equal(extract(fresh), extract(ui), name + ' fresh assembly matches shipped'); checks++;
+  assert.equal(extract(fresh), extract(golden), name + ' fresh assembly matches shipped'); checks++;
 }
 const generatedContext = vm.createContext({ compactSource: context.compactSource, chatNode: context.chatNode });
 vm.runInContext(fresh + '\nglobalThis.definition=compactionDefinition;', generatedContext);
 for (const row of wire(fixtures[1], 'projected'))
   assert.deepEqual(plain(generatedContext.definition.match(row.event, row.view)), plain(definition.match(row.event, row.view)));
 assert.deepEqual(patchCompactionViewModel(Buffer.from(fresh)), Buffer.from(fresh), 'fresh patch idempotence');
-assert.deepEqual(patchCompactionViewModel(Buffer.from(ui)), Buffer.from(ui), 'patch idempotence');
-assert.deepEqual(patchCompactionProgress(Buffer.from(ui)),Buffer.from(ui));
+assert.deepEqual(patchCompactionViewModel(Buffer.from(golden)), Buffer.from(golden), 'patch idempotence');
+assert.deepEqual(patchCompactionProgress(Buffer.from(golden)),Buffer.from(golden));
 console.log(`compaction projection: ${checks} checks; shipped assembler live/reload/batched/all page splits/duplicate/mixed/terminal-only passed`);

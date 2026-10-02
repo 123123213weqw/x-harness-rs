@@ -8,15 +8,13 @@ import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = new URL('../', import.meta.url)
-const source = readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js', root), 'utf8')
-const start = source.indexOf('\t\tfunction AppFrame({')
-const end = source.indexOf('\n\t\t//#endregion', start)
-assert.ok(start >= 0 && end > start, 'shipped AppFrame must remain extractable')
-const appFrame = source.slice(start, end)
-const deps = resolve(process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests')
+const assetDist = resolve(process.env.UI_TEST_DIST ?? fileURLToPath(new URL('ui/dist/', root)))
+const source = readFileSync(resolve(assetDist, 'plugins/@xharness/dsh-client-ui-layout/client.js'), 'utf8')
+const deps = resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps')
 const require = createRequire(resolve(deps, 'package.json'))
-const { chromium } = require('playwright')
-const browser = await chromium.launch({ headless: true })
+const browserName = process.env.UI_TEST_BROWSER ?? 'chromium'
+assert.ok(['chromium', 'webkit'].includes(browserName))
+const browser = await require('playwright')[browserName].launch({ headless: true })
 try {
   const page = await browser.newPage({ viewport: { width: 900, height: 700 }, locale: 'en-US' })
   const errors = []
@@ -28,21 +26,21 @@ try {
   await page.addScriptTag({ content: `
     const react=React;
     const react_jsx_runtime={jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment};
-    const AppFrame_module_css_default={frame:'frame',sidebarCol:'sidebar',centerCol:'center',detailsCol:'details',overlayLayer:'overlay'};
-    const SIDEBAR_AUTO_COLLAPSE=1024;
-    const computeColumns=(viewport,sidebar,details)=>({sidebar:sidebar||56,center:viewport-(sidebar||56)-details,details});
-    const CenterColumn=props=>React.createElement('div',{className:'center'},props.children);
-    const DetailsColumn=props=>React.createElement('div',{className:'details'},props.children);
-    const DragHandle=()=>null;
-    const xhWorkspaceWindow={set:async()=>0};
-    const xhWorkspaceEmpty={items:[],activeId:null};
-    const xhLoadBrowserSpaces=()=>({});
-    const xhSaveBrowserSpaces=()=>{};
-    const xhNextWorkspaceId=()=>0;
-    const xhWorkspaceOpen=(space,item)=>({items:[...space.items,item],activeId:item.id});
-    const xhWorkspaceClose=(space,id)=>({items:space.items.filter(item=>item.id!==id),activeId:null});
-    const XhWorkspacePane=()=>null;
-    ${appFrame}
+    const seed = name => {
+      if(name==='react')return React;
+      if(name==='react/jsx-runtime')return react_jsx_runtime;
+      if(name==='@xharness/dsh-client-runtime/client')return {defineStore:spec=>({spec})};
+      throw new Error('Unexpected layout dependency: '+name);
+    };
+    window.__ModuleLoader__={load:registration=>{window.layoutModule=registration.factory(seed)}};
+    ${source}
+    let AppFrame;
+    window.layoutModule.apply({
+      effect:fn=>fn(), reflect:{provide:()=>()=>{}},
+      slots:{register:(spec,component)=>{if(spec.name==='root')AppFrame=component;return()=>{}}},
+      theme:{getTheme:()=>({active:{colorScheme:'dark',tokens:{}}})}, on:()=>()=>{},
+    });
+    if(!AppFrame)throw new Error('Shipped layout did not register its root component');
     const sessions={current:undefined,byId:{}};
     const panels={sidebar:0,details:0,narrow:false,narrowExpanded:false};
     const actions={closeDetails(){},setNarrow(){},setSidebar(){},setDetails(){}};
@@ -71,7 +69,7 @@ try {
   // English selectors require a deterministic locale, independent of the runner.
   // Load the actual shipped bundles at both sidebar widths. This catches
   // duplicate responsive controls that AppFrame-only fixtures cannot see.
-  const dist = resolve(fileURLToPath(root), 'ui/dist')
+  const dist = assetDist
   const server = createServer((request, response) => {
     const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname)
     const file = resolve(dist, `.${pathname === '/' ? '/index.html' : pathname}`)
@@ -82,7 +80,12 @@ try {
     try {
       const body = readFileSync(file)
       const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' }[extname(file)] ?? 'application/octet-stream'
-      response.writeHead(200, { 'Content-Type': mime }).end(body)
+      const send = () => response.writeHead(200, { 'Content-Type': mime }).end(body)
+      // Force the typed dependency to arrive after the other scripts. Correct
+      // external edges must prevent the hub factory from requiring it early.
+      // A graph-order-only or inject-only integration fails this cold boot.
+      if (pathname === '/plugins/@xlang/xharness-client-plugin-api/client.js') setTimeout(send, 300)
+      else send()
     } catch {
       response.writeHead(404).end()
     }
@@ -96,10 +99,14 @@ try {
       shipped.on('pageerror', error => shippedErrors.push(error.message))
       await shipped.goto(url, { waitUntil: 'domcontentloaded' })
       const plugins = shipped.getByRole('button', { name: 'Plugins', exact: true })
-      await plugins.waitFor().catch(async error => {
-        console.error(`Shipped page errors: ${JSON.stringify(shippedErrors)}\nBody: ${(await shipped.locator('body').innerText()).slice(0, 2000)}`)
+      try { await plugins.waitFor() }
+      catch (error) {
+        // Retain the startup failure, rather than silently retrying a flaky
+        // assertion. CI logs must say whether the loader or navigation failed.
+        console.error('Plugin navigation startup evidence:', JSON.stringify({ width, browserName,
+          pageErrors: shippedErrors, body: (await shipped.locator('body').innerText()).slice(0, 2000) }))
         throw error
-      })
+      }
       assert.equal(await plugins.count(), 1, `exactly one Plugins button at ${width}px`)
       const iconGeometry = await plugins.evaluate(button => {
         const outer = button.getBoundingClientRect()
@@ -156,7 +163,7 @@ try {
   } finally {
     await new Promise(resolveClose => server.close(resolveClose))
   }
-  console.log('plugin center browser: open, sidebar switch, return-to-chat and no runtime errors passed')
+  console.log(`plugin center browser / ${browserName}: open, sidebar switch, return-to-chat and no runtime errors passed`)
 } finally {
   await browser.close()
 }

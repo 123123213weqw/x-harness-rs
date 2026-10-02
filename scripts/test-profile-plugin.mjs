@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { ownedViewModuleTestInput } from './owned-view-module-test-input.mjs'
 import { createHash } from 'node:crypto'
 import vm from 'node:vm'
 
@@ -12,7 +13,7 @@ const React = {
   useState: initial => [initial, () => {}],
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
 }
-vm.runInNewContext(readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-profile/client.js', import.meta.url), 'utf8'), {
+vm.runInNewContext(ownedViewModuleTestInput('@xlang/xharness-client-ui-profile'), {
   window: { __ModuleLoader__: { load: value => { registration = value } } },
   document: {
     getElementById: id => styles.get(id),
@@ -21,11 +22,12 @@ vm.runInNewContext(readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui
   },
   Date, Math, Number, Object, String,
 })
-const bundle = readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-profile/client.js', import.meta.url))
+const bundle = readFileSync(new URL('../ui/dist/plugins/@xlang/xharness-client-ui-profile/client.js', import.meta.url))
 const graph = JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json', import.meta.url)))
 const entry = graph.entries.find(entry => entry.id === '@xlang/xharness-client-ui-profile')
 assert.ok(entry, 'profile must be present in the shipped UI graph')
 assert.equal(entry.rev, createHash('sha256').update(bundle).digest('hex').slice(0, 16))
+if (!process.env.UI_TEST_IMPL || process.env.UI_TEST_IMPL === 'canonical') assert.equal(ownedViewModuleTestInput(entry.id), bundle.toString())
 assert.ok(readFileSync(new URL('../ui/dist/index.html', import.meta.url), 'utf8').includes(entry.id))
 assert.equal(registration.id, '@xlang/xharness-client-ui-profile')
 const plugin = registration.factory(name => {

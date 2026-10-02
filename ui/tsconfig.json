@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "newLine": "lf",
+    "moduleResolution": "Node",
+    "baseUrl": ".",
+    "paths": {
+      "@xlang/xharness-client-plugin-api": [
+        "src/plugin-api/client.ts"
+      ]
+    },
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmitOnError": true,
+    "allowJs": false,
+    "checkJs": false,
+    "rootDir": ".",
+    "types": [
+      "react"
+    ],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "src/plugin-api/**/*.ts",
+    "types/plugin-runtime.d.ts"
+  ]
+}

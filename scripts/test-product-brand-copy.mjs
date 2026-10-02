@@ -33,5 +33,6 @@ assert.match(models, /deepseek-official/, 'real model provider remains available
 const settings = get('settings-plugins')
 assert.doesNotMatch(settings, /The DeepSeek search provider|DeepSeek 搜索提供方/)
 assert.match(settings, /Provider used for web search/)
-assert.match(readFileSync('scripts/assemble-static-ui.mjs', 'utf8'), /bytes = patchProductBrandCopy\(entry\.name, bytes\)/)
+const { assertRebuildInput } = await import('./fixtures/repository-ui-input.mjs')
+for (const name of ['conversation', 'sidebar', 'settings-models', 'settings-plugins']) assertRebuildInput(`@xharness/dsh-client-ui-${name}`)
 console.log('product brand copy: running status, welcome, onboarding, fallback, search, rebuild and graph passed')

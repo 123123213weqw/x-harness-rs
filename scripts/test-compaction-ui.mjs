@@ -1,3 +1,5 @@
+import {verifyConversationArtifact} from './conversation-artifact-test.mjs';
+import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
@@ -7,11 +9,11 @@ const fixtures=JSON.parse(read('tests/fixtures/compaction-ui.json'));
 const source=read('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
 const start=source.indexOf('// xh-compaction-progress/v1');
 const end=source.indexOf('//#endregion',source.indexOf('function registerCompactionConversationNode',start));
-assert.ok(start>=0 && end>start);
+const native=source.startsWith('// Generated from src/modules/conversation/');if(native)verifyConversationArtifact();else assert.ok(start>=0 && end>start);
 let expanded=false;
 const jsx=(type,props)=>({type,props});
 const env={
- react:{memo:fn=>fn,useState:()=>[expanded,fn=>{expanded=fn(expanded);}]},
+ react:{memo:fn=>fn,useRef:value=>({current:value}),useState:()=>[expanded,value=>{expanded=typeof value==='function'?value(expanded):value;}]},
  react_jsx_runtime:{jsx,jsxs:jsx}, MessageItem_module_css_default:{},
  _xharness_dsh_client_ui_primitives:{MarkdownText:'markdown'},
  _xharness_dsh_client_runtime_client:{isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace'},
@@ -19,12 +21,14 @@ const env={
 };
 const itemStart=source.indexOf('const CompactionItem =');
 const itemEnd=source.indexOf('\n\t\t});',itemStart)+7;
-// Isolated component fixtures must include their shipped dependencies, not a
-// substitute for the row-state hook. The no-row-provider path still uses React.
-const hookStart=source.indexOf('function xhUseTranscriptState(key, initial)');
-const hookEnd=source.indexOf('\n}',hookStart)+2;
-assert.ok(hookStart>=0 && hookEnd>hookStart,'shipped transcript state bridge exists');
-vm.runInNewContext(source.slice(hookStart,hookEnd)+'\n'+source.slice(start,end)+'\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.api={commandDefinition,compactionDefinition,compactSummary,CompactionItem};',env);
+if(native)env.api=conversationFixture(source,['commandDefinition','compactionDefinition','compactSummary','CompactionItem'],{react:env.react,primitives:new Proxy({MarkdownText:'markdown'},{get:(target,key)=>target[key]??key})}).api;
+else {
+ // Include the shipped no-provider row-state hook, not a replacement hook.
+ const hookStart=source.indexOf('function xhUseTranscriptState(key, initial)');
+ const hookEnd=source.indexOf('\n}',hookStart)+2;
+ assert.ok(hookStart>=0 && hookEnd>hookStart,'shipped transcript state bridge exists');
+ vm.runInNewContext(source.slice(hookStart,hookEnd)+'\n'+source.slice(start,end)+'\n'+source.slice(itemStart,itemEnd)+'\nglobalThis.api={commandDefinition,compactionDefinition,compactSummary,CompactionItem};',env);
+}
 const api=env.api;
 const t=(key,args)=>`${key}:${JSON.stringify(args??{})}`;
 const find=(tree,predicate)=>{
@@ -33,7 +37,7 @@ const find=(tree,predicate)=>{
  for(const child of [tree.props?.children].flat(2)) {const result=find(child,predicate);if(result)return result;}
 };
 assert.match(source,/data-compaction-running/);
-assert.match(source,/t\("message\.compaction\.running"\)/);
+assert.match(source,/t\(["']message\.compaction\.running["']\)/);
 assert.match(source,/xh-compaction-view-model\/v2/);
 assert.match(read('ui/dist/plugins/@xharness/dsh-client-runtime/client.js'),/definition\.match\(input\.event, input\.view\)/);
 for(const f of fixtures) {
@@ -104,15 +108,30 @@ assert.equal(api.compactionDefinition.buildViewNode({matches:[projectedDone]}).d
 const failedState=api.compactionDefinition.update({state:api.compactionDefinition.start({},projectedStart)},projectedFailure);
 assert.equal(api.compactionDefinition.buildViewNode({state:failedState,matches:[projectedStart,projectedFailure]}).visibility,'visible');
 assert.equal(api.compactionDefinition.match(projectedFailure.event,{for:'compaction',view:{schemaVersion:99}}),null);
-// Context inspector compatibility: evaluate its shipped component as well.
-for(const path of ['ui/plugins/@xlang/xharness-client-ui-context/client.js','ui/dist/plugins/@xlang/xharness-client-ui-context/client.js']) {
- const s=read(path),a=s.indexOf('function CompactionBanner('),b=s.indexOf('\n    function ContextView',a);
- const ctx={h:(type,props,...children)=>({type,props,children}),numberOrUndefined:x=>x,fmtTokens:String};
- vm.runInNewContext(s.slice(a,b)+'\nglobalThis.banner=CompactionBanner',ctx);
+// Context inspector compatibility: execute the full canonical factory's own scope.
+const {sourceDeclaration}=await import('./fixtures/source-declaration.mjs');
+const {assertRebuildInput}=await import('./fixtures/repository-ui-input.mjs');
+const {artifactUnitScope}=await import('./fixtures/context-artifact-scope.mjs');
+const {verifyArtifact}=await import('./fixtures/shipped-source-values.mjs');
+const contextId='@xlang/xharness-client-ui-context';
+for(const path of [`ui/reference/master-a613970/plugins/${contextId}/client.js`,`ui/dist/plugins/${contextId}/client.js`]) {
+ const s=read(path);
+ let banner;
+ if(s.startsWith('// Generated')) {
+  assert.equal(s,verifyArtifact(contextId),'canonical Context must be strict-source fresh');
+  const unit='src/modules/context/index.js',h=(type,props,...children)=>({type,props,children});let registration;
+  const scoped=artifactUnitScope({source:s,root:unit},{CompactionBanner:{unit,member:'CompactionBanner'}},{[unit]:['CompactionBanner']});
+  vm.runInNewContext(scoped,{window:{__ModuleLoader__:{load:row=>{registration=row}}},console});
+  const react={createElement:h,useEffect(){},useMemo:fn=>fn(),useState:value=>[value,()=>{}]};
+  banner=registration.factory(name=>{assert.equal(name,'react','Context has only its real React external');return react}).CompactionBanner;
+ } else {
+  const ctx={h:(type,props,...children)=>({type,props,children}),numberOrUndefined:x=>x,fmtTokens:String,asObject:x=>x};
+  vm.runInNewContext(sourceDeclaration(s,'CompactionBanner')+'\nglobalThis.banner=CompactionBanner',ctx);banner=ctx.banner;
+ }
  for(const summary of ['你好🧪',[{type:'text',text:'你'},{type:'image',text:'not text'},{type:'text',text:'好🧪'}]]) {
-  const tree=ctx.banner({compaction:{summary,shadowedTokenCount:128}});
+  const tree=banner({compaction:{kind:'compaction',seq:1,time:1,summary,shadowedTokenCount:128}});
   assert.equal(tree.children[0][1].children[0],'你好🧪');
  }
 }
-assert.equal(read('ui/plugins/@xlang/xharness-client-ui-context/client.js'),read('ui/dist/plugins/@xlang/xharness-client-ui-context/client.js'));
+assertRebuildInput(contextId);
 console.log('compaction UI: automatic/manual, failure/cancel, replay/history, late summary, expand/collapse, counts and Context compatibility passed');

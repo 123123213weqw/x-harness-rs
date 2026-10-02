@@ -5,12 +5,14 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 import { createHash } from 'node:crypto';
+import { frozenRuntime, runtimeTestSource, conversationBrowserTestSource, sourceMode, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
+import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs';
 import { patchSessionHistoryCache } from './patch-session-history-cache.mjs';
 const root = fileURLToPath(new URL('../',import.meta.url)), dist=resolve(root,'ui/dist');
 const shipped=readFileSync(resolve(dist,'plugins/@xharness/dsh-client-runtime/client.js'));
 new Script(shipped.toString());
-assert.deepEqual(patchSessionHistoryCache(shipped),shipped);
-assert.deepEqual(patchSessionHistoryCache(Buffer.from(shipped.toString().replace('Product-owned history residency','Older history residency'))),shipped);
+assert.deepEqual(patchSessionHistoryCache(Buffer.from(frozenRuntime)),Buffer.from(frozenRuntime));
+assert.deepEqual(patchSessionHistoryCache(Buffer.from(frozenRuntime.replace('Product-owned history residency','Older history residency'))),Buffer.from(frozenRuntime));
 assert.throws(()=>patchSessionHistoryCache(Buffer.from('upstream changed')),/anchor changed/);
 const graph=JSON.parse(readFileSync(resolve(dist,'client-graph.json')));
 const entry=graph.entries.find(e=>e.id==='@xharness/dsh-client-runtime');
@@ -21,19 +23,12 @@ const engine=process.env.UI_TEST_BROWSER??'chromium';
 const browser=await require('playwright')[engine].launch({headless:true});
 try {
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
- const assets=readdirSync(resolve(dist,'assets')), index=readFileSync(resolve(dist,'index.html'),'utf8').match(/src="\/assets\/(index-[^"?]+\.js)/)[1];
- await page.route('**/*',route=>{
-  const path=new URL(route.request().url()).pathname, name=path.slice('/assets/'.length);
-  if(path.startsWith('/assets/')&&assets.includes(name))return route.fulfill({body:readFileSync(resolve(dist,'assets',name)),contentType:name.endsWith('.css')?'text/css':'application/javascript'});
-  if(path==='/')return route.fulfill({contentType:'text/html',body:`<script>window.__ModuleLoader__={create:o=>{window.staticModules=o.staticModules;throw Error('fixture stop boot')}};</script><script type="module" src="/assets/${index}"></script><div id="root"></div>`});
-  return route.abort();
- });
- await page.goto('http://history.test/');await page.waitForFunction(()=>window.staticModules);
+ await installOwnedViewPlatform(page,sourceMode?'source':'legacy');
  await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
   let source=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
-  if(name==='dsh-client-runtime')source=source.replace('exports.apply = apply;', 'exports.Session = Session; exports.SessionManager = SessionManager; exports.apply = apply;');
-  if(name==='dsh-client-ui-conversation')source=source.replace('exports.apply = apply;', 'exports.ChatView = ChatView; exports.registerConversationNodes = registerConversationNodes; exports.apply = apply;');
+  if(name==='dsh-client-runtime')source=runtimeTestSource();
+  if(name==='dsh-client-ui-conversation')source=conversationBrowserTestSource();
   await page.addScriptTag({content:source});
  }
  const checks=await page.evaluate(async()=>{
@@ -182,6 +177,8 @@ try {
  const boundedStats=await page.evaluate(()=>makeMemoryFixture(true));const bounded=await heap();
  assert.equal(baselineStats.inactiveSessions,31);assert.equal(boundedStats.inactiveSessions,6);
  if(cdp){assert.ok(bounded<baseline*.7,JSON.stringify({baseline,bounded}));assert.equal(await page.evaluate(()=>oldEvents.deref()===undefined&&oldEvent.deref()===undefined),true,'evicted raw history and event objects are GC-reclaimable');}
- assert.deepEqual(errors.filter(e=>!e.includes('fixture stop boot')),[]);
- console.log(JSON.stringify({engine,checks,atomicHistory:'real compaction mapping failure retains ChatView; retry succeeds with history RPC only',baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
+ assert.deepEqual(errors.filter(e=>!e.includes('owned feature fixture: stop Host boot')),[]);
+ console.log(JSON.stringify({engine,implementation:sourceMode?'source':'legacy',checks,atomicHistory:'real compaction mapping failure retains ChatView; retry succeeds with history RPC only',baselineHeapBytes:baseline,boundedHeapBytes:bounded,baselineStats,boundedStats,note:'32 synthetic sessions x 160 events; payload estimates are not process RSS'}));
 }finally{await browser.close()}
+
+runFrozenSourceDifferential('frozen history LRU|prompt edit admission|transport death settles');

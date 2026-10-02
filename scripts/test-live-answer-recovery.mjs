@@ -8,17 +8,17 @@
 // prompt produces is the user's own action, so it recovers the window there.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { frozenRuntime, runtimeTestApi, runFrozenSourceDifferential } from './runtime-source-test-harness.mjs';
 import { patchLiveAnswerRecovery } from './patch-live-answer-recovery.mjs';
 
 const path = new URL('../ui/dist/plugins/@xharness/dsh-client-runtime/client.js', import.meta.url);
 const source = readFileSync(path, 'utf8');
-assert.equal(patchLiveAnswerRecovery(Buffer.from(source)).toString(), source);
-assert.equal(patchLiveAnswerRecovery(Buffer.from(source.replaceAll('\n', '\r\n'))).toString(), source);
+assert.equal(patchLiveAnswerRecovery(Buffer.from(frozenRuntime)).toString(), frozenRuntime);
+assert.equal(patchLiveAnswerRecovery(Buffer.from(frozenRuntime.replaceAll('\n', '\r\n'))).toString(), frozenRuntime);
 assert.throws(() => patchLiveAnswerRecovery(Buffer.from('upstream changed')), /anchor changed/);
 // The recovery is installed on the transactional layer it depends on.
-assert.ok(source.indexOf('xh-live-answer-recovery:start') < source.indexOf('xh-atomic-history:start'));
+assert.ok(frozenRuntime.indexOf('xh-live-answer-recovery:start') < frozenRuntime.indexOf('xh-atomic-history:start'));
 // Assembly applies the patches in that order to the upstream bundle, so the
 // install anchor must exist by the time this patch runs.
 const upstream = 'const Session = 1;\n// xh-session-history-cache:start\ninstallSessionHistoryCache(Session);\n// xh-session-history-cache:end\n// xh-atomic-history:start\ninstallAtomicHistory(ConversationNodeAssembler, Session);\n// xh-atomic-history:end\n';
@@ -35,13 +35,7 @@ assert.ok(index.includes(entry.url));
 const published = [...index.matchAll(/dsh-client-runtime\/client\.js\?rev=([0-9a-f]+)/g)].map(match => match[1]);
 assert.ok(published.length >= 2 && published.every(rev => rev === entry.rev), `stale runtime rev in index.html: ${published}`);
 
-let registration;
-vm.runInNewContext(source.replace('exports.apply = apply;', 'exports.Session = Session; exports.apply = apply;'), {
-  window: { __ModuleLoader__: { load: value => { registration = value; } } },
-  console, URL, AbortController, setTimeout, clearTimeout, queueMicrotask, Date,
-  requestAnimationFrame: f => setTimeout(f, 0), cancelAnimationFrame: clearTimeout,
-});
-const runtime = registration.factory(id => id === '@xharness/cordis' ? { Service: class {} } : {});
+const runtime = runtimeTestApi();
 
 const definition = {
   kind: 'probe', target: 'probe',
@@ -200,7 +194,7 @@ const background = new runtime.Session('bg', { sessions: { history: async () => 
   historyCalls++; return replies.shift();
 } } }, {}, { conversation: { events, views } });
 
-background.xhHistoryOwner = { manager: { selected: 'fixture' }, changed: () => {}, schedule: () => {} };background.installWindow([row(10)], true); background.openState = 'open'; background.hasMore = true; background.getSnapshot();
+background.xhHistoryOwner = { manager: { selected: 'fixture', isCurrent: () => false }, changed: () => {}, schedule: () => {} };background.installWindow([row(10)], true); background.openState = 'open'; background.hasMore = true; background.getSnapshot();
 replies = [fail];
 await background.loadOlder();
 assert.equal(background.openState, 'error');
@@ -219,3 +213,5 @@ session.handleRunning(false);
 assert.equal(historyCalls, before, 'a healthy window must not refetch on status frames');
 
 console.log('live answer recovery: prompt/status/event triggers, compaction gap, buffered publication, rate limit and background isolation passed');
+
+runFrozenSourceDifferential('frozen live-answer recovery');

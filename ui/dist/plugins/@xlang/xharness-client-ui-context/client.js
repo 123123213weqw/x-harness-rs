@@ -1,165 +1,198 @@
+// Generated from src/modules/context/index.tsx; do not edit.
 window.__ModuleLoader__.load({
-  id: '@xlang/xharness-client-ui-context',
-  factory: (require) => {
-    const module = { exports: {} }
-    const exports = module.exports
-    Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
+id: "@xlang/xharness-client-ui-context",
+factory: (__externalRequire) => {
+const __units = {
+"src/modules/context/index.js": function(module, exports, require) {
+// source: src/modules/context/index.tsx
 
-    const React = require('react')
-    const { useEffect, useMemo, useState } = React
-    const h = React.createElement
-
-    const TARGET = 'xharness-context'
-    const EMPTY = Object.freeze({ requests: Object.freeze([]), compactions: Object.freeze([]) })
-    const STYLE_ID = 'xharness-context-inspector-style'
-
-    function locationFields(location) {
-      if (location?.kind === 'step') {
-        return { turn: location.turn.turn, step: location.step.step }
-      }
-      if (location?.kind === 'turn') return { turn: location.turn.turn }
-      return {}
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
     }
-
-    function contextNode(context, anchorSeq, data) {
-      return {
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.inject = void 0;
+exports.apply = apply;
+const runtime_types_1 = require("../shared/runtime-types");
+function displayValue(value) {
+    return typeof value === 'string' || typeof value === 'number' ? value : value == null ? '—' : JSON.stringify(value);
+}
+function optionValue(header, key) { return (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(header).options)[key]; }
+const React = __importStar(require("react"));
+const { useEffect, useMemo, useState } = React;
+const h = React.createElement;
+const TARGET = 'xharness-context';
+const EMPTY = { requests: [], compactions: [] };
+const STYLE_ID = 'xharness-context-inspector-style';
+function locationFields(location) {
+    if (location?.kind === 'step' && location.turn && location.step) {
+        return { turn: location.turn.turn, step: location.step.step };
+    }
+    if (location?.kind === 'turn' && location.turn)
+        return { turn: location.turn.turn };
+    return {};
+}
+function contextNode(context, anchorSeq, data) {
+    return {
         key: context.key,
         kind: context.kind,
         id: context.id,
         target: TARGET,
         anchorSeq,
         data,
-      }
-    }
-
-    const requestDefinition = {
-      kind: 'xharness-context-request',
-      target: TARGET,
-      match: event => event.type === 'request/header'
+    };
+}
+const requestDefinition = {
+    kind: 'xharness-context-request',
+    target: TARGET,
+    match: event => event.type === 'request/header'
         ? { id: String(event.seq), role: 'start' }
         : null,
-      start: (_context, match) => ({
+    start: (_context, match) => ({
         kind: 'request',
         seq: match.event.seq,
         time: match.event.time,
-        reason: match.event.data?.reason,
-        header: match.event.data?.header ?? {},
+        reason: asObject(match.event.data).reason,
+        header: asObject(asObject(match.event.data).header),
         ...locationFields(match.location),
-      }),
-      update: context => context.state,
-      buildViewNode: context => context.state === undefined
+    }),
+    update: context => context.state,
+    buildViewNode: context => context.state === undefined
         ? null
         : contextNode(context, context.state.seq, context.state),
-    }
-
-    const usageDefinition = {
-      kind: 'xharness-context-usage', target: TARGET,
-      match: event => ((event.type === 'assistant/chunk' && (event.data?.chunk?.kind ?? event.data?.chunk?.type) === 'usage') || (event.type === 'assistant/message' && event.data?.usage))
+};
+const usageDefinition = {
+    kind: 'xharness-context-usage', target: TARGET,
+    match: event => ((event.type === 'assistant/chunk' && (asObject(asObject(event.data).chunk).kind ?? asObject(asObject(event.data).chunk).type) === 'usage') || (event.type === 'assistant/message' && asObject(event.data).usage))
         ? { id: String(event.seq), role: 'start' } : null,
-      start: (_context, match) => ({kind: 'usage', seq: match.event.seq,
-        usage: match.event.data?.usage ?? match.event.data?.chunk?.usage ?? match.event.data?.chunk?.data,
-        ...locationFields(match.location)}),
-      update: context => context.state,
-      buildViewNode: context => context.state === undefined ? null : contextNode(context, context.state.seq, context.state),
-    }
-
-    const compactionDefinition = {
-      kind: 'xharness-context-compaction',
-      target: TARGET,
-      match: event => event.type === 'compaction/summary'
+    start: (_context, match) => ({ kind: 'usage', seq: match.event.seq,
+        usage: asObject(match.event.data).usage ?? asObject(asObject(match.event.data).chunk).usage ?? asObject(asObject(match.event.data).chunk).data,
+        ...locationFields(match.location) }),
+    update: context => context.state,
+    buildViewNode: context => context.state === undefined ? null : contextNode(context, context.state.seq, context.state),
+};
+const compactionDefinition = {
+    kind: 'xharness-context-compaction',
+    target: TARGET,
+    match: event => event.type === 'compaction/summary'
         ? { id: String(event.seq), role: 'start' }
         : null,
-      start: (_context, match) => ({
+    start: (_context, match) => ({
         kind: 'compaction',
         seq: match.event.seq,
         time: match.event.time,
-        ...match.event.data,
+        ...asObject(match.event.data),
         ...locationFields(match.location),
-      }),
-      update: context => context.state,
-      buildViewNode: context => context.state === undefined
+    }),
+    update: context => context.state,
+    buildViewNode: context => context.state === undefined
         ? null
         : contextNode(context, context.state.seq, context.state),
+};
+class ContextSnapshotBuilder {
+    constructor() {
+        this.empty = EMPTY;
+        this.nodes = new Map();
     }
-
-    class ContextSnapshotBuilder {
-      constructor() {
-        this.empty = EMPTY
-        this.nodes = new Map()
-      }
-
-      replace({ nodes }) {
-        this.nodes.clear()
-        for (const node of nodes) this.nodes.set(node.key, node)
-        return this.snapshot()
-      }
-
-      apply({ upserts }) {
-        for (const node of upserts) this.nodes.set(node.key, node)
-        return this.snapshot()
-      }
-
-      snapshot() {
+    replace({ nodes }) {
+        this.nodes.clear();
+        for (const node of nodes)
+            this.nodes.set(node.key, node);
+        return this.snapshot();
+    }
+    apply({ upserts }) {
+        for (const node of upserts)
+            this.nodes.set(node.key, node);
+        return this.snapshot();
+    }
+    snapshot() {
         const ordered = [...this.nodes.values()]
-          .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key))
+            .sort((left, right) => left.anchorSeq - right.anchorSeq || left.key.localeCompare(right.key));
         const requests = [], compactions = [];
         let active;
         for (const node of ordered) {
-          if (node.data.kind === 'request') {
-            active = {...node.data}; requests.push(active);
-          } else if (node.data.kind === 'usage' && active
-            && node.data.turn === active.turn && node.data.step === active.step) {
-            active.usage = node.data.usage;
-          } else if (node.data.kind === 'compaction') compactions.push(node.data);
+            if (node.data.kind === 'request') {
+                active = { ...node.data };
+                requests.push(active);
+            }
+            else if (node.data.kind === 'usage' && active
+                && node.data.turn === active.turn && node.data.step === active.step) {
+                active.usage = node.data.usage;
+            }
+            else if (node.data.kind === 'compaction')
+                compactions.push(node.data);
         }
-        return {requests, compactions};
-      }
+        return { requests, compactions };
     }
-
-    const viewDefinition = {
-      target: TARGET,
-      create: () => new ContextSnapshotBuilder(),
-    }
-
-    function asObject(value) {
-      return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    }
-
-    function asArray(value) {
-      return Array.isArray(value) ? value : []
-    }
-
-    function normalizedRequest(request) {
-      const header = asObject(request?.header)
-      const options = asObject(header.options)
-      const config = Object.keys(asObject(header.config)).length > 0
+}
+const viewDefinition = {
+    target: TARGET,
+    create: () => new ContextSnapshotBuilder(),
+};
+const asObject = runtime_types_1.objectValue;
+function asArray(value) {
+    return isUnknownArray(value) ? value : [];
+}
+function normalizedRequest(request) {
+    const header = asObject(request?.header);
+    const options = asObject(header.options);
+    const config = Object.keys(asObject(header.config)).length > 0
         ? asObject(header.config)
         : {
             provider: header.provider ?? 'unknown',
             model: header.model ?? 'unknown',
             ...(header.reasoning_effort === undefined
-              ? {}
-              : { reasoningEffort: header.reasoning_effort }),
-          }
-      const input = asArray(header.input)
-      const system = typeof header.system === 'string' ? header.system : ''
-      const hasSystem = input.some(message => message?.role === 'system')
-      return {
+                ? {}
+                : { reasoningEffort: header.reasoning_effort }),
+        };
+    const input = asArray(header.input).map(asObject);
+    const system = typeof header.system === 'string' ? header.system : '';
+    const hasSystem = input.some(message => message?.role === 'system');
+    return {
         request,
         header,
         config,
         options,
-        tools: asArray(header.tools),
+        tools: asArray(header.tools).map(asObject),
         messages: hasSystem || system.length === 0
-          ? input
-          : [{ role: 'system', content: system, synthetic: true }, ...input],
-      }
-    }
-
-    function tokenBudget(view) {
-      const report = asObject(view.options.tokenBudget)
-      const estimate = asObject(report.estimate)
-      return {
+            ? input
+            : [{ role: 'system', content: system, synthetic: true }, ...input],
+    };
+}
+function tokenBudget(view) {
+    const report = asObject(view.options.tokenBudget);
+    const estimate = asObject(report.estimate);
+    return {
         used: numberOrUndefined(estimate.totalInputTokens ?? estimate.total_input_tokens),
         actual: actualInput(view.request?.usage),
         window: numberOrUndefined(report.contextWindowTokens ?? report.context_window_tokens),
@@ -167,595 +200,579 @@ window.__ModuleLoader__.load({
         reserved: numberOrUndefined(report.reservedOutputTokens ?? report.reserved_output_tokens),
         meter: typeof report.meter === 'string' ? report.meter : undefined,
         accuracy: typeof report.accuracy === 'string' ? report.accuracy : undefined,
-      }
-    }
-
-    function actualInput(usage) {
-      const input = usage?.inputTokens ?? usage?.input_tokens;
-      if (!Number.isSafeInteger(input) || input < 0) return undefined;
-      const read = usage?.cacheReadTokens ?? usage?.cache_read_tokens ?? 0;
-      const write = usage?.cacheWriteTokens ?? usage?.cache_write_tokens ?? 0;
-      if (![read, write].every(x => Number.isSafeInteger(x) && x >= 0)) return undefined;
-      const total = input + read + write;
-      return Number.isSafeInteger(total) ? total : undefined;
-    }
-
-    function numberOrUndefined(value) {
-      return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-    }
-
-    function fmtTokens(value) {
-      if (value === undefined) return '—'
-      if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
-      if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 1 : 2)}K`
-      return String(value)
-    }
-
-    function estimateTokens(value) {
-      const text = typeof value === 'string' ? value : JSON.stringify(value)
-      if (!text) return 0
-      return Math.max(1, Math.ceil(new TextEncoder().encode(text).length / 3.5))
-    }
-
-    function requestLabel(request, index) {
-      const view = normalizedRequest(request)
-      const step = numberOrUndefined(view.options.step) ?? request.step
-      const model = view.config.model ?? 'unknown'
-      return `${step === undefined ? `Request ${index + 1}` : `Step ${step}`} · ${model}`
-    }
-
-    function compactId(message) {
-      const id = typeof message?.id === 'string' ? message.id : ''
-      return id.startsWith('compaction-checkpoint-')
+    };
+}
+function actualInput(rawUsage) {
+    const usage = asObject(rawUsage);
+    const input = usage?.inputTokens ?? usage?.input_tokens;
+    if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 0)
+        return undefined;
+    const read = usage?.cacheReadTokens ?? usage?.cache_read_tokens ?? 0;
+    const write = usage?.cacheWriteTokens ?? usage?.cache_write_tokens ?? 0;
+    if (typeof read !== 'number' || typeof write !== 'number' || ![read, write].every(x => Number.isSafeInteger(x) && x >= 0))
+        return undefined;
+    const total = input + read + write;
+    return Number.isSafeInteger(total) ? total : undefined;
+}
+function numberOrUndefined(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+function fmtTokens(value) {
+    if (value === undefined)
+        return '—';
+    if (value >= 1000000)
+        return `${(value / 1000000).toFixed(2)}M`;
+    if (value >= 1000)
+        return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)}K`;
+    return String(value);
+}
+function estimateTokens(value) {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    if (!text)
+        return 0;
+    return Math.max(1, Math.ceil(new TextEncoder().encode(text).length / 3.5));
+}
+function requestLabel(request, index) {
+    const view = normalizedRequest(request);
+    const step = numberOrUndefined(view.options.step) ?? request.step;
+    const model = view.config.model ?? 'unknown';
+    return `${step === undefined ? `Request ${index + 1}` : `Step ${step}`} · ${model}`;
+}
+function compactId(value) {
+    const message = asObject(value);
+    const id = typeof message?.id === 'string' ? message.id : '';
+    return id.startsWith('compaction-checkpoint-')
         ? id.slice('compaction-checkpoint-'.length)
-        : undefined
-    }
-
-    function card(kind, title, content, meta, key, raw) {
-      return h('article', { className: `xhctx-card xhctx-${kind}`, key }, [
+        : undefined;
+}
+function card(kind, title, content, meta, key, raw) {
+    return h('article', { className: `xhctx-card xhctx-${kind}`, key }, [
         h('div', { className: 'xhctx-card-head', key: 'head' }, [
-          h('span', { className: 'xhctx-kind', key: 'kind' }, title),
-          h('span', { className: 'xhctx-card-meta', key: 'meta' }, meta),
+            h('span', { className: 'xhctx-kind', key: 'kind' }, title),
+            h('span', { className: 'xhctx-card-meta', key: 'meta' }, displayValue(meta)),
         ]),
         h('pre', { className: 'xhctx-content', key: 'content' }, content || '（空）'),
         raw === undefined ? null : h('details', { className: 'xhctx-raw', key: 'raw' }, [
-          h('summary', { key: 'summary' }, 'Raw JSON'),
-          h('pre', { key: 'json' }, JSON.stringify(raw, null, 2)),
+            h('summary', { key: 'summary' }, 'Raw JSON'),
+            h('pre', { key: 'json' }, JSON.stringify(raw, null, 2)),
         ]),
-      ])
-    }
-
-    function detailRow(label, value, key) {
-      return h('div', { className: 'xhctx-detail-row', key }, [
+    ]);
+}
+function detailRow(label, value, key) {
+    return h('div', { className: 'xhctx-detail-row', key }, [
         h('dt', { key: 'label' }, label),
-        h('dd', { key: 'value' }, value ?? '—'),
-      ])
-    }
-
-    function RequestDetails({ request, view }) {
-      const budget = tokenBudget(view)
-      const context = asObject(view.options.context)
-      const policy = asObject(context.policy)
-      return h('details', { className: 'xhctx-request-details' }, [
+        h('dd', { key: 'value' }, displayValue(value)),
+    ]);
+}
+function RequestDetails({ request, view }) {
+    const budget = tokenBudget(view);
+    const context = asObject(view.options.context);
+    const policy = asObject(context.policy);
+    return h('details', { className: 'xhctx-request-details' }, [
         h('summary', { key: 'summary' }, [
-          h('span', { key: 'title' }, '请求详情'),
-          h('span', { className: 'xhctx-request-count', key: 'count' }, `${view.messages.length} 条消息`),
+            h('span', { key: 'title' }, '请求详情'),
+            h('span', { className: 'xhctx-request-count', key: 'count' }, `${view.messages.length} 条消息`),
         ]),
         h('dl', { className: 'xhctx-detail-grid', key: 'grid' }, [
-          detailRow('Provider', view.config.provider ?? 'unknown', 'provider'),
-          detailRow('Model', view.config.model ?? 'unknown', 'model'),
-          detailRow('Sequence', String(request.seq), 'sequence'),
-          detailRow('请求标识', request.header?.options?.measurement?.requestId ?? `legacy:${request.seq}`, 'request-id'),
-          detailRow('Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`, 'policy'),
-          detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
-          detailRow('请求前计数', `${['exact_request','exact_tokenizer'].includes(budget.accuracy) ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
-          detailRow('输出预留', `${fmtTokens(budget.reserved)} tokens`, 'reserve'),
-          detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
-          detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
+            detailRow('Provider', view.config.provider ?? 'unknown', 'provider'),
+            detailRow('Model', view.config.model ?? 'unknown', 'model'),
+            detailRow('Sequence', String(request.seq), 'sequence'),
+            detailRow('请求标识', asObject(optionValue(request.header, 'measurement')).requestId ?? `legacy:${request.seq}`, 'request-id'),
+            detailRow('Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`, 'policy'),
+            detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
+            detailRow('请求前计数', `${['exact_request', 'exact_tokenizer'].includes(budget.accuracy ?? '') ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
+            detailRow('输出预留', `${fmtTokens(budget.reserved)} tokens`, 'reserve'),
+            detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
+            detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
         ]),
-      ])
-    }
-
-    function messageCards(message, index, hiddenKinds = new Set()) {
-      const role = message?.role ?? 'unknown'
-      const content = typeof message?.content === 'string'
+    ]);
+}
+function messageCards(rawMessage, index, hiddenKinds = new Set()) {
+    const message = asObject(rawMessage);
+    const role = message?.role ?? 'unknown';
+    const content = typeof message?.content === 'string'
         ? message.content
-        : JSON.stringify(message?.content ?? '', null, 2)
-      const reasoning = typeof message?.reasoning === 'string' ? message.reasoning : ''
-      const toolCalls = asArray(message?.tool_calls ?? message?.toolCalls)
-      const providerItems = asArray(message?.provider_items ?? message?.providerItems)
-      const result = []
-      const base = `message-${index}`
-      const tokenText = `≈ ${fmtTokens(estimateTokens(message))} tok`
-      const visible = kind => !hiddenKinds.has(kind)
-
-      if (role === 'assistant') {
-        const hasAssistantPart = reasoning.length > 0 || content.length > 0 || toolCalls.length > 0 || providerItems.length > 0
+        : JSON.stringify(message?.content ?? '', null, 2);
+    const reasoning = typeof message?.reasoning === 'string' ? message.reasoning : '';
+    const toolCalls = asArray(message?.tool_calls ?? message?.toolCalls).map(asObject);
+    const providerItems = asArray(message?.provider_items ?? message?.providerItems);
+    const result = [];
+    const base = `message-${index}`;
+    const tokenText = `≈ ${fmtTokens(estimateTokens(message))} tok`;
+    const visible = (kind) => !hiddenKinds.has(kind);
+    if (role === 'assistant') {
+        const hasAssistantPart = reasoning.length > 0 || content.length > 0 || toolCalls.length > 0 || providerItems.length > 0;
         if (reasoning.length > 0 && visible('reasoning')) {
-          result.push(card('reasoning', 'THINK', reasoning, tokenText, `${base}-reasoning`, message))
+            result.push(card('reasoning', 'THINK', reasoning, tokenText, `${base}-reasoning`, message));
         }
         if (content.length > 0 && visible('assistant')) {
-          result.push(card('assistant', 'ASSISTANT', content, tokenText, `${base}-answer`, message))
+            result.push(card('assistant', 'ASSISTANT', content, tokenText, `${base}-answer`, message));
         }
         for (const [callIndex, call] of toolCalls.entries()) {
-          if (!visible('tool-call')) continue
-          const args = call?.arguments_json ?? call?.argumentsJson ?? call?.arguments ?? ''
-          const callId = call?.id ?? call?.provider_call_id ?? call?.providerCallId ?? 'unknown'
-          result.push(card(
-            'tool-call',
-            `TOOL CALL · ${call?.name ?? 'unknown'}`,
-            typeof args === 'string' ? args : JSON.stringify(args, null, 2),
-            `${callId} · ≈ ${fmtTokens(estimateTokens(call))} tok`,
-            `${base}-call-${callIndex}`,
-            call,
-          ))
+            if (!visible('tool-call'))
+                continue;
+            const args = call?.arguments_json ?? call?.argumentsJson ?? call?.arguments ?? '';
+            const callId = call?.id ?? call?.provider_call_id ?? call?.providerCallId ?? 'unknown';
+            result.push(card('tool-call', `TOOL CALL · ${call?.name ?? 'unknown'}`, typeof args === 'string' ? args : JSON.stringify(args, null, 2), `${callId} · ≈ ${fmtTokens(estimateTokens(call))} tok`, `${base}-call-${callIndex}`, call));
         }
         for (const [itemIndex, item] of providerItems.entries()) {
-          result.push(card(
-            'provider',
-            'PROVIDER ITEM',
-            JSON.stringify(item, null, 2),
-            `opaque · ≈ ${fmtTokens(estimateTokens(item))} tok`,
-            `${base}-provider-${itemIndex}`,
-            item,
-          ))
+            result.push(card('provider', 'PROVIDER ITEM', JSON.stringify(item, null, 2), `opaque · ≈ ${fmtTokens(estimateTokens(item))} tok`, `${base}-provider-${itemIndex}`, item));
         }
         if (!hasAssistantPart && visible('assistant')) {
-          result.push(card('assistant', 'ASSISTANT', '', tokenText, `${base}-empty`, message))
+            result.push(card('assistant', 'ASSISTANT', '', tokenText, `${base}-empty`, message));
         }
-        return result
-      }
-
-      if (role === 'tool') {
-        const callId = message?.tool_call_id ?? message?.toolCallId ?? 'unknown'
-        return visible('tool-result')
-          ? [card('tool-result', 'TOOL RESULT', content, `${callId} · ${tokenText}`, base, message)]
-          : []
-      }
-
-      if (role === 'system') {
-        return visible('system') ? [card('system', 'SYSTEM', content, tokenText, base, message)] : []
-      }
-
-      if (compactId(message) !== undefined) {
-        return visible('compaction')
-          ? [card('compaction', 'COMPACTION CHECKPOINT', content, tokenText, base, message)]
-          : []
-      }
-
-      if (role === 'user') {
-        return visible('user') ? [card('user', 'USER', content, tokenText, base, message)] : []
-      }
-
-      if (role === 'error' || message?.error !== undefined) {
-        return visible('error') ? [card('error', 'ERROR', content, tokenText, base, message)] : []
-      }
-
-      return [card('provider', String(role).toUpperCase(), content, tokenText, base, message)]
+        return result;
     }
-
-    function ContextRequestView({ request, heading, dimmed, hiddenKinds }) {
-      if (request === undefined) {
-        return h('div', { className: 'xhctx-empty' }, '没有可显示的请求快照。')
-      }
-      const view = normalizedRequest(request)
-      const cards = view.messages.flatMap((message, index) => messageCards(message, index, hiddenKinds))
-      return h('section', { className: `xhctx-request${dimmed ? ' xhctx-dimmed' : ''}` }, [
+    if (role === 'tool') {
+        const callId = message?.tool_call_id ?? message?.toolCallId ?? 'unknown';
+        return visible('tool-result')
+            ? [card('tool-result', 'TOOL RESULT', content, `${callId} · ${tokenText}`, base, message)]
+            : [];
+    }
+    if (role === 'system') {
+        return visible('system') ? [card('system', 'SYSTEM', content, tokenText, base, message)] : [];
+    }
+    if (compactId(message) !== undefined) {
+        return visible('compaction')
+            ? [card('compaction', 'COMPACTION CHECKPOINT', content, tokenText, base, message)]
+            : [];
+    }
+    if (role === 'user') {
+        return visible('user') ? [card('user', 'USER', content, tokenText, base, message)] : [];
+    }
+    if (role === 'error' || message?.error !== undefined) {
+        return visible('error') ? [card('error', 'ERROR', content, tokenText, base, message)] : [];
+    }
+    return [card('provider', String(role).toUpperCase(), content, tokenText, base, message)];
+}
+function ContextRequestView({ request, heading, dimmed, hiddenKinds }) {
+    if (request === undefined) {
+        return h('div', { className: 'xhctx-empty' }, '没有可显示的请求快照。');
+    }
+    const view = normalizedRequest(request);
+    const cards = view.messages.flatMap((message, index) => messageCards(message, index, hiddenKinds));
+    return h('section', { className: `xhctx-request${dimmed ? ' xhctx-dimmed' : ''}` }, [
         heading === undefined ? null : h('h3', { className: 'xhctx-column-title', key: 'heading' }, heading),
         h(RequestDetails, { request, view, key: 'details' }),
         h('div', { className: 'xhctx-cards', key: 'cards' }, cards.length > 0
-          ? cards
-          : h('div', { className: 'xhctx-empty' }, view.messages.length > 0
-            ? '当前筛选隐藏了所有上下文内容。点击上方筛选项恢复显示。'
-            : (view.options.snapshotOnDemand ? '完整请求按需读取，不常驻对话事件。' : '此请求没有输入消息。'))),
-      ])
+            ? cards
+            : h('div', { className: 'xhctx-empty' }, view.messages.length > 0
+                ? '当前筛选隐藏了所有上下文内容。点击上方筛选项恢复显示。'
+                : (view.options.snapshotOnDemand ? '完整请求按需读取，不常驻对话事件。' : '此请求没有输入消息。'))),
+    ]);
+}
+// Full request bodies live outside ordinary event replay. At most the
+// selected request + one compaction pair are retained while this view is open.
+function useRequestAudits(sessionId, snapshot, selectedSeq, mode) {
+    const [loaded, setLoaded] = useState({ key: '', headers: new Map(), error: '', loading: false });
+    const [attempt, setAttempt] = useState(0);
+    const requests = snapshot.requests;
+    const selected = requests.find(r => r.seq === selectedSeq) ?? requests.at(-1);
+    let wanted = selected ? [selected] : [];
+    if (mode !== 'actual' && selected) {
+        const compact = snapshot.compactions.filter(c => c.seq < selected.seq).at(-1);
+        if (compact)
+            wanted.push(requests.filter(r => r.seq < compact.seq).at(-1), requests.find(r => r.seq > compact.seq));
     }
-
-    // Full request bodies live outside ordinary event replay. At most the
-    // selected request + one compaction pair are retained while this view is open.
-    function useRequestAudits(sessionId, snapshot, selectedSeq, mode) {
-      const [loaded,setLoaded]=useState({key:'',headers:new Map(),error:'',loading:false})
-      const [attempt,setAttempt]=useState(0)
-      const requests=snapshot.requests
-      const selected=requests.find(r=>r.seq===selectedSeq)??requests.at(-1)
-      let wanted=selected?[selected]:[]
-      if(mode!=='actual' && selected) {
-        const compact=snapshot.compactions.filter(c=>c.seq<selected.seq).at(-1)
-        if(compact)wanted.push(requests.filter(r=>r.seq<compact.seq).at(-1),requests.find(r=>r.seq>compact.seq))
-      }
-      const targets=[...new Map(wanted.filter(r=>r?.header?.options?.snapshotOnDemand).map(r=>[r.seq,r])).values()]
-      const key=JSON.stringify([sessionId,targets.map(r=>r.seq)])
-      useEffect(()=>{
-        let live=true;const controller=new AbortController()
-        setLoaded({key,headers:new Map(),error:'',loading:targets.length>0})
-        if(targets.length===0)return()=>{live=false;controller.abort()}
-        const timeout=setTimeout(()=>controller.abort(),120000)
-        ;(async()=>{
-          try {
-            if(!sessionId)throw Error('缺少会话标识，无法读取请求快照')
-            const headers=new Map()
-            // Sequential reads bound temporary bodies, including diff mode.
-            for(const target of targets) {
-              const response=await fetch('/api/session.requestSnapshot',{method:'POST',credentials:'same-origin',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'audit-'+Date.now()+'-'+target.seq,method:'session.requestSnapshot',payload:{sessionId,seq:target.seq}})})
-              if(!response.ok)throw Error('快照读取失败：HTTP '+response.status)
-              const envelope=await response.json(),result=envelope.result
-              if(!result?.ok)throw Error(result?.error?.message??'请求快照不可用')
-              if(result.value?.sessionId!==sessionId || result.value?.seq!==target.seq)throw Error('快照身份不匹配')
-              headers.set(target.seq,result.value.header)
+    const targets = [...new Map(wanted.filter((r) => r !== undefined && optionValue(r.header, 'snapshotOnDemand') === true).map(r => [r.seq, r])).values()];
+    const key = JSON.stringify([sessionId, targets.map(r => r.seq)]);
+    useEffect(() => {
+        let live = true;
+        const controller = new AbortController();
+        setLoaded({ key, headers: new Map(), error: '', loading: targets.length > 0 });
+        if (targets.length === 0)
+            return () => { live = false; controller.abort(); };
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        (async () => {
+            try {
+                if (!sessionId)
+                    throw Error('缺少会话标识，无法读取请求快照');
+                const headers = new Map();
+                // Sequential reads bound temporary bodies, including diff mode.
+                for (const target of targets) {
+                    const response = await fetch('/api/session.requestSnapshot', { method: 'POST', credentials: 'same-origin', signal: controller.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: 'audit-' + Date.now() + '-' + target.seq, method: 'session.requestSnapshot', payload: { sessionId, seq: target.seq } }) });
+                    if (!response.ok)
+                        throw Error('快照读取失败：HTTP ' + response.status);
+                    const raw = await response.json();
+                    const envelope = asObject(raw), result = asObject(envelope.result);
+                    if (!result.ok)
+                        throw Error(result.error == null ? '请求快照不可用' : (0, runtime_types_1.errorText)(result.error));
+                    const value = asObject(result.value);
+                    if (value.sessionId !== sessionId || value.seq !== target.seq)
+                        throw Error('快照身份不匹配');
+                    headers.set(target.seq, asObject(value.header));
+                }
+                if (live)
+                    setLoaded({ key, headers, error: '', loading: false });
             }
-            if(live)setLoaded({key,headers,error:'',loading:false})
-          }catch(error){if(live)setLoaded({key,headers:new Map(),error:controller.signal.aborted?'读取超时，请重试':String(error?.message??error),loading:false})}
-          finally{clearTimeout(timeout)}
-        })()
-        return()=>{live=false;controller.abort();clearTimeout(timeout)}
-      },[key,attempt])
-      const current=loaded.key===key?loaded:{headers:new Map(),loading:targets.length>0,error:''}
-      const activeHeader=current.headers.get(selected?.seq)??selected?.header
-      const omitted=activeHeader?.options?.auditSnapshot
-      const omittedNotice=omitted?.kind==='omitted'
-        ? h('div',{role:'status',key:'audit-omitted'},omitted.reason==='archive_failed'
-          ? '完整请求诊断捕获失败；本次仅保留模型、预算与消息数量等元数据，对话仍正常执行。'
-          : '完整请求诊断未开启；本次仅保留模型、预算与消息数量等元数据，无法还原实际发送的正文。')
-        : null
-      return {requests:requests.map(r=>current.headers.has(r.seq)?{...r,header:current.headers.get(r.seq)}:r),
-        notice:current.loading?h('p',{role:'status',key:'audit-state'},'正在按需读取请求诊断…'):current.error?h('div',{role:'alert',key:'audit-state'},[current.error,h('button',{type:'button',onClick:()=>setAttempt(n=>n+1),key:'retry'},'重试')]):omittedNotice}
-    }
-
-    function HarnessView({ useSession, sessionId }) {
-      const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY)
-      const [selectedSeq, setSelectedSeq] = useState(null)
-      const [toolQuery, setToolQuery] = useState('')
-      const audits=useRequestAudits(sessionId,snapshot,selectedSeq,'actual')
-      const requests = audits.requests
-      const latest = requests.at(-1)
-      const selected = requests.find(request => request.seq === selectedSeq) ?? latest
-
-      useEffect(() => {
+            catch (error) {
+                if (live)
+                    setLoaded({ key, headers: new Map(), error: controller.signal.aborted ? '读取超时，请重试' : (0, runtime_types_1.errorText)(error), loading: false });
+            }
+            finally {
+                clearTimeout(timeout);
+            }
+        })();
+        return () => { live = false; controller.abort(); clearTimeout(timeout); };
+    }, [key, attempt]);
+    const current = loaded.key === key ? loaded : { headers: new Map(), loading: targets.length > 0, error: '' };
+    const activeHeader = (selected ? current.headers.get(selected.seq) : undefined) ?? selected?.header;
+    const omitted = asObject(optionValue(activeHeader, 'auditSnapshot'));
+    const omittedNotice = omitted?.kind === 'omitted'
+        ? h('div', { role: 'status', key: 'audit-omitted' }, omitted.reason === 'archive_failed'
+            ? '完整请求诊断捕获失败；本次仅保留模型、预算与消息数量等元数据，对话仍正常执行。'
+            : '完整请求诊断未开启；本次仅保留模型、预算与消息数量等元数据，无法还原实际发送的正文。')
+        : null;
+    return { requests: requests.map(r => current.headers.has(r.seq) ? { ...r, header: current.headers.get(r.seq) ?? r.header } : r),
+        notice: current.loading ? h('p', { role: 'status', key: 'audit-state' }, '正在按需读取请求诊断…') : current.error ? h('div', { role: 'alert', key: 'audit-state' }, [current.error, h('button', { type: 'button', onClick: () => setAttempt(n => n + 1), key: 'retry' }, '重试')]) : omittedNotice };
+}
+function HarnessView({ useSession, sessionId }) {
+    const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY);
+    const [selectedSeq, setSelectedSeq] = useState(null);
+    const [toolQuery, setToolQuery] = useState('');
+    const audits = useRequestAudits(sessionId, snapshot, selectedSeq, 'actual');
+    const requests = audits.requests;
+    const latest = requests.at(-1);
+    const selected = requests.find(request => request.seq === selectedSeq) ?? latest;
+    useEffect(() => {
         if (selectedSeq !== null && !requests.some(request => request.seq === selectedSeq)) {
-          setSelectedSeq(null)
+            setSelectedSeq(null);
         }
-      }, [requests, selectedSeq])
-
-      if (selected === undefined) {
-        return h('div', { className: 'xhctx-root', 'data-conversation-composer-overlay': '' }, h('div', { className: 'xhctx-empty' }, '还没有可用的 Harness 请求快照。'))
-      }
-
-      const view = normalizedRequest(selected)
-      const prompt = asObject(view.options.prompt)
-      const sections = asArray(prompt.sections)
-      const context = asObject(view.options.context)
-      const policy = asObject(context.policy)
-      const budget = tokenBudget(view)
-      const systemPrompt = typeof view.header.system === 'string'
+    }, [requests, selectedSeq]);
+    if (selected === undefined) {
+        return h('div', { className: 'xhctx-root', 'data-conversation-composer-overlay': '' }, h('div', { className: 'xhctx-empty' }, '还没有可用的 Harness 请求快照。'));
+    }
+    const view = normalizedRequest(selected);
+    const prompt = asObject(view.options.prompt);
+    const sections = asArray(prompt.sections).map(asObject);
+    const context = asObject(view.options.context);
+    const policy = asObject(context.policy);
+    const budget = tokenBudget(view);
+    const systemPrompt = typeof view.header.system === 'string'
         ? view.header.system
-        : view.messages.find(message => message?.role === 'system')?.content ?? ''
-      const needle = toolQuery.trim().toLocaleLowerCase()
-      const tools = needle === '' ? view.tools : view.tools.filter(tool =>
-        `${tool?.name ?? ''}\n${tool?.description ?? ''}`.toLocaleLowerCase().includes(needle))
-      const reasoningEffort = view.config.reasoningEffort ?? view.config.reasoning_effort ?? '未设置'
-
-      return h('div', { className: 'xhctx-root xhctx-harness-root', 'data-conversation-composer-overlay': '' }, [
+        : view.messages.find(message => message?.role === 'system')?.content ?? '';
+    const needle = toolQuery.trim().toLocaleLowerCase();
+    const tools = needle === '' ? view.tools : view.tools.filter(tool => `${tool?.name ?? ''}\n${tool?.description ?? ''}`.toLocaleLowerCase().includes(needle));
+    const reasoningEffort = view.config.reasoningEffort ?? view.config.reasoning_effort ?? '未设置';
+    return h('div', { className: 'xhctx-root xhctx-harness-root', 'data-conversation-composer-overlay': '' }, [
         audits.notice,
         h('div', { className: 'xhctx-toolbar xhctx-harness-toolbar', key: 'toolbar' }, [
-          h('select', {
-            className: 'xhctx-select',
-            value: selected.seq,
-            onChange: event => setSelectedSeq(Number(event.target.value)),
-            'aria-label': '选择 Harness 请求',
-            key: 'select',
-          }, requests.map((request, index) =>
-            h('option', { value: request.seq, key: request.seq }, requestLabel(request, index)))),
-          h('span', { className: 'xhctx-harness-hint', key: 'hint' }, '解释这一步的请求是如何被组装的'),
+            h('select', {
+                className: 'xhctx-select',
+                value: selected.seq,
+                onChange: (event) => setSelectedSeq(Number(event.target.value)),
+                'aria-label': '选择 Harness 请求',
+                key: 'select',
+            }, requests.map((request, index) => h('option', { value: request.seq, key: request.seq }, requestLabel(request, index)))),
+            h('span', { className: 'xhctx-harness-hint', key: 'hint' }, '解释这一步的请求是如何被组装的'),
         ]),
-
         h('section', { className: 'xhctx-panel', key: 'pipeline' }, [
-          h('div', { className: 'xhctx-panel-head', key: 'head' }, [
-            h('h3', { key: 'title' }, '请求构造链路'),
-            h('span', { key: 'meta' }, `seq ${selected.seq}`),
-          ]),
-          h('div', { className: 'xhctx-pipeline', key: 'body' }, [
-            ['1', 'Prompt Assembly', `${sections.length} sections`],
-            ['2', 'Tool Registry', `${view.options.toolCount??view.tools.length} tools`],
-            ['3', 'Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`],
-            ['4', 'Provider Request', view.config.provider ?? 'unknown'],
-          ].map(([index, title, meta]) => h('div', { className: 'xhctx-pipeline-step', key: index }, [
-            h('span', { className: 'xhctx-pipeline-index', key: 'index' }, index),
-            h('div', { key: 'text' }, [h('strong', { key: 'title' }, title), h('small', { key: 'meta' }, meta)]),
-          ]))),
-        ]),
-
-        h('section', { className: 'xhctx-panel', key: 'prompt' }, [
-          h('div', { className: 'xhctx-panel-head', key: 'head' }, [
-            h('h3', { key: 'title' }, 'Prompt Assembly'),
-            h('span', { key: 'meta' }, prompt.assemblerVersion ?? '未记录组装器版本'),
-          ]),
-          h('div', { className: 'xhctx-section-list', key: 'sections' }, sections.map((section, index) =>
-            h('details', { className: 'xhctx-assembly-section', key: `${section?.id ?? index}-${index}` }, [
-              h('summary', { key: 'summary' }, [
-                h('span', { className: 'xhctx-section-index', key: 'index' }, String(index + 1).padStart(2, '0')),
-                h('strong', { key: 'id' }, section?.id ?? `section-${index + 1}`),
-                h('span', { key: 'version' }, section?.version ?? '未记录版本'),
-              ]),
-              h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
-                detailRow('Version', section?.version, 'version'),
-                detailRow('Content SHA-256', section?.contentSha256 ?? section?.content_sha256, 'hash'),
-              ]),
+            h('div', { className: 'xhctx-panel-head', key: 'head' }, [
+                h('h3', { key: 'title' }, '请求构造链路'),
+                h('span', { key: 'meta' }, `seq ${selected.seq}`),
+            ]),
+            h('div', { className: 'xhctx-pipeline', key: 'body' }, [
+                ['1', 'Prompt Assembly', `${sections.length} sections`],
+                ['2', 'Tool Registry', `${view.options.toolCount ?? view.tools.length} tools`],
+                ['3', 'Context Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`],
+                ['4', 'Provider Request', view.config.provider ?? 'unknown'],
+            ].map(([index, title, meta]) => h('div', { className: 'xhctx-pipeline-step', key: (0, runtime_types_1.textValue)(index) }, [
+                h('span', { className: 'xhctx-pipeline-index', key: 'index' }, displayValue(index)),
+                h('div', { key: 'text' }, [h('strong', { key: 'title' }, displayValue(title)), h('small', { key: 'meta' }, displayValue(meta))]),
             ]))),
-          h('details', { className: 'xhctx-injected-prompt', open: true, key: 'system' }, [
-            h('summary', { key: 'summary' }, [
-              h('strong', { key: 'title' }, '最终注入的 System Prompt'),
-              h('span', { key: 'meta' }, `≈ ${fmtTokens(estimateTokens(systemPrompt))} tok`),
-            ]),
-            h('pre', { key: 'content' }, systemPrompt || '这一步没有记录 System Prompt。'),
-          ]),
         ]),
-
-        h('section', { className: 'xhctx-panel', key: 'tools' }, [
-          h('div', { className: 'xhctx-panel-head xhctx-tool-head', key: 'head' }, [
-            h('div', { key: 'title' }, [
-              h('h3', { key: 'heading' }, 'Tool Registry'),
-              h('span', { key: 'count' }, `${view.options.toolCount??view.tools.length} 个模型可见工具${view.options.auditSnapshot?.kind==='omitted'?'（定义未记录）':''}`),
+        h('section', { className: 'xhctx-panel', key: 'prompt' }, [
+            h('div', { className: 'xhctx-panel-head', key: 'head' }, [
+                h('h3', { key: 'title' }, 'Prompt Assembly'),
+                h('span', { key: 'meta' }, (0, runtime_types_1.textValue)(prompt.assemblerVersion, '未记录组装器版本')),
             ]),
-            h('input', {
-              className: 'xhctx-tool-search',
-              value: toolQuery,
-              onChange: event => setToolQuery(event.target.value),
-              placeholder: '搜索工具',
-              'aria-label': '搜索 Harness 工具',
-              key: 'search',
-            }),
-          ]),
-          h('div', { className: 'xhctx-registry', key: 'registry' }, tools.length > 0
-            ? tools.map((tool, index) => h('details', { className: 'xhctx-registry-tool', key: `${tool?.name ?? index}-${index}` }, [
+            h('div', { className: 'xhctx-section-list', key: 'sections' }, sections.map((section, index) => h('details', { className: 'xhctx-assembly-section', key: `${section?.id ?? index}-${index}` }, [
                 h('summary', { key: 'summary' }, [
-                  h('code', { key: 'name' }, tool?.name ?? `tool-${index + 1}`),
-                  h('span', { key: 'tokens' }, `≈ ${fmtTokens(estimateTokens(tool))} tok`),
+                    h('span', { className: 'xhctx-section-index', key: 'index' }, String(index + 1).padStart(2, '0')),
+                    h('strong', { key: 'id' }, (0, runtime_types_1.textValue)(section?.id, `section-${index + 1}`)),
+                    h('span', { key: 'version' }, displayValue(section?.version ?? '未记录版本')),
                 ]),
-                h('p', { key: 'description' }, tool?.description || '无 Description'),
-                h('h4', { key: 'schema-title' }, 'JSON Schema'),
-                h('pre', { key: 'schema' }, JSON.stringify(tool?.parameters ?? {}, null, 2)),
-              ]))
-            : h('div', { className: 'xhctx-empty' }, '没有匹配的工具。')),
+                h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
+                    detailRow('Version', section?.version, 'version'),
+                    detailRow('Content SHA-256', section?.contentSha256 ?? section?.content_sha256, 'hash'),
+                ]),
+            ]))),
+            h('details', { className: 'xhctx-injected-prompt', open: true, key: 'system' }, [
+                h('summary', { key: 'summary' }, [
+                    h('strong', { key: 'title' }, '最终注入的 System Prompt'),
+                    h('span', { key: 'meta' }, `≈ ${fmtTokens(estimateTokens(systemPrompt))} tok`),
+                ]),
+                h('pre', { key: 'content' }, displayValue(systemPrompt || '这一步没有记录 System Prompt。')),
+            ]),
         ]),
-
+        h('section', { className: 'xhctx-panel', key: 'tools' }, [
+            h('div', { className: 'xhctx-panel-head xhctx-tool-head', key: 'head' }, [
+                h('div', { key: 'title' }, [
+                    h('h3', { key: 'heading' }, 'Tool Registry'),
+                    h('span', { key: 'count' }, `${view.options.toolCount ?? view.tools.length} 个模型可见工具${asObject(view.options.auditSnapshot).kind === 'omitted' ? '（定义未记录）' : ''}`),
+                ]),
+                h('input', {
+                    className: 'xhctx-tool-search',
+                    value: toolQuery,
+                    onChange: (event) => setToolQuery(event.target.value),
+                    placeholder: '搜索工具',
+                    'aria-label': '搜索 Harness 工具',
+                    key: 'search',
+                }),
+            ]),
+            h('div', { className: 'xhctx-registry', key: 'registry' }, tools.length > 0
+                ? tools.map((tool, index) => h('details', { className: 'xhctx-registry-tool', key: `${tool?.name ?? index}-${index}` }, [
+                    h('summary', { key: 'summary' }, [
+                        h('code', { key: 'name' }, (0, runtime_types_1.textValue)(tool?.name, `tool-${index + 1}`)),
+                        h('span', { key: 'tokens' }, `≈ ${fmtTokens(estimateTokens(tool))} tok`),
+                    ]),
+                    h('p', { key: 'description' }, (0, runtime_types_1.textValue)(tool?.description, '无 Description')),
+                    h('h4', { key: 'schema-title' }, 'JSON Schema'),
+                    h('pre', { key: 'schema' }, JSON.stringify(tool?.parameters ?? {}, null, 2)),
+                ]))
+                : h('div', { className: 'xhctx-empty' }, '没有匹配的工具。')),
+        ]),
         h('div', { className: 'xhctx-harness-columns', key: 'policy-route' }, [
-          h('section', { className: 'xhctx-panel', key: 'policy' }, [
-            h('div', { className: 'xhctx-panel-head', key: 'head' }, h('h3', null, 'Context Policy')),
-            h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
-              detailRow('Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`, 'policy'),
-              detailRow('Messages', `${context.visible_message_count ?? context.visibleMessageCount ?? view.messages.length} / ${context.source_message_count ?? context.sourceMessageCount ?? view.messages.length}`, 'messages'),
-              detailRow('Context Window', `${fmtTokens(budget.window)} tokens`, 'window'),
-              detailRow('Reserved Output', `${fmtTokens(budget.reserved)} tokens`, 'reserved'),
-              detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
-          detailRow('请求前计数', `${['exact_request','exact_tokenizer'].includes(budget.accuracy) ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
-          detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
-              detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
+            h('section', { className: 'xhctx-panel', key: 'policy' }, [
+                h('div', { className: 'xhctx-panel-head', key: 'head' }, h('h3', null, 'Context Policy')),
+                h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
+                    detailRow('Policy', `${policy.name ?? 'identity'} v${policy.version ?? 1}`, 'policy'),
+                    detailRow('Messages', `${context.visible_message_count ?? context.visibleMessageCount ?? view.messages.length} / ${context.source_message_count ?? context.sourceMessageCount ?? view.messages.length}`, 'messages'),
+                    detailRow('Context Window', `${fmtTokens(budget.window)} tokens`, 'window'),
+                    detailRow('Reserved Output', `${fmtTokens(budget.reserved)} tokens`, 'reserved'),
+                    detailRow('最近请求实际输入', budget.actual === undefined ? '未返回 usage' : `${fmtTokens(budget.actual)} tokens`, 'actual'),
+                    detailRow('请求前计数', `${['exact_request', 'exact_tokenizer'].includes(budget.accuracy ?? '') ? '' : '≈'}${fmtTokens(budget.used)} tokens`, 'estimate'),
+                    detailRow('计数来源', budget.meter ?? '未记录', 'meter'),
+                    detailRow('Accuracy', budget.accuracy ?? 'estimated', 'accuracy'),
+                ]),
             ]),
-          ]),
-          h('section', { className: 'xhctx-panel', key: 'route' }, [
-            h('div', { className: 'xhctx-panel-head', key: 'head' }, h('h3', null, 'Runtime Route')),
-            h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
-              detailRow('Provider', view.config.provider ?? 'unknown', 'provider'),
-              detailRow('Model', view.config.model ?? 'unknown', 'model'),
-              detailRow('Reasoning Effort', reasoningEffort, 'reasoning'),
-              detailRow('Sequence', String(selected.seq), 'sequence'),
-              detailRow('Assembly ID', prompt.assemblyId ?? prompt.assembly_id, 'assembly'),
-              detailRow('Tool Definitions SHA-256', view.options.toolDefinitionsSha256 ?? view.options.tool_definitions_sha256, 'tools-hash'),
+            h('section', { className: 'xhctx-panel', key: 'route' }, [
+                h('div', { className: 'xhctx-panel-head', key: 'head' }, h('h3', null, 'Runtime Route')),
+                h('dl', { className: 'xhctx-detail-grid', key: 'details' }, [
+                    detailRow('Provider', view.config.provider ?? 'unknown', 'provider'),
+                    detailRow('Model', view.config.model ?? 'unknown', 'model'),
+                    detailRow('Reasoning Effort', reasoningEffort, 'reasoning'),
+                    detailRow('Sequence', String(selected.seq), 'sequence'),
+                    detailRow('Assembly ID', prompt.assemblyId ?? prompt.assembly_id, 'assembly'),
+                    detailRow('Tool Definitions SHA-256', view.options.toolDefinitionsSha256 ?? view.options.tool_definitions_sha256, 'tools-hash'),
+                ]),
             ]),
-          ]),
         ]),
-      ])
-    }
-
-    const FILTERS = Object.freeze([
-      { id: 'system', label: 'System', color: '#596174' },
-      { id: 'user', label: '人', color: '#1768d5' },
-      { id: 'reasoning', label: '思考', color: '#c06a00' },
-      { id: 'assistant', label: '回答', color: '#16804a' },
-      { id: 'tool-call', label: '调用', color: '#7751d6' },
-      { id: 'tool-result', label: '结果', color: '#00839a' },
-      { id: 'compaction', label: '压缩', color: '#b42584' },
-      { id: 'error', label: '错误', color: '#c93b3b' },
-    ])
-
-    function requestKindCounts(request) {
-      const counts = Object.fromEntries(FILTERS.map(filter => [filter.id, 0]))
-      if (request === undefined) return counts
-      for (const message of normalizedRequest(request).messages) {
-        const role = message?.role ?? 'unknown'
+    ]);
+}
+const FILTERS = Object.freeze([
+    { id: 'system', label: 'System', color: '#596174' },
+    { id: 'user', label: '人', color: '#1768d5' },
+    { id: 'reasoning', label: '思考', color: '#c06a00' },
+    { id: 'assistant', label: '回答', color: '#16804a' },
+    { id: 'tool-call', label: '调用', color: '#7751d6' },
+    { id: 'tool-result', label: '结果', color: '#00839a' },
+    { id: 'compaction', label: '压缩', color: '#b42584' },
+    { id: 'error', label: '错误', color: '#c93b3b' },
+]);
+function emptyCounts() { return { system: 0, user: 0, reasoning: 0, assistant: 0, 'tool-call': 0, 'tool-result': 0, compaction: 0, error: 0 }; }
+function requestKindCounts(request) {
+    const counts = emptyCounts();
+    if (request === undefined)
+        return counts;
+    for (const message of normalizedRequest(request).messages) {
+        const role = message?.role ?? 'unknown';
         const content = typeof message?.content === 'string'
-          ? message.content
-          : JSON.stringify(message?.content ?? '')
-        const reasoning = typeof message?.reasoning === 'string' ? message.reasoning : ''
-        const toolCalls = asArray(message?.tool_calls ?? message?.toolCalls)
-        const providerItems = asArray(message?.provider_items ?? message?.providerItems)
+            ? message.content
+            : JSON.stringify(message?.content ?? '');
+        const reasoning = typeof message?.reasoning === 'string' ? message.reasoning : '';
+        const toolCalls = asArray(message?.tool_calls ?? message?.toolCalls).map(asObject);
+        const providerItems = asArray(message?.provider_items ?? message?.providerItems);
         if (role === 'assistant') {
-          if (reasoning.length > 0) counts.reasoning += 1
-          if (content.length > 0 || (reasoning.length === 0 && toolCalls.length === 0 && providerItems.length === 0)) {
-            counts.assistant += 1
-          }
-          counts['tool-call'] += toolCalls.length
-        } else if (role === 'tool') {
-          counts['tool-result'] += 1
-        } else if (role === 'system') {
-          counts.system += 1
-        } else if (compactId(message) !== undefined) {
-          counts.compaction += 1
-        } else if (role === 'user') {
-          counts.user += 1
-        } else if (role === 'error' || message?.error !== undefined) {
-          counts.error += 1
+            if (reasoning.length > 0)
+                counts.reasoning += 1;
+            if (content.length > 0 || (reasoning.length === 0 && toolCalls.length === 0 && providerItems.length === 0)) {
+                counts.assistant += 1;
+            }
+            counts['tool-call'] += toolCalls.length;
         }
-      }
-      return counts
+        else if (role === 'tool') {
+            counts['tool-result'] += 1;
+        }
+        else if (role === 'system') {
+            counts.system += 1;
+        }
+        else if (compactId(message) !== undefined) {
+            counts.compaction += 1;
+        }
+        else if (role === 'user') {
+            counts.user += 1;
+        }
+        else if (role === 'error' || message?.error !== undefined) {
+            counts.error += 1;
+        }
     }
-
-    function FilterBar({ requests, hiddenKinds, onToggle, onReset }) {
-      const counts = requests.reduce((total, request) => {
-        const next = requestKindCounts(request)
-        for (const filter of FILTERS) total[filter.id] += next[filter.id]
-        return total
-      }, Object.fromEntries(FILTERS.map(filter => [filter.id, 0])))
-      const available = FILTERS.filter(filter => counts[filter.id] > 0)
-      const allVisible = available.every(filter => !hiddenKinds.has(filter.id))
-      const total = available.reduce((sum, filter) => sum + counts[filter.id], 0)
-      return h('div', { className: 'xhctx-filterbar', role: 'toolbar', 'aria-label': '上下文内容筛选' }, [
+    return counts;
+}
+function FilterBar({ requests, hiddenKinds, onToggle, onReset }) {
+    const counts = requests.reduce((total, request) => {
+        const next = requestKindCounts(request);
+        for (const filter of FILTERS)
+            total[filter.id] += next[filter.id];
+        return total;
+    }, emptyCounts());
+    const available = FILTERS.filter(filter => counts[filter.id] > 0);
+    const allVisible = available.every(filter => !hiddenKinds.has(filter.id));
+    const total = available.reduce((sum, filter) => sum + counts[filter.id], 0);
+    return h('div', { className: 'xhctx-filterbar', role: 'toolbar', 'aria-label': '上下文内容筛选' }, [
         h('span', { className: 'xhctx-filter-label', key: 'label' }, '内容筛选'),
         h('button', {
-          type: 'button',
-          className: `xhctx-filter xhctx-filter-all${allVisible ? ' xhctx-filter-active' : ''}`,
-          'aria-pressed': allVisible,
-          title: '显示全部上下文内容',
-          onClick: onReset,
-          key: 'all',
+            type: 'button',
+            className: `xhctx-filter xhctx-filter-all${allVisible ? ' xhctx-filter-active' : ''}`,
+            'aria-pressed': allVisible,
+            title: '显示全部上下文内容',
+            onClick: onReset,
+            key: 'all',
         }, [h('span', { key: 'text' }, '全部'), h('span', { className: 'xhctx-filter-count', key: 'count' }, total)]),
         ...available.map(filter => {
-          const active = !hiddenKinds.has(filter.id)
-          return h('button', {
-            type: 'button',
-            className: `xhctx-filter${active ? ' xhctx-filter-active' : ''}`,
-            style: { '--xhctx-filter': filter.color },
-            'aria-pressed': active,
-            title: active ? `隐藏「${filter.label}」` : `显示「${filter.label}」`,
-            onClick: () => onToggle(filter.id),
-            key: filter.id,
-          }, [
-            h('span', { className: 'xhctx-filter-dot', 'aria-hidden': true, key: 'dot' }),
-            h('span', { key: 'text' }, filter.label),
-            h('span', { className: 'xhctx-filter-count', key: 'count' }, counts[filter.id]),
-          ])
+            const active = !hiddenKinds.has(filter.id);
+            return h('button', {
+                type: 'button',
+                className: `xhctx-filter${active ? ' xhctx-filter-active' : ''}`,
+                style: filterStyle(filter.color),
+                'aria-pressed': active,
+                title: active ? `隐藏「${filter.label}」` : `显示「${filter.label}」`,
+                onClick: () => onToggle(filter.id),
+                key: filter.id,
+            }, [
+                h('span', { className: 'xhctx-filter-dot', 'aria-hidden': true, key: 'dot' }),
+                h('span', { key: 'text' }, filter.label),
+                h('span', { className: 'xhctx-filter-count', key: 'count' }, counts[filter.id]),
+            ]);
         }),
-      ])
-    }
-
-    function CompactionBanner({ compaction, after }) {
-      if (compaction === undefined) return null
-      const beforeTokens = numberOrUndefined(compaction.shadowedTokenCount ?? compaction.shadowed_token_count)
-      const afterBudget = after === undefined ? {} : tokenBudget(normalizedRequest(after))
-      const summary = typeof compaction.summary === 'string' ? compaction.summary : Array.isArray(compaction.summary) ? compaction.summary.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('') : ''
-      return h('details', { className: 'xhctx-compaction-banner', open: true }, [
+    ]);
+}
+function CompactionBanner({ compaction, after }) {
+    if (compaction === undefined)
+        return null;
+    const beforeTokens = numberOrUndefined(compaction.shadowedTokenCount ?? compaction.shadowed_token_count);
+    const afterBudget = after === undefined ? { used: undefined } : tokenBudget(normalizedRequest(after));
+    const summary = typeof compaction.summary === 'string' ? compaction.summary : isUnknownArray(compaction.summary) ? compaction.summary.map(asObject).filter(block => block.type === 'text' && typeof block.text === 'string').map(block => block.text).join('') : '';
+    return h('details', { className: 'xhctx-compaction-banner', open: true }, [
         h('summary', { key: 'summary' }, [
-          h('strong', { key: 'title' }, `压缩 ${compaction.compactionId ?? compaction.compaction_id ?? ''}`),
-          h('span', { key: 'tokens' }, `${fmtTokens(beforeTokens)} shadowed → ${fmtTokens(afterBudget.used)} request tokens`),
+            h('strong', { key: 'title' }, `压缩 ${compaction.compactionId ?? compaction.compaction_id ?? ''}`),
+            h('span', { key: 'tokens' }, `${fmtTokens(beforeTokens)} shadowed → ${fmtTokens(afterBudget.used)} request tokens`),
         ]),
         h('pre', { key: 'body' }, summary || '压缩摘要未记录。'),
-      ])
-    }
-
-    function ContextView({ useSession, sessionId }) {
-      const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY)
-      const [selectedSeq, setSelectedSeq] = useState(null)
-      const [mode, setMode] = useState('actual')
-      const [query, setQuery] = useState('')
-      const [hiddenKinds, setHiddenKinds] = useState(() => new Set())
-      const audits=useRequestAudits(sessionId,snapshot,selectedSeq,mode)
-      const requests = audits.requests
-      const latest = requests.at(-1)
-      const selected = requests.find(request => request.seq === selectedSeq) ?? latest
-
-      useEffect(() => {
+    ]);
+}
+function ContextView({ useSession, sessionId }) {
+    const snapshot = useSession(state => state.views.get(TARGET) ?? EMPTY);
+    const [selectedSeq, setSelectedSeq] = useState(null);
+    const [mode, setMode] = useState('actual');
+    const [query, setQuery] = useState('');
+    const [hiddenKinds, setHiddenKinds] = useState(() => new Set());
+    const audits = useRequestAudits(sessionId, snapshot, selectedSeq, mode);
+    const requests = audits.requests;
+    const latest = requests.at(-1);
+    const selected = requests.find(request => request.seq === selectedSeq) ?? latest;
+    useEffect(() => {
         if (selectedSeq !== null && !requests.some(request => request.seq === selectedSeq)) {
-          setSelectedSeq(null)
+            setSelectedSeq(null);
         }
-      }, [requests, selectedSeq])
-
-      const relation = useMemo(() => {
-        if (selected === undefined) return {}
+    }, [requests, selectedSeq]);
+    const relation = useMemo(() => {
+        if (selected === undefined)
+            return {};
         const compaction = snapshot.compactions
-          .filter(item => item.seq < selected.seq)
-          .at(-1)
-        if (compaction === undefined) return {}
+            .filter(item => item.seq < selected.seq)
+            .at(-1);
+        if (compaction === undefined)
+            return {};
         return {
-          compaction,
-          before: requests.filter(request => request.seq < compaction.seq).at(-1),
-          after: requests.find(request => request.seq > compaction.seq),
-        }
-      }, [requests, selected, snapshot.compactions])
-
-      const selectedView = selected === undefined ? undefined : normalizedRequest(selected)
-      const filtered = (request) => {
-        if (request === undefined || query.trim() === '') return request
-        const normalized = normalizedRequest(request)
-        const needle = query.trim().toLocaleLowerCase()
-        const messages = normalized.messages.filter(message =>
-          JSON.stringify(message).toLocaleLowerCase().includes(needle))
-        return { ...request, header: { ...normalized.header, input: messages } }
-      }
-      const actual = filtered(selected)
-      const before = filtered(relation.before)
-      const after = filtered(relation.after ?? selected)
-      const filterRequests = mode === 'diff'
+            compaction,
+            before: requests.filter(request => request.seq < compaction.seq).at(-1),
+            after: requests.find(request => request.seq > compaction.seq),
+        };
+    }, [requests, selected, snapshot.compactions]);
+    const selectedView = selected === undefined ? undefined : normalizedRequest(selected);
+    const filtered = (request) => {
+        if (request === undefined || query.trim() === '')
+            return request;
+        const normalized = normalizedRequest(request);
+        const needle = query.trim().toLocaleLowerCase();
+        const messages = normalized.messages.filter(message => JSON.stringify(message).toLocaleLowerCase().includes(needle));
+        return { ...request, header: { ...normalized.header, input: messages } };
+    };
+    const actual = filtered(selected);
+    const before = filtered(relation.before);
+    const after = filtered(relation.after ?? selected);
+    const filterRequests = mode === 'diff'
         ? [before, after].filter(request => request !== undefined)
-        : [mode === 'before' ? before : mode === 'after' ? after : actual].filter(request => request !== undefined)
-      const toggleKind = kind => setHiddenKinds(current => {
-        const next = new Set(current)
-        if (next.has(kind)) next.delete(kind)
-        else next.add(kind)
-        return next
-      })
-
-      let body
-      if (mode === 'diff') {
+        : [mode === 'before' ? before : mode === 'after' ? after : actual].filter(request => request !== undefined);
+    const toggleKind = (kind) => setHiddenKinds(current => {
+        const next = new Set(current);
+        if (next.has(kind))
+            next.delete(kind);
+        else
+            next.add(kind);
+        return next;
+    });
+    let body;
+    if (mode === 'diff') {
         body = h('div', { className: 'xhctx-diff' }, [
-          h(ContextRequestView, { request: before, heading: '压缩前', dimmed: true, hiddenKinds, key: 'before' }),
-          h(ContextRequestView, { request: after, heading: '压缩后', hiddenKinds, key: 'after' }),
-        ])
-      } else {
+            h(ContextRequestView, { request: before, heading: '压缩前', dimmed: true, hiddenKinds, key: 'before' }),
+            h(ContextRequestView, { request: after, heading: '压缩后', hiddenKinds, key: 'after' }),
+        ]);
+    }
+    else {
         body = h(ContextRequestView, {
-          request: mode === 'before' ? before : mode === 'after' ? after : actual,
-          heading: mode === 'before' ? '压缩前' : mode === 'after' ? '压缩后' : '模型实际收到',
-          hiddenKinds,
-        })
-      }
-
-      return h('div', { className: 'xhctx-root', 'data-conversation-composer-overlay': '' }, [
+            request: mode === 'before' ? before : mode === 'after' ? after : actual,
+            heading: mode === 'before' ? '压缩前' : mode === 'after' ? '压缩后' : '模型实际收到',
+            hiddenKinds,
+        });
+    }
+    return h('div', { className: 'xhctx-root', 'data-conversation-composer-overlay': '' }, [
         audits.notice,
         h('div', { className: 'xhctx-toolbar', key: 'toolbar' }, [
-          h('select', {
-            className: 'xhctx-select',
-            value: selected?.seq ?? '',
-            onChange: event => setSelectedSeq(Number(event.target.value)),
-            'aria-label': '选择模型请求',
-            key: 'select',
-          }, requests.map((request, index) =>
-            h('option', { value: request.seq, key: request.seq }, requestLabel(request, index)))),
-          h('div', { className: 'xhctx-modes', role: 'group', 'aria-label': '上下文视图', key: 'modes' }, [
-            ['actual', '实际发送'],
-            ['before', '压缩前'],
-            ['after', '压缩后'],
-            ['diff', 'Diff'],
-          ].map(([id, label]) => h('button', {
-            type: 'button',
-            className: mode === id ? 'xhctx-mode xhctx-mode-active' : 'xhctx-mode',
-            disabled: id !== 'actual' && relation.compaction === undefined,
-            onClick: () => setMode(id),
-            key: id,
-          }, label))),
-          h('input', {
-            className: 'xhctx-search',
-            value: query,
-            onChange: event => setQuery(event.target.value),
-            placeholder: '搜索上下文',
-            'aria-label': '搜索上下文',
-            key: 'search',
-          }),
+            h('select', {
+                className: 'xhctx-select',
+                value: selected?.seq ?? '',
+                onChange: (event) => setSelectedSeq(Number(event.target.value)),
+                'aria-label': '选择模型请求',
+                key: 'select',
+            }, requests.map((request, index) => h('option', { value: request.seq, key: request.seq }, requestLabel(request, index)))),
+            h('div', { className: 'xhctx-modes', role: 'group', 'aria-label': '上下文视图', key: 'modes' }, [
+                ['actual', '实际发送'],
+                ['before', '压缩前'],
+                ['after', '压缩后'],
+                ['diff', 'Diff'],
+            ].map(([id, label]) => h('button', {
+                type: 'button',
+                className: mode === id ? 'xhctx-mode xhctx-mode-active' : 'xhctx-mode',
+                disabled: id !== 'actual' && relation.compaction === undefined,
+                onClick: () => setMode(id ?? 'actual'),
+                key: id,
+            }, label))),
+            h('input', {
+                className: 'xhctx-search',
+                value: query,
+                onChange: (event) => setQuery(event.target.value),
+                placeholder: '搜索上下文',
+                'aria-label': '搜索上下文',
+                key: 'search',
+            }),
         ]),
         h(FilterBar, {
-          requests: filterRequests,
-          hiddenKinds,
-          onToggle: toggleKind,
-          onReset: () => setHiddenKinds(new Set()),
-          key: 'filters',
+            requests: filterRequests,
+            hiddenKinds,
+            onToggle: toggleKind,
+            onReset: () => setHiddenKinds(new Set()),
+            key: 'filters',
         }),
         hiddenKinds.has('compaction') ? null : h(CompactionBanner, { compaction: relation.compaction, after: relation.after ?? selected, key: 'compaction' }),
         h('div', { className: 'xhctx-body', key: 'body' }, body),
-      ])
-    }
-
-    // Match upstream Trajectory: the overlay marker bounds the shared host;
-    // only this view scrolls. Never reset Chat scroll state on stream updates.
-    // Grid rows must keep their intrinsic height rather than clip their panels.
-    const CSS = `
+    ]);
+}
+// Match upstream Trajectory: the overlay marker bounds the shared host;
+// only this view scrolls. Never reset Chat scroll state on stream updates.
+// Grid rows must keep their intrinsic height rather than clip their panels.
+const CSS = `
 .xhctx-root{flex:1;min-height:0;min-width:0;overflow:auto;background:#f8fafc;color:#172033;padding:14px 18px calc(var(--dsh-composer-height,150px) + 24px);box-sizing:border-box}
 .xhctx-toolbar{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px;border:1px solid #dbe3ef;border-radius:12px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);box-shadow:0 8px 24px rgba(35,50,80,.07)}
 .xhctx-select,.xhctx-search{height:34px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;padding:0 10px;font:inherit}.xhctx-select{min-width:190px}.xhctx-search{min-width:150px;flex:1}
@@ -772,40 +789,85 @@ window.__ModuleLoader__.load({
 .xhctx-diff{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.xhctx-dimmed{opacity:.72}.xhctx-empty{padding:30px;text-align:center;border:1px dashed #cbd5e1;border-radius:12px;color:#778196;background:#fff}
 @media(max-width:760px){.xhctx-root{padding:10px 10px calc(var(--dsh-composer-height,150px) + 24px)}.xhctx-toolbar{align-items:stretch}.xhctx-select,.xhctx-search{width:100%}.xhctx-diff,.xhctx-harness-columns{grid-template-columns:1fr}.xhctx-harness-toolbar{flex-wrap:wrap}.xhctx-harness-hint{width:100%;margin:0}.xhctx-pipeline{grid-template-columns:1fr 1fr;gap:10px}.xhctx-pipeline-step:after{display:none}.xhctx-registry{grid-template-columns:1fr}.xhctx-tool-head{align-items:stretch;flex-direction:column}.xhctx-tool-search{width:100%}}
 @media(prefers-color-scheme:dark){.xhctx-root{background:#0f131b;color:#e7ebf2}.xhctx-toolbar{background:rgba(24,29,39,.94);border-color:#31394a}.xhctx-select,.xhctx-search,.xhctx-tool-search{background:#171c26;border-color:#3a4355;color:#e7ebf2}.xhctx-modes{background:#252c39}.xhctx-mode{color:#aeb7c8}.xhctx-mode-active{background:#343d4d;color:#76a2ff}.xhctx-filterbar,.xhctx-panel{background:#171c26;border-color:#31394a;box-shadow:none}.xhctx-filter{background:#202631;border-color:#3a4355;color:#8993a5}.xhctx-filter-active{background:color-mix(in srgb,var(--xhctx-filter) 16%,#171c26);border-color:color-mix(in srgb,var(--xhctx-filter) 45%,#3a4355);color:color-mix(in srgb,var(--xhctx-filter) 72%,#fff)}.xhctx-request-details,.xhctx-panel-head,.xhctx-assembly-section,.xhctx-detail-row dt,.xhctx-detail-row dd{border-color:#2c3442}.xhctx-detail-row dd,.xhctx-panel-head h3,.xhctx-pipeline-step strong,.xhctx-assembly-section>summary strong{color:#d7dde7}.xhctx-card{box-shadow:none}.xhctx-system{--xhctx-bg:#202631}.xhctx-user{--xhctx-bg:#14243b}.xhctx-reasoning{--xhctx-bg:#332718}.xhctx-assistant{--xhctx-bg:#142b21}.xhctx-tool-call{--xhctx-bg:#241d38}.xhctx-tool-result{--xhctx-bg:#122a30}.xhctx-provider{--xhctx-bg:#202631}.xhctx-compaction{--xhctx-bg:#351c30}.xhctx-error{--xhctx-bg:#351c22}.xhctx-injected-prompt,.xhctx-registry-tool{background:#202631;border-color:#353e4d}.xhctx-injected-prompt pre,.xhctx-registry-tool pre,.xhctx-registry-tool>summary code{color:#d6dde8}.xhctx-injected-prompt pre,.xhctx-registry-tool h4{border-color:#303847}.xhctx-empty{background:#171c26;border-color:#3a4355}}
-`
-
-    const inject = ['slots', 'conversationEvents', 'conversationViews', 'sessions']
-
-    function apply(ctx) {
-      ctx.effect(() => {
-        const existing = document.getElementById(STYLE_ID)
-        if (existing !== null) return () => {}
-        const style = document.createElement('style')
-        style.id = STYLE_ID
-        style.textContent = CSS
-        document.head.append(style)
-        return () => { style.remove() }
-      }, 'xharness-context: styles')
-      ctx.conversationEvents.register(requestDefinition)
-      ctx.conversationEvents.register(compactionDefinition)
-      ctx.conversationEvents.register(usageDefinition)
-      ctx.conversationViews.register(viewDefinition)
-      ctx.slots.inject('conversation.view', () => ctx.slots.register({
+`;
+const inject = ['slots', 'conversationEvents', 'conversationViews', 'sessions'];
+exports.inject = inject;
+function apply(ctx) {
+    ctx.effect(() => {
+        const existing = document.getElementById(STYLE_ID);
+        if (existing !== null)
+            return () => { };
+        const style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = CSS;
+        document.head.append(style);
+        return () => { style.remove(); };
+    }, 'xharness-context: styles');
+    ctx.conversationEvents.register(requestDefinition);
+    ctx.conversationEvents.register(compactionDefinition);
+    ctx.conversationEvents.register(usageDefinition);
+    ctx.conversationViews.register(viewDefinition);
+    ctx.slots.inject('conversation.view', () => ctx.slots.register({
         name: 'conversation.view',
         id: 'context',
         order: 20,
         label: () => 'Context',
-      }, ContextView))
-      ctx.slots.inject('conversation.view', () => ctx.slots.register({
+    }, ContextView));
+    ctx.slots.inject('conversation.view', () => ctx.slots.register({
         name: 'conversation.view',
         id: 'harness',
         order: 30,
         label: () => 'Harness',
-      }, HarnessView))
-    }
+    }, HarnessView));
+}
+function isUnknownArray(value) { return Array.isArray(value); }
+function filterStyle(color) { return { '--xhctx-filter': color }; }
 
-    exports.apply = apply
-    exports.inject = inject
-    return module.exports
-  },
-})
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+}
+};
+const __dependencies = {"src/modules/context/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{}};
+const __cache = Object.create(null);
+const __load = id => {
+  if (__cache[id]) return __cache[id].exports;
+  const unit = __units[id];
+  if (!unit) throw Error('Unknown local UI module: ' + id);
+  const module = { exports: {} };
+  __cache[id] = module;
+  try {
+    unit(module, module.exports, request => Object.prototype.hasOwnProperty.call(__dependencies[id], request)
+      ? __load(__dependencies[id][request]) : __externalRequire(request));
+  } catch (error) { delete __cache[id]; throw error; }
+  return module.exports;
+};
+return __load("src/modules/context/index.js");
+}
+});

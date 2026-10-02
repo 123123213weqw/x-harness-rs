@@ -1,0 +1,24 @@
+=== test-conversation-source-browser chromium source ===
+chromium source: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed
+=== test-conversation-source-browser chromium legacy ===
+chromium legacy: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed
+=== test-conversation-source-browser webkit source ===
+webkit source: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed
+=== test-conversation-source-browser webkit legacy ===
+webkit legacy: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed
+=== test-settings-models-source-browser chromium source ===
+chromium source: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed
+=== test-settings-models-source-browser chromium legacy ===
+chromium legacy: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed
+=== test-settings-models-source-browser webkit source ===
+webkit source: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed
+=== test-settings-models-source-browser webkit legacy ===
+webkit legacy: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed
+=== test-model-selection-source-browser chromium source ===
+chromium: nested upstream model menu, no duplicate triggers, save/reload, effort preservation, switch, validation, unknown capability, back/Escape/retry and layout passed
+=== test-model-selection-source-browser chromium legacy ===
+chromium: nested upstream model menu, no duplicate triggers, save/reload, effort preservation, switch, validation, unknown capability, back/Escape/retry and layout passed
+=== test-model-selection-source-browser webkit source ===
+webkit: nested upstream model menu, no duplicate triggers, save/reload, effort preservation, switch, validation, unknown capability, back/Escape/retry and layout passed
+=== test-model-selection-source-browser webkit legacy ===
+webkit: nested upstream model menu, no duplicate triggers, save/reload, effort preservation, switch, validation, unknown capability, back/Escape/retry and layout passed

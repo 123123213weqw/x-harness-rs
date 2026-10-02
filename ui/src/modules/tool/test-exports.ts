@@ -1,0 +1,15 @@
+/** Test entry only; production ABI remains apply/inject. */
+export * from './index'
+export * from './tool/models/tool-call-model'
+export * from './tool/models/terminal-card-model'
+export * from './tool/models/read-card-model'
+export * from './tool/models/diff-card-model'
+export * from './tool/models/search-card-model'
+export * from './tool/models/web-card-model'
+export {ToolRow} from './tool/components/ToolRow'
+export {BashRow} from './tool/toolviews/bash-sample'
+export {GenericToolCard} from './tool/toolviews/GenericToolCard'
+export {ToolDetails} from './tool/ToolDetails'
+export {ToolCallTree} from './tool/ToolCallTree'
+
+export {XHReviewDiffBlock} from './tool/components/ReviewDiffBlock'

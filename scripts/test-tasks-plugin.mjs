@@ -1,3 +1,4 @@
+import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
@@ -24,10 +25,7 @@ sandbox.window.setTimeout = (callback, delay) => {
 sandbox.window.clearTimeout = (id) => closeTimers.delete(id)
 vm.createContext(sandbox)
 vm.runInContext(
-  await readFile(
-    new URL('../ui/plugins/@xlang/xharness-client-ui-tasks/client.js', import.meta.url),
-    'utf8',
-  ),
+  ownedViewModuleTestInput('@xlang/xharness-client-ui-tasks'),
   sandbox,
 )
 

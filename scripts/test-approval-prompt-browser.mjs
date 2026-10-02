@@ -8,13 +8,19 @@
 // reason and the paired shell command, and deliver the only two client
 // answerable outcomes on the wire — with a one-shot latch that never leaks into
 // the next request.
+import { verifyConversationArtifact, exposeConversation, legacyConversation } from './conversation-artifact-test.mjs'
+import { installOwnedViewPlatform } from './fixtures/owned-view-platform-browser.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
-const dist = resolve(root, 'ui/dist')
+const implementation = process.env.UI_TEST_IMPL ?? 'source'
+assert.ok(['source', 'native', 'legacy', 'frozen'].includes(implementation), 'known approval test implementation')
+const frozen = implementation === 'legacy' || implementation === 'frozen'
+const dist = resolve(root, frozen ? 'ui/reference/master-a613970' : 'ui/dist')
+const shippedConversation = frozen ? legacyConversation().toString() : verifyConversationArtifact()
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
 const engines = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
@@ -25,24 +31,9 @@ try {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.setDefaultTimeout(8000)
-  const assets = readdirSync(resolve(dist, 'assets'))
-  const entry = assets.find(name => /^index-.*\.js$/.test(name))
-  const css = assets.filter(name => name.endsWith('.css'))
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url())
-    const name = url.pathname.slice('/assets/'.length)
-    if (url.pathname.startsWith('/assets/') && assets.includes(name)) {
-      return route.fulfill({ body: readFileSync(resolve(dist, 'assets', name)),
-        contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript' })
-    }
-    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-      ${css.map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-      <script>window.__ModuleLoader__={create: options => {window.staticModules=options.staticModules;throw Error('isolated fixture: stop host boot')}};</script>
-      <script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>` })
-    return route.abort()
-  })
-  await page.goto('http://workspace-fixture.test/')
-  await page.waitForFunction(() => window.staticModules)
+  // Read the immutable HTML's real entry / compile the strict owned platform;
+  // filename guesses cannot select a stale index bundle or hang on undefined.
+  await installOwnedViewPlatform(page, frozen ? 'legacy' : 'source')
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
   const plugins = readdirSync(resolve(dist,'plugins/@xharness'));
   for (const name of plugins) {
@@ -50,11 +41,14 @@ try {
     let source=readFileSync(file,'utf8');
     // ApprovalPanel is registered through a slot, not exported; surface it and the
     // selector so the takeover contract can be exercised directly.
-    if(name==='dsh-client-ui-conversation') source=source.replace('exports.XHarnessMessageEditor =','exports.ApprovalPanel = ApprovalPanel; exports.selectApproval = selectApproval; exports.XHarnessMessageEditor =');
+    if(name==='dsh-client-ui-conversation') {
+      assert.equal(source, shippedConversation, 'actual approval Conversation factory is the selected fresh/immutable artifact')
+      source=exposeConversation(shippedConversation,["ApprovalPanel", "selectApproval"]);
+    }
     await page.addScriptTag({content:source});
   }
   await page.evaluate(() => {
-    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;if(cache[name])return cache[name];return cache[name]=registrations[name].factory(load)};
+    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;if(cache[name])return cache[name];const registration=registrations[name];if(registration===undefined)throw Error('Missing actual approval dependency: '+id);return cache[name]=registration.factory(load)};
     const React=staticModules.react,DOM=staticModules['react-dom'];
     const conversation=load('@xharness/dsh-client-ui-conversation/client');
     const runtime=load('@xharness/dsh-client-runtime/client');
@@ -64,7 +58,7 @@ try {
     const themeCtx={effect:fn=>fn(),provide:(name,value)=>{themeCtx[name]=value},on:()=>{},emit:()=>{},
       settingsScope:{bind:()=>({subscribe:()=>()=>{},getSnapshot:()=>({value:{preference:'light'}})})},
       locale:{register:()=>()=>{}},slots:{inject:()=>{}}};
-    registrations['@xharness/dsh-client-ui-theme'].factory(id=>id==='@xharness/dsh-client-runtime/client'?{...runtime,defineStore:spec=>spec}:staticModules[id]).apply(themeCtx);
+    load('@xharness/dsh-client-ui-theme/client').apply(themeCtx);
     document.documentElement.dataset.theme='light';
     for(const [name,value] of Object.entries(themeCtx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value);
     document.body.style.fontFamily='system-ui,sans-serif';
@@ -114,7 +108,7 @@ try {
     // A paired running bash-family call, as the transcript stores it, so the
     // panel can resolve the command line through the Chat Node index.
     window.pairedCall=(callId,args)=>window.snapshot={chat:{nodes:new Map([[runtime.conversationContextKey('tool-call',callId),
-      {kind:'tool-call',data:{root:{callId,argsRaw:JSON.stringify(args)}}}]])}};
+      {kind:'tool-call',data:{root:{callId,argsRaw:JSON.stringify(args),name:'bash',callView:null,time:1,turn:1,step:1,subCalls:[]}}}]])}};
     window.buttonState=()=>[...document.querySelectorAll('button')].map(b=>({text:b.textContent.trim(),disabled:b.disabled}));
     window.renderApproval();
   });
@@ -178,10 +172,10 @@ try {
 
   const evidence=resolve(root,'dist/approval-ui');mkdirSync(evidence,{recursive:true});
   await page.evaluate(()=>window.renderApproval({reason:'删除工作区内全部构建产物'}));
-  await page.screenshot({path:resolve(evidence,engine+'-desktop.png')});
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'-desktop.png')});
   await page.setViewportSize({width:375,height:700});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=375),true,'narrow viewport must not overflow');
-  await page.screenshot({path:resolve(evidence,engine+'.png')});
-  assert.deepEqual(errors.filter(e=>!e.includes('isolated fixture')),[]);
-  console.log(engine+': approval prompt mounted, waiting strip, escalation fallback, explicit reason, paired command shown/hidden/unparsable, allow-once and reject wire payloads, one-shot latch, no latch leak across requests, refused receipt retry, composer takeover, narrow layout passed');
+  await page.screenshot({path:resolve(evidence,engine+'-'+implementation+'.png')});
+  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
+  console.log(engine+'/'+implementation+': approval prompt mounted, waiting strip, escalation fallback, explicit reason, paired command shown/hidden/unparsable, allow-once and reject wire payloads, one-shot latch, no latch leak across requests, refused receipt retry, composer takeover, narrow layout passed');
 } finally {await browser.close()}

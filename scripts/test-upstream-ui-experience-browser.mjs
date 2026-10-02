@@ -1,22 +1,22 @@
+import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
+import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs'
+import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const dependencies = process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests'
+const dependencies = process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
 const require = createRequire(resolve(dependencies, 'package.json'))
 const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
 try {
   const page = await browser.newPage()
-  page.on('pageerror', error => console.error('browser page error:', error))
-  await page.setContent(`<style>:root{--dsw-alias-label-primary:#171717;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-border-l2:#d4d4d4;--dsw-alias-bg-base:#fff;--dsw-alias-interactive-bg-hover:#eee;--dsw-alias-markdown-code-block:#f7f7f7}body{font:14px system-ui;margin:24px}#root,#diff{max-width:820px}#diff{margin-top:30px}</style><main id="root"></main><div id="reasoning"><div data-variant="think" data-state="ok"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Past reasoning</span></div><div data-variant="think" data-state="running"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Current reasoning</span></div></div><div id="diff"></div>`)
-  for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
-    await page.addScriptTag({ path: resolve(dependencies, 'node_modules', file) })
-  }
+  const errors=[];page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical',`<style>:root{--dsw-alias-label-primary:#171717;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-border-l2:#d4d4d4;--dsw-alias-bg-base:#fff;--dsw-alias-interactive-bg-hover:#eee;--dsw-alias-markdown-code-block:#f7f7f7}body{font:14px system-ui;margin:24px}#root,#diff{max-width:820px}#diff{margin-top:30px}</style><main id="root"></main><div id="reasoning"><div data-variant="think" data-state="ok"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Past reasoning</span></div><div data-variant="think" data-state="running"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Current reasoning</span></div></div><div id="diff"></div>`)
   await page.addScriptTag({ content: `window.__ModuleLoader__={load(value){window.__experienceRegistration=value}}` })
-  await page.addScriptTag({ content: readFileSync(new URL('../ui/plugins/@xlang/xharness-client-ui-experience/client.js', import.meta.url), 'utf8') })
+  await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-experience') })
   await page.evaluate(() => {
     const plugin = window.__experienceRegistration.factory(id => {
       if (id === 'react') return React
@@ -51,21 +51,32 @@ try {
   await page.locator('.xhe-option').first().click()
   if (engine === 'chromium') await page.locator('#root').screenshot({ path: '/tmp/xh-experience-settings.png' })
 
-  const review = readFileSync(new URL('../ui/overrides/review-diff.js', import.meta.url), 'utf8')
-  await page.addScriptTag({ content: `document.documentElement.lang='zh'; var react=window.React; var _xharness_dsh_client_ui_primitives={DiffBlock:({diffs})=>React.createElement('pre',{className:'fake-inline'},diffs[0].newText)}; ${review}\nwindow.__Review=XHReviewDiffBlock;` })
+  const review=exposeModuleUnit(ownedViewModuleTestInput('@xharness/dsh-client-ui-tool'),'tool','tool/components/ReviewDiffBlock','XHReviewDiffBlock')
+  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>window.runtimeRegistration=row}'})
+  await page.addScriptTag({content:ownedViewModuleTestInput('@xharness/dsh-client-runtime')})
+  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>window.reviewRegistration=row}'})
+  await page.addScriptTag({content:review})
+  await page.evaluate(()=>{
+    document.documentElement.lang='zh'
+    const runtime=runtimeRegistration.factory(name=>staticModules[name])
+    window.__Review=reviewRegistration.factory(name=>{if(name==='@xharness/dsh-client-runtime/client')return runtime;if(name in staticModules)return staticModules[name];throw Error(name)}).XHReviewDiffBlock
+  })
   await page.evaluate(() => {
     window.__diffRoot = ReactDOM.createRoot(document.getElementById('diff'))
     window.__diffRoot.render(React.createElement(window.__Review, { diffs: [{ path: 'example.txt', oldText: 'one\ntwo\n', newText: 'one\nthree\n' }] }))
   })
-  assert.equal(await page.locator('.fake-inline').textContent(), 'one\nthree\n')
+  await page.locator('#diff [data-diff]').waitFor()
+  assert.deepEqual(await page.locator('#diff [data-diff]').locator('div[class*=line]').allTextContents(),['example.txt','one','two','one','three'],'actual inline DiffBlock retains both old and new text')
   await page.getByRole('button', { name: '并排' }).click()
   assert.equal(await page.locator('.xh-review-pane').count(), 2)
   assert.equal(await page.locator('.xh-review-line[data-changed="true"]').count(), 2)
   assert.equal(await page.locator('.xh-review-path').textContent(), 'example.txt')
   if (engine === 'chromium') await page.locator('#diff').screenshot({ path: '/tmp/xh-experience-diff.png' })
   await page.getByRole('button', { name: '行内' }).click()
-  assert.equal(await page.locator('.fake-inline').count(), 1)
-  console.log(`${engine} upstream UI experience browser tests passed`)
+  assert.equal(await page.locator('#diff [data-diff]').count(),1)
+  assert.equal(await page.locator('#diff [data-diff]').getByText('three',{exact:true}).count(),1)
+  assert.deepEqual(errors,[])
+  console.log(`${engine} upstream UI experience browser tests passed (actual platform singleton)`)
 } finally {
   await browser.close()
 }

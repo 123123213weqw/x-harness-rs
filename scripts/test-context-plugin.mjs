@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 
 const pluginPath = new URL(
-  '../ui/plugins/@xlang/xharness-client-ui-context/client.js',
+  '../ui/dist/plugins/@xlang/xharness-client-ui-context/client.js',
   import.meta.url,
 )
 const source = readFileSync(pluginPath, 'utf8')

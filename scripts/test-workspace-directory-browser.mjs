@@ -1,13 +1,19 @@
 // Actual shipped React, primitives, workspace owner and product flow; only the
 // host services/slot harness are fixtures. No running App or user data is used.
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, mkdirSync } from 'node:fs'
+import {createHash} from 'node:crypto'
+import { mkdirSync,readFileSync } from 'node:fs'
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs'
+import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../', import.meta.url))
-const dist = resolve(root, 'ui/dist')
-const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
+const implementation=process.env.UI_TEST_IMPL??'canonical'
+const moduleInput=id=>implementation==='canonical'&&process.env.UI_TEST_DIST
+  ? readFileSync(resolve(root,process.env.UI_TEST_DIST,`plugins/${id}/client.js`),'utf8')
+  : ownedViewModuleTestInput(id)
+const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps', 'package.json'))
 const engines = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 const browser = await engines[engine].launch({ headless: true,
@@ -15,29 +21,12 @@ const browser = await engines[engine].launch({ headless: true,
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 720 } })
   const errors = []
-  page.on('pageerror', error => errors.push(error.message))
+  page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
   page.setDefaultTimeout(8000)
-  const assets = readdirSync(resolve(dist, 'assets'))
-  const entry = assets.find(name => /^index-.*\.js$/.test(name))
-  const css = assets.filter(name => name.endsWith('.css'))
-  await page.route('**/*', route => {
-    const url = new URL(route.request().url())
-    const name = url.pathname.slice('/assets/'.length)
-    if (url.pathname.startsWith('/assets/') && assets.includes(name)) {
-      return route.fulfill({ body: readFileSync(resolve(dist, 'assets', name)),
-        contentType: name.endsWith('.css') ? 'text/css' : 'application/javascript' })
-    }
-    if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-      ${css.map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
-      <script>window.__ModuleLoader__={create: options => {window.staticModules=options.staticModules;throw Error('isolated fixture: stop host boot')}};</script>
-      <script type="module" src="/assets/${entry}"></script></head><body><div id="root"></div></body></html>` })
-    return route.abort()
-  })
-  await page.goto('http://workspace-fixture.test/')
-  await page.waitForFunction(() => window.staticModules)
+  await installOwnedViewPlatform(page,implementation==='legacy'?'legacy':'source')
   await page.evaluate(() => { document.getElementById('root').replaceChildren(); window.registrations = {}; window.__ModuleLoader__ = { load: reg => { registrations[reg.id] = reg } } })
   for (const id of ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-theme', '@xharness/dsh-client-ui-workspace', '@xlang/xharness-client-ui-directory']) {
-    await page.addScriptTag({ content: readFileSync(resolve(dist, `plugins/${id}/client.js`), 'utf8') })
+    await page.addScriptTag({ content: moduleInput(id) })
   }
   await page.evaluate(() => {
     const React = staticModules.react
@@ -45,7 +34,7 @@ try {
     const h = React.createElement
     const slotMap = new Map(), dictionaries = new Map()
     const runtime = registrations['@xharness/dsh-client-runtime'].factory(id => staticModules[id])
-    const readModule = id => id === '@xharness/dsh-client-runtime/client' ? { ...runtime, defineStore: spec => spec } : staticModules[id]
+    const readModule = id => id === '@xharness/dsh-client-runtime/client' ? runtime : staticModules[id]
     window.base = 'D:\\工作区'
     window.paths = new Map([[base, ['已有项目', '.hidden']], [base + '\\已有项目', []], [base + '\\.hidden', []], ['C:\\', ['Users']], ['D:\\', ['工作区']], ['\\\\server\\share', []], ['/tmp/projects', []]])
     window.drives = ['C:\\', 'D:\\', 'Z:\\'] // Assigned but unavailable Z: must still be visible.
@@ -99,9 +88,9 @@ try {
     registrations['@xlang/xharness-client-ui-directory'].factory(readModule).apply(ctx)
     const renderSlot = (name, owner) => { const { def, component } = slotMap.get(name); return h(component, { ...def.inject(), ...owner }) }
     const sessions = { items: [], ids: [], byId: {}, current: undefined, phase: 'ready' }
-    const store = slotMap.get('sidebar.workspaces').def.store.init()
+    const store = slotMap.get('sidebar.workspaces').def.store.create()
     const noOp = () => {}
-    const actions = new Proxy({}, { get: () => noOp })
+    const actions = store.actions
     let reactRoot = staticModules['react-dom/client'].createRoot(document.getElementById('root'))
     window.mount = surface => {
       reactRoot.unmount()
@@ -117,7 +106,7 @@ try {
           h(component, { ...injected, t: ctx.locale.bind('workspace'), renderSlot,
             open: surface === 'sidebar' ? noOp : open, anchorRef, wide: true, expandSidebar: noOp,
             useWorkspaces: select => select(workspaceSnapshot), useSessions: select => select(sessions),
-            useStore: select => select(store), actions, useHostDescription: select => select({ home: base }),
+            useStore: select => select(React.useSyncExternalStore(store.subscribe,store.getSnapshot)), actions, useHostDescription: select => select({ home: base }),
             useDirectoryFlow: select => select(injected.hooks.directoryFlow.getSnapshot()),
             onPick: id => calls.picks.push(id), onClose: () => setOpen(false) }))
       }
@@ -246,14 +235,14 @@ try {
   }
   const evidence = resolve(process.env.UI_TEST_EVIDENCE ?? resolve(root, 'dist/workspace-directory-evidence'))
   mkdirSync(evidence, { recursive: true })
-  await page.screenshot({ path: resolve(evidence, `${engine}-narrow.png`) })
+  await page.screenshot({ path: resolve(evidence, `${engine}-narrow.png`),animations:'disabled' })
   await page.setViewportSize({ width: 960, height: 720 })
   await dialog().getByRole('button', { name: '+ 新建文件夹', exact: true }).click()
   await name.fill('新的工作区')
-  await page.screenshot({ path: resolve(evidence, `${engine}-create.png`) })
+  await page.screenshot({ path: resolve(evidence, `${engine}-create.png`),animations:'disabled' })
   await page.keyboard.press('Escape'); await name.waitFor({ state: 'detached' })
   await shortcut('磁盘和位置').click(); await ready()
-  await page.screenshot({ path: resolve(evidence, `${engine}-locations.png`) })
+  const locationPixelsSha256=createHash('sha256').update(await page.screenshot({ path: resolve(evidence, `${engine}-locations.png`),animations:'disabled' })).digest('hex')
   // Refresh assigned drives without restarting the picker.
   await page.evaluate(() => { drives = ['C:\\', 'D:\\', 'E:\\']; paths.set('E:\\', []) })
   await shortcut('磁盘和位置').click(); await ready()
@@ -261,5 +250,6 @@ try {
   await shortcut('E:\\').click(); await ready()
   assert.equal(await path().inputValue(), 'E:\\')
   assert.deepEqual(errors, [])
-  console.log(`${engine}: shipped sidebar/hero, drives/refresh, virtual-root safety, remembered paths/fallback, blocked storage, old host, existing/new workspace, errors/retry, paths, late reads/cancel, duplicate create guard, IME and layout passed`)
+  console.log(`${engine} ${implementation}: shipped sidebar/hero, drives/refresh, virtual-root safety, remembered paths/fallback, blocked storage, old host, existing/new workspace, errors/retry, paths, late reads/cancel, duplicate create guard, IME and layout passed (actual platform/runtime store)`)
+  console.log(JSON.stringify({engine,implementation,actualPlatform:true,actualRuntimeEngine:true,actualWorkspaceAndDirectory:true,originalAssertions:true,locationPixelsSha256,pageErrors:errors}))
 } finally { await browser.close() }

@@ -1,0 +1,48 @@
+import type { SessionLogDownloadDialogProps } from './contracts'
+import type { ObservableSnapshot, SessionId } from './contracts'
+import * as Primitives from '@xharness/dsh-client-ui-primitives'
+const Button = Primitives.Button
+const Modal = Primitives.Modal
+import type { SessionLogDownloadState } from './controller'
+import { NS } from './locales'
+
+/** Browser operations and state injected into the Session Header contribution. */
+export interface SessionLogDownloadDialogInjected {
+  hooks: { sessionLogDownload: ObservableSnapshot<SessionLogDownloadState> }
+  request: (sessionId: SessionId) => Promise<void>
+  dismiss: (sessionId: SessionId) => void
+}
+
+export type { SessionLogDownloadDialogProps } from './contracts'
+
+/**
+ * Modal shared by the Session Header button and this browser's `/export` command.
+ * @param props - Session runtime, bound controller state, actions, and localized copy.
+ * @returns the modal portal contribution.
+ */
+export function SessionLogDownloadDialog({
+  sessionId, useSessionLogDownload, dismiss, t,
+}: SessionLogDownloadDialogProps) {
+  const entry = useSessionLogDownload(state => state.bySession[String(sessionId)])
+
+  const status = entry?.status
+  const open = entry?.open === true
+  const error = status === 'error' ? entry?.error || t('dialog.commandFailed') : null
+  const title = status === 'downloading'
+    ? t('dialog.preparingTitle')
+    : status === 'success' ? t('dialog.successTitle') : t('dialog.errorTitle')
+  const description = status === 'downloading'
+    ? t('dialog.preparingDescription')
+    : status === 'success' ? t('dialog.successDescription') : error ?? t('dialog.commandFailed')
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { dismiss(sessionId) }}
+      title={title}
+      description={description}
+      closeLabel={t('dialog.close')}
+      footer={<Button variant="primary" onClick={() => { dismiss(sessionId) }}>{t('dialog.close')}</Button>}
+    />
+  )
+}

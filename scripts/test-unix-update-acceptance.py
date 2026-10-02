@@ -462,7 +462,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         base_ui = (root / 'source/ui/dist/desktop-updater.js').read_text()
         self.assertNotIn('initialTimer = window.setTimeout', base_ui)
         self.assertNotIn('periodicTimer = window.setInterval', base_ui)
-        self.assertIn("await listen('xharness-update'", base_ui)
+        self.assertIn('await listen("xharness-update"', base_ui)
         desktop = root / 'source/apps/desktop/src-tauri'
         config = m.read_json(desktop / 'tauri.conf.json')
         self.assertFalse(config['bundle']['createUpdaterArtifacts'])
@@ -479,17 +479,39 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
 
     def test_base_timer_isolation_rejects_missing_duplicate_or_changed_anchors(self):
         source = (m.REPO / 'ui/dist/desktop-updater.js').read_text()
-        anchor = '    initialTimer = window.setTimeout(() => controller.check(), 1500)'
+        anchor = '      initialTimer = window.setTimeout(() => controller.check(), 1500);'
         with tempfile.TemporaryDirectory() as temp:
             path = pathlib.Path(temp) / 'updater.js'
             with self.assertRaisesRegex(ValueError, 'Missing regular'):
                 m.isolate_base_updater_timers(path)
             for text in [source.replace(anchor, ''), source + '\n' + anchor,
-                         source.replace('6 * 60 * 60 * 1000', '12345')]:
+                         source.replace('6 * 60 * 60 * 1e3', '12345')]:
                 path.write_text(text)
                 with self.assertRaisesRegex(ValueError, 'anchor drifted'):
                     m.isolate_base_updater_timers(path)
                 self.assertEqual(path.read_text(), text)
+
+    def test_base_timer_isolation_preserves_frozen_and_typed_target_behavior(self):
+        candidates = [m.REPO / 'ui/dist/desktop-updater.js',
+                      m.REPO / 'ui/reference/master-a613970/desktop-updater.js']
+        with tempfile.TemporaryDirectory() as temp:
+            for original in candidates:
+                source = original.read_text()
+                path = pathlib.Path(temp) / 'updater.js'
+                path.write_text(source)
+                m.isolate_base_updater_timers(path)
+                isolated = path.read_text()
+                self.assertNotIn('initialTimer = window.setTimeout', isolated)
+                self.assertNotIn('periodicTimer = window.setInterval', isolated)
+                self.assertIn('controller.restore()', isolated)
+                self.assertIn('xharness-update', isolated)
+                self.assertEqual(original.read_text(), source)
+                with self.assertRaisesRegex(ValueError, 'anchor drifted'):
+                    m.isolate_base_updater_timers(path)
+                path.write_text(source + '\n' + source)
+                with self.assertRaisesRegex(ValueError, 'anchor drifted'):
+                    m.isolate_base_updater_timers(path)
+                self.assertEqual(path.read_text(), source + '\n' + source)
 
     def test_macos_owns_group_without_cross_session_or_preexec_callback(self):
         self.assertEqual(m.process_ownership('linux-x86_64-appimage'), {'start_new_session': True})

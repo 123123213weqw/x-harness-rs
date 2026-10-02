@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Isolated layout regression using the shipped conversation, terminal, and
 // product CSS. No user sessions or running Harness instance are touched.
+import {verifyArtifact,shippedUnitValue} from './fixtures/shipped-source-values.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -14,16 +15,12 @@ const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
 const read = path => readFileSync(resolve(root, path), 'utf8')
 
-const conversation = read('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js')
-const cssLine = conversation.split('\n').find(line => line.includes('const css') && line.includes('[data-conversation-composer-overlay]'))
-assert.ok(cssLine, 'upstream conversation CSS must be present')
-const conversationCss = JSON.parse(cssLine.trim().match(/^const \S+ = (".*");$/)[1])
-const classBlock = conversation.match(/var ConversationRoot_module_css_default = \{([\s\S]*?)\};/)[1]
-const classes = Object.fromEntries([...classBlock.matchAll(/"(\w+)": "([^"]+)"/g)].map(match => [match[1], match[2]]))
-const terminal = read('ui/plugins/@xlang/xharness-client-ui-terminal/client.js')
-const start = terminal.indexOf('const CSS = `') + 'const CSS = `'.length
-assert.ok(start > 13, 'terminal CSS must be present')
-const terminalCss = terminal.slice(start, terminal.indexOf('`', start))
+const conversation = verifyArtifact('@xharness/dsh-client-ui-conversation')
+const conversationCss = shippedUnitValue(conversation,'src/modules/conversation/skeleton/ConversationRoot.css')
+assert.ok(conversationCss.includes('[data-conversation-composer-overlay]'),'actual conversation overlay CSS')
+const classes = shippedUnitValue(conversation,'src/modules/conversation/skeleton/ConversationRoot.styles.js')
+const terminal = verifyArtifact('@xlang/xharness-client-ui-terminal')
+const terminalCss = shippedUnitValue(terminal,'src/modules/terminal/Terminal.css')
 const css = [conversationCss, terminalCss, read('ui/overrides/monochrome.css')].join('\n')
 
 const browser = await ({ chromium, webkit })[engine].launch({

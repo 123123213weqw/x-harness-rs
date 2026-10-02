@@ -1,376 +1,112 @@
 #!/usr/bin/env node
-import { patchMaxTokensNotice } from './patch-max-tokens-notice.mjs'
-import { patchSessionHistoryCache } from './patch-session-history-cache.mjs'
-import { patchConversationLifecycle } from './patch-conversation-lifecycle.mjs'
-import { patchAtomicHistory, patchHistoryRetry } from './patch-atomic-history.mjs'
-import { patchLiveAnswerRecovery } from './patch-live-answer-recovery.mjs'
-import { patchStartupCatalogRefresh } from './patch-startup-catalog-refresh.mjs'
-import { patchTranscriptRowState } from './patch-transcript-row-state.mjs'
-import { patchTranscriptWindowing } from './patch-transcript-windowing.mjs'
-import { patchQuestionContinuation } from './patch-question-continuation.mjs'
-import { patchPermissionSelection } from './patch-permission-selection.mjs'
-import { patchGoalRuntime } from './patch-goal-runtime.mjs'
-import { patchExecutionCheckpoints } from './patch-execution-checkpoints.mjs'
-import { patchCompactionRunningUi } from './patch-compaction-running-ui.mjs'
-import { patchCompactionProgress } from './patch-compaction-progress.mjs'
-import { patchCompactionWire } from './patch-compaction-wire.mjs'
-import { patchCompactionViewModel } from './patch-compaction-view-model.mjs'
-import { patchConversationViewMatch } from './patch-conversation-view-match.mjs'
-import { patchConversationScrollFollow } from './patch-conversation-scroll-follow.mjs'
-import { patchPluginCenter } from './patch-plugin-center.mjs'
-import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
-import { patchAgentPresetUi } from './patch-agent-preset-ui.mjs'
-import { patchChatReadingWidth } from './patch-chat-reading-width.mjs'
-import { patchBrowserDock } from './patch-browser-dock.mjs'
-import { patchToolExperience, patchConversationExperience, patchModelSwitchProgress } from './patch-upstream-ui-experience.mjs'
-import { rewriteUiNamespace } from './rewrite-ui-namespace.mjs'
-import { UI_NAMESPACE, UPSTREAM_SOURCE_LABEL } from './ui-namespace.mjs'
+// Self-contained XHarness UI assembly. All inputs live under this repository's
+// ui/ tree; product modules and the browser platform are built from source.
+import { execFileSync } from 'node:child_process'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve, sep, basename } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { runInNewContext } from 'node:vm'
+import { localPath, OUTPUT_MARKER, orderModules, readInput, renderBoot, revision, sha256, treeHashes } from './ui-build-contract.mjs'
+import { compileSourceModules } from './build-source-modules.mjs'
+import { compileScriptAssets } from './build-script-assets.mjs'
+import { compilePlatformUi } from './build-platform-ui.mjs'
 
-import {
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
-import { createHash } from 'node:crypto'
-import { patchAttachments } from './patch-attachments.mjs'
-import { patchConversationMessageEdit, patchMessageEditConnection, patchMessageEditRuntime } from './patch-conversation-message-edit.mjs'
-import { patchContextAccounting, patchContextConnection, patchContextMeterStability } from './patch-context-accounting.mjs'
-import { patchContextComposition, patchContextCompositionConnection } from './patch-context-composition.mjs'
-import { patchModelControls, patchModelConnection, patchReasoningSettings } from './patch-model-controls.mjs'
-import { patchWorkspaceCreatedAt } from './patch-workspace-created-at.mjs'
-import { patchSettingsSaveFeedback } from './patch-settings-save-feedback.mjs'
-import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-
-const [upstreamArg, distArg] = process.argv.slice(2)
-if (upstreamArg === undefined || distArg === undefined) {
-  throw new Error('usage: assemble-static-ui.mjs <deepseek-harness> <dist>')
-}
-
-const upstream = resolve(upstreamArg)
-const dist = resolve(distArg)
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const layers = [
-  {
-    manifest: join(upstream, 'packages/bundle/base/package.json'),
-    patch: join(upstream, 'packages/bundle/base/cordis.patch.yml'),
-  },
-  {
-    manifest: join(upstream, 'packages/bundle/web-app/package.json'),
-    patch: join(upstream, 'packages/bundle/web-app/cordis.patch.yml'),
-  },
-]
-const resolvers = layers.map(layer => createRequire(layer.manifest))
-const webResolver = resolvers[1]
-if (webResolver === undefined) throw new Error('web bundle resolver is missing')
+const ui = join(repoRoot, 'ui')
+const args = process.argv.slice(2)
+let output = join(ui, 'dist'), check = false, hasOutput = false
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--out-dir' && !hasOutput && args[i + 1]) { output = resolve(args[++i]); hasOutput = true }
+  else if (args[i] === '--check' && !check) check = true
+  else throw Error('usage: assemble-static-ui.mjs [--out-dir PATH] [--check]; no external source directory is accepted')
+}
+if (output === repoRoot || repoRoot.startsWith(output + sep) || (output.startsWith(repoRoot + sep) && output !== join(ui, 'dist'))) throw Error('Output would overwrite repository inputs')
+if (existsSync(output) && lstatSync(output).isSymbolicLink()) throw Error('Output must not be a symlink')
+if (existsSync(output) && !lstatSync(output).isDirectory()) throw Error('Output must be a directory')
+mkdirSync(dirname(output), { recursive: true })
+output = join(realpathSync(dirname(output)), basename(output))
+if (output === repoRoot || repoRoot.startsWith(output + sep) || (output.startsWith(repoRoot + sep) && output !== join(ui, 'dist'))) throw Error('Output parent aliases repository inputs')
+if (!check && output !== join(ui, 'dist') && existsSync(output)) {
+  const marker = join(output, OUTPUT_MARKER)
+  if (!existsSync(marker) || JSON.parse(readFileSync(marker, 'utf8')).builder !== 'xharness-self-contained-ui') throw Error('Refusing to replace an unowned output directory')
+}
 
-const appBoot = await import(pathToFileURL(webResolver.resolve('@deepseek-ai/dsh-app-boot')).href)
-const clientModules = await import(
-  pathToFileURL(webResolver.resolve('@deepseek-ai/dsh-client-modules')).href
-)
-
-function resolveManifest(specifier) {
-  for (const require of resolvers) {
-    try {
-      return require.resolve(`${specifier}/package.json`)
-    } catch {
-      // The package may only exist in the other bundle layer.
-    }
+const manifest = JSON.parse(readInput(ui, { source: 'modules.json' }).toString('utf8'))
+if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.modules) || !manifest.modules.length || !Array.isArray(manifest.assets)) throw Error('Invalid repository UI manifest')
+if (manifest.modules.some(row => !['source-module', 'plugin-api-ts'].includes(row.kind))) throw Error('Production modules must compile from owned TypeScript source')
+if (manifest.bootTemplate?.source !== 'src/index.template.html' || manifest.platform?.kind !== 'source-platform') throw Error('Production boot must compile the owned browser platform')
+if (manifest.assets.some(row => row.source.startsWith('legacy/')) || manifest.frozenOverrides !== undefined) throw Error('Legacy references are test-only, not production assembly inputs')
+const sourceModules = compileSourceModules(ui, manifest.modules.filter(row => row.kind === 'source-module'))
+const scriptAssets = compileScriptAssets(ui, manifest.assets.filter(row => row.kind === 'script-ts'))
+const modules = orderModules(manifest.modules.map(row => sourceModules.has(row.id)
+  ? { ...row, external: [...new Set([...(row.external ?? []), ...sourceModules.get(row.id).external])] }
+  : row))
+const template = readInput(ui, manifest.bootTemplate).toString('utf8')
+if (manifest.platform !== undefined && manifest.platform.kind !== 'source-platform') throw Error('Invalid source platform kind')
+const platform = manifest.platform ? compilePlatformUi(ui, manifest.platform) : undefined
+const stage = mkdtempSync(join(dirname(output), '.xharness-ui-stage-'))
+try {
+  const files = new Map(), entries = []
+  const put = (path, bytes) => {
+    localPath(path, 'output path')
+    if (files.has(path)) throw Error(`Duplicate output path: ${path}`)
+    files.set(path, Buffer.from(bytes))
   }
-  return undefined
-}
-
-function revision(bytes) {
-  return createHash('sha256').update(bytes).digest('hex').slice(0, 16)
-}
-
-// Some upstream bundlers retain absolute build-machine paths in region
-// comments or source maps. They are not needed at runtime and make the checked
-// in bundle non-reproducible as well as leaking the builder's home directory.
-function portableBytes(bytes) {
-  return Buffer.from(
-    bytes
-      .toString('utf8')
-      .replaceAll(`${upstream}/`, `${UPSTREAM_SOURCE_LABEL}/`)
-      .replaceAll(`${repoRoot}/`, 'x-harness-rs/'),
-  )
-}
-
-// Keep the reproducible product patch identical to the checked-in bundle.
-function patchConversationClient(bytes) {
-  return patchPermissionSelection(bytes)
-}
-
-const composed = appBoot.composeEntries(
-  layers.map(layer => appBoot.loadOverlayPatches('XHarness static UI', layer.patch)),
-)
-const plugins = new Map()
-for (const entry of composed) {
-  if (entry.disabled === true || typeof entry.name !== 'string') continue
-  const packagePath = resolveManifest(entry.name)
-  if (packagePath === undefined) continue
-  const manifest = JSON.parse(readFileSync(packagePath, 'utf8'))
-  const declaration = manifest.dsh?.client
-  if (declaration?.platform !== 'web') continue
-  const exported = manifest.exports?.['./client']
-  const relative = typeof exported === 'string' ? exported : exported?.default
-  if (relative === undefined) {
-    throw new Error(`${entry.name} declares dsh.client without a ./client export`)
+  for (const row of modules) {
+    const path = `plugins/${row.id}/client.js`
+    let bytes = readInput(ui, row)
+    if (row.kind === 'source-module') bytes = sourceModules.get(row.id).bytes
+    else if (row.kind === 'plugin-api-ts') {
+      if (row.id !== '@xlang/xharness-client-plugin-api' || row.source !== 'src/plugin-api/client.ts') throw Error('Invalid TypeScript entry')
+      execFileSync(process.execPath, [join(repoRoot, 'scripts/build-plugin-api.mjs'), '--output', join(stage, path)], { stdio: 'inherit' })
+      bytes = readFileSync(join(stage, path))
+    } else throw Error(`Unknown module kind: ${row.id}`)
+    let registrations = 0
+    runInNewContext(bytes.toString('utf8'), { window: { __ModuleLoader__: { load(registration) {
+      if (registration.id !== row.id || typeof registration.factory !== 'function') throw Error(`Invalid factory: ${row.id}`)
+      registrations++
+    } } } }, { timeout: 1000, filename: path })
+    if (registrations !== 1) throw Error(`Module must register exactly one factory: ${row.id}`)
+    const rev = revision(bytes)
+    entries.push({ id: row.id, url: `/${path}?rev=${rev}`, rev,
+      ...(row.inject !== undefined ? { inject: row.inject } : {}),
+      ...(row.external !== undefined ? { external: row.external } : {}),
+      ...(row.immediately === true ? { immediately: true } : {}) })
+    put(path, bytes)
   }
-  const source = resolve(dirname(packagePath), relative)
-  let bytes = portableBytes(readFileSync(source))
-  if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') {
-    bytes = patchConversationMessageEdit(patchContextComposition(patchContextMeterStability(patchContextAccounting(patchConversationClient(bytes)))))
+  const staleSourceMaps = new Set(modules.filter(row => row.kind === 'source-module').map(row => `plugins/${row.id}/client.js.map`))
+  for (const asset of manifest.assets) {
+    if (staleSourceMaps.has(asset.path)) throw Error(`Obsolete legacy source map for owned source module: ${asset.path}`)
+    if (['index.html', 'client-graph.json', 'asset-manifest.json', OUTPUT_MARKER].includes(asset.path)) throw Error('Reserved output asset')
+    if (asset.kind !== undefined && asset.kind !== 'script-ts') throw Error(`Unknown asset kind: ${asset.kind}`)
+    if (asset.path.endsWith('.js') && asset.kind !== 'script-ts'
+      && !(asset.path === 'plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js'
+        && asset.source === asset.path && /^[a-f0-9]{64}$/.test(asset.sha256))) throw Error('Plain JavaScript assets must be the pinned original xterm library')
+    put(asset.path, scriptAssets.has(asset.path) ? scriptAssets.get(asset.path).bytes : readInput(ui, asset))
   }
-  if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelControls(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchContextCompositionConnection(patchContextConnection(patchModelConnection(bytes)))
-  if (entry.name === '@deepseek-ai/dsh-client-connection') bytes = patchCompactionWire(patchMessageEditConnection(bytes))
-  if (entry.name === '@deepseek-ai/dsh-client-runtime') bytes = patchConversationViewMatch(patchStartupCatalogRefresh(patchLiveAnswerRecovery(patchAtomicHistory(patchSessionHistoryCache(patchMessageEditRuntime(bytes))))))
-  bytes = patchAttachments(entry.name, bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-ui-settings-models') bytes = patchReasoningSettings(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-goal") bytes = patchGoalRuntime(bytes)
-  bytes = patchQuestionContinuation(entry.name, bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchExecutionCheckpoints(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionRunningUi(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchCompactionProgress(patchConversationLifecycle(patchCompactionViewModel(bytes)))
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchMaxTokensNotice(bytes)
-  bytes = patchWorkspaceCreatedAt(entry.name, bytes)
-  bytes = patchSettingsSaveFeedback(entry.name, bytes)
-  bytes = patchPluginCenter(entry.name, bytes)
-  bytes = patchProductBrandCopy(entry.name, bytes)
-  bytes = patchAgentPresetUi(entry.name, bytes)
-  bytes = patchChatReadingWidth(entry.name, bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchTranscriptWindowing(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchConversationScrollFollow(bytes)
-  if (entry.name === "@deepseek-ai/dsh-client-ui-conversation") bytes = patchHistoryRetry(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-ui-layout') bytes = patchBrowserDock(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-ui-tool') bytes = patchToolExperience(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-ui-conversation') bytes = patchConversationExperience(bytes)
-  if (entry.name === '@deepseek-ai/dsh-client-ui-model-selection') bytes = patchModelSwitchProgress(bytes)
-  bytes = patchTranscriptRowState(entry.name, bytes)
-  const rev = revision(bytes)
-  plugins.set(entry.name, { declaration, source, bytes, rev })
-}
-
-// Product-owned Web plugins live in this repository instead of being patched
-// into the upstream checkout. They participate in the same dependency graph
-// and immutable revisioning as upstream client packages, so a rebuild cannot
-// silently drop XHarness-only UI capabilities.
-const productPlugins = [
-  {
-    id: '@xlang/xharness-client-ui-browser',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-browser/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-ui-layout',
-        '@deepseek-ai/dsh-client-ui-conversation',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-plugin-hub',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-plugin-hub/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-layout',
-        '@deepseek-ai/dsh-client-ui-settings-plugins',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-profile',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-profile/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-settings-general',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-experience',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-experience/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-settings',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-directory',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-directory/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-ui-workspace',
-        '@deepseek-ai/dsh-client-locale',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-context',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-context/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-ui-conversation',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-schedule',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-schedule/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-conversation',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-motion',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-motion/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-tasks',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-tasks/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-conversation',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-terminal',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-terminal/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-runtime',
-        '@deepseek-ai/dsh-client-locale',
-        '@deepseek-ai/dsh-client-ui-conversation',
-      ],
-    },
-  },
-  {
-    id: '@xlang/xharness-client-ui-computer',
-    source: join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-computer/client.js'),
-    declaration: {
-      platform: 'web',
-      inject: [
-        '@deepseek-ai/dsh-client-ui-tool',
-        '@deepseek-ai/dsh-client-locale',
-      ],
-    },
-  },
-]
-for (const product of productPlugins) {
-  const bytes = patchTranscriptRowState(product.id, portableBytes(readFileSync(product.source)))
-  plugins.set(product.id, {
-    declaration: product.declaration,
-    source: product.source,
-    bytes,
-    rev: revision(bytes),
-  })
-}
-
-const unordered = [...plugins].map(([id, plugin]) => ({
-  id,
-  url: `/plugins/${id}/client.js?rev=${plugin.rev}`,
-  rev: plugin.rev,
-  ...(plugin.declaration.inject === undefined ? {} : { inject: plugin.declaration.inject }),
-  ...(plugin.declaration.external === undefined ? {} : { external: plugin.declaration.external }),
-  ...(plugin.declaration.immediately === true ? { immediately: true } : {}),
-}))
-const entries = clientModules.orderByModuleGraph(unordered)
-const graph = {
-  rev: revision(Buffer.from(JSON.stringify(entries))),
-  entries,
-}
-
-const pluginRoot = join(dist, 'plugins')
-rmSync(pluginRoot, { recursive: true, force: true })
-for (const entry of entries) {
-  const plugin = plugins.get(entry.id)
-  if (plugin === undefined) throw new Error(`ordered unknown client package ${entry.id}`)
-  const target = join(pluginRoot, entry.id, 'client.js')
-  mkdirSync(dirname(target), { recursive: true })
-  writeFileSync(target, plugin.bytes)
-  if (entry.id === '@xlang/xharness-client-ui-terminal') {
-    // xterm.js ships as prebuilt UMD assets; they are versioned with the
-    // plugin directory rather than the module graph.
-    cpSync(
-      join(repoRoot, 'ui/plugins/@xlang/xharness-client-ui-terminal/vendor'),
-      join(pluginRoot, entry.id, 'vendor'),
-      { recursive: true },
-    )
+  if (platform) {
+    for (const [path, bytes] of platform.outputs) put(path, bytes)
   }
-  const sourceMap = `${plugin.source}.map`
-  try {
-    if (!['@deepseek-ai/dsh-client-ui-attachment', '@deepseek-ai/dsh-client-ui-settings-models', '@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-conversation', '@deepseek-ai/dsh-client-ui-model-selection', '@deepseek-ai/dsh-client-connection'].includes(entry.id)) writeFileSync(`${target}.map`, portableBytes(readFileSync(sourceMap)))
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error
+  const graph = { rev: revision(JSON.stringify(entries)), entries }
+  put('client-graph.json', `${JSON.stringify(graph, null, 2)}\n`)
+  put('index.html', renderBoot(template, graph, files, platform ? {...platform, preloadBootBytes: platform.inlineBootBytes.toString('utf8')} : undefined))
+  put(OUTPUT_MARKER, `${JSON.stringify({ schemaVersion: 1, builder: 'xharness-self-contained-ui' })}\n`)
+  const inventory = Object.fromEntries([...files].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([path, bytes]) => [path, { sha256: sha256(bytes), bytes: bytes.length }]))
+  put('asset-manifest.json', `${JSON.stringify({ schemaVersion: 1, files: inventory }, null, 2)}\n`)
+  for (const [path, bytes] of files) {
+    const target = join(stage, path); mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, bytes)
   }
-}
-
-const indexPath = join(dist, 'index.html')
-let index = readFileSync(indexPath, 'utf8')
-if (index.includes('window.__DSH_BOOT__')) {
-  throw new Error('index.html already contains a client boot manifest; assemble from a clean Vite dist')
-}
-const desktopUpdaterSource = join(repoRoot, 'ui/desktop/updater.js')
-const desktopUpdaterBytes = portableBytes(readFileSync(desktopUpdaterSource))
-const desktopUpdaterRev = revision(desktopUpdaterBytes)
-writeFileSync(join(dist, 'desktop-updater.js'), desktopUpdaterBytes)
-const desktopUpdaterTag = `<script defer src="/desktop-updater.js?rev=${desktopUpdaterRev}"></script>`
-const desktopStartupSource = join(repoRoot, 'ui/desktop/startup.js')
-const desktopStartupBytes = portableBytes(readFileSync(desktopStartupSource))
-const desktopStartupRev = revision(desktopStartupBytes)
-writeFileSync(join(dist, 'desktop-startup.js'), desktopStartupBytes)
-const desktopStartupTag = `<script defer src="/desktop-startup.js?rev=${desktopStartupRev}"></script>`
-const desktopTitlebarScriptBytes = portableBytes(readFileSync(join(repoRoot, 'ui/desktop/titlebar.js')))
-const desktopTitlebarScriptRev = revision(desktopTitlebarScriptBytes)
-writeFileSync(join(dist, 'desktop-titlebar.js'), desktopTitlebarScriptBytes)
-const desktopTitlebarScriptTag = `<script defer src="/desktop-titlebar.js?rev=${desktopTitlebarScriptRev}"></script>`
-const desktopTitlebarStyleBytes = readFileSync(join(repoRoot, 'ui/desktop/titlebar.css'))
-const desktopTitlebarStyleRev = revision(desktopTitlebarStyleBytes)
-writeFileSync(join(dist, 'desktop-titlebar.css'), desktopTitlebarStyleBytes)
-const desktopTitlebarStyleTag = `<link rel="stylesheet" href="/desktop-titlebar.css?rev=${desktopTitlebarStyleRev}">`
-const motionTokensBytes = readFileSync(join(repoRoot, 'ui/overrides/motion-tokens.css'))
-const motionTokensRev = revision(motionTokensBytes)
-writeFileSync(join(dist, 'motion-tokens.css'), motionTokensBytes)
-const motionTokensTag = `<link rel="stylesheet" data-xh-motion-tokens href="/motion-tokens.css?rev=${motionTokensRev}">`
-if (!index.includes('</head>')) throw new Error('index.html does not contain </head>')
-index = index.replace(/<head(?:\s[^>]*)?>/, match => `${match}\n    ${motionTokensTag}\n    ${desktopTitlebarStyleTag}`)
-index = index.replace('</head>', `    ${desktopUpdaterTag}\n    ${desktopStartupTag}\n    ${desktopTitlebarScriptTag}\n  </head>`)
-writeFileSync(indexPath, clientModules.injectBootManifest(index, graph))
-writeFileSync(join(dist, 'client-graph.json'), `${JSON.stringify(graph, null, 2)}\n`)
-// Ship the graph on our own scope: directories, ids, bundler-derived identifiers
-// and manifest revisions all move together, after every upstream-shaped patch.
-const renamed = rewriteUiNamespace(dist)
-console.log(
-  `assembled ${entries.length} client plugins (graph ${graph.rev}) into ${dist}; ` +
-    `moved ${renamed.moved} plugin directories and ${renamed.occurrences} scope occurrences onto ${UI_NAMESPACE}`,
-)
+  if (check) {
+    if (!existsSync(output) || JSON.stringify(treeHashes(stage)) !== JSON.stringify(treeHashes(output))) throw Error('UI output is stale; npm run build --prefix ui')
+  } else {
+    // Publish only after complete validation. Roll back if the final rename
+    // fails; a missing input or compiler error never destroys the last build.
+    const backup = stage + '.previous'
+    const hadOutput = existsSync(output)
+    if (hadOutput) renameSync(output, backup)
+    try { renameSync(stage, output) }
+    catch (error) { if (hadOutput) renameSync(backup, output); throw error }
+    if (hadOutput) rmSync(backup, { recursive: true })
+  }
+  console.log(`XHarness UI ${check ? 'verified' : 'built'}: ${entries.length} modules, ${files.size - entries.length} assets; repository inputs only`)
+} finally { if (existsSync(stage)) rmSync(stage, { recursive: true }) }

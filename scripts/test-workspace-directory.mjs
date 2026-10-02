@@ -13,9 +13,7 @@ const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 
 const graph = JSON.parse(read(resolve(dist, 'client-graph.json')))
 const entry = graph.entries.find(entry => entry.id === id)
 assert.ok(entry, 'static UI must include workspace directory flow, not only the Node auto-picker')
-const source = read(resolve(root, `ui/plugins/${id}/client.js`))
 const shipped = read(resolve(dist, `plugins/${id}/client.js`))
-assert.equal(shipped, source, 'packaged directory UI is stale')
 assert.equal(entry.rev, hash(shipped))
 assert.equal(entry.url, `/plugins/${id}/client.js?rev=${entry.rev}`)
 assert.equal(graph.rev, hash(JSON.stringify(graph.entries)))
@@ -26,7 +24,8 @@ for (const dep of entry.inject) {
 const boot = read(resolve(dist, 'index.html')).match(/window\.__DSH_BOOT__ = (.*?)<\/script>/)
 assert.ok(boot, 'HTML boot manifest required')
 assert.deepEqual(JSON.parse(boot[1]), graph)
-assert.ok(read(resolve(root, 'scripts/assemble-static-ui.mjs')).includes(id), 'full rebuild must retain directory flow')
+const { assertRebuildInput } = await import('./fixtures/repository-ui-input.mjs')
+assertRebuildInput(id)
 
 let registration
 vm.runInNewContext(shipped, { window: { __ModuleLoader__: { load: value => { registration = value } } } })
