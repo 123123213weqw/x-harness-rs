@@ -12,6 +12,7 @@
       {
         "label": "main",
         "title": "XHarness",
+        "theme": "Dark",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "url": "index.html",
