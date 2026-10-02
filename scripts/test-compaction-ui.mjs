@@ -5,7 +5,7 @@ const root=new URL('../',import.meta.url);
 const read=p=>readFileSync(new URL(p,root),'utf8');
 const fixtures=JSON.parse(read('tests/fixtures/compaction-ui.json'));
 const source=read('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js');
-const start=source.indexOf('const COMPACT_PLUGIN = "compact";');
+const start=source.indexOf('// xh-compaction-progress/v1');
 const end=source.indexOf('//#endregion',source.indexOf('function registerCompactionConversationNode',start));
 assert.ok(start>=0 && end>start);
 let expanded=false;
@@ -66,8 +66,8 @@ for(const f of fixtures) {
   assert.deepEqual(view,def.buildViewNode({matches:relevant}),'live and restored contribution agree');
  }
  if(f.error) {
-  assert.equal(view.visibility,'hidden','failed/cancelled compaction hides its already-materialized running node');
-  assert.equal(view.data.status,'ended');
+  assert.equal(view.visibility,'visible','failed/cancelled compaction remains visible with unchanged-history feedback');
+  assert.equal(view.data.status,'failed');
   assert.equal(view.seq,running.seq,'the hidden update retains the running node identity');
   continue;
  }
@@ -102,7 +102,7 @@ projectedState=api.compactionDefinition.update({state:projectedState},projectedD
 assert.equal(api.compactionDefinition.buildViewNode({state:projectedState,matches:[projectedStart,projectedDone]}).data.summary,'摘要');
 assert.equal(api.compactionDefinition.buildViewNode({matches:[projectedDone]}).data.summary,'摘要');
 const failedState=api.compactionDefinition.update({state:api.compactionDefinition.start({},projectedStart)},projectedFailure);
-assert.equal(api.compactionDefinition.buildViewNode({state:failedState,matches:[projectedStart,projectedFailure]}).visibility,'hidden');
+assert.equal(api.compactionDefinition.buildViewNode({state:failedState,matches:[projectedStart,projectedFailure]}).visibility,'visible');
 assert.equal(api.compactionDefinition.match(projectedFailure.event,{for:'compaction',view:{schemaVersion:99}}),null);
 // Context inspector compatibility: evaluate its shipped component as well.
 for(const path of ['ui/plugins/@xlang/xharness-client-ui-context/client.js','ui/dist/plugins/@xlang/xharness-client-ui-context/client.js']) {
