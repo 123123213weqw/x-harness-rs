@@ -935,6 +935,18 @@ impl DriverWorker {
             if claim.is_empty() {
                 return Ok(());
             }
+            // Receipt already queued before a failed turn must not bypass the
+            // same boundary as a late receipt. Keep it durable, do not claim it.
+            if stored.as_ref().is_some_and(crate::internal_inputs_blocked)
+                && claim.messages.iter().all(crate::is_completion_receipt)
+                && !stored.as_ref().is_some_and(|s| {
+                    crate::InboxProjection::from_session(s)
+                        .is_ok_and(|q| q.next_turn().iter().any(crate::is_user_inbox_message))
+                })
+            {
+                self.park_pending().await?;
+                return Ok(());
+            }
             let (expected_revision, claimed, mut deletion_events) = claim.into_loop_parts();
             for message in &claimed {
                 if crate::goal::is_goal_message(message) {

@@ -24,6 +24,7 @@ mod goal_processor;
 mod goal_tool;
 mod goals;
 mod history_tool;
+pub mod job_continuation;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod display;

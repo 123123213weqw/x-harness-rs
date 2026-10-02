@@ -1026,6 +1026,7 @@ pub fn restored_web_event(
             None,
         ),
         EventData::SessionTitleGeneration { .. }
+        | EventData::JobContinuation { .. }
         | EventData::SessionForkOrigin { .. }
         | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
