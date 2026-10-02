@@ -11,7 +11,7 @@ const browser = await ({ chromium, webkit })[engine].launch({ headless: true })
 try {
   const page = await browser.newPage()
   page.on('pageerror', error => console.error('browser page error:', error))
-  await page.setContent(`<style>:root{--dsw-alias-label-primary:#171717;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-border-l2:#d4d4d4;--dsw-alias-bg-base:#fff;--dsw-alias-interactive-bg-hover:#eee;--dsw-alias-markdown-code-block:#f7f7f7}body{font:14px system-ui;margin:24px}#root,#diff{max-width:820px}#diff{margin-top:30px}</style><main id="root"></main><div id="diff"></div>`)
+  await page.setContent(`<style>:root{--dsw-alias-label-primary:#171717;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-border-l2:#d4d4d4;--dsw-alias-bg-base:#fff;--dsw-alias-interactive-bg-hover:#eee;--dsw-alias-markdown-code-block:#f7f7f7}body{font:14px system-ui;margin:24px}#root,#diff{max-width:820px}#diff{margin-top:30px}</style><main id="root"></main><div id="reasoning"><div data-variant="think" data-state="ok"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Past reasoning</span></div><div data-variant="think" data-state="running"><span class="U8JO7q_separator">·</span><span class="U8JO7q_summary">Current reasoning</span></div></div><div id="diff"></div>`)
   for (const file of ['react/umd/react.development.js', 'react-dom/umd/react-dom.development.js']) {
     await page.addScriptTag({ path: resolve(dependencies, 'node_modules', file) })
   }
@@ -43,6 +43,12 @@ try {
   assert.equal(await page.locator('.xhe-key').textContent(), 'Mod+Shift+L')
   await page.locator('.xhe-option').first().click()
   assert.equal(await page.evaluate(() => document.documentElement.dataset.xhProcessMode), 'compact')
+  assert.equal(await page.locator('#reasoning [data-state="ok"]').evaluate(element => getComputedStyle(element).display), 'none')
+  assert.notEqual(await page.locator('#reasoning [data-state="running"]').evaluate(element => getComputedStyle(element).display), 'none')
+  assert.equal(await page.locator('#reasoning [data-state="running"] .U8JO7q_separator').evaluate(element => getComputedStyle(element).display), 'none')
+  await page.locator('.xhe-option').nth(1).click()
+  assert.notEqual(await page.locator('#reasoning [data-state="ok"]').evaluate(element => getComputedStyle(element).display), 'none')
+  await page.locator('.xhe-option').first().click()
   if (engine === 'chromium') await page.locator('#root').screenshot({ path: '/tmp/xh-experience-settings.png' })
 
   const review = readFileSync(new URL('../ui/overrides/review-diff.js', import.meta.url), 'utf8')
