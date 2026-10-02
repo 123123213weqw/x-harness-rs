@@ -1442,4 +1442,5 @@ mod tests {
     }
 }
 pub mod config;
+mod context_discovery;
 pub mod model_settings;

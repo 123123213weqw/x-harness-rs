@@ -52,6 +52,10 @@ try {
  await (legacy?openMenu():openEffort());await page.getByRole('menuitem',{name:legacy?'刷新模型能力':'检查能力'}).click();await page.waitForFunction(()=>refreshes===1);
  await closeAll();
  await openContext();assert.equal(await page.getByRole('textbox').inputValue(),'65536');
+ if (!legacy) {
+  const before=await page.evaluate(()=>refreshes);await page.getByRole('button',{name:'刷新容量'}).click();await page.waitForFunction(before=>refreshes===before+1,before);
+  assert.equal(await page.getByRole('textbox').inputValue(),'65536','capacity refresh must preserve the explicit user budget');
+ }
  await page.getByRole('textbox').fill('131073');await page.getByRole('button',{name:'保存',exact:true}).click();
  await page.getByRole('alert').waitFor();assert.equal(await page.evaluate(()=>calls.length),0);
  await page.getByRole('textbox').fill('32768');await page.getByRole('button',{name:'保存',exact:true}).click();
@@ -86,8 +90,17 @@ try {
   await closeAll();
  }
  await page.evaluate(async()=>{saved={provider:'p',model:'unknown'};await directory.load()});
- await openContext();assert.equal(await page.getByRole('button',{name:'保存',exact:true}).isDisabled(),true);
- await page.getByText('当前模型未提供上限，暂时无法调整。').waitFor();
+ await openContext();
+ if (legacy) {
+  assert.equal(await page.getByRole('button',{name:'保存',exact:true}).isDisabled(),true);
+  await page.getByText('当前模型未提供上限，暂时无法调整。').waitFor();
+ } else {
+  assert.equal(await page.getByRole('button',{name:'保存',exact:true}).isEnabled(),true);
+  assert.equal(await page.getByRole('button',{name:'填入上限'}).isDisabled(),true);
+  await page.getByText('服务端容量未知；可手动设置请求预算，这不代表模型支持该容量。').waitFor();
+  await page.getByRole('textbox').fill('65536');await page.getByRole('button',{name:'保存',exact:true}).click();
+  await page.waitForFunction(()=>saved.model==='unknown'&&saved.contextWindowTokens===65536);
+ }
  await closeAll();await openMenu();await page.getByRole('menuitem',{name:/^模型/}).click();
  if(process.env.UI_TEST_IMPL !== 'legacy')await page.getByRole('menuitem',{name:'menu.custom',exact:true}).click();
  await page.getByRole('menuitemradio',{name:'Small',exact:true}).click();

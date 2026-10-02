@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 use xharness_projection::metrics::MetricsProjectionState;
 use xharness_session::{EventData, Session, SessionRecoveryCheckpoint, SessionRecoveryTail};
 
-pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v1";
+pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v2";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
