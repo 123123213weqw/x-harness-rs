@@ -7,7 +7,8 @@
 - [x] `WMEM-03` 复用 read/edit/write 的精确 memory URI，保留审批、分页、观察版本与原子 CAS；关闭后旧 executor 的新调用也拒绝。
 - [x] `WMEM-04` 索引 2048 UTF-8 字节/24 行、正文 64 KiB，有界锁外读取；同轮固定、下一轮刷新。
 - [x] `WMEM-05` 双语设置、分工作区草稿、版本冲突、确认清空/自动模式；RPC 只接受已知会话或工作区 ID，不复制正文到控制收据/RPC 调试日志。
-- [ ] `WMEM-06` V100 Rust 全量相关包、严格 Clippy 与 CI 验收；Chromium/WebKit 的源码/已提交产物四组合已通过。
+- [x] `WMEM-06` V100 相关包全量回归 + 最新定向复测：581 个不同测试通过、16 个既有辅助/环境测试忽略；四包 all-targets 严格 Clippy。Chromium/WebKit 源码/产物四组合通过。
+- [ ] `WMEM-08` GitHub 跨平台 CI 验收；不自动合并、发版或替换本机应用。
 - [ ] `WMEM-07` 真实模型记忆选择质量另做授权评测，不把脚本 provider 或浏览器 mock 当模型自主效果。
 
 设计：[workspace-memory.md](design/workspace-memory.md)。
