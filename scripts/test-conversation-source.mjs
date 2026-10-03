@@ -17,7 +17,13 @@ test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cy
 
 test('real source entry preserves published ABI, injection, exact stylesheet tags and dictionaries',()=>{
  const old=harness(legacySource),next=harness(compiled.entry);assert.deepEqual(Object.keys(next.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));
- const css=h=>Object.fromEntries(h.styles.map(s=>[s.dataset.pluginCss,s.textContent]));assert.deepEqual(css(next),css(old));assert.deepEqual(json(apis[1].plugin.en),json(apis[0].plugin.en));assert.deepEqual(json(apis[1].plugin.zh),json(apis[0].plugin.zh));
+ // Intentional post-migration feature delta: completed-turn disclosure.
+ const css=h=>Object.fromEntries(h.styles.filter(s=>!s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).map(s=>[s.dataset.pluginCss,s.textContent]));assert.deepEqual(css(next),css(old));
+ const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
+ assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
+ const newKeys=['message.turnFinished','message.expandProcess','message.collapseProcess'];
+ const withoutNew=locale=>Object.fromEntries(Object.entries(json(locale)).filter(([key])=>!newKeys.includes(key)));
+ for(const language of ['en','zh']){assert.deepEqual(withoutNew(apis[1].plugin[language]),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
  assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react/jsx-runtime'].sort());
 });
 test('complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats',()=>{
@@ -26,7 +32,8 @@ test('complete apply registration: keyed nodes, resident shell, overlays, docks,
  const ctx={effect:fn=>{const off=fn();if(typeof off==='function')effects.push(off)},locale:{register:(...args)=>dicts.push(args),bind:()=>k=>k},sessions:{provide:spec=>{events.push(['provide',spec.hooks,spec.props]);return()=>{}},list:{getSnapshot:()=>({byId:{}})},scope(){},on:()=>()=>{}},workspaces:{},layout:{},settingsScope:{bind:()=>host},conversationEvents:{register:d=>defs.push({kind:d.kind,target:d.target}),registerFallback:d=>defs.push({kind:d.kind,target:d.target,fallback:true})},conversationViews:{register:d=>views.push({target:d.target})},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component}),entries:()=>[],subscribe:()=>()=>{},getVersion:()=>0},get:n=>ctx[n],on:(n)=>{events.push(n);return()=>{}},plugin:(plugin,config)=>{if(typeof plugin==='function')new plugin(ctx,config);else plugin.apply(ctx)}};
  api.apply(ctx);
  const normalize=slots.map(({spec})=>json({...spec,inject:undefined,select:undefined,store:undefined,label:typeof spec.label==='function'?spec.label():spec.label})).sort((a,b)=>(a.name+':'+(a.key??a.id??'')).localeCompare(b.name+':'+(b.key??b.id??'')));
- receipts.push({slots:normalize,defs,views,dicts:json(dicts),events});}
+ const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(values).filter(([key])=>!['message.turnFinished','message.expandProcess','message.collapseProcess'].includes(key)))]))]);
+ receipts.push({slots:normalize,defs,views,dicts:baselineDicts,events});}
  assert.deepEqual(json(receipts[1]),json(receipts[0]));assert.equal(receipts[1].defs.length,13);
 });
 test('pure input machine preserves reference, undo/redo, claim and paste transaction behavior',()=>{
