@@ -9,6 +9,10 @@
   overscroll-behavior: contain;
 }
 .xh-session-rail::-webkit-scrollbar { display: none; }
+.xh-session-rail-wide-area { flex-direction: row; gap: 2px; }
+.xh-session-rail-wide-area > .xh-session-rail { order: 2; flex: none; width: 20px; }
+.xh-session-rail-wide-area > :not(.xh-session-rail) { min-width: 0; }
+.xh-session-rail-wide-area .xh-session-rail-item { width: 20px; }
 .xh-session-rail-item {
   display: flex;
   flex: none;

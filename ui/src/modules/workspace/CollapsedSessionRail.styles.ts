@@ -8,6 +8,7 @@ const styles = {
   item: 'xh-session-rail-item',
   mark: 'xh-session-rail-mark',
   current: 'xh-session-rail-current',
+  wideArea: 'xh-session-rail-wide-area',
 } as const
 
 export default styles
