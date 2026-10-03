@@ -319,15 +319,25 @@ async fn drive(owner: &ScheduleOwner) {
 }
 
 #[tokio::test]
-async fn ab_stream_cursor_and_nonzero_exit_smoke_use_real_linux_shell() {
+async fn ab_stream_cursor_and_nonzero_exit_smoke_use_real_platform_shell() {
     for arm in ARMS {
         let lab = Lab::new(arm, 1).await;
         let (id, lease) = lab.run(noop_cancel()).await.unwrap();
         // Deliberately fixed, harmless command; not a production process driver.
+        #[cfg(unix)]
         let result = std::process::Command::new("/bin/sh")
             .args(["-c", "printf '你好'; printf 'fixture error' >&2; exit 7"])
             .output()
             .unwrap();
+        #[cfg(windows)]
+        let result = std::process::Command::new(
+            std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+                .join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+        )
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; [Console]::Out.Write('你好'); [Console]::Error.Write('fixture error'); exit 7"])
+        .output()
+        .unwrap();
         lease.publish_stdout(result.stdout);
         lease.publish_stderr(result.stderr);
         lease.finish(JobOutcome::failed(format!(

@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import vm from 'node:vm'
+import {stripReviewedJobStyle, jobStyleId} from './fixtures/reviewed-job-ui-contract.mjs'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +15,9 @@ const names = process.env.UI_TEST_PRODUCT_MODULES ? allNames.filter(name => proc
 if (!names.length) throw Error('No product source modules selected')
 const idOf = name => `@xlang/xharness-client-ui-${name}`
 const rows = names.map(name => ({ id: idOf(name), source: `src/modules/${name}/index.${name === 'motion' ? 'ts' : 'tsx'}` }))
-const compiled = compileSourceModules(join(repo, 'ui'), rows)
+const compiled = compileSourceModules(join(repo, 'ui'), [...rows, {id:'runtime-path-fixture',source:'src/modules/client-runtime/workspaces/path.ts'}])
+let runtimePath
+vm.runInNewContext(compiled.get('runtime-path-fixture').bytes.toString(), {window:{__ModuleLoader__:{load:row=>{runtimePath=row.factory()}}}})
 const normalized = value => JSON.parse(JSON.stringify(value, (_key, item) => typeof item === 'function' ? `[function:${item.name}]` : item))
 class ElementStub {
   constructor(tagName = 'div', parentElement = null) { this.tagName = tagName.toUpperCase(); this.parentElement = parentElement; this.children = []; this.attrs = new Map(); this.style = {setProperty() {}, removeProperty() {}}; this.isConnected = true; this.textContent = ''; this.id = ''; this.dataset = {} }
@@ -33,7 +36,7 @@ function harness(source, name, options = {}) {
   const effects = []; const cleanups = []; const slots = []; const locales = []; const definitions = []; const views = []
   const styles = new Map(); const timeouts = new Map(); const storage = new Map(Object.entries(options.storage ?? {})); const requests = []; const events = new Map()
   const body = new ElementStub(); const head = new ElementStub()
-  head.append = node => { head.children.push(node); if (node.id) styles.set(node.id, node) }
+  head.append = node => { head.children.push(node); if (node.id || node.dataset.pluginCss) styles.set(node.id || node.dataset.pluginCss, node) }
   const document = { body, head, documentElement: {lang: 'en'}, getElementById: id => styles.get(id) ?? null, querySelector: () => null,
     querySelectorAll: () => [], createElement: tag => new ElementStub(tag) }
   const window = {localStorage: {getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value)}, matchMedia: () => ({matches: options.reduced === true}), getComputedStyle: () => ({getPropertyValue: () => ''}),
@@ -46,7 +49,7 @@ function harness(source, name, options = {}) {
   const api = {createPluginClient: () => (method, params) => {requests.push({method, params}); return Promise.resolve({})}, errorMessage: error => error?.message ?? String(error), isUnsupportedEndpoint: () => false}
   const primitives = {Button: 'Button', Modal: 'Modal', IconFolderClose16: 'Folder', IconChevronRightOutline14: 'Right', IconChevronDownOutline14: 'Down', useAnchoredPosition: () => null}
   const jsx = (type, props, key) => react.createElement(type, {...props, ...(key === undefined ? {} : {key})}, props?.children)
-  const externals = {react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: react.Fragment}, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api}
+  const externals = {react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: react.Fragment}, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api, '@xharness/dsh-client-runtime/client': runtimePath}
   const globals = {window, document, console, TextEncoder, AbortController, Element: ElementStub, HTMLElement: ElementStub, Node: ElementStub,
     MutationObserver: class {observe() {} disconnect() {}}, setTimeout: window.setTimeout, clearTimeout: window.clearTimeout, sessionStorage: window.localStorage,
     atob, Uint8Array, Date, Promise, setInterval: () => 1, clearInterval() {}, navigator: {clipboard: {writeText: async () => {}}}, ...options.globals}
@@ -79,6 +82,7 @@ for (const name of names) {
       : name === 'schedule' ? [...before.plugin.inject, 'workCatalog', 'connection'] : name === 'tasks' ? [...before.plugin.inject,'workCatalog'] : before.plugin.inject
     assert.deepEqual(normalized(after.plugin.inject), normalized(expectedInject))
     before.plugin.apply(before.ctx); after.plugin.apply(after.ctx)
+    if (name === 'schedule') stripReviewedJobStyle([...after.styles.values()])
     if (name === 'context') {
       assert.equal(after.locales.length, 1)
       assert.equal(after.locales[0].namespace, 'xharness.harness')
@@ -117,7 +121,10 @@ for (const name of names) {
     }
     const expectedSlots = normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec))
     if (name === 'tasks') expectedSlots[0].name = 'work.center.tasks'
-    if (name === 'schedule') expectedSlots.unshift({name: 'tool.call.toolview', key: 'automation', locale: 'schedule.catalog'}, {name: 'work.center.automations', id: 'automations', order: 20})
+    if (name === 'schedule') expectedSlots.unshift(
+      ...['automation','job_output','job_kill','job_list'].map(key => ({name:'tool.call.toolview',key,locale:'schedule.catalog'})),
+      {name:'work.center.executions',id:'executions',order:30},
+      {name:'work.center.automations',id:'automations',order:20})
     assert.deepEqual(normalized(after.slots.map(row => row.spec)), expectedSlots)
     if (name === 'context') {
       const current = after.styles.get('xharness-context-inspector-style').textContent
@@ -139,16 +146,17 @@ for (const name of names) {
       }
       if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
       if (name === 'profile' || name === 'tasks') {
+        // Reviewed stable settings-card change: remove only the exact old
+        // section-width rule. Every other frozen section style stays equal.
         const selector = name === 'profile' ? '.xhp-root' : '.xhtask-settings-root'
-        const before = `[role="dialog"]:has(${selector})`
-        const comment = name === 'profile'
-          ? '/* The native dialog owns the full-viewport mask; only widen its content card. */'
-          : '/* Archive layout must not resize the full-viewport modal/mask surface. */'
-        assert.equal(expectedStyles[0][1].split(before).length, 2, 'one exact frozen mask-width selector')
-        expectedStyles[0][1] = expectedStyles[0][1].replace(before, `${comment}\n[data-xh-settings-panel]:has(${selector})`)
+        const width = name === 'profile' ? 1040 : 1180
+        const before = `[role="dialog"]:has(${selector}){width:min(${width}px,calc(100vw - 32px));max-width:calc(100vw - 32px)}\n`
+        assert.equal(expectedStyles[0][1].split(before).length, 2, 'one exact frozen section-width rule')
+        expectedStyles[0][1] = expectedStyles[0][1].replace(before, '')
+        assert.doesNotMatch(after.styles.values().next().value.textContent, /data-xh-settings-panel|\[role="dialog"\]:has/)
       }
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
-      assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
+      assert.deepEqual([...after.styles].filter(([id]) => id !== jobStyleId).map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
     for (const cleanup of after.cleanups) cleanup()
   })
