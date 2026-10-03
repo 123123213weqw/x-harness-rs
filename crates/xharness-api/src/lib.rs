@@ -76,6 +76,7 @@ rpc_methods! {
     SessionList => "session.list",
     SessionSearch => "session.search",
     SessionCreate => "session.create",
+    SessionImport => "session.import",
     SessionHistory => "session.history",
     SessionModels => "session.models",
     SessionSelectModel => "session.selectModel",
