@@ -5,6 +5,7 @@
     "xharness-session"
   ],
   "xharness-api": [],
+  "xharness-cloud": [],
   "xharness-attachments": [
     "xharness-session"
   ],
@@ -72,6 +73,8 @@
     "xharness-agent",
     "xharness-api",
     "xharness-attachments",
+    "xharness-cloud",
+    "xharness-cloud-app",
     "xharness-coding-tools",
     "xharness-compaction",
     "xharness-computer",
@@ -162,5 +165,8 @@
     "xharness-process",
     "xharness-terminal"
   ],
-  "xharness-win32": []
+  "xharness-win32": [],
+  "xharness-cloud-app": [
+    "xharness-cloud"
+  ]
 }

@@ -1,0 +1,28 @@
+{
+  "protocol": "xharness-cloud/v1",
+  "request_id": "request_demo_1",
+  "method": "task.submit",
+  "payload": {
+    "spec": {
+      "environment_ref": {"id": "vm-demo", "version": "v1"},
+      "objective": "只修复测试，保留现有配置。",
+      "acceptance_criteria": ["测试通过", "不自动部署"],
+      "workspace_source": {
+        "kind": "git_revision",
+        "repository_ref": {"id": "repo-demo", "version": "v1"},
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "patch_bundle_ref": null
+      },
+      "selected_material_refs": [],
+      "model_config_ref": {"id": "model-demo", "version": "v3"},
+      "credential_ref": {"id": "credential-demo", "version": "v2"},
+      "permission": "full-access",
+      "system_privilege": "standard-user",
+      "resource_policy_ref": {"id": "resources-demo", "version": "v1"},
+      "stop_policy_ref": {"id": "stop-demo", "version": "v1"},
+      "usage_policy_ref": null,
+      "retention_policy_ref": {"id": "retention-demo", "version": "v1"},
+      "notification_policy_ref": null
+    }
+  }
+}

@@ -56,6 +56,13 @@ class ManagedHostPolicyTests(unittest.TestCase):
         )
         self.assertIn("bypasses", "\n".join(self.check()))
 
+    def test_explicit_bootstrap_consumer_does_not_allow_other_bypasses(self) -> None:
+        self.policy["managedModules"][0]["allowedConsumers"] = ["bootstrap.rs"]
+        (self.host / "bootstrap.rs").write_text("use crate::example_processor::ExampleProcessor;\n")
+        self.assertEqual(self.check(), [])
+        (self.host / "runtime.rs").write_text("use crate::example_processor::ExampleProcessor;\n")
+        self.assertIn("runtime.rs: bypasses", "\n".join(self.check()))
+
     def test_missing_entrypoint_and_duplicate_owner_are_rejected(self) -> None:
         self.policy["managedModules"][0]["entrypoint"] = "rpc/missing.rs"
         self.assertIn("missing source or entrypoint", "\n".join(self.check()))

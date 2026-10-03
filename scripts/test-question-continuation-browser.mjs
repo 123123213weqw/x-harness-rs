@@ -54,6 +54,10 @@ try {
   await input.fill('my partial answer');
   await page.evaluate(()=>renderQuestion(true));
   assert.equal(await page.locator('[data-question-deferred="true"]').count(),1);
+  // The deferred prop commits before the passive effect's minimized update.
+  // count() does not auto-wait: observe the real fold, not a fixed sleep or the
+  // first commit. Keep the original assertion and the 8-second failure bound.
+  await input.waitFor({state:'detached'});
   assert.equal(await input.count(),0,'timeout automatically folds question body');
   assert.equal(await composer.isVisible(),true,'deferred question releases normal composer');
   await composer.fill('independent message draft');

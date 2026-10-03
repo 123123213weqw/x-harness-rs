@@ -153,8 +153,9 @@ async fn initial_size_reaches_the_child_pty() {
 async fn resize_updates_the_child_pty_window() {
     let registry = TerminalRegistry::with_defaults();
     let spec = {
-        let mut process = shell_spec();
-        process.args = Vec::new();
+        // Keep the fixture shell's --noprofile/--norc: an inherited host
+        // .bashrc must not consume input or delay this PTY resize assertion.
+        let process = shell_spec();
         TerminalOpenSpec {
             owner: "resize-owner".into(),
             name: "resizable".into(),

@@ -212,6 +212,15 @@ impl ToolExecutor {
         self
     }
 
+    /// Append an innermost execution boundary without replacing existing hooks.
+    /// It runs after approval/lifecycle waits, immediately before the handler.
+    pub fn with_additional_around(mut self, middleware: Arc<dyn AroundMiddleware>) -> Self {
+        let mut around = self.around.to_vec();
+        around.push(middleware);
+        self.around = around.into();
+        self
+    }
+
     pub fn with_post(mut self, middleware: Vec<Arc<dyn PostMiddleware>>) -> Self {
         self.post = middleware.into();
         self

@@ -1,0 +1,21 @@
+[package]
+publish = false
+name = "xharness-cloud-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Durable hosted-task control and reconciler adapters"
+
+[dependencies]
+xharness-cloud = { path = "../xharness-cloud" }
+async-trait.workspace = true
+fs2 = "0.4.3"
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
