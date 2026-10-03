@@ -272,7 +272,6 @@ pub struct JobRegistry {
 struct RegistryInner {
     /// New on each Registry/Host lifetime; raw counters must never address a
     /// different producer after restart. No legacy-counter alias is resolved.
-
     generation: String,
     config: JobRegistryConfig,
     state: Mutex<RegistryState>,
