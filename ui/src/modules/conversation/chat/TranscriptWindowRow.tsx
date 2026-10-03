@@ -7,6 +7,15 @@ type Binding = { keep(value: boolean): void; focus(value: boolean): void; remove
 type Row = View & { element: HTMLElement; update(view: View): void; keep: boolean; focused: boolean; selected: boolean; near: boolean }
 type Controller = { add(element: HTMLElement, update: (view: View) => void, keep: boolean, estimate: number): Binding }
 const roots = new WeakMap<HTMLElement, Controller>()
+const followOwners = new WeakMap<HTMLElement, Readonly<{ current: boolean }>>()
+
+/** ChatView owns reader intent; measuring rows must not infer it a second time. */
+export function bindTranscriptFollow(root: HTMLElement, owner: Readonly<{ current: boolean }>): () => void {
+  followOwners.set(root, owner)
+  return () => {
+    if (followOwners.get(root) === owner) followOwners.delete(root)
+  }
+}
 
 /** Product-owned bounded transcript DOM. Heavy children are mounted near the viewport only. */
 function controller(root: HTMLElement): Controller {
@@ -19,7 +28,7 @@ function controller(root: HTMLElement): Controller {
   let following = false
   const viewportTop = (): number => root.getBoundingClientRect().top
   function remember(): void {
-    following = root.scrollHeight - root.scrollTop - root.clientHeight <= 25
+    following = followOwners.get(root)?.current ?? (root.scrollHeight - root.scrollTop - root.clientHeight <= 25)
     const top = viewportTop()
     anchor = null
     for (const row of rows.values()) {
@@ -32,7 +41,9 @@ function controller(root: HTMLElement): Controller {
   }
   function compensate(): void {
     if (getComputedStyle(root).overflowAnchor === 'none') {
-      if (following) root.scrollTop = root.scrollHeight
+      // Read the live ref here too: upward intent may arrive after remember(),
+      // before ResizeObserver. Geometry alone must not take ownership back.
+      if (followOwners.get(root)?.current ?? following) root.scrollTop = root.scrollHeight
       else if (anchor?.element.isConnected && rows.has(anchor.element)) {
         root.scrollTop += anchor.element.getBoundingClientRect().top - viewportTop() - anchor.top
       }
