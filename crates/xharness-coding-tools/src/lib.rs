@@ -297,7 +297,7 @@ impl CodingToolBundle {
                         ));
                     }
                     if wait {
-                        let timeout = job_wait(optional_u64(&context, "timeout_ms"))?;
+                        let timeout = job_wait_argument(&context)?;
                         tokio::select! {
                             result = jobs.wait(&owner, &job_id, timeout) => {
                                 result.map_err(handler_error)?;
@@ -1092,6 +1092,15 @@ fn command_timeout(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
         )));
     }
     Ok(duration)
+}
+
+fn job_wait_argument(context: &ToolExecutionContext) -> Result<Duration, ToolHandlerError> {
+    let value = context.arguments.get("timeout_ms").map(|value| {
+        value.as_u64().ok_or_else(|| ToolHandlerError::new(
+            "job_output timeout_ms must be a non-negative integer representable as u64; omit it to use the default"
+        ))
+    }).transpose()?;
+    job_wait(value)
 }
 
 fn job_wait(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
