@@ -47,6 +47,12 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 仍只有一个 `agent` 工具，允许用户通过聊天明确指定子模型／思考强度；模型仅传递选择。
 用户没有指定时完整继承父会话设置，不按任务复杂度／成本自主选择其他模型或强度。
 
+上下文继承保留选择语义：父会话自动模式继承 `None`，每轮使用子模型当前容量；
+父会话明确选择的小窗口保留该数字。更换子模型使用目标模型自己的容量，不复制另一模型的上限。
+旧 32K 自动快照依据原始 `session.selectModel` RPC 收据及子创建时的父历史切片追加修复；
+明确的小窗口、缺失收据、时间顺序不明的记录不擅自改动。修复前缀历史保持原样，重复恢复
+不重复追加；刷新已加载会话同样在下一轮边界生效，不中断当前工具或请求。
+
 ```json
 {"action":"inspect"}
 {"action":"start","task":"独立只读审查","provider":"configured-provider","model":"configured-model","reasoning_effort":"high"}

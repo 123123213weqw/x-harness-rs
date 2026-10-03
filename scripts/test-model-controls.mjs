@@ -38,7 +38,7 @@ for(const raw of ['0','-1','1.2','NaN','Infinity','1e4','131073','90071992547409
 assert.equal(api.xhContextSelection(state,' 131072 ').contextWindowTokens,131072)
 for(const maximum of [undefined,0,-1,NaN,Infinity,1.2]) {
  const noCap={current,groups:[{id:'test',models:[{id:'large',contextWindow:maximum}]}]}
- assert.throws(()=>api.xhContextSelection(noCap,'1024'))
+ assert.equal(api.xhContextSelection(noCap,'65536').contextWindowTokens,65536, 'unknown capacity is not a 32K maximum')
 }
 const switched={...state,current:{provider:'test',model:'small'}}
 assert.equal(api.xhModelInfo(switched).maximum,32768)
@@ -97,6 +97,6 @@ const refreshed=new api.ModelDirectory({models:async args=>{refreshCalls.push(ar
 await refreshed.load(true);assert.equal(refreshCalls[0].refreshCapabilities,true);
 const {patchReasoningSettings,patchModelConnection}=await import('./patch-model-controls.mjs');
 for (const [id,patch] of [['dsh-client-ui-model-selection',patchModelControls],['dsh-client-connection',patchModelConnection],['dsh-client-ui-settings-models',patchReasoningSettings]]) {
- const bytes=readFileSync(new URL(`../ui/reference/master-a613970/plugins/@xharness/${id}/client.js`,import.meta.url));assert.deepEqual(patch(bytes),bytes,'patch must be repeatable: '+id);
+ const bytes=readFileSync(new URL(`../ui/reference/master-a613970/plugins/@xharness/${id}/client.js`,import.meta.url));const patched=patch(bytes);assert.deepEqual(patch(patched),patched,'patch must be repeatable: '+id);
 }
 console.log('Reasoning unknown/disabled/stale state, discovery refresh and repeatable asset patches passed');

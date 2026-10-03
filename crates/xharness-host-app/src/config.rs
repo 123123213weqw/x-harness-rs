@@ -16,6 +16,8 @@ use xharness_token::{TokenBudget, TokenGuard};
 
 const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4_096;
 const DEFAULT_TOKEN_SAFETY_MARGIN: u64 = 1_024;
+// A temporary request budget, never evidence of the deployment's maximum.
+const UNKNOWN_CONTEXT_WORKING_BUDGET: u64 = 32_768;
 
 pub struct ModelDeployment {
     pub default_route: ModelRoute,
@@ -435,13 +437,15 @@ impl ProviderConfig {
     }
 }
 
-pub(crate) async fn registry_from_resolved_settings(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn registry_from_settings_with_context(
     document: &xharness_host::ModelSettingsDocument,
     keys: &BTreeMap<String, Option<String>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
     observations: &BTreeMap<(String, String), serde_json::Value>,
     calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
+    contexts: &BTreeMap<(String, String), xharness_core::ContextWindowCapability>,
 ) -> Result<ModelRegistry, String> {
     let mut registry = ModelRegistry::new();
     for (id, profile) in &document.providers {
@@ -454,7 +458,7 @@ pub(crate) async fn registry_from_resolved_settings(
         };
         let models = profile.models.iter().map(|m| serde_json::json!({
             "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,
-            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window).or(Some(32_768)),
+            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window),
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
             "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
@@ -469,6 +473,12 @@ pub(crate) async fn registry_from_resolved_settings(
         .map_err(|_| "Invalid native model metadata".to_owned())?;
         provider.register_models_with_key(&mut registry, debug.clone(), key, attachments.clone(), calibration.clone()).await
             .map_err(|_| format!("Provider {id} configuration could not be activated; check model metadata and token limits"))?;
+        for model in &profile.models {
+            if let Some(context) = contexts.get(&(id.clone(), model.id.clone())) {
+                registry.replace_context_capability(&ModelRoute::new(id, &model.id), context.clone())
+                    .map_err(|_| format!("Provider {id} discovered context cannot hold the configured output reserve"))?;
+            }
+        }
     }
     Ok(registry)
 }
@@ -703,14 +713,19 @@ pub fn token_guard(
     if model == "unconfigured" {
         return Ok(None);
     }
-    let context_window_tokens = context_window_tokens.ok_or_else(|| {
-        "configured models require a Provider/deployment context capability or an explicitly labelled fallback_context_window_tokens value".to_owned()
-    })?;
+    let minimum = minimum_output_tokens
+        .unwrap_or_else(|| xharness_host::automatic_minimum_output_tokens(max_output_tokens));
+    let context_window_tokens = context_window_tokens.unwrap_or_else(|| {
+        UNKNOWN_CONTEXT_WORKING_BUDGET.max(
+            minimum
+                .saturating_add(token_safety_margin)
+                .saturating_add(UNKNOWN_CONTEXT_WORKING_BUDGET),
+        )
+    });
     TokenGuard::conservative(TokenBudget {
         context_window_tokens,
         reserved_output_tokens: max_output_tokens,
-        minimum_output_tokens: minimum_output_tokens
-            .unwrap_or_else(|| xharness_host::automatic_minimum_output_tokens(max_output_tokens)),
+        minimum_output_tokens: minimum,
         safety_margin_tokens: token_safety_margin,
     })
     .map(Some)
@@ -882,9 +897,15 @@ mod tests {
     use xharness_core::CapabilitySource;
 
     #[test]
-    fn configured_model_requires_a_reported_capability_or_labelled_fallback() {
-        let error = token_guard("model", None, 4_096, None, 1_024).unwrap_err();
-        assert!(error.contains("Provider/deployment context capability"));
+    fn unknown_capacity_gets_a_working_budget_not_a_claimed_model_maximum() {
+        let guard = token_guard("model", None, 4_096, None, 1_024)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            guard.budget().available_input_tokens(),
+            UNKNOWN_CONTEXT_WORKING_BUDGET
+        );
+        assert!(guard.with_context_window(262_144).is_ok());
     }
 
     #[test]

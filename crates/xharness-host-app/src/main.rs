@@ -216,6 +216,7 @@ async fn run(
     config.model_id = deployment.default_route.model.clone();
     config.reasoning_effort = deployment.default_route.reasoning_effort.clone();
     config.token_guard = deployment.default_token_guard.clone();
+    config.selected_context_window_tokens = deployment.default_route.context_window_tokens;
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");

@@ -268,6 +268,30 @@ impl BasicHost {
             let mut cancellations =
                 xharness_session::stale_approval_cancellations(session.events());
             cancellations.extend(crate::questions::delegated_question_cancellations(&session));
+            // Append-only, flushed and idempotent repair before worker resume.
+            // Parent history is read at the child's creation cut, not at now.
+            let parent = if let Some(parent_id) = crate::delegation::restored_delegation(&session)
+                .filter(|_| crate::context_selection::needs_legacy_check(&session))
+            {
+                match store.load(&parent_id).await {
+                    Ok(parent) => parent,
+                    Err(error) => {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: format!(
+                                "could not verify inherited legacy context budget: {error}"
+                            ),
+                        });
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if let Some(repair) = crate::context_selection::legacy_repair(&session, parent.as_ref())
+            {
+                cancellations.push(repair);
+            }
             if !cancellations.is_empty() {
                 store
                     .append(&session_id, session.revision(), cancellations)
