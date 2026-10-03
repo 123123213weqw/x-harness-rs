@@ -75,6 +75,30 @@ Lease 的生命周期覆盖整个 Activation。失去最后一个 `Arc` 会取�
 
 ## Checkpoint 与恢复
 
+### 终态失败后的自动派发门禁（2026-10-12）
+
+- 不可重试的 `turn/end: failed` 本身就是关闭自动派发的持久事实；不依赖另一次写入暂停事件，
+  也不匹配错误文本。旧日志没有 `agent/dispatch-paused` 时仍生效。
+- Host 与 Actor 共用 `Session::dispatch_paused()` 投影。失败后的子 Agent 回执仍接受、
+  去重、落盘，但不领取为新 Turn，不执行 Token Counter、Provider 或自动压缩。
+  普通 Wake、恢复进程和自动 Maintenance Followup 都不能绕过门禁。
+- 旧 v1 Idle Recovery Checkpoint 的门禁缓存不可信，升级后只回退一次权威重放并发布 v2；
+  后续冷启动仍复用检查点，避免旧缓存把历史失败会话显示为健康。
+- 明确标注 `provider_failure.retryable=true` 的暂态故障仍交由既有 Goal 退避／截止时间恢复，
+  不被本修复改成人工重试；但迟到的暂态失败也不能覆盖明确用户停止。
+- User Role 不等于人类输入：按可信传输 Source 判断；`agent-settlement`、`agent-message`、
+  `goal` 等内部来源不能恢复。原嵌入 API 缺省 Source 仍代表用户；Host 保留 admission
+  metadata 中 `source.kind=user`，不能把包装后的真实用户误判成内部上下文。
+- 直接 Actor 的用户恢复将 `agent/dispatch-paused=false`、Inbox Claim、`turn/start` 和用户
+  消息绑定同一 CAS；过期或被撤销的 Claim 不能解锁。待处理回执保留，不靠清空历史修复。
+- 用户明确请求的 `/compact` 可以做维护，但其成功或 NoBenefit 不自动解锁回执；
+  在维护前持久保留关闭状态，仍需用户重试。正常会话的自动回执继续处理。
+- 后续成功 Turn 可证明旧失败已恢复，但不能覆盖明确的用户暂停；Fork 不继承父级门禁。
+  公开 `idle | running` 与原错误、恢复协议保持不变，不增加第二套生命周期状态机。
+
+回归覆盖真实 LoopEngine 的无收益压缩、连续/迟到回执、Wake、旧日志恢复、用户原子重试、
+撤销/冲突 Claim、手动维护和健康通知，并验证 Host 恢复、回执去重和用户继续工作。
+
 正式 Driver 必须遵守以下顺序：
 
 1. 接受输入前，把 Inbox Insert Flush；成功返回表示已持久排队，不只是进入 Channel。
