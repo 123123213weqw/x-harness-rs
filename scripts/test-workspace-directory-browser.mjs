@@ -232,6 +232,8 @@ try {
     const createBox = await dialog().getByRole('button', { name: '创建', exact: true }).boundingBox()
     assert.ok(createBox.y >= 0 && createBox.y + createBox.height <= size.height, JSON.stringify(createBox))
     await page.keyboard.press('Escape'); await name.waitFor({ state: 'detached' })
+    await dialog().waitFor()
+    assert.equal(await open().isVisible(), true, 'folder Escape is consumed without cancelling the workspace picker')
   }
   const evidence = resolve(process.env.UI_TEST_EVIDENCE ?? resolve(root, 'dist/workspace-directory-evidence'))
   mkdirSync(evidence, { recursive: true })

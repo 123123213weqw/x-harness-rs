@@ -23,7 +23,7 @@ export function TriggerContent({ wide, t }: TriggerContentProps) {
   return (
     <>
       {wide ? <IconSettingsOutline16 size={16} /> : <IconSettingsOutline14 size={18} />}
-      {wide && <span className={css.triggerLabel}>{t('trigger')}</span>}
+      <span className={wide ? css.triggerLabel : css.hiddenLabel}>{t('trigger')}</span>
     </>
   )
 }

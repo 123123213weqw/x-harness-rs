@@ -1,0 +1,782 @@
+
+> xharness-product-ui@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+TAP version 13
+# Subtest: reject explicit any
+ok 1 - reject explicit any
+  ---
+  duration_ms: 10.435278
+  ...
+# Subtest: reject cast
+ok 2 - reject cast
+  ---
+  duration_ms: 2.423367
+  ...
+# Subtest: reject double cast
+ok 3 - reject double cast
+  ---
+  duration_ms: 0.96959
+  ...
+# Subtest: reject angle cast
+ok 4 - reject angle cast
+  ---
+  duration_ms: 1.00894
+  ...
+# Subtest: reject non-null cast
+ok 5 - reject non-null cast
+  ---
+  duration_ms: 1.484416
+  ...
+# Subtest: reject ignore
+ok 6 - reject ignore
+  ---
+  duration_ms: 1.327742
+  ...
+# Subtest: reject nocheck
+ok 7 - reject nocheck
+  ---
+  duration_ms: 1.14209
+  ...
+# Subtest: reject expect-error
+ok 8 - reject expect-error
+  ---
+  duration_ms: 0.874426
+  ...
+# Subtest: allow literal preservation
+ok 9 - allow literal preservation
+  ---
+  duration_ms: 2.204
+  ...
+# Subtest: allow import/export aliases
+ok 10 - allow import/export aliases
+  ---
+  duration_ms: 1.655845
+  ...
+# Subtest: allow satisfies
+ok 11 - allow satisfies
+  ---
+  duration_ms: 0.819818
+  ...
+# Subtest: allow unknown guard
+ok 12 - allow unknown guard
+  ---
+  duration_ms: 2.19599
+  ...
+# Subtest: allow text mentions
+ok 13 - allow text mentions
+  ---
+  duration_ms: 0.495692
+  ...
+# Subtest: allow regex text mentions
+ok 14 - allow regex text mentions
+  ---
+  duration_ms: 0.79882
+  ...
+# Subtest: allow template raw text mentions
+ok 15 - allow template raw text mentions
+  ---
+  duration_ms: 1.029619
+  ...
+# Subtest: allow non-directive comments
+ok 16 - allow non-directive comments
+  ---
+  duration_ms: 0.450555
+  ...
+# Subtest: allow logical negation
+ok 17 - allow logical negation
+  ---
+  duration_ms: 0.477976
+  ...
+# Subtest: reject inferred any from an untyped library boundary
+ok 18 - reject inferred any from an untyped library boundary
+  ---
+  duration_ms: 3244.956295
+  ...
+# Subtest: receive a library reply as unknown before narrowing, never assume fields
+ok 19 - receive a library reply as unknown before narrowing, never assume fields
+  ---
+  duration_ms: 2358.467863
+  ...
+# Subtest: ordinary functions keep sound inference
+ok 20 - ordinary functions keep sound inference
+  ---
+  duration_ms: 2465.776287
+  ...
+# Subtest: directives within template expressions and after regex literals remain forbidden
+ok 21 - directives within template expressions and after regex literals remain forbidden
+  ---
+  duration_ms: 1.255898
+  ...
+# Subtest: async and container inference cannot hide an any boundary
+ok 22 - async and container inference cannot hide an any boundary
+  ---
+  duration_ms: 2478.079759
+  ...
+# Subtest: vendor React component types do not masquerade as owned any bindings
+ok 23 - vendor React component types do not masquerade as owned any bindings
+  ---
+  duration_ms: 2259.383958
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 12875.970454
+TAP version 13
+# Subtest: legacy: parser validates malformed boot boundaries and copies arrays
+ok 1 - legacy: parser validates malformed boot boundaries and copies arrays
+  ---
+  duration_ms: 4.182244
+  ...
+# Subtest: legacy: queue switch, lazy registration, memoization, seed and /client aliases
+ok 2 - legacy: queue switch, lazy registration, memoization, seed and /client aliases
+  ---
+  duration_ms: 1.724891
+  ...
+# Subtest: legacy: external arrivals are ordered, inject is informational, in-flight loads coalesce
+ok 3 - legacy: external arrivals are ordered, inject is informational, in-flight loads coalesce
+  ---
+  duration_ms: 15.845964
+  ...
+# Subtest: legacy: missing registration, retries, graph cycles and require cycles fail loudly
+ok 4 - legacy: missing registration, retries, graph cycles and require cycles fail loudly
+  ---
+  duration_ms: 1.627043
+  ...
+# Subtest: legacy: invalidation reloads and failed factories do not cache partial records
+ok 5 - legacy: invalidation reloads and failed factories do not cache partial records
+  ---
+  duration_ms: 0.596299
+  ...
+# Subtest: source: parser validates malformed boot boundaries and copies arrays
+ok 6 - source: parser validates malformed boot boundaries and copies arrays
+  ---
+  duration_ms: 0.635787
+  ...
+# Subtest: source: queue switch, lazy registration, memoization, seed and /client aliases
+ok 7 - source: queue switch, lazy registration, memoization, seed and /client aliases
+  ---
+  duration_ms: 1.28642
+  ...
+# Subtest: source: external arrivals are ordered, inject is informational, in-flight loads coalesce
+ok 8 - source: external arrivals are ordered, inject is informational, in-flight loads coalesce
+  ---
+  duration_ms: 5.504388
+  ...
+# Subtest: source: missing registration, retries, graph cycles and require cycles fail loudly
+ok 9 - source: missing registration, retries, graph cycles and require cycles fail loudly
+  ---
+  duration_ms: 1.120886
+  ...
+# Subtest: source: invalidation reloads and failed factories do not cache partial records
+ok 10 - source: invalidation reloads and failed factories do not cache partial records
+  ---
+  duration_ms: 0.62808
+  ...
+# Subtest: source: strict HMR SSE boundary and serialized lifecycle preserve old behavior
+ok 11 - source: strict HMR SSE boundary and serialized lifecycle preserve old behavior
+  ---
+  duration_ms: 3139.380475
+  ...
+# Subtest: legacy: gateway direct/scoped codecs, cancellation, mount rollback and withdrawn closure
+ok 12 - legacy: gateway direct/scoped codecs, cancellation, mount rollback and withdrawn closure
+  ---
+  duration_ms: 18.047069
+  ...
+# Subtest: legacy: gateway duplicate listeners, exception containment and carrier/result failures
+ok 13 - legacy: gateway duplicate listeners, exception containment and carrier/result failures
+  ---
+  duration_ms: 7.021149
+  ...
+# Subtest: source: gateway direct/scoped codecs, cancellation, mount rollback and withdrawn closure
+ok 14 - source: gateway direct/scoped codecs, cancellation, mount rollback and withdrawn closure
+  ---
+  duration_ms: 2869.164946
+  ...
+# Subtest: source: gateway duplicate listeners, exception containment and carrier/result failures
+ok 15 - source: gateway duplicate listeners, exception containment and carrier/result failures
+  ---
+  duration_ms: 6.097152
+  ...
+# Subtest: legacy: log export coalesces requests, dismiss preserves success, no late work after dispose
+ok 16 - legacy: log export coalesces requests, dismiss preserves success, no late work after dispose
+  ---
+  duration_ms: 3.504178
+  ...
+# Subtest: legacy: log export reports HTTP failure, abort drains and /export command shares controller
+ok 17 - legacy: log export reports HTTP failure, abort drains and /export command shares controller
+  ---
+  duration_ms: 3.425758
+  ...
+# Subtest: source: log export coalesces requests, dismiss preserves success, no late work after dispose
+ok 18 - source: log export coalesces requests, dismiss preserves success, no late work after dispose
+  ---
+  duration_ms: 15779.242305
+  ...
+# Subtest: source: log export reports HTTP failure, abort drains and /export command shares controller
+ok 19 - source: log export reports HTTP failure, abort drains and /export command shares controller
+  ---
+  duration_ms: 9.417203
+  ...
+# Subtest: legacy: locale dictionary fallback, stable bind, revisions and ownership disposer
+ok 20 - legacy: locale dictionary fallback, stable bind, revisions and ownership disposer
+  ---
+  duration_ms: 5.577343
+  ...
+# Subtest: legacy: locale durable adoption and current-language selection still persist
+ok 21 - legacy: locale durable adoption and current-language selection still persist
+  ---
+  duration_ms: 2.552079
+  ...
+# Subtest: source: locale dictionary fallback, stable bind, revisions and ownership disposer
+ok 22 - source: locale dictionary fallback, stable bind, revisions and ownership disposer
+  ---
+  duration_ms: 14400.175333
+  ...
+# Subtest: source: locale durable adoption and current-language selection still persist
+ok 23 - source: locale durable adoption and current-language selection still persist
+  ---
+  duration_ms: 1.401977
+  ...
+# Subtest: legacy: gateway partial namespace installation rollback leaves no service
+ok 24 - legacy: gateway partial namespace installation rollback leaves no service
+  ---
+  duration_ms: 5.873975
+  ...
+# Subtest: legacy: log export abort cancels in-flight HTTP and waits for settlement
+ok 25 - legacy: log export abort cancels in-flight HTTP and waits for settlement
+  ---
+  duration_ms: 1.64125
+  ...
+# Subtest: legacy: locale apply owns document language, preference row and initial snapshot sync
+ok 26 - legacy: locale apply owns document language, preference row and initial snapshot sync
+  ---
+  duration_ms: 2.536923
+  ...
+# Subtest: source: gateway partial namespace installation rollback leaves no service
+ok 27 - source: gateway partial namespace installation rollback leaves no service
+  ---
+  duration_ms: 4.878328
+  ...
+# Subtest: source: log export abort cancels in-flight HTTP and waits for settlement
+ok 28 - source: log export abort cancels in-flight HTTP and waits for settlement
+  ---
+  duration_ms: 1.483066
+  ...
+# Subtest: source: locale apply owns document language, preference row and initial snapshot sync
+ok 29 - source: locale apply owns document language, preference row and initial snapshot sync
+  ---
+  duration_ms: 1.722894
+  ...
+# Subtest: legacy: dynamic closure preserves global redirects, JSON host seat and style cleanup
+ok 30 - legacy: dynamic closure preserves global redirects, JSON host seat and style cleanup
+  ---
+  duration_ms: 11.226616
+  ...
+# Subtest: legacy: dynamic guard enforces declared seats, traced receivers, owned theme and Context withholding
+ok 31 - legacy: dynamic guard enforces declared seats, traced receivers, owned theme and Context withholding
+  ---
+  duration_ms: 6.797496
+  ...
+# Subtest: legacy: inspect query cancellation, duplicate admission and settlement preserve request correlation
+ok 32 - legacy: inspect query cancellation, duplicate admission and settlement preserve request correlation
+  ---
+  duration_ms: 7.790561
+  ...
+# Subtest: legacy: lifecycle coalesces same activation, replacement and stale retract; load errors remain classified
+ok 33 - legacy: lifecycle coalesces same activation, replacement and stale retract; load errors remain classified
+  ---
+  duration_ms: 9.850234
+  ...
+# Subtest: source: dynamic closure preserves global redirects, JSON host seat and style cleanup
+ok 34 - source: dynamic closure preserves global redirects, JSON host seat and style cleanup
+  ---
+  duration_ms: 5590.369666
+  ...
+# Subtest: source: dynamic guard enforces declared seats, traced receivers, owned theme and Context withholding
+ok 35 - source: dynamic guard enforces declared seats, traced receivers, owned theme and Context withholding
+  ---
+  duration_ms: 15.858976
+  ...
+# Subtest: source: inspect query cancellation, duplicate admission and settlement preserve request correlation
+ok 36 - source: inspect query cancellation, duplicate admission and settlement preserve request correlation
+  ---
+  duration_ms: 29.072161
+  ...
+# Subtest: source: lifecycle coalesces same activation, replacement and stale retract; load errors remain classified
+ok 37 - source: lifecycle coalesces same activation, replacement and stale retract; load errors remain classified
+  ---
+  duration_ms: 19.977799
+  ...
+# Subtest: legacy: callback and awaited timeouts release timers and fiber effects on completion/cancellation
+not ok 38 - legacy: callback and awaited timeouts release timers and fiber effects on completion/cancellation
+  ---
+  duration_ms: 7.143997
+  location: '/home/data/wangyue/repos/codex-build/x-harness-rs-page-priority/scripts/test-foundation-source-modules.mjs:382:3'
+  failureType: 'testCodeFailure'
+  error: 'Promise.withResolvers is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    ClientTimerService.timeout (evalmachine.<anonymous>:3880:50)
+    TestContext.<anonymous> (file:///home/data/wangyue/repos/codex-build/x-harness-rs-page-priority/scripts/test-foundation-source-modules.mjs:386:24)
+    Test.runInAsyncScope (node:async_hooks:206:9)
+    Test.run (node:internal/test_runner/test:796:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:526:18)
+    Test.postRun (node:internal/test_runner/test:889:19)
+    Test.run (node:internal/test_runner/test:835:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: legacy: callback and iterator intervals preserve ticks, return/throw and context disposal
+not ok 39 - legacy: callback and iterator intervals preserve ticks, return/throw and context disposal
+  ---
+  duration_ms: 6.566463
+  location: '/home/data/wangyue/repos/codex-build/x-harness-rs-page-priority/scripts/test-foundation-source-modules.mjs:389:3'
+  failureType: 'testCodeFailure'
+  error: 'Promise.withResolvers is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    Object.next (evalmachine.<anonymous>:3922:55)
+    TestContext.<anonymous> (file:///home/data/wangyue/repos/codex-build/x-harness-rs-page-priority/scripts/test-foundation-source-modules.mjs:391:105)
+    Test.runInAsyncScope (node:async_hooks:206:9)
+    Test.run (node:internal/test_runner/test:796:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:526:18)
+    Test.postRun (node:internal/test_runner/test:889:19)
+    Test.run (node:internal/test_runner/test:835:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  ...
+# Subtest: legacy: throttle/debounce preserve argument tuples, trailing policy and cleanup
+ok 40 - legacy: throttle/debounce preserve argument tuples, trailing policy and cleanup
+  ---
+  duration_ms: 6.896326
+  ...
+# Subtest: legacy: orchestration coalesces per plugin and preserves Host -> source -> load -> settlement order
+ok 41 - legacy: orchestration coalesces per plugin and preserves Host -> source -> load -> settlement order
+  ---
+  duration_ms: 5.853353
+  ...
+# Subtest: legacy: approvals stay authoritative across missed events, rejection, remote settlement and reconnect inventory
+ok 42 - legacy: approvals stay authoritative across missed events, rejection, remote settlement and reconnect inventory
+  ---
+  duration_ms: 4.394644
+  ...
+# Subtest: legacy: Host, Client and settlement failures remain separate and clear per-plugin activity
+ok 43 - legacy: Host, Client and settlement failures remain separate and clear per-plugin activity
+  ---
+  duration_ms: 3.252758
+  ...
+# Subtest: source: callback and awaited timeouts release timers and fiber effects on completion/cancellation
+ok 44 - source: callback and awaited timeouts release timers and fiber effects on completion/cancellation
+  ---
+  duration_ms: 12.100883
+  ...
+# Subtest: source: callback and iterator intervals preserve ticks, return/throw and context disposal
+ok 45 - source: callback and iterator intervals preserve ticks, return/throw and context disposal
+  ---
+  duration_ms: 12.491488
+  ...
+# Subtest: source: throttle/debounce preserve argument tuples, trailing policy and cleanup
+ok 46 - source: throttle/debounce preserve argument tuples, trailing policy and cleanup
+  ---
+  duration_ms: 11.622143
+  ...
+# Subtest: source: orchestration coalesces per plugin and preserves Host -> source -> load -> settlement order
+ok 47 - source: orchestration coalesces per plugin and preserves Host -> source -> load -> settlement order
+  ---
+  duration_ms: 10.167936
+  ...
+# Subtest: source: approvals stay authoritative across missed events, rejection, remote settlement and reconnect inventory
+ok 48 - source: approvals stay authoritative across missed events, rejection, remote settlement and reconnect inventory
+  ---
+  duration_ms: 9.927019
+  ...
+# Subtest: source: Host, Client and settlement failures remain separate and clear per-plugin activity
+ok 49 - source: Host, Client and settlement failures remain separate and clear per-plugin activity
+  ---
+  duration_ms: 9.5651
+  ...
+# Subtest: source: structured inspect catalogs retain baseline data without an external generator
+ok 50 - source: structured inspect catalogs retain baseline data without an external generator
+  ---
+  duration_ms: 5622.511385
+  ...
+# Subtest: legacy: reflection and invocation registration are atomic, ordered and fiber-owned
+ok 51 - legacy: reflection and invocation registration are atomic, ordered and fiber-owned
+  ---
+  duration_ms: 14.816442
+  ...
+# Subtest: legacy: strict invocation validation rejects invalid scope, cancellation, lookup and batch identities before mutation
+ok 52 - legacy: strict invocation validation rejects invalid scope, cancellation, lookup and batch identities before mutation
+  ---
+  duration_ms: 6.500719
+  ...
+# Subtest: legacy: lookup override restores defaults and immutable wire declarations survive provider unload
+ok 53 - legacy: lookup override restores defaults and immutable wire declarations survive provider unload
+  ---
+  duration_ms: 4.659103
+  ...
+# Subtest: legacy: scoped Host/Client Context ownership and configured policies remain separate
+ok 54 - legacy: scoped Host/Client Context ownership and configured policies remain separate
+  ---
+  duration_ms: 5.682665
+  ...
+# Subtest: legacy: selected Remote contributions mount in order and unwind failures in reverse
+ok 55 - legacy: selected Remote contributions mount in order and unwind failures in reverse
+  ---
+  duration_ms: 56.682091
+  ...
+# Subtest: source: reflection and invocation registration are atomic, ordered and fiber-owned
+ok 56 - source: reflection and invocation registration are atomic, ordered and fiber-owned
+  ---
+  duration_ms: 4514.691836
+  ...
+# Subtest: source: strict invocation validation rejects invalid scope, cancellation, lookup and batch identities before mutation
+ok 57 - source: strict invocation validation rejects invalid scope, cancellation, lookup and batch identities before mutation
+  ---
+  duration_ms: 18.543532
+  ...
+# Subtest: source: lookup override restores defaults and immutable wire declarations survive provider unload
+ok 58 - source: lookup override restores defaults and immutable wire declarations survive provider unload
+  ---
+  duration_ms: 17.182392
+  ...
+# Subtest: source: scoped Host/Client Context ownership and configured policies remain separate
+ok 59 - source: scoped Host/Client Context ownership and configured policies remain separate
+  ---
+  duration_ms: 19.140851
+  ...
+# Subtest: source: selected Remote contributions mount in order and unwind failures in reverse
+ok 60 - source: selected Remote contributions mount in order and unwind failures in reverse
+  ---
+  duration_ms: 5178.690139
+  ...
+# Subtest: source: selected Remote descriptor metadata and real Zod codecs match the shipped baseline
+ok 61 - source: selected Remote descriptor metadata and real Zod codecs match the shipped baseline
+  ---
+  duration_ms: 303.086753
+  ...
+# Subtest: legacy: stream controller waits for both opens, isolates sinks, starts/stops idempotently
+ok 62 - legacy: stream controller waits for both opens, isolates sinks, starts/stops idempotently
+  ---
+  duration_ms: 4.686813
+  ...
+# Subtest: legacy: stream loss repairs a generation after bounded backoff and invalidates old stream signals
+ok 63 - legacy: stream loss repairs a generation after bounded backoff and invalidates old stream signals
+  ---
+  duration_ms: 3.507483
+  ...
+# Subtest: legacy: open timeout fails soft and reentrant stop suppresses stale handshake publication
+ok 64 - legacy: open timeout fails soft and reentrant stop suppresses stale handshake publication
+  ---
+  duration_ms: 3.076587
+  ...
+# Subtest: source: stream controller waits for both opens, isolates sinks, starts/stops idempotently
+ok 65 - source: stream controller waits for both opens, isolates sinks, starts/stops idempotently
+  ---
+  duration_ms: 8469.973656
+  ...
+# Subtest: source: stream loss repairs a generation after bounded backoff and invalidates old stream signals
+ok 66 - source: stream loss repairs a generation after bounded backoff and invalidates old stream signals
+  ---
+  duration_ms: 1.709923
+  ...
+# Subtest: source: open timeout fails soft and reentrant stop suppresses stale handshake publication
+ok 67 - source: open timeout fails soft and reentrant stop suppresses stale handshake publication
+  ---
+  duration_ms: 1.140512
+  ...
+# Subtest: legacy: baseline ordering preserves known positions and follows next anchors for unseen rows
+ok 68 - legacy: baseline ordering preserves known positions and follows next anchors for unseen rows
+  ---
+  duration_ms: 3.423785
+  ...
+# Subtest: legacy: path helpers preserve UNC/drive paths and respect POSIX home boundaries
+ok 69 - legacy: path helpers preserve UNC/drive paths and respect POSIX home boundaries
+  ---
+  duration_ms: 3.272165
+  ...
+# Subtest: legacy: opaque durable provenance renders newer sources without conflating recalled and injected context
+ok 70 - legacy: opaque durable provenance renders newer sources without conflating recalled and injected context
+  ---
+  duration_ms: 3.342288
+  ...
+# Subtest: legacy: durable auth failure copy does not expose raw credentials
+ok 71 - legacy: durable auth failure copy does not expose raw credentials
+  ---
+  duration_ms: 3.076203
+  ...
+# Subtest: legacy: subagent lineage terminates ordinary forks and fails soft on cycles and missing owners
+ok 72 - legacy: subagent lineage terminates ordinary forks and fails soft on cycles and missing owners
+  ---
+  duration_ms: 3.127502
+  ...
+# Subtest: source: baseline ordering preserves known positions and follows next anchors for unseen rows
+ok 73 - source: baseline ordering preserves known positions and follows next anchors for unseen rows
+  ---
+  duration_ms: 2522.49994
+  ...
+# Subtest: source: path helpers preserve UNC/drive paths and respect POSIX home boundaries
+ok 74 - source: path helpers preserve UNC/drive paths and respect POSIX home boundaries
+  ---
+  duration_ms: 2414.118653
+  ...
+# Subtest: source: opaque durable provenance renders newer sources without conflating recalled and injected context
+ok 75 - source: opaque durable provenance renders newer sources without conflating recalled and injected context
+  ---
+  duration_ms: 2588.551208
+  ...
+# Subtest: source: durable auth failure copy does not expose raw credentials
+ok 76 - source: durable auth failure copy does not expose raw credentials
+  ---
+  duration_ms: 2246.181653
+  ...
+# Subtest: source: subagent lineage terminates ordinary forks and fails soft on cycles and missing owners
+ok 77 - source: subagent lineage terminates ordinary forks and fails soft on cycles and missing owners
+  ---
+  duration_ms: 2329.20041
+  ...
+# Subtest: connection: full fixture entry, inventories, host facts and paged durable history match the production baseline
+ok 78 - connection: full fixture entry, inventories, host facts and paged durable history match the production baseline
+  ---
+  duration_ms: 10963.56858
+  ...
+# Subtest: connection: complete shipped DTO schemas have identical acceptance, normalization and Zod issues
+ok 79 - connection: complete shipped DTO schemas have identical acceptance, normalization and Zod issues
+  ---
+  duration_ms: 84373.399172
+  ...
+# Subtest: legacy: whole wire root validates correlation, unary results, HTTP errors and envelope observation
+ok 80 - legacy: whole wire root validates correlation, unary results, HTTP errors and envelope observation
+  ---
+  duration_ms: 79.358729
+  ...
+# Subtest: legacy: generic RPC routes, same-origin base, cancellation and response envelopes remain strict
+ok 81 - legacy: generic RPC routes, same-origin base, cancellation and response envelopes remain strict
+  ---
+  duration_ms: 49.420274
+  ...
+# Subtest: legacy: production WebSocket carrier parses frames, drops malformed input and closes owned listeners
+ok 82 - legacy: production WebSocket carrier parses frames, drops malformed input and closes owned listeners
+  ---
+  duration_ms: 48.720576
+  ...
+# Subtest: source: whole wire root validates correlation, unary results, HTTP errors and envelope observation
+ok 83 - source: whole wire root validates correlation, unary results, HTTP errors and envelope observation
+  ---
+  duration_ms: 170.672121
+  ...
+# Subtest: source: generic RPC routes, same-origin base, cancellation and response envelopes remain strict
+ok 84 - source: generic RPC routes, same-origin base, cancellation and response envelopes remain strict
+  ---
+  duration_ms: 67.406076
+  ...
+# Subtest: source: production WebSocket carrier parses frames, drops malformed input and closes owned listeners
+ok 85 - source: production WebSocket carrier parses frames, drops malformed input and closes owned listeners
+  ---
+  duration_ms: 61.233792
+  ...
+# Subtest: connection: fixture mutations, edit-before-user forks and generic Remote fake-server traffic match
+ok 86 - connection: fixture mutations, edit-before-user forks and generic Remote fake-server traffic match
+  ---
+  duration_ms: 190.324506
+  ...
+# Subtest: connection: production compiler packages the whole entry and Zod without an external loader escape
+ok 87 - connection: production compiler packages the whole entry and Zod without an external loader escape
+  ---
+  duration_ms: 10117.148993
+  ...
+# Subtest: legacy: complete runtime stores retain structural sharing, no-op suppression, batching, persistence and scoped action identities
+ok 88 - legacy: complete runtime stores retain structural sharing, no-op suppression, batching, persistence and scoped action identities
+  ---
+  duration_ms: 2680.842444
+  ...
+# Subtest: legacy: complete SlotRegistry preserves declaration effects, shared store axes, scope prune and unload cascade
+ok 89 - legacy: complete SlotRegistry preserves declaration effects, shared store axes, scope prune and unload cascade
+  ---
+  duration_ms: 36.26457
+  ...
+# Subtest: legacy: whole runtime apply mounts services, re-baselines sessions/workspaces, forwards Remote events and owns loop disposal
+ok 90 - legacy: whole runtime apply mounts services, re-baselines sessions/workspaces, forwards Remote events and owns loop disposal
+  ---
+  duration_ms: 126.515428
+  ...
+# Subtest: source: complete runtime stores retain structural sharing, no-op suppression, batching, persistence and scoped action identities
+ok 91 - source: complete runtime stores retain structural sharing, no-op suppression, batching, persistence and scoped action identities
+  ---
+  duration_ms: 11879.724416
+  ...
+# Subtest: source: complete SlotRegistry preserves declaration effects, shared store axes, scope prune and unload cascade
+ok 92 - source: complete SlotRegistry preserves declaration effects, shared store axes, scope prune and unload cascade
+  ---
+  duration_ms: 74.321483
+  ...
+# Subtest: source: whole runtime apply mounts services, re-baselines sessions/workspaces, forwards Remote events and owns loop disposal
+ok 93 - source: whole runtime apply mounts services, re-baselines sessions/workspaces, forwards Remote events and owns loop disposal
+  ---
+  duration_ms: 223.378882
+  ...
+# Subtest: runtime: Session/Workspace source projections and production epoch recency match frozen behavior
+ok 94 - runtime: Session/Workspace source projections and production epoch recency match frozen behavior
+  ---
+  duration_ms: 259.28068
+  ...
+# Subtest: runtime: strict vanilla adapter retains state/previous notifications, live subscription iteration and function replacements
+ok 95 - runtime: strict vanilla adapter retains state/previous notifications, live subscription iteration and function replacements
+  ---
+  duration_ms: 2730.291566
+  ...
+# Subtest: runtime: prompt edit admission, pending responses, queues and projection generation watermarks match frozen Session behavior
+ok 96 - runtime: prompt edit admission, pending responses, queues and projection generation watermarks match frozen Session behavior
+  ---
+  duration_ms: 407.50244
+  ...
+# Subtest: runtime: Conversation registries and incremental assembler retain prepend dependencies, location boundaries and view identities
+ok 97 - runtime: Conversation registries and incremental assembler retain prepend dependencies, location boundaries and view identities
+  ---
+  duration_ms: 86.879499
+  ...
+# Subtest: runtime: production compiler bundles genuine pinned Immer and bootstraps without a process/global package escape
+ok 98 - runtime: production compiler bundles genuine pinned Immer and bootstraps without a process/global package escape
+  ---
+  duration_ms: 13165.811361
+  ...
+# Subtest: legacy: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures
+ok 99 - legacy: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures
+  ---
+  duration_ms: 107.978762
+  ...
+# Subtest: legacy: native continuable subagent guards all upload/reference attachment kinds without silently dropping them
+ok 100 - legacy: native continuable subagent guards all upload/reference attachment kinds without silently dropping them
+  ---
+  duration_ms: 110.624175
+  ...
+# Subtest: source: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures
+ok 101 - source: native before-user fork forwards floored boundaries, keeps edit children blank and reconciles published failures
+  ---
+  duration_ms: 179.270878
+  ...
+# Subtest: source: native continuable subagent guards all upload/reference attachment kinds without silently dropping them
+ok 102 - source: native continuable subagent guards all upload/reference attachment kinds without silently dropping them
+  ---
+  duration_ms: 24904.173945
+  ...
+# Subtest: legacy: frozen history transactions keep committed mappings on faults, preserve interactions and serialize pagination/gap repair
+ok 103 - legacy: frozen history transactions keep committed mappings on faults, preserve interactions and serialize pagination/gap repair
+  ---
+  duration_ms: 99.629605
+  ...
+# Subtest: legacy: frozen history LRU keeps scopes/projections, restores anchor ranges, accepts coalesced pages and protects outstanding operations
+ok 104 - legacy: frozen history LRU keeps scopes/projections, restores anchor ranges, accepts coalesced pages and protects outstanding operations
+  ---
+  duration_ms: 104.293204
+  ...
+# Subtest: legacy: frozen live-answer recovery restores durable compaction suffixes with bounded retries and no prompt resubmission
+ok 105 - legacy: frozen live-answer recovery restores durable compaction suffixes with bounded retries and no prompt resubmission
+  ---
+  duration_ms: 73.699797
+  ...
+# Subtest: source: frozen history transactions keep committed mappings on faults, preserve interactions and serialize pagination/gap repair
+ok 106 - source: frozen history transactions keep committed mappings on faults, preserve interactions and serialize pagination/gap repair
+  ---
+  duration_ms: 174.253397
+  ...
+# Subtest: source: frozen history LRU keeps scopes/projections, restores anchor ranges, accepts coalesced pages and protects outstanding operations
+ok 107 - source: frozen history LRU keeps scopes/projections, restores anchor ranges, accepts coalesced pages and protects outstanding operations
+  ---
+  duration_ms: 199.930118
+  ...
+# Subtest: source: frozen live-answer recovery restores durable compaction suffixes with bounded retries and no prompt resubmission
+ok 108 - source: frozen live-answer recovery restores durable compaction suffixes with bounded retries and no prompt resubmission
+  ---
+  duration_ms: 133.43142
+  ...
+# Subtest: runtime: complete plugin value exports and injection ABI match the frozen production entry
+ok 109 - runtime: complete plugin value exports and injection ABI match the frozen production entry
+  ---
+  duration_ms: 81.20349
+  ...
+# Subtest: legacy: native catalog-updated frames coalesce after initial baseline and replay refresh races
+ok 110 - legacy: native catalog-updated frames coalesce after initial baseline and replay refresh races
+  ---
+  duration_ms: 80.41389
+  ...
+# Subtest: source: native catalog-updated frames coalesce after initial baseline and replay refresh races
+ok 111 - source: native catalog-updated frames coalesce after initial baseline and replay refresh races
+  ---
+  duration_ms: 170.585099
+  ...
+# Subtest: legacy: frozen local history reuse skips audited reducers while rebinding fresh locations and rolling back failed views
+ok 112 - legacy: frozen local history reuse skips audited reducers while rebinding fresh locations and rolling back failed views
+  ---
+  duration_ms: 21.248031
+  ...
+# Subtest: source: frozen local history reuse skips audited reducers while rebinding fresh locations and rolling back failed views
+ok 113 - source: frozen local history reuse skips audited reducers while rebinding fresh locations and rolling back failed views
+  ---
+  duration_ms: 57.642278
+  ...
+# Subtest: legacy: real Core dynamic facade keeps prototype caller tracing and unload-owned slot/theme effects
+ok 114 - legacy: real Core dynamic facade keeps prototype caller tracing and unload-owned slot/theme effects
+  ---
+  duration_ms: 17.514671
+  ...
+# Subtest: source: real Core dynamic facade keeps prototype caller tracing and unload-owned slot/theme effects
+ok 115 - source: real Core dynamic facade keeps prototype caller tracing and unload-owned slot/theme effects
+  ---
+  duration_ms: 81.34641
+  ...
+# Subtest: legacy: transport death settles old waits before readiness and preserves new mux-generation baseline
+ok 116 - legacy: transport death settles old waits before readiness and preserves new mux-generation baseline
+  ---
+  duration_ms: 77.301683
+  ...
+# Subtest: source: transport death settles old waits before readiness and preserves new mux-generation baseline
+ok 117 - source: transport death settles old waits before readiness and preserves new mux-generation baseline
+  ---
+  duration_ms: 168.255327
+  ...
+# Subtest: legacy: valid unbranded JS chat targets retain foreign payloads, live readers, receiver identity and legacy fields
+ok 118 - legacy: valid unbranded JS chat targets retain foreign payloads, live readers, receiver identity and legacy fields
+  ---
+  duration_ms: 87.142285
+  ...
+# Subtest: source: valid unbranded JS chat targets retain foreign payloads, live readers, receiver identity and legacy fields
+ok 119 - source: valid unbranded JS chat targets retain foreign payloads, live readers, receiver identity and legacy fields
+  ---
+  duration_ms: 171.829407
+  ...
+# Subtest: source: raw chat compatibility boundary validates callable results instead of falsely promising a generic DTO
+ok 120 - source: raw chat compatibility boundary validates callable results instead of falsely promising a generic DTO
+  ---
+  duration_ms: 10807.691915
+  ...
+# Subtest: source: typed Chat publication is identity preserving and crosses the real Session erased-target boundary without adapters
+ok 121 - source: typed Chat publication is identity preserving and crosses the real Session erased-target boundary without adapters
+  ---
+  duration_ms: 13509.702231
+  ...
+# Subtest: legacy: real Core runner boot consumes the one independently preloaded module system and owns unload
+ok 122 - legacy: real Core runner boot consumes the one independently preloaded module system and owns unload
+  ---
+  duration_ms: 14.979859
+  ...
+# Subtest: source: real Core runner boot consumes the one independently preloaded module system and owns unload
+ok 123 - source: real Core runner boot consumes the one independently preloaded module system and owns unload
+  ---
+  duration_ms: 19.080276
+  ...
+1..123
+# tests 123
+# suites 0
+# pass 121
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 267741.813252
