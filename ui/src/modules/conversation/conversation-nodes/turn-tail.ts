@@ -107,9 +107,9 @@ function turnLocation(context: ConversationNodeContext<TurnTailState>): TurnLoca
   return location?.kind === 'turn' || location?.kind === 'step' ? location.turn : undefined
 }
 
-function hasText(data: AssistantChatData): data is FinalAssistantChatData {
+function hasAnswer(data: AssistantChatData): data is FinalAssistantChatData {
   return data.finalNode !== undefined
-    && data.blocks.some(block => block.kind === 'text' && block.text.trim() !== '')
+    && data.blocks.some(block => block.kind === 'text' ? block.text.trim() !== '' : block.kind === 'image' || block.kind === 'other')
 }
 
 function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChatData | null {
@@ -124,7 +124,7 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
   const finalized = assistants
     .filter((candidate): candidate is Readonly<FinalAssistantChatData> => candidate.finalNode !== undefined)
     .sort((left, right) => left.finalNode.seq - right.finalNode.seq)
-  const closing = finalized.findLast(hasText) ?? null
+  const closing = finalized.findLast(hasAnswer) ?? null
   let latestTranscriptSeq = finalized.at(-1)?.finalNode.seq
   for (const match of context.matches) {
     const event = match.event

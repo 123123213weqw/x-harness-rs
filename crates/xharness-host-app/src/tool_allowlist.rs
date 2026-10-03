@@ -3,7 +3,7 @@
 //! empty list exposes no tools. This is not a model-side schema filter.
 
 use std::collections::BTreeSet;
-use xharness_tools::ToolSpec;
+use xharness_tools::{ToolDefinition, ToolSpec};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolAllowlist(BTreeSet<String>);
@@ -29,15 +29,23 @@ impl ToolAllowlist {
         self.0.contains(name)
     }
 
-    pub(crate) fn apply(&self, specs: &mut Vec<ToolSpec>) -> Result<(), String> {
+    pub(crate) fn apply(&self, specs: &mut Vec<ToolSpec>) {
+        specs.retain(|spec| self.0.contains(&spec.definition.name));
+    }
+
+    // Host-owned tools are registered after the native factory returns. Check
+    // availability only once that final registry is ready for the model loop.
+    pub(crate) fn validate(&self, definitions: &[ToolDefinition]) -> Result<(), String> {
         for name in &self.0 {
-            if !specs.iter().any(|spec| &spec.definition.name == name) {
+            if !definitions
+                .iter()
+                .any(|definition| &definition.name == name)
+            {
                 return Err(format!(
                     "allowlisted tool {name:?} is unavailable under this session policy"
                 ));
             }
         }
-        specs.retain(|spec| self.0.contains(&spec.definition.name));
         Ok(())
     }
 }
@@ -64,11 +72,10 @@ mod tests {
 
     #[test]
     fn missing_capability_fails_closed_instead_of_silently_changing_the_suite() {
-        let mut specs = Vec::new();
         assert!(ToolAllowlist::parse("computer")
             .unwrap()
-            .apply(&mut specs)
+            .validate(&[])
             .is_err());
-        assert!(ToolAllowlist::parse("").unwrap().apply(&mut specs).is_ok());
+        assert!(ToolAllowlist::parse("").unwrap().validate(&[]).is_ok());
     }
 }
