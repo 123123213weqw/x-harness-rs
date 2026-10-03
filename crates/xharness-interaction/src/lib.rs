@@ -37,10 +37,8 @@ const fn is_true(value: &bool) -> bool {
 
 /// Where an accepted answer remains visible after the current tool result.
 ///
-/// Both variants are returned to the current model step. `AgentMarkdown`
-/// additionally asks the Host's persistence adapter to write a normalized
-/// note into its managed AGENTS.md memory section. No model-supplied path is
-/// accepted by this contract.
+/// Legacy wire tags are retained for old calls and Session journals. Neither
+/// variant authorizes a filesystem write. Model-facing results are context-only.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnswerDestination {
@@ -74,8 +72,8 @@ pub struct QuestionSpec {
     /// additional qualification of the selected choice.
     #[serde(default = "default_allow_custom")]
     pub allow_custom: bool,
-    /// Short-lived answers stay in the current context. Durable goals can be
-    /// routed to the Host-managed AGENTS.md memory sink.
+    /// Compatibility-only input. Questions no longer persist workspace memory,
+    /// including when an old call supplies `agent_markdown`.
     #[serde(default)]
     pub destination: AnswerDestination,
     /// Whether this decision must be answered before any automatic Goal work.
@@ -237,10 +235,13 @@ pub struct QuestionResolution {
 }
 
 impl QuestionResolution {
-    pub fn requests_agent_markdown(&self) -> bool {
-        self.answers
-            .iter()
-            .any(|answer| answer.destination == AnswerDestination::AgentMarkdown)
+    /// Project a legacy answer to its current scope without rewriting history
+    /// or changing the invocation identity used for durable replay.
+    pub fn into_context_only(mut self) -> Self {
+        for answer in &mut self.answers {
+            answer.destination = AnswerDestination::Context;
+        }
+        self
     }
 }
 
@@ -541,7 +542,8 @@ impl AskUserQuestionTool {
                     .map_err(|error| ToolHandlerError {
                         message: error.message,
                         retryable: error.retryable,
-                    })?;
+                    })?
+                    .into_context_only();
                 let mut payload = serde_json::to_value(&resolution)
                     .map_err(|error| ToolHandlerError::new(error.to_string()))?;
                 if resolution.status == ResolutionStatus::Deferred {
@@ -555,7 +557,6 @@ impl AskUserQuestionTool {
                     metadata: Some(json!({
                         "interactionId": invocation.interaction_id,
                         "status": resolution.status,
-                        "requestsAgentMarkdown": resolution.requests_agent_markdown(),
                     })),
                     command_failure: None,
                 })
@@ -575,7 +576,7 @@ impl AskUserQuestionTool {
 pub fn tool_definition() -> ToolDefinition {
     ToolDefinition::new(
         ASK_USER_QUESTION_TOOL,
-        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Use destination=context for short-lived decisions and agent_markdown only for an explicitly durable goal. Set blocksGoal=false only when independent work can safely continue without this answer; otherwise keep blocksGoal=true (default). Never infer approval from a deferred question. After 60 seconds without an answer this may return status=deferred: the question remains pending. Continue work that does not depend on the unanswered question; never assume the user's choice or authorization. Asking a question does not change existing tool permissions or approval requirements. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
+        "Ask the user only when a user decision or unavailable fact blocks safe progress. Inspect available context and tools first. Ask 1-3 concise questions. For a boolean or finite decision, provide at most 3 choices; allowCustom lets the user provide or qualify an answer. Answers stay in this conversation; this tool never updates AGENTS.md or persistent memory. Omit the legacy destination field. Set blocksGoal=false only when independent work can safely continue without this answer; otherwise keep blocksGoal=true (default). Never infer approval from a deferred question. After 60 seconds without an answer this may return status=deferred: the question remains pending. Continue work that does not depend on the unanswered question; never assume the user's choice or authorization. Asking a question does not change existing tool permissions or approval requirements. If nothing independent remains, finish and wait. Call this tool alone, never in a batch with side-effecting tools.",
         json!({
             "type": "object",
             "properties": {
@@ -615,7 +616,8 @@ pub fn tool_definition() -> ToolDefinition {
                             },
                             "destination": {
                                 "type": "string",
-                                "enum": ["context", "agent_markdown"]
+                                "enum": ["context", "agent_markdown"],
+                                "description": "Legacy compatibility only; omit this field. Both values keep the answer in this conversation and never write AGENTS.md or persistent memory."
                             }
                         },
                         "required": ["id", "header", "question"],
@@ -1017,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_markdown_is_a_managed_destination_not_a_model_path() {
+    fn legacy_agent_markdown_roundtrips_but_model_projection_is_context_only() {
         let mut interaction = QuestionInteraction::new(invocation(vec![question(
             "goal",
             AnswerDestination::AgentMarkdown,
@@ -1026,7 +1028,18 @@ mod tests {
         let resolution = interaction
             .resolve(ResolveAction::Submit, vec![answer("goal", "tokyo")])
             .unwrap();
-        assert!(resolution.requests_agent_markdown());
+        assert_eq!(
+            resolution.answers[0].destination,
+            AnswerDestination::AgentMarkdown
+        );
+        assert_eq!(
+            resolution.clone().into_context_only().answers[0].destination,
+            AnswerDestination::Context
+        );
+        assert_eq!(
+            resolution.answers[0].destination,
+            AnswerDestination::AgentMarkdown
+        );
         let encoded = serde_json::to_string(&interaction.invocation().request).unwrap();
         assert!(!encoded.contains("path"));
     }

@@ -51,6 +51,42 @@ function Check-Originals {
     foreach ($claim in $profiles) { Check (Test-Path -LiteralPath $claim.Path -PathType Container) 'Refused cleanup moved an original root' }
     foreach ($claim in $archives) { Check (-not (Test-Path -LiteralPath (Join-Path $claim.Path 'profile'))) 'Refused cleanup touched an archive destination' }
 }
+# A real Windows deny-delete handle, released by a C# thread (no PowerShell
+# scriptblock on a thread without a runspace). It touches only this unit's root.
+if (-not ('XHarnessAcceptance.DelayedFileLock' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Threading;
+namespace XHarnessAcceptance {
+    public sealed class DelayedFileLock : IDisposable {
+        private readonly FileStream stream;
+        private Thread worker;
+        private readonly ManualResetEvent stop = new ManualResetEvent(false);
+        private readonly ManualResetEvent released = new ManualResetEvent(false);
+        public DelayedFileLock(string path) {
+            stream = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+        }
+        public void ReleaseAfter(int milliseconds) {
+            if (worker != null) throw new InvalidOperationException("Release already scheduled");
+            worker = new Thread(delegate() {
+                try { stop.WaitOne(milliseconds); }
+                finally { stream.Dispose(); released.Set(); }
+            });
+            worker.IsBackground = true;
+            worker.Start();
+        }
+        public bool IsReleased { get { return released.WaitOne(0); } }
+        public void Dispose() {
+            stop.Set();
+            if (worker != null) worker.Join();
+            else { stream.Dispose(); released.Set(); }
+            released.Dispose(); stop.Dispose();
+        }
+    }
+}
+'@
+}
 try {
     # Exact positive control: same-volume rename releases both namespaces while
     # preserving every sentinel byte, rather than deleting application data.
@@ -62,6 +98,123 @@ try {
     }
     Check (New-FixtureReceipt @{ retainedHash = 'fixture-hash' } $null $null).passed 'Successful isolation not receipted'
     Close-TestClaims
+
+    # Mirror the native failure: the first root moves, the second holds a real
+    # cache handle. Only that second move may retry after the handle is released.
+    New-TestClaims
+    $lockPath = Join-Path $profiles[1].Path 'held-cache.bin'
+    $delayed = [XHarnessAcceptance.DelayedFileLock]::new($lockPath)
+    try {
+        $destination = Join-Path $archives[1].Path 'profile'
+        # Remove only the unit's marker pin for this raw probe, so the separate
+        # held-cache.bin handle (not the marker itself) proves the native lock.
+        $profiles[1].MarkerHandle.Dispose()
+        try {
+            $locked = Blocked { [IO.Directory]::Move($profiles[1].Path, $destination) } 'denied|used by another process'
+        } finally {
+            $profiles[1].MarkerHandle = [IO.File]::Open($profiles[1].Marker, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        }
+        Assert-FixtureClaim $profiles[1]
+        Check (Test-FixtureTransientMoveError $locked) 'Real deny-delete lock was not classified as a Win32 rename lock'
+        Check (-not (Test-Path -LiteralPath $destination)) 'Locked raw move changed the destination'
+        $script:firstMoves = 0; $script:secondMoves = 0
+        function Move-FixtureProfile {
+            param($Source, $Destination)
+            $script:moves++
+            if ($Source -ceq $profiles[0].Path) { $script:firstMoves++ } else { $script:secondMoves++ }
+            [IO.Directory]::Move($Source, $Destination)
+        }
+        $delayed.ReleaseAfter(2000)
+        Complete-FixtureIsolation
+        Check ($delayed.IsReleased -and $script:moves -gt 2) 'Delayed Windows handle release did not exercise a real rename retry'
+        Check ($script:firstMoves -eq 1 -and $script:secondMoves -gt 1) 'Delayed release repeated an already archived root'
+        Check ((New-FixtureReceipt @{} $null $null).passed) 'Delayed release falsely failed isolation'
+        foreach ($claim in $profiles) {
+            Check (-not (Test-Path -LiteralPath $claim.Path)) 'Delayed release left original namespace'
+            Check ((Get-Content -LiteralPath (Join-Path $claim.ArchivedTo 'retained.txt') -Raw) -ceq 'not user data: preserve exact fixture bytes') 'Delayed release lost fixture bytes'
+        }
+    } finally { $delayed.Dispose(); Close-TestClaims }
+
+    # Reconcile a completed rename even if a transient exception is surfaced
+    # afterward; never retry the now-missing original source.
+    New-TestClaims
+    function Move-FixtureProfile {
+        param($Source, $Destination)
+        $script:moves++
+        [IO.Directory]::Move($Source, $Destination)
+        if ($script:moves -eq 1) { throw [UnauthorizedAccessException]::new('synthetic error after completed rename') }
+    }
+    Complete-FixtureIsolation
+    Check ($script:moves -eq 2 -and (New-FixtureReceipt @{} $null $null).passed) 'Completed rename was repeated or lost from the receipt'
+    Close-TestClaims
+    foreach ($hresult in @(-2147483643, -2147024894)) {
+        $unrelated = [pscustomobject]@{ Exception = [IO.IOException]::new('synthetic unrelated HRESULT', $hresult) }
+        Check (-not (Test-FixtureTransientMoveError $unrelated)) 'Non-Win32 or unrelated error was accepted for retry'
+    }
+
+    # A persistent real handle must exhaust the unchanged shared 40s budget,
+    # retain the remaining source, and never manufacture a passed receipt.
+    New-TestClaims
+    $persistent = [IO.File]::Open((Join-Path $profiles[1].Path 'held-cache.bin'), [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+    $started = [DateTime]::UtcNow
+    try {
+        $failure = Blocked { Complete-FixtureIsolation } '40-second isolation budget'
+        Check (([DateTime]::UtcNow - $started).TotalSeconds -ge 40) 'Persistent handle bypassed the full isolation deadline'
+        Check ($null -ne $profiles[0].ArchivedTo -and -not (Test-Path -LiteralPath $profiles[0].Path)) 'Persistent second-root lock corrupted the first archive'
+        Check (Test-Path -LiteralPath $profiles[1].Path -PathType Container) 'Persistent handle lost the second source'
+        Check (-not (Test-Path -LiteralPath (Join-Path $archives[1].Path 'profile'))) 'Persistent handle created an ambiguous destination'
+        Check (-not (New-FixtureReceipt @{} $null $failure).passed) 'Persistent handle produced a passed receipt'
+    } finally { $persistent.Dispose(); Close-TestClaims }
+
+    # Change a SECOND-root identity after a real FIRST-root lock refusal. Both
+    # sources must be revalidated before retrying, with immediate failure.
+    foreach ($identity in @('marker', 'creation')) {
+        New-TestClaims
+        $persistent = [IO.File]::Open((Join-Path $profiles[0].Path 'held-cache.bin'), [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        try {
+            function Move-FixtureProfile {
+                param($Source, $Destination)
+                $script:moves++
+                try { [IO.Directory]::Move($Source, $Destination) } catch {
+                    if ($identity -eq 'marker') {
+                        [IO.File]::WriteAllText($profiles[1].Marker, ('0' * 32))
+                    } else {
+                        $changed = [DateTime]::new([long]$profiles[1].Created, [DateTimeKind]::Utc).AddSeconds(1)
+                        [IO.Directory]::SetCreationTimeUtc($profiles[1].Path, $changed)
+                    }
+                    throw
+                }
+            }
+            $failure = Blocked { Complete-FixtureIsolation } 'marker changed|root identity changed'
+            Check ($script:moves -eq 1) 'Changed fixture identity was retried'
+            Check-Originals
+            Check (-not (New-FixtureReceipt @{} $null $failure).passed) 'Changed identity produced a passed receipt'
+        } finally { $persistent.Dispose(); Close-TestClaims }
+    }
+
+    # A writer/inventory uncertainty or destination conflict appearing after a
+    # lock failure must fail immediately, not disappear behind blind retries.
+    foreach ($change in @('live', 'uncertain', 'destination')) {
+        New-TestClaims
+        $persistent = [IO.File]::Open((Join-Path $profiles[0].Path 'held-cache.bin'), [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::Read)
+        try {
+            function Move-FixtureProfile {
+                param($Source, $Destination)
+                $script:moves++
+                try { [IO.Directory]::Move($Source, $Destination) } catch {
+                    if ($change -eq 'destination') {
+                        New-Item -ItemType Directory -Path (Join-Path $archives[1].Path 'profile') | Out-Null
+                    } else { $script:inventoryMode = $change }
+                    throw
+                }
+            }
+            $failure = Blocked { Complete-FixtureIsolation } 'writer|inventory|pre-existing'
+            Check ($script:moves -eq 1) 'Changed writer/destination state was blindly retried'
+            foreach ($claim in $profiles) { Check (Test-Path -LiteralPath $claim.Path) 'Changed state moved a source' }
+            Check (-not (Test-Path -LiteralPath (Join-Path $archives[0].Path 'profile'))) 'Changed state moved the first root'
+            Check (-not (New-FixtureReceipt @{} $null $failure).passed) 'Changed state produced a passed receipt'
+        } finally { $persistent.Dispose(); Close-TestClaims }
+    }
 
     # Pre-existing data/cache may contain genuine user files. Neither root may
     # be claimed, modified, archived, or deleted by this fixture.

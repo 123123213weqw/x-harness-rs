@@ -18,9 +18,7 @@ use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::hosted::{HostedBackend, HostedExecution};
 use xharness_host_app::hosted_bootstrap::HostedGoalBootstrap;
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
-use xharness_host_app::{
-    configured_web_runtime, ManagedAgentMarkdownSink, NativePluginBackend, NativeToolFactory,
-};
+use xharness_host_app::{configured_web_runtime, NativePluginBackend, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
@@ -231,7 +229,7 @@ async fn run(
             .with_request_audit_mode(audit_mode)
             .for_runtime(),
     );
-    let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
+    let questions = DurableQuestionHub::new(store.clone());
     let schedules = ScheduleManager::new(Arc::clone(&store));
     let web = configured_web_runtime(env::var("EXA_API_KEY").ok(), debug.clone())?;
     let tools = NativeToolFactory::new_with_questions_and_schedules(

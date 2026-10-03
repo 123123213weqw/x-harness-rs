@@ -126,16 +126,7 @@ pub(crate) fn restored_delegation(session: &Session) -> Option<String> {
         .flatten()
 }
 pub(crate) fn restored_dispatch_paused(session: &Session) -> bool {
-    session
-        .events()
-        .iter()
-        .rev()
-        .find_map(|event| match event.data() {
-            EventData::AgentDispatchPaused { paused } => Some(*paused),
-            EventData::SessionForkOrigin { .. } => Some(false),
-            _ => None,
-        })
-        .unwrap_or(false)
+    session.dispatch_paused()
 }
 
 impl BasicHost {
@@ -815,6 +806,101 @@ mod tests {
         })
         .await
         .expect("driver did not settle");
+    }
+
+    #[tokio::test]
+    async fn failed_parent_restores_paused_and_child_receipts_do_not_restart_it() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let initial = store
+            .create(xharness_session::SessionHeader::new("failed-parent"))
+            .await
+            .unwrap();
+        let mut receipt = xharness_session::InboxMessage::user("old-receipt", "child finished");
+        receipt.source = Some(json!({"kind":"agent-settlement"}));
+        store
+            .append(
+                "failed-parent",
+                initial.revision(),
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: xharness_session::TurnEndReason::Failed {
+                            error: "overflow compaction failed".into(),
+                            provider_failure: None,
+                        },
+                    }
+                    .into(),
+                    EventData::AgentInboxSpliced {
+                        target: xharness_session::InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 0,
+                        inserted: vec![receipt],
+                        outcome: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let probe = Arc::new(Probe::default());
+        let host = setup(store.clone(), probe.clone()).await;
+        let restore = host.restore_from_store(store.clone()).await.unwrap();
+        assert_eq!(restore.resumed_pending_turns, 0);
+        for _ in 0..2 {
+            host.deliver_agent_message(
+                "child",
+                "failed-parent",
+                "new-receipt",
+                "completed".into(),
+                "agent-settlement",
+                false,
+            )
+            .await
+            .unwrap();
+        }
+        {
+            let state = host.state.read().await;
+            let parent = &state.sessions["failed-parent"];
+            assert!(parent.dispatch_paused);
+            assert!(!parent.running);
+            assert_eq!(
+                parent.projected_queue.len(),
+                2,
+                "receipt delivery is deduplicated"
+            );
+        }
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+        let session = store.load("failed-parent").await.unwrap().unwrap();
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::TurnStart { .. }))
+                .count(),
+            1
+        );
+        assert!(session.dispatch_paused());
+        host.enqueue_prompt(PromptAdmission {
+            rpc_id: RpcId::new("human-retry"),
+            session_id: "failed-parent".into(),
+            mode: "queue".into(),
+            text: "retry".into(),
+            content: vec![json!({"type":"text","text":"retry"})],
+            source: json!({"kind":"user"}),
+            fingerprint: None,
+        })
+        .await
+        .unwrap();
+        wait_for_calls(&probe, 3).await;
+        settled(&host, "failed-parent").await;
+        assert!(!store
+            .load("failed-parent")
+            .await
+            .unwrap()
+            .unwrap()
+            .dispatch_paused());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
     async fn archived_parent_deletion_cleans_real_cold_subagent_and_replays_receipt() {

@@ -15,7 +15,12 @@ export function requireHostedWindows(env, platform) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'CI only')
   assert.equal(env.RUNNER_ENVIRONMENT, 'github-hosted', 'Disposable hosted runner only')
   assert.equal(platform, 'win32', 'Windows only')
-  assert.equal(env.GITHUB_REF, 'refs/heads/master', 'Trusted master workflow only')
+  if (env.AUTOMATIC_CANDIDATE === 'true') {
+    assert.match(env.RELEASE_TAG_INPUT ?? '', /^desktop-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
+    assert.equal(env.GITHUB_REF, `refs/tags/${env.RELEASE_TAG_INPUT}`)
+    assert.equal(env.GITHUB_EVENT_NAME, 'workflow_dispatch')
+    assert.equal(env.GITHUB_WORKFLOW_REF, `${env.GITHUB_REPOSITORY}/.github/workflows/desktop-release.yml@${env.GITHUB_REF}`)
+  } else assert.equal(env.GITHUB_REF, 'refs/heads/master', 'Trusted master workflow only')
   assert.equal(env.XHARNESS_FRIENDS_RELEASE_REPOSITORY, env.GITHUB_REPOSITORY)
   assert.match(env.GITHUB_REPOSITORY, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 }
@@ -37,7 +42,15 @@ export function validateRun(run, plan, env) {
   }
   assert.equal(run.path, '.github/workflows/desktop-release.yml')
   assert.ok(['push', 'workflow_dispatch'].includes(run.event))
-  assert.equal(run.head_branch, run.event === 'push' ? plan.tag : 'master')
+  if (run.event === 'workflow_dispatch' && run.head_branch !== 'master') {
+    assert.equal(plan.acceptance_mode, 'in-build')
+    assert.equal(env?.AUTOMATIC_CANDIDATE, 'true')
+    assert.equal(run.head_branch, plan.tag)
+    assert.equal(env.GITHUB_REF, `refs/tags/${plan.tag}`)
+    assert.equal(env.RELEASE_TAG_INPUT, plan.tag)
+    assert.equal(run.head_repository?.full_name, plan.repository)
+    assert.equal(env.GITHUB_WORKFLOW_REF, `${plan.repository}/.github/workflows/desktop-release.yml@refs/tags/${plan.tag}`)
+  } else assert.equal(run.head_branch, run.event === 'push' ? plan.tag : 'master')
   assert.equal(run.head_sha, plan.sha)
   assert.equal(String(run.id), String(plan.release_run_id))
   assert.equal(String(run.run_attempt), String(plan.release_run_attempt))
