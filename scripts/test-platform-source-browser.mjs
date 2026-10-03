@@ -67,30 +67,36 @@ for(const engine of engines){
  try{
   const results=[]
   for(const implementation of ['frozen','source']){
-   const page=await browser.newPage({viewport:{width:960,height:720}}),errors=[],requests=[]
-   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(new URL(r.url()).pathname));page.setDefaultTimeout(15000)
-   const entry=implementation==='source'?'/'+built.entryPath:frozenEntry
-   const sourceCss=implementation==='source'?built.cssPaths:[]
-   const sharedCss=[...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map(x=>x[1])
-   await page.route('**/*',route=>{
-    const pathname=new URL(route.request().url()).pathname,local=pathname.slice(1)
-    if(pathname==='/')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head>${[...sharedCss,...sourceCss.map(x=>'/'+x)].map(path=>`<link rel="stylesheet" href="${path}">`).join('')}<script>window.__ModuleLoader__={create:options=>{window.staticModules=options.staticModules;throw Error('isolated platform: stop Host boot')}};</script><script type="module" src="${entry}"></script></head><body><div id="root"></div></body></html>`})
-    const bytes=implementation==='source'&&built.outputs.has(local)?built.outputs.get(local):existsSync(join(frozen,local))?readFileSync(join(frozen,local)):undefined
-    if(bytes)return route.fulfill({body:bytes,contentType:local.endsWith('.css')?'text/css':local.endsWith('.woff2')?'font/woff2':local.endsWith('.woff')?'font/woff':local.endsWith('.ttf')?'font/ttf':'application/javascript'})
-    return route.abort()
-   })
-   await page.goto('http://platform-fixture.test/');await page.waitForFunction(()=>window.staticModules)
+   const errors=[],requests=[]
+   const openPage=async()=>{
+    const page=await browser.newPage({viewport:{width:960,height:720}})
+    page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(new URL(r.url()).pathname));page.setDefaultTimeout(15000)
+    const entry=implementation==='source'?'/'+built.entryPath:frozenEntry
+    const sourceCss=implementation==='source'?built.cssPaths:[]
+    const sharedCss=[...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map(x=>x[1])
+    await page.route('**/*',route=>{
+     const pathname=new URL(route.request().url()).pathname,local=pathname.slice(1)
+     if(pathname==='/')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head>${[...sharedCss,...sourceCss.map(x=>'/'+x)].map(path=>`<link rel="stylesheet" href="${path}">`).join('')}<script>window.__ModuleLoader__={create:options=>{window.staticModules=options.staticModules;throw Error('isolated platform: stop Host boot')}};</script><script type="module" src="${entry}"></script></head><body><div id="root"></div></body></html>`})
+     const bytes=implementation==='source'&&built.outputs.has(local)?built.outputs.get(local):existsSync(join(frozen,local))?readFileSync(join(frozen,local)):undefined
+     if(bytes)return route.fulfill({body:bytes,contentType:local.endsWith('.css')?'text/css':local.endsWith('.woff2')?'font/woff2':local.endsWith('.woff')?'font/woff':local.endsWith('.ttf')?'font/ttf':'application/javascript'})
+     return route.abort()
+    })
+    await page.goto('http://platform-fixture.test/');await page.waitForFunction(()=>window.staticModules)
+    return page
+   }
+   let page=await openPage()
    const keys=await page.evaluate(()=>Object.keys(staticModules).sort())
    assert.deepEqual(keys,['@xharness/cordis','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react-dom/client','react/jsx-runtime'].sort(),'actual master static platform words')
    const singleton=await page.evaluate(()=>{
     const R=staticModules.react,J=staticModules['react/jsx-runtime'];return {version:R.version,element:J.jsx('span',{}).$$typeof===R.createElement('span').$$typeof,createRoot:staticModules['react-dom/client'].createRoot===staticModules['react-dom'].createRoot}
    });assert.equal(singleton.version,'18.3.1');assert.ok(singleton.element);assert.ok(singleton.createRoot)
-   await page.evaluate(()=>{
+   const initializeRoot=()=>{
     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
     window.mount=D.createRoot(document.getElementById('root'));window.labels={copyLabel:'copy',copiedLabel:'copied'}
     window.renderMath=(text,streaming=true,key='test')=>D.flushSync(()=>mount.render(R.createElement(P.MarkdownText,{text,streaming,key,codeLabels:labels})))
     window.normalize=node=>node.nodeType===Node.TEXT_NODE?node.textContent:{tag:node.nodeName,style:node.getAttribute('style'),children:[...node.childNodes].map(normalize)}
-   })
+   }
+   await page.evaluate(initializeRoot)
    const projection=[]
    for(const [name,text,count] of cases){
     for(let i=1;i<=text.length;i++)await page.evaluate(({text,key})=>renderMath(text,true,key),{text:text.slice(0,i),key:name})
@@ -146,6 +152,13 @@ for(const engine of engines){
    })
    assert.deepEqual(coreAbi.tracker,{method:'caller',getter:'caller',sameRoot:true,instance:true},'actual Core Service tracker preserves caller through methods and guarded getter')
    assert.deepEqual(coreAbi.selected,['b','winner']);assert.deepEqual(coreAbi.fallback,['b','shadow']);assert.deepEqual(coreAbi.chain,['earlier','later']);assert.deepEqual(coreAbi.keyed,['new-key']);assert.equal(coreAbi.cascaded.live,false)
+   // Independent fixture, not a replacement of the streaming/Shiki scene.
+   // CI retained two raster pixels outside every live surface element in the
+   // initial 960px scene; viewport changes happened to erase them. Start with
+   // a fresh document instead of masking pixels, tolerating differences, or
+   // relying on that incidental resize. The exact pixel oracle is unchanged.
+   await page.close();page=await openPage();await page.evaluate(initializeRoot)
+   assert.deepEqual(await page.evaluate(()=>Object.keys(staticModules).sort()),keys)
    await page.addStyleTag({content:'*,*::before,*::after {animation:none !important;transition:none !important;caret-color:transparent !important} #fixture {padding:24px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap} '})
    await page.evaluate(()=>{
     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
