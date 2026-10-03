@@ -26,7 +26,6 @@ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows'
 import { FLAT_SESSION_ORDER_KEY } from './stores'
 import { WorkspacePickFlow } from './WorkspacePicker'
 import css from './WorkspaceBrowser.styles'
-import railCss from './CollapsedSessionRail.styles'
 
 /**
  * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
@@ -751,39 +750,6 @@ function PluginOutline16({size = 16}: {size?: number}) {
   </svg>
 }
 
-/** The session index stays available beside the wide list and inside the collapsed rail. */
-function SessionRail({ useSessions, archivedSessionIds, open, t }: Pick<
-  WorkspaceBrowserProps, 'useSessions' | 'open' | 't'
-> & { archivedSessionIds: readonly SessionId[] }) {
-  const list = useSessions(state => state)
-  const sessions = useMemo(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds])
-  const selected = useRef<HTMLButtonElement | null>(null)
-  useEffect(() => { selected.current?.scrollIntoView({ block: 'nearest' }) }, [list.current])
-
-  return (
-    <nav className={railCss.root} aria-label={t('section.sessions')}>
-      {sessions.map(session => {
-        const title = session.blank ? t('session.new') : session.title
-        const current = session.id === list.current
-        return (
-          <Tooltip key={session.id} label={title} side="right" delayMs={300}>
-            <button
-              ref={current ? selected : undefined}
-              type="button"
-              className={clsx(railCss.item, current && railCss.current)}
-              aria-label={title}
-              aria-current={current ? 'page' : undefined}
-              onClick={() => { open(session.id) }}
-            >
-              <span className={railCss.mark} aria-hidden="true" />
-            </button>
-          </Tooltip>
-        )
-      })}
-    </nav>
-  )
-}
-
 export function WorkspaceBrowser({
   wide,
   expandSidebar,
@@ -1187,13 +1153,7 @@ export function WorkspaceBrowser({
           </button>
         </Tooltip>
       </div>}
-      <div className={clsx(css.listArea, wide && railCss.wideArea)}>
-        <SessionRail
-          useSessions={useSessions}
-          archivedSessionIds={archivedSessionIds}
-          open={open}
-          t={t}
-        />
+      <div className={css.listArea}>
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults
