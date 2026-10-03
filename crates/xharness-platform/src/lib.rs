@@ -272,6 +272,18 @@ impl NativePlatform {
                 return Ok((filesystem, filesystem.resolve(relative)?));
             }
         }
+        // Translate only a component-matched absolute path under the canonical
+        // workspace root. Do not canonicalize a user path then reopen it: the
+        // existing FsService capability still rejects parent traversal and
+        // enforces no-follow containment while opening the file. Mutation
+        // resolution deliberately retains its existing authority/contract.
+        if self.access != PlatformAccess::FullAccess && input.is_absolute() {
+            let relative = input.strip_prefix(&self.workspace_root).map_err(|_| FsError::InvalidPath {
+                display: input.to_string_lossy().into_owned(),
+                reason: "absolute read path is outside authorized read roots; use a workspace-relative path",
+            })?;
+            return Ok((&self.filesystem, self.filesystem.resolve(relative)?));
+        }
         Ok((&self.filesystem, self.resolve_file(input)?))
     }
 

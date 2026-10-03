@@ -184,7 +184,7 @@ impl CodingToolBundle {
                         .args(native_shell_args(&command))
                         .envs(managed_environment());
                     if !background {
-                        spec = spec.timeout(command_timeout(optional_u64(&context, "timeout_ms"))?);
+                        spec = spec.timeout(command_timeout_argument(&context)?);
                     }
                     if background {
                         let reservation = jobs
@@ -402,16 +402,16 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "read",
-                "Read one bounded UTF-8 file page and record its version for safe edits. Continue with next_cursor; use start_line or offset only for the first page.",
+                "Read a bounded UTF-8 file page and record its version for safe edits. For a line range use path + start_line + line_limit. limit is bytes, NOT lines. Continue with path + next_cursor as cursor, without other pagination parameters. A partial page is not the entire file.",
                 json!({
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string"},
-                        "offset": {"type": "integer"},
-                        "start_line": {"type": "integer"},
-                        "cursor": {"type": "string"},
-                        "limit": {"type": "integer"},
-                        "line_limit": {"type": "integer"}
+                        "path": {"type": "string", "description": "File path relative to the workspace, or an absolute path within the active authorized read roots. No parent traversal or symlink escape."},
+                        "offset": {"type": "integer", "minimum": 0, "description": "Zero-based UTF-8 byte offset, NOT a line number. Use at most one of offset, start_line, cursor."},
+                        "start_line": {"type": "integer", "minimum": 1, "description": "One-based starting line. Example: start_line=100, line_limit=80 reads at most 80 lines beginning at line 100, also subject to byte limits."},
+                        "cursor": {"type": "string", "description": "Copy next_cursor unchanged from the previous read. Pass only path and cursor; it fixes the version, position and limits. If stale, re-read without cursor."},
+                        "limit": {"type": "integer", "minimum": 4, "maximum": MAX_READ_PAGE_BYTES, "description": "Maximum UTF-8 bytes per page, NOT lines. Default 32768; range 4..65536. Keep omitted for ordinary line reads."},
+                        "line_limit": {"type": "integer", "minimum": 1, "maximum": MAX_READ_PAGE_LINES, "description": "Maximum lines per page. Default 400; range 1..1000. Byte and long-line limits can end a page earlier; use next_cursor for continuation."}
                     },
                     "required": ["path"],
                     "additionalProperties": false
@@ -430,15 +430,15 @@ impl CodingToolBundle {
                         }
                     }
                     let cursor = optional_string(&context, "cursor");
-                    let offset = optional_u64(&context, "offset");
-                    let start_line = optional_u64(&context, "start_line");
+                    let offset = read_u64(&context, "offset")?;
+                    let start_line = read_u64(&context, "start_line")?;
                     if usize::from(cursor.is_some())
                         + usize::from(offset.is_some())
                         + usize::from(start_line.is_some())
                         > 1
                     {
                         return Err(ToolHandlerError::new(
-                            "read accepts only one of cursor, offset, or start_line",
+                            "read accepts only one of cursor, offset, or start_line. For lines use {path, start_line, line_limit}; for continuation use {path, cursor: next_cursor}.",
                         ));
                     }
                     if cursor.is_some()
@@ -472,13 +472,13 @@ impl CodingToolBundle {
                         ReadStart::Byte(offset.unwrap_or(0))
                     };
                     let limit = bounded_read_value(
-                        optional_u64(&context, "limit").unwrap_or(DEFAULT_READ_PAGE_BYTES),
+                        read_u64(&context, "limit")?.unwrap_or(DEFAULT_READ_PAGE_BYTES),
                         4,
                         MAX_READ_PAGE_BYTES,
                         "limit",
                     )?;
                     let line_limit = bounded_read_value(
-                        optional_u64(&context, "line_limit")
+                        read_u64(&context, "line_limit")?
                             .unwrap_or(DEFAULT_READ_PAGE_LINES),
                         1,
                         MAX_READ_PAGE_LINES,
@@ -1072,6 +1072,15 @@ fn resolve_cwd(
     fs::canonicalize(&path).map_err(handler_error)
 }
 
+fn command_timeout_argument(context: &ToolExecutionContext) -> Result<Duration, ToolHandlerError> {
+    let value = context.arguments.get("timeout_ms").map(|value| {
+        value.as_u64().ok_or_else(|| ToolHandlerError::new(
+            "timeout_ms must be a non-negative integer representable as u64; omit it to use the default"
+        ))
+    }).transpose()?;
+    command_timeout(value)
+}
+
 fn command_timeout(value: Option<u64>) -> Result<Duration, ToolHandlerError> {
     let duration = value
         .map(Duration::from_millis)
@@ -1124,6 +1133,16 @@ fn optional_u64(context: &ToolExecutionContext, name: &str) -> Option<u64> {
 
 fn optional_bool(context: &ToolExecutionContext, name: &str) -> Option<bool> {
     context.arguments.get(name).and_then(Value::as_bool)
+}
+
+/// Unlike the generic optional helper, malformed pagination must not silently
+/// become an omitted argument (negative integers used to fall back to defaults).
+fn read_u64(context: &ToolExecutionContext, name: &str) -> Result<Option<u64>, ToolHandlerError> {
+    context.arguments.get(name).map(|value| {
+        value.as_u64().ok_or_else(|| ToolHandlerError::new(format!(
+            "read {name} must be a non-negative integer representable as u64; omit it to use the default"
+        )))
+    }).transpose()
 }
 
 fn bounded_read_value(
