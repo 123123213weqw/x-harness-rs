@@ -323,6 +323,34 @@ impl SessionToolFactory for NativeToolFactory {
         Ok(pending)
     }
 
+    async fn process_runs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(self
+            .jobs
+            .list(session_id)
+            .into_iter()
+            .map(xharness_jobs::protocol::JobRun::process)
+            .collect())
+    }
+    async fn process_output(
+        &self,
+        session_id: &str,
+        id: &str,
+        cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        self.jobs
+            .read_since(session_id, id, &cursor)
+            .map_err(|e| e.to_string())
+    }
+    async fn cancel_process_run(&self, session_id: &str, id: &str) -> Result<(), String> {
+        self.jobs
+            .kill(session_id, id, Some("cancel_run from UI"))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     async fn read_display_diff(
         &self,
         _session_id: &str,
@@ -629,6 +657,56 @@ mod tests {
     use xharness_platform::CapabilityState;
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
+    #[tokio::test]
+    async fn execution_api_uses_the_same_owned_registry_as_native_tools() {
+        let factory = NativeToolFactory::new(
+            configured_web_runtime(None, DebugRecorder::disabled()).unwrap(),
+        );
+        let (id, lease) = factory
+            .jobs
+            .reserve("owned", "bash", "fixture process", None)
+            .unwrap()
+            .commit(None, Arc::new(|_| Ok(())))
+            .unwrap();
+        lease.publish_stdout("owned result");
+        let runs = factory.process_runs("owned").await.unwrap();
+        assert_eq!(runs[0].id, id.as_str());
+        assert!(factory.process_runs("other").await.unwrap().is_empty());
+        assert!(factory
+            .process_output(
+                "other",
+                id.as_str(),
+                xharness_jobs::JobOutputCursor::start(id.as_str())
+            )
+            .await
+            .is_err());
+        assert_eq!(
+            factory
+                .process_output(
+                    "owned",
+                    id.as_str(),
+                    xharness_jobs::JobOutputCursor::start(id.as_str())
+                )
+                .await
+                .unwrap()
+                .stdout,
+            "owned result"
+        );
+        factory
+            .cancel_process_run("owned", id.as_str())
+            .await
+            .unwrap();
+        assert_eq!(
+            factory.process_runs("owned").await.unwrap()[0].state,
+            xharness_jobs::protocol::RunState::Stopping
+        );
+        lease.finish(xharness_jobs::JobOutcome::killed("producer acknowledged"));
+        assert_eq!(
+            factory.process_runs("owned").await.unwrap()[0].state,
+            xharness_jobs::protocol::RunState::Cancelled
+        );
+    }
 
     #[cfg(unix)]
     const NATIVE_SHELL_TOOL: &str = "bash";

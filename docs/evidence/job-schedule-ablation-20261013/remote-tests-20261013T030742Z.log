@@ -1,0 +1,158 @@
+2026-10-13T03:08:27Z
+wzu-SYS-4029GP-TRT
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+
+=== A/B/C contracts ===
+   Compiling xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-prompt)
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-compaction)
+   Compiling xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-token)
+   Compiling xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-goal)
+   Compiling xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-session-jsonl)
+   Compiling xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-jobs)
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-context)
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-core)
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-agent)
+   Compiling xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-schedule)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.06s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_schedule-d5182c997f3972de)
+
+running 17 tests
+test job_unification_ablation::ab_busy_chat_waits_for_idle_without_blocking_process_admission ... ok
+test job_unification_ablation::ab_cancel_run_and_cancel_future_have_independent_scope ... ok
+test job_unification_ablation::ab_completion_event_is_available_without_model_polling ... ok
+test job_unification_ablation::ab_deleting_plan_does_not_cancel_an_already_admitted_agent_run ... ok
+test job_unification_ablation::ab_future_rules_do_not_consume_process_capacity ... ok
+test job_unification_ablation::ab_jsonl_reopen_preserves_paused_rule_phase_and_idempotency ... ok
+test job_unification_ablation::ab_missed_ticks_coalesce_instead_of_replaying_every_interval ... ok
+test job_unification_ablation::ab_periodic_occurrences_have_distinct_ids_and_preserve_prior_results ... ok
+test job_unification_ablation::ab_schedule_admission_is_not_a_success_receipt ... ok
+test job_unification_ablation::ab_stream_cursor_and_nonzero_exit_smoke_use_real_linux_shell ... ok
+test job_unification_ablation::ab_wait_timeout_is_not_failure_or_cancellation ... ok
+test job_unification_ablation::b_unified_owner_and_kind_are_not_inferred_from_untrusted_ids ... ok
+test job_unification_ablation::c_remove_durable_schedule_loses_future_rule_on_registry_restart ... ok
+test job_unification_ablation::c_remove_run_identity_alias_overwrites_previous_output ... ok
+test job_unification_ablation::c_remove_trigger_execution_split_exhausts_real_process_quota ... ok
+test job_unification_ablation::diagnostic_existing_runtime_id_reuse_is_not_solved_by_unifying_the_entry ... ok
+test job_unification_ablation::diagnostic_in_memory_adapter_cost_is_reported_not_a_release_sla ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.39s
+
+
+=== Existing lifecycle regression ===
+NEGATIVE_CONTROL durable_schedule: process registry alone cannot recover future rules
+NEGATIVE_CONTROL run_identity: one plan id cannot address both occurrences
+NEGATIVE_CONTROL trigger_execution_split: future rule consumes active-process quota
+KNOWN_GAP A_AND_B: runtime ids reset after registry restart; durable run handles need generation or persisted identity
+ABLATION_METRICS {"a_median_ns":45180,"b_median_ns":46392,"note":"in-memory fixture only; no model, OS startup or release latency claim","operations_per_sample":200,"profile":"debug","samples_per_arm":12}
+   Compiling xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-schedule)
+   Compiling xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-jobs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.24s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_jobs-96469b5155c5b8c3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/jobs.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/jobs-81933f38d54f31ff)
+
+running 14 tests
+test all_terminal_states_are_first_wins_and_release_capacity ... ok
+test dropping_a_producer_lease_force_fails_instead_of_hanging ... ok
+test dynamic_configuration_rejects_every_zero_limit_without_panicking ... ok
+test independent_cursors_replay_output_and_report_eviction ... ok
+test kill_is_idempotent_and_a_throwing_cancel_mutates_nothing ... ok
+test lifecycle_events_are_ordered_and_contained_by_broadcast_lag ... ok
+test reservation_preflights_capacity_and_failed_start_does_not_consume_an_id ... ok
+test retention_prunes_only_old_terminal_records_for_the_same_owner ... ok
+test shutdown_cancels_jobs_and_bounds_noncompliant_producers ... ok
+test shutdown_contains_cancel_hook_failures_and_preserves_first_terminal_state ... ok
+test stream_cursor_reads_are_incremental_bounded_and_preserve_split_unicode ... ok
+test terminal_cursor_reads_validate_before_reporting_and_remain_replayable ... ok
+test validates_identity_and_hides_foreign_predictable_ids ... ok
+test wait_timeout_is_live_and_settlement_is_reported ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_schedule-d5182c997f3972de)
+
+running 39 tests
+test automation_tests::busy_current_chat_does_not_starve_an_independent_due_task ... ok
+test automation_tests::concurrent_creates_replay_once_and_key_conflicts_fail_closed ... ok
+test automation_tests::control_after_restart_reconciles_already_admitted_run_before_deleting ... ok
+test automation_tests::failed_target_is_backed_off_without_starving_other_targets_and_can_be_deleted ... ok
+test automation_tests::fork_keeps_history_without_rearming_the_sources_automation ... ok
+test automation_tests::invalid_time_and_unavailable_independent_target_never_create_work ... ok
+test automation_tests::new_chat_reservation_survives_long_outage_and_prevents_overlapping_runs ... ok
+test automation_tests::provider_failure_is_not_reported_as_completed ... ok
+test automation_tests::restart_after_admission_before_receipt_does_not_repeat_a_task ... ok
+test automation_tests::single_tool_schema_is_closed_and_owner_is_not_model_controlled ... ok
+test automation_tests::task_waits_for_idle_then_has_a_real_terminal_outcome ... ok
+test automation_tests::unavailable_source_does_not_trigger_or_reserve_a_task ... ok
+test automation_tests::update_pause_resume_recover_without_changing_time_phase_or_legacy_semantics ... ok
+test job_unification_ablation::ab_busy_chat_waits_for_idle_without_blocking_process_admission ... ok
+test job_unification_ablation::ab_cancel_run_and_cancel_future_have_independent_scope ... ok
+test job_unification_ablation::ab_completion_event_is_available_without_model_polling ... ok
+test job_unification_ablation::ab_deleting_plan_does_not_cancel_an_already_admitted_agent_run ... ok
+test job_unification_ablation::ab_future_rules_do_not_consume_process_capacity ... ok
+test job_unification_ablation::ab_jsonl_reopen_preserves_paused_rule_phase_and_idempotency ... ok
+test job_unification_ablation::ab_missed_ticks_coalesce_instead_of_replaying_every_interval ... ok
+test job_unification_ablation::ab_periodic_occurrences_have_distinct_ids_and_preserve_prior_results ... ok
+test job_unification_ablation::ab_schedule_admission_is_not_a_success_receipt ... ok
+test job_unification_ablation::ab_stream_cursor_and_nonzero_exit_smoke_use_real_linux_shell ... ok
+test job_unification_ablation::ab_wait_timeout_is_not_failure_or_cancellation ... ok
+test job_unification_ablation::b_unified_owner_and_kind_are_not_inferred_from_untrusted_ids ... ok
+test job_unification_ablation::c_remove_durable_schedule_loses_future_rule_on_registry_restart ... ok
+test job_unification_ablation::c_remove_run_identity_alias_overwrites_previous_output ... ok
+test job_unification_ablation::c_remove_trigger_execution_split_exhausts_real_process_quota ... ok
+test job_unification_ablation::diagnostic_existing_runtime_id_reuse_is_not_solved_by_unifying_the_entry ... ok
+test job_unification_ablation::diagnostic_in_memory_adapter_cost_is_reported_not_a_release_sla ... ok
+test tests::a_transient_append_contention_does_not_disable_future_timers ... ok
+test tests::an_unrecoverable_worker_does_not_spin_the_schedule_owner ... ok
+test tests::local_time_rejects_dst_gap_and_selects_first_overlap ... ok
+test tests::lost_worker_does_not_strand_a_due_schedule ... ok
+test tests::overdue_rule_enters_one_ordinary_followup_and_dispatches ... ok
+test tests::recurring_dispatch_skips_backlog_and_keeps_creation_alignment ... ok
+test tests::retry_after_dispatch_flush_failure_does_not_duplicate_marker ... ok
+test tests::tools_create_list_delete_without_reusing_ids ... ok
+test tests::tools_return_closed_selector_and_frequency_errors_as_values ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xharness_jobs
+   Doc-tests xharness_schedule
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== Strict Clippy ===
+    Checking xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-diagnostics)
+    Checking num-traits v0.2.19
+    Checking tokio-stream v0.1.19
+    Checking xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-prompt)
+    Checking xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-token)
+    Checking simd-adler32 v0.3.10
+    Checking xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-debug)
+    Checking chrono v0.4.45
+    Checking miniz_oxide v0.9.1
+    Checking crc32fast v1.5.1
+    Checking xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-jobs)
+    Checking flate2 v1.1.10
+    Checking xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-tools)
+    Checking chrono-tz v0.10.4
+    Checking xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-interaction)
+    Checking xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-session)
+    Checking xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-compaction)
+    Checking xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-goal)
+    Checking xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-session-jsonl)
+    Checking xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-context)
+    Checking xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-core)
+    Checking xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-agent)
+    Checking xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-schedule-ablation-20261013/crates/xharness-schedule)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.18s

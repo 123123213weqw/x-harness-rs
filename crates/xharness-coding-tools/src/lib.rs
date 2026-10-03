@@ -322,7 +322,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "job_output",
-                "Read bounded output from one managed background job without consuming it. Pass the returned next_cursor on the next read; omitting it replays the retained window. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
+                "Read bounded output from one managed background job without consuming it. Job IDs are opaque and expire on Host restart or eviction; never construct an ID from a numeric suffix. Pass the returned next_cursor on the next read; omitting it replays the retained window. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
                 json!({
                     "type": "object",
                     "properties": {

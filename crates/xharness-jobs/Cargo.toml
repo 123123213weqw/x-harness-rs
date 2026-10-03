@@ -10,4 +10,5 @@ description = "Producer-neutral background job registry for XHarness"
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+uuid = { version = "1", features = ["v4"] }
 

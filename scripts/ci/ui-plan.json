@@ -3874,6 +3874,42 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 90
+    },
+    {
+      "id": "contract-97",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-unified-jobs.mjs"
+      ],
+      "env": {},
+      "weight": 1
+    },
+    {
+      "id": "browser-222",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-unified-jobs-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-223",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-unified-jobs-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
     }
   ]
 }

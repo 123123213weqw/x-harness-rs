@@ -26,6 +26,8 @@ import { terminalBlockLabels, terminalCardModel, terminalFailed } from '../model
 import { toolRowModel, type ToolRowState } from '../models/tool-call-model'
 import { CONVERSATION_NS as NS } from '../../locale'
 import css from './bash-sample.styles'
+import type {JobClient} from '../../../jobs/client'
+import {JobToolPanel} from '../../../jobs/RunPanel'
 
 /** Bash row props: the toolview runtime share plus the standard locale seat. */
 type BashRowProps = ToolCallViewProps & PropsLocale<'conversation'>
@@ -54,7 +56,7 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
  * whole row toggling the command's terminal or generic error card (ToolRow's unified
  * expand interaction, replicated locally per the registrant posture).
  */
-export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions, inspect, t, jobClient }: BashRowProps & {jobClient?:JobClient|undefined}) {
   const model = toolRowModel(toolName, block)
   // Session workspace root: the terminal view's cwd resolves against it (an
   // omitted workdir IS the workspace), which the pure presenter cannot do.
@@ -160,6 +162,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
           )}
         </div>
       )}
+      {jobClient && <JobToolPanel client={jobClient} sessionId={sessionId} block={block}/>}
     </div>
   )
 }
@@ -170,13 +173,14 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }:
  */
 export const bashToolviewSample = {
   name: 'bash-toolview-sample',
-  inject: ['slots'],
+  inject: ['slots', 'connection'],
   /**
    * Register the bash row into the Tool-owned keyed view slot.
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
+    const jobs=ctx.get?.('connection')?.jobs
     ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({ name: 'tool.call.toolview', key: 'bash', locale: NS }, BashRow))
+      ctx.slots.register({ name: 'tool.call.toolview', key: 'bash', locale: NS }, (props:BashRowProps)=><BashRow {...props} jobClient={jobs}/>))
   },
 }

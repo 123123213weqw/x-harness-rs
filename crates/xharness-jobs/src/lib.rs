@@ -16,6 +16,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
+pub mod protocol;
+
 pub const DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER: usize = 10;
 pub const DEFAULT_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
 pub const DEFAULT_MAX_RETAINED_JOBS_PER_OWNER: usize = 100;
@@ -267,6 +269,9 @@ pub struct JobRegistry {
 }
 
 struct RegistryInner {
+    /// New on each Registry/Host lifetime; raw counters must never address a
+    /// different producer after restart. No legacy-counter alias is resolved.
+    generation: String,
     config: JobRegistryConfig,
     state: Mutex<RegistryState>,
     events: broadcast::Sender<JobEvent>,
@@ -364,6 +369,7 @@ impl JobRegistry {
         let (events, _) = broadcast::channel(config.event_capacity);
         Ok(Self {
             inner: Arc::new(RegistryInner {
+                generation: uuid::Uuid::new_v4().simple().to_string(),
                 config,
                 state: Mutex::new(RegistryState {
                     accepting: true,
@@ -679,7 +685,7 @@ impl JobReservation {
             );
             let count = state.counters.entry(self.kind.clone()).or_default();
             *count = count.saturating_add(1);
-            let id = JobId(format!("{}-{}", self.kind, *count));
+            let id = JobId(format!("{}-{}-{}", self.kind, registry.generation, *count));
             let (changed, _) = watch::channel(0);
             let entry = Arc::new(JobEntry {
                 id: id.clone(),
