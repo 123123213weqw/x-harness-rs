@@ -18,7 +18,7 @@ use xharness_core::{
 use xharness_debug::DebugRecorder;
 use xharness_host::{
     AgentRuntime, BasicHost, DurableLoopAgentRuntime, DurableQuestionHub, HostConfig,
-    NoopAgentMarkdownSink, PermissionPreset, SessionToolFactory,
+    PermissionPreset, SessionToolFactory,
 };
 use xharness_host_app::NativeToolFactory;
 use xharness_interaction::ASK_USER_QUESTION_TOOL;
@@ -189,7 +189,7 @@ fn compose(
     Arc<DurableLoopAgentRuntime>,
     Arc<NativeToolFactory>,
 ) {
-    let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+    let hub = DurableQuestionHub::new(store.clone());
     let tools = NativeToolFactory::new_with_questions(
         WebRuntime::default(),
         DebugRecorder::disabled(),

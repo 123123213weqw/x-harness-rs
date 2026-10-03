@@ -37,6 +37,9 @@ export class ThemePresenter {
   apply(snapshot: ThemeSnapshot): void {
     const scheme = snapshot.active.colorScheme
     document.documentElement.style.colorScheme = scheme
+    // Native chrome needs the preference as well as the resolved scheme:
+    // System must release its override instead of feeding back into OS sensing.
+    document.documentElement.dataset.xhThemePreference = snapshot.preference
     const body = document.body
     if (scheme === 'dark') body.setAttribute(DARK_ATTRIBUTE, '')
     else body.removeAttribute(DARK_ATTRIBUTE)
@@ -53,6 +56,7 @@ export class ThemePresenter {
   /** Retract root color-scheme, the palette attribute, token variables, and the owned metadata node. */
   dispose(): void {
     document.documentElement.style.removeProperty('color-scheme')
+    delete document.documentElement.dataset.xhThemePreference
     const body = document.body
     body.removeAttribute(DARK_ATTRIBUTE)
     for (const name of this.appliedTokens) body.style.removeProperty(name)

@@ -11,6 +11,7 @@ const approvedAdditions = [
   { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
   { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },
   { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime', '@xlang/xharness-client-ui-assistant'] },
+  { id: '@xlang/xharness-client-ui-session-import', kind: 'source-module', source: 'src/modules/session-import/index.ts', inject: ['@xharness/dsh-client-ui-settings-general', '@xharness/dsh-client-runtime', '@xharness/dsh-client-connection', '@xharness/dsh-client-locale'] },
 ]
 function assertReviewedAdditions(manifest, baseline) {
   const additions = manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id))
@@ -107,4 +108,22 @@ test('performance allowance cannot add eager boot work', () => {
   const row = manifest.modules.find(row => row.id === '@xlang/xharness-client-ui-performance')
   assert.ok(row); row.immediately = true
   assert.throws(() => assertReviewedAdditions(manifest, baseline), /must not add eager boot work/)
+})
+
+test('session-import allowance rejects changed ABI, eager activation and removal', () => {
+  const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
+  const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
+  for (const mutate of [
+    row => { row.source = 'src/modules/unreviewed/index.ts' },
+    row => { row.inject.push('@xharness/dsh-client-ui-tool') },
+    row => { row.immediately = true },
+    row => { row.kind = 'source-library' },
+  ]) {
+    const candidate = structuredClone(manifest)
+    mutate(candidate.modules.find(row => row.id === '@xlang/xharness-client-ui-session-import'))
+    assert.throws(() => assertReviewedAdditions(candidate, baseline), /only reviewed source\/transport additions|must not add eager boot work/)
+  }
+  const removed = structuredClone(manifest)
+  removed.modules = removed.modules.filter(row => row.id !== '@xlang/xharness-client-ui-session-import')
+  assert.throws(() => assertReviewedAdditions(removed, baseline), /only reviewed source\/transport additions/)
 })

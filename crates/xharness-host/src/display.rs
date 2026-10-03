@@ -1,18 +1,12 @@
 //! UI intent is transient and session-owned; no file bytes enter durable history.
 use crate::BasicHost;
-use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::path::{Path, PathBuf};
 use tokio_util::sync::CancellationToken;
 use xharness_api::{
-    display::{DisplayFile, DisplayOpen, DisplayRead, GitDiffScope},
+    display::{DisplayFile, DisplayOpen, DisplayRead},
     RpcError,
 };
-use xharness_tools::{ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
 
 impl BasicHost {
     pub async fn read_display_file(
@@ -105,63 +99,30 @@ fn normalize_path(path: PathBuf) -> Result<PathBuf, RpcError> {
     Ok(result)
 }
 
-pub struct DisplayTool;
-impl DisplayTool {
-    pub fn for_host(host: &Arc<BasicHost>, session_id: &str) -> ToolSpec {
-        let weak = Arc::downgrade(host);
-        let session_id = session_id.to_owned();
-        let definition=ToolDefinition::new(
-            "display",
-            "Show a file in this conversation's right-hand display panel. Pass a workspace-relative or absolute path. Markdown, PNG/JPEG/WebP/GIF, UTF-8 text/code and unified .diff/.patch files are supported. To show tracked workspace Git changes pass gitDiff working (index vs worktree), staged (HEAD vs index), or head (HEAD vs worktree), with path . or a workspace-relative file/directory. Git views exclude untracked files and are NOT this turn-only changes. This is read-only display for the user, not image input to the model. Returns requested, not proof the user saw it. Background sessions never steal focus. Use read to inspect content; do not embed full file contents here.",
-            json!({"type":"object","additionalProperties":false,"properties":{
-                "path":{"type":"string","minLength":1,"maxLength":4096},
-                "gitDiff":{"type":"string","enum":[GitDiffScope::Working,GitDiffScope::Staged,GitDiffScope::Head]}
-            },"required":["path"]}),
-        );
-        ToolSpec::new(definition, move |context| {
-            let weak = weak.clone();
-            let session_id = session_id.clone();
-            async move {
-                #[derive(Deserialize)]
-                #[serde(rename_all = "camelCase", deny_unknown_fields)]
-                struct Args {
-                    path: String,
-                    git_diff: Option<GitDiffScope>,
-                }
-                let args: Args = serde_json::from_value((*context.arguments).clone())
-                    .map_err(|e| ToolHandlerError::new(e.to_string()))?;
-                let host = weak
-                    .upgrade()
-                    .ok_or_else(|| ToolHandlerError::new("Host is shutting down"))?;
-                let file = host
-                    .read_display_file(
-                        DisplayRead {
-                            session_id: session_id.clone(),
-                            path: args.path,
-                            relative_to: None,
-                            git_diff: args.git_diff,
-                        },
-                        context.cancellation.clone(),
-                    )
-                    .await
-                    .map_err(|e| ToolHandlerError::new(e.message))?;
-                if context.cancellation.is_cancelled() {
-                    return Err(ToolHandlerError::new("display cancelled"));
-                }
-                let intent = DisplayOpen {
-                    session_id,
-                    path: file.path().into(),
-                    git_diff: args.git_diff,
-                };
-                host.push_host(
-                    json!({"type":"host/remote-event","event":"display/open","args":[intent]}),
-                );
-                Ok(ToolOutput::text(
-                    json!({"status":"requested","path":file.path()}).to_string(),
-                ))
-            }
-        })
-        .with_timeout(Duration::from_secs(30))
+impl BasicHost {
+    /// Validate with the existing session filesystem policy, then emit only
+    /// a session-owned UI intent. The caller binds the session outside model
+    /// arguments; no file contents enter the tool result or durable event.
+    pub async fn request_display_open(
+        &self,
+        request: DisplayRead,
+        cancellation: CancellationToken,
+    ) -> Result<DisplayOpen, RpcError> {
+        let session_id = request.session_id.clone();
+        let git_diff = request.git_diff;
+        let file = self
+            .read_display_file(request, cancellation.clone())
+            .await?;
+        if cancellation.is_cancelled() {
+            return Err(RpcError::bad_request("display cancelled", json!([])));
+        }
+        let intent = DisplayOpen {
+            session_id,
+            path: file.path().into(),
+            git_diff,
+        };
+        self.push_host(json!({"type":"host/remote-event","event":"display/open","args":[&intent]}));
+        Ok(intent)
     }
 }
 
@@ -183,7 +144,10 @@ mod tests {
         AgentRuntime, AgentRuntimeError, AgentTurnRequest, HostConfig, PermissionPreset,
         RunningTurn,
     };
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use xharness_api::{ApiBackend, RpcId, RpcMethod};
 
     struct ReadyDisplayRuntime {
