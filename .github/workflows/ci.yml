@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -91,6 +92,7 @@ jobs:
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-macos-stable-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
+      - run: python -B scripts/test-powershell-runtime.py
       - run: python -B scripts/test-windows-runtime-audit.py
       - run: python -B scripts/test-browser-windows-manifest.py
       - name: Unix updater isolation and candidate contracts
@@ -441,6 +443,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Stage and execute pinned portable PowerShell without system PATH
+        run: |
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Pinned PowerShell staging failed' }
+          ./scripts/test-bundled-powershell.ps1
+          "XHARNESS_BUNDLED_POWERSHELL_ROOT=$((Resolve-Path apps/desktop/src-tauri/resources/powershell).Path)" >> $env:GITHUB_ENV
       - name: Portable Mac signing policy on Windows (no credentials or native signing)
         run: python -B scripts/test-macos-stable-signing.py
       - uses: actions/setup-node@v6
@@ -502,6 +510,10 @@ jobs:
           Copy-Item -LiteralPath "config/providers.remote.example.json" -Destination "$package/config"
           Copy-Item -LiteralPath "scripts/start-windows.ps1" -Destination $package
           Copy-Item -LiteralPath "ui/dist" -Destination "$package/ui" -Recurse
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Portable shell staging failed' }
+          New-Item -ItemType Directory -Force -Path "$package/runtime" | Out-Null
+          Copy-Item -LiteralPath "apps/desktop/src-tauri/resources/powershell" -Destination "$package/runtime/powershell" -Recurse
           $archive = "dist/xharness-host-windows-x86_64.zip"
           python -B scripts/audit-windows-runtime.py --directory $package --portable-host --output dist/windows-runtime-audit/portable.json
           if ($LASTEXITCODE) { throw 'Portable Windows runtime dependency audit failed' }
@@ -523,18 +535,22 @@ jobs:
           $target = 'x86_64-pc-windows-msvc'
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
       - name: Stage debug Windows sidecars for PR smoke
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           $target = 'x86_64-pc-windows-msvc'
           cargo build --locked -p xharness-host-app -p xharness-sandbox --bins
           if ($LASTEXITCODE) { throw 'Windows PR sidecar build failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows PR host staging failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows PR search staging failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
@@ -688,7 +704,7 @@ jobs:
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Stage debug macOS sidecars for PR smoke
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           cargo build --locked -p xharness-host-app
           export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"

@@ -238,6 +238,12 @@ function Assert-InstalledPayload {
         $path = Join-Path $canonical $module.path
         Assert-That ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $module.sha256) "Installed payload is stale or mixed: $($module.path)"
     }
+    Assert-That ($null -ne $audit.powershell) 'Missing bundled PowerShell acceptance receipt'
+    $runtimeRoot = Join-Path $canonical 'runtime/powershell'
+    Assert-That ((Get-FileHash -LiteralPath (Join-Path $runtimeRoot 'manifest.json')).Hash.ToLowerInvariant() -eq $audit.powershell.manifest_sha256) 'Installed PowerShell manifest differs from audited installer'
+    foreach ($file in $audit.powershell.files.PSObject.Properties) {
+        Assert-That ((Get-FileHash -LiteralPath (Join-Path $runtimeRoot $file.Name)).Hash.ToLowerInvariant() -eq $file.Value.sha256) "Installed runtime is stale or mixed: $($file.Name)"
+    }
 }
 function Start-TestCopy([string]$Directory) {
     $process = Start-Process -FilePath (Join-Path $Directory 'xharness-desktop.exe') -WindowStyle Hidden -PassThru
