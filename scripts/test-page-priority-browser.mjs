@@ -77,6 +77,8 @@ try {
   const before=await composer.boundingBox()
   await page.getByRole('button',{name:'Open sidebar',exact:true}).click()
   await page.locator('[data-sidebar-drawer]').waitFor()
+  const sidebarBox=await page.locator('[data-sidebar-drawer] ._84hhiq_sidebarCol').boundingBox()
+  assert.ok(sidebarBox.width>=240 && sidebarBox.x===0,'sidebar drawer uses the frame rather than the reserved rail as its containing block')
   const after=await composer.boundingBox()
   assert.ok(Math.abs(before.width-after.width)<2,'sidebar drawer does not squeeze the composer')
   assert.ok(after.width>240,'composer remains wide enough in the narrow viewport')
@@ -127,7 +129,11 @@ try {
   await inner.getByRole('button',{name:'Inner menu',exact:true}).click()
   await inner.getByRole('menuitem',{name:'Alpha',exact:true}).click()
   assert.deepEqual(await primitive.evaluate(()=>primitiveChoices),['alpha'])
+  await inner.getByRole('menu').waitFor({state:'hidden'})
   await primitive.keyboard.press('Escape')
+  // WebKit delivers native dialog cancel after the key-up round trip. Wait
+  // for the owned close, then still assert the outer dialog and opener survive.
+  await inner.waitFor({state:'hidden'})
   assert.equal(await primitive.locator('dialog:modal').count(),1,'only inner modal closes')
   assert.equal(await primitive.getByRole('dialog',{name:'Outer',exact:true}).isVisible(),true)
   assert.equal(await primitive.getByRole('button',{name:'Open inner',exact:true}).evaluate(el=>el===document.activeElement),true)
