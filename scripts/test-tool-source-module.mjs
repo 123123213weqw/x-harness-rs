@@ -60,3 +60,12 @@ test('Agent communication: start and stop receipt semantics are not execution or
  assert.equal(make({action:'stop',agent_id:'child-created'},{ok:true,agent_id:'other',accepted:true}).phase,'unconfirmed')
  assert.ok(b.plugin.agentCommunicationCopy(stop,false).body.includes('not proof the agent has stopped'))
 })
+test('Agent correction: validates both source and checkpoint before showing a managed branch receipt',()=>{
+ const args={action:'revert',agent_id:'source',checkpoint_seq:26,message:'correct the direction'}
+ const ack={ok:true,agent_id:'branch',source_agent_id:'source',checkpoint_seq:26,message_id:'branch:initial',status:'accepted',filesystem_rollback:false}
+ const make=value=>b.plugin.agentCommunicationModel('agent',settled({call:{name:'agent',argsRaw:JSON.stringify(args)},content:[{type:'text',text:JSON.stringify(value)}]}))
+ const model=make(ack)
+ assert.equal(model.phase,'queued');assert.equal(model.target,'branch');assert.equal(model.source,'source');assert.equal(model.checkpoint,26)
+ assert.ok(b.plugin.agentCommunicationCopy(model,false).body.includes('files are not rolled back'))
+ for(const invalid of [{...ack,source_agent_id:'other'},{...ack,checkpoint_seq:27},{...ack,filesystem_rollback:true},{...ack,agent_id:'source'}]) assert.equal(make(invalid).phase,'unconfirmed')
+})

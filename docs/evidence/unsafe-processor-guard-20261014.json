@@ -1,0 +1,82 @@
+{
+  "scope": "actual_rust_compiler_mutation_on_protected_processors",
+  "protected_files": [
+    "crates/xharness-host/src/credential_processor.rs",
+    "crates/xharness-host/src/goal_processor.rs",
+    "crates/xharness-host/src/model_processor.rs",
+    "crates/xharness-host/src/preset_processor.rs",
+    "crates/xharness-host/src/session_processor.rs",
+    "crates/xharness-host/src/settings_processor.rs",
+    "crates/xharness-host/src/subagent_processor.rs",
+    "crates/xharness-host/src/workspace_processor.rs"
+  ],
+  "cases": [
+    {
+      "case": "unsafe_block",
+      "exit_code": 101,
+      "passed": true,
+      "rejected_files": [
+        "credential_processor.rs",
+        "goal_processor.rs",
+        "model_processor.rs",
+        "preset_processor.rs",
+        "session_processor.rs",
+        "settings_processor.rs",
+        "subagent_processor.rs",
+        "workspace_processor.rs"
+      ]
+    },
+    {
+      "case": "local_allow_cannot_override_forbid",
+      "exit_code": 101,
+      "passed": true,
+      "rejected_files": [
+        "credential_processor.rs",
+        "goal_processor.rs",
+        "model_processor.rs",
+        "preset_processor.rs",
+        "session_processor.rs",
+        "settings_processor.rs",
+        "subagent_processor.rs",
+        "workspace_processor.rs"
+      ]
+    }
+  ],
+  "original_source_bytes_restored": true,
+  "positive_exit_code": 0,
+  "passed": true,
+  "date": "2026-10-14",
+  "server": "WZU_Server",
+  "architecture_tests": {
+    "passed": 7,
+    "failed": 0
+  },
+  "rust_tests": {
+    "passed": 307,
+    "failed": 0,
+    "existing_ignored": 6
+  },
+  "clippy": {
+    "crate": "xharness-host",
+    "all_targets": true,
+    "deny_warnings": true,
+    "passed": true
+  },
+  "rust_compiled_locally": false,
+  "source_sha256": {
+    "crates/xharness-host/src/credential_processor.rs": "613c2b213aa09027cce6ac5a60d032e270452bbea2d497951e25a690cbaf34ca",
+    "crates/xharness-host/src/goal_processor.rs": "4d83fa81d1cfbfcec8790c14f30bc993ab4754fc6f98ede93cdd2ce8667bbe83",
+    "crates/xharness-host/src/model_processor.rs": "3bdca67f327431d539128b152f206f6628c1186c509a9e7e0bed7461fa40a075",
+    "crates/xharness-host/src/preset_processor.rs": "22897309f7f78ae7ea3743f0f5f30c3c88d1f10aa5ea2c62d803322f662f14ee",
+    "crates/xharness-host/src/session_processor.rs": "f4657e06addd188279eb72d610a4679d467a524491bc7f97439ea03f29f7abf0",
+    "crates/xharness-host/src/settings_processor.rs": "80e223167a65db2b50412b32e8f743c06ff928f8c856174daf3438ec8beca4d1",
+    "crates/xharness-host/src/subagent_processor.rs": "d78f6aff8d2dc9fcc97159147becf93a984811b9c72ca7de862368969417b106",
+    "crates/xharness-host/src/workspace_processor.rs": "68ed26a33096bfc8ccfd171a57eecf901e826f317671fc604f03ad46554f001d"
+  },
+  "synchronization": {
+    "method": "rsync source archive; SHA256 verified before extraction",
+    "source_archive_sha256": "9e55033bb04b6aa07c0ff3849ce2d44a30ca349ab65395066192da0bb105c04c",
+    "final_rsync_acknowledgement_timed_out": true,
+    "local_remote_archive_hash_equal": true
+  }
+}

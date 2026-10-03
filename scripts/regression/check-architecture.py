@@ -83,6 +83,37 @@ FORBIDDEN_SOURCE_FRAGMENTS = {
 }
 
 
+def has_forbid_unsafe_prologue(text: str) -> bool:
+    """Require an unconditional module-wide guard before code/other attributes.
+
+    The compiler enforces the body, including nested modules and unsafe fns.
+    This check only protects the guard against deletion/downgrade. Comments
+    and strings cannot pretend to be an effective Rust inner attribute.
+    """
+    tail = text.lstrip()
+    while tail.startswith(("//", "/*")):
+        if tail.startswith("//"):
+            newline = tail.find("\n")
+            if newline < 0:
+                return False
+            tail = tail[newline + 1:].lstrip()
+            continue
+        depth, index = 1, 2
+        while index < len(tail) and depth:
+            if tail.startswith("/*", index):
+                depth += 1
+                index += 2
+            elif tail.startswith("*/", index):
+                depth -= 1
+                index += 2
+            else:
+                index += 1
+        if depth:
+            return False
+        tail = tail[index:].lstrip()
+    return re.match(r"^#!\[\s*forbid\s*\(\s*unsafe_code\s*\)\s*\]", tail) is not None
+
+
 def check_managed_host_modules(root: Path, policy: dict) -> list[str]:
     """Enforce the declared owner, dependency and integration seams of extracted Host policy."""
     errors: list[str] = []
@@ -117,7 +148,10 @@ def check_managed_host_modules(root: Path, policy: dict) -> list[str]:
             errors.append(f"managed Host module not declared in lib.rs: {source_name}")
         if f"{stem}::" not in entrypoint.read_text():
             errors.append(f"managed Host entrypoint does not use {source_name}")
-        production = source.read_text().split("#[cfg(test)]", 1)[0]
+        source_text = source.read_text()
+        if not has_forbid_unsafe_prologue(source_text):
+            errors.append(f"{source_name}: requires unconditional #![forbid(unsafe_code)] at module prologue")
+        production = source_text.split("#[cfg(test)]", 1)[0]
         actual_crates = set(re.findall(r"\bxharness_\w+(?=::)", production))
         unexpected = actual_crates - set(module["allowedCrates"])
         if unexpected:
