@@ -76,3 +76,7 @@ PR #196 尚未合并，后续修复以其分支为基线，保证 PR diff 只有
 正式 PR 版本在 V100 执行 `cargo test --locked -p xharness-coding-tools -p xharness-platform -p xharness-fs`，**48 项通过、4 项 live endpoint 测试 ignored**；三个 crate 的 `cargo clippy --locked --all-targets -- -D warnings` 通过。上述 16 次真实模型实验已独立执行，不把 ignored 项计入通过数。Windows/macOS 尚待 CI／实机验收。
 
 正式回归首次运行曾错误接受 −1，保留失败日志 `pr-regression.log`。本机／远端生产源码 SHA-256 均为 `3cace56fc156733c4dc8a6546579db23686b973e17faea976546a40e45867e83`；不改源码内容，仅更新源文件时间戳强制重新编译后，48 项及 Clippy 全部通过，完整输出保留为 `pr-regression-retry.log`。这与两臂共用 target、rsync 保留时间戳引起的旧产物复用一致，但不把它当成已证明的生产缺陷；CI 将从正式提交重新构建复核，不能只依据共享 target 的首次输出。
+
+### CI 等待语义修正
+
+正式 #197 的 Windows CI 中，既有后台 PowerShell 测试在 5 秒等待结束后拿到 `running`，却直接断言 `failed`。`job_output` 的正常等待超时本就允许返回 running，不能把单个窗口当作终态门禁。测试改为在总 30 秒 deadline 内按 1 秒有界等待，直到收到 terminal snapshot，保留完整 stdout/stderr、failed 终态及 exit 7 的全部断言；不修改生产生命周期、不放宽结果标准。V100 bundle＋shell 契约 9 项通过，Windows 路径由新 CI 验证，Linux 测试不能声称覆盖 Windows 实机。
