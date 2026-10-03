@@ -718,11 +718,11 @@ impl BasicHost {
             {
                 let inbox = InboxProjection::from_session(&cut)
                     .map_err(|e| RpcError::internal(e.to_string()))?;
-                if xharness_agent::internal_inputs_blocked(&cut)
+                if cut.dispatch_paused()
                     && !inbox
                         .next_turn()
                         .iter()
-                        .any(xharness_agent::is_user_inbox_message)
+                        .any(xharness_session::InboxMessage::is_user_authored)
                 {
                     self.set_dispatch_paused(session_id, true).await?;
                 }
