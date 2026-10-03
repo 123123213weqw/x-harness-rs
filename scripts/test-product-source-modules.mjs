@@ -78,7 +78,15 @@ for (const name of names) {
     before.plugin.apply(before.ctx); after.plugin.apply(after.ctx)
     assert.deepEqual(normalized(after.locales), normalized(before.locales))
     assert.deepEqual(normalized(after.slots.map(row => row.spec)), normalized(before.slots.map(row => row.spec)))
-    assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), [...before.styles].map(([id, style]) => [id, style.textContent]))
+    const expectedStyles = [...before.styles].map(([id, style]) => [id, style.textContent])
+    if (name === 'plugin-hub') {
+      // Keep the immutable letter-icon migration baseline intact. Preserve all
+      // original rules; allow ONLY this explicit passive-image style extension.
+      assert.equal(expectedStyles.length, 1)
+      assert.equal(expectedStyles[0][0], 'xharness-plugin-hub-style')
+      expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
+    }
+    assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     for (const cleanup of after.cleanups) cleanup()
   })
 }
