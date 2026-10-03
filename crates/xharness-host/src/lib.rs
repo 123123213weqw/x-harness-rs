@@ -156,6 +156,12 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         true
     }
 
+    /// Validate deployment requirements after all factory and Host-owned tools
+    /// have been registered, before a turn can call the model provider.
+    async fn validate_executor(&self, _executor: &ToolExecutor) -> Result<(), String> {
+        Ok(())
+    }
+
     async fn goal_dependencies(
         &self,
         _session_id: &str,
