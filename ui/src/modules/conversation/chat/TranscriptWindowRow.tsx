@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type { HTMLAttributes } from 'react'
-import { transcriptState, transcriptStateFor } from './transcript-state'
+import { transcriptState, transcriptStateFor, type TranscriptValues } from './transcript-state'
 
 type View = { mounted: boolean; height: number }
 type Binding = { keep(value: boolean): void; focus(value: boolean): void; remove(): void }
@@ -131,9 +131,11 @@ function detailKey(node: HTMLDetailsElement, index: number): string {
   return node.getAttribute('data-transcript-state-key') || node.id || `${index}:${node.querySelector('summary')?.textContent?.slice(0, 120) ?? ''}`
 }
 
-export function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 240, ...attributes }: HTMLAttributes<HTMLDivElement> & { keepMounted?: boolean; estimatedHeight?: number; onToggleCapture?: (event: React.SyntheticEvent<HTMLDivElement>) => void }) {
+export function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 240, presentationState, ...attributes }: HTMLAttributes<HTMLDivElement> & { keepMounted?: boolean; estimatedHeight?: number; presentationState?: TranscriptValues; onToggleCapture?: (event: React.SyntheticEvent<HTMLDivElement>) => void }) {
   const element = React.useRef<HTMLDivElement>(null), binding = React.useRef<Binding | null>(null)
-  const values = React.useRef(new Map<string, unknown>()), details = React.useRef(new Map<string, boolean>())
+  // The keyed Node seat may outlive a folded/unmounted WindowRow. Use its
+  // lightweight state when provided; standalone window rows retain their own.
+  const values = React.useRef(presentationState ?? new Map<string, unknown>())
   const estimate = Number.isFinite(estimatedHeight) && estimatedHeight > 0 ? estimatedHeight : 240
   const [view, setView] = React.useState<View>({ mounted: keepMounted, height: estimate })
   React.useLayoutEffect(() => {
@@ -150,8 +152,8 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
   React.useLayoutEffect(() => {
     if (!view.mounted) return
     element.current?.querySelectorAll('details').forEach((node, index) => {
-      const restored = details.current.get(detailKey(node, index))
-      if (restored !== undefined) node.open = restored
+      const restored = values.current.get('native-details:' + detailKey(node, index))
+      if (typeof restored === 'boolean') node.open = restored
     })
   }, [view.mounted])
   const focusedInput = (): boolean => {
@@ -163,7 +165,7 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
     if (!(target instanceof HTMLDetailsElement)) return
     const nodes = [...element.current?.querySelectorAll('details') ?? []]
     const index = nodes.indexOf(target)
-    if (index >= 0) details.current.set(detailKey(target, index), target.open)
+    if (index >= 0) values.current.set('native-details:' + detailKey(target, index), target.open)
   }
   return <div {...attributes} ref={element} data-transcript-mounted={view.mounted ? 'true' : 'false'}
     onFocusCapture={event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedInput()) }}

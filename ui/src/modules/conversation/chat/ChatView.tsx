@@ -19,12 +19,13 @@ import type { ConversationTimelineSnapshot } from "../types/runtime"
 import { Button, IconChevronDownOutline14, Modal } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
-import { ChatNodeSeat } from './ChatNodeSeat'
+import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
 import css from './ChatView.styles'
 
 const FOLLOW_THRESHOLD = 24
+const NO_EXPANDED_TURNS: ReadonlySet<number> = new Set()
 
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
@@ -175,6 +176,13 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
   const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
   const [fileOpenBusy, setFileOpenBusy] = useState(false)
+  const [processState, setProcessState] = useState<{ sessionId: string; expanded: ReadonlySet<number> }>(
+    () => ({ sessionId, expanded: NO_EXPANDED_TURNS }),
+  )
+  // Display state belongs to one session. Reusing the view for another session
+  // must not apply its numeric turn IDs (or later resurrect stale choices).
+  if (processState.sessionId !== sessionId) setProcessState({ sessionId, expanded: NO_EXPANDED_TURNS })
+  const expandedTurns = processState.sessionId === sessionId ? processState.expanded : NO_EXPANDED_TURNS
   // Close/retry must ignore a settlement that started before the latest
   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
   const fileOpenRequest = useRef(0)
@@ -239,6 +247,60 @@ export function ChatView({
    *  scroll-driven at-bottom chrome re-render (which would snap inertial
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
+  const processAnchorRef = useRef<PagingAnchor | null>(null)
+
+  const toggleTurnProcess = (turn: number): void => {
+    const local = listRef.current
+    if (local !== null) {
+      const scrollport = scrollerOf(local)
+      const row = anchorElement(local, `turn-process:${turn}`)
+      processAnchorRef.current = row === null ? null : { key: `turn-process:${turn}`, top: flowTop(row, scrollport) }
+      // A disclosure click is a reading gesture, not permission to snap to the
+      // floor. Release follow before commit/ResizeObserver and keep it released
+      // even when a collapsed list temporarily fits inside the viewport.
+      atBottomRef.current = false
+      setAtBottom(false)
+      readerScrollUntilRef.current = 0
+      readerDirectionRef.current = 0
+    }
+    setProcessState(previous => {
+      const expanded = new Set(previous.sessionId === sessionId ? previous.expanded : NO_EXPANDED_TURNS)
+      if (expanded.has(turn)) expanded.delete(turn)
+      else expanded.add(turn)
+      return { sessionId, expanded }
+    })
+  }
+
+  useLayoutEffect(() => {
+    const local = listRef.current
+    const anchor = processAnchorRef.current
+    processAnchorRef.current = null
+    if (local === null || anchor === null) return
+    const scrollport = scrollerOf(local)
+    const row = anchorElement(local, anchor.key)
+    if (row !== null) scrollport.scrollTop += flowTop(row, scrollport) - anchor.top
+    observedTopRef.current = scrollport.scrollTop
+    const position = scrollPosition(local, scrollport)
+    if (position !== null) chatScroll.save(position)
+  }, [expandedTurns, chatScroll])
+
+  // One independently subscribed resident entry per loaded turn, including
+  // partial history pages without the original user/start event. No full-turn
+  // pinning: only the live tip and pending tools bypass row windowing.
+  const processHeads = useMemo(() => {
+    const heads = new Set<string>()
+    const turns = new Set<number>()
+    for (const key of order) {
+      const node = nodeStore.get(key)
+      if (node?.kind === 'user' || node?.kind === 'steering') continue
+      const location = node?.location
+      if (location?.kind !== 'turn' && location?.kind !== 'step') continue
+      if (turns.has(location.turn.turn)) continue
+      turns.add(location.turn.turn)
+      heads.add(key)
+    }
+    return heads
+  }, [order, nodeStore, timeline])
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
@@ -516,10 +578,19 @@ export function ChatView({
               </button>
             </div>
           )}
-          {order.map((nodeKey) => (
-            <ChatNodeSeat
-              key={nodeKey}
+          {order.flatMap((nodeKey) => [
+            ...(processHeads.has(nodeKey) ? [<TurnProcessSummarySeat
+              key={`${sessionId}:process:${nodeKey}`}
               nodeKey={nodeKey}
+              useSession={useSession}
+              expandedTurns={expandedTurns}
+              toggleTurnProcess={toggleTurnProcess}
+              t={t}
+            />] : []),
+            <ChatNodeSeat
+              key={`${sessionId}:node:${nodeKey}`}
+              nodeKey={nodeKey}
+              expandedTurns={expandedTurns}
               keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
               editMessage={editMessage}
               forkMessage={forkMessage}
@@ -534,8 +605,8 @@ export function ChatView({
               fileMentions={fileMentions}
               renderSlot={renderSlot}
               t={t}
-            />
-          ))}
+            />,
+          ])}
           {/* No pending placeholders: questions (ui-user-questions) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}

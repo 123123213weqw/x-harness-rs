@@ -11319,6 +11319,7 @@ __export(primitives_exports, {
   DEFAULT_READ_MAX_LINES: () => DEFAULT_READ_MAX_LINES,
   DEFAULT_SEARCH_MAX_LINES: () => DEFAULT_SEARCH_MAX_LINES,
   DEFAULT_TERMINAL_MAX_LINES: () => DEFAULT_TERMINAL_MAX_LINES,
+  DialogSurface: () => DialogSurface,
   DiffBlock: () => DiffBlock,
   DisclosureRow: () => DisclosureRow,
   FishLogo: () => FishLogo,
@@ -12456,6 +12457,7 @@ var Menu_default = {
 
 // src/modules/platform/primitives/Menu.tsx
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+var openMenuRoots = [];
 function isSeparator(entry) {
   return "type" in entry && entry.type === "separator";
 }
@@ -12517,6 +12519,8 @@ function Menu({ open: open2, anchor, items, selectedId, selectedIds, onSelect, o
       setOpenSubmenuId(null);
       return;
     }
+    const root2 = rootRef.current;
+    if (root2 !== null) openMenuRoots.push(root2);
     const onPointerDown = (e) => {
       if (!(e.target instanceof Node)) return;
       if (rootRef.current?.contains(e.target) === true) return;
@@ -12524,11 +12528,22 @@ function Menu({ open: open2, anchor, items, selectedId, selectedIds, onSelect, o
       onClose();
     };
     const onKeyDown = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape" || e.defaultPrevented || root2 === null) return;
+      const activeDialog = document.activeElement?.closest("dialog:modal") ?? null;
+      const eligible = openMenuRoots.filter((entry) => entry.closest("dialog:modal") === activeDialog);
+      if (eligible.at(-1) !== root2) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onClose();
+      root2.querySelector("button,[tabindex]")?.focus();
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      if (root2 !== null) {
+        const index2 = openMenuRoots.indexOf(root2);
+        if (index2 !== -1) openMenuRoots.splice(index2, 1);
+      }
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
@@ -12633,7 +12648,7 @@ function Menu({ open: open2, anchor, items, selectedId, selectedIds, onSelect, o
       } : void 0,
       children: [
         anchor,
-        portal ? list2 !== false && (0, import_react_dom.createPortal)(list2, document.body) : list2
+        portal ? list2 !== false && (0, import_react_dom.createPortal)(list2, rootRef.current?.closest("dialog") ?? document.body) : list2
       ]
     }
   );
@@ -12928,8 +12943,69 @@ function HoverCard({
 
 // src/modules/platform/primitives/Modal.tsx
 init_define_process_execArgv();
+
+// src/modules/platform/primitives/DialogSurface.tsx
+init_define_process_execArgv();
 var import_react7 = __toESM(require_react());
 var import_react_dom3 = __toESM(require_react_dom());
+
+// src/modules/platform/primitives/DialogSurface.module.css
+var DialogSurface_default = {
+  surface: "DialogSurface_surface"
+};
+
+// src/modules/platform/primitives/DialogSurface.tsx
+var import_jsx_runtime9 = __toESM(require_jsx_runtime());
+function DialogSurface({ children, className, label, labelledBy, onClose, initialFocus }) {
+  const ref = (0, import_react7.useRef)(null);
+  (0, import_react7.useLayoutEffect)(() => {
+    const dialog = ref.current;
+    if (dialog === null) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.showModal();
+    initialFocus?.current?.focus();
+    return () => {
+      dialog.close();
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [initialFocus]);
+  return (0, import_react_dom3.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    "dialog",
+    {
+      ref,
+      className: `${DialogSurface_default.surface} ${className ?? ""}`,
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": label,
+      "aria-labelledby": labelledBy,
+      onKeyDown: (event) => {
+        if (event.key !== "Tab" || event.defaultPrevented) return;
+        const dialog = event.currentTarget;
+        const controls = [...dialog.querySelectorAll("a[href],button,input,select,textarea,[tabindex]")].filter((element3) => element3.tabIndex >= 0 && !element3.matches(":disabled") && element3.getClientRects().length > 0 && getComputedStyle(element3).visibility !== "hidden");
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (first === void 0 || last === void 0) {
+          event.preventDefault();
+          dialog.focus();
+          return;
+        }
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
+          event.preventDefault();
+          first.focus();
+        }
+      },
+      onCancel: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      },
+      children
+    }
+  ), document.body);
+}
 
 // src/modules/platform/primitives/Modal.module.css
 var Modal_default = {
@@ -12946,7 +13022,7 @@ var Modal_default = {
 };
 
 // src/modules/platform/primitives/Modal.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime());
+var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 function Modal({
   open: open2,
   onClose,
@@ -12959,40 +13035,27 @@ function Modal({
   contentClassName,
   headless = false
 }) {
-  (0, import_react7.useEffect)(() => {
-    if (!open2) return;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open2, onClose]);
   if (!open2) return null;
-  return (0, import_react_dom3.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: Modal_default.root, role: "presentation", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: Modal_default.mask, "aria-hidden": "true", onClick: onClose }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(DialogSurface, { className: clsx_default(Modal_default.root), label: title, onClose, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: Modal_default.mask, "aria-hidden": "true", onClick: onClose }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
       "div",
       {
         className: clsx_default(Modal_default.dialog, className),
-        role: "dialog",
-        "aria-modal": "true",
-        "aria-label": title,
-        children: headless ? children : /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: clsx_default(Modal_default.content, contentClassName), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: Modal_default.header, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h2", { className: Modal_default.title, children: title }),
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: Modal_default.close, "aria-label": closeLabel, onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconCloseOutline16, { size: 14 }) })
+        children: headless ? children : /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: clsx_default(Modal_default.content, contentClassName), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: Modal_default.header, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h2", { className: Modal_default.title, children: title }),
+              /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { type: "button", className: Modal_default.close, "aria-label": closeLabel, onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconCloseOutline16, { size: 14 }) })
             ] }),
-            description !== void 0 && description !== "" && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { className: Modal_default.description, children: description }),
-            children !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: Modal_default.body, children })
+            description !== void 0 && description !== "" && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { className: Modal_default.description, children: description }),
+            children !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: Modal_default.body, children })
           ] }),
-          footer !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: Modal_default.footer, children: footer })
+          footer !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: Modal_default.footer, children: footer })
         ] })
       }
     )
-  ] }), document.body);
+  ] });
 }
 
 // src/modules/platform/primitives/OnboardingSurface.tsx
@@ -13008,7 +13071,7 @@ var OnboardingSurface_default = {
 };
 
 // src/modules/platform/primitives/OnboardingSurface.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime());
+var import_jsx_runtime11 = __toESM(require_jsx_runtime());
 function OnboardingSurface({ children }) {
   (0, import_react8.useEffect)(() => {
     const appRoot = document.getElementById("root");
@@ -13018,9 +13081,9 @@ function OnboardingSurface({ children }) {
       appRoot.inert = false;
     };
   }, []);
-  return (0, import_react_dom4.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: OnboardingSurface_default.onboardingOverlay, role: "presentation", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: OnboardingSurface_default.onboardingMask, "aria-hidden": "true" }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: OnboardingSurface_default.onboardingStage, children })
+  return (0, import_react_dom4.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: OnboardingSurface_default.onboardingOverlay, role: "presentation", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: OnboardingSurface_default.onboardingMask, "aria-hidden": "true" }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: OnboardingSurface_default.onboardingStage, children })
   ] }), document.body);
 }
 
@@ -13039,7 +13102,7 @@ var RiskConfirmation_default = {
 };
 
 // src/modules/platform/primitives/RiskConfirmation.tsx
-var import_jsx_runtime11 = __toESM(require_jsx_runtime());
+var import_jsx_runtime12 = __toESM(require_jsx_runtime());
 function RiskConfirmation({
   open: open2,
   title,
@@ -13053,7 +13116,7 @@ function RiskConfirmation({
   onCancel,
   onConfirm
 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
     Modal,
     {
       open: open2,
@@ -13061,9 +13124,9 @@ function RiskConfirmation({
       title,
       className: RiskConfirmation_default.confirmation ?? "",
       contentClassName: RiskConfirmation_default.confirmationContent ?? "",
-      footer: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Button, { variant: "outline", className: RiskConfirmation_default.modalAction, onClick: onCancel, children: cancelLabel }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      footer: /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(Button, { variant: "outline", className: RiskConfirmation_default.modalAction, onClick: onCancel, children: cancelLabel }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
           Button,
           {
             variant: "primary",
@@ -13075,12 +13138,12 @@ function RiskConfirmation({
         )
       ] }),
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: RiskConfirmation_default.warning, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconWarningOutline16, { size: 18, className: RiskConfirmation_default.warningIcon }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { children: description })
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: RiskConfirmation_default.warning, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconWarningOutline16, { size: 18, className: RiskConfirmation_default.warningIcon }),
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { children: description })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("label", { className: RiskConfirmation_default.acknowledgement, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("label", { className: RiskConfirmation_default.acknowledgement, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
             "input",
             {
               type: "checkbox",
@@ -13092,7 +13155,7 @@ function RiskConfirmation({
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: acknowledgeLabel })
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: acknowledgeLabel })
         ] })
       ]
     }
@@ -13108,17 +13171,17 @@ var ConnectionBanner_default = {
 };
 
 // src/modules/platform/primitives/ConnectionBanner.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime());
+var import_jsx_runtime13 = __toESM(require_jsx_runtime());
 function ConnectionBanner({ reconnecting, label = "\u8FDE\u63A5\u5DF2\u65AD\u5F00\uFF0C\u6B63\u5728\u91CD\u8FDE\u2026" }) {
   if (!reconnecting) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: ConnectionBanner_default.banner, children: label });
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: ConnectionBanner_default.banner, children: label });
 }
 
 // src/modules/platform/primitives/FishLogo.tsx
 init_define_process_execArgv();
-var import_jsx_runtime13 = __toESM(require_jsx_runtime());
+var import_jsx_runtime14 = __toESM(require_jsx_runtime());
 function FishLogo({ size = 24, className }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
     "svg",
     {
       width: size,
@@ -13128,8 +13191,8 @@ function FishLogo({ size = 24, className }) {
       fill: "currentColor",
       "aria-hidden": "true",
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("path", { d: "M57.01 5.59H44.27L6.99 49.86V58.41H19.73L57.01 14.14V5.59Z", fillOpacity: "0.42" }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("path", { d: "M6.99 5.59H19.73L57.01 49.86V58.41H44.27L6.99 14.14V5.59Z", fillOpacity: "0.9" })
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("path", { d: "M57.01 5.59H44.27L6.99 49.86V58.41H19.73L57.01 14.14V5.59Z", fillOpacity: "0.42" }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("path", { d: "M6.99 5.59H19.73L57.01 49.86V58.41H44.27L6.99 14.14V5.59Z", fillOpacity: "0.9" })
       ]
     }
   );
@@ -13137,10 +13200,10 @@ function FishLogo({ size = 24, className }) {
 
 // src/modules/platform/primitives/BrandWordmark.tsx
 init_define_process_execArgv();
-var import_jsx_runtime14 = __toESM(require_jsx_runtime());
+var import_jsx_runtime15 = __toESM(require_jsx_runtime());
 function BrandWordmark({ size = 24, className, includeMark = true }) {
   const width = includeMark ? 340 : 232;
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(
     "svg",
     {
       width: size * width / 64,
@@ -13150,11 +13213,11 @@ function BrandWordmark({ size = 24, className, includeMark = true }) {
       fill: "none",
       "aria-hidden": "true",
       children: [
-        includeMark && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("g", { className: "xh-logo-sweep", fill: "currentColor", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("path", { d: "M57.01 5.59H44.27L6.99 49.86V58.41H19.73L57.01 14.14V5.59Z", fillOpacity: "0.42" }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("path", { d: "M6.99 5.59H19.73L57.01 49.86V58.41H44.27L6.99 14.14V5.59Z", fillOpacity: "0.9" })
+        includeMark && /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("g", { className: "xh-logo-sweep", fill: "currentColor", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("path", { d: "M57.01 5.59H44.27L6.99 49.86V58.41H19.73L57.01 14.14V5.59Z", fillOpacity: "0.42" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("path", { d: "M6.99 5.59H19.73L57.01 49.86V58.41H44.27L6.99 14.14V5.59Z", fillOpacity: "0.9" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           "text",
           {
             x: "108",
@@ -13183,7 +13246,7 @@ var Tooltip_default = {
 };
 
 // src/modules/platform/primitives/Tooltip.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime());
+var import_jsx_runtime16 = __toESM(require_jsx_runtime());
 function isAnchorRefCallback(value) {
   return typeof value === "function";
 }
@@ -13262,7 +13325,7 @@ function Tooltip({ label, side = "right", delayMs = 0, disabled = false, maxWidt
     cancelShow();
     if (!triggers.current.hover && !triggers.current.focus) setPos(null);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
     (0, import_react9.cloneElement)(children, {
       ref: mergedRef,
       onMouseEnter: (e) => {
@@ -13288,7 +13351,7 @@ function Tooltip({ label, side = "right", delayMs = 0, disabled = false, maxWidt
         hide();
       }
     }),
-    pos !== null && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
+    pos !== null && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
       "span",
       {
         ref: bubble,
@@ -13317,7 +13380,7 @@ var Toast_default = {
 };
 
 // src/modules/platform/primitives/Toast.tsx
-var import_jsx_runtime16 = __toESM(require_jsx_runtime());
+var import_jsx_runtime17 = __toESM(require_jsx_runtime());
 var HOLD_MS = 3e3;
 var FADE_MS = 1e3;
 function Toast({ text: text6, icon, anchor, onDone }) {
@@ -13341,9 +13404,9 @@ function Toast({ text: text6, icon, anchor, onDone }) {
     };
   }, [anchor]);
   return (0, import_react_dom5.createPortal)(
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: Toast_default.toast, role: "alert", style: left === null ? void 0 : { left }, children: [
-      icon !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: Toast_default.icon, "aria-hidden": true, children: icon }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: Toast_default.text, children: text6 })
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: Toast_default.toast, role: "alert", style: left === null ? void 0 : { left }, children: [
+      icon !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: Toast_default.icon, "aria-hidden": true, children: icon }),
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: Toast_default.text, children: text6 })
     ] }),
     document.body
   );
@@ -13380,7 +13443,7 @@ var JsonTree_default = {
 };
 
 // src/modules/platform/primitives/JsonTree.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime());
+var import_jsx_runtime18 = __toESM(require_jsx_runtime());
 var OBJECT_PREVIEW_LIMIT = 4;
 var ARRAY_PREVIEW_LIMIT = 5;
 var PREVIEW_DEPTH_LIMIT = 2;
@@ -13430,27 +13493,27 @@ function bracketOf(value) {
   return Array.isArray(value) ? ["[", "]"] : ["{", "}"];
 }
 function previewPrimitive(value) {
-  if (value === null) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.keywordValue, children: "null" });
+  if (value === null) return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.keywordValue, children: "null" });
   if (typeof value === "string") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.stringValue, children: JSON.stringify(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.stringValue, children: JSON.stringify(value) });
   }
   if (typeof value === "number") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.numberValue, children: String(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.numberValue, children: String(value) });
   }
   if (typeof value === "boolean") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.keywordValue, children: String(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.keywordValue, children: String(value) });
   }
   if (typeof value === "bigint") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: value.toString() });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: value.toString() });
   }
   if (typeof value === "undefined") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: "undefined" });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: "undefined" });
   }
   if (typeof value === "symbol") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: value.description ?? "Symbol" });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: value.description ?? "Symbol" });
   }
   if (typeof value === "function") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: value.name || "Function" });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: value.name || "Function" });
   }
   return null;
 }
@@ -13461,47 +13524,47 @@ function previewValue(value, depth) {
   const limit = array ? ARRAY_PREVIEW_LIMIT : OBJECT_PREVIEW_LIMIT;
   const visible = entries.slice(0, limit);
   const [open2, close2] = bracketOf(value);
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: open2 }),
-    depth >= PREVIEW_DEPTH_LIMIT ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.previewEllipsis, children: "\u2026" }) : visible.map(([key2, item], index2) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { children: [
-      index2 > 0 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: ", " }),
-      !array && /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.previewProperty, children: key2 }),
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: ": " })
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: open2 }),
+    depth >= PREVIEW_DEPTH_LIMIT ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.previewEllipsis, children: "\u2026" }) : visible.map(([key2, item], index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("span", { children: [
+      index2 > 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: ", " }),
+      !array && /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.previewProperty, children: key2 }),
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: ": " })
       ] }),
       previewValue(item, depth + 1)
     ] }, key2)),
-    depth < PREVIEW_DEPTH_LIMIT && entries.length > limit && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.previewEllipsis, children: ", \u2026" }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: close2 })
+    depth < PREVIEW_DEPTH_LIMIT && entries.length > limit && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.previewEllipsis, children: ", \u2026" }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: close2 })
   ] });
 }
 function primitiveValue(value) {
-  if (value === null) return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.keywordValue, children: "null" });
+  if (value === null) return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.keywordValue, children: "null" });
   if (typeof value === "string") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.stringValue, children: JSON.stringify(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.stringValue, children: JSON.stringify(value) });
   }
   if (typeof value === "boolean") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.keywordValue, children: String(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.keywordValue, children: String(value) });
   }
   if (typeof value === "number") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.numberValue, children: String(value) });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.numberValue, children: String(value) });
   }
   if (typeof value === "bigint") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.numberValue, children: `${value.toString()}n` });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.numberValue, children: `${value.toString()}n` });
   }
   if (value instanceof Date) {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: value.toISOString() });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: value.toISOString() });
   }
   if (typeof value === "function") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { className: JsonTree_default.otherValue, children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("span", { className: JsonTree_default.otherValue, children: [
       "function() ",
       "{ }"
     ] });
   }
   if (typeof value === "undefined") {
-    return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: "undefined" });
+    return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: "undefined" });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.otherValue, children: String(value) });
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.otherValue, children: String(value) });
 }
 function fieldText(field) {
   return field === "" ? '""' : field;
@@ -13528,7 +13591,7 @@ function NodeField({
   onToggle
 }) {
   if (field === void 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
     "span",
     {
       className: clsx_default(JsonTree_default.label, expandable && JsonTree_default.clickableLabel),
@@ -13573,7 +13636,7 @@ function JsonTreeNode({
       moveFocus(event.currentTarget, event.key === "ArrowUp" ? -1 : 1);
     }
   };
-  const row = (children, ariaExpanded) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+  const row = (children, ariaExpanded) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
     "div",
     {
       className: JsonTree_default.row,
@@ -13587,23 +13650,23 @@ function JsonTreeNode({
     }
   );
   if (!container) {
-    return row(/* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(NodeField, { field, expandable: false, onToggle: toggle }),
+    return row(/* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(NodeField, { field, expandable: false, onToggle: toggle }),
       primitiveValue(value),
-      !lastElement && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: "," })
+      !lastElement && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: "," })
     ] }));
   }
   const [open2, close2] = bracketOf(value);
   if (!expandable) {
-    return row(/* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(NodeField, { field, expandable: false, onToggle: toggle }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: open2 }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: close2 }),
-      !lastElement && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: "," })
+    return row(/* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(NodeField, { field, expandable: false, onToggle: toggle }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: open2 }),
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: close2 }),
+      !lastElement && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: "," })
     ] }));
   }
-  return row(/* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+  return row(/* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(import_jsx_runtime18.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
       "span",
       {
         ref: expanderRef,
@@ -13621,10 +13684,10 @@ function JsonTreeNode({
         onKeyDown: onExpanderKeyDown
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(NodeField, { field, expandable: true, onToggle: toggle }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.preview, children: previewValue(value, 0) }),
-    !lastElement && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: "," }),
-    expanded && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("ul", { id: contentsId, role: "group", className: JsonTree_default.children, children: entries.map(([key2, item], index2) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(NodeField, { field, expandable: true, onToggle: toggle }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.preview, children: previewValue(value, 0) }),
+    !lastElement && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: "," }),
+    expanded && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("ul", { id: contentsId, role: "group", className: JsonTree_default.children, children: entries.map(([key2, item], index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
       JsonTreeNode,
       {
         field: key2,
@@ -13777,7 +13840,7 @@ function JsonTree({
   const copyTargetIsObject = typeof copyTarget?.value === "object" && copyTarget.value !== null;
   const defaultCopyMode = copyTargetIsObject ? "prettyJson" : "value";
   const copyTitle = copyState === "copied" ? copyLabels.copied : copyState === "failed" ? copyLabels.copyFailed : copyTargetIsObject ? copyLabels.copyPrettyJson : copyLabels.copyValue;
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)(
     "div",
     {
       ref: rootRef,
@@ -13788,8 +13851,8 @@ function JsonTree({
       },
       onScroll: handleScroll,
       children: [
-        expandTopLevel ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: JsonTree_default.expandedTopLevel, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+        expandTopLevel ? /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: JsonTree_default.expandedTopLevel, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
             "div",
             {
               className: clsx_default(JsonTree_default.row, JsonTree_default.topLevelBracket),
@@ -13798,16 +13861,16 @@ function JsonTree({
                 event.stopPropagation();
                 handleRowHover(event.currentTarget, { path: [], value: data });
               },
-              children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: rootOpen })
+              children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: rootOpen })
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
             "div",
             {
               "aria-label": label,
               className: clsx_default(JsonTree_default.container, JsonTree_default.expandedTopLevelContainer),
               role: "tree",
-              children: rootEntries.map(([key2, value], index2) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+              children: rootEntries.map(([key2, value], index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
                 JsonTreeNode,
                 {
                   field: key2,
@@ -13824,8 +13887,8 @@ function JsonTree({
               ))
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: clsx_default(JsonTree_default.row, JsonTree_default.topLevelBracket), children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("span", { className: JsonTree_default.punctuation, children: rootClose }) })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { "aria-label": label, className: JsonTree_default.container, role: "tree", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: clsx_default(JsonTree_default.row, JsonTree_default.topLevelBracket), children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: JsonTree_default.punctuation, children: rootClose }) })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { "aria-label": label, className: JsonTree_default.container, role: "tree", children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
           JsonTreeNode,
           {
             value: data,
@@ -13838,12 +13901,12 @@ function JsonTree({
             onRowHover: handleRowHover
           }
         ) }),
-        copyTarget !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+        copyTarget !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
           "span",
           {
             className: JsonTree_default.copyAnchor,
             style: { left: copyTarget.left, top: copyTarget.top },
-            children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+            children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
               Menu,
               {
                 open: copyMenuOpen,
@@ -13851,7 +13914,7 @@ function JsonTree({
                 portal: true,
                 align: "end",
                 side: copyTarget.side,
-                anchor: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+                anchor: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
                   "button",
                   {
                     ref: copyButtonRef,
@@ -13868,7 +13931,7 @@ function JsonTree({
                       copyMenuOpenRef.current = true;
                       setCopyMenuOpen(true);
                     },
-                    children: copyState === "copied" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(IconCheckOutline16, { size: 12 }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(IconCopyOutline16, { size: 12 })
+                    children: copyState === "copied" ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(IconCheckOutline16, { size: 12 }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(IconCopyOutline16, { size: 12 })
                   }
                 ),
                 items: copyTargetIsObject ? objectCopyMenuItems(copyLabels) : valueCopyMenuItems(copyLabels),
@@ -14163,7 +14226,7 @@ var TerminalBlock_default = {
 };
 
 // src/modules/platform/primitives/TerminalBlock.tsx
-var import_jsx_runtime18 = __toESM(require_jsx_runtime());
+var import_jsx_runtime19 = __toESM(require_jsx_runtime());
 var DEFAULT_TERMINAL_MAX_LINES = 16;
 var DEFAULT_LABELS2 = {
   signal: (signal) => `\u4FE1\u53F7 ${signal}`,
@@ -14196,7 +14259,7 @@ function runState(running, exitCode, signal, labels) {
   return { state: "done", label: labels.done };
 }
 function renderLine(line) {
-  return line.map((span, index2) => span.style === void 0 ? span.text : /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { style: span.style, children: span.text }, index2));
+  return line.map((span, index2) => span.style === void 0 ? span.text : /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { style: span.style, children: span.text }, index2));
 }
 function TerminalBlock({
   command,
@@ -14234,22 +14297,22 @@ function TerminalBlock({
   }, [command]);
   const empty3 = lines.every((line) => line.every((span) => span.text.trim() === ""));
   const { hidden, capped, headLines, tailLines } = headTailCap(lines.length, maxLines, expanded);
-  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: clsx_default(TerminalBlock_default.block, className), "data-terminal": "", "data-running": running ? "" : void 0, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: TerminalBlock_default.header, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: TerminalBlock_default.prompt, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: TerminalBlock_default.runStateLabel, children: state.label }),
-        commandLines.map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: TerminalBlock_default.promptLine, children: [
-          index2 === 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(StateDot, { state: state.state, className: TerminalBlock_default.runState }),
-          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: TerminalBlock_default.cwd, children: index2 > 0 || cwd === void 0 ? "$" : promptLabel(cwd, home) }),
-          /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("span", { className: TerminalBlock_default.command, children: line })
+  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: clsx_default(TerminalBlock_default.block, className), "data-terminal": "", "data-running": running ? "" : void 0, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: TerminalBlock_default.header, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: TerminalBlock_default.prompt, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: TerminalBlock_default.runStateLabel, children: state.label }),
+        commandLines.map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: TerminalBlock_default.promptLine, children: [
+          index2 === 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(StateDot, { state: state.state, className: TerminalBlock_default.runState }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: TerminalBlock_default.cwd, children: index2 > 0 || cwd === void 0 ? "$" : promptLabel(cwd, home) }),
+          /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: TerminalBlock_default.command, children: line })
         ] }, index2))
       ] }),
-      status !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(Pill, { className: TerminalBlock_default.status, children: status }),
-      !running && !empty3 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("button", { type: "button", className: TerminalBlock_default.copyButton, onClick: onCopy, children: copied ? copy.copied : copy.copy })
+      status !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(Pill, { className: TerminalBlock_default.status, children: status }),
+      !running && !empty3 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("button", { type: "button", className: TerminalBlock_default.copyButton, onClick: onCopy, children: copied ? copy.copied : copy.copy })
     ] }),
-    !running && (empty3 ? /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: TerminalBlock_default.empty, children: copy.noOutput }) : /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: TerminalBlock_default.output, children: [
-      (capped ? lines.slice(0, headLines) : lines).map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: TerminalBlock_default.line, children: renderLine(line) }, index2)),
-      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
+    !running && (empty3 ? /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: TerminalBlock_default.empty, children: copy.noOutput }) : /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: TerminalBlock_default.output, children: [
+      (capped ? lines.slice(0, headLines) : lines).map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: TerminalBlock_default.line, children: renderLine(line) }, index2)),
+      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
         "button",
         {
           type: "button",
@@ -14260,7 +14323,7 @@ function TerminalBlock({
           children: expanded ? copy.collapse : copy.expand(hidden)
         }
       ),
-      capped && lines.slice(lines.length - tailLines).map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: TerminalBlock_default.line, children: renderLine(line) }, index2))
+      capped && lines.slice(lines.length - tailLines).map((line, index2) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: TerminalBlock_default.line, children: renderLine(line) }, index2))
     ] }))
   ] });
 }
@@ -25009,10 +25072,10 @@ var ReadBlock_default = {
 };
 
 // src/modules/platform/primitives/ReadBlock.tsx
-var import_jsx_runtime19 = __toESM(require_jsx_runtime());
+var import_jsx_runtime20 = __toESM(require_jsx_runtime());
 var DEFAULT_READ_MAX_LINES = 16;
 function renderSpans(spans) {
-  return spans.map((span, index2) => /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { style: span.style, children: span.text }, index2));
+  return spans.map((span, index2) => /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { style: span.style, children: span.text }, index2));
 }
 function ReadBlock({
   label,
@@ -25045,23 +25108,23 @@ function ReadBlock({
   const headLines = Math.ceil(maxLines / 2);
   const tailLines = maxLines - headLines;
   const windowed = lines.length < totalLines;
-  const rows = (slice) => slice.map(([line, spans]) => /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: ReadBlock_default.line, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: ReadBlock_default.gutter, "aria-hidden": true, children: line.number }),
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: ReadBlock_default.content, children: spans === void 0 ? line.text : renderSpans(spans) })
+  const rows = (slice) => slice.map(([line, spans]) => /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: ReadBlock_default.line, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: ReadBlock_default.gutter, "aria-hidden": true, children: line.number }),
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: ReadBlock_default.content, children: spans === void 0 ? line.text : renderSpans(spans) })
   ] }, line.number));
   const paired = lines.map((line, index2) => [line, highlighted?.[index2]]);
-  return /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: clsx_default(ReadBlock_default.block, className), "data-read": "", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: ReadBlock_default.banner, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("div", { className: ReadBlock_default.label, children: label ?? "" }),
-      /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: ReadBlock_default.action, children: [
-        windowed && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: ReadBlock_default.count, children: `\u663E\u793A ${lines.length} / ${totalLines} \u884C` }),
-        /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("span", { className: ReadBlock_default.lang, children: lang ?? "" }),
-        lines.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)("button", { type: "button", className: ReadBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" })
+  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: clsx_default(ReadBlock_default.block, className), "data-read": "", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: ReadBlock_default.banner, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("div", { className: ReadBlock_default.label, children: label ?? "" }),
+      /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: ReadBlock_default.action, children: [
+        windowed && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: ReadBlock_default.count, children: `\u663E\u793A ${lines.length} / ${totalLines} \u884C` }),
+        /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("span", { className: ReadBlock_default.lang, children: lang ?? "" }),
+        lines.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("button", { type: "button", className: ReadBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime19.jsxs)("div", { className: ReadBlock_default.body, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: ReadBlock_default.body, children: [
       rows(capped ? paired.slice(0, headLines) : paired),
-      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime19.jsx)(
+      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
         "button",
         {
           type: "button",
@@ -25096,7 +25159,7 @@ var DiffBlock_default = {
 };
 
 // src/modules/platform/primitives/DiffBlock.tsx
-var import_jsx_runtime20 = __toESM(require_jsx_runtime());
+var import_jsx_runtime21 = __toESM(require_jsx_runtime());
 var DEFAULT_DIFF_MAX_LINES = 16;
 function assertNever(value) {
   throw new Error(`unreachable diff row kind: ${String(value)}`);
@@ -25177,11 +25240,11 @@ function DiffBlock({ diffs, maxLines = DEFAULT_DIFF_MAX_LINES, className }) {
   const tailLines = maxLines - headLines;
   const head2 = capped ? rows.slice(0, headLines) : rows;
   const tail = capped ? rows.slice(rows.length - tailLines) : [];
-  return /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: clsx_default(DiffBlock_default.block, className), "data-diff": "", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("button", { type: "button", className: DiffBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" }),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: DiffBlock_default.body, children: [
-      head2.map((row, index2) => /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("div", { className: clsx_default(DiffBlock_default.line, ROW_CLASS[row.kind]), children: row.text }, index2)),
-      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime20.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: clsx_default(DiffBlock_default.block, className), "data-diff": "", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: DiffBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" }),
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: DiffBlock_default.body, children: [
+      head2.map((row, index2) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: clsx_default(DiffBlock_default.line, ROW_CLASS[row.kind]), children: row.text }, index2)),
+      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
         "button",
         {
           type: "button",
@@ -25192,9 +25255,9 @@ function DiffBlock({ diffs, maxLines = DEFAULT_DIFF_MAX_LINES, className }) {
           children: expanded ? "\u6536\u8D77" : `\u2026 \u5176\u4F59 ${hidden} \u884C`
         }
       ),
-      tail.map((row, index2) => /* @__PURE__ */ (0, import_jsx_runtime20.jsx)("div", { className: clsx_default(DiffBlock_default.line, ROW_CLASS[row.kind]), children: row.text }, index2))
+      tail.map((row, index2) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: clsx_default(DiffBlock_default.line, ROW_CLASS[row.kind]), children: row.text }, index2))
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime20.jsxs)("div", { className: DiffBlock_default.footer, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: DiffBlock_default.footer, children: [
       "\u2514 +",
       added,
       " -",
@@ -25228,7 +25291,7 @@ var SearchBlock_default = {
 };
 
 // src/modules/platform/primitives/SearchBlock.tsx
-var import_jsx_runtime21 = __toESM(require_jsx_runtime());
+var import_jsx_runtime22 = __toESM(require_jsx_runtime());
 var DEFAULT_SEARCH_MAX_LINES = 16;
 function copyText3(props) {
   if (props.kind === "paths") return props.paths.join("\n");
@@ -25290,17 +25353,17 @@ function SearchBlock(props) {
   const tailHeader = tailLead?.type === "match" && !head2.some((row) => row.type === "file" && row.index === tailLead.fileIndex) ? rows.find((row) => row.type === "file" && row.index === tailLead.fileIndex) : void 0;
   const tail = tailHeader === void 0 ? naturalTail : naturalTail.slice(1);
   const renderRow = (row) => {
-    if (row.type === "path") return /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: SearchBlock_default.line, children: row.path });
+    if (row.type === "path") return /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: SearchBlock_default.line, children: row.path });
     if (row.type === "match") {
-      return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: SearchBlock_default.line, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("span", { className: SearchBlock_default.lineNumber, children: [
+      return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: SearchBlock_default.line, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("span", { className: SearchBlock_default.lineNumber, children: [
           row.lineNumber,
           ": "
         ] }),
         row.line
       ] });
     }
-    return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)(
+    return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)(
       "button",
       {
         type: "button",
@@ -25310,20 +25373,20 @@ function SearchBlock(props) {
           toggleFile(row.index);
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { className: SearchBlock_default.filePath, children: row.path }),
-          /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { className: SearchBlock_default.fileCount, children: row.count })
+          /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { className: SearchBlock_default.filePath, children: row.path }),
+          /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { className: SearchBlock_default.fileCount, children: row.count })
         ]
       }
     );
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: clsx_default(SearchBlock_default.block, className), "data-search": props.kind, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: SearchBlock_default.header, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("span", { className: SearchBlock_default.summary, children: summaryText(props, shown, truncated, total) }),
-      !empty3 && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("button", { type: "button", className: SearchBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" })
+  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: clsx_default(SearchBlock_default.block, className), "data-search": props.kind, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: SearchBlock_default.header, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("span", { className: SearchBlock_default.summary, children: summaryText(props, shown, truncated, total) }),
+      !empty3 && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("button", { type: "button", className: SearchBlock_default.copyButton, onClick: onCopy, children: copied ? "\u590D\u5236\u6210\u529F" : "\u590D\u5236" })
     ] }),
-    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { className: SearchBlock_default.empty, children: "\u65E0\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime21.jsxs)("div", { className: SearchBlock_default.body, children: [
-      head2.map((row) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { children: renderRow(row) }, rowKey(row))),
-      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)(
+    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: SearchBlock_default.empty, children: "\u65E0\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: SearchBlock_default.body, children: [
+      head2.map((row) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { children: renderRow(row) }, rowKey(row))),
+      hidden > 0 && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)(
         "button",
         {
           type: "button",
@@ -25334,8 +25397,8 @@ function SearchBlock(props) {
           children: expanded ? "\u6536\u8D77" : `\u2026 \u5176\u4F59 ${hidden} \u884C`
         }
       ),
-      tailHeader !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { children: renderRow(tailHeader) }, `tailHeader:${rowKey(tailHeader)}`),
-      tail.map((row) => /* @__PURE__ */ (0, import_jsx_runtime21.jsx)("div", { children: renderRow(row) }, rowKey(row)))
+      tailHeader !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { children: renderRow(tailHeader) }, `tailHeader:${rowKey(tailHeader)}`),
+      tail.map((row) => /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { children: renderRow(row) }, rowKey(row)))
     ] })
   ] });
 }
@@ -48315,7 +48378,7 @@ var CodeBlock_default = {
 };
 
 // src/modules/platform/primitives/markdown/CodeBlock.tsx
-var import_jsx_runtime22 = __toESM(require_jsx_runtime());
+var import_jsx_runtime23 = __toESM(require_jsx_runtime());
 function CodeBlock({ code: code2, lang, className, copyLabel = "\u590D\u5236", copiedLabel = "\u590D\u5236\u6210\u529F" }) {
   const trimmed = code2.endsWith("\n") ? code2.slice(0, -1) : code2;
   const loaded = (0, import_react17.useSyncExternalStore)(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount);
@@ -48333,16 +48396,16 @@ function CodeBlock({ code: code2, lang, className, copyLabel = "\u590D\u5236", c
       }, 1e3);
     });
   }, [copied, trimmed]);
-  const body3 = html5 === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("pre", { className: CodeBlock_default.plain, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("code", { children: trimmed }) }) : (
+  const body3 = html5 === void 0 ? /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("pre", { className: CodeBlock_default.plain, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("code", { children: trimmed }) }) : (
     // shiki's output is a static span tree it generated from `code` (no user
     // HTML passes through), the sanctioned innerHTML consumption path per
     // shiki's own docs.
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { dangerouslySetInnerHTML: { __html: html5 } })
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("div", { dangerouslySetInnerHTML: { __html: html5 } })
   );
-  return /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { ref: rootRef, className: clsx_default(CodeBlock_default.block, "md-code-block", className), children: [
-    /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: CodeBlock_default.bannerWrap, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsxs)("div", { className: CodeBlock_default.banner, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: CodeBlock_default.infostring, children: lang ?? "" }),
-      /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("div", { className: CodeBlock_default.action, children: /* @__PURE__ */ (0, import_jsx_runtime22.jsx)("button", { type: "button", className: CodeBlock_default.copyButton, onClick: onCopy, children: copied ? copiedLabel : copyLabel }) })
+  return /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("div", { ref: rootRef, className: clsx_default(CodeBlock_default.block, "md-code-block", className), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("div", { className: CodeBlock_default.bannerWrap, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsxs)("div", { className: CodeBlock_default.banner, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("div", { className: CodeBlock_default.infostring, children: lang ?? "" }),
+      /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("div", { className: CodeBlock_default.action, children: /* @__PURE__ */ (0, import_jsx_runtime23.jsx)("button", { type: "button", className: CodeBlock_default.copyButton, onClick: onCopy, children: copied ? copiedLabel : copyLabel }) })
     ] }) }),
     body3
   ] });
@@ -48351,7 +48414,7 @@ function CodeBlock({ code: code2, lang, className, copyLabel = "\u590D\u5236", c
 // src/modules/platform/primitives/markdown/katex.tsx
 init_define_process_execArgv();
 var import_react18 = __toESM(require_react());
-var import_jsx_runtime23 = __toESM(require_jsx_runtime());
+var import_jsx_runtime24 = __toESM(require_jsx_runtime());
 function styleObject(css) {
   const style = {};
   for (const declaration of css.split(";")) {
@@ -48384,7 +48447,7 @@ function renderTexToReact(value, displayMode) {
     try {
       html5 = katex.renderToString(value, { displayMode, strict: "ignore", throwOnError: false });
     } catch {
-      return /* @__PURE__ */ (0, import_jsx_runtime23.jsx)(
+      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
         "span",
         {
           className: "katex-error",
@@ -48409,7 +48472,7 @@ var MarkdownText_default = {
 };
 
 // src/modules/platform/primitives/markdown/render.tsx
-var import_jsx_runtime24 = __toESM(require_jsx_runtime());
+var import_jsx_runtime25 = __toESM(require_jsx_runtime());
 function sanitizeUrl(url) {
   try {
     switch (new URL(url).protocol) {
@@ -48479,31 +48542,31 @@ function renderNode(node2, key2, context) {
     case "text":
       return node2.value;
     case "paragraph":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: renderChildren(node2.children, context) }, key2);
     case "heading":
       return (0, import_react19.createElement)(`h${node2.depth}`, { key: key2 }, ...renderChildren(node2.children, context));
     case "blockquote":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("blockquote", { children: wrapBlockChildren(renderChildren(node2.children, context).filter((child) => child !== null), true) }, key2);
     case "thematicBreak":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("hr", {}, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("hr", {}, key2);
     case "break":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(import_react19.Fragment, { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("br", {}),
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("br", {}),
         "\n"
       ] }, key2);
     case "strong":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("strong", { children: renderChildren(node2.children, context) }, key2);
     case "emphasis":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("em", { children: renderChildren(node2.children, context) }, key2);
     case "delete":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("del", { children: renderChildren(node2.children, context) }, key2);
     case "inlineCode": {
       const value = node2.value.replace(/\r?\n|\r/g, " ");
       const href = inlineCodeHttpUrl(value);
-      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
+      if (href !== void 0) return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: renderSafeLink(href, [value], "link") }, key2);
       const mention = context.inLink === true ? void 0 : context.fileMentions?.resolve(value);
       if (mention !== void 0) {
-        return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+        return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
           "button",
           {
             type: "button",
@@ -48515,16 +48578,16 @@ function renderNode(node2, key2, context) {
           }
         ) }, key2);
       }
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("code", { children: value }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { children: value }, key2);
     }
     case "html":
       return node2.value;
     case "code":
       return renderCode(node2, key2, context);
     case "math":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, true) }, key2);
     case "inlineMath":
-      return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
+      return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(node2.value, false) }, key2);
     case "list":
       return renderList(node2, key2, context);
     case "listItem":
@@ -48551,14 +48614,14 @@ function renderNode(node2, key2, context) {
 function renderCode(node2, key2, context) {
   const language = node2.lang ?? void 0;
   if (node2.value === "") {
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("pre", { children: /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("code", { className: language === void 0 ? void 0 : `language-${language}` }) }, key2);
   }
   const lang = language === void 0 ? void 0 : /^[\w-]+/.exec(language)?.[0];
   if (!context.streaming && lang === "math") {
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(import_react19.Fragment, { children: renderTexToReact(`${node2.value}
+    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: renderTexToReact(`${node2.value}
 `, true) }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
     CodeBlock,
     {
       code: `${node2.value}
@@ -48593,7 +48656,7 @@ function renderListItem(item, loose, key2, context) {
   const entries = renderBlockEntries(item.children, context);
   const task = typeof item.checked === "boolean";
   if (task) {
-    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
+    const checkbox = /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("input", { type: "checkbox", checked: item.checked === true, disabled: true }, "task-checkbox");
     const head2 = entries[0];
     if (head2 !== void 0 && "paragraph" in head2) {
       head2.paragraph = head2.paragraph.length > 0 ? [checkbox, " ", ...head2.paragraph] : [checkbox];
@@ -48606,19 +48669,19 @@ function renderListItem(item, loose, key2, context) {
     const isParagraph = "paragraph" in entry;
     if (loose || index2 !== 0 || !isParagraph) parts.push("\n");
     if (!isParagraph) parts.push(entry.element);
-    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime24.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
-    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime24.jsx)(import_react19.Fragment, { children: entry.paragraph }, `p-${index2}`));
+    else if (loose) parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("p", { children: entry.paragraph }, `p-${index2}`));
+    else parts.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children: entry.paragraph }, `p-${index2}`));
   }
   const tail = entries[entries.length - 1];
   if (tail !== void 0 && (loose || !("paragraph" in tail))) parts.push("\n");
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { className: task ? "task-list-item" : void 0, children: parts }, key2);
 }
 function renderTable(node2, key2, context) {
   const align = node2.align ?? null;
   const [headRow, ...bodyRows] = node2.children;
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("table", { children: [
-    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
-    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: MarkdownText_default.tableScroll, children: /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("table", { children: [
+    headRow !== void 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("thead", { children: renderTableRow(headRow, "th", align, 0, context) }),
+    bodyRows.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tbody", { children: bodyRows.map((row, index2) => renderTableRow(row, "td", align, index2 + 1, context)) })
   ] }) }, key2);
 }
 function renderTableRow(row, cellTag, align, key2, context) {
@@ -48635,13 +48698,13 @@ function renderTableRow(row, cellTag, align, key2, context) {
       ...cell === void 0 ? [] : renderChildren(cell.children, context)
     ));
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("tr", { children: cells2 }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("tr", { children: cells2 }, key2);
 }
 function renderSafeLink(href, children, key2) {
   const safeHref2 = sanitizeUrl(href);
-  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(import_react19.Fragment, { children }, key2);
+  if (safeHref2 === "") return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(import_react19.Fragment, { children }, key2);
   const external = ["http:", "https:"].includes(new URL(safeHref2).protocol);
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
     "a",
     {
       href: safeHref2,
@@ -48666,9 +48729,9 @@ function inlineCodeHttpUrl(value) {
 function renderImage(url, alt, key2) {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)));
   if (imageSrc === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
+    return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("span", { className: MarkdownText_default.imageAlt, children: alt }, key2);
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)(
     "img",
     {
       className: MarkdownText_default.image,
@@ -48689,7 +48752,7 @@ function referenceSuffix(node2) {
 function renderLinkReference(node2, key2, context) {
   const definition2 = context.targets.definitions.get(node2.identifier.toUpperCase());
   if (definition2 === void 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(import_react19.Fragment, { children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_react19.Fragment, { children: [
       "[",
       renderChildren(node2.children, context),
       referenceSuffix(node2)
@@ -48707,7 +48770,7 @@ function renderFootnoteReference(node2, key2, context) {
   const seen = context.footnoteCounts.get(id);
   if (seen === void 0) context.footnoteOrder.push(id);
   context.footnoteCounts.set(id, (seen ?? 0) + 1);
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(context.footnoteOrder.indexOf(id) + 1) }, key2);
 }
 function renderFootnoteSection(context) {
   const items = [];
@@ -48719,31 +48782,31 @@ function renderFootnoteSection(context) {
     for (let reference = 1; reference <= count; reference++) {
       if (backrefs.length > 0) backrefs.push(" ");
       backrefs.push("\u21A9");
-      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime24.jsx)("sup", { children: String(reference) }, `re-${reference}`));
+      if (reference > 1) backrefs.push(/* @__PURE__ */ (0, import_jsx_runtime25.jsx)("sup", { children: String(reference) }, `re-${reference}`));
     }
     const entries = renderBlockEntries(definition2.children, context);
     const tail = entries[entries.length - 1];
-    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("p", { children: [
+    const body3 = entries.map((entry, index2) => "paragraph" in entry ? /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("p", { children: [
       entry.paragraph,
-      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)(import_jsx_runtime24.Fragment, { children: [
+      entry === tail && /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)(import_jsx_runtime25.Fragment, { children: [
         " ",
         backrefs
       ] })
     ] }, `p-${index2}`) : entry.element);
     if (tail === void 0 || !("paragraph" in tail)) body3.push(...backrefs);
     items.push(
-      /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
+      /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("li", { id: `user-content-fn-${normalizeUri(id.toLowerCase())}`, children: wrapBlockChildren(body3, true) }, id)
     );
   }
   if (items.length === 0) return null;
-  return /* @__PURE__ */ (0, import_jsx_runtime24.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
-    /* @__PURE__ */ (0, import_jsx_runtime24.jsx)("ol", { children: items })
+  return /* @__PURE__ */ (0, import_jsx_runtime25.jsxs)("section", { "data-footnotes": true, className: "footnotes", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("h2", { id: "footnote-label", className: "sr-only", children: "Footnotes" }),
+    /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("ol", { children: items })
   ] }, "footnotes");
 }
 
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
-var import_jsx_runtime25 = __toESM(require_jsx_runtime());
+var import_jsx_runtime26 = __toESM(require_jsx_runtime());
 function renderSettled(text6, codeLabels, fileMentions) {
   const root2 = parseGfmWithMath(text6);
   const targets = createReferenceTargets();
@@ -48852,7 +48915,7 @@ var MarkdownText = (0, import_react20.memo)(function MarkdownText2({ text: text6
     }
     return streamRef.current.render(text6);
   }, [text6, streaming, codeLabels, fileMentions]);
-  return /* @__PURE__ */ (0, import_jsx_runtime25.jsx)("div", { className: MarkdownText_default.markdown, children });
+  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: MarkdownText_default.markdown, children });
 });
 
 // src/modules/platform/primitives/WebBlock.module.css
@@ -48873,7 +48936,7 @@ var WebBlock_default = {
 };
 
 // src/modules/platform/primitives/WebBlock.tsx
-var import_jsx_runtime26 = __toESM(require_jsx_runtime());
+var import_jsx_runtime27 = __toESM(require_jsx_runtime());
 function safeHref(url) {
   try {
     const { protocol } = new URL(url);
@@ -48893,38 +48956,38 @@ function linkLabel(url, title) {
 }
 function SafeLink({ url, label, className }) {
   const href = safeHref(url);
-  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("span", { className, children: label });
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
+  if (href === void 0) return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className, children: label });
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("a", { className, href, target: "_blank", rel: "noopener noreferrer", children: label });
 }
 function SourceItem({ source, ordinal }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
-    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
-    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("li", { className: WebBlock_default.source, value: ordinal, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url: source.url, label: linkLabel(source.url, source.title), className: WebBlock_default.sourceLink }),
+    source.snippet !== void 0 && source.snippet !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.snippet, children: source.snippet }),
+    source.publishedAt !== void 0 && source.publishedAt !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.published, children: source.publishedAt })
   ] });
 }
 function WebSearchBlock({ answer, sources, truncated, className }) {
   const empty3 = (answer === void 0 || answer === "") && sources.length === 0;
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
-    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(MarkdownText, { text: answer }) }),
-    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
-    truncated && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, className), "data-web": "search", children: [
+    answer !== void 0 && answer !== "" && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.answer, children: /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(MarkdownText, { text: answer }) }),
+    empty3 ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.empty, children: "\u672A\u627E\u5230\u7ED3\u679C" }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("ol", { className: WebBlock_default.sources, children: sources.map((source, index2) => /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SourceItem, { source, ordinal: index2 + 1 }, index2)) }),
+    truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: WebBlock_default.truncated, children: "\u6765\u6E90\u5217\u8868\u5DF2\u622A\u65AD" })
   ] });
 }
 function WebFetchBlock({ url, statusCode, truncated, className }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
-    /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime26.jsxs)("span", { className: WebBlock_default.status, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: clsx_default(WebBlock_default.block, WebBlock_default.fetch, className), "data-web": "fetch", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(SafeLink, { url, label: url, className: WebBlock_default.fetchUrl }),
+    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: WebBlock_default.fetchMeta, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("span", { className: WebBlock_default.status, children: [
         "HTTP ",
         statusCode
       ] }),
-      truncated && /* @__PURE__ */ (0, import_jsx_runtime26.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
+      truncated && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("span", { className: WebBlock_default.truncated, children: "\u5185\u5BB9\u5DF2\u622A\u65AD" })
     ] })
   ] });
 }
 function WebBlock(props) {
-  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(WebFetchBlock, { ...props });
+  return props.kind === "search" ? /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebSearchBlock, { ...props }) : /* @__PURE__ */ (0, import_jsx_runtime27.jsx)(WebFetchBlock, { ...props });
 }
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
@@ -48939,7 +49002,7 @@ var JsonBlock_default = {
 };
 
 // src/modules/platform/primitives/markdown/JsonBlock.tsx
-var import_jsx_runtime27 = __toESM(require_jsx_runtime());
+var import_jsx_runtime28 = __toESM(require_jsx_runtime());
 var MAX_CHARS = 2e4;
 function defaultTruncatedLabel(total) {
   return `\u2026 \u5DF2\u622A\u65AD\uFF0C\u5171 ${total} \u5B57\u7B26`;
@@ -48957,15 +49020,15 @@ function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel = defau
     return s2.length > MAX_CHARS ? `${s2.slice(0, MAX_CHARS)}
 ${truncatedLabel(s2.length)}` : s2;
   }, [open2, payload, truncatedLabel]);
-  return /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("div", { className: JsonBlock_default.root, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime27.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
+  return /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("div", { className: JsonBlock_default.root, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime28.jsxs)("button", { type: "button", className: JsonBlock_default.toggle, onClick: () => {
       setOpen((v2) => !v2);
     }, children: [
       open2 ? "\u25BE" : "\u25B8",
       " ",
       label
     ] }),
-    open2 && /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
+    open2 && /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("pre", { className: JsonBlock_default.body, children: body3 })
   ] });
 }
 
@@ -48978,9 +49041,9 @@ var MessageText_default = {
 };
 
 // src/modules/platform/primitives/markdown/MessageText.tsx
-var import_jsx_runtime28 = __toESM(require_jsx_runtime());
+var import_jsx_runtime29 = __toESM(require_jsx_runtime());
 function MessageText({ text: text6 }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime28.jsx)("div", { className: MessageText_default.text, children: text6 });
+  return /* @__PURE__ */ (0, import_jsx_runtime29.jsx)("div", { className: MessageText_default.text, children: text6 });
 }
 
 // src/modules/platform/primitives/markdown/plain-text.ts
@@ -49210,4 +49273,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-SNWQJ5HU.js.map
+//# sourceMappingURL=platform-7ZVBPEQN.js.map

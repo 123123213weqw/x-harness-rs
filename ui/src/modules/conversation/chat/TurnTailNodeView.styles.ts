@@ -1,6 +1,7 @@
 import css from './TurnTailNodeView.css'
 export default {
 			"actions": "Aov_lG_actions",
+			"summary": "Aov_lG_summary",
 			"root": "Aov_lG_root"
 		}
 const tagId = '@xharness/dsh-client-ui-conversation/TurnTailNodeView.module.css'

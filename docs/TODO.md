@@ -1,5 +1,20 @@
 # XHarness 总任务清单
 
+## 页面优先级修复（2026-10-03）
+
+- [x] `UI-LAYER-01` 设置／通用弹窗共用原生顶层；菜单只关闭自身，Tab 正反向循环，关闭后恢复焦点，嵌套确认不关闭外层。
+- [x] `UI-LAYOUT-01` 窄屏设置顶部导航及侧栏覆盖式抽屉，保留输入框宽度和宽屏偏好。
+- [x] `UI-A11Y-01` 收起侧栏的设置按钮保留本地化可访问名称。
+- [x] `UI-PRIORITY-TEST-01` Chromium／WebKit 整图隔离回归、平台差分、严格类型与确定性构建通过。规范见 `docs/specs/page-priority.md`，验收记录见 `docs/evidence/page-priority-20261003.md`。
+- [ ] `UI-PRIORITY-RELEASE-01` PR 合并与桌面／运行中服务部署验收；代码通过不等于已替换 3082。
+
+## 整轮折叠 TS 正式接入（2026-10-03）
+
+- [x] `TURN-PROCESS-01` 将仅存在于本机预览工作区的整轮折叠迁入最新严格 TS 源码。以真实 turn/end 的 turn-tail 为唯一结束证据；用时按钮常驻，不受 hover、最终正文或扩展槽有无影响。最终文字／图片、错误／超限／检查点保留。
+- [x] `TURN-PROCESS-02` 折叠／重开保留 Think、工具和原生 details 的显示选择；复用原 transcript-state 桥，将轻量状态的生命周期上移到会话消息节点，不永久挂载长历史。显式 Session Key 防止状态串会话。
+- [x] `TURN-PROCESS-03` 7 项专用单元测试、macOS 与 V100 Linux Chromium／WebKit 回归验收；覆盖重复折叠、行状态／会话隔离、图片／无正文、残缺历史／异常 tail 及折叠后重新测高不跳底。保留完整 conversation、窗口化和真实滚动回归；见 `docs/evidence/turn-process-ts-regression-20261003.md`。
+- [ ] `TURN-PROCESS-04` GitHub CI 全绿后合并；不会自动覆盖本机软件或 3083 独立服务。
+
 ## 自有前端全量源码迁移（2026-10-02）
 
 基线为已合并主分支 `a613970c78a36a024de56100078323df25b96004`，不要求另一个上游目录。
