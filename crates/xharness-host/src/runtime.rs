@@ -784,6 +784,10 @@ impl AgentRuntime for LoopAgentRuntime {
             .executor(&request.session_id, &request.cwd, request.permission)
             .await
             .map_err(|message| AgentRuntimeError::Preparation { message })?;
+        self.tool_factory
+            .validate_executor(&tool_executor)
+            .await
+            .map_err(|message| AgentRuntimeError::Preparation { message })?;
         let mut loop_request = LoopRequest::new(provider, request.messages);
         loop_request.reasoning_effort = request.route.reasoning_effort;
         loop_request.debug = self.debug.clone();
@@ -942,6 +946,7 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .await
                 .map_err(|e| e.to_string())?;
         }
+        self.tool_factory.validate_executor(&tool_executor).await?;
         let mut request = LoopRequest::new(provider, input);
         request.reasoning_effort = config.route.reasoning_effort;
         request.compaction_reasoning_effort = compaction_reasoning_effort;

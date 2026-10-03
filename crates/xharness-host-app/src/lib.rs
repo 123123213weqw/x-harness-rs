@@ -242,6 +242,13 @@ impl SessionToolFactory for NativeToolFactory {
             .is_none_or(|list| list.contains(name))
     }
 
+    async fn validate_executor(&self, executor: &ToolExecutor) -> Result<(), String> {
+        if let Some(allowlist) = self.tool_allowlist.get() {
+            allowlist.validate(&executor.registry().definitions().await)?;
+        }
+        Ok(())
+    }
+
     async fn goal_dependencies(
         &self,
         id: &str,
@@ -401,7 +408,7 @@ impl SessionToolFactory for NativeToolFactory {
             );
         }
         if let Some(allowlist) = self.tool_allowlist.get() {
-            allowlist.apply(&mut specs)?;
+            allowlist.apply(&mut specs);
         }
         if permission == PermissionPreset::DangerFullAccess {
             for spec in &mut specs {
@@ -608,14 +615,15 @@ mod tests {
         factory
             .restrict_tools(tool_allowlist::ToolAllowlist::parse("computer").unwrap())
             .unwrap();
-        assert!(factory
+        let executor = factory
             .executor(
                 "gui",
                 &workspace.0.to_string_lossy(),
-                PermissionPreset::WorkspaceWrite
+                PermissionPreset::WorkspaceWrite,
             )
             .await
-            .is_err());
+            .unwrap();
+        assert!(factory.validate_executor(&executor).await.is_err());
     }
 
     use std::sync::atomic::{AtomicU64, Ordering};
