@@ -1,5 +1,8 @@
 # XHarness
 
+> **源码状态**：新产品实现已转入私有仓库。本仓库保留 **0.2.32** 开源基线及原许可证，
+> 并继续提供公开下载、客户端更新与问题反馈。详见[源码公开状态](SOURCE_STATUS.md)。
+
 简体中文 · [English](README.md)
 
 [![CI](https://github.com/123123213weqw/x-harness-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/123123213weqw/x-harness-rs/actions/workflows/ci.yml)
