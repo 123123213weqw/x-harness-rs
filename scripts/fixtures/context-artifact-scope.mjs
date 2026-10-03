@@ -31,5 +31,5 @@ export function contextViewScope(){
   const unit='src/modules/context/index.js'
   const source=verifyArtifact('@xlang/xharness-client-ui-context')
   assert.match(source,/^\/\/ Generated from src\/modules\/context\/index\.tsx;/,'audit must execute the strict context source artifact')
-  return artifactUnitScope({source,root:unit},{apply:{unit,member:'apply'},ContextView:{unit,member:'ContextView'},HarnessView:{unit,member:'HarnessView'}},{[unit]:['ContextView','HarnessView']})
+  return artifactUnitScope({source,root:unit},{apply:{unit,member:'apply'},HarnessView:{unit,member:'HarnessView'}},{[unit]:['HarnessView']})
 }
