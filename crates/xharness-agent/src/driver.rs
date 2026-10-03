@@ -474,9 +474,9 @@ impl DurableAgentHandle {
         self.send(DriverCommand::Followup(message)).await
     }
 
-    /// Append and wake one maintenance followup iff the actor is idle when it
-    /// handles this command. Callers may wait for [`Self::when_idle`] and retry
-    /// after [`AgentCommandError::Busy`].
+    /// Append and wake one maintenance followup iff the actor is idle and its
+    /// automatic gate is open. Busy may be retried after [`Self::when_idle`];
+    /// a closed failure/stop gate returns Failed without persisting input.
     pub async fn maintenance_followup(
         &self,
         message: InboxMessage,
@@ -832,19 +832,20 @@ impl DriverWorker {
                 .load(self.activation.id())
                 .await
                 .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
-            if stored.as_ref().is_some_and(|session| {
-                session
-                    .events()
-                    .iter()
-                    .rev()
-                    .find_map(|e| match e.data() {
-                        EventData::AgentDispatchPaused { paused } => Some(*paused),
-                        _ => None,
-                    })
-                    .unwrap_or(false)
-            }) {
-                self.park_pending().await?;
-                return Ok(());
+            let dispatch_paused = stored
+                .as_ref()
+                .is_some_and(|session| session.dispatch_paused());
+            if dispatch_paused && self.pending_compaction.is_none() {
+                let user = self
+                    .activation
+                    .inbox()
+                    .prepare_user_claim()
+                    .await
+                    .map_err(inbox_error)?;
+                if user.is_empty() {
+                    self.park_settled_pending().await?;
+                    return Ok(());
+                }
             }
             // Goal dependency failures belong to automatic Goal work, never to
             // the user's inbox. Inactive Goals must not resolve stale Job refs.
@@ -921,18 +922,34 @@ impl DriverWorker {
                 request.manual_compaction_command_id = Some(command_id.clone());
                 request.session_id = Some(self.activation.id().to_owned());
                 request.journal_store = Some(self.activation.inbox().store());
+                if dispatch_paused {
+                    // Explicit maintenance may inspect/repair context, but its
+                    // completed/no-benefit result is not a user resume. Keep
+                    // receipt admission closed until the human retries.
+                    self.activation
+                        .inbox()
+                        .preserve_dispatch_pause()
+                        .await
+                        .map_err(inbox_error)?;
+                }
                 let turn = self.next_turn().await?;
                 self.drive_request(request, turn, vec![command_id]).await?;
                 admission_retries = 0;
                 continue;
             }
-            let claim = self
-                .activation
-                .inbox()
-                .prepare_claim(InboxTarget::NextTurn)
-                .await
-                .map_err(inbox_error)?;
+            let claim = if dispatch_paused {
+                self.activation.inbox().prepare_user_claim().await
+            } else {
+                self.activation
+                    .inbox()
+                    .prepare_claim(InboxTarget::NextTurn)
+                    .await
+            }
+            .map_err(inbox_error)?;
             if claim.is_empty() {
+                if dispatch_paused {
+                    self.park_settled_pending().await?;
+                }
                 return Ok(());
             }
             let (expected_revision, claimed, mut deletion_events) = claim.into_loop_parts();
@@ -996,7 +1013,7 @@ impl DriverWorker {
             let turn = self.next_turn().await?;
             let goal_events = crate::GoalController::claim_events(&cut, &claimed, turn)
                 .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
-            if !goal_events.is_empty() {
+            if dispatch_paused || !goal_events.is_empty() {
                 request.journal_expected_revision = Some(expected_revision);
             }
             deletion_events.extend(goal_events);
@@ -1245,6 +1262,12 @@ impl DriverWorker {
             .pause()
             .await
             .map_err(|e| AgentCommandError::Failed(e.to_string()))?;
+        self.park_settled_pending().await
+    }
+
+    async fn park_settled_pending(&mut self) -> Result<(), AgentCommandError> {
+        // Settlement/reconciliation owns the terminal Goal reason. Automatic
+        // failure parking must not replace execution_error with a user pause.
         self.goal_controller()
             .reconcile()
             .await
@@ -1292,7 +1315,24 @@ impl DriverWorker {
                 result
             }
             DriverCommand::MaintenanceFollowup(message) => {
-                let result = self.persist(InboxTarget::NextTurn, message).await;
+                let result = match self
+                    .activation
+                    .inbox()
+                    .store()
+                    .load(self.activation.id())
+                    .await
+                {
+                    Ok(Some(session)) if session.dispatch_paused() => {
+                        // Busy + when_idle would spin: the worker IS idle, but
+                        // only a human may reopen admission. Existing schedule
+                        // owners back off on Failed rather than hot-looping.
+                        Err(AgentCommandError::Failed(
+                            "automatic dispatch is paused; a user prompt must resume it".into(),
+                        ))
+                    }
+                    Ok(_) => self.persist(InboxTarget::NextTurn, message).await,
+                    Err(error) => Err(AgentCommandError::Failed(error.to_string())),
+                };
                 if result.is_ok() {
                     self.wake_requested = true;
                     self.set_status(AgentStatus::Running);
