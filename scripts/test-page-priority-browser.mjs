@@ -68,6 +68,10 @@ try {
   }
   await dialog.getByRole('button',{name:'Close',exact:true}).click()
   assert.equal(await settings.isVisible(),true,'collapsed Settings keeps its accessible name')
+  // Slot occupants can publish the new concession one commit after the frame.
+  // Wait for the actual rail controls too, not only the grid's geometry.
+  await page.getByRole('button',{name:'Open sidebar',exact:true}).waitFor()
+  await page.waitForFunction(()=>document.querySelectorAll('button[aria-label="New session"]').length===1)
   await page.getByRole('button',{name:'New session',exact:true}).click()
   const composer=page.getByPlaceholder('Describe what you want to build',{exact:true})
   const before=await composer.boundingBox()
