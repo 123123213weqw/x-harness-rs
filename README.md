@@ -105,6 +105,8 @@ Issues and pull requests should describe the observed behavior, expected behavio
 
 ## Documentation
 
+- [Workspace memory](docs/design/workspace-memory.md): local, workspace-scoped notes with explicit/manual persistence by default; managed in Settings.
+
 Detailed engineering documentation is currently maintained primarily in Chinese:
 
 - [Architecture](docs/architecture.md)

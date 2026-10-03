@@ -20,7 +20,7 @@ try{
    assert.equal(receipt.fullGraph,true);assert.equal(receipt.fixtureTransport,true)
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
-   assert.equal(receipt.loadedPlugins,implementation==='source'?57:52,'source adds only the reviewed Plugin API helper, Code Review, Little X, Performance and execution-environment modules')
+   assert.equal(receipt.loadedPlugins,implementation==='source'?58:52,'source adds only the reviewed Plugin API helper, Code Review, Little X, Performance, execution-environment and workspace-memory modules')
    assert.equal(receipt.environmentEntryCount,implementation==='source'?1:0,'one reviewed environment entry, separately exercised by the full-graph picker acceptance')
    assert.equal(receipt.effortEntryCount,implementation==='source'?1:0,'approved independent reasoning entry only')
    assert.equal(receipt.modelEntryCount,implementation==='source'?1:0,'retained model entry has explicit count')
@@ -38,6 +38,7 @@ try{
    '/plugins/@xlang/xharness-client-ui-assistant/client.js',
    '/plugins/@xlang/xharness-client-ui-performance/client.js',
    '/plugins/@xlang/xharness-client-ui-runtime/client.js',
+   '/plugins/@xlang/xharness-client-ui-memory/client.js',
   ].sort(),`${browser}: exact reviewed plugin additions; no missing, duplicate or unreviewed modules`)
   for(const receipt of outputs) assert.equal(receipt.navigationCount,1,'exactly one work navigation, legacy footer or new clock')
   for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(outputs[0][key],outputs[1][key],`${browser}: full UI ${key} parity`)

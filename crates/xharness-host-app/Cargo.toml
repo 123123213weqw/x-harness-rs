@@ -32,6 +32,7 @@ xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
 xharness-debug = { path = "../xharness-debug" }
 xharness-diagnostics = { path = "../xharness-diagnostics" }
+xharness-fs = { path = "../xharness-fs" }
 xharness-host = { path = "../xharness-host" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-jobs = { path = "../xharness-jobs" }

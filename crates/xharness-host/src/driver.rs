@@ -832,8 +832,7 @@ impl BasicHost {
 
         if let Some((mut admission_request, sections)) = admission_request {
             admission_request.prompt = Some(
-                self.instructions
-                    .assemble(admission_request.cwd.clone(), sections)
+                self.assemble_prompt(admission_request.cwd.clone(), sections)
                     .await
                     .map_err(RpcError::internal)?,
             );

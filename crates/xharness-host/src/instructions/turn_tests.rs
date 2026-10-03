@@ -120,6 +120,7 @@ impl Fixture {
             first_reply,
         });
         let mut config = HostConfig::new(&root.0);
+        config.memory_dir = Some(root.0.join("memory"));
         config.provider_id = "fixture".into();
         config.model_id = "fixture".into();
         let store_path = root.0.join("state");
@@ -226,19 +227,67 @@ async fn actual_turn_refreshes_queued_rules_but_tool_steps_keep_one_snapshot() {
         root.write("ROOT_RULE_V1");
         let mut fx = Fixture::new(&root, durable, FirstReply::Tool);
         fx.create().await;
+        fx.host
+            .memory_update(
+                root.0.to_string_lossy().into_owned(),
+                "save",
+                &json!({"content":"MEMORY_V1","version":null}),
+            )
+            .await
+            .unwrap();
+        fx.host
+            .memory_update(
+                crate::memory::MemoryScope::Global,
+                "save",
+                &json!({"content":"GLOBAL_V1","version":null}),
+            )
+            .await
+            .unwrap();
         fx.prompt("first").await;
         let first = system(&fx.next().await);
         assert!(first.contains("ROOT_RULE_V1"));
+        assert!(first.contains("MEMORY_V1"));
+        assert!(first.contains("GLOBAL_V1"));
         // Queue while the old file is present; the next actual turn must
         // refresh, while this turn's following tool step must not.
         fx.prompt("queued").await;
         root.write("ROOT_RULE_V2");
+        let memory = fx
+            .host
+            .memory_view(root.0.to_string_lossy().into_owned())
+            .await
+            .unwrap();
+        fx.host
+            .memory_update(
+                root.0.to_string_lossy().into_owned(),
+                "save",
+                &json!({"content":"MEMORY_V2","version":memory["version"]}),
+            )
+            .await
+            .unwrap();
+        let global = fx
+            .host
+            .memory_view(crate::memory::MemoryScope::Global)
+            .await
+            .unwrap();
+        fx.host
+            .memory_update(
+                crate::memory::MemoryScope::Global,
+                "save",
+                &json!({"content":"GLOBAL_V2","version":global["version"]}),
+            )
+            .await
+            .unwrap();
         fx.release.add_permits(1);
         let second = system(&fx.next().await);
         assert_eq!(first, second);
         fx.release.add_permits(1);
         let third = system(&fx.next().await);
         assert!(third.contains("ROOT_RULE_V2"));
+        assert!(third.contains("MEMORY_V2"));
+        assert!(third.contains("GLOBAL_V2"));
+        assert!(!third.contains("GLOBAL_V1"));
+        assert!(!third.contains("MEMORY_V1"));
         assert!(!third.contains("ROOT_RULE_V1"));
         assert_eq!(third.matches("ROOT_RULE_V2").count(), 1);
         fx.release.add_permits(1);

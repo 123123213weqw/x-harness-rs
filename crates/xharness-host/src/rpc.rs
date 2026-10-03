@@ -19,6 +19,7 @@ mod goal;
 mod host;
 mod interaction;
 pub(crate) use interaction::respond_review;
+mod memory;
 mod model;
 mod preset;
 mod session;
@@ -141,6 +142,13 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "workspace/memory" {
+            // Settings must remain repairable even if session hydration fails.
+            return Some(match memory::call(self, rpc_id, &payload).await {
+                Ok(v) => RpcResult::success(v),
+                Err(e) => RpcResult::failure(e),
+            });
+        }
         if endpoint == "display/read" {
             let result = crate::display::read_rpc(self, &payload, _cancellation).await;
             return Some(match result {

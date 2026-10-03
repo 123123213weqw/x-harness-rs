@@ -1,5 +1,19 @@
 # XHarness 总任务清单
 
+## 本机全局与工作区记忆（2026-10-14）
+
+- [x] `WMEM-01` 与 AGENTS/Goal 分离；应用数据目录按 canonical cwd 隔离，跨会话/模型复用，不写入项目 Git。
+- [x] `WMEM-02` 默认仅明确要求时保存；设置可关闭或选择自动整理。不重新接入 question sink，不保证模型每轮整理。
+- [x] `WMEM-03` 复用 read/edit/write 的精确 memory URI，保留审批、分页、观察版本与原子 CAS；关闭后旧 executor 的新调用也拒绝。
+- [x] `WMEM-04` 索引 2048 UTF-8 字节/24 行、正文 64 KiB，有界锁外读取；同轮固定、下一轮刷新。
+- [x] `WMEM-05` 双语设置、独立草稿、版本冲突、确认清空/自动模式；RPC 的工作区范围只接受已知会话/工作区 ID，全局范围使用固定 scope，不复制正文到控制收据/RPC 调试日志。
+- [x] `WMEM-09` 设置默认进入全局记忆，无工作区也可定义；同一本机配置下跨工作区/模型共用，全局/工作区模式、文件、草稿和 CAS 分开，不自动提升项目事实，不新增模型工具或承诺账号/设备同步。
+- [x] `WMEM-06` V100 全局/工作区记忆相关四包全量回归：584 项通过、16 个既有辅助/环境测试忽略；四包 all-targets 严格 Clippy。Chromium/WebKit 源码/产物四组合通过。
+- [ ] `WMEM-08` GitHub 跨平台 CI 验收；不自动合并、发版或替换本机应用。
+- [ ] `WMEM-07` 真实模型记忆选择质量另做授权评测，不把脚本 provider 或浏览器 mock 当模型自主效果。
+
+设计：[workspace-memory.md](design/workspace-memory.md)。
+
 ## 工作区项目规则（2026-10-14）
 
 - [x] `AGENTS-01` 根 AGENTS.md 以 Session cwd 为范围锁外有界加载，复用受限 FsService；不创建/修改文件。

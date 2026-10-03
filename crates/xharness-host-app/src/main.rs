@@ -208,6 +208,7 @@ async fn run(
         }
     };
     let mut config = HostConfig::new(&workspace);
+    config.memory_dir = Some(args.state_dir.join("memory"));
     config.auto_titles = true;
     config.attachment_store = attachments.clone();
     config.provider_id = deployment.default_route.provider.clone();
