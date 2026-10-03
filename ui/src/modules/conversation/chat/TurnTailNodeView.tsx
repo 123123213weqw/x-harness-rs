@@ -4,6 +4,25 @@ import type { ChatNodeViewProps, TurnTailOwnerProps } from '../contract/slots'
 import { MessageIconActions } from './MessageIconActions'
 import { assistantText } from './turn-assistant'
 import css from './TurnTailNodeView.styles'
+import { IconChevronRightOutline14 } from '../primitives'
+import { formatRunDuration } from './message-chrome'
+import type { TurnLocation } from '../types/runtime'
+import type { TurnTailChatData } from '../contract/chat-nodes'
+
+/** Visible independently of hover, final prose, or contributed tail slots. */
+export function TurnProcessSummary({ turn, data, t, collapsed, onToggle }: {
+  turn: TurnLocation
+  data: Readonly<TurnTailChatData>
+  t: ChatNodeViewProps['t']
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  const runMs = turn.start === undefined || turn.end === undefined ? undefined : Math.max(0, turn.end.time - turn.start.time)
+  const label = runMs === undefined ? t('message.turnFinished') : t('message.ranFor', { duration: formatRunDuration(runMs, t) })
+  return <button type="button" className={css.summary} data-turn-process-summary={data.turn}
+    aria-expanded={!collapsed} aria-label={`${label} · ${t(collapsed ? 'message.expandProcess' : 'message.collapseProcess')}`}
+    onClick={onToggle}><span>{label}</span><IconChevronRightOutline14 /></button>
+}
 
 type TurnTailNodeViewProps = ChatNodeViewProps<'turn-tail'>
   & PropsRenderSlots<'conversation.chat.turnTail' | 'conversation.chat.assistant-actions'>
@@ -23,9 +42,6 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
   const owner: TurnTailOwnerProps = { turn, seq: closing?.finalNode.seq ?? data.seq, openFile }
   const tail = renderSlotChain('conversation.chat.turnTail', owner)
   if (closing === null) return tail === null ? null : <div className={css.root}>{tail}</div>
-  const runMs = turn.start === undefined || turn.end === undefined
-    ? undefined
-    : Math.max(0, turn.end.time - turn.start.time)
   // Interruption-frozen partials carry no messageId, so they address no
   // durable message and contribute no per-message actions.
   const messageId = closing.finalNode.messageId
@@ -38,7 +54,6 @@ export const TurnTailNodeView = memo(function TurnTailNodeView({
       <MessageIconActions
         text={assistantText(closing.blocks)}
         time={closing.time}
-        runMs={runMs}
         ttftMs={data.ttftMs}
         tokensPerSecond={data.tokensPerSecond}
         clock="end"
