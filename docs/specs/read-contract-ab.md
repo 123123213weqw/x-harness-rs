@@ -6,7 +6,8 @@
 
 - Schema 每字段公开单位、范围、定位互斥和合法示例；默认不填写 limit，按行定位使用 start_line/line_limit。
 - malformed／negative／overflow 分页参数明确报错，不静默默认。
-- restricted read 接受 canonical workspace 下按路径组件匹配的绝对路径；把相对能力交给既有 FsService 解析与 no-follow 打开，不先 canonicalize 用户路径再 reopen。附件只读根／Full access 保持既有实现。
+- restricted read 接受 canonical workspace 下按路径组件匹配的绝对路径；Windows 普通盘符／UNC 路径与对应 extended 前缀按同一卷／共享匹配，目录组件保留 Windows ASCII 大小写兼容。把相对能力交给既有 FsService 解析与 no-follow 打开，不先 canonicalize 用户路径再 reopen。
+- 附件只读根采用相同的 Windows 前缀兼容；不同卷／共享、组件前缀伪装和父路径仍拒绝。Full access 的普通文件解析保持既有实现，不把 Device namespace 当作盘符或 UNC 别名。
 - mutation resolve_file 仍不兼容 restricted 绝对路径，本阶段只改 read；本阶段不改变 write/edit 契约。
 - 不接受 ../ 路径，不允许越界，也不新增自动权限。
 
@@ -15,6 +16,8 @@
 V100：coding-tools 全部测试，platform 全部测试，fs 全部测试；新增参数单位／边界、工作区内绝对路径与原相对路径输出相等、越界／组件前缀伪装／父路径／符号链接拒绝、UTF-8 4 字节分页逐字节重建、长行逐页重建、空／缺失／EOF、stale cursor、冲突与取消。read 完整结果必须不变。
 
 Clippy 检查三 crate 和实际实验 example。只在服务器编译；所有初始失败原样记录。
+
+Windows 后续回归包含普通／extended／正斜杠路径，WorkspaceWrite 与 ReadOnly 两种权限、附件只读根，以及越界／相似目录前缀／父路径拒绝；实际 read 工具用例和组件解析用例使用 `cfg(windows)`，由原生 Windows CI 执行。跨平台 Prefix 枚举测试覆盖卷／UNC 共享等价与不同卷／共享拒绝，Linux 通过不能替代 Windows 实机验收。
 
 ## 真实模型开发对照（不宣称全新盲测）
 
