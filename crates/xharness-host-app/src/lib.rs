@@ -68,6 +68,8 @@ pub struct NativeToolFactory {
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
+    job_continuations:
+        std::sync::OnceLock<Arc<xharness_host::job_continuation::JobContinuationController>>,
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
     plugins: std::sync::OnceLock<Arc<xharness_plugins::PluginManager>>,
     mcp: std::sync::OnceLock<Arc<xharness_mcp::McpRuntime>>,
@@ -96,6 +98,7 @@ impl NativeToolFactory {
             questions: None,
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -117,6 +120,7 @@ impl NativeToolFactory {
             questions: Some(questions),
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -139,6 +143,7 @@ impl NativeToolFactory {
             questions: Some(questions),
             schedules: Some(schedules),
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -150,6 +155,24 @@ impl NativeToolFactory {
         self.agent_host
             .set(Arc::downgrade(host))
             .map_err(|_| "agent host already bound".into())
+    }
+
+    /// Bind the deployment-owned durable outbox before creating any executor.
+    /// Start/recover it only after Host configuration and session readiness.
+    pub fn enable_job_continuations(
+        &self,
+        store: Arc<dyn xharness_session::Store>,
+        host: &Arc<xharness_host::BasicHost>,
+    ) -> Result<Arc<xharness_host::job_continuation::JobContinuationController>, String> {
+        let controller = xharness_host::job_continuation::JobContinuationController::new(
+            self.jobs.clone(),
+            store,
+            host,
+        );
+        self.job_continuations
+            .set(controller.clone())
+            .map_err(|_| "Job continuations already bound".to_owned())?;
+        Ok(controller)
     }
 
     /// Configure once during deployment startup, before creating executors.
@@ -403,6 +426,9 @@ impl SessionToolFactory for NativeToolFactory {
             session_id,
             session_id,
         );
+        if let Some(port) = self.job_continuations.get() {
+            bundle = bundle.with_job_continuation(port.clone());
+        }
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             bundle = bundle.with_file_mount(Arc::new(workspace_memory::Mount {
                 host: Arc::downgrade(&host),
@@ -565,17 +591,31 @@ impl SessionToolFactory for NativeToolFactory {
     }
 
     async fn shutdown(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+        if let Some(controller) = self.job_continuations.get() {
+            if let Err(error) = controller.shutdown().await {
+                errors.push(error);
+            }
+        }
         if let Some(mcp) = self.mcp.get() {
             mcp.shutdown().await;
         }
         let report = self.jobs.shutdown(std::time::Duration::from_secs(8)).await;
-        if report.is_graceful() {
-            Ok(())
-        } else {
-            Err(format!(
+        if let Some(controller) = self.job_continuations.get() {
+            if let Err(error) = controller.shutdown().await {
+                errors.push(error);
+            }
+        }
+        if !report.is_graceful() {
+            errors.push(format!(
                 "job shutdown handled {} jobs with {} cancellation failures and {} timeouts",
                 report.jobs, report.cancellation_failures, report.timed_out
-            ))
+            ));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
         }
     }
 }

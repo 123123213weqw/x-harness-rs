@@ -36,6 +36,16 @@
 
 规格：`docs/specs/unified-jobs.md`；验收：`docs/evidence/unified-jobs-20261013.md`。
 
+## 后台 Job 自动续跑（2026-10-14）
+
+- [x] `JOB-CONT-01` 正式 Native Host 接入 defer/cancel_defer、版本化持久 outbox、稳定 Inbox 回执去重、终态归档读取、启动恢复与有界 Shutdown；未绑定的嵌入方不广告新 action。
+- [x] `JOB-CONT-02` 复用 Session::dispatch_paused 和 InboxMessage::is_user_authored，Actor 用户恢复/claim 原子 CAS；移除重复门禁投影；保留原 Goal 的授权退避重试策略，不重写 Loop。
+- [x] `JOB-CONT-03` 新增 13 个 Native/JSONL 回归；WZU_Server 扩展测试合计 782 通过、全 workspace 检查与严格 Clippy 通过。
+- [x] `JOB-CONT-04` 官方 DeepSeek 成功续跑得到 VERIFIED_OK；失败用例读取真实 exit 7 并报告失败。已记录模型一次尝试重跑失败脚本（被夹具拒绝），不承诺模型严格服从所有指令。
+- [ ] `JOB-CONT-05` 发布与已安装软件升级；当前提交用于 PR 审阅，未替换当前软件。
+
+规范：[后台 Job 自动续跑](specs/job-continuation.md)。证据：[正式链路验收](evidence/job-continuation-production-20261014.md)。
+
 ## 压缩失败后的回执派发门禁（2026-10-12）
 
 - [x] `FAIL-ADMISSION-01` Host 与 Actor 从权威终态共用自动派发门禁；压缩／上下文不可重试失败后，内部回执保留、去重、落盘，但不再次启动计数／模型／压缩。旧日志与重启生效，不清空历史、不重写架构。

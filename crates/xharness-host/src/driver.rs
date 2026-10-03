@@ -707,6 +707,27 @@ impl BasicHost {
         // Only an explicit user prompt resumes a stopped admission gate.
         if source.get("kind").and_then(Value::as_str) == Some("user") {
             self.set_dispatch_paused(session_id, false).await?;
+        } else if matches!(
+            source.get("kind").and_then(Value::as_str),
+            Some("job-settlement" | "agent-settlement")
+        ) {
+            if let Some(cut) = self
+                .agent_runtime
+                .authoritative_session(session_id)
+                .await
+                .map_err(agent_runtime_error)?
+            {
+                let inbox = InboxProjection::from_session(&cut)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                if cut.dispatch_paused()
+                    && !inbox
+                        .next_turn()
+                        .iter()
+                        .any(xharness_session::InboxMessage::is_user_authored)
+                {
+                    self.set_dispatch_paused(session_id, true).await?;
+                }
+            }
         }
         let mode = mode.as_str();
         let (steer_control, admission_request) = {

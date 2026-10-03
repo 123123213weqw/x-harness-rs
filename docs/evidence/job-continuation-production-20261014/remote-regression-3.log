@@ -1,0 +1,103 @@
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.97s
+     Running tests/job_continuation.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/job_continuation-484797d1b3c33191)
+
+running 9 tests
+
+thread 'finish_before_registration_failed_producer_is_not_reported_as_success' (2324320) panicked at crates/xharness-host-app/tests/job_continuation.rs:350:10:
+production fixture condition: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test finish_before_registration_failed_producer_is_not_reported_as_success ... FAILED
+
+thread 'nonreducing_compaction_is_not_retriggered_by_terminal_receipt' (2324321) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+test nonreducing_compaction_is_not_retriggered_by_terminal_receipt ... FAILED
+
+thread 'receipt_queued_before_failure_is_parked_by_actor_before_claim' (2324323) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+
+thread 'same_registration_races_are_idempotent_and_cancel_does_not_kill_producer' (2324326) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+test receipt_queued_before_failure_is_parked_by_actor_before_claim ... FAILED
+test same_registration_races_are_idempotent_and_cancel_does_not_kill_producer ... FAILED
+
+thread 'receipt_during_active_user_turn_queues_without_parallel_model_execution' (2324322) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+
+thread 'registry_loss_recovers_interrupted_and_archive_has_explicit_no_cursor_contract' (2324324) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+test receipt_during_active_user_turn_queues_without_parallel_model_execution ... FAILED
+test registry_loss_recovers_interrupted_and_archive_has_explicit_no_cursor_contract ... FAILED
+test release_user_turn_and_auto_resume_through_native_production_factory ... FAILED
+test stopped_session_retains_receipt_until_explicit_user_resume ... FAILED
+test action_schema_validation_rejects_ambiguous_wait_and_unavailable_actions ... FAILED
+
+failures:
+
+failures:
+    action_schema_validation_rejects_ambiguous_wait_and_unavailable_actions
+    finish_before_registration_failed_producer_is_not_reported_as_success
+    nonreducing_compaction_is_not_retriggered_by_terminal_receipt
+    receipt_during_active_user_turn_queues_without_parallel_model_execution
+    receipt_queued_before_failure_is_parked_by_actor_before_claim
+    registry_loss_recovers_interrupted_and_archive_has_explicit_no_cursor_contract
+    release_user_turn_and_auto_resume_through_native_production_factory
+    same_registration_races_are_idempotent_and_cancel_does_not_kill_producer
+    stopped_session_retains_receipt_until_explicit_user_resume
+
+test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.19s
+
+
+thread 'release_user_turn_and_auto_resume_through_native_production_factory' (2324325) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+
+thread 'stopped_session_retains_receipt_until_explicit_user_resume' (2324327) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+
+thread 'action_schema_validation_rejects_ambiguous_wait_and_unavailable_actions' (2324319) panicked at crates/xharness-host-app/tests/job_continuation.rs:372:10:
+Host idle: Elapsed(())
+error: test failed, to rerun pass `-p xharness-host-app --test job_continuation`
+   Compiling libc v0.2.189
+   Compiling syn v3.0.3
+   Compiling errno v0.3.14
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling signal-hook-registry v1.4.8
+   Compiling getrandom v0.4.3
+   Compiling uuid v1.27.0
+   Compiling serde_derive v1.0.229
+   Compiling tokio-macros v2.7.2
+   Compiling thiserror-impl v2.0.20
+   Compiling futures-macro v0.3.34
+   Compiling tokio v1.53.1
+   Compiling futures-util v0.3.34
+   Compiling thiserror v2.0.20
+   Compiling async-trait v0.1.92
+   Compiling serde v1.0.229
+   Compiling xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-diagnostics)
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling tokio-util v0.7.19
+   Compiling xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-debug)
+   Compiling xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-tools)
+   Compiling xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-jobs)
+   Compiling xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-interaction)
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-session)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.98s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_jobs-e2e5b2edc5584ec1)
+
+running 1 test
+test continuation_identity_tests::generation_prevents_old_subscription_aliasing_new_producer ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_session-4dc7b3684ac20735)
+
+running 4 tests
+test job_continuation::tests::continuation_limits_are_utf8_bytes_not_character_counts ... ok
+test event::harness_view_tests::surface_view_strips_body_and_supports_legacy_system_without_overriding_explicit_empty ... ok
+test job_continuation::tests::continuation_state_machine_rejects_rearm_and_mutation ... ok
+test message::multimodal_tests::legacy_string_and_new_reference_roundtrip_without_base64 ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
