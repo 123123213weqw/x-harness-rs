@@ -73,6 +73,21 @@ class ArchiveTests(unittest.TestCase):
         self.assertTrue((self.output / lock['version'] / 'ThirdPartyNotices.txt').is_file())
         self.assertEqual(runtime.verify(self.output, lock, first['manifest_sha256']), first)
 
+    def test_console_lane_stages_bundle_before_any_native_cargo_test(self):
+        source = (ROOT / '.github/workflows/windows-console.yml').read_text()
+        stage = source.index('python -B scripts/powershell-runtime.py stage')
+        verify = source.index('./scripts/test-bundled-powershell.ps1')
+        bind = source.index('XHARNESS_BUNDLED_POWERSHELL_ROOT=')
+        first_test = source.index('cargo test --locked')
+        self.assertLess(stage, verify)
+        self.assertLess(verify, bind)
+        self.assertLess(bind, first_test)
+        for dependency in ('runtime/powershell.lock.json', 'scripts/powershell-runtime.py',
+                           'scripts/test-bundled-powershell.ps1'):
+            self.assertIn("- '" + dependency + "'", source)
+        self.assertIn('-p xharness-process', source)
+        self.assertIn('--all-targets', source)
+
     def test_bad_digest_and_size_cannot_publish_partial_output(self):
         for field in ['sha256', 'size']:
             lock = self.make()
