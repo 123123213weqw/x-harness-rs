@@ -166,6 +166,96 @@ try {
   assert.equal(cases, 24)
   console.log(`${engine}: ${cases} actual sticky-composer/updater/shell stacking cases + short viewport, long notes, confirmation, Escape/focus, editable draft passed; no installation invoked.`)
 
+  // The real Shadow DOM must inherit the app's explicit scheme, including
+  // when it disagrees with the OS. Native calls below are an isolated bridge
+  // contract, not a claim that an actual Windows title bar was screenshot-tested.
+  const palette=readFileSync(join(repo,'ui/src/modules/theme/design-platform.css'),'utf8')
+  const neutral=readFileSync(join(repo,'ui/overrides/monochrome.css'),'utf8')
+  const titlebarCss=readFileSync(join(repo,'ui/desktop/titlebar.css'),'utf8')
+  const titlebar=scriptAsset('desktop-titlebar.js')
+  const projection=createRequire(join(repo,'ui/package.json'))('esbuild').buildSync({entryPoints:[join(repo,'ui/src/modules/layout/theme-presenter.ts')],
+    bundle:true,write:false,format:'iife',globalName:'ThemeProjection',platform:'browser',target:'es2020'}).outputFiles[0].text
+  let paletteCases=0
+  for(const os of ['light','dark']) {
+    const themed=await browser.newPage({viewport:{width:1000,height:700},colorScheme:os,
+      userAgent:'Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/605.1.15'})
+    await themed.setContent(`<style>${palette} ${neutral} ${titlebarCss}
+      body{margin:0;font:14px system-ui}#peer-sidebar{background:var(--dsw-specific-sidebar-fill);padding:54px 16px 16px;width:260px;height:100%}
+      #peer-primary{background:var(--dsw-alias-button-info-fill);color:var(--dsw-alias-bg-base)}
+      #peer-surface{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+      #peer-label{color:var(--dsw-alias-label-primary)}#peer-secondary{color:var(--dsw-alias-label-secondary)}
+      #xharness-sidebar-updater-slot{position:absolute;left:16px;top:520px;width:200px}
+      </style><aside id="peer-sidebar">Sidebar<button id="peer-primary">Primary action</button>
+      <span id="peer-label">Label</span><span id="peer-secondary">Secondary label</span>
+      <section id="peer-surface">Shared surface</section><div id="xharness-sidebar-updater-slot" hidden></div></aside>`)
+    await themed.evaluate(()=>{
+      window.themeCalls=[];window.calls=[];window.remote={seq:1,phase:'available',version:'9.9.9'}
+      window.__TAURI__={
+        core:{invoke:async command=>{calls.push(command);return command==='desktop_status'?{updaterConfigured:true}:remote}},
+        event:{listen:async(_name,callback)=>{window.emitUpdate=callback;return()=>{}}},
+        window:{getCurrentWindow:()=>({setTheme:async scheme=>{themeCalls.push(scheme)}})},
+      }
+    })
+    await themed.addScriptTag({content:projection})
+    await themed.evaluate(()=>{window.presenter=new ThemeProjection.ThemePresenter();presenter.apply({preference:'light',active:{id:'light',colorScheme:'light',tokens:{}},themes:[],revision:0})})
+    await themed.addScriptTag({content:titlebar})
+    await themed.addScriptTag({content:source})
+    const update=themed.locator('#xharness-desktop-updater')
+    await update.waitFor({state:'visible'})
+    await update.locator('.toggle').click()
+    await themed.mouse.move(950,650)
+    let seq=1
+    for(const app of ['light','dark','light']) {
+      await themed.evaluate(scheme=>{
+        presenter.apply({preference:scheme,active:{id:scheme,colorScheme:scheme,tokens:{}},themes:[],revision:1})
+      },app)
+      await themed.waitForFunction(scheme=>themeCalls.at(-1)===scheme,app)
+      for(const phase of ['available','downloading','downloaded','error']) {
+        await themed.evaluate(({seq,phase})=>emitUpdate({payload:{seq,phase,version:'9.9.9',downloaded:51,total:100,
+          ...(phase==='error'?{retryAction:'download',message:'offline'}:{})}}),{seq:++seq,phase})
+        const colors=await update.evaluate(host=>{
+          const shadow=host.shadowRoot,style=selector=>getComputedStyle(shadow.querySelector(selector))
+          const peer=selector=>getComputedStyle(document.querySelector(selector))
+          return {scheme:getComputedStyle(host).colorScheme,
+            bar:peer('#xh-desktop-titlebar').backgroundColor,sidebar:peer('#peer-sidebar').backgroundColor,
+            background:style('.toggle').backgroundColor,foreground:style('.toggle').color,
+            primary:peer('#peer-primary').backgroundColor,primaryText:peer('#peer-primary').color,
+            secondaryText:peer('#peer-secondary').color,
+            action:style('.action').backgroundColor,actionText:style('.action').color,
+            panel:style('.panel').backgroundColor,surface:peer('#peer-surface').backgroundColor,
+            progress:style('progress').accentColor}
+        })
+        assert.equal(colors.action,colors.primary,'update action shares the product primary color')
+        assert.equal(colors.scheme,app,`OS=${os}/app=${app}: Shadow DOM follows the app, not the OS`)
+        assert.equal(colors.bar,colors.sidebar,'HTML titlebar uses the shared chrome surface')
+        assert.equal(colors.panel,colors.surface,'updater panel uses the app surface')
+        assert.equal(colors.action,colors.primary);assert.equal(colors.actionText,colors.primaryText)
+        assert.equal(colors.progress,colors.primary)
+        if(phase==='error') {
+          assert.equal(colors.background,'rgba(0, 0, 0, 0)');assert.equal(colors.foreground,colors.secondaryText)
+        } else {
+          assert.equal(colors.background,colors.primary);assert.equal(colors.foreground,colors.primaryText)
+        }
+        await themed.keyboard.press('Tab')
+        await update.locator('.toggle').focus()
+        assert.equal(await update.locator('.toggle').evaluate(button=>getComputedStyle(button).outlineColor),
+          await themed.locator('#peer-label').evaluate(label=>getComputedStyle(label).color),'focus ring follows the app label color')
+        paletteCases++
+      }
+      if(output&&os==='dark'&&app==='light') await themed.screenshot({path:join(output,`${engine}-os-dark-app-light.png`)})
+    }
+    await themed.evaluate(scheme=>presenter.apply({preference:'system',active:{id:scheme,colorScheme:scheme,tokens:{}},themes:[],revision:2}),os)
+    await themed.waitForFunction(()=>themeCalls.at(-1)===null)
+    await themed.emulateMedia({colorScheme:os==='light'?'dark':'light'})
+    await themed.evaluate(scheme=>presenter.apply({preference:'system',active:{id:scheme,colorScheme:scheme,tokens:{}},themes:[],revision:3}),os==='light'?'dark':'light')
+    await themed.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)))
+    assert.deepEqual(await themed.evaluate(()=>themeCalls),['light','dark','light',null],'System releases native override; subsequent OS changes do not create a feedback loop')
+    assert.equal(await themed.evaluate(()=>calls.includes('desktop_install_update')),false)
+    await themed.close()
+  }
+  assert.equal(paletteCases,24)
+  console.log(`${engine}: ${paletteCases} desktop palette cases passed; explicit light/dark overrides OS, shared titlebar/panel/buttons/focus/progress; native bridge synchronization only, no install.`)
+
   // Exercise the real bridge's boot/online timers, not only direct state injection.
   // Native package signature/cache validation is covered by Rust, never replaced
   // with a browser-side checksum. This mock must not touch a real feed/installer.
