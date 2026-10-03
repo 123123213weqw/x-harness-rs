@@ -12,6 +12,7 @@
 //! [`ProcessHandle::wait`] before shutting down Tokio so cancellation can reach
 //! quiescence and final output can be drained.
 
+pub mod powershell;
 pub mod shell;
 
 use std::{

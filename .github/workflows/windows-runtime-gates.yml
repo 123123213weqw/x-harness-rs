@@ -1,7 +1,8 @@
 name: Windows runtime gates (build only)
 on:
+  workflow_dispatch:
   push:
-    branches: [fix/windows-runtime-gates-20261005]
+    branches: [fix/windows-runtime-gates-20261005, feat/bundled-powershell-runtime-20261013]
 permissions:
   contents: read
 concurrency:
@@ -64,6 +65,14 @@ jobs:
           if ($LASTEXITCODE) { throw 'Host staging failed' }
           python -B scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'Runner staging failed' }
+      - name: Bundled interpreter, managed process and override regressions
+        run: |
+          ./scripts/test-bundled-powershell.ps1
+          "XHARNESS_BUNDLED_POWERSHELL_ROOT=$((Resolve-Path apps/desktop/src-tauri/resources/powershell).Path)" >> $env:GITHUB_ENV
+      - name: Native shared process regression
+        run: |
+          cargo test --locked -p xharness-process
+          if ($LASTEXITCODE) { throw 'Managed bundled shell regressions failed' }
       - name: Desktop readiness and error unit tests
         run: |
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --lib sidecar::tests
