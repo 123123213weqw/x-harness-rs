@@ -156,15 +156,21 @@ for(const engine of engines){
      R.createElement(P.MarkdownText,{text:'Formula $x^2$ and **bold**\n\n$$\nx^2+y^2\n$$',streaming:true}),
      kind==='menu'?R.createElement(P.Menu,{open:true,portal:true,anchor:R.createElement(P.Button,{},'Menu anchor'),items:[{type:'label',id:'label',text:'Heading'},{id:'a',label:'Alpha'},{type:'separator',id:'s'},{id:'b',label:'Disabled',disabled:true}],footer:[{id:'f',label:'Footer'}],onSelect:id=>selected.push(id),onClose:()=>fixtureCloseCount++}):null,
      kind==='modal'?R.createElement(P.Modal,{open:true,title:'Modal title',description:'Description',onClose:()=>fixtureCloseCount++,footer:R.createElement(P.Button,{variant:'primary'},'Confirm')},'Modal body'):null)))
-    window.layout=()=>[...document.querySelectorAll('#fixture *,[role=dialog] *,[role=dialog]')].map(el=>{
+    // The owned modal intentionally moved into the native top layer. Compare
+    // the feature-owned card (same geometry/tokens), not the transport wrapper.
+    window.layout=()=>{
+     const surface=document.querySelector('[role=dialog]')
+     const card=surface?.tagName==='DIALOG'?surface.querySelector('[class*=dialog]'):surface
+     return [...document.querySelectorAll('#fixture *'),...(card?[card,...card.querySelectorAll('*')]:[])].map(el=>{
      const r=el.getBoundingClientRect(),css=getComputedStyle(el),before=getComputedStyle(el,'::before'),after=getComputedStyle(el,'::after')
      const names=['display','position','color','backgroundColor','fontFamily','fontSize','fontWeight','lineHeight','padding','margin','border','borderRadius','gap','boxShadow','opacity','animationDuration','animationTimingFunction','transform','overflow','maxWidth','maxHeight']
      return {tag:el.tagName,text:el.children.length?null:el.textContent,rect:[r.x,r.y,r.width,r.height],style:Object.fromEntries(names.map(name=>[name,css[name]])),before:{content:before.content,width:before.width,height:before.height,backgroundColor:before.backgroundColor},after:{content:after.content,width:after.width,height:after.height,backgroundColor:after.backgroundColor}}
-    })
+    })}
    })
    const surfaces=[],screenshots=[]
    for(const theme of ['light','dark'])for(const width of [960,390])for(const kind of ['base','menu','modal']){
     await page.setViewportSize({width,height:720});await page.evaluate(({theme,kind})=>{if(theme==='dark')document.body.setAttribute('data-ds-dark-theme','');else document.body.removeAttribute('data-ds-dark-theme');renderSurface(kind)},{theme,kind})
+    if(kind==='modal')await page.getByRole('button',{name:'Confirm',exact:true}).focus()
     await page.evaluate(()=>document.fonts.ready);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
     surfaces.push({theme,width,kind,layout:await page.evaluate(()=>layout())});screenshots.push(sha(await page.screenshot({animations:'disabled'})))
     if(kind==='modal'){await page.keyboard.press('Escape');assert.ok(await page.evaluate(()=>fixtureCloseCount>0),'actual modal Escape routes onClose')}

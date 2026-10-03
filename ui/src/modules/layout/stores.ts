@@ -19,7 +19,7 @@ import {
  * narrow-viewport pair — `narrow` mirrors AppFrame's breakpoint reading
  * (viewport < SIDEBAR_AUTO_COLLAPSE) so toggleSidebar can pick semantics, and
  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
- * sidebar over the squeezed center without rewriting the width preference.
+ * sidebar as a drawer without rewriting the width preference.
  */
 export type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
 
