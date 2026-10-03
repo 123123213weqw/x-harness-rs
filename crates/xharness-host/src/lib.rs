@@ -28,7 +28,6 @@ pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod display;
 mod driver;
-pub use display::DisplayTool;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
@@ -85,9 +84,8 @@ pub use model_settings::{
 };
 pub use plugin_backend::PluginBackend;
 pub use questions::{
-    managed_agent_memory, update_agent_markdown, AgentMarkdownSink, DurableQuestionHub,
-    DurableQuestionProvider, NoopAgentMarkdownSink, QuestionHubError, AGENT_MEMORY_BEGIN,
-    AGENT_MEMORY_END,
+    managed_agent_memory, DurableQuestionHub, DurableQuestionProvider, QuestionHubError,
+    AGENT_MEMORY_BEGIN, AGENT_MEMORY_END,
 };
 pub use restore::{HostRestoreError, HostRestoreIssue, HostRestoreReport, RecoveryPolicy};
 pub use runtime::{

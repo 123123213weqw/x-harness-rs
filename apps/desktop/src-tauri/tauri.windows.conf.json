@@ -1,6 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
+    "resources": {
+      "../../../ui/dist/": "web/",
+      "resources/powershell/": "runtime/powershell/"
+    },
     "externalBin": [
       "binaries/xharness-host",
       "binaries/rg",

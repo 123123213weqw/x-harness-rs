@@ -6,10 +6,32 @@ Browser feature module. It does not create another WebView or editor runtime.
 
 ## Entry points
 
-- The model has one `display({"path":"reports/result.md"})` tool. The authenticated
+- The model uses the existing `plugin_mcp` gateway, not a standalone `display`
+  tool. The in-process reserved namespace is `plugin=builtin`, `server=ui`,
+  `tool=display`; it exists on both Web and desktop with no plugin installation,
+  external MCP process or native-browser bridge required. Discover it with
+  `action=list` and load the full schema with `action=describe`. The authenticated
   session is captured by Host, never accepted from the model arguments. Tool
   allowlists apply before projection. Reads remain under the existing active
   permission preset.
+
+```json
+{"action":"call","plugin":"builtin","server":"ui","tool":"display","arguments":{"path":"reports/result.md"}}
+```
+
+The compact capability index and built-in UI display remain approval-free like
+former `display`. Foreign MCP operations that can start/call a server and native
+browser operations retain their existing approval policy, including monotonic
+per-request approvals. The gateway registration and guard are bound together;
+full-access behavior is unchanged. `builtin` is reserved for Host capabilities,
+not an installable plugin identity. The display call keeps its former 30-second
+execution deadline and cancellation cleanup; it does not inherit the external
+MCP server's 90-second window.
+
+An explicit deployment allowlist containing old `display` now fails visibly.
+Migrate it to `plugin_mcp` deliberately; it is **not** silently translated into a
+broader external-server capability. Existing direct UI preview RPCs, file links,
+wire DTOs, and historical tool rows are unchanged.
 - File links in settled replies/tool cards open in the same dock. Explicit folder
   opening (`.` / `..` / trailing separator) retains the original system opener.
   When the connected Host exposes native opening, file tabs also offer an
@@ -20,7 +42,7 @@ Browser feature module. It does not create another WebView or editor runtime.
 
 ## Ownership and wire
 
-1. `display` validates a bounded preview through the deployment reader.
+1. `plugin_mcp` routes the built-in display request to the same bounded Host preview reader.
 2. Host publishes the existing `host/remote-event` carrier with `display/open`
    and a typed `DisplayOpen`. The receipt is **requested**, not a UI visibility ACK.
    These transient intents are not replayed from historical tool results.
@@ -79,6 +101,7 @@ Commands:
 ```sh
 # Rust only on a synced remote server.
 cargo test --locked -p xharness-host-app --test file_display
+cargo test --locked -p xharness-host-app --lib builtin_ui
 cargo test --locked -p xharness-api
 cargo test --locked -p xharness-fs
 
@@ -93,7 +116,8 @@ UI_TEST_BROWSER=webkit node scripts/test-file-display-browser.mjs
 ## Read-only Diff display
 
 The same file slot now renders `.diff` / `.patch` as a typed `diff` result. The
-model still has only one display tool:
+model uses the same built-in display capability through `plugin_mcp`; these
+objects are its nested `arguments`:
 
 ```json
 {"path":"changes.patch"}

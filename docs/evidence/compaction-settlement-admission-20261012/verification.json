@@ -1,0 +1,76 @@
+{
+  "scope": "压缩/上下文不可重试失败后的自动派发门禁；不重写架构、不部署应用",
+  "base_commit": "0c935d4cb11813c655dcf98db8f17cc90296a3a5",
+  "branch": "fix/compaction-settlement-gate-20261012",
+  "changes_committed": false,
+  "verified_at_utc": "2026-10-12T15:27:18.577092+00:00",
+  "remote": {
+    "ssh_alias": "WZU_Server",
+    "project": "~/codex-build/x-harness-rs",
+    "rsync_before_build": true,
+    "local_rust_compilation": false,
+    "source_hash_match": true
+  },
+  "tests": {
+    "command": "cargo test --locked -p xharness-session -p xharness-agent -p xharness-host -p xharness-schedule --lib --tests",
+    "passed": 428,
+    "failed": 0,
+    "ignored": 6,
+    "new_regressions": 11,
+    "duplicate_targeted_checkpoint_test_excluded_from_total": true,
+    "ignored_tests": [
+      "test restore::dynamic_projection_tests::offline_dynamic_projection_stress ... ignored, bounded dynamic replay; explicit CI/local incident investigation only",
+      "test restore::tests::offline_authoritative_restore_100_cold_starts ... ignored, explicit isolated cold-start acceptance; run in diagnostics CI",
+      "test restore::tests::offline_journal_projection_stress ... ignored, explicit offline projection experiment; private journals stay local",
+      "test restore::tests::offline_reasoning_projection_stress ... ignored, offline crash-reproduction stress; run explicitly in CI",
+      "test restore_checkpoint::tests::recovery_checkpoint_performance_acceptance ... ignored, explicit remote cold-recovery performance acceptance",
+      "test runtime::tests::max_tokens_diagnostic::diagnostic_max_tokens_notice_survives_next_turn_start ... ignored, diagnostic of known notice mismatch; run explicitly, remove when fixed"
+    ]
+  },
+  "clippy": {
+    "command": "cargo clippy --locked -p xharness-session -p xharness-agent -p xharness-host -p xharness-schedule --lib --tests -- -D warnings",
+    "exit_code": 0
+  },
+  "negative_control": {
+    "description": "远程临时隔离副本只恢复旧的显式暂停门禁；测试与其余实现保持当前版。该副本自动清理，不覆盖正式同步目录。",
+    "expected_exit_code": 101,
+    "observed_unwanted_counter_calls": 1,
+    "expected_counter_calls": 0,
+    "test": "restored_failed_journal_and_new_receipts_remain_parked_without_a_pause_marker"
+  },
+  "asserted_boundaries": [
+    "真实 LoopEngine 无收益压缩失败，历史保留",
+    "连续/迟到回执及 Wake 不再进入 Token Counter/Provider",
+    "旧失败日志重启仍停放；Host 回执去重",
+    "Host admission 元数据中的真实用户可恢复",
+    "用户恢复和 Claim 同一 CAS；撤销/过期 Claim 不能解锁",
+    "健康会话的通知继续处理",
+    "手动 Compact 完成/NoBenefit 不能误解锁",
+    "Goal 既有暂态网络退避与错误原因保留",
+    "迟到 retryable 故障不能覆盖用户停止",
+    "旧 v1 Idle Recovery Checkpoint 回退权威重放；新 v2 继续复用缓存"
+  ],
+  "limitations": [
+    "模型传输和计数为确定性测试 Provider；不是模型推理性能或真实端点验收",
+    "6 项既有诊断/压力/已知 notice 用例保持忽略，不计为通过",
+    "未运行整个 workspace 或跨平台 GitHub CI",
+    "未提交、推送、创建 PR、发布或重启软件",
+    "压缩仍可合法返回无收益错误，本修复阻止后续回执自动重复失败"
+  ],
+  "source_sha256": {
+    "crates/xharness-agent/src/driver.rs": "492689abeb50d5b4081f27a40a0fa4b2150375afdd057cf762547bf1704bf9f7",
+    "crates/xharness-agent/src/inbox.rs": "69f4289ccd716af457844bd01e01ed8d1be25b0c3713a752a9e12d3904d4150d",
+    "crates/xharness-agent/tests/inbox.rs": "112bfd308a9cb419e9a820169def8cafec944e524bf65fdfd50a0f3beae01d5d",
+    "crates/xharness-host/src/delegation.rs": "f07175b296b2510738628f698f41ed7d3a579c86823a1031378bcd06083f285b",
+    "crates/xharness-host/src/restore_checkpoint.rs": "d3d64e85a081480b28cf2c6c3ab94baebb419003de0538c18d02e2ae756eec8f",
+    "crates/xharness-host/src/runtime/tests/observer_tests.rs": "49c41b9a59f050ab64816f4ed421ade82740fbd61a4ddb10b3b6991e5e6b4a10",
+    "crates/xharness-session/src/lib.rs": "4a73dcf4558d0e1586b99dba86ea9e25a5dcc71abec70390dd351f4ed27bc6f7",
+    "crates/xharness-agent/tests/failure_admission.rs": "5b8057aa9b8892599dddee693a6efa4efece59020ad429d9d1b4b3fdc6a2dcf2",
+    "crates/xharness-session/src/dispatch.rs": "ce13e3a5d58eaa370adc8607a197594ec4789d3001960de4b68b15aba18bee48",
+    "crates/xharness-session/tests/dispatch.rs": "c1be4e7f036517ff2ead2a8536e8693977fc48c230c5e3d8ff83e72c763678ad"
+  },
+  "log_sha256": {
+    "remote-tests-and-clippy.txt": "f54df9d355cc69ab4d9519e6c7433ef374ea9a52e2cd3ffb16e780bc8f1619ac",
+    "expected-negative-control.txt": "a701d53100c012d824314cc53967c7684be1a68a57f71112352d6365ce87f70a"
+  }
+}
