@@ -32,6 +32,22 @@ function PluginIcon() {
     h('svg', { width: 30, height: 30, viewBox: '0 0 16 16', fill: 'none' },
       h('path', { d: 'M2.4 2.5h3.05c-.15.64.26 1.18.9 1.18s1.05-.54.9-1.18h3.65v3.05c.64-.15 1.18.26 1.18.9s-.54 1.05-1.18.9v3.65H7.85c.15.64-.26 1.18-.9 1.18s-1.05-.54-.9-1.18H2.4V7.85c-.64.15-1.18-.26-1.18-.9s.54-1.05 1.18-.9V2.5Z', transform: 'translate(0 -0.75) scale(1.2)', stroke: 'currentColor', strokeWidth: .9, strokeLinecap: 'round', strokeLinejoin: 'round' })))
 }
+function CatalogIcon({ name, icon }: { name: string; icon: string | null | undefined }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  let url: string | null = null
+  if (icon && icon.length <= 4096) {
+    try {
+      const parsed = new URL(icon, window.location.href)
+      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) url = parsed.href
+    } catch { /* Invalid metadata uses the same fallback as a missing icon. */ }
+  }
+  const showImage = url !== null && url !== failedUrl
+  return h('div', { className: `xhph-icon${showImage ? ' xhph-icon-artwork' : ''}`, 'aria-hidden': true },
+    showImage
+      ? h('img', { src: url ?? undefined, alt: '', width: 42, height: 42, loading: 'lazy', decoding: 'async',
+        referrerPolicy: 'no-referrer', onError: () => setFailedUrl(url) })
+      : name.slice(0, 1).toUpperCase())
+}
 function PluginHub({ t, call }: PluginHubProps) {
   const [tab, setTab] = useState<CatalogScope>('public')
   const [query, setQuery] = useState('')
@@ -85,7 +101,7 @@ function PluginHub({ t, call }: PluginHubProps) {
     const mcpOnly = !!saved && !saved.skills.length && saved.capabilities.includes('mcp')
     const label = updateAvailable ? 'update' : isInstalled ? (mcpOnly ? (saved?.mcpEnabled ? 'stopMcp' : 'allowMcp') : (saved?.enabled ? 'disable' : 'enable')) : 'install'
     return h('div', { className: 'xhph-item', key: item.name },
-      h('div', { className: 'xhph-icon', 'aria-hidden': true }, item.name.slice(0, 1).toUpperCase()),
+      h(CatalogIcon, { name: item.name, icon: item.icon ?? catalog.find(entry => entry.name === item.name)?.icon }),
       h('div', { className: 'xhph-copy', onClick: () => setDetail(item.name), role: 'button', tabIndex: 0,
         onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter') setDetail(item.name) } },
         h('div', { className: 'xhph-name' }, item.name),
