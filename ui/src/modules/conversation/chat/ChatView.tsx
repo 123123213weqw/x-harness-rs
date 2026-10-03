@@ -15,14 +15,18 @@ import { transcriptHasPendingTool } from './pending-tool'
 // lifecycle updates replace only their own row without remounting it.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ConversationTimelineSnapshot } from "../types/runtime"
-import { Button, IconChevronDownOutline14, Modal } from '../primitives'
+import { Button, IconChevronDownOutline14, Modal, Tooltip } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
+import { isObjectRecord } from '../../shared/runtime-types'
+import { isChatNode } from '../contract/chat-node-codec'
 import css from './ChatView.styles'
+import railCss from './MessageRail.styles'
 
 const FOLLOW_THRESHOLD = 24
 const NO_EXPANDED_TURNS: ReadonlySet<number> = new Set()
@@ -220,6 +224,16 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
+  const messageMarkers = useMemo(() => order.flatMap(key => {
+    const node = nodeStore.get(key)
+    if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
+    const snippets: string[] = []
+    for (const block of node.data.content) {
+      if (isObjectRecord(block) && block.type === 'text' && typeof block.text === 'string') snippets.push(block.text)
+    }
+    const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+    return [{ key, preview }]
+  }), [order, nodeStore])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
@@ -227,6 +241,8 @@ export function ChatView({
   const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
 
   const listRef = useRef<HTMLDivElement | null>(null)
+  const [railHost, setRailHost] = useState<HTMLElement | null>(null)
+  const [activeMarker, setActiveMarker] = useState<string | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
@@ -248,6 +264,35 @@ export function ChatView({
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
   const processAnchorRef = useRef<PagingAnchor | null>(null)
+
+  useLayoutEffect(() => {
+    const local = listRef.current
+    setRailHost(local?.closest<HTMLElement>('[data-conversation-root]') ?? local?.closest<HTMLElement>('[data-chat-view-root]') ?? null)
+  }, [sessionId])
+
+  useEffect(() => {
+    const local = listRef.current
+    if (local === null || messageMarkers.length === 0) { setActiveMarker(null); return }
+    const scrollport = scrollerOf(local)
+    let frame = 0
+    const update = (): void => {
+      frame = 0
+      const threshold = scrollport.getBoundingClientRect().top + 48
+      let current = messageMarkers[0]?.key ?? null
+      for (const row of local.querySelectorAll<HTMLElement>('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')) {
+        if (row.getBoundingClientRect().top > threshold) break
+        current = row.dataset.chatAnchorKey ?? current
+      }
+      setActiveMarker(previous => previous === current ? previous : current)
+    }
+    const schedule = (): void => { if (frame === 0) frame = window.requestAnimationFrame(update) }
+    schedule()
+    scrollport.addEventListener('scroll', schedule, { passive: true })
+    return () => {
+      scrollport.removeEventListener('scroll', schedule)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+    }
+  }, [messageMarkers, sessionId])
 
   const toggleTurnProcess = (turn: number): void => {
     const local = listRef.current
@@ -560,8 +605,45 @@ export function ChatView({
     loadOlder()
   }
 
+  const scrollToMessage = (key: string): void => {
+    const local = listRef.current
+    if (local === null) return
+    const row = anchorElement(local, key)
+    if (row === null) return
+    const scrollport = scrollerOf(local)
+    atBottomRef.current = false
+    setAtBottom(false)
+    readerScrollUntilRef.current = 0
+    readerDirectionRef.current = 0
+    scrollport.scrollTop += flowTop(row, scrollport) - 24
+    observedTopRef.current = scrollport.scrollTop
+    setActiveMarker(key)
+    const position = scrollPosition(local, scrollport)
+    if (position !== null) chatScroll.save(position)
+  }
+
   return (
-    <div className={css.root}>
+    <div className={css.root} data-chat-view-root="">
+      {railHost !== null && messageMarkers.length > 1 && createPortal(
+        <nav className={railCss.root} aria-label={t('chat.messageRail')}>
+          {messageMarkers.map((marker, index) => {
+            const label = marker.preview === ''
+              ? t('chat.messageRail.message', { n: index + 1 })
+              : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`
+            return <Tooltip key={marker.key} label={label} side="right" delayMs={300}>
+              <button
+                type="button"
+                className={railCss.item}
+                data-message-key={marker.key}
+                aria-label={label}
+                aria-current={activeMarker === marker.key ? 'location' : undefined}
+                onClick={() => { scrollToMessage(marker.key) }}
+              ><span className={railCss.mark} aria-hidden="true" /></button>
+            </Tooltip>
+          })}
+        </nav>,
+        railHost,
+      )}
       <div ref={listRef} className={css.scroll}>
         <div ref={columnRef} className={css.column} data-chat-flow="">
           {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
