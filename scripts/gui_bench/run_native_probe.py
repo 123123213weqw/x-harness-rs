@@ -45,9 +45,46 @@ def cleanup(root: Path) -> bool:
             return True
         except FileNotFoundError:
             return True
-        except OSError:
+        except OSError as error:
+            if attempt == 9:
+                print(f"Probe cleanup failed: {error}", file=sys.stderr)
             time.sleep(0.1 * (attempt + 1))
     return False
+
+
+def cleanup_profile(root: Path) -> bool:
+    # A killed, test-owned document portal can leave a disconnected FUSE mount.
+    # Retrying rmtree cannot remove a mount. Never detach a user's profile or a
+    # different filesystem: only portal mounts beneath our generated temp root.
+    if (not root.is_absolute() or root.is_symlink()
+            or not root.name.startswith(("xh-native-dom-", "xh-webview-profile-"))
+            or root.parent.resolve() != Path(tempfile.gettempdir()).resolve()):
+        return False
+    mounts = Path("/proc/self/mountinfo")
+    if mounts.exists():
+        try:
+            owned = []
+            for line in mounts.read_text().splitlines():
+                fields = line.split()
+                target = fields[4]
+                for escaped, literal in [("\\040", " "), ("\\011", "\t"), ("\\012", "\n"), ("\\134", "\\")]:
+                    target = target.replace(escaped, literal)
+                target = Path(target)
+                if root in target.parents:
+                    if fields[fields.index("-") + 1] != "fuse.portal":
+                        print(f"Probe cleanup refused a non-portal mount: {target}", file=sys.stderr)
+                        return False
+                    owned.append(target)
+            for target in sorted(owned, key=lambda path: len(path.parts), reverse=True):
+                result = subprocess.run(["fusermount3", "-uz", str(target)],
+                                        capture_output=True, timeout=5)
+                if result.returncode:
+                    print(f"Probe portal unmount failed: {target}", file=sys.stderr)
+                    return False
+        except (OSError, ValueError, IndexError, subprocess.TimeoutExpired) as error:
+            print(f"Probe portal cleanup failed: {error}", file=sys.stderr)
+            return False
+    return cleanup(root)
 
 
 def run_probe(binary: Path, env: dict[str, str], log) -> int:
@@ -93,7 +130,7 @@ def main() -> int:
             except OSError:
                 code = 127
     finally:
-        cleaned = cleanup(directory)
+        cleaned = cleanup_profile(directory)
     receipt["cleanup_passed"] = cleaned
     receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned)
     (args.evidence_dir / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
