@@ -470,14 +470,30 @@ async fn background_pwsh_streams_output_and_preserves_nonzero_exit_status() {
     let started: Value = serde_json::from_str(&started.output.unwrap().content).unwrap();
     let job_id = started["job_id"].as_str().unwrap();
 
-    let collected = executor
-        .execute(ToolRequest::new(
-            "job_output",
-            serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 5_000}).to_string(),
-        ))
-        .await;
-    assert!(collected.is_ok(), "{collected:?}");
-    let collected: Value = serde_json::from_str(&collected.output.unwrap().content).unwrap();
+    // A successful wait may time out with a still-running snapshot. Await the
+    // terminal state instead of assuming that PowerShell plus process cleanup
+    // always completes within one five-second window on a loaded CI runner.
+    let collected = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let result = executor
+                .execute(ToolRequest::new(
+                    "job_output",
+                    serde_json::json!({"job_id": job_id, "wait": true, "timeout_ms": 1_000})
+                        .to_string(),
+                ))
+                .await;
+            assert!(result.is_ok(), "{result:?}");
+            let snapshot: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+            if !matches!(
+                snapshot["snapshot"]["status"].as_str(),
+                Some("running" | "stopping")
+            ) {
+                break snapshot;
+            }
+        }
+    })
+    .await
+    .expect("background PowerShell job did not settle within 30 seconds");
     assert_eq!(collected["stdout"], "firstlast");
     assert_eq!(collected["stderr"], "warn");
     assert_eq!(collected["snapshot"]["status"], "failed");
