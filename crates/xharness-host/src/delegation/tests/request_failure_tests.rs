@@ -172,7 +172,9 @@ async fn first_request_rejections_are_observable_and_parent_driven_retry_reuses_
         })
         .await
         .unwrap();
-        calls(&provider, 2).await;
+        // The human recovery turn is claimed first; then the queued parent
+        // retry runs as a distinct input. Neither is an automatic receipt.
+        calls(&provider, 3).await;
         settled(&host, &id).await;
         host.execute_agent("p", "retry", retry).await.unwrap();
         let success = inspect(&host, &id).await["last_settlement"].clone();
@@ -188,8 +190,8 @@ async fn first_request_rejections_are_observable_and_parent_driven_retry_reuses_
         );
         assert_eq!(
             provider.calls.load(Ordering::SeqCst),
-            2,
-            "no probe, auto-respawn or duplicate retry"
+            3,
+            "one human recovery and one queued retry; no probe, auto-respawn or duplicate retry"
         );
         assert_eq!(
             host.state
