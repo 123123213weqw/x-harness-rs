@@ -139,13 +139,14 @@ for (const name of names) {
       }
       if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
       if (name === 'profile' || name === 'tasks') {
+        // Reviewed stable settings-card change: remove only the exact old
+        // section-width rule. Every other frozen section style stays equal.
         const selector = name === 'profile' ? '.xhp-root' : '.xhtask-settings-root'
-        const before = `[role="dialog"]:has(${selector})`
-        const comment = name === 'profile'
-          ? '/* The native dialog owns the full-viewport mask; only widen its content card. */'
-          : '/* Archive layout must not resize the full-viewport modal/mask surface. */'
-        assert.equal(expectedStyles[0][1].split(before).length, 2, 'one exact frozen mask-width selector')
-        expectedStyles[0][1] = expectedStyles[0][1].replace(before, `${comment}\n[data-xh-settings-panel]:has(${selector})`)
+        const width = name === 'profile' ? 1040 : 1180
+        const before = `[role="dialog"]:has(${selector}){width:min(${width}px,calc(100vw - 32px));max-width:calc(100vw - 32px)}\n`
+        assert.equal(expectedStyles[0][1].split(before).length, 2, 'one exact frozen section-width rule')
+        expectedStyles[0][1] = expectedStyles[0][1].replace(before, '')
+        assert.doesNotMatch(after.styles.values().next().value.textContent, /data-xh-settings-panel|\[role="dialog"\]:has/)
       }
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
       assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
