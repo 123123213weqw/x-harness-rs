@@ -3,6 +3,8 @@ members = [
     "crates/xharness-attachments",
     "crates/xharness-agent",
     "crates/xharness-api",
+    "crates/xharness-cloud",
+    "crates/xharness-cloud-app",
     "crates/xharness-compaction",
     "crates/xharness-computer",
     "crates/xharness-computer-macos",

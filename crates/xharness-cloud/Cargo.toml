@@ -1,0 +1,18 @@
+[package]
+publish = false
+name = "xharness-cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hosted task contracts, pure lifecycle decisions and control-plane ports"
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
