@@ -632,11 +632,15 @@ async fn sustained_network_wait_stalled_transport_is_cancellable() {
     }])
     .await;
     let req = LoopRequest::new(
-        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_millis(20)),
+        // The timeout includes HTTP setup, not just the fixture's deliberate
+        // stall. A 20ms deadline can expire before any request reaches the
+        // server on a loaded runner, testing scheduling rather than recovery.
+        server.provider(OpenAiProtocol::ChatCompletions, Duration::from_secs(1)),
         vec![AgentMessage::user("go")],
     );
     let mut run = LoopEngine.start(req);
-    tokio::time::timeout(Duration::from_secs(2), async {
+    until(|| server.count() == 1).await;
+    let saw_retry = tokio::time::timeout(Duration::from_secs(5), async {
         while let Some(e) = run.next().await {
             if matches!(
                 e.kind,
@@ -645,12 +649,17 @@ async fn sustained_network_wait_stalled_transport_is_cancellable() {
                     ..
                 }
             ) {
-                break;
+                return true;
             }
         }
+        false
     })
     .await
     .unwrap();
+    assert!(
+        saw_retry,
+        "the stalled HTTP request must enter network wait"
+    );
     run.cancel();
     assert_eq!(run.result().await.status, LoopStatus::Cancelled);
     assert_eq!(server.count(), 1);

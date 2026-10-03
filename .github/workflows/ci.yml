@@ -89,9 +89,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
+      - name: Install isolated UI test dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
+          node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - name: Strict platform pixel parity (early failure evidence)
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: node scripts/test-platform-source-browser.mjs
       - name: Check repository UI build and types
         run: |
-          npm ci --prefix ui --ignore-scripts
           npm run typecheck --prefix ui
           npm run check:plugin-api --prefix ui
           npm run check:build --prefix ui
@@ -124,10 +133,6 @@ jobs:
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
-      - name: Install isolated UI test dependencies
-        run: |
-          npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
-          node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
       - run: python3 -B scripts/test-remote-sync.py
       - run: node scripts/test-execution-checkpoints.mjs
       - run: node scripts/test-attachments.mjs
@@ -283,6 +288,14 @@ jobs:
           UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-request-audit-browser.mjs
+      - name: Upload strict platform parity evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-source-ui-evidence
+          path: dist/platform-source-evidence/
+          if-no-files-found: warn
+
       - name: Upload workspace directory UI evidence
         if: always()
         uses: actions/upload-artifact@v7

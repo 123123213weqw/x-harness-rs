@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from scripts.gui_bench.native_fixture import Fixture, REPO
 from scripts.gui_bench.run_native import TASKS, child_environment, github_evidence, grade, helper
-from scripts.gui_bench.run_native_probe import cleanup, command, environment
+from scripts.gui_bench.run_native_probe import cleanup, cleanup_profile, command, environment
 from scripts.gui_bench.webview_contract import Contract
 
 
@@ -130,22 +130,6 @@ def kill_owned(process):
     try: os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError: pass
     process.wait(timeout=5)
-
-
-def cleanup_profile(profile):
-    # Portal services can leave disconnected FUSE mounts after the owned DBus
-    # session exits. Unmount ONLY beneath our generated disposable profile.
-    if not profile.name.startswith('xh-webview-profile-') or profile.is_symlink():
-        return False
-    mounts = Path('/proc/self/mountinfo')
-    if mounts.exists():
-        for line in mounts.read_text().splitlines():
-            target = Path(line.split()[4].replace('\\040', ' '))
-            if profile in target.parents:
-                try:
-                    subprocess.run(['fusermount3','-uz',str(target)], capture_output=True, timeout=5)
-                except (OSError, subprocess.TimeoutExpired): return False
-    return cleanup(profile)
 
 
 def run(args, task, repetition):
