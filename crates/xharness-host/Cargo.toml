@@ -33,6 +33,7 @@ xharness-token = { path = "../xharness-token" }
 xharness-tools = { path = "../xharness-tools" }
 
 xharness-debug = { path = "../xharness-debug" }
+xharness-fs = { path = "../xharness-fs" }
 
 [target.'cfg(windows)'.dependencies]
 xharness-win32 = { path = "../xharness-win32" }

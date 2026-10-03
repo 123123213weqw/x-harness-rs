@@ -269,29 +269,36 @@ impl crate::BasicHost {
         {
             return Ok(());
         }
-        let request = {
+        let (mut request, sections) = {
             let state = self.state.read().await;
             let record = state
                 .sessions
                 .get(id)
                 .ok_or_else(|| xharness_api::RpcError::internal("session missing"))?;
-            crate::AgentSessionRequest {
-                session_id: id.into(),
-                cwd: record.cwd.clone(),
-                route: crate::ModelRoute {
-                    provider: record.model.provider.clone(),
-                    model: record.model.model.clone(),
-                    reasoning_effort: record.model.reasoning_effort.clone(),
-                    context_window_tokens: record.model.context_window_tokens,
+            (
+                crate::AgentSessionRequest {
+                    session_id: id.into(),
+                    cwd: record.cwd.clone(),
+                    route: crate::ModelRoute {
+                        provider: record.model.provider.clone(),
+                        model: record.model.model.clone(),
+                        reasoning_effort: record.model.reasoning_effort.clone(),
+                        context_window_tokens: record.model.context_window_tokens,
+                    },
+                    permission: record.permission_preset,
+                    prompt: None,
                 },
-                permission: record.permission_preset,
-                prompt: Some(
-                    state
-                        .prompt_assembly(id)
-                        .map_err(xharness_api::RpcError::internal)?,
-                ),
-            }
+                state
+                    .prompt_sections(id)
+                    .map_err(xharness_api::RpcError::internal)?,
+            )
         };
+        request.prompt = Some(
+            self.instructions
+                .assemble(request.cwd.clone(), sections)
+                .await
+                .map_err(xharness_api::RpcError::internal)?,
+        );
         self.agent_runtime
             .resume_session(request)
             .await

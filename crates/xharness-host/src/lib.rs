@@ -24,6 +24,7 @@ mod goal_processor;
 mod goal_tool;
 mod goals;
 mod history_tool;
+mod instructions;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod display;
@@ -264,6 +265,7 @@ pub struct BasicHost {
         Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
+    instructions: instructions::InstructionLoader,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
     pub(crate) github: Arc<std::sync::OnceLock<Arc<dyn GitHubBackend>>>,
@@ -365,6 +367,7 @@ impl BasicHost {
             lazy_restore_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             event_gateway,
             questions,
+            instructions: instructions::InstructionLoader::default(),
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
             github: Arc::new(std::sync::OnceLock::new()),
