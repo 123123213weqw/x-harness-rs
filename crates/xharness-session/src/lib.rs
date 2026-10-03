@@ -6,6 +6,7 @@
 //! facts; it is never maintained as a second mutable transcript.
 
 mod checkpoint;
+mod dispatch;
 pub mod goal;
 mod goal_validation;
 pub use checkpoint::*;
