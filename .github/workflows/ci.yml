@@ -119,6 +119,7 @@ jobs:
           node scripts/test-question-source-module.mjs
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
+          node scripts/test-turn-process.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -175,6 +176,7 @@ jobs:
           for browser in chromium webkit; do
             UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
@@ -213,6 +215,8 @@ jobs:
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-page-priority-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-page-priority-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-sidebar-row-actions-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-sidebar-row-actions-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
           UI_TEST_BROWSER=chromium node scripts/test-plugin-center-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-plugin-hub-functional.mjs
