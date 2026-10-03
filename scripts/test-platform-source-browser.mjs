@@ -1,7 +1,7 @@
 // Full strict-source platform acceptance against the exact shipped master main.
 // No Host transport, no real session data, and no production/private test exports.
 import assert from 'node:assert/strict'
-import {readFileSync, readdirSync, existsSync} from 'node:fs'
+import {readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync} from 'node:fs'
 import {join, resolve, dirname} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {createRequire} from 'node:module'
@@ -48,6 +48,8 @@ assert.ok(frozenFontShas.every(digest=>sourceFonts.some(row=>row.sha256===digest
 assert.deepEqual(sourceFonts.filter(row=>!frozenFontShas.includes(row.sha256)).map(row=>row.sha256), ['73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995'], 'only extra font is exact original missing Size3 woff2')
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/tmp/ui-tests','package.json'))
 const engines=process.env.UI_TEST_BROWSER?[process.env.UI_TEST_BROWSER]:['chromium','webkit']
+const evidence=resolve(root,'dist/platform-source-evidence')
+mkdirSync(evidence,{recursive:true})
 const cases=[
  ['inline dollar','公式 $x^2+1$ 后面继续回答。',1],
  ['inline backslash',String.raw`公式 \(\frac{a}{b}\) 后面继续。`,1],
@@ -172,13 +174,16 @@ for(const engine of engines){
     await page.setViewportSize({width,height:720});await page.evaluate(({theme,kind})=>{if(theme==='dark')document.body.setAttribute('data-ds-dark-theme','');else document.body.removeAttribute('data-ds-dark-theme');renderSurface(kind)},{theme,kind})
     if(kind==='modal')await page.getByRole('button',{name:'Confirm',exact:true}).focus()
     await page.evaluate(()=>document.fonts.ready);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
-    surfaces.push({theme,width,kind,layout:await page.evaluate(()=>layout())});screenshots.push(sha(await page.screenshot({animations:'disabled'})))
+    surfaces.push({theme,width,kind,layout:await page.evaluate(()=>layout())});screenshots.push(sha(await page.screenshot({animations:'disabled',path:join(evidence,`${engine}-${implementation}-${theme}-${width}-${kind}.png`)})))
     if(kind==='modal'){await page.keyboard.press('Escape');assert.ok(await page.evaluate(()=>fixtureCloseCount>0),'actual modal Escape routes onClose')}
    }
    assert.deepEqual(errors,[])
    results.push({keys,singleton,projection,brand,coreAbi,surfaces,screenshots});await page.close()
   }
-  assert.deepEqual(results[1],results[0],`${engine}: exact semantic math/brand/Shiki DOM and singleton ABI`)
+  writeFileSync(join(evidence,`${engine}-results.json`),JSON.stringify(results,null,2)+'\n')
+  const {screenshots:expectedPixels,...expected}=results[0],{screenshots:actualPixels,...actual}=results[1]
+  assert.deepEqual(actual,expected,`${engine}: exact semantic math/brand/Shiki DOM and singleton ABI`)
+  assert.deepEqual(actualPixels,expectedPixels,`${engine}: exact pixels; see dist/platform-source-evidence/ for both PNGs and layout records`)
   console.log(`${engine}: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed`)
  }finally{await browser.close()}
 }
