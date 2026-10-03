@@ -10,6 +10,7 @@ const ui=new URL('../ui/',import.meta.url),id='@xharness/dsh-client-ui-conversat
 const require=createRequire(new URL('../ui/package.json',import.meta.url)),ts=require('typescript');
 const units={
  deriveAncestry:['skeleton/ConversationSession','deriveAncestry'],
+ resolveActiveView:['skeleton/ConversationSession','resolveActiveView'],
  InputBar:['skeleton/InputBar','InputBar'],
  contextOccupancy:['chat/StatsLine','contextOccupancy'],ContextMeter:['skeleton/ContextMeter','ContextMeter'],
  compactBlocks:['conversation-nodes/assistant','compactBlocks'],hasVisibleContent:['conversation-nodes/assistant','hasVisibleContent'],hasInterruptionEvidence:['conversation-nodes/assistant','hasInterruptionEvidence'],updateChunk:['conversation-nodes/assistant','updateChunk'],finalNode:['conversation-nodes/assistant','finalNode'],

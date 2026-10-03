@@ -39,7 +39,15 @@ test('production manifest retains every merged-master module and no legacy execu
     const migrated = manifest.modules.find(row => row.id === old.id)
     assert.ok(migrated, `missing merged-master module: ${old.id}`)
     assert.equal(migrated.kind, 'source-module')
-    assert.deepEqual(migrated.inject ?? [], old.inject ?? [], `changed service requirements: ${old.id}`)
+    // The parity reference stays immutable. The post-migration Harness redesign
+    // deliberately adds the existing locale service for bilingual labels; no
+    // other module may silently change its dependency contract.
+    let expectedInject = old.inject ?? []
+    if (old.id === '@xlang/xharness-client-ui-context') {
+      assert.deepEqual(expectedInject, ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-conversation'])
+      expectedInject = [expectedInject[0], '@xharness/dsh-client-locale', expectedInject[1]]
+    }
+    assert.deepEqual(migrated.inject ?? [], expectedInject, `changed service requirements: ${old.id}`)
     assert.equal(migrated.immediately === true, old.immediately === true, `changed eager activation: ${old.id}`)
   }
   assert.deepEqual(manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id)).map(row => row.id), ['@xlang/xharness-client-plugin-api'], 'only the internal typed transport helper is new; no extra WIP UI')
