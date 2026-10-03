@@ -154,6 +154,24 @@ async fn first_request_rejections_are_observable_and_parent_driven_retry_reuses_
         host.execute_agent("p", "retry", retry.clone())
             .await
             .unwrap();
+        // A parent send is accepted durably, not permission to reopen a
+        // non-retryable child's gate. The canonical failure boundary (#278)
+        // requires an actual human recovery input after credentials are fixed.
+        assert!(store.load(&id).await.unwrap().dispatch_paused());
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        host.enqueue_prompt(crate::driver::PromptAdmission {
+            rpc_id: RpcId::new("human-recovery"),
+            session_id: id.clone(),
+            mode: "queue".into(),
+            text: "Credentials repaired; resume the queued review.".into(),
+            content: vec![
+                json!({"type":"text","text":"Credentials repaired; resume the queued review."}),
+            ],
+            source: json!({"kind":"user"}),
+            fingerprint: None,
+        })
+        .await
+        .unwrap();
         calls(&provider, 2).await;
         settled(&host, &id).await;
         host.execute_agent("p", "retry", retry).await.unwrap();
