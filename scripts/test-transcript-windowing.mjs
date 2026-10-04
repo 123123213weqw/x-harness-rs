@@ -73,8 +73,33 @@ try {
  const cdp=engine==='chromium'?await page.context().newCDPSession(page):null;
  async function metrics(){if(!cdp)return {dom:await page.locator('*').count()};await cdp.send('HeapProfiler.collectGarbage');const dom=await cdp.send('Memory.getDOMCounters');const heap=await cdp.send('Runtime.getHeapUsage');return {dom:dom.nodes,heapBytes:heap.usedSize};}
  const baseline=await metrics();
+ // The controller's frame must COMMIT its bounded row plan, not merely queue
+ // React state. A native wheel can arrive before a deferred commit shrinks
+ // the range. Observe the DOM after the controller's RAF in that same frame;
+ // this contract fails deterministically with asynchronous row publication.
+ if(implementation==='source')await page.evaluate(()=>{
+  const NativeIntersectionObserver=window.IntersectionObserver;
+  window.windowingFrames=[];window.recordWindowingFrames=true;
+  window.IntersectionObserver=class extends NativeIntersectionObserver{
+   constructor(callback,options){super((entries,observer)=>{
+    callback(entries,observer);
+    const visible=entries.filter(entry=>entry.isIntersecting&&entry.target.hasAttribute('data-transcript-mounted'));
+    if(!window.recordWindowingFrames||!visible.length)return;
+    requestAnimationFrame(()=>{
+     window.windowingFrames.push(visible.map(entry=>({id:entry.target.dataset.row,mounted:entry.target.dataset.transcriptMounted})));
+    });
+   },options)}
+  };
+  window.restoreIntersectionObserver=()=>{window.recordWindowingFrames=false;window.IntersectionObserver=NativeIntersectionObserver};
+ });
  const firstWindowed = await page.evaluate(()=>{virtual=true;render();return document.querySelectorAll("[data-transcript-mounted=true]").length});
  assert.equal(firstWindowed,0,"first windowed commit never mounts full history");
+ if(implementation==='source'){
+  await page.waitForFunction(()=>window.windowingFrames.length>0);
+  const frameReceipt=await page.evaluate(()=>{restoreIntersectionObserver();return window.windowingFrames.flat()});
+  assert.ok(frameReceipt.length>0);
+  assert.ok(frameReceipt.every(row=>row.mounted==='true'),'near row DOM must match the controller plan before its frame ends: '+JSON.stringify(frameReceipt));
+ }
  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="false"]').length>300);
  const optimized=await metrics();
  assert.ok(await page.locator('[data-row]').count()===350,'lightweight row keys and complete data remain');
