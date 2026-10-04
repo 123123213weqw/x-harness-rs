@@ -21808,7 +21808,7 @@ const messageSchema = zod_1.z.object({
 exports.muxFrameSchema = zod_1.z.discriminatedUnion('type', [
     zod_1.z.object({ type: zod_1.z.literal('session/event'), sessionId: sessions_schema_1.sessionIdSchema, event: sessions_schema_1.sessionEventSchema, view: sessions_schema_1.toolEventViewSchema.optional() }),
     zod_1.z.object({ type: zod_1.z.literal('session/subscribed'), sessionId: sessions_schema_1.sessionIdSchema, lastSeq: zod_1.z.number().int() }),
-    zod_1.z.object({ type: zod_1.z.literal('approval/requested'), sessionId: sessions_schema_1.sessionIdSchema, approvalId: approvals_schema_1.approvalRequestIdSchema, toolName: zod_1.z.string(), callId: zod_1.z.string().brand().transform(value => value).optional(), reason: zod_1.z.string().optional() }),
+    zod_1.z.object({ type: zod_1.z.literal('approval/requested'), sessionId: sessions_schema_1.sessionIdSchema, approvalId: approvals_schema_1.approvalRequestIdSchema, toolName: zod_1.z.string(), callId: zod_1.z.string().brand().transform(value => value).optional(), reason: zod_1.z.string().optional(), reviewing: zod_1.z.boolean().optional() }),
     zod_1.z.object({ type: zod_1.z.literal('approval/resolved'), sessionId: sessions_schema_1.sessionIdSchema, approvalId: approvals_schema_1.approvalRequestIdSchema, outcome: zod_1.z.union([zod_1.z.literal('allowed-once'), zod_1.z.literal('rejected'), zod_1.z.literal('cancelled'), zod_1.z.literal('unavailable')]) }),
     // Non-empty by wire contract: the user-questions service rejects empty
     // batches at ask() (EMPTY_QUESTIONS), so an empty frame is host breakage

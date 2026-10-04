@@ -15,12 +15,15 @@ try {
   const css = readFileSync(join(dir, 'monochrome.css'), 'utf8')
   assert.equal(css, readFileSync(new URL('../ui/dist/monochrome.css', import.meta.url), 'utf8'))
   assert.ok(css.includes('body[data-ds-dark-theme]'))
+  assert.match(css, /body\[data-ds-dark-theme\] \.U910La_root:not\(\.U910La_collapsed\) \.U910La_newSession\s*\{[^}]*background:\s*#43454a;[^}]*border-color:\s*#616367;/)
   assert.match(css, /html, body, #root\s*\{[^}]*overflow:\s*hidden/)
   assert.match(css, /html:has\(body\[data-ds-dark-theme\]\)\s*\{[^}]*background-color:\s*#171717/)
   assert.match(css, /\[data-conversation-scroll\]\s*\{[^}]*overscroll-behavior-y:\s*contain/)
   assert.ok(!css.includes('filter:')) // Never desaturate images or semantic statuses.
   assert.ok(!/--dsw-alias-state-(error|success|warn).*:/.test(css))
+  const deepSeekButtonColors = new Set(['43454a', '616367'])
   for (const match of css.matchAll(/#([0-9a-f]{6})(?:[0-9a-f]{2})?\b/g)) {
+    if (deepSeekButtonColors.has(match[1])) continue
     assert.equal(match[1].slice(0,2), match[1].slice(2,4))
     assert.equal(match[1].slice(2,4), match[1].slice(4,6))
   }

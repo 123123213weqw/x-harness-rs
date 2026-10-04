@@ -63,6 +63,11 @@ body[data-ds-dark-theme] {
   --dsw-alias-interactive-bg-hover: #ffffff14 !important;
   accent-color: #f5f5f5;
 }
+/* Match the official DeepSeek new-session button without recoloring other controls. */
+body[data-ds-dark-theme] .U910La_root:not(.U910La_collapsed) .U910La_newSession {
+  background: #43454a;
+  border-color: #616367;
+}
 body ::selection { background: #d4d4d4; color: #171717; }
 body[data-ds-dark-theme] ::selection { background: #525252; color: #ffffff; }
 

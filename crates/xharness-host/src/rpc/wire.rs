@@ -227,14 +227,17 @@ pub(super) fn plan_command_input(line: &str) -> Option<&str> {
 }
 
 pub(crate) fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionEvent> {
-    vec![
+    let mut events = vec![
         SessionEventData::PermissionPreset {
             preset: preset.as_str().to_owned(),
         }
         .into(),
         SessionEventData::SandboxMode {
             mode: match preset {
-                crate::PermissionPreset::WorkspaceWrite => SessionSandboxMode::WorkspaceWrite,
+                crate::PermissionPreset::WorkspaceWrite
+                | crate::PermissionPreset::WorkspaceWriteAiReview => {
+                    SessionSandboxMode::WorkspaceWrite
+                }
                 crate::PermissionPreset::DangerFullAccess => SessionSandboxMode::DangerFullAccess,
             },
             source: None,
@@ -242,13 +245,20 @@ pub(crate) fn permission_events(preset: crate::PermissionPreset) -> Vec<SessionE
         .into(),
         SessionEventData::ApprovalPolicy {
             policy: match preset {
-                crate::PermissionPreset::WorkspaceWrite => ApprovalPolicy::Ask,
+                crate::PermissionPreset::WorkspaceWrite
+                | crate::PermissionPreset::WorkspaceWriteAiReview => ApprovalPolicy::Ask,
                 crate::PermissionPreset::DangerFullAccess => ApprovalPolicy::Never,
             },
             source: None,
         }
         .into(),
-    ]
+    ];
+    // Keep the existing event order for old presets. AI approval cannot be
+    // inferred from SandboxMode, so its explicit selection must win reverse replay.
+    if preset == crate::PermissionPreset::WorkspaceWriteAiReview {
+        events.rotate_left(1);
+    }
+    events
 }
 
 pub(super) fn queue_item_not_found(item_id: &str, error: AgentRuntimeError) -> RpcError {

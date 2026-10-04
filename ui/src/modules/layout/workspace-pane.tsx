@@ -81,7 +81,7 @@ export function XhWorkspacePane({space,sessionId,renderSlot,onSelect,onClose,onU
     <div className="xhworkspace-tabs" role="tablist" aria-label="工作区标签">
       {space.items.map(item=><div className="xhworkspace-tab" key={item.id} data-active={item.id===space.activeId||undefined}>
         <button type="button" role="tab" aria-selected={item.id===space.activeId} onClick={()=>onSelect(item.id)} title={item.title}>
-          <span className="xhworkspace-kind" aria-hidden>{item.kind==='browser'?'◎':item.kind==='tool'?'⌘':'▤'}</span><span className="xhworkspace-title">{item.title}</span>
+          {item.kind!=='browser'&&<span className="xhworkspace-kind" aria-hidden>{item.kind==='tool'?'⌘':'▤'}</span>}<span className="xhworkspace-title">{item.title}</span>
         </button>
         <button type="button" className="xhworkspace-tab-close" aria-label={`关闭 ${item.title}`} onClick={()=>onClose(item.id)} title="关闭标签">×</button>
       </div>)}

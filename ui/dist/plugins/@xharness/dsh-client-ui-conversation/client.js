@@ -21452,6 +21452,8 @@ exports.ChatView = ChatView;
 exports.scrollFollowAtBottom = scrollFollowAtBottom;
 const jsx_runtime_1 = require("react/jsx-runtime");
 const pending_tool_1 = require("./pending-tool");
+const use_adaptive_tool_fold_1 = require("./use-adaptive-tool-fold");
+const process_mode_1 = require("./process-mode");
 // ChatView: the default conversation view — one stable keyed parent list over
 // final business Nodes, plus paging, pending steering and bottom-follow.
 // Each row dispatches through 'conversation.chat.node'; ui-tool owns the
@@ -21467,14 +21469,17 @@ const pending_tool_1 = require("./pending-tool");
 // ChatNodeSeat subscribes to one Node key, so Assistant deltas and Tool
 // lifecycle updates replace only their own row without remounting it.
 const react_1 = require("react");
+const react_dom_1 = require("react-dom");
 const primitives_1 = require("../primitives");
 const MessageItem_1 = require("./MessageItem");
 const ChatNodeSeat_1 = require("./ChatNodeSeat");
 const TranscriptWindowRow_1 = require("./TranscriptWindowRow");
 const message_chrome_1 = require("./message-chrome");
+const runtime_types_1 = require("../../shared/runtime-types");
+const chat_node_codec_1 = require("../contract/chat-node-codec");
 const ChatView_styles_1 = __importDefault(require("./ChatView.styles"));
+const MessageRail_styles_1 = __importDefault(require("./MessageRail.styles"));
 const FOLLOW_THRESHOLD = 24;
-const NO_EXPANDED_TURNS = new Set();
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from) {
     return (from.closest('[data-conversation-scroll]')) ?? from;
@@ -21592,12 +21597,22 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     const selectedCallId = useStore(s => s.selection?.callId);
     const [fileOpenError, setFileOpenError] = (0, react_1.useState)(null);
     const [fileOpenBusy, setFileOpenBusy] = (0, react_1.useState)(false);
-    const [processState, setProcessState] = (0, react_1.useState)(() => ({ sessionId, expanded: NO_EXPANDED_TURNS }));
-    // Display state belongs to one session. Reusing the view for another session
-    // must not apply its numeric turn IDs (or later resurrect stale choices).
-    if (processState.sessionId !== sessionId)
-        setProcessState({ sessionId, expanded: NO_EXPANDED_TURNS });
-    const expandedTurns = processState.sessionId === sessionId ? processState.expanded : NO_EXPANDED_TURNS;
+    const processMode = (0, process_mode_1.useProcessMode)();
+    const [processState, setProcessState] = (0, react_1.useState)(() => ({ sessionId, mode: processMode, choices: new Map() }));
+    // A global mode change deliberately reapplies defaults. Manual group choices
+    // win until then, stay turn/session-local and do not disable windowing.
+    if (processState.sessionId !== sessionId || processState.mode !== processMode) {
+        setProcessState({ sessionId, mode: processMode, choices: new Map() });
+    }
+    const expandedTurns = (0, react_1.useMemo)(() => {
+        const result = new Set();
+        const choices = processState.sessionId === sessionId && processState.mode === processMode ? processState.choices : undefined;
+        for (const turn of timeline.turns.keys()) {
+            if (choices?.get(turn) ?? processMode === 'expanded')
+                result.add(turn);
+        }
+        return result;
+    }, [timeline, processState, sessionId, processMode]);
     // Close/retry must ignore a settlement that started before the latest
     // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
     const fileOpenRequest = (0, react_1.useRef)(0);
@@ -21625,9 +21640,23 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         setFileOpenBusy(false);
     }, []);
     const pendingSteering = (0, react_1.useMemo)(() => inbox.filter(item => item.placement === 'steering'), [inbox]);
+    const messageMarkers = (0, react_1.useMemo)(() => order.flatMap(key => {
+        const node = nodeStore.get(key);
+        if (!(0, chat_node_codec_1.isChatNode)(node) || (node.kind !== 'user' && node.kind !== 'steering'))
+            return [];
+        const snippets = [];
+        for (const block of node.data.content) {
+            if ((0, runtime_types_1.isObjectRecord)(block) && block.type === 'text' && typeof block.text === 'string')
+                snippets.push(block.text);
+        }
+        const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+        return [{ key, preview }];
+    }), [order, nodeStore]);
     const renderMessageImages = (0, react_1.useCallback)(owner => renderSlot('conversation.message.images', { ...owner, loadImage }), [loadImage, renderSlot]);
     const runningTurnStart = (0, react_1.useMemo)(() => runningTurnStartTime(timeline), [timeline]);
     const listRef = (0, react_1.useRef)(null);
+    const [railHost, setRailHost] = (0, react_1.useState)(null);
+    const [activeMarker, setActiveMarker] = (0, react_1.useState)(null);
     const columnRef = (0, react_1.useRef)(null);
     const atBottomRef = (0, react_1.useRef)(true);
     const [atBottom, setAtBottom] = (0, react_1.useState)(true);
@@ -21649,6 +21678,51 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
      *  scrolls the rest of the way to the floor). */
     const followSigRef = (0, react_1.useRef)(null);
     const processAnchorRef = (0, react_1.useRef)(null);
+    (0, react_1.useLayoutEffect)(() => {
+        const local = listRef.current;
+        setRailHost(local?.closest('[data-conversation-root]') ?? local?.closest('[data-chat-view-root]') ?? null);
+    }, [sessionId]);
+    (0, react_1.useEffect)(() => {
+        const local = listRef.current;
+        if (local === null || messageMarkers.length === 0) {
+            setActiveMarker(null);
+            return;
+        }
+        const scrollport = scrollerOf(local);
+        let frame = 0;
+        const update = () => {
+            frame = 0;
+            const threshold = scrollport.getBoundingClientRect().top + 48;
+            let current = messageMarkers[0]?.key ?? null;
+            for (const row of local.querySelectorAll('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')) {
+                if (row.getBoundingClientRect().top > threshold)
+                    break;
+                current = row.dataset.chatAnchorKey ?? current;
+            }
+            setActiveMarker(previous => previous === current ? previous : current);
+        };
+        const schedule = () => { if (frame === 0)
+            frame = window.requestAnimationFrame(update); };
+        schedule();
+        scrollport.addEventListener('scroll', schedule, { passive: true });
+        return () => {
+            scrollport.removeEventListener('scroll', schedule);
+            if (frame !== 0)
+                window.cancelAnimationFrame(frame);
+        };
+    }, [messageMarkers, sessionId]);
+    const captureAutoFoldAnchor = (commit) => {
+        const local = listRef.current;
+        if (local === null || atBottomRef.current)
+            return undefined;
+        const port = scrollerOf(local);
+        const row = pagingAnchor(local, port);
+        const key = row?.dataset.chatAnchorKey;
+        if (commit && row !== null && key !== undefined)
+            processAnchorRef.current = { key, top: flowTop(row, port) };
+        return key;
+    };
+    const { foldedTools, invalidateFoldedTool } = (0, use_adaptive_tool_fold_1.useAdaptiveToolFold)(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore);
     const toggleTurnProcess = (turn) => {
         const local = listRef.current;
         if (local !== null) {
@@ -21664,12 +21738,9 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
             readerDirectionRef.current = 0;
         }
         setProcessState(previous => {
-            const expanded = new Set(previous.sessionId === sessionId ? previous.expanded : NO_EXPANDED_TURNS);
-            if (expanded.has(turn))
-                expanded.delete(turn);
-            else
-                expanded.add(turn);
-            return { sessionId, expanded };
+            const choices = new Map(previous.sessionId === sessionId && previous.mode === processMode ? previous.choices : []);
+            choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'));
+            return { sessionId, mode: processMode, choices };
         });
     };
     (0, react_1.useLayoutEffect)(() => {
@@ -21686,7 +21757,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         const position = scrollPosition(local, scrollport);
         if (position !== null)
             chatScroll.save(position);
-    }, [expandedTurns, chatScroll]);
+    }, [expandedTurns, foldedTools, chatScroll]);
     // One independently subscribed resident entry per loaded turn, including
     // partial history pages without the original user/start event. No full-turn
     // pinning: only the live tip and pending tools bypass row windowing.
@@ -21985,9 +22056,33 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         }
         loadOlder();
     };
-    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.root, children: [(0, jsx_runtime_1.jsxs)("div", { ref: listRef, className: ChatView_styles_1.default.scroll, children: [(0, jsx_runtime_1.jsxs)("div", { ref: columnRef, className: ChatView_styles_1.default.column, "data-chat-flow": "", children: [openState === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.hint, children: t('chat.loadingHistory') }), openState === 'error' && openError !== null && ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.openError, role: "alert", children: [t('chat.loadError', { message: openError.message, code: openError.code }), (0, jsx_runtime_1.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlder, children: t('retry') })] })), hasMore && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.older, children: (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loadingOlder, onClick: loadOlderAnchored, children: loadingOlder ? t('loading') : t('chat.loadOlder') }) })), order.flatMap((nodeKey) => [
-                                ...(processHeads.has(nodeKey) ? [(0, jsx_runtime_1.jsx)(ChatNodeSeat_1.TurnProcessSummarySeat, { nodeKey: nodeKey, useSession: useSession, expandedTurns: expandedTurns, toggleTurnProcess: toggleTurnProcess, t: t }, `${sessionId}:process:${nodeKey}`)] : []),
-                                (0, jsx_runtime_1.jsx)(ChatNodeSeat_1.ChatNodeSeat, { nodeKey: nodeKey, expandedTurns: expandedTurns, keepMounted: running && (nodeKey === lastKey || (0, pending_tool_1.transcriptHasPendingTool)(nodeStore.get(nodeKey))), editMessage: editMessage, forkMessage: forkMessage, editAvailable: !running, useSession: useSession, selectedCallId: selectedCallId, cwd: cwd, openFile: requestOpenFile, inspectCall: inspectCall, forkAt: forkAt, renderMessageImages: renderMessageImages, fileMentions: fileMentions, renderSlot: renderSlot, t: t }, `${sessionId}:node:${nodeKey}`),
+    const scrollToMessage = (key) => {
+        const local = listRef.current;
+        if (local === null)
+            return;
+        const row = anchorElement(local, key);
+        if (row === null)
+            return;
+        const scrollport = scrollerOf(local);
+        atBottomRef.current = false;
+        setAtBottom(false);
+        readerScrollUntilRef.current = 0;
+        readerDirectionRef.current = 0;
+        scrollport.scrollTop += flowTop(row, scrollport) - 24;
+        observedTopRef.current = scrollport.scrollTop;
+        setActiveMarker(key);
+        const position = scrollPosition(local, scrollport);
+        if (position !== null)
+            chatScroll.save(position);
+    };
+    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.root, "data-chat-view-root": "", children: [railHost !== null && messageMarkers.length > 1 && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsx)("nav", { className: MessageRail_styles_1.default.root, "aria-label": t('chat.messageRail'), children: messageMarkers.map((marker, index) => {
+                    const label = marker.preview === ''
+                        ? t('chat.messageRail.message', { n: index + 1 })
+                        : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`;
+                    return (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "right", delayMs: 300, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: MessageRail_styles_1.default.item, "data-message-key": marker.key, "aria-label": label, "aria-current": activeMarker === marker.key ? 'location' : undefined, onClick: () => { scrollToMessage(marker.key); }, children: (0, jsx_runtime_1.jsx)("span", { className: MessageRail_styles_1.default.mark, "aria-hidden": "true" }) }) }, marker.key);
+                }) }), railHost), (0, jsx_runtime_1.jsxs)("div", { ref: listRef, className: ChatView_styles_1.default.scroll, children: [(0, jsx_runtime_1.jsxs)("div", { ref: columnRef, className: ChatView_styles_1.default.column, "data-chat-flow": "", children: [openState === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.hint, children: t('chat.loadingHistory') }), openState === 'error' && openError !== null && ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.openError, role: "alert", children: [t('chat.loadError', { message: openError.message, code: openError.code }), (0, jsx_runtime_1.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlder, children: t('retry') })] })), hasMore && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.older, children: (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loadingOlder, onClick: loadOlderAnchored, children: loadingOlder ? t('loading') : t('chat.loadOlder') }) })), order.flatMap((nodeKey) => [
+                                ...(processHeads.has(nodeKey) ? [(0, jsx_runtime_1.jsx)(ChatNodeSeat_1.TurnProcessSummarySeat, { nodeKey: nodeKey, useSession: useSession, expandedTurns: expandedTurns, foldedTools: foldedTools, toggleTurnProcess: toggleTurnProcess, t: t }, `${sessionId}:process:${nodeKey}`)] : []),
+                                (0, jsx_runtime_1.jsx)(ChatNodeSeat_1.ChatNodeSeat, { nodeKey: nodeKey, expandedTurns: expandedTurns, foldedTools: foldedTools, invalidateFoldedTool: invalidateFoldedTool, keepMounted: running && (nodeKey === lastKey || (0, pending_tool_1.transcriptHasPendingTool)(nodeStore.get(nodeKey))), editMessage: editMessage, forkMessage: forkMessage, editAvailable: !running, useSession: useSession, selectedCallId: selectedCallId, cwd: cwd, openFile: requestOpenFile, inspectCall: inspectCall, forkAt: forkAt, renderMessageImages: renderMessageImages, fileMentions: fileMentions, renderSlot: renderSlot, t: t }, `${sessionId}:node:${nodeKey}`),
                             ]), running && (0, jsx_runtime_1.jsx)(TurnStatus, { startTime: runningTurnStart, t: t }), pendingSteering.map(item => ((0, jsx_runtime_1.jsx)(MessageItem_1.PendingSteeringBubble, { content: item.content, renderMessageImages: renderMessageImages, t: t }, item.id)))] }), !atBottom && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.toBottomSlot, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ChatView_styles_1.default.toBottom, "aria-label": t('chat.toBottom'), onClick: () => {
                                 const local = listRef.current;
                                 /* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */
@@ -22107,6 +22202,271 @@ function isChatNode(node) {
 /** Location store values are owner-decoded rather than unsound generic getters. */
 function isChatData(kind, value) {
     return schemas[kind].safeParse(value).success;
+}
+
+},
+"src/modules/conversation/chat/use-adaptive-tool-fold.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/use-adaptive-tool-fold.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.useAdaptiveToolFold = useAdaptiveToolFold;
+const react_1 = require("react");
+const process_mode_1 = require("./process-mode");
+const adaptive_tool_fold_1 = require("./adaptive-tool-fold");
+const chat_node_codec_1 = require("../contract/chat-node-codec");
+/** One observer per chat, not per Tool. No transport/event parsing in this seat. */
+function useAdaptiveToolFold(sessionId, list, expanded, beforeFold, revision) {
+    const mode = (0, process_mode_1.useProcessMode)();
+    const [state, setState] = (0, react_1.useState)(() => ({ sessionId, folded: adaptive_tool_fold_1.NO_FOLDED_TOOLS }));
+    if (state.sessionId !== sessionId)
+        setState({ sessionId, folded: adaptive_tool_fold_1.NO_FOLDED_TOOLS });
+    // Seats subscribe to individual lifecycle updates, while the parent store
+    // stays reference-stable. Invalidate before paint, not at the next geometry
+    // measurement: an error/pending row may recover while the reader focuses it.
+    const invalidateFoldedTool = (0, react_1.useCallback)((key) => {
+        setState(previous => {
+            if (previous.sessionId !== sessionId)
+                return previous;
+            let folded;
+            for (const [turn, keys] of previous.folded) {
+                if (!keys.has(key))
+                    continue;
+                folded ?? (folded = new Map(previous.folded));
+                const kept = new Set(keys);
+                kept.delete(key);
+                if (kept.size)
+                    folded.set(turn, kept);
+                else
+                    folded.delete(turn);
+            }
+            return folded === undefined ? previous : { sessionId, folded };
+        });
+    }, [sessionId]);
+    const latest = (0, react_1.useRef)({ expanded, beforeFold, revision });
+    latest.current = { expanded, beforeFold, revision };
+    const scheduleRef = (0, react_1.useRef)(() => { });
+    (0, react_1.useLayoutEffect)(() => {
+        if (mode === 'expanded') {
+            setState({ sessionId, folded: adaptive_tool_fold_1.NO_FOLDED_TOOLS });
+            return;
+        }
+        const root = list.current;
+        if (!root || typeof ResizeObserver === 'undefined')
+            return;
+        const elementRoot = root;
+        const scrollport = root.closest('[data-conversation-scroll]') ?? root;
+        let frame = 0, disposed = false;
+        const observed = new Set(), manuallyOpened = new Set();
+        const schedule = () => {
+            if (disposed || frame)
+                return;
+            frame = requestAnimationFrame(measure);
+        };
+        const observer = new ResizeObserver(schedule);
+        observer.observe(scrollport);
+        // ChatNodeStore is deliberately stable/mutable. A lifecycle update may
+        // change eligibility without changing its identity or the row height.
+        const mutations = new MutationObserver(schedule);
+        mutations.observe(root, { childList: true, subtree: true, attributes: true,
+            attributeFilter: ['data-chat-auto-fold-turn', 'data-chat-auto-fold-eligible'] });
+        function measure() {
+            frame = 0;
+            const elements = [...elementRoot.querySelectorAll('[data-chat-auto-fold-turn]')];
+            const current = new Set(elements);
+            for (const key of manuallyOpened) {
+                const location = latest.current.revision.get(key)?.location;
+                if ((location?.kind !== 'turn' && location?.kind !== 'step') || location.turn.status !== 'open')
+                    manuallyOpened.delete(key);
+            }
+            for (const element of observed)
+                if (!current.has(element)) {
+                    observer.unobserve(element);
+                    observed.delete(element);
+                }
+            for (const element of elements)
+                if (!observed.has(element)) {
+                    observer.observe(element);
+                    observed.add(element);
+                }
+            const selection = document.getSelection();
+            const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null;
+            const rows = [];
+            const readerAnchor = latest.current.beforeFold(false);
+            for (const element of elements) {
+                const turn = Number(element.dataset.chatAutoFoldTurn), key = element.dataset.chatFlowKey;
+                if (key === undefined || latest.current.expanded.has(turn))
+                    continue;
+                const gap = Number.parseFloat(element.parentElement ? getComputedStyle(element.parentElement).rowGap : '0');
+                rows.push({ key, turn, height: element.getBoundingClientRect().height + (Number.isFinite(gap) ? gap : 0),
+                    eligible: element.dataset.chatAutoFoldEligible === 'true',
+                    protected: manuallyOpened.has(key) || key === readerAnchor || element.contains(document.activeElement)
+                        || !!(range && range.intersectsNode(element)) });
+            }
+            // The composer occupies part of the scrollport. Never use its space as
+            // a tool budget, and never react to a hidden/zero-height chat viewport.
+            const composer = scrollport.querySelector('[data-composer-seat]');
+            const viewport = scrollport.getBoundingClientRect();
+            const visibleHeight = Math.min(scrollport.clientHeight, (composer?.getBoundingClientRect().top ?? viewport.bottom) - viewport.top);
+            const hidden = (0, adaptive_tool_fold_1.planToolFold)(rows, visibleHeight);
+            if (hidden.size > 0)
+                latest.current.beforeFold(true);
+            setState(previous => {
+                if (disposed || previous.sessionId !== sessionId)
+                    return previous;
+                const folded = new Map();
+                let changed = false;
+                // Display bookkeeping must not grow with every historical turn.
+                // Closed/deleted turns need only the existing authoritative tail fold.
+                for (const [turn, keys] of previous.folded) {
+                    const kept = new Set();
+                    for (const key of keys) {
+                        const node = latest.current.revision.get(key);
+                        const location = node?.location;
+                        if ((location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open'
+                            && (0, chat_node_codec_1.isChatNode)(node) && (0, adaptive_tool_fold_1.toolCanAutoFold)(node))
+                            kept.add(key);
+                    }
+                    if (kept.size)
+                        folded.set(turn, kept);
+                    if (kept.size !== keys.size)
+                        changed = true;
+                }
+                for (const row of rows)
+                    if (hidden.has(row.key)) {
+                        const keys = folded.get(row.turn) ?? new Set();
+                        if (keys.has(row.key))
+                            continue;
+                        keys.add(row.key);
+                        folded.set(row.turn, keys);
+                        changed = true;
+                    }
+                return changed ? { sessionId, folded } : previous;
+            });
+        }
+        const onClick = (event) => {
+            const target = event.target instanceof Element ? event.target : null;
+            const disclosure = target?.closest('button[aria-expanded],summary');
+            const row = disclosure?.closest('[data-chat-auto-fold-turn]');
+            const key = row?.dataset.chatFlowKey;
+            if (key && (disclosure?.getAttribute('aria-expanded') === 'false'
+                || disclosure?.parentElement instanceof HTMLDetailsElement && !disclosure.parentElement.open))
+                manuallyOpened.add(key);
+            schedule();
+        };
+        root.addEventListener('click', onClick, true);
+        root.addEventListener('focusout', schedule);
+        document.addEventListener('selectionchange', schedule);
+        scheduleRef.current = schedule;
+        schedule();
+        return () => {
+            disposed = true;
+            if (frame)
+                cancelAnimationFrame(frame);
+            scheduleRef.current = () => { };
+            mutations.disconnect();
+            observer.disconnect();
+            observed.clear();
+            manuallyOpened.clear();
+            root.removeEventListener('click', onClick, true);
+            root.removeEventListener('focusout', schedule);
+            document.removeEventListener('selectionchange', schedule);
+        };
+    }, [sessionId, list, mode]);
+    // New/settled nodes and explicit choices may change eligibility without
+    // changing geometry. Observe them without tearing down the ResizeObserver.
+    (0, react_1.useLayoutEffect)(() => { scheduleRef.current(); }, [revision, expanded, state]);
+    return { foldedTools: mode === 'auto' && state.sessionId === sessionId ? state.folded : adaptive_tool_fold_1.NO_FOLDED_TOOLS, invalidateFoldedTool };
+}
+
+},
+"src/modules/conversation/chat/process-mode.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/process-mode.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.useProcessMode = void 0;
+var process_display_1 = require("../../shared/process-display");
+Object.defineProperty(exports, "useProcessMode", { enumerable: true, get: function () { return process_display_1.useProcessMode; } });
+
+},
+"src/modules/shared/process-display.js": function(module, exports, require) {
+// source: src/modules/shared/process-display.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.PROCESS_MODE_KEY = void 0;
+exports.normalizeProcessMode = normalizeProcessMode;
+exports.useProcessMode = useProcessMode;
+const react_1 = require("react");
+exports.PROCESS_MODE_KEY = 'xharness.ui.process-mode.v1';
+function normalizeProcessMode(value) {
+    // Keep the old preference key: no data migration or destructive storage reset.
+    return value === 'expanded' || value === 'verbose' ? 'expanded' : 'auto';
+}
+function useProcessMode() {
+    const read = () => normalizeProcessMode(typeof document === 'undefined' ? undefined : document.documentElement.dataset.xhProcessMode);
+    const [mode, setMode] = (0, react_1.useState)(read);
+    (0, react_1.useEffect)(() => {
+        const update = () => { setMode(read()); };
+        window.addEventListener('xh-process-mode', update);
+        update();
+        return () => { window.removeEventListener('xh-process-mode', update); };
+    }, []);
+    return mode;
+}
+
+},
+"src/modules/conversation/chat/adaptive-tool-fold.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/adaptive-tool-fold.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.NO_FOLDED_TOOLS = exports.TOOL_FOLD_VIEWPORT_SHARE = void 0;
+exports.toolCanAutoFold = toolCanAutoFold;
+exports.planToolFold = planToolFold;
+/** Display budget only: no request, token, Tool output or runtime policy changes. */
+exports.TOOL_FOLD_VIEWPORT_SHARE = 0.4;
+exports.NO_FOLDED_TOOLS = new Map();
+/** Fail open on active, failed, recursive pending, or unknown tool carriers. */
+function toolCanAutoFold(node) {
+    if (node.kind !== 'tool-call')
+        return false;
+    const stack = [node.data.root];
+    for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+        if (!('kind' in block) || block.isError)
+            return false;
+        stack.push(...block.subCalls);
+    }
+    return true;
+}
+/** Oldest successful roots first. Keep the newest root and all protected rows.
+ * Sticky folding avoids resize oscillation; explicit expansion bypasses it.
+ * Window placeholders contribute their bounded estimate, without mounting them.
+ */
+function planToolFold(rows, viewportHeight, share = exports.TOOL_FOLD_VIEWPORT_SHARE) {
+    const hidden = new Set();
+    if (!Number.isFinite(viewportHeight) || viewportHeight <= 0 || !Number.isFinite(share) || share <= 0 || share >= 1)
+        return hidden;
+    const turns = new Map();
+    for (const row of rows) {
+        const group = turns.get(row.turn) ?? [];
+        group.push(row);
+        turns.set(row.turn, group);
+    }
+    const budget = viewportHeight * share;
+    for (const group of turns.values()) {
+        let height = group.reduce((sum, row) => sum + (Number.isFinite(row.height) ? Math.max(0, row.height) : 0), 0);
+        for (const row of group.slice(0, -1)) {
+            if (height <= budget)
+                break;
+            if (!row.eligible || row.protected || !Number.isFinite(row.height) || row.height <= 0)
+                continue;
+            hidden.add(row.key);
+            height -= row.height;
+        }
+    }
+    return hidden;
 }
 
 },
@@ -23236,20 +23596,34 @@ const ChatView_styles_1 = __importDefault(require("./ChatView.styles"));
 const TranscriptWindowRow_1 = require("./TranscriptWindowRow");
 const turn_process_1 = require("./turn-process");
 const TurnTailNodeView_1 = require("./TurnTailNodeView");
+const adaptive_tool_fold_1 = require("./adaptive-tool-fold");
+const process_mode_1 = require("./process-mode");
 /** Resident, independently subscribed entry before the first loaded work row. */
-function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, toggleTurnProcess, t }) {
+function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, foldedTools, toggleTurnProcess, t }) {
     const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey));
     const location = node?.location;
     const turnId = location?.kind === 'turn' || location?.kind === 'step' ? location.turn.turn : undefined;
     const currentTurn = useSession(snapshot => turnId === undefined ? undefined : snapshot.chat.timeline.turns.get(turnId));
     const rawTail = useSession(snapshot => turnId === undefined ? undefined : snapshot.chat.timeline.turns.get(turnId)?.data.get('turn-tail'));
     const tail = (0, react_1.useMemo)(() => (0, chat_node_codec_1.isChatData)('turn-tail', rawTail) && rawTail.turn === turnId ? rawTail : undefined, [rawTail, turnId]);
-    if (currentTurn === undefined || tail === undefined || toggleTurnProcess === undefined)
+    const foldedCount = useSession(snapshot => {
+        let count = 0;
+        for (const key of foldedTools?.get(turnId ?? -1) ?? []) {
+            const tool = snapshot.chat.nodes.get(key);
+            if ((0, chat_node_codec_1.isChatNode)(tool) && (0, adaptive_tool_fold_1.toolCanAutoFold)(tool))
+                count++;
+        }
+        return count;
+    });
+    if (currentTurn === undefined || toggleTurnProcess === undefined)
         return null;
-    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, children: (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.TurnProcessSummary, { turn: currentTurn, data: tail, t: t, collapsed: !(expandedTurns?.has(currentTurn.turn) ?? false), onToggle: () => { toggleTurnProcess(currentTurn.turn); } }) });
+    if (tail === undefined && (currentTurn.status !== 'open' || foldedCount === 0))
+        return null;
+    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, children: tail === undefined ? (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.AdaptiveToolSummary, { turn: currentTurn.turn, count: foldedCount, t: t, expanded: expandedTurns?.has(currentTurn.turn) ?? false, onToggle: () => { toggleTurnProcess(currentTurn.turn); } })
+            : (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.TurnProcessSummary, { turn: currentTurn, data: tail, t: t, collapsed: !(expandedTurns?.has(currentTurn.turn) ?? false), onToggle: () => { toggleTurnProcess(currentTurn.turn); } }) });
 }
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
-exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, keepMounted, renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, }) {
+exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, keepMounted, renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, foldedTools, invalidateFoldedTool, }) {
     const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey));
     const routedNode = (0, chat_node_codec_1.isChatNode)(node) ? node : undefined;
     const location = node?.location;
@@ -23261,6 +23635,15 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
     // This seat, not its heavy/windowed child, owns display choices. Whole-turn
     // folding must not erase Think/Tool/Compaction/native-details expansion.
     const presentationState = (0, react_1.useRef)(new Map());
+    const processMode = (0, process_mode_1.useProcessMode)();
+    const previousMode = (0, react_1.useRef)(processMode);
+    // Lightweight seats remain resident even when their heavy child is folded.
+    // Reset defaults on an explicit mode switch, including currently unmounted
+    // cards; otherwise expanded -> auto -> expanded can revive a stale choice.
+    if (previousMode.current !== processMode) {
+        presentationState.current.clear();
+        previousMode.current = processMode;
+    }
     const owner = (0, react_1.useMemo)(() => node === undefined
         ? null
         : {
@@ -23276,13 +23659,22 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
         }, [
         node, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, renderMessageImages, fileMentions, presentation.collapsed,
     ]);
-    if (node === undefined || owner === null || presentation.hidden)
+    const autoFoldable = routedNode !== undefined && (0, adaptive_tool_fold_1.toolCanAutoFold)(routedNode);
+    (0, react_1.useLayoutEffect)(() => {
+        if (!autoFoldable)
+            invalidateFoldedTool?.(nodeKey);
+    }, [autoFoldable, invalidateFoldedTool, nodeKey]);
+    const liveTurn = (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined;
+    const autoHidden = liveTurn && autoFoldable && foldedTools?.get(turn ?? -1)?.has(nodeKey)
+        && !(expandedTurns?.has(turn ?? -1) ?? false);
+    if (node === undefined || owner === null || presentation.hidden || autoHidden)
         return null;
     // Runtime dispatch owns the correlation: every Node's discriminant is the
     // keyed-slot entry passed alongside that same Node. TypeScript does not
     // distribute an object containing a union into a union of objects itself.
     const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode);
-    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
+    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
+            (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined ? turn : undefined, "data-chat-auto-fold-eligible": autoFoldable ? 'true' : 'false', children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
             entryKey: routedOwner.node.kind,
             hookContext: nodeKey,
             fallback: ((0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) })),
@@ -23563,9 +23955,11 @@ function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 
                 node.open = restored;
         });
     }, [view.mounted]);
-    const focusedInput = () => {
+    const focusedControl = () => {
         const active = document.activeElement;
-        return !!(active && element.current?.contains(active) && active.matches('input,textarea,select,[contenteditable="true"]'));
+        // Buttons and native disclosures also own keyboard focus. Keep only the
+        // current focused row, not every previously interacted row.
+        return !!(active && active !== document.body && element.current?.contains(active));
     };
     const onToggle = (event) => {
         const target = event.target;
@@ -23576,7 +23970,7 @@ function TranscriptWindowRow({ children, keepMounted = false, estimatedHeight = 
         if (index >= 0)
             values.current.set('native-details:' + detailKey(target, index), target.open);
     };
-    return (0, jsx_runtime_1.jsx)("div", { ...attributes, ref: element, "data-transcript-mounted": view.mounted ? 'true' : 'false', onFocusCapture: event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedInput()); }, onBlurCapture: event => { attributes.onBlurCapture?.(event); queueMicrotask(() => binding.current?.focus(focusedInput())); }, onToggleCapture: (event) => { attributes.onToggleCapture?.(event); onToggle(event); }, style: view.mounted ? attributes.style : { ...attributes.style, display: 'block', height: view.height, boxSizing: 'border-box' }, children: view.mounted ? (0, jsx_runtime_1.jsx)(transcript_state_1.transcriptState.Context.Provider, { value: values.current, children: children }) : null });
+    return (0, jsx_runtime_1.jsx)("div", { ...attributes, ref: element, "data-transcript-mounted": view.mounted ? 'true' : 'false', onFocusCapture: event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedControl()); }, onBlurCapture: event => { attributes.onBlurCapture?.(event); queueMicrotask(() => binding.current?.focus(focusedControl())); }, onToggleCapture: (event) => { attributes.onToggleCapture?.(event); onToggle(event); }, style: view.mounted ? attributes.style : { ...attributes.style, display: 'block', height: view.height, boxSizing: 'border-box' }, children: view.mounted ? (0, jsx_runtime_1.jsx)(transcript_state_1.transcriptState.Context.Provider, { value: values.current, children: children }) : null });
 }
 /** Module-loader namespace wrappers share one React createElement identity. */
 function createTranscriptWindowing(react) {
@@ -23591,6 +23985,7 @@ function createTranscriptWindowing(react) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.turnProcessPresentation = turnProcessPresentation;
+const adaptive_tool_fold_1 = require("./adaptive-tool-fold");
 /** Only an authoritative turn/end tail closes the process; idle/step/end do not. */
 function turnProcessPresentation(node, tail, expanded) {
     const collapsed = tail !== undefined && !expanded;
@@ -23600,6 +23995,11 @@ function turnProcessPresentation(node, tail, expanded) {
         case 'assistant-step':
             return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq };
         case 'tool-call':
+            // A stale turn/end must never suppress a recursive pending Tool or a
+            // reported failure. Composer approvals/questions have their own seats.
+            if (node.data.root !== undefined && !(0, adaptive_tool_fold_1.toolCanAutoFold)(node))
+                return { collapsed, hidden: false };
+            return { collapsed, hidden: true };
         case 'model-retry':
         case 'context':
         case 'compaction':
@@ -23621,6 +24021,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TurnTailNodeView = void 0;
 exports.TurnProcessSummary = TurnProcessSummary;
+exports.AdaptiveToolSummary = AdaptiveToolSummary;
 const jsx_runtime_1 = require("react/jsx-runtime");
 const react_1 = require("react");
 const MessageIconActions_1 = require("./MessageIconActions");
@@ -23633,6 +24034,10 @@ function TurnProcessSummary({ turn, data, t, collapsed, onToggle }) {
     const runMs = turn.start === undefined || turn.end === undefined ? undefined : Math.max(0, turn.end.time - turn.start.time);
     const label = runMs === undefined ? t('message.turnFinished') : t('message.ranFor', { duration: (0, message_chrome_1.formatRunDuration)(runMs, t) });
     return (0, jsx_runtime_1.jsxs)("button", { type: "button", className: TurnTailNodeView_styles_1.default.summary, "data-turn-process-summary": data.turn, "aria-expanded": !collapsed, "aria-label": `${label} · ${t(collapsed ? 'message.expandProcess' : 'message.collapseProcess')}`, onClick: onToggle, children: [(0, jsx_runtime_1.jsx)("span", { children: label }), (0, jsx_runtime_1.jsx)(primitives_1.IconChevronRightOutline14, {})] });
+}
+/** Active work folds only settled successful roots; pending/error rows stay outside. */
+function AdaptiveToolSummary({ turn, count, t, expanded, onToggle }) {
+    return (0, jsx_runtime_1.jsxs)("button", { type: "button", className: TurnTailNodeView_styles_1.default.summary, "data-live-tool-summary": turn, "aria-expanded": expanded, "aria-label": t(expanded ? 'message.collapseProcess' : 'message.expandProcess'), onClick: onToggle, children: [(0, jsx_runtime_1.jsx)("span", { children: t(expanded ? 'message.expandedTools' : 'message.foldedTools', { count }) }), (0, jsx_runtime_1.jsx)(primitives_1.IconChevronRightOutline14, {})] });
 }
 /** Turn-local actions and feature tail over the Location index, independent of Assistant placement. */
 exports.TurnTailNodeView = (0, react_1.memo)(function TurnTailNodeView({ node, openFile, forkAt, renderSlot, renderSlotChain, t, useSession, }) {
@@ -23703,6 +24108,50 @@ if (typeof document !== 'undefined' && document.querySelector('style[data-plugin
 
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = ".Aov_lG_root{flex-direction:column;gap:16px;display:flex}.Aov_lG_actions{margin-left:-6px}\n.Aov_lG_summary{display:flex;align-items:center;gap:8px;max-width:100%;background:none;border:0;padding:4px 0;color:var(--dsw-alias-label-tertiary);font:inherit;line-height:24px;text-align:left;cursor:pointer}.Aov_lG_summary:hover{color:var(--dsw-alias-label-secondary)}.Aov_lG_summary:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:3px;border-radius:4px}.Aov_lG_summary[aria-expanded=true] svg{transform:rotate(90deg)}\n";
+
+},
+"src/modules/conversation/chat/MessageRail.styles.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/MessageRail.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const MessageRail_css_1 = __importDefault(require("./MessageRail.css"));
+const foundation_styles_1 = require("../../shared/foundation-styles");
+(0, foundation_styles_1.installStyles)('@xharness/dsh-client-ui-conversation/MessageRail.css', '@xharness/dsh-client-ui-conversation', MessageRail_css_1.default);
+const styles = {
+    root: 'xh-message-rail',
+    item: 'xh-message-rail-item',
+    mark: 'xh-message-rail-mark',
+};
+exports.default = styles;
+
+},
+"src/modules/conversation/chat/MessageRail.css": function(module, exports, require) {
+// source: src/modules/conversation/chat/MessageRail.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = "[data-conversation-root] { position: relative; }\n.xh-message-rail {\n  position: absolute;\n  z-index: 6;\n  top: 50%;\n  right: 8px;\n  transform: translateY(-50%);\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  width: 24px;\n  max-height: min(70%, 480px);\n  overflow-y: auto;\n  overscroll-behavior: contain;\n  scrollbar-width: none;\n}\n.xh-message-rail::-webkit-scrollbar { display: none; }\n.xh-message-rail-item {\n  display: flex;\n  flex: none;\n  align-items: center;\n  justify-content: center;\n  width: 24px;\n  height: 17px;\n  padding: 0;\n  border: 0;\n  background: transparent;\n  cursor: pointer;\n}\n.xh-message-rail-mark {\n  width: 10px;\n  height: 2px;\n  border-radius: 2px;\n  background: var(--dsw-alias-label-dimmed);\n}\n.xh-message-rail-item:hover .xh-message-rail-mark,\n.xh-message-rail-item:focus-visible .xh-message-rail-mark,\n.xh-message-rail-item[aria-current=\"location\"] .xh-message-rail-mark {\n  background: var(--dsw-alias-label-primary);\n}\n.xh-message-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }\n";
+
+},
+"src/modules/shared/foundation-styles.js": function(module, exports, require) {
+// source: src/modules/shared/foundation-styles.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.installStyles = installStyles;
+/** Runs at ModuleLoader factory materialization, never during script registration. */
+function installStyles(tagId, plugin, css) {
+    if (typeof document === 'undefined' || document.querySelector(`style[data-plugin-css=${JSON.stringify(tagId)}]`) !== null)
+        return;
+    const tag = document.createElement('style');
+    tag.dataset.plugin = plugin;
+    tag.dataset.pluginCss = tagId;
+    tag.textContent = css;
+    document.head.appendChild(tag);
+}
 
 },
 "src/modules/conversation/skeleton/ApprovalPanel.js": function(module, exports, require) {
@@ -23777,7 +24226,7 @@ function ApprovalFlow({ pending, command, t }) {
         setAnswered(true);
         void pending.answer(outcome).catch(() => { setAnswered(false); });
     };
-    return ((0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.root, "data-approval-key": pending.key, children: (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.card, children: [(0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.strip, children: [(0, jsx_runtime_1.jsx)("span", { className: ApprovalPanel_styles_1.default.dot }), t('approval.waiting')] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.body, "data-approval-scroll": "", tabIndex: 0, role: "group", "aria-label": t('approval.detail.aria'), children: [(0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.headline, children: pending.reason ?? t('approval.escalation', { toolName: pending.toolName }) }), command !== undefined && (0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.command, children: command })] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.actionRow, children: [(0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", className: ApprovalPanel_styles_1.default.reject, disabled: answered, onClick: () => { answer('rejected'); }, children: t('approval.reject') }), (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "primary", disabled: answered, onClick: () => { answer('allowed-once'); }, children: t('approval.allowOnce') })] })] }) }));
+    return ((0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.root, "data-approval-key": pending.key, children: (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.card, children: [(0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.strip, children: [(0, jsx_runtime_1.jsx)("span", { className: ApprovalPanel_styles_1.default.dot }), t(pending.reviewing ? 'approval.reviewing' : 'approval.waiting')] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.body, "data-approval-scroll": "", tabIndex: 0, role: "group", "aria-label": t('approval.detail.aria'), children: [(0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.headline, children: pending.reason ?? t('approval.escalation', { toolName: pending.toolName }) }), command !== undefined && (0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.command, children: command })] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.actionRow, children: [(0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", className: ApprovalPanel_styles_1.default.reject, disabled: answered, onClick: () => { answer('rejected'); }, children: t('approval.reject') }), (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "primary", disabled: answered || pending.reviewing, onClick: () => { answer('allowed-once'); }, children: t('approval.allowOnce') })] })] }) }));
 }
 
 },
@@ -23813,6 +24262,8 @@ class PendingApproval {
     get reason() {
         return this.wait.payload.reason;
     }
+    /** AI review is transient; failures return this same carrier to manual approval. */
+    get reviewing() { return this.wait.payload.reviewing === true; }
     /** The paired tool call's id when the ask names one (command-line lookup key), forwarded from the carrier payload. */
     get callId() {
         return this.wait.payload.callId;
@@ -24111,6 +24562,8 @@ exports.en = {
     "chat.loadError": "Failed to load history: {message} ({code})",
     "chat.loadOlder": "Load earlier",
     "chat.toBottom": "Back to bottom",
+    "chat.messageRail": "Messages in this chat",
+    "chat.messageRail.message": "Message {n}",
     "fileOpen.title": "Couldn’t open file",
     "fileOpen.unknown": "Couldn’t open this file",
     "fileOpen.folderTitle": "Couldn’t open folder",
@@ -24176,6 +24629,8 @@ exports.en = {
     "message.maxTokens.hint": "This turn reached its output limit. The generated content has been preserved.",
     "message.ranFor": "Ran for {duration}",
     "message.turnFinished": "Turn finished",
+    "message.foldedTools": "{count} completed operations",
+    "message.expandedTools": "Earlier completed operations · {count}",
     "message.expandProcess": "Show this turn's work",
     "message.collapseProcess": "Hide this turn's work",
     "message.ttft": "TTFT {seconds}s",
@@ -24188,6 +24643,7 @@ exports.en = {
     "command.title": "Command",
     "command.imagesUnsupported": "/{command} does not accept image attachments; remove them first",
     "approval.waiting": "Waiting for approval",
+    "approval.reviewing": "Reviewing on your behalf…",
     "approval.detail.aria": "Approval details",
     "approval.escalation": "Tool {toolName} requests privileged execution",
     "approval.reject": "Reject",
@@ -24315,6 +24771,8 @@ exports.zh = {
     "chat.loadError": "历史加载失败：{message}（{code}）",
     "chat.loadOlder": "加载更早",
     "chat.toBottom": "回到底部",
+    "chat.messageRail": "当前聊天中的消息",
+    "chat.messageRail.message": "第 {n} 条消息",
     "fileOpen.title": "无法打开文件",
     "fileOpen.unknown": "无法打开此文件",
     "fileOpen.folderTitle": "无法打开文件夹",
@@ -24380,6 +24838,8 @@ exports.zh = {
     "message.maxTokens.hint": "本轮输出达到上限，已生成的内容已保留。",
     "message.ranFor": "用时 {duration}",
     "message.turnFinished": "本轮已结束",
+    "message.foldedTools": "已收起 {count} 个完成的操作",
+    "message.expandedTools": "较早的已完成操作 · {count}",
     "message.expandProcess": "展开本轮过程",
     "message.collapseProcess": "收起本轮过程",
     "message.ttft": "首 token {seconds}秒",
@@ -24392,6 +24852,7 @@ exports.zh = {
     "command.title": "命令",
     "command.imagesUnsupported": "/{command} 不接受图片附件，请先移除图片",
     "approval.waiting": "等待审批",
+    "approval.reviewing": "正在代你审核…",
     "approval.detail.aria": "审批详情",
     "approval.escalation": "工具 {toolName} 请求越权执行",
     "approval.reject": "拒绝",
@@ -24778,7 +25239,7 @@ function ConversationRoot({ sessionId, useSession, useSessions, useWorkspaces, u
     // on the fallback alone would leave Question/Approval panels at the content
     // end off-screen when the user is not pinned to the floor.
     const composerSeat = ((0, jsx_runtime_1.jsx)("div", { ref: seatResizeRef, className: ConversationRoot_styles_1.default.composerSeat, "data-composer-seat": "", children: composer }));
-    return ((0, jsx_runtime_1.jsxs)("div", { className: ConversationRoot_styles_1.default.root, "data-phase": phase, children: [renderSlot('conversation.session.header', {}), (0, jsx_runtime_1.jsxs)("div", { className: ConversationRoot_styles_1.default.scrollBody, "data-conversation-scroll": "", children: [renderSlot('conversation.session', {}), composerSeat] })] }));
+    return ((0, jsx_runtime_1.jsxs)("div", { className: ConversationRoot_styles_1.default.root, "data-phase": phase, "data-conversation-root": "", children: [renderSlot('conversation.session.header', {}), (0, jsx_runtime_1.jsxs)("div", { className: ConversationRoot_styles_1.default.scrollBody, "data-conversation-scroll": "", children: [renderSlot('conversation.session', {}), composerSeat] })] }));
 }
 
 },
@@ -27661,13 +28122,8 @@ function ReasoningRow({ text, running, t, stateKey = 0 }) {
         if (appliedMode === processMode)
             return;
         setAppliedMode(processMode);
-        if (processMode === 'verbose')
-            setExpanded(true);
-        else if (processMode === 'compact')
-            setExpanded(false);
-        else if (processMode === 'detailed' && running && text.length < 8192)
-            setExpanded(true);
-    }, [processMode, running, appliedMode]);
+        setExpanded(processMode === 'expanded');
+    }, [processMode, appliedMode, setAppliedMode, setExpanded]);
     const summaryRef = (0, react_1.useRef)(null);
     const summary = running ? latestLine(text) : firstLine(text);
     const scheduleSummaryScroll = (0, use_throttled_visual_update_1.useThrottledVisualUpdate)(() => {
@@ -27788,27 +28244,6 @@ if (typeof document !== 'undefined' && document.querySelector('style[data-plugin
 
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = ".U8JO7q_root{flex-direction:column;display:flex}.U8JO7q_row{position:relative;overflow:hidden}.U8JO7q_root[data-state=running] .U8JO7q_row:after{content:\"\";inset-block:0;background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite U8JO7q_dsh-reasoning-row-sweep;position:absolute;left:0}@keyframes U8JO7q_dsh-reasoning-row-sweep{0%{left:-300px}90%,to{left:100%}}.U8JO7q_leading{flex-shrink:0}.U8JO7q_chevron{color:var(--dsw-alias-label-secondary)}.U8JO7q_title{font-weight:400}.U8JO7q_separator{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.U8JO7q_summary{min-width:0;color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;flex:auto;font-size:14px;line-height:24px;overflow:hidden}.U8JO7q_summary[data-follow-end]{text-overflow:clip}.U8JO7q_thinkBody{color:var(--dsw-alias-label-tertiary);white-space:pre-wrap;word-break:break-word;padding:4px 0 4px 22px;font-size:14px;line-height:24px}@media (prefers-reduced-motion:reduce){.U8JO7q_root[data-state=running] .U8JO7q_row:after{animation:none}}";
-
-},
-"src/modules/conversation/chat/process-mode.js": function(module, exports, require) {
-// source: src/modules/conversation/chat/process-mode.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.useProcessMode = useProcessMode;
-const react_1 = require("react");
-/** Display-only preference, shared with Tool and Experience; never mutates the session. */
-function useProcessMode() {
-    const read = () => typeof document === 'undefined' ? 'standard' : document.documentElement.dataset.xhProcessMode || 'standard';
-    const [mode, setMode] = (0, react_1.useState)(read);
-    (0, react_1.useEffect)(() => {
-        const update = () => { setMode(read()); };
-        window.addEventListener('xh-process-mode', update);
-        update();
-        return () => { window.removeEventListener('xh-process-mode', update); };
-    }, []);
-    return mode;
-}
 
 },
 "src/modules/conversation/chat/AssistantMarkdown.styles.js": function(module, exports, require) {
@@ -27975,7 +28410,7 @@ exports.default = "._0kRAKq_root{flex-direction:column;display:flex}._0kRAKq_row
 
 }
 };
-const __dependencies = {"src/modules/conversation/index.js":{"./apply":"src/modules/conversation/apply.js","./service":"src/modules/conversation/service.js","./edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js"},"src/modules/conversation/apply.js":{"./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js","./runtime-values":"src/modules/conversation/runtime-values.js","./stores":"src/modules/conversation/stores.js","./service":"src/modules/conversation/service.js","./input/blocks":"src/modules/conversation/input/blocks.js","./input/hub":"src/modules/conversation/input/hub.js","./input/submission-policy":"src/modules/conversation/input/submission-policy.js","./settings/EnterBehaviorRow":"src/modules/conversation/settings/EnterBehaviorRow.js","./chat/ChatView":"src/modules/conversation/chat/ChatView.js","./chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./skeleton/ApprovalPanel":"src/modules/conversation/skeleton/ApprovalPanel.js","./skeleton/TodoPanel":"src/modules/conversation/skeleton/TodoPanel.js","./queue/QueueDock":"src/modules/conversation/queue/QueueDock.js","./skeleton/ConversationRoot":"src/modules/conversation/skeleton/ConversationRoot.js","./skeleton/ConversationSession":"src/modules/conversation/skeleton/ConversationSession.js","./skeleton/DetailsPanel":"src/modules/conversation/skeleton/DetailsPanel.js","./locales":"src/modules/conversation/locales.js","./conversation-nodes/register":"src/modules/conversation/conversation-nodes/register.js","./chat/register-node-renderers":"src/modules/conversation/chat/register-node-renderers.js","./submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/edit/EditableInputBar.js":{"../skeleton/InputBar":"src/modules/conversation/skeleton/InputBar.js"},"src/modules/conversation/skeleton/InputBar.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","../input/decorations":"src/modules/conversation/input/decorations.js","../image-labels":"src/modules/conversation/image-labels.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextMeter":"src/modules/conversation/skeleton/ContextMeter.js","./PermissionSelect":"src/modules/conversation/skeleton/PermissionSelect.js","./safari":"src/modules/conversation/skeleton/safari.js","./InputBar.styles":"src/modules/conversation/skeleton/InputBar.styles.js","./ComposerAddMenu":"src/modules/conversation/skeleton/ComposerAddMenu.js","../attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/classnames.js":{},"src/modules/conversation/primitives.js":{},"src/modules/conversation/input/decorations.js":{},"src/modules/conversation/image-labels.js":{},"src/modules/conversation/reference/ReferenceIcon.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/skeleton/ContextMeter.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./ContextMeter.styles":"src/modules/conversation/skeleton/ContextMeter.styles.js"},"src/modules/conversation/chat/StatsLine.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./StatsLine.styles":"src/modules/conversation/chat/StatsLine.styles.js"},"src/modules/conversation/chat/message-chrome.js":{},"src/modules/conversation/chat/turn-metrics.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/conversation/chat/StatsLine.styles.js":{"./StatsLine.css":"src/modules/conversation/chat/StatsLine.css"},"src/modules/conversation/chat/StatsLine.css":{},"src/modules/conversation/skeleton/ContextMeter.styles.js":{"./ContextMeter.css":"src/modules/conversation/skeleton/ContextMeter.css"},"src/modules/conversation/skeleton/ContextMeter.css":{},"src/modules/conversation/skeleton/PermissionSelect.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","./PermissionSelect.styles":"src/modules/conversation/skeleton/PermissionSelect.styles.js"},"src/modules/conversation/skeleton/PermissionSelect.styles.js":{"./PermissionSelect.css":"src/modules/conversation/skeleton/PermissionSelect.css"},"src/modules/conversation/skeleton/PermissionSelect.css":{},"src/modules/conversation/skeleton/safari.js":{},"src/modules/conversation/skeleton/InputBar.styles.js":{"./InputBar.css":"src/modules/conversation/skeleton/InputBar.css"},"src/modules/conversation/skeleton/InputBar.css":{},"src/modules/conversation/skeleton/ComposerAddMenu.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/attachments.js":{"./input/contract":"src/modules/conversation/input/contract.js"},"src/modules/conversation/input/contract.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/conversation/edit/actions.js":{"./MessageEditor":"src/modules/conversation/edit/MessageEditor.js"},"src/modules/conversation/edit/MessageEditor.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/wire-guards.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/runtime-values.js":{"./types/model":"src/modules/conversation/types/model.js","./chat/chunk-values":"src/modules/conversation/chat/chunk-values.js"},"src/modules/conversation/types/model.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/chat/chunk-values.js":{},"src/modules/conversation/stores.js":{"./contract/chat-store-codec":"src/modules/conversation/contract/chat-store-codec.js","./runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/contract/chat-store-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/service.js":{"./core-context":"src/modules/conversation/core-context.js","./attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/input/blocks.js":{"../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/input/hub.js":{"../edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","../edit/persistence":"src/modules/conversation/edit/persistence.js","../queue/store":"src/modules/conversation/queue/store.js","./facade":"src/modules/conversation/input/facade.js"},"src/modules/conversation/edit/persistence.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/queue/store.js":{},"src/modules/conversation/input/facade.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./machine":"src/modules/conversation/input/machine.js"},"src/modules/conversation/input/machine.js":{},"src/modules/conversation/input/submission-policy.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","../submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/submission-settings.js":{},"src/modules/conversation/settings/EnterBehaviorRow.js":{"../primitives":"src/modules/conversation/primitives.js","./EnterBehaviorRow.styles":"src/modules/conversation/settings/EnterBehaviorRow.styles.js"},"src/modules/conversation/settings/EnterBehaviorRow.styles.js":{"./EnterBehaviorRow.css":"src/modules/conversation/settings/EnterBehaviorRow.css"},"src/modules/conversation/settings/EnterBehaviorRow.css":{},"src/modules/conversation/chat/ChatView.js":{"./pending-tool":"src/modules/conversation/chat/pending-tool.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./ChatNodeSeat":"src/modules/conversation/chat/ChatNodeSeat.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js"},"src/modules/conversation/chat/pending-tool.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/contract/chat-node-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/chat/MessageItem.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./ContextInjectionRow":"src/modules/conversation/chat/ContextInjectionRow.js","./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js","../edit/MessageEditActions":"src/modules/conversation/edit/MessageEditActions.js"},"src/modules/conversation/chat/CompactionProgressCard.js":{"../primitives":"src/modules/conversation/primitives.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/transcript-state.js":{},"src/modules/conversation/chat/MessageItem.styles.js":{"./MessageItem.css":"src/modules/conversation/chat/MessageItem.css"},"src/modules/conversation/chat/MessageItem.css":{},"src/modules/conversation/chat/CompactionItem.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/ContextInjectionRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextBody":"src/modules/conversation/chat/ContextBody.js","./ContextInjectionRow.styles":"src/modules/conversation/chat/ContextInjectionRow.styles.js"},"src/modules/conversation/chat/ContextBody.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","./ContextBody.styles":"src/modules/conversation/chat/ContextBody.styles.js"},"src/modules/conversation/chat/ContextBody.styles.js":{"./ContextBody.css":"src/modules/conversation/chat/ContextBody.css"},"src/modules/conversation/chat/ContextBody.css":{},"src/modules/conversation/chat/ContextInjectionRow.styles.js":{"./ContextInjectionRow.css":"src/modules/conversation/chat/ContextInjectionRow.css"},"src/modules/conversation/chat/ContextInjectionRow.css":{},"src/modules/conversation/chat/MessageIconActions.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./use-calendar-day":"src/modules/conversation/chat/use-calendar-day.js","./MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/use-calendar-day.js":{"./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/MessageIconActions.styles.js":{"./MessageIconActions.css":"src/modules/conversation/chat/MessageIconActions.css"},"src/modules/conversation/chat/MessageIconActions.css":{},"src/modules/conversation/edit/MessageEditActions.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/ChatNodeSeat.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../primitives":"src/modules/conversation/primitives.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./turn-process":"src/modules/conversation/chat/turn-process.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js"},"src/modules/conversation/chat/ChatView.styles.js":{"./ChatView.css":"src/modules/conversation/chat/ChatView.css"},"src/modules/conversation/chat/ChatView.css":{},"src/modules/conversation/chat/TranscriptWindowRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/turn-process.js":{},"src/modules/conversation/chat/TurnTailNodeView.js":{"./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./turn-assistant":"src/modules/conversation/chat/turn-assistant.js","./TurnTailNodeView.styles":"src/modules/conversation/chat/TurnTailNodeView.styles.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/turn-assistant.js":{},"src/modules/conversation/chat/TurnTailNodeView.styles.js":{"./TurnTailNodeView.css":"src/modules/conversation/chat/TurnTailNodeView.css"},"src/modules/conversation/chat/TurnTailNodeView.css":{},"src/modules/conversation/skeleton/ApprovalPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../contract/slots":"src/modules/conversation/contract/slots.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./ApprovalPanel.styles":"src/modules/conversation/skeleton/ApprovalPanel.styles.js"},"src/modules/conversation/contract/slots.js":{},"src/modules/conversation/chat/tool-node-reader.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/skeleton/ApprovalPanel.styles.js":{"./ApprovalPanel.css":"src/modules/conversation/skeleton/ApprovalPanel.css"},"src/modules/conversation/skeleton/ApprovalPanel.css":{},"src/modules/conversation/skeleton/TodoPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./TodoPanel.styles":"src/modules/conversation/skeleton/TodoPanel.styles.js"},"src/modules/conversation/locales.js":{},"src/modules/conversation/skeleton/TodoPanel.styles.js":{"./TodoPanel.css":"src/modules/conversation/skeleton/TodoPanel.css"},"src/modules/conversation/skeleton/TodoPanel.css":{},"src/modules/conversation/queue/QueueDock.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./QueueDock.styles":"src/modules/conversation/queue/QueueDock.styles.js"},"src/modules/conversation/queue/QueueDock.styles.js":{"./QueueDock.css":"src/modules/conversation/queue/QueueDock.css"},"src/modules/conversation/queue/QueueDock.css":{},"src/modules/conversation/skeleton/ConversationRoot.js":{"../classnames":"src/modules/conversation/classnames.js","./EmptyHero":"src/modules/conversation/skeleton/EmptyHero.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/EmptyHero.js":{"../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/HeroShell.styles.js":{"./HeroShell.css":"src/modules/conversation/skeleton/HeroShell.css"},"src/modules/conversation/skeleton/HeroShell.css":{},"src/modules/conversation/skeleton/ConversationRoot.styles.js":{"./ConversationRoot.css":"src/modules/conversation/skeleton/ConversationRoot.css"},"src/modules/conversation/skeleton/ConversationRoot.css":{},"src/modules/conversation/skeleton/ConversationSession.js":{"../classnames":"src/modules/conversation/classnames.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./DetailsPanel.styles":"src/modules/conversation/skeleton/DetailsPanel.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.styles.js":{"./DetailsPanel.css":"src/modules/conversation/skeleton/DetailsPanel.css"},"src/modules/conversation/skeleton/DetailsPanel.css":{},"src/modules/conversation/conversation-nodes/register.js":{"./checkpoint":"src/modules/conversation/conversation-nodes/checkpoint.js","./assistant":"src/modules/conversation/conversation-nodes/assistant.js","./chat-snapshot-builder":"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction":"src/modules/conversation/conversation-nodes/compaction.js","./fallback":"src/modules/conversation/conversation-nodes/fallback.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./message":"src/modules/conversation/conversation-nodes/message.js","./retry":"src/modules/conversation/conversation-nodes/retry.js","./tool":"src/modules/conversation/conversation-nodes/tool.js","./turn-error":"src/modules/conversation/conversation-nodes/turn-error.js","./turn-max-tokens":"src/modules/conversation/conversation-nodes/turn-max-tokens.js","./turn-tail":"src/modules/conversation/conversation-nodes/turn-tail.js"},"src/modules/conversation/conversation-nodes/checkpoint.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/contract/wire-event-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/conversation-nodes/common.js":{},"src/modules/conversation/conversation-nodes/assistant.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../chat/preparing-call":"src/modules/conversation/chat/preparing-call.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/preparing-call.js":{},"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../contract/chat-nodes":"src/modules/conversation/contract/chat-nodes.js"},"src/modules/conversation/contract/chat-nodes.js":{},"src/modules/conversation/conversation-nodes/command.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/compaction-lifecycle.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/compaction.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js"},"src/modules/conversation/conversation-nodes/fallback.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/inbox.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/message.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/retry.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/tool.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-error.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-max-tokens.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-tail.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/register-node-renderers.js":{"../locales":"src/modules/conversation/locales.js","./CheckpointView":"src/modules/conversation/chat/CheckpointView.js","./AssistantNodeView":"src/modules/conversation/chat/AssistantNodeView.js","./CommandNodeView":"src/modules/conversation/chat/CommandNodeView.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js"},"src/modules/conversation/chat/CheckpointView.js":{"./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/AssistantNodeView.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./AssistantMarkdown":"src/modules/conversation/chat/AssistantMarkdown.js"},"src/modules/conversation/chat/AssistantMarkdown.js":{"../primitives":"src/modules/conversation/primitives.js","./ReasoningRow":"src/modules/conversation/chat/ReasoningRow.js","./AssistantMarkdown.styles":"src/modules/conversation/chat/AssistantMarkdown.styles.js","./preparing-call":"src/modules/conversation/chat/preparing-call.js"},"src/modules/conversation/chat/ReasoningRow.js":{"../primitives":"src/modules/conversation/primitives.js","./use-throttled-visual-update":"src/modules/conversation/chat/use-throttled-visual-update.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./ReasoningRow.styles":"src/modules/conversation/chat/ReasoningRow.styles.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./process-mode":"src/modules/conversation/chat/process-mode.js"},"src/modules/conversation/chat/use-throttled-visual-update.js":{},"src/modules/conversation/chat/accessibility.styles.js":{"./accessibility.css":"src/modules/conversation/chat/accessibility.css"},"src/modules/conversation/chat/accessibility.css":{},"src/modules/conversation/chat/ReasoningRow.styles.js":{"./ReasoningRow.css":"src/modules/conversation/chat/ReasoningRow.css"},"src/modules/conversation/chat/ReasoningRow.css":{},"src/modules/conversation/chat/process-mode.js":{},"src/modules/conversation/chat/AssistantMarkdown.styles.js":{"./AssistantMarkdown.css":"src/modules/conversation/chat/AssistantMarkdown.css"},"src/modules/conversation/chat/AssistantMarkdown.css":{},"src/modules/conversation/chat/CommandNodeView.js":{"./CompactionCommandCard":"src/modules/conversation/chat/CompactionCommandCard.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js"},"src/modules/conversation/chat/CompactionCommandCard.js":{"./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js"},"src/modules/conversation/chat/GenericCommandCard.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./GenericCommandCard.styles":"src/modules/conversation/chat/GenericCommandCard.styles.js"},"src/modules/conversation/chat/GenericCommandCard.styles.js":{"./GenericCommandCard.css":"src/modules/conversation/chat/GenericCommandCard.css"},"src/modules/conversation/chat/GenericCommandCard.css":{}};
+const __dependencies = {"src/modules/conversation/index.js":{"./apply":"src/modules/conversation/apply.js","./service":"src/modules/conversation/service.js","./edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js"},"src/modules/conversation/apply.js":{"./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js","./runtime-values":"src/modules/conversation/runtime-values.js","./stores":"src/modules/conversation/stores.js","./service":"src/modules/conversation/service.js","./input/blocks":"src/modules/conversation/input/blocks.js","./input/hub":"src/modules/conversation/input/hub.js","./input/submission-policy":"src/modules/conversation/input/submission-policy.js","./settings/EnterBehaviorRow":"src/modules/conversation/settings/EnterBehaviorRow.js","./chat/ChatView":"src/modules/conversation/chat/ChatView.js","./chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./skeleton/ApprovalPanel":"src/modules/conversation/skeleton/ApprovalPanel.js","./skeleton/TodoPanel":"src/modules/conversation/skeleton/TodoPanel.js","./queue/QueueDock":"src/modules/conversation/queue/QueueDock.js","./skeleton/ConversationRoot":"src/modules/conversation/skeleton/ConversationRoot.js","./skeleton/ConversationSession":"src/modules/conversation/skeleton/ConversationSession.js","./skeleton/DetailsPanel":"src/modules/conversation/skeleton/DetailsPanel.js","./locales":"src/modules/conversation/locales.js","./conversation-nodes/register":"src/modules/conversation/conversation-nodes/register.js","./chat/register-node-renderers":"src/modules/conversation/chat/register-node-renderers.js","./submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/edit/EditableInputBar.js":{"../skeleton/InputBar":"src/modules/conversation/skeleton/InputBar.js"},"src/modules/conversation/skeleton/InputBar.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","../input/decorations":"src/modules/conversation/input/decorations.js","../image-labels":"src/modules/conversation/image-labels.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextMeter":"src/modules/conversation/skeleton/ContextMeter.js","./PermissionSelect":"src/modules/conversation/skeleton/PermissionSelect.js","./safari":"src/modules/conversation/skeleton/safari.js","./InputBar.styles":"src/modules/conversation/skeleton/InputBar.styles.js","./ComposerAddMenu":"src/modules/conversation/skeleton/ComposerAddMenu.js","../attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/classnames.js":{},"src/modules/conversation/primitives.js":{},"src/modules/conversation/input/decorations.js":{},"src/modules/conversation/image-labels.js":{},"src/modules/conversation/reference/ReferenceIcon.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/skeleton/ContextMeter.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./ContextMeter.styles":"src/modules/conversation/skeleton/ContextMeter.styles.js"},"src/modules/conversation/chat/StatsLine.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./StatsLine.styles":"src/modules/conversation/chat/StatsLine.styles.js"},"src/modules/conversation/chat/message-chrome.js":{},"src/modules/conversation/chat/turn-metrics.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/conversation/chat/StatsLine.styles.js":{"./StatsLine.css":"src/modules/conversation/chat/StatsLine.css"},"src/modules/conversation/chat/StatsLine.css":{},"src/modules/conversation/skeleton/ContextMeter.styles.js":{"./ContextMeter.css":"src/modules/conversation/skeleton/ContextMeter.css"},"src/modules/conversation/skeleton/ContextMeter.css":{},"src/modules/conversation/skeleton/PermissionSelect.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","./PermissionSelect.styles":"src/modules/conversation/skeleton/PermissionSelect.styles.js"},"src/modules/conversation/skeleton/PermissionSelect.styles.js":{"./PermissionSelect.css":"src/modules/conversation/skeleton/PermissionSelect.css"},"src/modules/conversation/skeleton/PermissionSelect.css":{},"src/modules/conversation/skeleton/safari.js":{},"src/modules/conversation/skeleton/InputBar.styles.js":{"./InputBar.css":"src/modules/conversation/skeleton/InputBar.css"},"src/modules/conversation/skeleton/InputBar.css":{},"src/modules/conversation/skeleton/ComposerAddMenu.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/attachments.js":{"./input/contract":"src/modules/conversation/input/contract.js"},"src/modules/conversation/input/contract.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/conversation/edit/actions.js":{"./MessageEditor":"src/modules/conversation/edit/MessageEditor.js"},"src/modules/conversation/edit/MessageEditor.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/wire-guards.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/runtime-values.js":{"./types/model":"src/modules/conversation/types/model.js","./chat/chunk-values":"src/modules/conversation/chat/chunk-values.js"},"src/modules/conversation/types/model.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/chat/chunk-values.js":{},"src/modules/conversation/stores.js":{"./contract/chat-store-codec":"src/modules/conversation/contract/chat-store-codec.js","./runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/contract/chat-store-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/service.js":{"./core-context":"src/modules/conversation/core-context.js","./attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/input/blocks.js":{"../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/input/hub.js":{"../edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","../edit/persistence":"src/modules/conversation/edit/persistence.js","../queue/store":"src/modules/conversation/queue/store.js","./facade":"src/modules/conversation/input/facade.js"},"src/modules/conversation/edit/persistence.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/queue/store.js":{},"src/modules/conversation/input/facade.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./machine":"src/modules/conversation/input/machine.js"},"src/modules/conversation/input/machine.js":{},"src/modules/conversation/input/submission-policy.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","../submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/submission-settings.js":{},"src/modules/conversation/settings/EnterBehaviorRow.js":{"../primitives":"src/modules/conversation/primitives.js","./EnterBehaviorRow.styles":"src/modules/conversation/settings/EnterBehaviorRow.styles.js"},"src/modules/conversation/settings/EnterBehaviorRow.styles.js":{"./EnterBehaviorRow.css":"src/modules/conversation/settings/EnterBehaviorRow.css"},"src/modules/conversation/settings/EnterBehaviorRow.css":{},"src/modules/conversation/chat/ChatView.js":{"./pending-tool":"src/modules/conversation/chat/pending-tool.js","./use-adaptive-tool-fold":"src/modules/conversation/chat/use-adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./ChatNodeSeat":"src/modules/conversation/chat/ChatNodeSeat.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./MessageRail.styles":"src/modules/conversation/chat/MessageRail.styles.js"},"src/modules/conversation/chat/pending-tool.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/contract/chat-node-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/chat/use-adaptive-tool-fold.js":{"./process-mode":"src/modules/conversation/chat/process-mode.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/chat/process-mode.js":{"../../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/conversation/chat/adaptive-tool-fold.js":{},"src/modules/conversation/chat/MessageItem.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./ContextInjectionRow":"src/modules/conversation/chat/ContextInjectionRow.js","./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js","../edit/MessageEditActions":"src/modules/conversation/edit/MessageEditActions.js"},"src/modules/conversation/chat/CompactionProgressCard.js":{"../primitives":"src/modules/conversation/primitives.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/transcript-state.js":{},"src/modules/conversation/chat/MessageItem.styles.js":{"./MessageItem.css":"src/modules/conversation/chat/MessageItem.css"},"src/modules/conversation/chat/MessageItem.css":{},"src/modules/conversation/chat/CompactionItem.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/ContextInjectionRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextBody":"src/modules/conversation/chat/ContextBody.js","./ContextInjectionRow.styles":"src/modules/conversation/chat/ContextInjectionRow.styles.js"},"src/modules/conversation/chat/ContextBody.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","./ContextBody.styles":"src/modules/conversation/chat/ContextBody.styles.js"},"src/modules/conversation/chat/ContextBody.styles.js":{"./ContextBody.css":"src/modules/conversation/chat/ContextBody.css"},"src/modules/conversation/chat/ContextBody.css":{},"src/modules/conversation/chat/ContextInjectionRow.styles.js":{"./ContextInjectionRow.css":"src/modules/conversation/chat/ContextInjectionRow.css"},"src/modules/conversation/chat/ContextInjectionRow.css":{},"src/modules/conversation/chat/MessageIconActions.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./use-calendar-day":"src/modules/conversation/chat/use-calendar-day.js","./MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/use-calendar-day.js":{"./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/MessageIconActions.styles.js":{"./MessageIconActions.css":"src/modules/conversation/chat/MessageIconActions.css"},"src/modules/conversation/chat/MessageIconActions.css":{},"src/modules/conversation/edit/MessageEditActions.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/ChatNodeSeat.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../primitives":"src/modules/conversation/primitives.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./turn-process":"src/modules/conversation/chat/turn-process.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js"},"src/modules/conversation/chat/ChatView.styles.js":{"./ChatView.css":"src/modules/conversation/chat/ChatView.css"},"src/modules/conversation/chat/ChatView.css":{},"src/modules/conversation/chat/TranscriptWindowRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/turn-process.js":{"./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js"},"src/modules/conversation/chat/TurnTailNodeView.js":{"./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./turn-assistant":"src/modules/conversation/chat/turn-assistant.js","./TurnTailNodeView.styles":"src/modules/conversation/chat/TurnTailNodeView.styles.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/turn-assistant.js":{},"src/modules/conversation/chat/TurnTailNodeView.styles.js":{"./TurnTailNodeView.css":"src/modules/conversation/chat/TurnTailNodeView.css"},"src/modules/conversation/chat/TurnTailNodeView.css":{},"src/modules/conversation/chat/MessageRail.styles.js":{"./MessageRail.css":"src/modules/conversation/chat/MessageRail.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/conversation/chat/MessageRail.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/conversation/skeleton/ApprovalPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../contract/slots":"src/modules/conversation/contract/slots.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./ApprovalPanel.styles":"src/modules/conversation/skeleton/ApprovalPanel.styles.js"},"src/modules/conversation/contract/slots.js":{},"src/modules/conversation/chat/tool-node-reader.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/skeleton/ApprovalPanel.styles.js":{"./ApprovalPanel.css":"src/modules/conversation/skeleton/ApprovalPanel.css"},"src/modules/conversation/skeleton/ApprovalPanel.css":{},"src/modules/conversation/skeleton/TodoPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./TodoPanel.styles":"src/modules/conversation/skeleton/TodoPanel.styles.js"},"src/modules/conversation/locales.js":{},"src/modules/conversation/skeleton/TodoPanel.styles.js":{"./TodoPanel.css":"src/modules/conversation/skeleton/TodoPanel.css"},"src/modules/conversation/skeleton/TodoPanel.css":{},"src/modules/conversation/queue/QueueDock.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./QueueDock.styles":"src/modules/conversation/queue/QueueDock.styles.js"},"src/modules/conversation/queue/QueueDock.styles.js":{"./QueueDock.css":"src/modules/conversation/queue/QueueDock.css"},"src/modules/conversation/queue/QueueDock.css":{},"src/modules/conversation/skeleton/ConversationRoot.js":{"../classnames":"src/modules/conversation/classnames.js","./EmptyHero":"src/modules/conversation/skeleton/EmptyHero.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/EmptyHero.js":{"../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/HeroShell.styles.js":{"./HeroShell.css":"src/modules/conversation/skeleton/HeroShell.css"},"src/modules/conversation/skeleton/HeroShell.css":{},"src/modules/conversation/skeleton/ConversationRoot.styles.js":{"./ConversationRoot.css":"src/modules/conversation/skeleton/ConversationRoot.css"},"src/modules/conversation/skeleton/ConversationRoot.css":{},"src/modules/conversation/skeleton/ConversationSession.js":{"../classnames":"src/modules/conversation/classnames.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./DetailsPanel.styles":"src/modules/conversation/skeleton/DetailsPanel.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.styles.js":{"./DetailsPanel.css":"src/modules/conversation/skeleton/DetailsPanel.css"},"src/modules/conversation/skeleton/DetailsPanel.css":{},"src/modules/conversation/conversation-nodes/register.js":{"./checkpoint":"src/modules/conversation/conversation-nodes/checkpoint.js","./assistant":"src/modules/conversation/conversation-nodes/assistant.js","./chat-snapshot-builder":"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction":"src/modules/conversation/conversation-nodes/compaction.js","./fallback":"src/modules/conversation/conversation-nodes/fallback.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./message":"src/modules/conversation/conversation-nodes/message.js","./retry":"src/modules/conversation/conversation-nodes/retry.js","./tool":"src/modules/conversation/conversation-nodes/tool.js","./turn-error":"src/modules/conversation/conversation-nodes/turn-error.js","./turn-max-tokens":"src/modules/conversation/conversation-nodes/turn-max-tokens.js","./turn-tail":"src/modules/conversation/conversation-nodes/turn-tail.js"},"src/modules/conversation/conversation-nodes/checkpoint.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/contract/wire-event-codec.js":{"zod":"vendor/zod.js"},"src/modules/conversation/conversation-nodes/common.js":{},"src/modules/conversation/conversation-nodes/assistant.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../chat/preparing-call":"src/modules/conversation/chat/preparing-call.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/preparing-call.js":{},"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../contract/chat-nodes":"src/modules/conversation/contract/chat-nodes.js"},"src/modules/conversation/contract/chat-nodes.js":{},"src/modules/conversation/conversation-nodes/command.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/compaction-lifecycle.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/compaction.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js"},"src/modules/conversation/conversation-nodes/fallback.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/inbox.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/message.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/retry.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/tool.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-error.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-max-tokens.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-tail.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/register-node-renderers.js":{"../locales":"src/modules/conversation/locales.js","./CheckpointView":"src/modules/conversation/chat/CheckpointView.js","./AssistantNodeView":"src/modules/conversation/chat/AssistantNodeView.js","./CommandNodeView":"src/modules/conversation/chat/CommandNodeView.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js"},"src/modules/conversation/chat/CheckpointView.js":{"./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/AssistantNodeView.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./AssistantMarkdown":"src/modules/conversation/chat/AssistantMarkdown.js"},"src/modules/conversation/chat/AssistantMarkdown.js":{"../primitives":"src/modules/conversation/primitives.js","./ReasoningRow":"src/modules/conversation/chat/ReasoningRow.js","./AssistantMarkdown.styles":"src/modules/conversation/chat/AssistantMarkdown.styles.js","./preparing-call":"src/modules/conversation/chat/preparing-call.js"},"src/modules/conversation/chat/ReasoningRow.js":{"../primitives":"src/modules/conversation/primitives.js","./use-throttled-visual-update":"src/modules/conversation/chat/use-throttled-visual-update.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./ReasoningRow.styles":"src/modules/conversation/chat/ReasoningRow.styles.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./process-mode":"src/modules/conversation/chat/process-mode.js"},"src/modules/conversation/chat/use-throttled-visual-update.js":{},"src/modules/conversation/chat/accessibility.styles.js":{"./accessibility.css":"src/modules/conversation/chat/accessibility.css"},"src/modules/conversation/chat/accessibility.css":{},"src/modules/conversation/chat/ReasoningRow.styles.js":{"./ReasoningRow.css":"src/modules/conversation/chat/ReasoningRow.css"},"src/modules/conversation/chat/ReasoningRow.css":{},"src/modules/conversation/chat/AssistantMarkdown.styles.js":{"./AssistantMarkdown.css":"src/modules/conversation/chat/AssistantMarkdown.css"},"src/modules/conversation/chat/AssistantMarkdown.css":{},"src/modules/conversation/chat/CommandNodeView.js":{"./CompactionCommandCard":"src/modules/conversation/chat/CompactionCommandCard.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js"},"src/modules/conversation/chat/CompactionCommandCard.js":{"./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js"},"src/modules/conversation/chat/GenericCommandCard.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./GenericCommandCard.styles":"src/modules/conversation/chat/GenericCommandCard.styles.js"},"src/modules/conversation/chat/GenericCommandCard.styles.js":{"./GenericCommandCard.css":"src/modules/conversation/chat/GenericCommandCard.css"},"src/modules/conversation/chat/GenericCommandCard.css":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

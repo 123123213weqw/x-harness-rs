@@ -1,0 +1,38 @@
+name: Scheduled UI preview
+
+on:
+  pull_request:
+    paths:
+      - 'examples/scheduled-ui/**'
+      - '.github/workflows/scheduled-ui-preview.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'examples/scheduled-ui/**'
+      - '.github/workflows/scheduled-ui-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-ui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Scheduled UI preview / tests + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: examples/scheduled-ui
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: examples/scheduled-ui/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

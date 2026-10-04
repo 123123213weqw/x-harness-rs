@@ -32,12 +32,12 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
+  return <div className={css.centerCol}><div className={css.regionSurface}>{props.children}</div></div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
 function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
+  return <div className={css.detailsCol}><div className={css.regionSurface}>{props.children}</div></div>
 }
 
 /**
@@ -232,6 +232,12 @@ export function AppFrame({
   const workspaceDrawer=workspaceOpen&&workspaceAvailable<360
   const workspaceDockWidth=workspaceOpen&&!workspaceDrawer?Math.min(workspaceWidth,workspaceAvailable):0
   const cols=computeColumns(viewport-workspaceDockWidth,sidebarCollapsed||sidebarDrawer?0:panels.sidebar===0?SIDEBAR_DEFAULT:panels.sidebar,0,workspaceDockWidth>0?480:640)
+  // Insets belong inside the existing tracks so drag handles and workspace
+  // concessions keep their geometry. SidebarRoot freezes its content width
+  // during collapse, so give it the surface's inner width, not the track width.
+  const regionInset = viewport <= 600 ? 4 : 8
+  const sidebarDrawerWidth = Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420))
+  const sidebarContentWidth = (sidebarDrawer ? sidebarDrawerWidth : cols.sidebar) - (sidebarCollapsed ? 0 : regionInset * (sidebarDrawer ? 2 : 1) + 2)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -256,7 +262,7 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px` }}
+      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px`, ...{'--xh-region-inset': `${regionInset}px`} }}
       data-xhworkspace-open={workspaceOpen||undefined}
       data-xhworkspace-drawer={workspaceDrawer||undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
@@ -265,7 +271,7 @@ export function AppFrame({
       data-dragging={dragging || undefined}
     >
       {sidebarDrawer && <button type="button" className="xh-sidebar-scrim" aria-label={navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar'} onClick={actions.toggleSidebar} />}
-      <div className={css.sidebarCol} style={sidebarDrawer ? { width: Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) } : undefined} onClickCapture={event => {
+      <div className={css.sidebarCol} style={sidebarDrawer ? { width: sidebarDrawerWidth } : undefined} onClickCapture={event => {
         const target = event.target
         if (centerPage === 'assistant' && (!(target instanceof Element) || !target.closest('[data-xharness-assistant-nav],[data-sidebar-toggle]'))) closeCenterPage()
         if (centerPage === 'review' && (!(target instanceof Element) || !target.closest('[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]'))) closeCenterPage()
@@ -282,10 +288,10 @@ export function AppFrame({
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
             renders the rail UI too). */}
-        {renderSlot('sidebar', {
+        <div className={css.regionSurface}>{renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: sidebarDrawer ? Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) : cols.sidebar,
-        })}
+          width: sidebarContentWidth,
+        })}</div>
       </div>
       <>
         {/* Both column occupants stay at fixed tree positions from first
