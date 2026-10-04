@@ -1548,7 +1548,7 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [x] 会话及默认权限菜单、审核状态、异常回退人工、取消与 Loop Steering 围栏。
 - [x] WZU_Server：Host 217、Core Loop 117、Host App 44、Tools 29、Agent 13，共 420 项通过，原有 6 项诊断压力测试 ignored；五 crate 全目标 Clippy 严格通过。
 - [x] Chromium/WebKit 源码与冻结基线审批卡片、权限选择、设置保存、实时/历史/Compact/Retry 投影及架构边界回归通过；UI 严格构建通过。
-- [ ] PR CI、Windows/macOS 原生验收与真实模型误判率评估；本次未推送、未安装或重启软件。
+- [ ] PR CI、Windows/macOS 原生验收与真实模型误判率评估；本次未安装或重启软件。
 - [ ] 独立审核模型选择、辅助调用成本统计及真实多模型判断质量评估。
 
 规范：[AI 代审](specs/ai-approval.md)。

@@ -80,6 +80,6 @@ Control 日志中。运行中的切换仍在下一真实 turn 生效。只有新
 已保持旧事件顺序，仅让新模式的显式预设在该批次末尾记录；原重启回归重新通过。
 
 以上模拟 Provider 是控制故障与并发时序的测试，不等于线上模型的误判率测试。
-未发布安装包、未推送代码、未替换或重启当前软件和独立 Web。
+验收阶段未发布安装包、未推送代码、未替换或重启当前软件和独立 Web；后续 PR 的推送不代表软件已部署。
 完整远程命令输出留在本机 `/tmp/xharness-ai-approval-regression-20261004.log`、
 `/tmp/xharness-ai-approval-final-20261004.log`、`/tmp/xharness-ai-approval-final2-20261004.log`。
