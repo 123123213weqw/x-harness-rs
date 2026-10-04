@@ -11,13 +11,7 @@ const { chromium, webkit } = require('playwright')
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
 const read = path => readFileSync(resolve(root, path), 'utf8')
-const pluginCss = name => {
-  const source = read(`ui/plugins/@xlang/xharness-client-ui-${name}/client.js`)
-  const start = source.indexOf('const CSS = `')
-  assert.notEqual(start, -1, `${name} CSS is present`)
-  const from = start + 'const CSS = `'.length
-  return source.slice(from, source.indexOf('`', from))
-}
+const pluginCss = name => read(`ui/src/modules/${name}/${name[0].toUpperCase()+name.slice(1)}.css`)
 
 const styles = [
   read('ui/overrides/motion-tokens.css'),
@@ -34,7 +28,7 @@ try {
   const page = await browser.newPage()
   await page.setContent(`<style>${styles}</style>
     <div id="dock" class="xhterm-dock xhterm-dock-closing"></div>
-    <div id="task" class="xhtask-panel-wrap xhtask-panel-wrap-closing"></div>
+    <div id="task" class="xhtask-panel"></div>
     <p id="stream" data-xh-stream-animate="true">stream</p>
     <img id="logo" class="xh-logo-sweep" src="/app-icon-512.png" width="10" height="10">
     <div class="U910La_root"><span class="U910La_brandIdentity"><span id="brand-mark" class="U910La_brandMark"><span>X</span></span><span id="brand-name" class="U910La_brandName">XHarness</span></span></div>`)
@@ -53,9 +47,9 @@ try {
   ))
   let value = await properties()
   assert.equal(value.dock.name, 'xhterm-dock-out')
-  assert.equal(value.task.name, 'xhtask-panel-out')
+  assert.equal(value.task.name, 'none', 'Tasks is a page, not an animated drawer')
   assert.equal(value.dock.duration, '0.18s')
-  assert.equal(value.task.duration, '0.18s')
+  assert.equal(value.task.duration, '0s')
   assert.equal(value.stream.duration, '0.9s')
   assert.equal(value.logo.duration, '5s')
   assert.equal(value['brand-mark'].name, 'xh-sidebar-mark-out')
@@ -63,11 +57,11 @@ try {
   assert.equal(value['brand-mark'].duration, '0.26s')
   assert.match(value.dock.easing, /cubic-bezier\(0\.23, 1, 0\.32, 1\)/)
 
-  // A single token override changes both independently loaded panels.
+  // The terminal drawer follows its token; Tasks remains a static page.
   await page.addStyleTag({ content: ':root{--xh-duration-panel-out:430ms}' })
   value = await properties()
   assert.equal(value.dock.duration, '0.43s')
-  assert.equal(value.task.duration, '0.43s')
+  assert.equal(value.task.duration, '0s')
 
   await page.emulateMedia({ reducedMotion: 'reduce' })
   value = await properties()

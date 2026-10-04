@@ -48,9 +48,17 @@ try{
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
+  await page.locator('._84hhiq_centerCol').screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-chat-boot.png':'-chat-boot.png')),animations:'disabled',caret:'hide'})
  }
  if(implementation==='source')assert.equal(await page.locator('._84hhiq_regionSurface').count(),3,'each owned column has its own surface')
- const early=await page.evaluate(()=>({text:document.body.innerText,buttons:document.querySelectorAll('button').length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}))
+ const early=await page.evaluate(()=>{
+  const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
+  // This PR explicitly replaces the old Tasks footer with a clock navigation.
+  // Compare every other control, and retain exact conversation pixels below.
+  const copy=document.body.cloneNode(true)
+  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger').forEach(node=>node.remove())
+  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length,navigationCount:navigation.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+ })
  assert.deepEqual(errors,[],'whole boot must not fail factory registration or real Core service injection')
  assert.ok(early.buttons>5,'actual workspace and conversation controls mounted')
  assert.ok(!/Failed to load plugins|Failed to start|缺少.*模块/.test(early.text),'no boot error screen')
@@ -70,11 +78,22 @@ try{
  for(const name of ['Off','High','Max']) await page.locator('button').filter({hasText:new RegExp('^'+name+'$')}).waitFor()
  await page.locator('button').filter({hasText:/^Off$/}).click()
  await page.getByRole('button',{name:/Select model, current.*reasoning effort Off/}).waitFor()
+ if(implementation==='source') {
+  const composer=page.locator('textarea').first()
+  await composer.fill('Retain draft across Work center')
+  await page.getByRole('button',{name:'Tasks and automations',exact:true}).click()
+  const work=page.getByRole('main',{name:'Tasks and automations',exact:true})
+  await work.waitFor()
+  await work.getByRole('tab',{name:'Automations',exact:true}).click()
+  await work.getByRole('heading',{name:'Automations',exact:true}).waitFor()
+  await work.getByRole('button',{name:'Back to chat',exact:true}).click()
+  assert.equal(await composer.inputValue(),'Retain draft across Work center','real Core and generated slots keep the composer mounted')
+ }
  // Built-in fixture has no live HMR SSE server; WebKit may cancel that
  // optional connection after its isolated 404. Do not ignore static failures.
  const staticFailures=failed.filter(row=>new URL(row.url).pathname!=='/plugins/events')
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,buttons:early.buttons,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

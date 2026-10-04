@@ -1,3 +1,4 @@
+import './WorkNavigation.styles'
 import {Menu, Modal, IconPersonalizationOutline16, IconSearchOutline16} from './primitives'
 /**
  * The workspace/session browsing region filling the sidebar shell's
@@ -737,11 +738,20 @@ function SearchResults({
   )
 }
 
-/**
- * Render the browsing region.
- * @param props - composed slot props (shell owner share + store + injected actions).
- * @returns the region element tree.
- */
+/** Same native navigation size as Plugins; opens the shell-owned work page. */
+function WorkClock({wide, active, buttonClassName, t}: {wide: boolean; active: boolean; buttonClassName: string; t: WorkspaceBrowserProps['t']}) {
+  return <Tooltip label={t('work.open')} side="bottom"><button type="button" className={buttonClassName}
+    data-xharness-work-nav aria-label={t('work.open')} aria-current={active ? 'page' : undefined}
+    style={active ? {background: 'var(--dsw-alias-interactive-bg-hover)'} : undefined}
+    onClick={() => window.dispatchEvent(new Event('xharness:work:open'))}>
+    <svg width={wide ? 20 : 22} height={wide ? 20 : 22} viewBox="2 2 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+      <path d="M14.4 6.34h3.26V3.1" />
+      <path d="M12 7.5V12l3 1.8" />
+    </svg>
+  </button></Tooltip>
+}
+
 /** Current product plugin-center navigation glyph (first-class wide/rail entry). */
 function PluginOutline16({size = 16}: {size?: number}) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -750,6 +760,11 @@ function PluginOutline16({size = 16}: {size?: number}) {
   </svg>
 }
 
+/**
+ * Render the browsing region.
+ * @param props - composed slot props (shell owner share + store + injected actions).
+ * @returns the region element tree.
+ */
 export function WorkspaceBrowser({
   wide,
   expandSidebar,
@@ -820,6 +835,19 @@ export function WorkspaceBrowser({
       window.removeEventListener('xharness:plugins:open', opened)
       window.removeEventListener('xharness:plugins:closed', closed)
     }
+  }, [])
+  useEffect(() => {
+    const openRequestedSession = (event: Event) => { if (event instanceof CustomEvent && typeof event.detail === 'string') open(event.detail) }
+    window.addEventListener('xharness:work:open-session', openRequestedSession)
+    return () => window.removeEventListener('xharness:work:open-session', openRequestedSession)
+  }, [open])
+  // Keep navigation state in the region owner so wide/rail remounts retain it.
+  const [workCenterOpen, setWorkCenterOpen] = useState(false)
+  useEffect(() => {
+    const opened = () => setWorkCenterOpen(true), closed = () => setWorkCenterOpen(false)
+    window.addEventListener('xharness:work:open', opened)
+    window.addEventListener('xharness:work:closed', closed)
+    return () => {window.removeEventListener('xharness:work:open', opened); window.removeEventListener('xharness:work:closed', closed)}
   }, [])
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
@@ -1003,7 +1031,7 @@ export function WorkspaceBrowser({
   }
 
   return (
-    <div className={clsx(css.root, !wide && css.rail)}>
+    <div className={clsx(css.root, !wide && css.rail, 'xhwork-browser')}>
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
@@ -1095,6 +1123,7 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
+          {wide && <WorkClock wide={wide} active={workCenterOpen} buttonClassName={css.iconButton} t={t} />}
           {wide && <Tooltip label={t('plugins.open')} side="bottom">
             <button type="button" className={css.iconButton} data-xharness-plugin-nav
               aria-label={t('plugins.open')} aria-current={pluginCenterOpen ? 'page' : undefined}
@@ -1153,6 +1182,7 @@ export function WorkspaceBrowser({
           </button>
         </Tooltip>
       </div>}
+      {!wide && <div className={css.search}><WorkClock wide={wide} active={workCenterOpen} buttonClassName={css.searchButton} t={t} /></div>}
       <div className={css.listArea}>
         {wide && (normalizedQuery !== ''
           ? (

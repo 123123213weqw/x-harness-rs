@@ -3,6 +3,7 @@ import { Service as CordisService, Context as CordisContext } from '@xharness/co
 import type { SessionId, ConnectionHandle } from '../client-connection/index'
 import type { TypertClientRemote } from './remote-contracts'
 import type { SlotRegistry } from './slots'
+import type {IWorkCatalog} from './contract/work-catalog'
 import type { ISessions } from './contract/sessions'
 import type { IWorkspaces } from './contract/workspaces'
 import type { ConversationEventRegistry } from './conversation/event-registry'
@@ -11,6 +12,7 @@ import type { ConversationViewRegistry } from './conversation/view-registry'
 interface Services {
   connection: ConnectionHandle
   slots: SlotRegistry
+  workCatalog: IWorkCatalog
   sessions: ISessions
   workspaces: IWorkspaces
   conversationEvents: ConversationEventRegistry

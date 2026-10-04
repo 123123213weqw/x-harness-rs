@@ -426,10 +426,13 @@ export class SessionRuntime implements ISessions {
     this.manager.clearSelection()
   }
 
-  /**
-   * Refresh the real Session baseline, reusing an in-flight pull.
-   * @returns completion of the current or newly started baseline pull.
-   */
+  /** Pull status for the runtime-owned Work projection; not another list owner. */
+  catalogStatus(): {state: 'idle' | 'loading' | 'error'; error: RpcError | null} {
+    const {state, error} = this.manager.getListSnapshot()
+    return {state, error}
+  }
+
+  /** Refresh the real Session baseline, reusing an in-flight pull. */
   refresh(): Promise<void> {
     return this.manager.refreshList()
   }
