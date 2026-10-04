@@ -1,0 +1,56 @@
+{
+  "scope": "test-fixture-only; no production code or native package changes",
+  "original_ci_head": "9e111ceb18ef64f22de67d19f910fa9797707c4f",
+  "preserved_ci_attempts": [
+    1,
+    2
+  ],
+  "linux": {
+    "host": "WZU_Server",
+    "node": "20.20.2",
+    "playwright": "1.61.1",
+    "cpu_affinity": "0,1",
+    "tests": [
+      "scripts/test-transcript-windowing.mjs",
+      "scripts/test-turn-process-browser.mjs"
+    ],
+    "rounds_per_test": 5,
+    "baseline": {
+      "suite_runs": 10,
+      "failed": 3,
+      "log_sha256": "5522e0aa518d8ec49f2046b11812377679f156b5f1f9c3e36a24f71a3d06613a"
+    },
+    "fixed": {
+      "suite_runs": 10,
+      "failed": 0,
+      "log_sha256": "25f037a72cf662206ed3eb663eac8c12c4a6753a707a629d25da8d382a586754"
+    }
+  },
+  "mac": {
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "suite_runs": 4,
+    "failed": 0,
+    "log_sha256": "51a8fe74c30e99ba74f827813baedc64725d683d6da2e77ffcb7372019bdaf73"
+  },
+  "runtime_source_binding_checked_files": 14,
+  "test_sources": [
+    {
+      "path": "scripts/test-transcript-windowing.mjs",
+      "baseline_sha256": "73790f66a66602f39e7b1a5f740a32cb69292edd5ee7608cd97dd3074d9ffc7f",
+      "fixed_sha256": "8f17c9850ae0789ea7e6376fdddbf9387f5700266fe13c3d0a84abb4d700514e"
+    },
+    {
+      "path": "scripts/test-turn-process-browser.mjs",
+      "baseline_sha256": "62c24a30f5d6cd29ce233dd5ce533e4eef04ffb3e082661455106c37b13955cd",
+      "fixed_sha256": "da9b622e205c14bde00e4cd3edafc48773867675c6246cf7f2bb7046bb81db9d"
+    }
+  ],
+  "limitations": [
+    "Linux targeted reproduction uses Node 20; PR full CI uses Node 22",
+    "Not a startup speed benchmark",
+    "Final full CI is not replaced by targeted runs"
+  ]
+}
