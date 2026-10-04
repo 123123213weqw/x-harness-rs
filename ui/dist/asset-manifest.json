@@ -578,7 +578,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "9d733c84b7523958602ce93a7d1ef7bc67a8a4d8457638920d0fc252ba3e2ff5",
+      "sha256": "70d89632399630007465a39640798ec3caaaeb0912961b5ad78895d26ae8eac6",
       "bytes": 21190
     },
     "logo-motion.css": {
@@ -594,8 +594,8 @@
       "bytes": 263
     },
     "monochrome.css": {
-      "sha256": "2905f1eccd5e04776bd48cb55bae51446096b776868e10ac1572aa779daad8cc",
-      "bytes": 6476
+      "sha256": "f60e4c7b0d6cc3fe2d641e14cb209d1c5c7cb856fdc4a071caa35762f392638a",
+      "bytes": 6696
     },
     "motion-tokens.css": {
       "sha256": "ffe8b346f9d0721ce9dbc7c471cc47db309819049c92fc7eca4c1e6c5ad4db8d",
