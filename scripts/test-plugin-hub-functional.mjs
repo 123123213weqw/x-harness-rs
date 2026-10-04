@@ -27,11 +27,12 @@ try {
   })
   await page.evaluate(()=>document.body.innerHTML='<div id="root"></div>')
   await page.addScriptTag({ content: `
-    window.__fixture = { catalog: [], installed: [], calls: [], confirm: true };
-    window.confirm = message => { window.__fixture.confirmMessage = message; return window.__fixture.confirm; };
+    window.__fixture = { catalog: [], installed: [], calls: [], confirm: true, legacy: ${process.env.UI_TEST_IMPL === 'legacy'} };
+    window.confirm = message => { if (!window.__fixture.legacy) throw Error('Native confirm must not be used'); window.__fixture.confirmMessage = message; return window.__fixture.confirm; };
     window.__modules = {};
     window.__ModuleLoader__ = { load({ id, factory }) { window.__modules[id] = factory(name => {
       if (name === 'react') return React;
+      if (window.staticModules[name]) return window.staticModules[name];
       if (window.__modules[name]) return window.__modules[name];
       throw Error('unexpected module ' + name);
     }); } };
@@ -49,6 +50,8 @@ try {
           if (channel !== '/api') throw Error(channel);
           const store = window.__fixture;
           store.calls.push(endpoint);
+          if (store.failOnce === endpoint) { store.failOnce = null; throw Error('fixture operation offline'); }
+          if (endpoint === 'plugins/mcpPreview' && store.holdPreview) await new Promise(resolve => { store.releasePreview = resolve; });
           const args = payload.args;
           let value;
           if (endpoint === 'plugins/catalog') value = { plugins: store.catalog };
@@ -79,7 +82,8 @@ try {
       slots: { inject(_name, fn) { fn(); }, register(_spec, view) { component = view; props = { ..._spec.inject(), t: ctx.locale.bind('xharness.pluginHub') }; } },
     };
     window.__modules['@xlang/xharness-client-ui-plugin-hub'].apply(ctx);
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(component, props));
+    window.__fixtureRoot = ReactDOM.createRoot(document.getElementById('root'));
+    window.__fixtureRoot.render(React.createElement(component, props));
   ` })
   const hub = page.locator('[data-xharness-plugin-hub]')
   await hub.waitFor()
@@ -102,13 +106,43 @@ try {
     await page.waitForFunction(() => document.querySelector('.xhph-icon img')?.naturalWidth === 32)
     assert.equal(await hub.locator('.xhph-icon img').getAttribute('referrerpolicy'), 'no-referrer')
   }
+  const inPageConsent = process.env.UI_TEST_IMPL !== 'legacy'
+  const confirmDialog = page.getByRole('dialog')
   await page.evaluate(() => window.__fixture.confirm = false)
   await hub.getByRole('button', { name: 'Install', exact: true }).click()
+  if (inPageConsent) {
+    await confirmDialog.waitFor()
+    assert.match(await confirmDialog.innerText(), /https:\/\/example.com\/demo.zip/)
+    assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/install')), false, 'opening consent does not install')
+    await confirmDialog.getByRole('button', {name:'Cancel',exact:true}).click()
+    assert.equal(await confirmDialog.count(), 0)
+    // Escape and the close button are cancellation, never acceptance.
+    for (const close of ['escape', 'button']) {
+      await hub.getByRole('button', {name:'Install',exact:true}).click()
+      await confirmDialog.waitFor()
+      if (close === 'escape') await page.keyboard.press('Escape')
+      else await confirmDialog.getByRole('button', {name:'Close',exact:true}).click()
+      assert.equal(await confirmDialog.count(), 0)
+    }
+  }
   await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
   assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/install')), false)
+  if (inPageConsent) {
+    await page.evaluate(() => window.__fixture.failOnce = 'plugins/install')
+    await hub.getByRole('button', {name:'Install',exact:true}).click()
+    await confirmDialog.getByRole('button', {name:'Install',exact:true}).click()
+    await hub.getByRole('alert').waitFor()
+    assert.equal(await page.evaluate(() => window.__fixture.installed.length),0,'transport rejection is visible and does not install')
+    await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
+  }
   await page.evaluate(() => window.__fixture.confirm = true)
   await hub.getByRole('button', { name: 'Install', exact: true }).click()
+  if (inPageConsent) {
+    await confirmDialog.waitFor()
+    await confirmDialog.getByRole('button', {name:'Install',exact:true}).evaluate(button => {button.click();button.click()})
+  }
   await hub.getByRole('button', { name: 'Enable', exact: true }).first().waitFor()
+  assert.equal(await page.evaluate(() => window.__fixture.calls.filter(x=>x==='plugins/install').length),inPageConsent?2:1,'double acknowledgement cannot duplicate installation or silently retry the failed mutation')
   if (supportsCatalogIcons) {
     await page.waitForFunction(() => document.querySelector('.xhph-installed .xhph-icon img')?.naturalWidth === 32)
     assert.equal(await hub.locator('.xhph-installed .xhph-icon img').getAttribute('src'),demo.icon,'installed card inherits catalog icon without changing installed wire schema')
@@ -117,15 +151,36 @@ try {
   await hub.getByRole('button', { name: 'Disable', exact: true }).first().waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].enabled), true)
   await hub.getByText('demo', { exact: true }).first().click()
+  if (inPageConsent) {
+    await page.evaluate(() => window.__fixture.failOnce = 'plugins/mcpPreview')
+    await hub.getByRole('button', { name: 'Allow MCP', exact: true }).click()
+    await hub.getByRole('alert').waitFor()
+    assert.equal(await confirmDialog.count(),0,'failed preview cannot create an empty MCP consent')
+    assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/mcpEnable')),false)
+    await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
+  }
   await hub.getByRole('button', { name: 'Allow MCP', exact: true }).click()
+  if (inPageConsent) {
+    await confirmDialog.waitFor()
+    assert.match(await confirmDialog.innerText(), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
+    assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/mcpEnable')),false,'MCP preview is not permission to launch')
+    await confirmDialog.getByRole('button', {name:'Allow MCP',exact:true}).click()
+  }
   await hub.getByRole('button', { name: 'Disable MCP', exact: true }).waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed[0].mcpEnabled), true)
-  assert.match(await page.evaluate(() => window.__fixture.confirmMessage), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
+  if (!inPageConsent) assert.match(await page.evaluate(() => window.__fixture.confirmMessage), /TOKEN ← Host environment: DEEPSEEK_API_KEY/)
   assert.ok((await page.evaluate(() => window.__fixture.calls)).includes('plugins/enable'))
   await hub.getByRole('button', { name: 'Refresh', exact: true }).click()
   await page.waitForFunction(() => !document.querySelector('.xhph-actions button').disabled)
   assert.equal(await page.evaluate(() => window.__fixture.calls.includes('plugins/refreshCatalog')), false, 'main Refresh is a metadata reload, not new Host endpoint')
   await hub.getByRole('button', { name: 'Uninstall', exact: true }).click()
+  if (inPageConsent) {
+    await confirmDialog.waitFor()
+    await confirmDialog.getByRole('button', {name:'Cancel',exact:true}).click()
+    assert.equal(await page.evaluate(() => window.__fixture.installed.length),1)
+    await hub.getByRole('button', {name:'Uninstall',exact:true}).click()
+    await confirmDialog.getByRole('button', {name:'Uninstall',exact:true}).click()
+  }
   await hub.getByText('No user plugins installed').waitFor()
   assert.equal(await page.evaluate(() => window.__fixture.installed.length), 0)
   if (supportsCatalogIcons) {
@@ -146,6 +201,20 @@ try {
     const box = await hub.locator('.xhph-icon img').boundingBox()
     assert.equal(box.width,42);assert.equal(box.height,42)
   } else assert.equal(await hub.locator('.xhph-icon img').count(), 0, 'frozen reference uses initials')
+  if (inPageConsent) {
+    // A pending read-only preview must not reopen a dialog after navigation.
+    await hub.getByRole('button', {name:'Install',exact:true}).click()
+    await confirmDialog.getByRole('button', {name:'Install',exact:true}).click()
+    await hub.getByRole('button', {name:'Enable',exact:true}).first().waitFor()
+    await hub.getByText('demo', {exact:true}).first().click()
+    const enabledBefore = await page.evaluate(() => window.__fixture.calls.filter(x=>x==='plugins/mcpEnable').length)
+    await page.evaluate(() => window.__fixture.holdPreview = true)
+    await hub.getByRole('button', {name:'Allow MCP',exact:true}).click()
+    await page.waitForFunction(() => typeof window.__fixture.releasePreview === 'function')
+    await page.evaluate(async () => { window.__fixtureRoot.unmount(); window.__fixture.releasePreview(); await new Promise(resolve => setTimeout(resolve, 0)); })
+    assert.equal(await confirmDialog.count(),0,'navigation drops stale consent')
+    assert.equal(await page.evaluate(() => window.__fixture.calls.filter(x=>x==='plugins/mcpEnable').length),enabledBefore,'navigation never auto-enables MCP')
+  }
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({engine:browserName,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,initialPixelsSha256,pageErrors:errors}))
   console.log(`plugin hub functional / ${browserName} / ${process.env.UI_TEST_IMPL ?? 'canonical'}: main import, install/cancel, Skill enable, MCP environment-source consent, metadata refresh, uninstall and keyboard tabs passed`)

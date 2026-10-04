@@ -71,6 +71,10 @@ async fn main_inner(
     }
     // Must precede even debug/config writes and all session restoration.
     let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
+    // A reusable development path is initialized once, BEFORE any Live /
+    // Ready / PreparedReady publication. Watchers must never clear it: a stop
+    // can arrive immediately after readiness and before their first poll.
+    remove_runtime_file(args.shutdown_file.as_deref()).await?;
     let hosted = if let Some(directory) = &args.hosted_permit_dir {
         let signal = os_shutdown_signal();
         let execution = HostedExecution::open(directory, &args.workspace, &args.state_dir)?;
@@ -226,17 +230,18 @@ async fn run(
     if let Some(browser) = xharness_host_app::native_browser::NativeBrowser::from_env()? {
         tools.bind_native_browser(browser)?;
     }
-    let plugins = match xharness_plugins::PluginManager::open(args.state_dir.join("plugins")) {
-        Ok(manager) => {
-            let manager = Arc::new(manager);
-            tools.bind_plugins(Arc::clone(&manager))?;
-            Some(manager)
-        }
-        Err(error) => {
-            eprintln!("plugin store unavailable; Agent startup continues: {error}");
-            None
-        }
-    };
+    let plugins =
+        match xharness_host_app::open_product_plugin_manager(args.state_dir.join("plugins")) {
+            Ok(manager) => {
+                let manager = Arc::new(manager);
+                tools.bind_plugins(Arc::clone(&manager))?;
+                Some(manager)
+            }
+            Err(error) => {
+                eprintln!("plugin store unavailable; Agent startup continues: {error}");
+                None
+            }
+        };
     let control_store: Arc<dyn ControlStore> = Arc::new(JsonlControlStore::new(control_dir)?);
     let leases = Arc::new(FileLeaseManager::new(leases_dir)?);
     *failure_code = Some(StartupFailureCode::RuntimeInitialization);
@@ -626,14 +631,9 @@ async fn shutdown_file_signal(shutdown_file: Option<PathBuf>) -> std::io::Result
         Some(path) => path,
         None => return std::future::pending::<std::io::Result<()>>().await,
     };
-    // Remove a stale request before accepting work. The desktop shell creates
-    // a fresh random path per process, while this cleanup makes development
-    // restarts deterministic after an unclean exit.
-    match tokio::fs::remove_file(&path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
+    // Startup initialized the path before readiness. This watcher may be
+    // constructed repeatedly during Prepared -> Active; an existing request
+    // belongs to this generation and is never discarded here.
     loop {
         match tokio::fs::metadata(&path).await {
             Ok(_) => return Ok(()),
@@ -1122,5 +1122,33 @@ mod tests {
         )
         .is_err());
         assert!(validate_desktop_boundary("127.0.0.1:0".parse().unwrap(), Some("short")).is_err());
+    }
+
+    #[tokio::test]
+    async fn stop_request_written_before_listener_poll_is_not_discarded() {
+        let path = std::env::temp_dir().join(format!(
+            "xharness-shutdown-poll-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // The launcher uses a fresh generation path. For a reusable dev path,
+        // initial cleanup occurs before readiness; this is a NEW request that
+        // arrived after readiness but before the watcher was first polled.
+        remove_runtime_file(Some(&path)).await.unwrap();
+        tokio::fs::write(&path, b"stop").await.unwrap();
+        for _ in 0..2 {
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                shutdown_file_signal(Some(path.clone())),
+            )
+            .await
+            .expect("a fresh shutdown request was discarded")
+            .unwrap();
+            assert!(path.exists(), "the watcher must never erase a request");
+        }
+        remove_runtime_file(Some(&path)).await.unwrap();
     }
 }
