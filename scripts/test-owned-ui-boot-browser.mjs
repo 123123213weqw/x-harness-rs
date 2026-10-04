@@ -53,12 +53,17 @@ try{
  if(implementation==='source')assert.equal(await page.locator('._84hhiq_regionSurface').count(),3,'each owned column has its own surface')
  const early=await page.evaluate(()=>{
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
-  // This PR explicitly replaces the old Tasks footer with a clock navigation.
-  // Compare every other control, and retain exact conversation pixels below.
+  const sidebarSearch=document.querySelectorAll('button[aria-label="Search sessions"]')
+  const sidebarSearchInput=document.querySelectorAll('input[placeholder="Search sessions..."]')
+  // Explicit product deltas: Tasks navigation and removed sidebar search.
+  // Count the removed controls independently; all other controls and exact
+  // conversation pixels continue to use the untouched frozen reference.
   const copy=document.body.cloneNode(true)
-  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger').forEach(node=>node.remove())
-  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length,navigationCount:navigation.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"]').forEach(node=>node.remove())
+  return {text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,stableButtons:document.querySelectorAll('button').length-navigation.length-sidebarSearch.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
+ assert.equal(early.sidebarSearchInputCount,implementation==='source'?0:1,'removed search field versus intact frozen positive control')
  assert.deepEqual(errors,[],'whole boot must not fail factory registration or real Core service injection')
  assert.ok(early.buttons>5,'actual workspace and conversation controls mounted')
  assert.ok(!/Failed to load plugins|Failed to start|缺少.*模块/.test(early.text),'no boot error screen')
@@ -95,5 +100,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,workCenterNavigation:implementation==='source',buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

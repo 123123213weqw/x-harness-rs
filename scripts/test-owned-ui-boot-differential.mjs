@@ -21,6 +21,8 @@ try{
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
    assert.equal(receipt.loadedPlugins,implementation==='source'?53:52,'source adds only the internal checked Plugin API helper')
+   assert.equal(receipt.sidebarSearchEntryCount,implementation==='source'?0:1,'source removes only the requested search entry; frozen positive control retains it')
+   assert.equal(receipt.sidebarSearchInputCount,implementation==='source'?0:1,'source removes the search field; frozen reference stays immutable')
    outputs.push(receipt)
   }
   for(const receipt of outputs) assert.equal(receipt.navigationCount,1,'exactly one work navigation, legacy footer or new clock')
@@ -35,6 +37,8 @@ try{
   })
   assert.equal(projected.status,0,`${browser}/reference layout: ${projected.error?.message??''}\n${projected.stdout}\n${projected.stderr}`)
   const projectedReceipt=JSON.parse(projected.stdout.trim().split('\n').at(-1))
+  assert.equal(projectedReceipt.sidebarSearchEntryCount,0)
+  assert.equal(projectedReceipt.sidebarSearchInputCount,0)
   for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(projectedReceipt[key],outputs[1][key],`${browser}: projected full UI ${key} parity`)
   const source=readFileSync(join(directory,browser+'-source-reference-chat-boot.png'))
   const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))

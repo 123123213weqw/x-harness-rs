@@ -14,7 +14,6 @@ interface RecentAddress {url: string; host: string; path: string}
 interface DownloadEntry {kind: string; name: string}
 function arrayValue(raw: unknown): unknown[] { return Array.isArray(raw) ? raw : [] }
 const DOWNLOAD_LABELS: Readonly<Record<string, string>> = { 'download-start': '下载中', 'download-complete': '已完成', 'download-error': '失败' }
-const STATUS_LABELS: Readonly<Record<string, string>> = { loading: '正在加载', failed: '加载失败', 'download-start': '正在下载', 'download-complete': '下载完成', 'download-error': '下载失败' }
 function browserPayload(raw: unknown): {tabId: string; kind: string; value: string} | undefined {
   const payload = objectValue(raw)
   return typeof payload.tabId === 'string' && typeof payload.kind === 'string' && typeof payload.value === 'string'
@@ -167,7 +166,6 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
 export function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }: BrowserPaneProps) {
   const [draft, setDraft] = useState(() => currentAddress(item))
   const [error, setError] = useState('')
-  const [status, setStatus] = useState('idle')
   const [menuOpen, setMenuOpen] = useState(false)
   const [downloadsOpen, setDownloadsOpen] = useState(false)
   const [downloads, setDownloads] = useState<DownloadEntry[]>([])
@@ -257,7 +255,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         }
         return true
       }).catch((error: unknown) => {
-        if (!disposed && requested === generation) { setStatus('failed'); setError(String(error)) }
+        if (!disposed && requested === generation) { setError(String(error)) }
         return false
       })
     }
@@ -283,10 +281,9 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         itemRef.current = { ...current, ...patch }
         onUpdate(patch)
       } else if (payload.kind === 'title') onUpdate({ title: payload.value || item.title })
-      else if (payload.kind === 'loading') { loading = true; setStatus('loading') }
-      else if (payload.kind === 'loaded') { loading = false; setStatus('loaded'); void syncBounds() }
+      else if (payload.kind === 'loading') { loading = true }
+      else if (payload.kind === 'loaded') { loading = false; void syncBounds() }
       else if (payload.kind.startsWith('download-')) {
-        setStatus(payload.kind)
         setDownloads(previous => [{ kind: payload.kind, name: String(payload.value || '').split(/[/\\]/).pop() || '下载文件' }, ...previous].slice(0, 5))
         if (payload.kind === 'download-error') setError(payload.value || '下载失败')
       }
@@ -327,7 +324,6 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     onUpdate({ entries, position: entries.length - 1, title: new URL(result.url).hostname })
     setDraft(result.url); setError('')
     if (native) {
-      setStatus('loading')
       navigationRef.current = { tabId: item.id, url: result.url }
       nativeSyncRef.current?.()
     }
@@ -413,8 +409,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
           h('h2', null, '网页已准备好'),
           h('p', null, `网页版不能嵌入 ${new URL(address).hostname}，请在桌面软件打开。`),
           h('a', { className: 'xhbrowser-open-link', href: address, target: '_blank', rel: 'noopener noreferrer' },
-            '在系统浏览器打开', glyph('external', 15)))),
-    h('div', { className: 'xhbrowser-footer' }, h('span', { className: 'xhbrowser-status-dot' }), native ? `独立网页引擎 · ${STATUS_LABELS[status] ?? '就绪'}` : '网页预览 · 内置浏览请使用桌面软件'))
+            '在系统浏览器打开', glyph('external', 15)))))
 }
 export const inject = ['slots']
 export function apply(ctx: BrowserContext) {
