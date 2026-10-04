@@ -1,5 +1,5 @@
 import { isChatData, isChatNode } from '../contract/chat-node-codec'
-import { memo, useMemo, useRef } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { JsonBlock } from '../primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots'
 import type { ChatNode } from '../contract/chat-nodes'
@@ -18,6 +18,7 @@ interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly renderSlot: ChatViewSlotProps['renderSlot']
   readonly t: ChatViewSlotProps['t']
   readonly foldedTools?: FoldedTools
+  readonly invalidateFoldedTool?: (key: string) => void
   readonly expandedTurns?: ReadonlySet<number>
   readonly toggleTurnProcess?: (turn: number) => void
 }
@@ -57,7 +58,7 @@ export function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, fol
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, keepMounted,
-  renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, foldedTools,
+  renderMessageImages, fileMentions, useSession, renderSlot, t, expandedTurns, foldedTools, invalidateFoldedTool,
 }: ChatNodeSeatProps) {
   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
   const routedNode = isChatNode(node) ? node : undefined
@@ -95,6 +96,9 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     node, selectedCallId, cwd, openFile, inspectCall, forkAt, editMessage, forkMessage, editAvailable, renderMessageImages, fileMentions, presentation.collapsed,
   ])
   const autoFoldable = routedNode !== undefined && toolCanAutoFold(routedNode)
+  useLayoutEffect(() => {
+    if (!autoFoldable) invalidateFoldedTool?.(nodeKey)
+  }, [autoFoldable, invalidateFoldedTool, nodeKey])
   const liveTurn = (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined
   const autoHidden = liveTurn && autoFoldable && foldedTools?.get(turn ?? -1)?.has(nodeKey)
     && !(expandedTurns?.has(turn ?? -1) ?? false)

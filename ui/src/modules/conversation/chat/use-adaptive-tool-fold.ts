@@ -1,14 +1,38 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { useProcessMode } from './process-mode'
 import type { ChatConversationViewNode } from '../types/runtime'
-import { NO_FOLDED_TOOLS, planToolFold, type FoldedTools, type ToolFoldRow } from './adaptive-tool-fold'
+import { NO_FOLDED_TOOLS, planToolFold, toolCanAutoFold, type FoldedTools, type ToolFoldRow } from './adaptive-tool-fold'
+import { isChatNode } from '../contract/chat-node-codec'
+
+interface AdaptiveToolFoldState {
+  readonly foldedTools: FoldedTools
+  readonly invalidateFoldedTool: (key: string) => void
+}
 
 /** One observer per chat, not per Tool. No transport/event parsing in this seat. */
 export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTMLElement>, expanded: ReadonlySet<number>,
-  beforeFold: (commit: boolean) => string | undefined, revision: Pick<ReadonlyMap<string, ChatConversationViewNode>, 'get'>): FoldedTools {
+  beforeFold: (commit: boolean) => string | undefined, revision: Pick<ReadonlyMap<string, ChatConversationViewNode>, 'get'>): AdaptiveToolFoldState {
   const mode = useProcessMode()
   const [state, setState] = useState<{ sessionId: string; folded: FoldedTools }>(() => ({ sessionId, folded: NO_FOLDED_TOOLS }))
   if (state.sessionId !== sessionId) setState({ sessionId, folded: NO_FOLDED_TOOLS })
+  // Seats subscribe to individual lifecycle updates, while the parent store
+  // stays reference-stable. Invalidate before paint, not at the next geometry
+  // measurement: an error/pending row may recover while the reader focuses it.
+  const invalidateFoldedTool = useCallback((key: string): void => {
+    setState(previous => {
+      if (previous.sessionId !== sessionId) return previous
+      let folded: Map<number, ReadonlySet<string>> | undefined
+      for (const [turn, keys] of previous.folded) {
+        if (!keys.has(key)) continue
+        folded ??= new Map(previous.folded)
+        const kept = new Set(keys)
+        kept.delete(key)
+        if (kept.size) folded.set(turn, kept)
+        else folded.delete(turn)
+      }
+      return folded === undefined ? previous : { sessionId, folded }
+    })
+  }, [sessionId])
   const latest = useRef({ expanded, beforeFold, revision })
   latest.current = { expanded, beforeFold, revision }
   const scheduleRef = useRef<() => void>(() => {})
@@ -73,8 +97,10 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
         for (const [turn, keys] of previous.folded) {
           const kept = new Set<string>()
           for (const key of keys) {
-            const location = latest.current.revision.get(key)?.location
-            if ((location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open') kept.add(key)
+            const node = latest.current.revision.get(key)
+            const location = node?.location
+            if ((location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open'
+              && isChatNode(node) && toolCanAutoFold(node)) kept.add(key)
           }
           if (kept.size) folded.set(turn, kept)
           if (kept.size !== keys.size) changed = true
@@ -113,5 +139,5 @@ export function useAdaptiveToolFold(sessionId: string, list: React.RefObject<HTM
   // New/settled nodes and explicit choices may change eligibility without
   // changing geometry. Observe them without tearing down the ResizeObserver.
   useLayoutEffect(() => { scheduleRef.current() }, [revision, expanded, state])
-  return mode === 'auto' && state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS
+  return { foldedTools: mode === 'auto' && state.sessionId === sessionId ? state.folded : NO_FOLDED_TOOLS, invalidateFoldedTool }
 }

@@ -104,6 +104,9 @@ try {
  // Latest master intentionally does not pin clicked buttons forever. Exercise
  // the row-owned bridge (as the real Tool/Reasoning/Cordis rows do), rather
  // than depending on browser-specific button focus preserving a React hook.
+ // Linux Chromium focuses clicked buttons; macOS/WebKit may not. Focus is
+ // intentionally protected until released, independent of click persistence.
+ await page.evaluate(()=>document.activeElement?.blur());
  await page.locator('[data-counter="0"]').waitFor({state:'detached'});
  await scroll.evaluate(e=>{e.style.width='500px';e.scrollTop=0});await page.locator('[data-counter="1"]').waitFor();assert.equal(await page.locator('[data-counter="0"]').innerText(),'row 0 count 1');
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);

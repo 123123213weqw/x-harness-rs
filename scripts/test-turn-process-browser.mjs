@@ -227,8 +227,45 @@ try {
  // A previously folded root becoming pending/error must reappear immediately.
  await page.evaluate(()=>toolFixture('job0',{isError:true}))
  await page.locator('[data-chat-flow-key="job0"]').waitFor({state:'attached'})
+ await page.locator('[data-chat-flow-key="job0"]').scrollIntoViewIfNeeded()
+ await page.locator('[data-tool-card="job0"] button').first().focus()
+ // Recovery is a fresh fold decision, never resurrection of a stale hidden
+ // ID. Focus/selection/manual-open must survive the error/pending -> success
+ // transition, including updates before the next observer animation frame.
+ await page.evaluate(()=>{
+  document.querySelector('[data-tool-card="job0"] button').focus()
+  toolFixture('job0',{isError:false})
+ })
+ await page.waitForTimeout(100)
+ assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),1,'focused recovered tool stays visible')
+ assert.equal(await page.locator('[data-tool-card="job0"] button').first().evaluate(e=>e===document.activeElement),true)
  await page.evaluate(()=>toolFixture('job1',{subCalls:[{callId:'pending',callView:null,time:1,name:'ask_question',argsRaw:'{}',turn:1,step:1,subCalls:[]}]}))
  await page.locator('[data-chat-flow-key="job1"]').waitFor({state:'attached'})
+ await page.locator('[data-chat-flow-key="job1"]').scrollIntoViewIfNeeded()
+ await page.locator('[data-tool-card="job1"] details summary').click()
+ await page.waitForFunction(()=>document.querySelector('[data-native-tool="job1"]').open)
+ await page.evaluate(()=>{document.activeElement?.blur();toolFixture('job1',{subCalls:[]})})
+ await page.waitForTimeout(100)
+ assert.equal(await page.locator('[data-chat-flow-key="job1"]').count(),1,'manually opened recovered tool stays visible without focus')
+ assert.equal(await page.locator('[data-native-tool="job1"]').evaluate(e=>e.open),true)
+ await page.evaluate(()=>toolFixture('job2',{isError:true}))
+ await page.locator('[data-chat-flow-key="job2"]').waitFor({state:'attached'})
+ await page.locator('[data-chat-flow-key="job2"]').scrollIntoViewIfNeeded()
+ await page.locator('[data-native-tool="job2"] summary').waitFor()
+ await page.evaluate(()=>{
+  const text=document.querySelector('[data-native-tool="job2"] summary').firstChild
+  const range=document.createRange();range.selectNodeContents(text)
+  getSelection().removeAllRanges();getSelection().addRange(range)
+  toolFixture('job2',{isError:false})
+ })
+ await page.waitForTimeout(100)
+ assert.equal(await page.locator('[data-chat-flow-key="job2"]').count(),1,'selected recovered tool stays visible')
+ assert.ok(await page.evaluate(()=>getSelection().toString().length>0))
+ await page.evaluate(()=>{
+  document.activeElement?.blur();getSelection().removeAllRanges()
+  toolFixture('job0',{isError:true})
+  toolFixture('job1',{subCalls:[{callId:'pending',callView:null,time:1,name:'ask_question',argsRaw:'{}',turn:1,step:1,subCalls:[]}]})
+ })
  // Explicit process expansion survives streaming, resize and turn/end.
  const raw=await page.evaluate(()=>JSON.stringify(snapshot.getSnapshot().chat.nodes.values()))
  await live.click();assert.equal(await live.getAttribute('aria-expanded'),'true')
