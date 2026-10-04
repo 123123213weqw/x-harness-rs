@@ -94,44 +94,6 @@ fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), St
     })()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::content_point;
-
-    #[test]
-    fn css_points_follow_content_insets_not_titlebar_constants_or_dpr() {
-        for (height, top) in [(560.0, 0.0), (560.0, 22.0), (560.0, 28.0), (900.0, 48.0)] {
-            for flipped in [true, false] {
-                let point = content_point(60.0, 35.0, height, flipped, top).unwrap();
-                assert_eq!(point.x, 60.0);
-                assert_eq!(
-                    point.y,
-                    if flipped {
-                        35.0 + top
-                    } else {
-                        height - 35.0 - top
-                    }
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn malformed_and_outside_content_points_fail_before_input_dispatch() {
-        for (x, y, height, top) in [
-            (f64::NAN, 0.0, 560.0, 0.0),
-            (0.0, f64::INFINITY, 560.0, 0.0),
-            (-1.0, 0.0, 560.0, 0.0),
-            (0.0, -1.0, 560.0, 0.0),
-            (0.0, 0.0, 0.0, 0.0),
-            (0.0, 0.0, 560.0, -1.0),
-            (0.0, 532.0, 560.0, 28.0),
-            (0.0, 0.0, 560.0, f64::NAN),
-        ] {
-            assert!(content_point(x, y, height, true, top).is_err());
-        }
-    }
-}
 pub fn input(
     handle: PlatformWebview,
     request: super::InputRequest,
@@ -224,5 +186,44 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
     // WebKit copies it until completion. No borrowed Rust values are captured.
     unsafe {
         view.takeSnapshotWithConfiguration_completionHandler(None, &block);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_point;
+
+    #[test]
+    fn css_points_follow_content_insets_not_titlebar_constants_or_dpr() {
+        for (height, top) in [(560.0, 0.0), (560.0, 22.0), (560.0, 28.0), (900.0, 48.0)] {
+            for flipped in [true, false] {
+                let point = content_point(60.0, 35.0, height, flipped, top).unwrap();
+                assert_eq!(point.x, 60.0);
+                assert_eq!(
+                    point.y,
+                    if flipped {
+                        35.0 + top
+                    } else {
+                        height - 35.0 - top
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_and_outside_content_points_fail_before_input_dispatch() {
+        for (x, y, height, top) in [
+            (f64::NAN, 0.0, 560.0, 0.0),
+            (0.0, f64::INFINITY, 560.0, 0.0),
+            (-1.0, 0.0, 560.0, 0.0),
+            (0.0, -1.0, 560.0, 0.0),
+            (0.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 560.0, -1.0),
+            (0.0, 532.0, 560.0, 28.0),
+            (0.0, 0.0, 560.0, f64::NAN),
+        ] {
+            assert!(content_point(x, y, height, true, top).is_err());
+        }
     }
 }
