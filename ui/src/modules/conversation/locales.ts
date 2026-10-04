@@ -214,7 +214,7 @@ export const en = {
 		}
 export const zh = {
 			"view.chat": "对话",
-			"xh.turn.working": "正在处理…",
+			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_ZH,
 			"hint.goal": "输入目标，智能体将持续执行",
 			"hint.goal.active": "当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",

@@ -623,7 +623,7 @@
     {
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
-      "sha256": "e603785ab902c935a5a38ec19def0f598558fe109d96be2f09f519911a04bfa9"
+      "sha256": "0f47c87211771751c0499a5382882fc7d9ffb178f12d364d65b925bf7e2453a3"
     },
     {
       "path": "plugin-icons/browser.svg",
