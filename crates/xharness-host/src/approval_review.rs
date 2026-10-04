@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use xharness_api::{ClientResponse, ClientResponseKind, RpcError, RpcId, RpcResult};
 use xharness_core::{AgentMessage, FinishReason, ProviderEvent, ProviderRequest, Role, ToolCall};
-use xharness_session::{EventData, Session};
+use xharness_session::Session;
 
 use crate::{state::PendingResponse, AuxiliaryModel, BasicHost, ModelRoute, PermissionPreset};
 
@@ -41,16 +41,9 @@ struct ReviewBinding {
 
 fn request_scope(session: &Session) -> Option<(u64, &str)> {
     session
-        .events()
-        .iter()
-        .rev()
-        .find_map(|event| match event.data() {
-            EventData::UserMessage {
-                message,
-                surface_replace: None,
-            } if !message.content.trim().is_empty() => Some((event.seq, message.content.as_str())),
-            _ => None,
-        })
+        .latest_user_request()
+        .filter(|(_, message)| !message.content.trim().is_empty())
+        .map(|(seq, message)| (seq, message.content.as_str()))
 }
 
 impl BasicHost {
@@ -274,6 +267,7 @@ impl BasicHost {
                     })),
                 },
             },
+            scope_seq,
             user_request_sha256,
         )
         .await;

@@ -32,6 +32,7 @@ pub(super) async fn respond(host: &BasicHost, response: ClientResponse) -> RpcRe
 pub(crate) async fn respond_review(
     host: &BasicHost,
     response: ClientResponse,
+    user_request_seq: Option<u64>,
     user_request_sha256: String,
 ) -> RpcReceipt {
     let pending = host
@@ -46,14 +47,20 @@ pub(crate) async fn respond_review(
             reason: ReceiptRejection::NotPending,
         };
     };
-    respond_approval(host, response, pending, Some(user_request_sha256)).await
+    respond_approval(
+        host,
+        response,
+        pending,
+        Some((user_request_seq, user_request_sha256)),
+    )
+    .await
 }
 
 async fn respond_approval(
     host: &BasicHost,
     response: ClientResponse,
     pending: PendingResponse,
-    reviewed_scope: Option<String>,
+    reviewed_scope: Option<(Option<u64>, String)>,
 ) -> RpcReceipt {
     let rpc_id = response.rpc_id.as_str().to_owned();
     match pending {
@@ -95,10 +102,11 @@ async fn respond_approval(
                     };
                 }
             };
-            let command = if let Some(user_request_sha256) = reviewed_scope {
+            let command = if let Some((user_request_seq, user_request_sha256)) = reviewed_scope {
                 LoopCommand::ReviewToolDecision {
                     call_id: call_id.clone(),
                     approved: value.get("outcome").and_then(Value::as_str) == Some("allowed-once"),
+                    user_request_seq,
                     user_request_sha256,
                 }
             } else {

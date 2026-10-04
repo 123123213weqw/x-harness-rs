@@ -364,10 +364,11 @@ impl DurableRunningTurn {
             LoopCommand::ReviewToolDecision {
                 call_id,
                 approved,
+                user_request_seq,
                 user_request_sha256,
             } => {
                 self.handle
-                    .review_tool_decision(call_id, approved, user_request_sha256)
+                    .review_tool_decision(call_id, approved, user_request_seq, user_request_sha256)
                     .await
             }
             LoopCommand::RejectTool { call_id, reason } => {

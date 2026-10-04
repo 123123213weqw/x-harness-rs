@@ -523,6 +523,8 @@ pub enum LoopCommand {
     ReviewToolDecision {
         call_id: String,
         approved: bool,
+        /// Exact admitted user event for durable runs; None only for compatibility runs.
+        user_request_seq: Option<u64>,
         user_request_sha256: String,
     },
     RejectTool {
