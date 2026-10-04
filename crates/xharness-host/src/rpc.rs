@@ -10,6 +10,7 @@ use xharness_api::{
 
 use crate::{driver::rpc_error, state::PendingResponse, BasicHost};
 
+mod automation;
 mod commands;
 mod credentials;
 mod dynamic;

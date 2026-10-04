@@ -689,6 +689,7 @@ fn every_first_version_event_round_trips_through_serde() {
             change: ScheduleChange::Create {
                 version: 1,
                 schedule: ScheduleRecord {
+                    automation: None,
                     id: "schedule-1".to_owned(),
                     kind: ScheduleKind::After,
                     prompt: "remind me".to_owned(),
@@ -805,6 +806,7 @@ fn schedule_stream_rejects_inactive_transitions_and_id_reuse() {
             change: ScheduleChange::Create {
                 version: 1,
                 schedule: ScheduleRecord {
+                    automation: None,
                     id: "schedule-1".to_owned(),
                     kind: ScheduleKind::After,
                     prompt: "remind".to_owned(),
@@ -839,6 +841,181 @@ fn schedule_stream_rejects_inactive_transitions_and_id_reuse() {
         inactive.append(Revision::ZERO, delete()),
         Err(SessionError::InvalidLifecycle { .. })
     ));
+}
+
+#[test]
+fn automation_reservation_is_immutable_and_receipt_identity_is_exact() {
+    use xharness_session::{AutomationMode, AutomationRun, AutomationSettings, AutomationTarget};
+    let record = ScheduleRecord {
+        id: "automation-1".into(),
+        kind: ScheduleKind::Every,
+        prompt: "authorized task".into(),
+        after_seconds: None,
+        every_seconds: Some(300),
+        scheduled_at: "2026-10-04T00:05:00.000Z".into(),
+        automation: Some(AutomationSettings {
+            mode: AutomationMode::Task,
+            target: AutomationTarget::NewChat,
+            paused: false,
+            creation_fingerprint: "a".repeat(64),
+        }),
+    };
+    let run = AutomationRun {
+        schedule_id: record.id.clone(),
+        run_id: "run-1".into(),
+        session_id: "target-1".into(),
+        occurrence_at: record.scheduled_at.clone(),
+    };
+    let accepted_at = Some("2026-10-04T00:05:01.000Z".to_owned());
+    let change = |change| event(EventData::ScheduleChange { change });
+    let reservation = ScheduleChange::ReserveRun {
+        version: 1,
+        run: run.clone(),
+        accepted_at: accepted_at.clone(),
+    };
+    let receipt = ScheduleChange::Run {
+        version: 1,
+        run: run.clone(),
+        accepted_at: accepted_at.clone(),
+    };
+    let mut session = Session::new(header("automation-reservations")).unwrap();
+    session
+        .append(
+            Revision::ZERO,
+            change(ScheduleChange::Create {
+                version: 1,
+                schedule: record.clone(),
+            }),
+        )
+        .unwrap();
+    assert!(session
+        .append(session.revision(), change(receipt.clone()))
+        .is_err());
+    session
+        .append(session.revision(), change(reservation.clone()))
+        .unwrap();
+    let revision = session.revision();
+    for invalid in [
+        reservation,
+        ScheduleChange::ReserveRun {
+            version: 1,
+            run: AutomationRun {
+                run_id: "another-run".into(),
+                ..run.clone()
+            },
+            accepted_at: accepted_at.clone(),
+        },
+        ScheduleChange::Update {
+            version: 1,
+            schedule: record.clone(),
+        },
+        ScheduleChange::Dispatch {
+            version: 1,
+            id: record.id.clone(),
+            accepted_at: accepted_at.clone(),
+        },
+        ScheduleChange::Run {
+            version: 1,
+            run: AutomationRun {
+                session_id: "wrong-target".into(),
+                ..run.clone()
+            },
+            accepted_at: accepted_at.clone(),
+        },
+        ScheduleChange::Run {
+            version: 1,
+            run: run.clone(),
+            accepted_at: None,
+        },
+    ] {
+        assert!(matches!(
+            session.append(revision, change(invalid)),
+            Err(SessionError::InvalidLifecycle { .. })
+        ));
+        assert_eq!(session.revision(), revision);
+    }
+    for invalid in [
+        ScheduleChange::SetPaused {
+            version: 2,
+            id: record.id.clone(),
+            paused: true,
+        },
+        ScheduleChange::SetPaused {
+            version: 1,
+            id: "missing".into(),
+            paused: true,
+        },
+    ] {
+        assert!(session.append(revision, change(invalid)).is_err());
+        assert_eq!(session.revision(), revision);
+    }
+    let mut cancelled = session.clone();
+    cancelled
+        .append(
+            revision,
+            change(ScheduleChange::SetPaused {
+                version: 1,
+                id: record.id.clone(),
+                paused: true,
+            }),
+        )
+        .unwrap();
+    cancelled
+        .append(
+            cancelled.revision(),
+            change(ScheduleChange::SetPaused {
+                version: 1,
+                id: record.id.clone(),
+                paused: false,
+            }),
+        )
+        .unwrap();
+    cancelled
+        .append(
+            cancelled.revision(),
+            change(ScheduleChange::Delete {
+                version: 1,
+                id: record.id.clone(),
+            }),
+        )
+        .unwrap();
+    assert!(cancelled
+        .append(cancelled.revision(), change(receipt.clone()))
+        .is_err());
+    Session::restore(
+        cancelled.header().clone(),
+        cancelled.revision(),
+        cancelled.events().to_vec(),
+    )
+    .unwrap();
+    session.append(revision, change(receipt.clone())).unwrap();
+    assert!(session.append(session.revision(), change(receipt)).is_err());
+    session
+        .append(
+            session.revision(),
+            change(ScheduleChange::Update {
+                version: 1,
+                schedule: record.clone(),
+            }),
+        )
+        .unwrap();
+    session
+        .append(
+            session.revision(),
+            change(ScheduleChange::Delete {
+                version: 1,
+                id: record.id,
+            }),
+        )
+        .unwrap();
+    assert!(session.derive_messages().is_empty());
+    let restored = Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec(),
+    )
+    .unwrap();
+    assert_eq!(restored.events(), session.events());
 }
 
 #[test]

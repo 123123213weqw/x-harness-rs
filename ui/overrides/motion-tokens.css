@@ -7,6 +7,8 @@
   --xh-duration-panel-in: 260ms;
   --xh-duration-panel-out: 180ms;
   --xh-duration-stream-in: 900ms;
+  --xh-duration-stream-text: 150ms;
+  --xh-duration-reasoning-flip: 180ms;
   --xh-duration-status-pulse: 1.5s;
   --xh-duration-logo-cycle: 5s;
   --xh-ease-panel: cubic-bezier(.23, 1, .32, 1);

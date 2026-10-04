@@ -1,0 +1,66 @@
+{
+  "verifiedAt": "2026-10-04T09:46:56.098073+00:00",
+  "scope": "Isolated Web acceptance on port 3266 with the production Rust Host and Schedule backend on WZU_Server. The installed macOS XHarness was not changed.",
+  "implementation": {
+    "slot": "tool.call.toolview:automation",
+    "backend": "automation/manage delegates to the existing runtime Schedule service; no new model tool or scheduler.",
+    "controls": [
+      "view",
+      "list",
+      "pause",
+      "resume",
+      "delete-with-confirmation"
+    ],
+    "stateSemantics": "Historical tool receipt is separate from live schedule state and last run state. Controls require verified backend state.",
+    "transport": "Existing Connection RPC; session isolation, bounded reads/mutations, no automatic mutation retry, lifecycle cleanup and hidden-page suspension.",
+    "rawJson": "Folded into Details; malformed and domain failures remain inspectable."
+  },
+  "regression": {
+    "newUiTests": 12,
+    "newRustTests": 5,
+    "uiPassed": 146,
+    "uiFailed": 0,
+    "remoteRustPassed": 343,
+    "remoteRustFailed": 0,
+    "remoteRustIgnored": 8,
+    "strictClippy": "passed on WZU_Server",
+    "finalRustChange": "Avoid publishing full history for read-only card queries. All 5 card backend tests and the Host build passed after this change; four edited Rust files matched remote hashes.",
+    "uiBuild": "Strict TypeScript and deterministic build verification passed.",
+    "architecture": "38 crate boundaries and 8 extracted processors passed.",
+    "scopeTests": "Cross-session/missing/deleted/archived ownership checks; unmount and late responses; hidden-page reads; duplicate clicks; mutation timeout.",
+    "logs": [
+      "/tmp/xh-automation-card-final-ui-20261004.log",
+      "/tmp/xh-automation-card-final-rust-20261004.log",
+      "/tmp/xh-automation-card-final-preview-20261004.log"
+    ]
+  },
+  "realModel": {
+    "reportedModel": "deepseek-flash",
+    "newRequests": 2,
+    "newPromptTokens": 4435,
+    "newCompletionTokens": 168,
+    "incrementalCostUpperCny": 0.010214,
+    "ledgerTotalRequests": 9,
+    "ledgerTotalCostUpperCny": 0.041032,
+    "existingBudgetCapCny": 10,
+    "costMethod": "Peak price upper estimate, no cached/off-peak discounts; not account balance delta.",
+    "budgetExpiryUnchanged": "2026-10-04T12:55:19.168435+00:00",
+    "createdSample": "automation-e74c8604f438720c48774cc251671347d8facb423ebc17db53840121720a8efb",
+    "sampleLiveStateAfterHostRestart": "paused",
+    "sampleRunCount": 0,
+    "cardActions": "Create displayed; pause, resume and second pause persisted through backend. Delete opened confirmation and was cancelled, not deleted. Card commands made no model request.",
+    "scopeSwitch": "Switched to the other fixture session then back; no foreign card appeared. Final paused state loaded from the backend.",
+    "locale": "Chinese labels and date verified in the isolated page.",
+    "fixtureCorrection": "An unsupported token-count POST returned 404 without consuming the body over keep-alive, producing an HTTP parse error on the next request. Fixed the temporary budget broker to close that response connection. This failure made no paid request and is not a production Harness defect."
+  },
+  "notPerformed": [
+    "GitHub CI run",
+    "commit/push/PR/merge",
+    "release",
+    "installed macOS replacement",
+    "native desktop UI verification",
+    "real model deletion test"
+  ],
+  "webUrl": "http://127.0.0.1:3266/",
+  "screenshot": "tool-card-ui.png"
+}

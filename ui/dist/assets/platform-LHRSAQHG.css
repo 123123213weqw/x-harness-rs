@@ -1446,6 +1446,22 @@ body[data-ds-dark-theme] .JsonTree_root {
 .MarkdownText_markdown strong {
   font-weight: 600;
 }
+@keyframes MarkdownText_stream-prose-in {
+  from {
+    opacity: .45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.MarkdownText_streamPiece {
+  animation: MarkdownText_stream-prose-in var(--xh-duration-stream-text, 150ms) var(--xh-ease-stream, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .MarkdownText_streamPiece {
+    animation: none;
+  }
+}
 .MarkdownText_markdown h1 {
   font: var(--dsw-font-markdown-h1);
   margin: 32px 0 16px;
@@ -2957,4 +2973,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-R62RND4X.css.map */
+/*# sourceMappingURL=platform-LHRSAQHG.css.map */

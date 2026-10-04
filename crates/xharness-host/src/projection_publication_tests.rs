@@ -126,6 +126,7 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
 
 fn scheduled_reminder() -> ScheduleRecord {
     ScheduleRecord {
+        automation: None,
         id: "reminder-old".into(),
         kind: ScheduleKind::Every,
         prompt: "check progress".into(),

@@ -1206,7 +1206,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn production_factory_projects_the_three_schedule_tools() {
+    async fn production_factory_projects_one_automation_tool() {
         let workspace = TempWorkspace::new();
         let store: Arc<dyn xharness_session::Store> =
             Arc::new(xharness_session::MemorySessionStore::default());
@@ -1237,8 +1237,12 @@ mod tests {
             .into_iter()
             .map(|definition| definition.name)
             .collect::<std::collections::BTreeSet<_>>();
+        assert!(names.contains("automation"));
         for name in ["schedule_create", "schedule_list", "schedule_delete"] {
-            assert!(names.contains(name), "missing {name}");
+            assert!(
+                !names.contains(name),
+                "legacy adapter still exposed: {name}"
+            );
         }
     }
 

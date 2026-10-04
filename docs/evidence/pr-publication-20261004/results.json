@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "verifiedAt": "2026-10-04T11:47:29.206034+00:00",
+  "sourceRevision": "8225054a62bdd8b4e720e263b7d276e964b05f19",
+  "baseRevision": "acf74b5938da2d3b160d6ee2327456ca0273368c",
+  "scope": "Publication regression for the complete approved automation and streaming UI batch after rebasing onto master. No merge, release or installed desktop changes.",
+  "frontend": {
+    "relatedNodeTests": {
+      "passed": 213,
+      "failed": 0
+    },
+    "workspaceTests": {
+      "passed": 12,
+      "failed": 0
+    },
+    "scheduleProjectionTests": "passed",
+    "strictOwnedTypeScript": "passed",
+    "deterministicBuildCheck": "passed",
+    "motionTokens": "passed",
+    "browserBundleAndChildWebViewIsolation": "passed",
+    "cargoFmtCheck": "passed (formatting only; no local Rust compilation)",
+    "architecture": "passed: 38 crate boundaries and 8 extracted processors",
+    "gitDiffCheck": "passed"
+  },
+  "rust": {
+    "host": "WZU_Server",
+    "localCompilation": false,
+    "finalRebasedRerun": "pending",
+    "sourceDirectory": "~/codex-build/xharness-automation-tool-20261004/",
+    "priorBroadRegression": {
+      "passed": 695,
+      "failed": 0,
+      "ignored": 13,
+      "evidence": "../automation-runtime-20261004/results.json"
+    },
+    "priorCardRegression": {
+      "passed": 343,
+      "failed": 0,
+      "ignored": 8,
+      "newRpcCases": 5,
+      "strictClippy": "passed",
+      "evidence": "../automation-runtime-20261004/tool-card-ui.json"
+    },
+    "countsAreOverlapping": true,
+    "sharedDirectoryRerun": "discarded: another concurrent checkout changed main.rs; remote checksum differed from the PR source and introduced unrelated GitHub references. Final validation uses isolated sources."
+  },
+  "modelCallsDuringPublication": 0,
+  "apiSpendCnyDuringPublication": 0,
+  "limitations": [
+    "GitHub CI is triggered on PR creation; this record does not claim it passed.",
+    "Final rebased Rust rerun was still pending at record time.",
+    "Browser motion acceptance used production components with synthetic chunks; not a real model speed benchmark or native WebView certification."
+  ],
+  "sourceSha256": {
+    "crates/xharness-host-app/src/main.rs": "677347e8589390184c575865a0f0854ca67d906355d0c3dc7ab9e9f8ad9c7a01",
+    "crates/xharness-host/src/runtime.rs": "0fc543c75c2ff9f2f0b02f0b4dafe7e0249a5dfff1c2f4ba2ed98afabf6827da",
+    "crates/xharness-host/src/rpc/automation.rs": "6c5fe8f0fcdca51d1d0d4fa8702672406be47979e9ee71a71372a0187cff49c2",
+    "crates/xharness-schedule/src/automation.rs": "4783600241b57cf10156ef369c9bddf203f019e1514a259d08e3a5e33c8abb19",
+    "ui/src/modules/conversation/chat/ReasoningRow.tsx": "14b4a7f64619a6a1c191a9782753557cc233750424106a88e3badcb9f2de4076",
+    "ui/src/modules/conversation/chat/reasoning-summary.ts": "f2bad8410309aa375335b37eb94aa66dc02955626a10d8b13508f19d73904a82",
+    "ui/src/modules/conversation/chat/use-reasoning-summary.ts": "6b270d9da525780327c06324aafd961d8dd916be3295fce7fb3ecfb7e78a0cb7",
+    "ui/src/modules/platform/primitives/markdown/stream-presentation.ts": "4c92088adc9b9d33a17eac19f6171e1e47af102b626939d95c98d515aaa2aff4",
+    "ui/src/modules/schedule/AutomationToolCard.tsx": "3189a13fd2f96f6cfe8bf714f97cee87ba94d535c6a49e2924f7e416820d2fcf"
+  }
+}

@@ -3443,7 +3443,7 @@ exports.sessionEventSchema = zod_1.z.object({
     ignorable: zod_1.z.literal(true).optional(),
 });
 /** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
-exports.sessionOriginSchema = zod_1.z.enum(['subagent', 'fork']);
+exports.sessionOriginSchema = zod_1.z.enum(['subagent', 'fork', 'automation']);
 exports.sessionSummarySchema = zod_1.z.object({
     sessionId: exports.sessionIdSchema,
     updatedAt: zod_1.z.number(),
