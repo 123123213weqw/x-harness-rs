@@ -76,7 +76,7 @@ for (const name of names) {
     const before = harness(false, name); const after = harness(true, name)
     assert.deepEqual(Object.keys(after.plugin).sort(), Object.keys(before.plugin).filter(key => name !== 'tasks' || key !== 'rpc').sort())
     const expectedInject = name === 'context' ? [...before.plugin.inject, 'locale']
-      : ['tasks','schedule'].includes(name) ? [...before.plugin.inject,'workCatalog'] : before.plugin.inject
+      : name === 'schedule' ? [...before.plugin.inject, 'workCatalog', 'connection'] : name === 'tasks' ? [...before.plugin.inject,'workCatalog'] : before.plugin.inject
     assert.deepEqual(normalized(after.plugin.inject), normalized(expectedInject))
     before.plugin.apply(before.ctx); after.plugin.apply(after.ctx)
     if (name === 'context') {
@@ -86,11 +86,23 @@ for (const name of names) {
     } else {
       const expectedLocales = normalized(before.locales)
       if (name === 'tasks') for (const dictionary of Object.values(expectedLocales[0].dictionaries)) { delete dictionary['panel.open']; delete dictionary['panel.close'] }
-      assert.deepEqual(normalized(after.locales), expectedLocales)
+      const actualLocales = normalized(after.locales)
+      if (name === 'schedule') {
+        // Intentional product extension: retain the immutable migration baseline,
+        // compare every pre-existing label and require a bilingual card key roster.
+        const dictionaries = actualLocales[0].dictionaries
+        Object.assign(expectedLocales[0].dictionaries.zh, {'status.paused': '已暂停', 'trigger.one': '{count} 个自动化', 'trigger.other': '{count} 个自动化'})
+        Object.assign(expectedLocales[0].dictionaries.en, {'status.paused': 'Paused', 'trigger.one': '{count} automation', 'trigger.other': '{count} automations'})
+        const keys = lang => Object.keys(dictionaries[lang]).filter(key => key.startsWith('card.')).sort()
+        assert.ok(keys('zh').length > 40)
+        assert.deepEqual(keys('zh'), keys('en'))
+        for (const dictionary of Object.values(dictionaries)) for (const key of Object.keys(dictionary)) if (key.startsWith('card.')) delete dictionary[key]
+      }
+      assert.deepEqual(actualLocales, expectedLocales)
     }
     const expectedSlots = normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec))
     if (name === 'tasks') expectedSlots[0].name = 'work.center.tasks'
-    if (name === 'schedule') expectedSlots.unshift({name: 'work.center.automations', id: 'automations', order: 20})
+    if (name === 'schedule') expectedSlots.unshift({name: 'tool.call.toolview', key: 'automation', locale: 'schedule.catalog'}, {name: 'work.center.automations', id: 'automations', order: 20})
     assert.deepEqual(normalized(after.slots.map(row => row.spec)), expectedSlots)
     if (name === 'context') {
       const current = after.styles.get('xharness-context-inspector-style').textContent
@@ -110,7 +122,7 @@ for (const name of names) {
         expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
       }
       if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
-      if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')])
+      if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
       assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
     for (const cleanup of after.cleanups) cleanup()
@@ -150,6 +162,13 @@ test('motion: fake-element pure planner preserves deduplication, churn and stagg
     assert.equal(api.planStreamAnimations(nodes, row, 11000, recent).length, 4)
     assert.equal(api.planStreamAnimations(nodes, null, 12000, recent).length, 0)
   }
+})
+
+test('motion: owned live prose is not reanimated as a whole paragraph', () => {
+  const row = new ElementStub(), owned = new ElementStub('div', row), paragraph = new ElementStub('p', owned)
+  owned.attrs.set('[data-xh-stream-owned]', 'true')
+  row.append(owned); owned.append(paragraph)
+  assert.equal(harness(true, 'motion').plugin.planStreamAnimations([paragraph], row, 10000, new WeakMap()).length, 0)
 })
 
 test('computer: all actions, observed summaries and settled states match', () => {

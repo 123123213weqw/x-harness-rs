@@ -437,6 +437,45 @@ pub enum ScheduleKind {
     Every,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationMode {
+    #[default]
+    Reminder,
+    Task,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutomationTarget {
+    #[default]
+    CurrentChat,
+    NewChat,
+}
+
+/// Absent on legacy reminders. Only an explicit new create/update may opt in
+/// to executing a saved user task; replay never upgrades old reminder text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutomationSettings {
+    pub mode: AutomationMode,
+    pub target: AutomationTarget,
+    pub paused: bool,
+    /// Digest of the original command, used to reject idempotency-key reuse.
+    pub creation_fingerprint: String,
+}
+
+/// Admission receipt, not a claim of task success. The target session's
+/// ordinary turn/start, user/message and turn/end facts own the run outcome.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutomationRun {
+    pub schedule_id: String,
+    pub run_id: String,
+    pub session_id: String,
+    pub occurrence_at: String,
+}
+
 /// Canonical durable Schedule record. Fields that do not belong to the
 /// selected kind are absent rather than zero-valued.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -450,6 +489,33 @@ pub struct ScheduleRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_seconds: Option<u64>,
     pub scheduled_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation: Option<AutomationSettings>,
+}
+
+impl ScheduleRecord {
+    pub fn valid_shape(&self) -> bool {
+        !self.id.trim().is_empty()
+            && self.id.trim() == self.id
+            && !self.prompt.trim().is_empty()
+            && self.prompt.trim() == self.prompt
+            && !self.scheduled_at.trim().is_empty()
+            && match self.kind {
+                ScheduleKind::After => {
+                    self.after_seconds.is_some_and(|s| s > 0) && self.every_seconds.is_none()
+                }
+                ScheduleKind::At => self.after_seconds.is_none() && self.every_seconds.is_none(),
+                ScheduleKind::Every => {
+                    self.after_seconds.is_none() && self.every_seconds.is_some_and(|s| s >= 300)
+                }
+            }
+            && self.automation.as_ref().is_none_or(|a| {
+                a.creation_fingerprint.len() == 64
+                    && a.creation_fingerprint
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+    }
 }
 
 /// Version-one mutation stream used to reconstruct active schedules.
@@ -467,6 +533,30 @@ pub enum ScheduleChange {
     Dispatch {
         version: u8,
         id: String,
+        #[serde(
+            rename = "acceptedAt",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        accepted_at: Option<String>,
+    },
+    Update {
+        version: u8,
+        schedule: ScheduleRecord,
+    },
+    Run {
+        version: u8,
+        run: AutomationRun,
+        #[serde(
+            rename = "acceptedAt",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        accepted_at: Option<String>,
+    },
+    ReserveRun {
+        version: u8,
+        run: AutomationRun,
         #[serde(
             rename = "acceptedAt",
             default,

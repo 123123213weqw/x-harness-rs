@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { File } from 'node:buffer'
+import { readFileSync } from 'node:fs'
 import { exposeConversation } from './conversation-artifact-test.mjs'
 import { compile, harness, legacySource, legacyTest, json, tick, controller, editorFixture } from './conversation-test-harness.mjs'
 const compiled=compile(),apis=[harness(legacyTest),harness(compiled.test)];
@@ -26,8 +27,12 @@ test('removed Context selection falls back to Chat without hiding retained Harne
 
 test('real source entry preserves published ABI, injection, exact stylesheet tags and dictionaries',()=>{
  const old=harness(legacySource),next=harness(compiled.entry);assert.deepEqual(Object.keys(next.plugin).sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));
- // Intentional post-migration feature delta: completed-turn disclosure.
- const css=h=>Object.fromEntries(h.styles.filter(s=>!s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')&&!s.dataset.pluginCss.endsWith('/MessageRail.css')).map(s=>[s.dataset.pluginCss,s.textContent]));assert.deepEqual(css(next),css(old));
+ // Intentional post-migration deltas: completed-turn disclosure and fast reasoning pages.
+ const css=h=>Object.fromEntries(h.styles.filter(s=>!s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')&&!s.dataset.pluginCss.endsWith('/MessageRail.css')).map(s=>[s.dataset.pluginCss,s.textContent]));
+ const oldCss=css(old),nextCss=css(next),reasoningId='@xharness/dsh-client-ui-conversation/ReasoningRow.module.css';
+ assert.equal(nextCss[reasoningId],readFileSync(new URL('../ui/src/modules/conversation/chat/ReasoningRow.css',import.meta.url),'utf8'),'the emitted reasoning stylesheet is exactly its maintained source');
+ assert.ok(nextCss[reasoningId].startsWith(oldCss[reasoningId]),'existing reasoning styles and sweep are preserved before the page rules');
+ assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},oldCss,'every other stylesheet and tag remains exactly unchanged');
  const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const newKeys=['message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];

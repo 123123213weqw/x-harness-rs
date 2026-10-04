@@ -1,0 +1,72 @@
+{
+  "verifiedAt": "2026-10-04T09:12:34.749165+00:00",
+  "scope": "Isolated Web manual acceptance + production Rust Host on V100; real DeepSeek, not scripted. Automation-only allowlist. Local installed XHarness unchanged.",
+  "model": "deepseek-flash",
+  "reportedModels": [
+    "deepseek-flash"
+  ],
+  "newBudgetCny": 10,
+  "requests": 7,
+  "promptTokens": 10961,
+  "completionTokens": 1112,
+  "chargedUpperCny": 0.030818,
+  "costMethod": "Peak price upper estimate, no cached/off-peak discounts; not measured account-balance delta. Incomplete calls retain worst-case reservation.",
+  "pricingSource": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+  "testWindowExpiresAt": "2026-10-04T12:55:19.168435+00:00",
+  "sessions": [
+    {
+      "sessionId": "session-1791104177059-2",
+      "actions": [
+        "create"
+      ],
+      "createdSchedules": 1,
+      "reservedRuns": 1,
+      "admittedRuns": 1,
+      "completedTurns": [
+        1,
+        2
+      ],
+      "modes": [
+        {
+          "creationFingerprint": "232f83ad67730c77d6a6c7e6985d3164f749c1203ae47b4dc5e33a9645076633",
+          "mode": "reminder",
+          "paused": false,
+          "target": "current_chat"
+        }
+      ]
+    },
+    {
+      "sessionId": "session-1791104786609-112",
+      "actions": [
+        "create",
+        "list"
+      ],
+      "createdSchedules": 1,
+      "reservedRuns": 1,
+      "admittedRuns": 1,
+      "completedTurns": [
+        0,
+        1
+      ],
+      "modes": [
+        {
+          "creationFingerprint": "ed761f92b9d37a4c5ecf04f905b40900f764277b025544a7f73d457c8c7cf286",
+          "mode": "reminder",
+          "paused": false,
+          "target": "current_chat"
+        }
+      ]
+    }
+  ],
+  "fixtureCorrections": [
+    "Unknown authenticated native token-count endpoint changed from HTTP 403 to HTTP 404, allowing real Provider estimator fallback. No exact token count fabricated.",
+    "Test RPC payload corrected to production mode=queue and content text parts before paid requests."
+  ],
+  "notVerifiedByThisRealTest": [
+    "new_chat execution",
+    "pause/resume/delete via actual model",
+    "OS-native desktop interaction"
+  ],
+  "webURL": "http://127.0.0.1:3266/",
+  "screenshot": "/tmp/xh-automation-user-test-20261004/manual-test-ready.png"
+}

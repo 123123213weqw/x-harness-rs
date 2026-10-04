@@ -7,17 +7,8 @@ import a11yCss from './accessibility.styles'
 import css from './ReasoningRow.styles'
 import { useTranscriptState } from './transcript-state'
 import { useProcessMode } from './process-mode'
-
-function firstLine(text: string): string {
-  const newline = text.indexOf('\n')
-  return newline === -1 ? text : text.slice(0, newline)
-}
-
-function latestLine(text: string): string {
-  const visible = text.trimEnd()
-  const newline = visible.lastIndexOf('\n')
-  return newline === -1 ? visible : visible.slice(newline + 1)
-}
+import { firstReasoningLine } from './reasoning-summary'
+import { useReasoningSummary } from './use-reasoning-summary'
 
 /**
  * Render one assistant reasoning block as the Think disclosure row.
@@ -36,18 +27,19 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
     setExpanded(processMode === 'expanded')
   }, [processMode, appliedMode, setAppliedMode, setExpanded])
   const summaryRef = useRef<HTMLSpanElement>(null)
-  const summary = running ? latestLine(text) : firstLine(text)
+  const preview = useReasoningSummary(text, running && !expanded)
+  const summary = running ? preview.current : firstReasoningLine(text)
   const scheduleSummaryScroll = useThrottledVisualUpdate(() => {
     const element = summaryRef.current
     if (element === null) return
-    element.scrollLeft = running ? element.scrollWidth - element.clientWidth : 0
+    element.scrollLeft = running && !preview.paging ? element.scrollWidth - element.clientWidth : 0
   })
   useEffect(() => {
     scheduleSummaryScroll()
-  }, [running, scheduleSummaryScroll, summary])
+  }, [running, preview.paging, scheduleSummaryScroll, summary])
 
   return (
-    <div className={css.root} data-variant="think" data-state={running ? 'running' : 'ok'}>
+    <div className={css.root} data-variant="think" data-state={running ? 'running' : 'ok'} data-preview={preview.paging ? 'paged' : undefined}>
       {running && <span className={a11yCss.visuallyHidden}>{t('row.running')}</span>}
       <DisclosureRow
         rowClassName={css.row}
@@ -63,7 +55,14 @@ export function ReasoningRow({ text, running, t, stateKey = 0 }: { text: string;
         collapsedContent={(
           <>
             <span className={css.separator} aria-hidden />
-            <span ref={summaryRef} className={css.summary} data-follow-end={running || undefined}>{summary}</span>
+            <span ref={summaryRef} className={css.summary} data-follow-end={running && !preview.paging || undefined} data-paging={preview.paging || undefined}>
+              {preview.paging ? (
+                <span key={preview.revision} className={css.page} data-flipping={preview.previous !== undefined || undefined}>
+                  {preview.previous !== undefined && <span className={css.pageOut} aria-hidden>{preview.previous}</span>}
+                  <span className={css.pageIn}>{summary}</span>
+                </span>
+              ) : summary}
+            </span>
           </>
         )}
       >
