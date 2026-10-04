@@ -192,6 +192,48 @@ fn compaction_transaction_replaces_surface_without_deleting_source_history() {
     assert_eq!(surface[0].seq, 5);
     assert_eq!(surface[0].message.content, "checkpoint");
     assert_eq!(session.derive_messages(), vec![Message::user("checkpoint")]);
+    assert_eq!(
+        session.latest_user_request(),
+        Some((1, &Message::user("very old context")))
+    );
+    let restored = Session::restore(
+        session.header().clone(),
+        session.revision(),
+        session.events().to_vec(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored.latest_user_request(),
+        session.latest_user_request(),
+        "restart uses durable source, not checkpoint"
+    );
+    session
+        .append(session.revision(), EventData::StepEnd { turn: 1, step: 1 })
+        .unwrap();
+    session
+        .append(
+            session.revision(),
+            EventData::UserMessage {
+                message: Message::user("very old context"),
+                surface_replace: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        session.latest_user_request().unwrap().0,
+        8,
+        "identical text is a new request version"
+    );
+    session
+        .append(
+            session.revision(),
+            EventData::UserMessage {
+                message: Message::user(""),
+                surface_replace: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(session.latest_user_request(), Some((9, &Message::user(""))));
 }
 
 #[test]

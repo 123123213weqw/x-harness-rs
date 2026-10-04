@@ -60,6 +60,12 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 
 集成后 9 个 Unix 收据、Windows PASS／缓存与状态观测位于 `desktop-native-updates-20261004/integrated/`；完整 `crates`、`ui/src`、`ui/dist`、桌面 frontend／src-tauri Git tree 逐项一致，见 `integrated/source-binding.json`。最终提交的原生夹具复验和 CI 仍以 PR #215 对应 Actions 为准；临时签名结果不用于正式发布门禁。
 
+## AI 审批主线的第二次集成
+
+`d2a0739` 的 [完整 CI 37195912915](https://github.com/123123213weqw/x-harness-rs/actions/runs/37195912915)与[严格 Windows 原生复验 37195910454](https://github.com/123123213weqw/x-harness-rs/actions/runs/37195910454)均成功。但合并前主线已合入 PR #218（`03b067ba1eaa2eae4305f89e37a551c69487f57f`）：加入可选 AI 工具审批和持久用户请求绑定。本分支保留它，重新生成整套 UI，不回退主线 Host／Loop 变化。
+
+这里会改变 Host 和部分 UI 的生产输入树，所以上面的 `integrated/source-binding.json` 明确是**上一次集成的历史绑定**，不是这次集成的最终源码绑定。更新器／缓存／首屏实现不变；本次仍须补四平台原生演练和新提交完整 CI。新运行的准确源码／包哈希／收据由 PR #215 对应 Actions 保存，不将上一版通过冒充新包验证。正式发布、公证和性能证明边界不变。
+
 ## 不包含的证明
 
 没有测量或宣称原生启动速度更快。没有宣称正式生产签名、Apple 公证／浏览器首次下载 Gatekeeper 批准、Windows Authenticode／SmartScreen、Linux `.deb` 包管理器升级、多旧版本迁移矩阵、下载部分续传或普遍自动回滚已经验收。首屏是生命周期／交互改造，不是性能基准结果。
