@@ -208,6 +208,9 @@ fn compaction_transaction_replaces_surface_without_deleting_source_history() {
         "restart uses durable source, not checkpoint"
     );
     session
+        .append(session.revision(), EventData::StepEnd { turn: 1, step: 1 })
+        .unwrap();
+    session
         .append(
             session.revision(),
             EventData::UserMessage {
@@ -218,7 +221,7 @@ fn compaction_transaction_replaces_surface_without_deleting_source_history() {
         .unwrap();
     assert_eq!(
         session.latest_user_request().unwrap().0,
-        7,
+        8,
         "identical text is a new request version"
     );
     session
@@ -230,7 +233,7 @@ fn compaction_transaction_replaces_surface_without_deleting_source_history() {
             },
         )
         .unwrap();
-    assert_eq!(session.latest_user_request(), Some((8, &Message::user(""))));
+    assert_eq!(session.latest_user_request(), Some((9, &Message::user(""))));
 }
 
 #[test]
