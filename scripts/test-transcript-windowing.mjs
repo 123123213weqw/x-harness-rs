@@ -85,14 +85,43 @@ try {
  await page.locator('[data-row="0"] button').waitFor();
  await page.evaluate(()=>document.activeElement.blur());
  // A genuine text selection is temporarily protected, then released.
- await page.evaluate(()=>{
-  const text=document.querySelector('[data-row="0"] pre span').firstChild;
+ // Releasing focus can commit pending window measurements. An attached
+ // button alone does not prove that the first row is the settled reader
+ // viewport (especially on a two-CPU Linux WebKit runner).
+ await scroll.evaluate(e=>{e.scrollTop=0});
+ const selectedText=await page.evaluate(async()=>{
+  const root=document.querySelector('[data-conversation-scroll]');
+  let previous='',stable=0,text;
+  for(let frame=0;frame<120;frame++){
+   await new Promise(resolve=>requestAnimationFrame(resolve));
+   const row=document.querySelector('[data-row="0"]'),span=row?.querySelector('pre span');
+   const viewport=root.getBoundingClientRect(),bounds=row?.getBoundingClientRect();
+   const ready=span?.firstChild&&root.scrollTop<1&&bounds.bottom>viewport.top&&bounds.top<viewport.bottom;
+   const signature=JSON.stringify([root.scrollTop,root.scrollHeight,bounds?.top,bounds?.height]);
+   stable=ready&&signature===previous?stable+1:0;previous=signature;
+   if(stable>=3){text=span.firstChild;break}
+  }
+  if(!text)throw Error('first row did not settle in the selection viewport');
   const range=document.createRange();range.selectNodeContents(text);
-  const selection=document.getSelection();selection.removeAllRanges();selection.addRange(range);
+  const selection=document.getSelection();
+  await new Promise((resolve,reject)=>{
+   const cleanup=()=>{clearTimeout(timer);document.removeEventListener('selectionchange',changed)};
+   const changed=()=>{if(selection.isCollapsed||selection.toString()!==text.textContent)return;cleanup();resolve()};
+   const timer=setTimeout(()=>{cleanup();reject(Error('native selectionchange was not delivered'))},3000);
+   document.addEventListener('selectionchange',changed);
+   selection.removeAllRanges();selection.addRange(range);
+  });
+  // Wait for native selection delivery, not an arbitrary Node-side sleep.
+  // Check the real selection again before asking the row to leave view.
+  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  if(selection.isCollapsed||!range.intersectsNode(document.querySelector('[data-row="0"]')))
+   throw Error('fixture did not establish a genuine first-row selection');
+  return selection.toString();
  });
- await page.waitForTimeout(100);
+ assert.ok(selectedText.length>0,'selection fixture must select real text');
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(100);
  assert.equal(await page.locator('[data-row="0"] button').count(),1,'selected text is not evicted');
+ assert.equal(await page.evaluate(()=>document.getSelection().toString()),selectedText,'selected text stays intact after leaving the viewport');
  await page.evaluate(()=>document.getSelection().removeAllRanges());
  await page.waitForFunction(()=>document.querySelector('[data-row="0"]').dataset.transcriptMounted==='false');
  await scroll.evaluate(e=>{e.scrollTop=0});await page.locator('[data-row="0"] button').waitFor();

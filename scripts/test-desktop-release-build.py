@@ -684,5 +684,27 @@ class WorkflowGuard(unittest.TestCase):
             self.assertEqual({p.name for p in output.iterdir()}, {'acceptance.json', 'app.log', 'cleanup.json'})
 
 
+class NpmInvocationTests(unittest.TestCase):
+    def test_unix_preserves_direct_executable(self):
+        with patch.object(build.shutil, 'which', return_value='/trusted/npm'):
+            self.assertEqual(build.npm_invocation('linux'), ['/trusted/npm'])
+
+    def test_windows_uses_node_js_entry_without_shell_or_cmd_shim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cli = root / 'node_modules/npm/bin/npm-cli.js'
+            cli.parent.mkdir(parents=True); cli.write_text('fixture')
+            lookup = lambda name: str(root / ('npm.cmd' if name == 'npm' else 'node.exe'))
+            with patch.object(build.shutil, 'which', side_effect=lookup):
+                self.assertEqual(build.npm_invocation('win32'), [str(root / 'node.exe'), str(cli)])
+            cli.unlink()
+            with patch.object(build.shutil, 'which', side_effect=lookup), self.assertRaisesRegex(ValueError, 'Missing pinned'):
+                build.npm_invocation('win32')
+
+    def test_missing_npm_fails_closed(self):
+        with patch.object(build.shutil, 'which', return_value=None), self.assertRaisesRegex(ValueError, 'Missing npm'):
+            build.npm_invocation('win32')
+
+
 if __name__ == '__main__':
     unittest.main()

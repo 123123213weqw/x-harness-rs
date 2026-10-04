@@ -14,6 +14,11 @@ on:
         type: choice
         options: [candidate, rehearsal]
         default: candidate
+      windows_cache_only:
+        description: Run only the disposable Windows cache rehearsal (never candidate acceptance)
+        required: false
+        type: boolean
+        default: false
       release_run_id:
         description: Successful Desktop Release run; required only in candidate mode
         required: false
@@ -37,7 +42,7 @@ env:
 
 jobs:
   select:
-    if: inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)
+    if: ${{ !inputs.windows_cache_only && (inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)) }}
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -82,7 +87,7 @@ jobs:
     needs: select
     # Reusable CI is rehearsal-only and receives no secrets. Formal mode is an
     # explicit master dispatch, with a source-bound production build artifact.
-    if: inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)
+    if: ${{ !inputs.windows_cache_only && (inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)) }}
     name: ${{ inputs.mode }} ${{ matrix.platform }}
     timeout-minutes: 90
     strategy:
@@ -194,3 +199,9 @@ jobs:
         if: always() && inputs.mode == 'rehearsal'
         run: |
           rm -f "$CANDIDATE/disposable.key" "$CANDIDATE/disposable.key.pub"
+
+  windows-cache-rehearsal:
+    if: inputs.mode == 'rehearsal'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop-windows-cache-rehearsal.yml

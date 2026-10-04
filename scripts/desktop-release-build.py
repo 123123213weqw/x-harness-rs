@@ -544,15 +544,29 @@ def export_environment(values):
             output.write(f'{key}={value}\n')
 
 
+def npm_invocation(platform=None):
+    platform = platform or sys.platform
+    npm = shutil.which('npm')
+    require(npm, 'Missing npm executable')
+    if platform != 'win32':
+        return [npm]
+    # CreateProcess does not resolve bare npm to npm.cmd. Execute the trusted
+    # Node distribution's JS entry directly; no cmd.exe quoting or shell=True.
+    node = shutil.which('node')
+    cli = Path(npm).parent / 'node_modules/npm/bin/npm-cli.js'
+    require(node and cli.is_file() and not cli.is_symlink(), 'Missing pinned Node/npm CLI')
+    return [node, str(cli)]
+
+
 def rehearsal_init(destination):
     hosted()
-    require(os.environ.get('GITHUB_REF') == 'refs/heads/master' or os.environ.get('GITHUB_EVENT_NAME') in {'pull_request', 'push'}, 'Rehearsals require a CI source event')
+    require(os.environ.get('GITHUB_REF') == 'refs/heads/master' or os.environ.get('GITHUB_EVENT_NAME') in {'pull_request', 'push', 'workflow_dispatch'}, 'Rehearsals require a CI source event')
     root = Path(destination)
     require(Path(os.environ['RUNNER_TEMP']).resolve() in root.resolve().parents, 'Rehearsal keys must stay in runner temporary storage')
     root.mkdir(mode=0o700)
     (root / 'release').mkdir()
     # Signer generation can print private material: capture and discard its output.
-    subprocess.run(['npm', 'exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
+    subprocess.run([*npm_invocation(), 'exec', '--yes', '--package', '@tauri-apps/cli@2.11.4', '--',
                     'tauri', 'signer', 'generate', '-w', str(root / 'disposable.key'), '-p', '', '--ci'],
                    cwd=ROOT / 'apps/desktop', check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     key = (root / 'disposable.key.pub').read_text(encoding='utf-8').strip()
@@ -573,12 +587,15 @@ def rehearsal_init(destination):
 def rehearsal_receipt(args):
     plan = load(args.candidate / 'plan.json')
     require(plan.get('rehearsal_only') is True, 'This helper is never a production release receipt producer')
-    require(PLATFORMS.get(args.platform) == args.target and args.platform != 'windows-x86_64', 'Invalid Unix platform')
+    require(PLATFORMS.get(args.platform) == args.target, 'Invalid native rehearsal platform')
     bundle = ROOT / 'apps/desktop/src-tauri/target' / args.target / 'release/bundle'
     if args.platform.startswith('darwin-'):
         source = bundle / 'macos/XHarness.app.tar.gz'
         architecture = 'aarch64' if args.platform == 'darwin-aarch64' else 'x86_64'
         name = f'XHarness_{plan["version"]}_{architecture}.app.tar.gz'
+    elif args.platform == 'windows-x86_64':
+        name = f'XHarness_{plan["version"]}_x64-setup.exe'
+        source = bundle / 'nsis' / name
     else:
         name = f'XHarness_{plan["version"]}_amd64.AppImage'
         source = bundle / 'appimage' / name
