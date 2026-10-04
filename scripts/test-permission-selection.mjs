@@ -33,6 +33,16 @@ resolve(false);await new Promise(r=>setImmediate(r));
 value={...value,currentValue:'danger-full-access',pending:true};
 [menu]=render();assert.equal(menu.props.selectedId,'danger-full-access');assert.match(menu.props.anchor.props.title,/当前轮：workspace-write/);
 assert.equal(render(true)[0].props.anchor.props.disabled,true,'read-only/locked contexts remain locked');
+// AI review is a distinct Host option, not an alias for Full access.
+value={...value,currentValue:'workspace-write-ai-review',options:[...value.options,{value:'workspace-write-ai-review',name:'AI review'}]};
+[menu]=render();assert.equal(menu.props.selectedId,'workspace-write-ai-review');
+menu.props.onSelect('workspace-write');
+assert.equal(commands.at(-1),'/permission workspace-write');
+resolve(true);await new Promise(r=>setImmediate(r));
+value={...value,currentValue:'workspace-write'};
+[menu]=render();menu.props.onSelect('workspace-write-ai-review');
+assert.equal(commands.at(-1),'/permission workspace-write-ai-review');
+resolve(true);await new Promise(r=>setImmediate(r));
 // Run the actual owning bar, not a textual slice: running alone leaves access live.
 const input={draft:'',imageIds:[],phase:'plain',queue:[],occurrences:[],claim:null};
 hooks.reset();

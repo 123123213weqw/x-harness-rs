@@ -18,5 +18,5 @@ export function displayPresetName(name: string): string {
  * @returns the Full access product label or the conventional display name.
  */
 export function displayPermissionPreset(value: string, name: string): string {
-  return value === FULL_ACCESS_PRESET ? 'Full access' : displayPresetName(name)
+  return value === FULL_ACCESS_PRESET ? 'Full access' : value === 'workspace-write-ai-review' ? 'AI 代审' : displayPresetName(name)
 }
