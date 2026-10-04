@@ -98,6 +98,10 @@ for (const name of names) {
         assert.deepEqual(keys('zh'), keys('en'))
         for (const dictionary of Object.values(dictionaries)) for (const key of Object.keys(dictionary)) if (key.startsWith('card.')) delete dictionary[key]
       }
+      if (name === 'plugin-hub') {
+        Object.assign(expectedLocales[0].dictionaries.zh, {cancel: '取消', close: '关闭'})
+        Object.assign(expectedLocales[0].dictionaries.en, {cancel: 'Cancel', close: 'Close'})
+      }
       assert.deepEqual(actualLocales, expectedLocales)
     }
     const expectedSlots = normalized(before.slots.filter(row => name !== 'context' || row.spec.id !== 'context').map(row => name === 'context' && row.spec.id === 'harness' ? {...row.spec, inject: () => {}} : row.spec))
@@ -115,11 +119,12 @@ for (const name of names) {
     } else {
       const expectedStyles = [...before.styles].map(([id, style]) => [id, style.textContent])
       if (name === 'plugin-hub') {
-        // Keep the immutable letter-icon migration baseline intact. Preserve all
-        // original rules; allow ONLY this explicit passive-image style extension.
+        // Keep the immutable migration baseline intact. Preserve every original
+        // rule; allow only these explicit passive-image and consent extensions.
         assert.equal(expectedStyles.length, 1)
         assert.equal(expectedStyles[0][0], 'xharness-plugin-hub-style')
         expectedStyles[0][1] += '.xhph-icon-artwork{background:transparent}.xhph-icon img{display:block;width:42px;height:42px;object-fit:contain}\n'
+        expectedStyles[0][1] += '.xhph-confirm-message{white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;font-size:13px;line-height:1.6}.xhph-confirm-actions{display:flex;justify-content:flex-end;gap:10px}\n'
       }
       if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])

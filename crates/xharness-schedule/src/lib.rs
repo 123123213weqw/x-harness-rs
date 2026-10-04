@@ -93,6 +93,7 @@ struct FoldedSchedules {
     seen_ids: HashSet<String>,
     runs: Vec<AutomationRun>,
     pending_runs: Vec<(AutomationRun, Option<String>)>,
+    cancelled_runs: Vec<AutomationRun>,
 }
 
 #[derive(Clone, Debug)]
@@ -156,6 +157,8 @@ struct ScheduleOwner {
     /// A follow-up may already be durable when its dispatch marker cannot be
     /// appended. Retry only the marker; never enqueue the same reminder again.
     pending_dispatches: Mutex<Option<Vec<ScheduleChange>>>,
+    /// Per-reservation retry deadlines; never let one target starve other rules.
+    preparation_retries: Mutex<HashMap<String, (u32, i64)>>,
     deliveries: Arc<Mutex<HashMap<(String, String), PreparedScheduleDelivery>>>,
     delivery_tx: broadcast::Sender<ScheduleDeliveryNotice>,
     targets: Arc<OnceLock<Arc<dyn AutomationTargetProvider>>>,
@@ -206,6 +209,7 @@ impl ScheduleManager {
                     stop: CancellationToken::new(),
                     task: Mutex::new(None),
                     pending_dispatches: Mutex::new(None),
+                    preparation_retries: Mutex::new(HashMap::new()),
                     deliveries: Arc::clone(&self.deliveries),
                     delivery_tx: self.delivery_tx.clone(),
                     targets: Arc::clone(&self.targets),
@@ -691,7 +695,36 @@ impl ScheduleOwner {
                 }
             }
         }
-        let pending = folded.pending_runs.first().cloned();
+        let mut retries = self.preparation_retries.lock().await;
+        retries.retain(|id, _| folded.pending_runs.iter().any(|(run, _)| &run.run_id == id));
+        let mut retry_at: Option<i64> = None;
+        let pending = folded
+            .pending_runs
+            .iter()
+            .find(|(run, _)| {
+                let Some(record) = eligible.active.iter().find(|r| r.id == run.schedule_id) else {
+                    return false;
+                };
+                if automation::paused(record) {
+                    return false;
+                }
+                if let Some((_, deadline)) = retries.get(&run.run_id) {
+                    if *deadline > now {
+                        retry_at = Some(retry_at.unwrap_or(i64::MAX).min(*deadline));
+                        return false;
+                    }
+                }
+                true
+            })
+            .cloned();
+        drop(retries);
+        // A reserved occurrence must not be reserved a second time while cooling down.
+        eligible.active.retain(|record| {
+            !folded
+                .pending_runs
+                .iter()
+                .any(|(run, _)| run.schedule_id == record.id)
+        });
         let decision = if let Some((run, accepted_at)) = &pending {
             let Some(record) = folded.active.iter().find(|r| r.id == run.schedule_id) else {
                 return DriveAction::Dormant;
@@ -727,6 +760,10 @@ impl ScheduleOwner {
         }
         let (message, changes, target_handle) = match decision {
             DueDecision::Wait(target) => {
+                let target = match (target, retry_at) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 if current_chat_busy {
                     let deadline = if blocked {
                         Some(
@@ -766,7 +803,14 @@ impl ScheduleOwner {
                     {
                         Ok(Some(v)) => v,
                         Ok(None) => return DriveAction::Continue,
-                        Err(_) => return DriveAction::Wait(Some(now.saturating_add(1000)), handle),
+                        Err(_) => {
+                            if let Some((run, _)) = &pending {
+                                self.defer_preparation(&run.run_id, self.clock.now_ms())
+                                    .await;
+                                return DriveAction::Continue;
+                            }
+                            return DriveAction::Wait(Some(now.saturating_add(1000)), handle);
+                        }
                     }
                 } else {
                     let message = reminder_message(&self.session_id, &record, &record.scheduled_at);
@@ -798,7 +842,14 @@ impl ScheduleOwner {
                     {
                         Ok(Some(v)) => v,
                         Ok(None) => return DriveAction::Continue,
-                        Err(_) => return DriveAction::Wait(Some(now.saturating_add(1000)), handle),
+                        Err(_) => {
+                            if let Some((run, _)) = &pending {
+                                self.defer_preparation(&run.run_id, self.clock.now_ms())
+                                    .await;
+                                return DriveAction::Continue;
+                            }
+                            return DriveAction::Wait(Some(now.saturating_add(1000)), handle);
+                        }
                     }
                 } else {
                     let message =
@@ -872,6 +923,16 @@ impl ScheduleOwner {
         }
     }
 
+    async fn defer_preparation(&self, run_id: &str, now: i64) {
+        let mut retries = self.preparation_retries.lock().await;
+        let (failures, deadline) = retries.entry(run_id.to_owned()).or_insert((0, now));
+        *failures = failures.saturating_add(1);
+        let delay = 1_000_i64
+            .saturating_mul(1_i64 << (*failures - 1).min(5))
+            .min(30_000);
+        *deadline = now.saturating_add(delay);
+    }
+
     async fn prepare_run(
         &self,
         record: &ScheduleRecord,
@@ -913,11 +974,15 @@ impl ScheduleOwner {
             return Err(ScheduleError::Corrupt("reserved target changed".into()));
         }
         let target_handle = if target == AutomationTarget::NewChat {
-            self.targets
+            let targets = self
+                .targets
                 .get()
-                .ok_or_else(|| ScheduleError::Corrupt("independent target unavailable".into()))?
-                .prepare(&self.session_id, &target_id)
+                .ok_or_else(|| ScheduleError::Corrupt("independent target unavailable".into()))?;
+            // Target preparation is idempotent and never starts model work. Bound
+            // it so controls are not locked forever by an unresponsive provider.
+            tokio::time::timeout(TOOL_TIMEOUT, targets.prepare(&self.session_id, &target_id))
                 .await
+                .map_err(|_| ScheduleError::Store("target preparation timed out".into()))?
                 .map_err(ScheduleError::Store)?
         } else {
             handle.clone()
@@ -1295,6 +1360,7 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
     let mut seen_ids = HashSet::new();
     let mut runs = Vec::new();
     let mut pending_runs = Vec::new();
+    let mut cancelled_runs = Vec::new();
     for logged in session.events() {
         let EventData::ScheduleChange { change } = logged.data() else {
             continue;
@@ -1303,7 +1369,9 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
             ScheduleChange::Create { schedule, .. } | ScheduleChange::Update { schedule, .. } => {
                 &schedule.id
             }
-            ScheduleChange::Delete { id, .. } | ScheduleChange::Dispatch { id, .. } => id,
+            ScheduleChange::Delete { id, .. }
+            | ScheduleChange::Dispatch { id, .. }
+            | ScheduleChange::SetPaused { id, .. } => id,
             ScheduleChange::ReserveRun { run, .. } | ScheduleChange::Run { run, .. } => {
                 &run.schedule_id
             }
@@ -1343,6 +1411,26 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
                 }
                 pending_runs.push((run.clone(), accepted_at.clone()));
             }
+            ScheduleChange::SetPaused {
+                version,
+                id,
+                paused,
+            } => {
+                let record = active
+                    .iter_mut()
+                    .find(|r| r.id == *id)
+                    .ok_or_else(|| ScheduleError::Corrupt("pause targets inactive id".into()))?;
+                let config = record
+                    .automation
+                    .as_mut()
+                    .ok_or_else(|| ScheduleError::Corrupt("pause targets legacy rule".into()))?;
+                if *version != 1 {
+                    return Err(ScheduleError::Corrupt(
+                        "unsupported schedule version".into(),
+                    ));
+                }
+                config.paused = *paused;
+            }
             ScheduleChange::Update { version, schedule } => {
                 if *version != 1 || !schedule.valid_shape() {
                     return Err(ScheduleError::Corrupt("invalid schedule update".into()));
@@ -1367,6 +1455,16 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
                         ScheduleError::Corrupt("delete targets inactive id".to_owned())
                     })?;
                 active.remove(position);
+                // Delete cancels only reservations that have not been admitted.
+                // The mutation owner reconciles durable admission before deleting.
+                pending_runs.retain(|(run, _)| {
+                    if run.schedule_id == *id {
+                        cancelled_runs.push(run.clone());
+                        false
+                    } else {
+                        true
+                    }
+                });
             }
             ScheduleChange::Dispatch {
                 version,
@@ -1431,6 +1529,7 @@ fn fold_schedule_events(session: &Session) -> Result<FoldedSchedules, ScheduleEr
         seen_ids,
         runs,
         pending_runs,
+        cancelled_runs,
     })
 }
 

@@ -29,6 +29,7 @@ import { isObjectRecord } from '../../shared/runtime-types'
 import { isChatNode } from '../contract/chat-node-codec'
 import css from './ChatView.styles'
 import railCss from './MessageRail.styles'
+import { HistoryPageIntent } from './history-page-intent'
 
 const FOLLOW_THRESHOLD = 24
 
@@ -149,7 +150,7 @@ function TurnStatus({ startTime, t }: {
   const showClock = elapsedMs >= 15_000
   return (
     <div className={css.turnStatus} role="status" aria-live="polite">
-      Deep diving...
+      {t('xh.turn.working')}
       {showClock && (
         <span className={css.turnStatusClock} aria-hidden>
           {formatRunDuration(elapsedMs, t)}
@@ -268,13 +269,13 @@ export function ChatView({
   const anchorRef = useRef<PagingAnchor | null>(null)
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
-  const lastKeyRef = useRef<string | null>(null)
-  const lastSteeringIdRef = useRef<string | null>(null)
   /** Flow tip signature — follow-scroll only when this moves, never on a
    *  scroll-driven at-bottom chrome re-render (which would snap inertial
    *  scrolls the rest of the way to the floor). */
   const followSigRef = useRef<string | null>(null)
   const processAnchorRef = useRef<PagingAnchor | null>(null)
+  const pageIntent = useMemo(() => new HistoryPageIntent(), [sessionId])
+  const checkOlderRef = useRef<(() => void) | null>(null)
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -316,6 +317,7 @@ export function ChatView({
   const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
   const toggleTurnProcess = (turn: number): void => {
+    pageIntent.cancel()
     const local = listRef.current
     if (local !== null) {
       const scrollport = scrollerOf(local)
@@ -370,12 +372,13 @@ export function ChatView({
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
   const lastKey = order.at(-1) ?? null
-  const lastNode = lastKey === null ? undefined : nodeStore.get(lastKey)
   const lastSteeringId = pendingSteering[pendingSteering.length - 1]?.id ?? null
   const followSig = `${openState}:${firstSeq}:${lastKey}:${order.length}:${running ? 1 : 0}:${lastSteeringId ?? ''}`
 
   const toBottom = (el: HTMLElement): void => {
+    pageIntent.cancel()
     anchorRef.current = null
+    processAnchorRef.current = null
     // Explicit/programmatic return ends the previous reader gesture. Delayed
     // resize/clamp scroll events must not inherit an earlier up gesture.
     readerScrollUntilRef.current = 0
@@ -386,6 +389,11 @@ export function ChatView({
     setAtBottom(true)
     chatScroll.save(null)
   }
+
+  useLayoutEffect(() => chatScroll.subscribeFollow?.(() => {
+    const local = listRef.current
+    if (local !== null) toBottom(scrollerOf(local))
+  }), [chatScroll, sessionId])
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -419,8 +427,6 @@ export function ChatView({
         else if (normalized !== null) chatScroll.save(normalized)
       }
       firstSeqRef.current = firstSeq
-      lastKeyRef.current = lastKey
-      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
@@ -434,24 +440,17 @@ export function ChatView({
       if (row !== null) el.scrollTop += flowTop(row, el) - anchor.top
       observedTopRef.current = el.scrollTop
       firstSeqRef.current = firstSeq
-      /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
-      lastKeyRef.current = lastKey
-      lastSteeringIdRef.current = lastSteeringId
       followSigRef.current = followSig
       return
     }
     firstSeqRef.current = firstSeq
-    // Own words must be visible: a new trailing user node force-scrolls
-    // (send lives in the composer, so arrival is detected here, not armed there).
-    const appendedUser = lastKey !== lastKeyRef.current && lastNode?.kind === 'user'
-    const appendedSteering = lastSteeringId !== null && lastSteeringId !== lastSteeringIdRef.current
+    // Delivery is not a local send gesture. A restored/other-observer user
+    // node or a delayed steering snapshot must not take reader ownership.
     const tipMoved = followSigRef.current !== followSig
-    lastKeyRef.current = lastKey
-    lastSteeringIdRef.current = lastSteeringId
     followSigRef.current = followSig
     // Follow new flow content while pinned; do NOT re-pin on every render
     // merely because atBottomRef is true (scroll threshold → setState → snap).
-    if (appendedUser || appendedSteering || (tipMoved && atBottomRef.current)) toBottom(el)
+    if (tipMoved && atBottomRef.current) toBottom(el)
   })
 
   const onScrollRef = useRef(() => {})
@@ -470,6 +469,9 @@ export function ChatView({
     const floor = Math.max(0, el.scrollHeight - el.clientHeight)
     const readerInputRecent = Date.now() <= readerScrollUntilRef.current
     const movedByReader = readerInputRecent && Math.abs(el.scrollTop - Math.min(observedTopRef.current, floor)) > 0.5
+    // Scrollbar dragging has no wheel/key direction. Only actual upward
+    // movement after its pointer input arms paging, not a passive layout clamp.
+    if (movedByReader && readerDirectionRef.current === 0 && el.scrollTop < Math.min(observedTopRef.current, floor)) pageIntent.arm()
     const isAtBottom = scrollFollowAtBottom(atBottomRef.current, el.scrollTop, floor, observedTopRef.current,
       readerInputRecent && (atBottomRef.current || readerDirectionRef.current >= 0))
     if (!movedByReader && isAtBottom) {
@@ -489,6 +491,8 @@ export function ChatView({
     if (isAtBottom) chatScroll.save(null)
     else if (position !== null) chatScroll.save(position)
     observedTopRef.current = el.scrollTop
+    // Reflow/arrival can move geometry, but cannot spend an earlier gesture.
+    if (movedByReader) checkOlderRef.current?.()
   }
 
   // Gesture intent is delivered before scroll/resize/layout callbacks. Release
@@ -502,17 +506,25 @@ export function ChatView({
     const onScroll = (): void => { onScrollRef.current() }
     const markReaderInput = (direction?: number): void => {
       readerScrollUntilRef.current = Date.now() + 1500
-      if (direction !== undefined) readerDirectionRef.current = direction
+      if (direction !== undefined) {
+        readerDirectionRef.current = direction
+        if (direction >= 0) pageIntent.cancel()
+      }
     }
     const pauseFollowing = (): void => {
       atBottomRef.current = false
       setAtBottom(false)
     }
+    const readUp = (): void => {
+      pauseFollowing()
+      pageIntent.arm()
+      checkOlderRef.current?.()
+    }
     const onWheel = (event: WheelEvent): void => {
       // Ctrl-wheel/pinch zoom and horizontal-only movement are not read-up.
       if (event.ctrlKey || event.deltaY === 0) return
       markReaderInput(Math.sign(event.deltaY))
-      if (event.deltaY < 0) pauseFollowing()
+      if (event.deltaY < 0) readUp()
     }
     let touchY: number | null = null
     const onTouchStart = (event: TouchEvent): void => {
@@ -524,7 +536,7 @@ export function ChatView({
       if (event.touches.length !== 1 || touch === undefined) { touchY = null; return }
       const y = touch.clientY
       markReaderInput(touchY === null ? -1 : y === touchY ? undefined : Math.sign(touchY - y))
-      if (touchY === null || y > touchY) pauseFollowing()
+      if (touchY === null || y > touchY) readUp()
       touchY = y
     }
     const onTouchEnd = (): void => { touchY = null }
@@ -548,7 +560,7 @@ export function ChatView({
       if (!['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)) return
       const upward = ['ArrowUp','PageUp','Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)
       markReaderInput(upward ? -1 : 1)
-      if (upward) pauseFollowing()
+      if (upward) readUp()
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     el.addEventListener('wheel', onWheel, { passive: true })
@@ -574,7 +586,7 @@ export function ChatView({
       window.removeEventListener('pointercancel', onPointerEnd)
       el.removeEventListener('keydown', onKey)
     }
-  }, [])
+  }, [pageIntent])
 
   // The ref starts null and is assigned every render, so the placeholder
   // initializer a function initial value would need never exists.
@@ -609,7 +621,8 @@ export function ChatView({
     if (!loadingOlder) anchorRef.current = null
   }, [loadingOlder])
 
-  const loadOlderAnchored = (): void => {
+  const loadOlderAnchored = async (): Promise<void> => {
+    if (!pageIntent.begin()) return
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: the paging button renders inside the list tree. */
     if (local !== null) {
@@ -622,10 +635,26 @@ export function ChatView({
         }
       }
     }
-    loadOlder()
+    try { await loadOlder() }
+    catch (error) {
+      // The production Session publishes its history error transactionally.
+      // Also isolate rejected legacy providers from native input dispatch.
+      console.error('[conversation] older history request failed:', error)
+    } finally { pageIntent.end() }
+  }
+
+  checkOlderRef.current = () => {
+    const local = listRef.current
+    if (local === null) return
+    const el = scrollerOf(local)
+    if (pageIntent.shouldLoad({ ready: openState === 'open', hasMore, loading: loadingOlder,
+      following: atBottomRef.current, head: firstSeq, top: el.scrollTop, viewport: el.clientHeight })) {
+      void loadOlderAnchored()
+    }
   }
 
   const scrollToMessage = (key: string): void => {
+    pageIntent.cancel()
     const local = listRef.current
     if (local === null) return
     const row = anchorElement(local, key)
@@ -670,7 +699,7 @@ export function ChatView({
           {openState === 'error' && openError !== null && (
             <div className={css.openError} role="alert">
               {t('chat.loadError', { message: openError.message, code: openError.code })}
-              <button type="button" data-history-retry="" onClick={loadOlder}>{t('retry')}</button>
+              <button type="button" data-history-retry="" onClick={loadOlderAnchored}>{t('retry')}</button>
             </div>
           )}
           {hasMore && (

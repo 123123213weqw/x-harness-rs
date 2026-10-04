@@ -7089,3 +7089,405 @@ async fn compaction_backoff_accepts_pause_resume_steer_and_cancel_without_tools(
         assert_eq!(provider.inner.attempts(), if cancelled { 1 } else { 2 });
     }
 }
+
+#[tokio::test]
+async fn independent_review_is_fenced_against_pending_user_steering() {
+    use sha2::{Digest, Sha256};
+    for changed in [false, true] {
+        let provider = Arc::new(ScriptProvider::new([
+            vec![
+                Ok(tool_delta(0, "review-call", "guarded", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(completed())],
+        ]));
+        let executions = Arc::new(AtomicUsize::new(0));
+        let count = executions.clone();
+        let tool = TestToolSpec::new("guarded", "fixture", json!({}), move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("executed") }
+        })
+        .requires_approval();
+        let mut request = LoopRequest::new(provider, vec![AgentMessage::user("original task")]);
+        install_tool(&mut request, tool).await;
+        let mut run = LoopEngine.start(request);
+        let call_id = loop {
+            let event = run.next().await.unwrap();
+            if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+                break call.id;
+            }
+        };
+        if changed {
+            run.send(LoopCommand::Steer(AgentMessage::user(
+                "do not execute the old task",
+            )))
+            .await
+            .unwrap();
+        }
+        let decision = run
+            .send(LoopCommand::ReviewToolDecision {
+                call_id: call_id.clone(),
+                approved: true,
+                user_request_seq: None,
+                user_request_sha256: format!("{:x}", Sha256::digest(b"original task")),
+            })
+            .await;
+        assert_eq!(decision.is_ok(), !changed);
+        if changed {
+            assert_eq!(executions.load(Ordering::SeqCst), 0);
+            run.send(LoopCommand::RejectTool {
+                call_id,
+                reason: "manual rejection".into(),
+            })
+            .await
+            .unwrap();
+        }
+        while run.next().await.is_some() {}
+        assert_eq!(run.result().await.status, LoopStatus::Completed);
+        assert_eq!(executions.load(Ordering::SeqCst), usize::from(!changed));
+    }
+}
+
+const COMPACT_REVIEW_SESSION: &str = "review-after-compact";
+
+async fn compacted_review_fixture() -> (
+    LoopRun,
+    Arc<EventMemorySessionStore>,
+    Arc<AtomicUsize>,
+    String,
+    String,
+    u64,
+) {
+    let original = format!("original task: {}", "x".repeat(6000));
+    let provider = Arc::new(SequencedCountingProvider::new(
+        [300, 900, 500, 300, 300, 300, 300, 300],
+        [
+            vec![
+                Ok(tool_delta(0, "inspect-first", "inspect", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![
+                Ok(ProviderEvent::TextDelta(
+                    "Prior inspection produced evidence; finish the requested task.".into(),
+                )),
+                Ok(completed()),
+            ],
+            vec![
+                Ok(tool_delta(0, "review-after-compact", "guarded", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(completed())],
+        ],
+    ));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let count = Arc::new(AtomicUsize::new(0));
+    let executed = count.clone();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user(original.clone())]);
+    request.session_id = Some(COMPACT_REVIEW_SESSION.into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    install_tools(
+        &mut request,
+        vec![
+            TestToolSpec::new("inspect", "fixture", json!({}), |_, _| async {
+                ToolResult::success("inspection complete".repeat(300))
+            }),
+            TestToolSpec::new("guarded", "fixture", json!({}), move |_, _| {
+                executed.fetch_add(1, Ordering::SeqCst);
+                async { ToolResult::success("executed") }
+            })
+            .requires_approval(),
+        ],
+    )
+    .await;
+    let mut run = LoopEngine.start(request);
+    let call_id = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = run.next().await.expect("run ended before approval");
+            if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+                break call.id;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let session = journal.load(COMPACT_REVIEW_SESSION).await.unwrap().unwrap();
+    assert!(
+        session.events().iter().any(|e| matches!(
+            e.data(),
+            SessionEventData::CompactionEnd { error: None, .. }
+        )),
+        "fixture must really compact"
+    );
+    let (seq, current_user) = session.latest_user_request().unwrap();
+    assert_eq!(current_user.content, original);
+    let surface = session.derive_messages();
+    assert_ne!(
+        surface
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .unwrap()
+            .content,
+        original,
+        "fixture must shadow the current real user request"
+    );
+    (run, journal, count, original, call_id, seq)
+}
+
+#[tokio::test]
+async fn independent_review_survives_mid_turn_compaction_for_allow_and_reject() {
+    use sha2::{Digest, Sha256};
+    for approved in [false, true] {
+        let (mut run, journal, count, original, call_id, seq) = compacted_review_fixture().await;
+        run.send(LoopCommand::ReviewToolDecision {
+            call_id,
+            approved,
+            user_request_seq: Some(seq),
+            user_request_sha256: format!("{:x}", Sha256::digest(original.as_bytes())),
+        })
+        .await
+        .unwrap();
+        while run.next().await.is_some() {}
+        assert_eq!(run.result().await.status, LoopStatus::Completed);
+        assert_eq!(count.load(Ordering::SeqCst), usize::from(approved));
+        let session = journal.load(COMPACT_REVIEW_SESSION).await.unwrap().unwrap();
+        assert!(session.pending_tool_approvals().is_empty());
+        assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::ApprovalDecided { outcome, .. } if *outcome == if approved { ApprovalOutcome::AllowedOnce } else { ApprovalOutcome::Rejected })));
+    }
+}
+
+#[tokio::test]
+async fn independent_review_after_compaction_rejects_stale_scope_and_pending_steering() {
+    use sha2::{Digest, Sha256};
+    for scenario in [
+        "wrong-seq",
+        "missing-seq",
+        "wrong-hash",
+        "user-steer",
+        "system-steer",
+        "same-text-steer",
+    ] {
+        let (mut run, _journal, count, original, call_id, seq) = compacted_review_fixture().await;
+        match scenario {
+            "user-steer" => {
+                run.send(LoopCommand::Steer(AgentMessage::user("new task")))
+                    .await
+                    .unwrap();
+            }
+            "system-steer" => {
+                run.send(LoopCommand::Steer(AgentMessage::new(
+                    Role::System,
+                    "new constraint",
+                )))
+                .await
+                .unwrap();
+            }
+            "same-text-steer" => {
+                run.send(LoopCommand::Steer(AgentMessage::user(original.clone())))
+                    .await
+                    .unwrap();
+            }
+            _ => {}
+        }
+        let decision = run
+            .send(LoopCommand::ReviewToolDecision {
+                call_id: call_id.clone(),
+                approved: true,
+                user_request_seq: match scenario {
+                    "wrong-seq" => Some(seq + 1),
+                    "missing-seq" => None,
+                    _ => Some(seq),
+                },
+                user_request_sha256: if scenario == "wrong-hash" {
+                    "wrong".into()
+                } else {
+                    format!("{:x}", Sha256::digest(original.as_bytes()))
+                },
+            })
+            .await;
+        assert!(
+            matches!(decision, Err(LoopControlError::Rejected(_))),
+            "{scenario}: {decision:?}"
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+        // A failed AI decision must leave the original approval usable by a person.
+        run.send(LoopCommand::RejectTool {
+            call_id,
+            reason: "manual cleanup".into(),
+        })
+        .await
+        .unwrap();
+        while run.next().await.is_some() {}
+        assert_eq!(run.result().await.status, LoopStatus::Completed);
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn independent_review_restores_authorization_from_compacted_pending_approval() {
+    use sha2::{Digest, Sha256};
+    let (mut original_run, source, original_count, original, call_id, seq) =
+        compacted_review_fixture().await;
+    let snapshot = source.load(COMPACT_REVIEW_SESSION).await.unwrap().unwrap();
+    let restored = Arc::new(EventMemorySessionStore::default());
+    restored.create(snapshot.header().clone()).await.unwrap();
+    restored
+        .append(
+            COMPACT_REVIEW_SESSION,
+            Revision::ZERO,
+            snapshot
+                .events()
+                .iter()
+                .map(|e| SessionEvent::new(e.data().clone()))
+                .collect(),
+        )
+        .await
+        .unwrap();
+    original_run.cancel();
+    while original_run.next().await.is_some() {}
+    assert_eq!(original_count.load(Ordering::SeqCst), 0);
+    let count = Arc::new(AtomicUsize::new(0));
+    let executed = count.clone();
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let mut request = LoopRequest::new(provider, vec![]);
+    request.session_id = Some(COMPACT_REVIEW_SESSION.into());
+    request.journal_store = Some(restored.clone());
+    install_tool(
+        &mut request,
+        TestToolSpec::new("guarded", "fixture", json!({}), move |_, _| {
+            executed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("executed once after recovery") }
+        })
+        .requires_approval(),
+    )
+    .await;
+    let mut run = LoopEngine.start(request);
+    let recovered_call = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = run
+                .next()
+                .await
+                .expect("recovered run ended before approval");
+            if let LoopEventKind::ToolApprovalRequested { call, .. } = event.kind {
+                break call.id;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(recovered_call, call_id);
+    run.send(LoopCommand::ReviewToolDecision {
+        call_id,
+        approved: true,
+        user_request_seq: Some(seq),
+        user_request_sha256: format!("{:x}", Sha256::digest(original.as_bytes())),
+    })
+    .await
+    .unwrap();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn independent_review_rejects_old_sequence_after_identical_user_input_commits() {
+    use sha2::{Digest, Sha256};
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "first", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![
+            Ok(tool_delta(0, "second", "guarded", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(completed())],
+    ]));
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let count = Arc::new(AtomicUsize::new(0));
+    let executed = count.clone();
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user("same task")]);
+    request.session_id = Some("review-identical-input".into());
+    request.journal_store = Some(journal.clone());
+    install_tool(
+        &mut request,
+        TestToolSpec::new("guarded", "fixture", json!({}), move |_, _| {
+            executed.fetch_add(1, Ordering::SeqCst);
+            async { ToolResult::success("executed") }
+        })
+        .requires_approval(),
+    )
+    .await;
+    let mut run = LoopEngine.start(request);
+    let first_call = loop {
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = run.next().await.unwrap().kind {
+            break call.id;
+        }
+    };
+    let first = journal
+        .load("review-identical-input")
+        .await
+        .unwrap()
+        .unwrap();
+    let old_seq = first.latest_user_request().unwrap().0;
+    run.send(LoopCommand::InjectMessage {
+        message: AgentMessage::user("same task"),
+        mode: InjectionMode::NextStep,
+    })
+    .await
+    .unwrap();
+    run.send(LoopCommand::ApproveTool {
+        call_id: first_call,
+    })
+    .await
+    .unwrap();
+    let second_call = loop {
+        if let LoopEventKind::ToolApprovalRequested { call, .. } = run.next().await.unwrap().kind {
+            break call.id;
+        }
+    };
+    let next = journal
+        .load("review-identical-input")
+        .await
+        .unwrap()
+        .unwrap();
+    let new_seq = next.latest_user_request().unwrap().0;
+    assert!(new_seq > old_seq);
+    let sha256 = format!("{:x}", Sha256::digest(b"same task"));
+    let stale = run
+        .send(LoopCommand::ReviewToolDecision {
+            call_id: second_call.clone(),
+            approved: true,
+            user_request_seq: Some(old_seq),
+            user_request_sha256: sha256.clone(),
+        })
+        .await;
+    assert!(matches!(stale, Err(LoopControlError::Rejected(_))));
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    run.send(LoopCommand::ReviewToolDecision {
+        call_id: second_call,
+        approved: true,
+        user_request_seq: Some(new_seq),
+        user_request_sha256: sha256,
+    })
+    .await
+    .unwrap();
+    while run.next().await.is_some() {}
+    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}

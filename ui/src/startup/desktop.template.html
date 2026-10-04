@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Generated from ui/src/startup: both loading stages share StartupSurface. -->
+<html lang="zh-CN" data-xh-startup-document>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>XHarness 正在启动</title>
+    <style id="xh-startup-style">__XHARNESS_STARTUP_STYLE__</style>
+    <script>
+      if (/Macintosh|Mac OS X/.test(navigator.userAgent)) document.documentElement.dataset.xhMacTitlebar = 'overlay'
+    </script>
+  </head>
+  <body>
+    <div class="titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
+    <div id="state"></div>
+    <noscript>XHarness 需要 JavaScript 才能启动。</noscript>
+    <script>__XHARNESS_STARTUP_SCRIPT__</script>
+  </body>
+</html>

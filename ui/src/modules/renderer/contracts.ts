@@ -32,6 +32,6 @@ export interface SlotRendererHost {
 export interface SlotRenderer {renderRoot(host: SlotRendererHost, owner: object): ReactNode}
 export interface Context {
   slots: {install(renderer: SlotRenderer): void; renderSlot(name: 'root', owner: object): ReactNode};
-  reflect: {provide(name: 'uiRenderer', value: {mount(container: HTMLElement): () => void}): unknown};
+  reflect: {provide(name: 'uiRenderer', value: {mount(container: HTMLElement, onReady?: () => void): () => void}): unknown};
   get(name: 'sessions'): {list: HostObservable<{current: string | undefined; byId: Readonly<Record<string, {title?: string} | undefined>>}>} | undefined
 }

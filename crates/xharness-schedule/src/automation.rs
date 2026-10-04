@@ -144,6 +144,14 @@ impl ScheduleManager {
         let _guard = owner.transaction.lock().await;
         let fingerprint = digest(&serde_json::to_string(&command).expect("serializable command"));
         for _ in 0..MAX_CAS_RETRIES {
+            // Complete any known admission receipt before controls change the rule.
+            let pending = { owner.pending_dispatches.lock().await.clone() };
+            if let Some(changes) = pending {
+                if let Err(e) = owner.append_dispatches(changes).await {
+                    return internal_error(e);
+                }
+                *owner.pending_dispatches.lock().await = None;
+            }
             if let Err(e) = owner.store.flush(session_id).await {
                 return persistence_error("automation", None, e);
             }
@@ -197,6 +205,7 @@ impl ScheduleManager {
                         .runs
                         .iter()
                         .chain(folded.pending_runs.iter().map(|(r, _)| r))
+                        .chain(folded.cancelled_runs.iter())
                         .collect::<Vec<_>>();
                     for run in all_runs
                         .into_iter()
@@ -204,7 +213,11 @@ impl ScheduleManager {
                         .rev()
                         .take(50)
                     {
-                        let state = run_state(&owner.store, run).await;
+                        let state = if folded.cancelled_runs.contains(run) {
+                            "cancelled"
+                        } else {
+                            run_state(&owner.store, run).await
+                        };
                         let state = if state == "unavailable"
                             && folded.pending_runs.iter().any(|(r, _)| r == run)
                         {
@@ -225,6 +238,11 @@ impl ScheduleManager {
                                 .pending_runs
                                 .iter()
                                 .filter(|(r, _)| r.schedule_id == id)
+                                .count()
+                            + folded
+                                .cancelled_runs
+                                .iter()
+                                .filter(|r| r.schedule_id == id)
                                 .count()
                     );
                     return value;
@@ -328,12 +346,38 @@ impl ScheduleManager {
                             public_error("not_active", "Automation is not active in this chat.")
                         };
                     };
-                    if folded
+                    if let Some((run, accepted_at)) = folded
                         .pending_runs
                         .iter()
-                        .any(|(run, _)| run.schedule_id == *id)
+                        .find(|(run, _)| run.schedule_id == *id)
                     {
-                        return public_error("run_preparing", "A run admission is being reconciled; inspect view and retry the mutation after its receipt is durable.");
+                        // Restart may lose the in-memory marker AFTER admission.
+                        // Never cancel an operation whose inbox already accepted it.
+                        let target = match owner.store.load(&run.session_id).await {
+                            Ok(target) => target,
+                            Err(e) => return persistence_error("automation", Some(id), e),
+                        };
+                        if target
+                            .as_ref()
+                            .is_some_and(|s| message_seen(s, &run.run_id))
+                        {
+                            if let Err(e) = owner
+                                .append_dispatches(vec![ScheduleChange::Run {
+                                    version: 1,
+                                    run: run.clone(),
+                                    accepted_at: accepted_at.clone(),
+                                }])
+                                .await
+                            {
+                                return internal_error(e);
+                            }
+                            continue;
+                        }
+                        if matches!(operation, AutomationCommand::Update { .. }) {
+                            return public_error("run_preparing", "Delete the unadmitted run, or wait for its receipt before editing its immutable occurrence.");
+                        }
+                        // Pause keeps the immutable reservation for resume; delete
+                        // cancels it durably. Neither affects an admitted run.
                     }
                     if matches!(operation, AutomationCommand::Delete { .. }) {
                         (
@@ -344,6 +388,10 @@ impl ScheduleManager {
                             json!({"id":id,"deleted":true}),
                         )
                     } else {
+                        let pause_only = matches!(
+                            operation,
+                            AutomationCommand::Pause { .. } | AutomationCommand::Resume { .. }
+                        ) && record.automation.is_some();
                         let mut config = settings(&record);
                         match operation {
                             AutomationCommand::Pause { .. } => config.paused = true,
@@ -419,13 +467,19 @@ impl ScheduleManager {
                         if folded.active.contains(&record) {
                             return response;
                         }
-                        (
+                        let change = if pause_only {
+                            ScheduleChange::SetPaused {
+                                version: 1,
+                                id: record.id.clone(),
+                                paused: record.automation.as_ref().unwrap().paused,
+                            }
+                        } else {
                             ScheduleChange::Update {
                                 version: 1,
                                 schedule: record,
-                            },
-                            response,
-                        )
+                            }
+                        };
+                        (change, response)
                     }
                 }
             };

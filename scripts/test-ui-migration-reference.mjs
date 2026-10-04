@@ -50,7 +50,15 @@ test('production manifest retains every merged-master module and no legacy execu
     assert.deepEqual(migrated.inject ?? [], expectedInject, `changed service requirements: ${old.id}`)
     assert.equal(migrated.immediately === true, old.immediately === true, `changed eager activation: ${old.id}`)
   }
-  assert.deepEqual(manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id)).map(row => row.id), ['@xlang/xharness-client-plugin-api'], 'only the internal typed transport helper is new; no extra WIP UI')
+  // Admit only reviewed additions, pinning their source and injected ABI;
+  // the frozen baseline remains immutable and arbitrary WIP modules still fail.
+  const approvedAdditions = [
+    { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
+    { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection'] },
+  ]
+  const additions = manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id))
+  assert.deepEqual(additions.map(({id,kind,source,inject}) => ({id,kind,source,inject})), approvedAdditions, 'only reviewed source/transport additions and their exact ABI are admitted')
+  assert.ok(additions.every(row => row.immediately !== true), 'reviewed additions must not add eager boot work')
   assert.ok(manifest.modules.every(row => row.source.startsWith('src/')))
   assert.ok(manifest.assets.every(row => !row.source.startsWith('legacy/') && !row.source.startsWith('reference/') && !row.source.startsWith('dist/')))
   const originalLibrary = manifest.assets.filter(row => row.path.endsWith('.js') && row.kind !== 'script-ts')

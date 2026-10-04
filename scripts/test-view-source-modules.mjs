@@ -143,6 +143,7 @@ for (const name of modules) {
     if (name === 'layout') Object.assign(expected[0].children, {
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
+      'review.center': {kind: 'single', scope: 'root'},
     })
     assert.deepEqual(normalized(two.registrations.map(({spec}) => spec)), expected)
   })

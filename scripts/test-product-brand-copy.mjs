@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { patchProductBrandCopy } from './patch-product-brand-copy.mjs'
 
 const dist = resolve('ui/dist')
 const graph = JSON.parse(readFileSync(resolve(dist, 'client-graph.json'), 'utf8'))
@@ -15,13 +14,12 @@ const get = name => {
   const bytes = readFileSync(resolve(dist, 'plugins', id, 'client.js'))
   const entry = graph.entries.find(item => item.id === id)
   assert.equal(entry.rev, hash(bytes))
-  assert.equal(patchProductBrandCopy(id, bytes).toString(), bytes.toString(), `${name} patch is repeatable`)
   return bytes.toString()
 }
 const conversation = get('conversation')
-assert.match(conversation, /"xh\.turn\.working": "正在处理…"/)
+assert.equal((conversation.match(/"xh\.turn\.working": "Working…"/g) ?? []).length, 2, 'both locale dictionaries use the requested Working copy')
 assert.match(conversation, /"xh\.turn\.working": "Working…"/)
-assert.match(conversation, /children: \[t\("xh\.turn\.working"\), showClock/)
+assert.equal(/children: \[t\(["']xh\.turn\.working["']\), showClock/.test(conversation), true, 'the rendered status uses the locale key')
 assert.doesNotMatch(conversation, /Deep diving|dsw-static-deepseek/)
 const sidebar = get('sidebar')
 assert.match(sidebar, /children: "XHarness"/)

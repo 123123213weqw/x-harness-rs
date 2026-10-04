@@ -45,6 +45,9 @@ try{
  await page.goto('http://127.0.0.1:39187/?fixture=1')
  try{await page.waitForFunction(()=>document.querySelector('textarea,[contenteditable="true"]')||document.body.innerText.includes('Failed to load plugins'),{},{timeout:60000})}catch(error){console.error(JSON.stringify({engine,implementation,errors,consoleErrors,failed,requests,text:await page.locator('body').innerText()}));throw error}
  if(errors.length)console.error(JSON.stringify({errors,consoleErrors,text:await page.locator('body').innerText()}))
+ // Compare the settled UI, not the optional 180ms decorative loading exit.
+ // This is a lifecycle condition, not a fixed sleep or an animation gate.
+ await page.locator('[data-xh-startup-exit]').waitFor({state:'detached'})
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})

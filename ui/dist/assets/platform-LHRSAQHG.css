@@ -1,90 +1,6 @@
 /* src/modules/platform/web/boot-page.module.css */
 .boot_page_boot {
-  --dsh-boot-bg: #fff;
-  --dsh-boot-label-primary: #0f1115;
-  --dsh-boot-label-secondary: #61666b;
-  --dsh-boot-label-tertiary: #81858c;
-  --dsh-boot-border: rgb(0 0 0 / 10%);
-  --dsh-boot-brand: #0f1115;
   height: 100%;
-  display: grid;
-  place-items: center;
-  background: var(--dsw-alias-bg-base, var(--dsh-boot-bg));
-}
-body[data-ds-dark-theme] .boot_page_boot {
-  --dsh-boot-bg: #151517;
-  --dsh-boot-label-primary: #f9fafb;
-  --dsh-boot-label-secondary: #cfd3d6;
-  --dsh-boot-label-tertiary: #adb2b8;
-  --dsh-boot-border: rgb(255 255 255 / 12%);
-  --dsh-boot-brand: #f9fafb;
-}
-.boot_page_card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-.boot_page_wordmark {
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--dsw-alias-label-primary, var(--dsh-boot-label-primary));
-}
-.boot_page_hint {
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary, var(--dsh-boot-label-tertiary));
-}
-.boot_page_spinner {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--dsw-alias-border-l2, var(--dsh-boot-border));
-  animation: boot_page_spin 0.8s linear infinite;
-}
-.boot_page_spinner::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: conic-gradient(var(--dsw-alias-brand-primary, var(--dsh-boot-brand)) var(--dsh-boot-arc, 72deg), transparent 0);
-  -webkit-mask:
-    radial-gradient(
-      farthest-side,
-      transparent calc(100% - 2px),
-      #000 0);
-  mask:
-    radial-gradient(
-      farthest-side,
-      transparent calc(100% - 2px),
-      #000 0);
-}
-@keyframes boot_page_spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.boot_page_failed {
-  max-width: 480px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.boot_page_failedTitle {
-  font-size: 14px;
-  line-height: 22px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, var(--dsh-boot-label-primary));
-}
-.boot_page_failedItem {
-  font-family: var( --ds-font-family-code, "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei" );
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary, var(--dsh-boot-label-secondary));
-  white-space: pre-wrap;
 }
 
 /* src/modules/platform/primitives/StateDot.module.css */
@@ -3057,4 +2973,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-NHVDVGN5.css.map */
+/*# sourceMappingURL=platform-LHRSAQHG.css.map */

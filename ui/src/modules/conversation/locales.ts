@@ -172,6 +172,7 @@ export const en = {
 			"command.title": "Command",
 			"command.imagesUnsupported": "/{command} does not accept image attachments; remove them first",
 			"approval.waiting": "Waiting for approval",
+            "approval.reviewing": "Reviewing on your behalf…",
 			"approval.detail.aria": "Approval details",
 			"approval.escalation": "Tool {toolName} requests privileged execution",
 			"approval.reject": "Reject",
@@ -213,7 +214,7 @@ export const en = {
 		}
 export const zh = {
 			"view.chat": "对话",
-			"xh.turn.working": "正在处理…",
+			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_ZH,
 			"hint.goal": "输入目标，智能体将持续执行",
 			"hint.goal.active": "当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",
@@ -380,6 +381,7 @@ export const zh = {
 			"command.title": "命令",
 			"command.imagesUnsupported": "/{command} 不接受图片附件，请先移除图片",
 			"approval.waiting": "等待审批",
+            "approval.reviewing": "正在代你审核…",
 			"approval.detail.aria": "审批详情",
 			"approval.escalation": "工具 {toolName} 请求越权执行",
 			"approval.reject": "拒绝",

@@ -18,7 +18,7 @@ assert.ok(!direct.includes('contents: write'))
 assert.ok(!direct.includes('pull_request_target'))
 assert.ok(js.includes("releaseRun.path, '.github/workflows/friends-release.yml'"))
 assert.ok(js.includes("releaseRun.event, 'push'"))
-assert.ok(js.includes('nativeDirectLatest: directLatest'))
+assert.ok(js.includes('nativeDirectLatest: cacheRehearsal ? false : directLatest'))
 assert.ok(js.includes('installCount: checkpoints.length - 1'))
 assert.ok(js.includes('if (directLatest) assert.equal(hash('))
 for (const text of [js, ps]) {
