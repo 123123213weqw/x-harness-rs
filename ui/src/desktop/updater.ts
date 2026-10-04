@@ -120,16 +120,17 @@ function decodeState(value: unknown): UpdateState | undefined {
   const host = document.createElement('div')
   host.id = 'xharness-desktop-updater'
   host.hidden = true
-  // Keep the sidebar's bottom Settings button accessible in both rail and expanded layouts.
+  // Transitional fallback before the sidebar mounts. Once mounted, its reserved
+  // footer row owns the position instead of a fixed offset competing with Tasks.
   // App chrome / local drawer (0–10) < updater (11) < shell overlays (20).
   // `auto` lets the sticky composer (7) paint over the expanded panel. Do not
   // promote this to the top layer: settings, approvals and menus must still win.
-  host.style.cssText = 'position:fixed;left:11px;bottom:64px;z-index:11'
+  host.style.cssText = 'position:fixed;left:11px;bottom:104px;z-index:11'
   const root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `
     <style>
       :host{color-scheme:light dark} *{box-sizing:border-box}
-      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 126px);overflow:auto;padding:16px;border-radius:16px;
+      .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 166px);overflow:auto;padding:16px;border-radius:16px;
         background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,CanvasText 15%,transparent);
         box-shadow:0 12px 40px #0003;font:13px/1.5 ui-sans-serif,system-ui,sans-serif}
       [hidden]{display:none!important}.header{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -175,6 +176,63 @@ function decodeState(value: unknown): UpdateState | undefined {
   const panel = $('.panel'), toggle = $('.toggle'), action = root.querySelector('.action')
   if (!(action instanceof HTMLButtonElement)) throw Error('desktop updater: missing action button')
   const text = $('.text'), notes = $('.notes'), progress = progressElement(), confirmation = $('.confirm'), later = $('.later')
+  let anchorSlot: HTMLElement | null = null
+  let anchorStarted = false
+  let anchorFrame: number | undefined
+  // ResizeObserver delivery must not mutate another observed box in the same
+  // layout cycle (WebKit reports an undelivered-notifications loop otherwise).
+  function scheduleAnchor() {
+    if (disposed || anchorFrame !== undefined) return
+    anchorFrame = window.requestAnimationFrame(() => {
+      anchorFrame = undefined
+      if (!disposed) positionAnchor()
+    })
+  }
+  const anchorSize = new ResizeObserver(scheduleAnchor)
+  const anchorMount = new MutationObserver(() => {
+    // Streaming message mutations must not cause repeated layout reads.
+    if (!anchorSlot?.isConnected) scheduleAnchor()
+  })
+  function positionAnchor() {
+    const nextSlot = document.getElementById('xharness-sidebar-updater-slot')
+    if (nextSlot !== anchorSlot) {
+      anchorSize.disconnect()
+      if (anchorSlot) anchorSlot.hidden = true
+      anchorSlot = nextSlot
+      if (anchorSlot) {
+        anchorSlot.style.cssText = 'height:42px;flex:none;width:100%'
+        anchorSlot.hidden = false
+        anchorSize.observe(anchorSlot)
+        if (anchorSlot.parentElement) anchorSize.observe(anchorSlot.parentElement)
+      }
+    }
+    if (anchorSlot) {
+      const rect = anchorSlot.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        const left = Math.max(0, Math.min(rect.left + 1, window.innerWidth - 34))
+        const top = Math.max(0, Math.min(rect.top + 4, window.innerHeight - 34))
+        host.style.left = left + 'px'
+        host.style.top = top + 'px'
+        host.style.bottom = 'auto'
+        // Bottom of panel = toggle top - 12px; keep a 16px top inset.
+        panel.style.maxHeight = Math.max(0, top - 28) + 'px'
+        return
+      }
+    }
+    host.style.left = '11px'
+    host.style.top = 'auto'
+    host.style.bottom = '104px'
+    panel.style.maxHeight = 'calc(100vh - 166px)'
+  }
+  function showAnchor() {
+    if (!anchorStarted) {
+      anchorStarted = true
+      anchorMount.observe(document.body, { childList: true, subtree: true })
+      window.addEventListener('resize', positionAnchor)
+    }
+    host.hidden = false
+    positionAnchor()
+  }
   const controller = createController(invoke, (state, { pending, confirming }) => {
     const view = bootError
       ? { label: '桌面更新初始化失败：' + bootError, action: '更新不可用', busy: false, emphasized: false }
@@ -214,6 +272,11 @@ function decodeState(value: unknown): UpdateState | undefined {
   let unlisten: NativeUnlisten | undefined, initialTimer: number | undefined, periodicTimer: number | undefined
   window.addEventListener('pagehide', () => {
     disposed = true
+    anchorMount.disconnect()
+    anchorSize.disconnect()
+    if (anchorFrame !== undefined) window.cancelAnimationFrame(anchorFrame)
+    window.removeEventListener('resize', positionAnchor)
+    if (anchorSlot) anchorSlot.hidden = true
     unlisten?.()
     window.clearTimeout(initialTimer)
     window.clearInterval(periodicTimer)
@@ -227,7 +290,7 @@ function decodeState(value: unknown): UpdateState | undefined {
     if (disposed) { unlisten(); return }
     await controller.restore()
     if (disposed) return
-    host.hidden = false
+    showAnchor()
     // Silent checks only light up the icon; never expand a panel over a conversation.
     initialTimer = window.setTimeout(() => controller.check(), 1500)
     periodicTimer = window.setInterval(() => {
@@ -240,7 +303,7 @@ function decodeState(value: unknown): UpdateState | undefined {
     // Do not silently hide native ACL/configuration failures. Keep a quiet,
     // inspectable error badge; never offer installation on a broken bridge.
     bootError = String(error)
-    host.hidden = false
+    showAnchor()
     controller.dismiss()
   })
 })()
