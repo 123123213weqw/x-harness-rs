@@ -40,6 +40,10 @@ gh api -H 'Accept: application/vnd.github.raw+json' \
 
 见 [插件发布运维](../runbooks/plugin-distribution.md)。公开目录与软件更新通道独立；此同步不发布、覆盖或重启 XHarness 安装包，也不启动 MCP。
 
+### 下载实现的职责边界
+
+`xharness-plugins` 声明 `PackageClient` 注入接口，保留独立、严格的系统 DNS 默认实现；不依赖 WebFetch／Host／Tool 的 crate 或运行状态。产品组成层的 `open_product_plugin_manager` 注入共享公网验证客户端，以复用 WebFetch 的 Fake-IP 加密 DNS 验证与地址固定；没有放宽被冻结的架构依赖清单。通用插件库遇到无法验证的合成 DNS 仍失败关闭，不能通过目录配置绕过。
+
 ### 真实插件验收（隔离环境，手动触发）
 
 `plugin_mcp_live` 使用公开 CDN 中固定 SHA-256 的 `cloudbase-skills@0.1.0` ZIP，在临时插件状态目录中实际走目录导入、安装、MCP 命令预览、独立启用、`npx` stdio 握手、40 个 Tool 的简短索引与单个 Schema 读取、只读 `searchKnowledgeBase(mode=docs, action=listModules)` 调用，以及停用后旧 Tool 快照拒绝访问。测试不会修改用户现有的 XHarness 状态或桌面安装；需要联网和 Node/npm，CI 默认忽略。V100 验收命令：

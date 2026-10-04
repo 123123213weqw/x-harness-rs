@@ -3,6 +3,7 @@
 //! Skill text and separately authorized MCP config are exposed to their own
 //! runtime boundaries.
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -11,7 +12,10 @@ use std::{
     io::{Read, Write},
     net::IpAddr,
     path::{Component, Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
@@ -112,10 +116,27 @@ struct State {
     installed: BTreeMap<String, InstalledPlugin>,
 }
 
+/// Trusted composition seam; never configurable by a catalog or model.
+/// Products inject their validated transport without making the plugin data
+/// crate depend on WebFetch, Host, Tool Registry or their runtime state.
+#[async_trait]
+pub trait PackageClient: Send + Sync {
+    async fn client(&self, url: &str) -> Result<reqwest::Client, PluginError>;
+}
+
+struct SystemPackageClient;
+#[async_trait]
+impl PackageClient for SystemPackageClient {
+    async fn client(&self, url: &str) -> Result<reqwest::Client, PluginError> {
+        pinned_client(url).await
+    }
+}
+
 pub struct PluginManager {
     root: PathBuf,
     state: Mutex<State>,
     mutation: Mutex<()>,
+    package_client: Arc<dyn PackageClient>,
 }
 impl PluginManager {
     /// Product composition: seed a small offline catalog, or migrate only
@@ -137,7 +158,12 @@ impl PluginManager {
             root,
             state: Mutex::new(state),
             mutation: Mutex::new(()),
+            package_client: Arc::new(SystemPackageClient),
         })
+    }
+    pub fn with_package_client(mut self, client: Arc<dyn PackageClient>) -> Self {
+        self.package_client = client;
+        self
     }
     pub async fn catalog(&self) -> Vec<CatalogEntry> {
         self.state.lock().await.catalog.clone()
@@ -236,7 +262,7 @@ impl PluginManager {
                 .ok_or_else(|| PluginError::NotFound(name.into()))?
         };
         validate_source(&entry.source)?;
-        let client = pinned_client(&entry.source.url).await?;
+        let client = self.package_client.client(&entry.source.url).await?;
         let response = client
             .get(&entry.source.url)
             .send()
@@ -679,11 +705,57 @@ fn validate_source(source: &PackageSource) -> Result<(), PluginError> {
     Ok(())
 }
 async fn pinned_client(raw_url: &str) -> Result<reqwest::Client, PluginError> {
-    xharness_web::public_https_client(raw_url, Duration::from_secs(90))
-        .await
-        .map_err(|error| {
-            PluginError::Operation(format!("package target validation failed: {error}"))
-        })
+    let url = reqwest::Url::parse(raw_url).map_err(|e| PluginError::Invalid(e.to_string()))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| PluginError::Invalid("URL has no host".into()))?;
+    let addresses = tokio::time::timeout(
+        Duration::from_secs(15),
+        tokio::net::lookup_host((host, 443)),
+    )
+    .await
+    .map_err(|_| PluginError::Operation("package DNS timed out".into()))?
+    .map_err(|e| PluginError::Operation(format!("package DNS failed: {e}")))?
+    .collect::<Vec<_>>();
+    if addresses.is_empty() || addresses.iter().any(|address| !public_ip(address.ip())) {
+        return Err(PluginError::Invalid(
+            "package host has non-public addresses; product transport may verify synthetic DNS"
+                .into(),
+        ));
+    }
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(90))
+        .resolve_to_addrs(host, &addresses)
+        .build()
+        .map_err(|e| PluginError::Operation(e.to_string()))
+}
+fn public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => {
+            let [a, b, c, _] = v.octets();
+            !(a == 0
+                || a == 10
+                || a == 127
+                || a >= 224
+                || (a == 169 && b == 254)
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && (b == 168 || b == 0 || b == 2))
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
+                || (a == 203 && b == 0 && c == 113))
+        }
+        IpAddr::V6(v) => {
+            if let Some(mapped) = v.to_ipv4_mapped() {
+                return public_ip(IpAddr::V4(mapped));
+            }
+            let s = v.segments();
+            (s[0] & 0xe000) == 0x2000
+                && !(s[0] == 0x2001
+                    && (s[1] == 0x0db8 || s[1] == 2 || (0x10..=0x2f).contains(&s[1])))
+        }
+    }
 }
 fn extract_zip(bytes: &[u8], root: &Path) -> Result<(), PluginError> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
@@ -1191,12 +1263,34 @@ mod tests {
             "::1",
             "fe80::1",
         ] {
-            assert!(
-                !xharness_web::is_public_ip(address.parse().unwrap()),
-                "{address}"
-            );
+            assert!(!public_ip(address.parse().unwrap()), "{address}");
         }
-        assert!(xharness_web::is_public_ip("1.1.1.1".parse().unwrap()));
+        assert!(public_ip("1.1.1.1".parse().unwrap()));
+    }
+    #[tokio::test]
+    async fn injected_transport_is_used_once_and_failure_cannot_publish() {
+        struct Rejected(AtomicU64);
+        #[async_trait]
+        impl PackageClient for Rejected {
+            async fn client(&self, _url: &str) -> Result<reqwest::Client, PluginError> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Err(PluginError::Operation("injected transport rejected".into()))
+            }
+        }
+        let root = std::env::temp_dir().join(format!("xh-plugin-transport-{}", nonce()));
+        let transport = Arc::new(Rejected(AtomicU64::new(0)));
+        let manager = PluginManager::open_product(root.clone())
+            .unwrap()
+            .with_package_client(transport.clone());
+        assert!(manager
+            .install("github")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("injected transport rejected"));
+        assert_eq!(transport.0.load(Ordering::SeqCst), 1);
+        assert!(manager.installed().await.is_empty());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
