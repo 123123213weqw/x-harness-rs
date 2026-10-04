@@ -178,6 +178,7 @@ jobs:
       - run: node scripts/test-silver-surface.mjs
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
+      - run: node scripts/test-assistant-visibility-lifecycle.mjs
       - run: node scripts/test-retry-turn-projection.mjs
       - run: node scripts/test-network-wait-ui.mjs
       - run: node scripts/test-atomic-history.mjs
