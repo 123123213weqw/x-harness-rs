@@ -42,3 +42,7 @@ cargo clippy --offline --locked --manifest-path apps/desktop/src-tauri/Cargo.tom
 Windows 与 macOS 原生编译、跨平台 GitHub CI、使用真实候选安装包的下载／停 Host／安装／重启／数据保留链路尚未执行。本轮浏览器使用原生桥接模拟器，Rust 测试验证生产缓存及状态代码；不能把这些结果表述为已完成实际软件升级。
 
 完整包缓存不是下载中断后的 HTTP Range 续传；离线启动仍需取得最新清单才可复用缓存。没有新增通用新版启动失败自动回滚，也没有改变 Apple 公证或 Gatekeeper 策略。后续独立验收项见任务清单。
+
+## 后续原生验收（2026-10-04）
+
+原先缺失的原生隔离链路已补齐：Linux AppImage、macOS arm64／x64 各 3 轮，Windows NSIS 1 轮，合计 10/10。详情与源码／包哈希绑定见 [原生升级记录](desktop-native-updates-20261004.md)。临时签名演练不替代正式发布／首次下载 OS 门禁，不替换本机应用。
