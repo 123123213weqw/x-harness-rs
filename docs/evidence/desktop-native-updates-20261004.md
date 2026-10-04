@@ -46,6 +46,8 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 
 修复仅修改两个测试，**不修改生产 UI、Rust 或更新器**。同样 Linux 双核条件的两个测试各五轮 **10/10 通过**；Mac Chromium／WebKit 两个测试 **4/4 通过**。这是 CI 夹具正确性回归，不是性能基准；最终 Node 22 全量门禁仍以 PR 当前提交的 CI 为准。机器可读计数／日志哈希见 `desktop-native-updates-20261004/ci-fixture-regression.json`。
 
+另一次最终提交的 [Linux Rust job](https://github.com/123123213weqw/x-harness-rs/actions/runs/37190968756/job/111402866041)在既有 Cloud 持久化测试重新打开数据库时返回 `EnvironmentBusy`。同一测试进程中还并行运行真实 abrupt-exit 子进程夹具；Linux 的 `flock` 绑定 open-file description，fork 得到的重复描述符也会延续锁的生命周期（[Linux man-pages](https://man7.org/linux/man-pages/man2/flock.2.html)）。因此在测试内用读写锁隔开 open/reopen 与该子进程的 fork/exec 窗口；不是在生产代码重试 `EnvironmentBusy`，也没有移除真实进程退出、单写者或 reopen 断言。V100 16 路并行的原持久化套件先编译运行一次，再重复 30 轮：每轮 14 项通过，真实子进程夹具仍实际运行，合计 **31 轮通过**。记录见 `desktop-native-updates-20261004/cloud-persistence-fixture-regression.json`。该后续修改仍仅涉及测试与报告，原生运行时代码及其哈希不变。
+
 ## 不包含的证明
 
 没有测量或宣称原生启动速度更快。没有宣称正式生产签名、Apple 公证／浏览器首次下载 Gatekeeper 批准、Windows Authenticode／SmartScreen、Linux `.deb` 包管理器升级、多旧版本迁移矩阵、下载部分续传或普遍自动回滚已经验收。首屏是生命周期／交互改造，不是性能基准结果。
