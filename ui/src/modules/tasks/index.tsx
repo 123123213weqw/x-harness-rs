@@ -1,22 +1,23 @@
 /// <reference path="../shared/assets.d.ts" />
+import type {IWorkCatalog, WorkCatalogSnapshot} from '../client-runtime/index'
 import type { PageContext, Translation } from '../shared/runtime-types'
 import { objectValue, errorText } from '../shared/runtime-types'
 import * as React from 'react'
-import * as ReactDOM from 'react-dom'
 import {IconSearchOutline16, IconFolderClose16, IconTrashOutline16, IconEllipsisOutline16, IconChevronDownOutline14, IconChecklistOutline14} from '@xharness/dsh-client-ui-primitives'
 import CSS from './Tasks.css'
 const {createElement: h, useEffect, useRef, useState, useSyncExternalStore} = React
-interface TaskSession { sessionId: string; blank?: boolean; cwd?: string; updatedAt?: unknown; running?: boolean; projections?: { values?: { title?: string } } }
-interface TaskWorkspace {workspaceId: string; title: string; sessionIds?: string[]}
+interface TaskSession { readonly sessionId: string; readonly blank?: boolean; readonly cwd?: string; readonly updatedAt?: unknown; readonly running?: boolean; readonly projections?: { readonly values?: { readonly title?: string } } }
+interface TaskWorkspace {readonly workspaceId: string; readonly title: string; readonly sessionIds?: readonly string[]}
 interface ArchiveSnapshot {title: string; updatedAt: number; archivedAt?: number; workspaceId?: string | null}
 interface ArchivedGroup {workspace: TaskWorkspace | null; ids: string[]}
 type GroupKey = 'pinned' | 'today' | 'yesterday' | 'last7' | 'earlier'
 interface TaskStore {
-  open: boolean; closing: boolean; closeTimer: number; loading: boolean; error: string | null; actionError: string | null
-  sessions: TaskSession[]; archivedIds: string[]; workspaces: TaskWorkspace[]; snapshots: Record<string, ArchiveSnapshot>; pinned: string[]
+  loading: boolean; error: string | null; actionError: string | null
+  readonly sessions: readonly TaskSession[]; readonly archivedIds: readonly string[]; readonly workspaces: readonly TaskWorkspace[]
+  snapshots: Record<string, ArchiveSnapshot>; pinned: string[]
   busyId: string | null; menuId: string | null; renameId: string | null; deleteConfirmId: string | null; version: number; listeners: Set<() => void>
-  subscribe(listener: () => void): () => void; emit(): void; setOpen(open: boolean): void; finishClose(): void; togglePinned(id: string): void
-  snapshot(session: TaskSession, t: Translation): void; refresh(): Promise<void>; rename(id: string, title: string): Promise<void>; archive(id: string): Promise<void>; fork(id: string): Promise<void>
+  subscribe(listener: () => void): () => void; emit(): void; togglePinned(id: string): void
+  snapshot(session: TaskSession, t: Translation): void; refresh(signal?: AbortSignal): Promise<void>; rename(id: string, title: string): Promise<void>; archive(id: string): Promise<void>; fork(id: string): Promise<void>
   restore(id: string): Promise<void>; deleteArchived(id: string): Promise<void>; deleteArchivedBatch(ids: readonly string[]): Promise<void>; restoreArchivedBatch(ids: readonly string[]): Promise<void>
 }
 function stringList(value: unknown): string[] { return Array.isArray(value) ? (value).filter((item: unknown): item is string => typeof item === 'string') : [] }
@@ -25,13 +26,12 @@ function sessionList(value: unknown): TaskSession[] {
   return (value).flatMap((item: unknown) => {
     const row = objectValue(item)
     if (typeof row.sessionId !== 'string') return []
-    const session: TaskSession = { sessionId: row.sessionId, updatedAt: row.updatedAt }
-    if (typeof row.blank === 'boolean') session.blank = row.blank
-    if (typeof row.running === 'boolean') session.running = row.running
-    if (typeof row.cwd === 'string') session.cwd = row.cwd
     const title = objectValue(objectValue(row.projections).values).title
-    if (typeof title === 'string') session.projections = { values: { title } }
-    return [session]
+    return [Object.freeze({sessionId: row.sessionId, updatedAt: row.updatedAt,
+      ...(typeof row.blank === 'boolean' ? {blank: row.blank} : {}),
+      ...(typeof row.running === 'boolean' ? {running: row.running} : {}),
+      ...(typeof row.cwd === 'string' ? {cwd: row.cwd} : {}),
+      ...(typeof title === 'string' ? {projections: Object.freeze({values: Object.freeze({title})})} : {})})]
   })
 }
 function archiveSnapshots(value: unknown): Record<string, ArchiveSnapshot> {
@@ -51,7 +51,7 @@ function workspaceList(value: unknown): TaskWorkspace[] {
   return value.flatMap((item: unknown) => {
     const row = objectValue(item)
     return typeof row.workspaceId === 'string' && typeof row.title === 'string'
-      ? [{workspaceId: row.workspaceId, title: row.title, sessionIds: stringList(row.sessionIds)}] : []
+      ? [Object.freeze({workspaceId: row.workspaceId, title: row.title, sessionIds: Object.freeze(stringList(row.sessionIds))})] : []
   })
 }
 function archivedSessionList(value: unknown): Array<{sessionId: string; title: string | null; updatedAt: unknown}> {
@@ -66,20 +66,8 @@ const NS = 'xharness.ui.tasks'
 const STYLE_ID = 'xharness-tasks-panel-style'
 const PINNED_KEY = 'xharness.tasks.pinned.v1'
 const ARCHIVE_KEY = 'xharness.tasks.archive-snapshots.v1'
-const PANEL_WIDTH = 360
-
-function panelExitWatchdogMs() {
-  const value = window.getComputedStyle?.(document.documentElement)
-    ?.getPropertyValue('--xh-duration-panel-out')?.trim() ?? ''
-  const match = /^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)$/.exec(value)
-  const durationMs = match ? Number(match[1]) * (match[2] === 's' ? 1000 : 1) : 180
-  // Keep the watchdog beyond the CSS animation, including custom token values.
-  return Math.max(1000, Math.ceil(durationMs + 500))
-}
 
 const zh = {
-  'panel.open': '任务',
-  'panel.close': '关闭任务面板',
   'panel.title': '任务',
   'panel.refresh': '刷新',
   'group.pinned': '置顶',
@@ -129,8 +117,6 @@ const zh = {
   'unknown.archived': '较早前归档',
 }
 const en = {
-  'panel.open': 'Tasks',
-  'panel.close': 'Close tasks panel',
   'panel.title': 'Tasks',
   'panel.refresh': 'Refresh',
   'group.pinned': 'Pinned',
@@ -180,28 +166,15 @@ const en = {
   'unknown.archived': 'archived earlier',
 }
 
-// ----------------------------------------------------------------- RPC --
+// ------------------------------------------------------ runtime service --
 
-let rpcCounter = 0
-async function rpc(method: string, payload: unknown): Promise<unknown> {
-  const rpcId = `xharness-tasks-${++rpcCounter}`
-  const response = await fetch(`/api/${method}`, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ type: 'client-request', rpcId, method, payload: payload ?? {} }),
-  })
-  let body: unknown = null
-  try {
-    body = await response.json()
-  } catch {
-    body = null
-  }
-  const result = objectValue(objectValue(body).result)
-  if (result?.ok !== true) {
-    throw new Error(result.error == null ? `${method} failed (${response.status})` : errorText(result.error))
-  }
-  return result.value ?? null
+interface TasksContext extends PageContext {get(name: 'workCatalog'): IWorkCatalog | undefined}
+let catalog: IWorkCatalog | undefined
+let refreshGeneration = 0
+let commandGeneration = 0
+function workCatalog(): IWorkCatalog {
+  if (catalog === undefined) throw Error('Work catalog service unavailable')
+  return catalog
 }
 
 // ------------------------------------------------------------- storage --
@@ -217,7 +190,8 @@ function readJson(key: string, fallback: unknown): unknown {
 
 function writeJson(key: string, value: unknown) {
   try {
-    window.localStorage.setItem(key, JSON.stringify(value))
+    const serialized = JSON.stringify(value)
+    if (window.localStorage.getItem(key) !== serialized) window.localStorage.setItem(key, serialized)
   } catch {
     // Private-mode storage may refuse writes; the panel keeps working
     // with in-memory state for this session.
@@ -324,16 +298,24 @@ function groupArchived(ids: readonly string[], snapshots: Readonly<Record<string
 
 // ------------------------------------------------------------ store --
 
+// Runtime is the only business-state writer. This immutable display projection
+// is replaced only by adoptSnapshot; commands cannot optimistically patch it.
+interface TaskProjection {
+  readonly sessions: readonly TaskSession[]
+  readonly archivedIds: readonly string[]
+  readonly workspaces: readonly TaskWorkspace[]
+}
+let projection: TaskProjection = {sessions: [], archivedIds: [], workspaces: []}
+// Transient UI operation label, never a source of archive membership. A live
+// update can repair it while the command is pending, including older Hosts.
+let pendingArchiveLabel: TaskSession | undefined
 const store: TaskStore = {
-  open: false,
-  closing: false,
-  closeTimer: 0,
   loading: false,
   error: null,
   actionError: null,
-  sessions: [],
-  archivedIds: [],
-  workspaces: [],
+  get sessions() {return projection.sessions},
+  get archivedIds() {return projection.archivedIds},
+  get workspaces() {return projection.workspaces},
   snapshots: archiveSnapshots(readJson(ARCHIVE_KEY, {})),
   pinned: stringList(readJson(PINNED_KEY, [])),
   busyId: null,
@@ -349,41 +331,6 @@ const store: TaskStore = {
   emit() {
     this.version += 1
     for (const listener of this.listeners) listener()
-  },
-  // animationend owns unmount; the timer only prevents a stuck panel when
-  // the animation never fires (hidden tab, removed stylesheet, etc.).
-  setOpen(open) {
-    if (open) {
-      window.clearTimeout(this.closeTimer)
-      this.closeTimer = 0
-      this.closing = false
-      this.open = true
-      void this.refresh()
-    } else if (this.open && !this.closing) {
-      if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
-        this.open = false
-        this.closing = false
-        this.menuId = null
-        this.renameId = null
-        this.deleteConfirmId = null
-        this.emit()
-        return
-      }
-      this.closing = true
-      this.closeTimer = window.setTimeout(() => this.finishClose(), panelExitWatchdogMs())
-    }
-    this.menuId = null
-    this.renameId = null
-    this.deleteConfirmId = null
-    this.emit()
-  },
-  finishClose() {
-    if (!this.closing) return
-    window.clearTimeout(this.closeTimer)
-    this.closeTimer = 0
-    this.open = false
-    this.closing = false
-    this.emit()
   },
   togglePinned(id) {
     this.pinned = this.pinned.includes(id)
@@ -402,162 +349,133 @@ const store: TaskStore = {
     }
     writeJson(ARCHIVE_KEY, this.snapshots)
   },
-  async refresh() {
+  async refresh(signal) {
+    const generation = ++refreshGeneration
     this.loading = true
     this.error = null
     this.emit()
     try {
-      const [list, workspaces] = await Promise.all([
-        rpc('session.list', {}),
-        rpc('workspace.list', {}),
-      ])
-      this.sessions = sessionList(objectValue(list).items)
-      this.archivedIds = stringList(objectValue(workspaces).archivedSessionIds)
-      this.workspaces = workspaceList(objectValue(workspaces).items)
-      const workspaceBySession = new Map<string, string>()
-      for (const workspace of this.workspaces) {
-        for (const id of workspace.sessionIds ?? []) workspaceBySession.set(id, workspace.workspaceId)
-      }
-      for (const session of archivedSessionList(objectValue(workspaces).archivedSessions)) {
-        if (!this.archivedIds.includes(session.sessionId)) continue
-        const previous: Partial<ArchiveSnapshot> = this.snapshots[session.sessionId] ?? {}
-        this.snapshots[session.sessionId] = {
-          ...previous,
-          title: session.title || previous.title || session.sessionId,
-          updatedAt: normalizeTimestamp(session.updatedAt),
-          workspaceId: workspaceBySession.get(session.sessionId) ?? previous.workspaceId ?? null,
-        }
-      }
-      writeJson(ARCHIVE_KEY, this.snapshots)
-      const live = new Set(this.sessions.map((session) => session.sessionId))
-      this.archivedIds = this.archivedIds.filter((id) => !live.has(id))
-      this.pinned = this.pinned.filter((id) => live.has(id))
-      writeJson(PINNED_KEY, this.pinned)
+      await workCatalog().refresh(signal)
+      if (generation === refreshGeneration && !signal?.aborted) adoptSnapshot(workCatalog().getSnapshot())
     } catch (error) {
-      this.error = errorText(error)
+      if (generation === refreshGeneration && !signal?.aborted) this.error = errorText(error)
     } finally {
-      this.loading = false
-      this.emit()
+      if (generation === refreshGeneration) {this.loading = false; this.emit()}
     }
   },
   async rename(id, title) {
     if (this.busyId !== null) return
+    const generation = commandGeneration
     this.actionError = null
     this.busyId = id
     this.emit()
     try {
-      await rpc('session.rename', { sessionId: id, title })
-      const target = this.sessions.find((session) => session.sessionId === id)
-      if (target?.projections?.values) {
-        target.projections.values.title = title
-      }
-      this.renameId = null
-      this.emit()
+      await workCatalog().rename(id, title)
+      if (generation === commandGeneration && this.renameId === id) this.renameId = null
     } catch (error) {
-      this.actionError = errorText(error)
+      if (generation === commandGeneration) this.actionError = errorText(error)
     } finally {
-      this.busyId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.emit()
+      }
     }
   },
   async archive(id) {
     if (this.busyId !== null) return
-    const target = this.sessions.find((session) => session.sessionId === id)
+    pendingArchiveLabel = this.sessions.find((session) => session.sessionId === id)
+    const generation = commandGeneration
     this.actionError = null
     this.busyId = id
     this.emit()
     try {
-      await rpc('workspace.archiveSession', { sessionId: id })
-      // Persist the label only after the archive succeeded; failed RPCs
-      // must not leave a phantom archived snapshot behind.
-      if (target !== undefined) this.snapshot(target, makeT())
-      this.sessions = this.sessions.filter((session) => session.sessionId !== id)
-      this.archivedIds = [...this.archivedIds, id]
-      this.pinned = this.pinned.filter((candidate) => candidate !== id)
-      writeJson(PINNED_KEY, this.pinned)
+      await workCatalog().archive(id)
     } catch (error) {
-      this.actionError = errorText(error)
+      if (generation === commandGeneration) this.actionError = errorText(error)
     } finally {
-      this.busyId = null
-      this.menuId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        pendingArchiveLabel = undefined
+        this.busyId = null
+        this.menuId = null
+        this.emit()
+      }
     }
   },
   async fork(id) {
     if (this.busyId !== null) return
+    const generation = commandGeneration
     this.actionError = null
     this.busyId = id
     this.emit()
     try {
-      await rpc('session.fork', { sessionId: id })
-      await this.refresh()
+      await workCatalog().fork(id)
     } catch (error) {
-      this.actionError = errorText(error)
+      if (generation === commandGeneration) this.actionError = errorText(error)
     } finally {
-      this.busyId = null
-      this.menuId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.menuId = null
+        this.emit()
+      }
     }
   },
   async restore(id) {
     if (this.busyId !== null) return
+    const generation = commandGeneration
     this.actionError = null
     this.busyId = id
     this.emit()
     try {
-      await rpc('workspace.unarchiveSession', { sessionId: id })
-      this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id)
-      delete this.snapshots[id]
-      writeJson(ARCHIVE_KEY, this.snapshots)
-      await this.refresh()
+      await workCatalog().unarchive(id)
     } catch (error) {
-      this.actionError = errorText(error)
+      if (generation === commandGeneration) this.actionError = errorText(error)
     } finally {
-      this.busyId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.emit()
+      }
     }
   },
   async deleteArchived(id) {
     if (this.busyId !== null || this.deleteConfirmId !== id) return
+    const generation = commandGeneration
     this.actionError = null
     this.busyId = id
     this.emit()
     try {
-      await rpc('session.delete', { sessionId: id })
-      this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id)
-      this.pinned = this.pinned.filter((candidate) => candidate !== id)
-      delete this.snapshots[id]
-      writeJson(ARCHIVE_KEY, this.snapshots)
-      writeJson(PINNED_KEY, this.pinned)
-      this.deleteConfirmId = null
-      await this.refresh()
+      await workCatalog().deleteArchived(id)
+      if (generation === commandGeneration && this.deleteConfirmId === id) this.deleteConfirmId = null
     } catch (error) {
-      this.actionError = errorText(error)
+      if (generation === commandGeneration) this.actionError = errorText(error)
     } finally {
-      this.busyId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.emit()
+      }
     }
   },
   async deleteArchivedBatch(ids) {
     if (this.busyId !== null || ids.length === 0 ||
         (this.deleteConfirmId !== 'all' && !this.deleteConfirmId?.startsWith('group:'))) return
+    const generation = commandGeneration
     this.busyId = 'bulk'
     this.actionError = null
     this.emit()
+    const confirmation = this.deleteConfirmId
     let pending = ids.filter((id) => this.archivedIds.includes(id))
     let failures: string[] = []
     try {
       // Children may need deleting before their archived parent. Retry only
       // after at least one successful deletion; stop on a no-progress pass.
       while (pending.length > 0) {
+        if (generation !== commandGeneration) return
         const next: string[] = []
         failures = []
         for (const id of pending) {
+          if (generation !== commandGeneration) return
+          if (!this.archivedIds.includes(id)) continue
           try {
-            await rpc('session.delete', { sessionId: id })
-            this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id)
-            this.pinned = this.pinned.filter((candidate) => candidate !== id)
-            delete this.snapshots[id]
+            await workCatalog().deleteArchived(id)
           } catch (error) {
             next.push(id)
             failures.push(errorText(error))
@@ -566,38 +484,40 @@ const store: TaskStore = {
         if (next.length === pending.length) break
         pending = next
       }
-      writeJson(ARCHIVE_KEY, this.snapshots)
-      writeJson(PINNED_KEY, this.pinned)
-      this.deleteConfirmId = null
-      await this.refresh()
+      if (generation !== commandGeneration) return
+      if (this.deleteConfirmId === confirmation) this.deleteConfirmId = null
       if (pending.length > 0) this.actionError = makeT()('settings.bulkFailed', { count: pending.length, message: failures[0] ?? '' })
     } finally {
-      this.busyId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.emit()
+      }
     }
   },
   async restoreArchivedBatch(ids) {
     if (this.busyId !== null || ids.length === 0) return
+    const generation = commandGeneration
     this.busyId = 'bulk'
     this.actionError = null
     this.emit()
     const failures: string[] = []
     try {
-      for (const id of ids.filter((candidate) => this.archivedIds.includes(candidate))) {
+      for (const id of ids) {
+        if (generation !== commandGeneration) return
+        if (!this.archivedIds.includes(id)) continue
         try {
-          await rpc('workspace.unarchiveSession', { sessionId: id })
-          this.archivedIds = this.archivedIds.filter((candidate) => candidate !== id)
-          delete this.snapshots[id]
+          await workCatalog().unarchive(id)
         } catch (error) {
           failures.push(errorText(error))
         }
       }
-      writeJson(ARCHIVE_KEY, this.snapshots)
-      await this.refresh()
+      if (generation !== commandGeneration) return
       if (failures.length > 0) this.actionError = makeT()('settings.bulkRestoreFailed', { count: failures.length, message: failures[0] ?? '' })
     } finally {
-      this.busyId = null
-      this.emit()
+      if (generation === commandGeneration) {
+        this.busyId = null
+        this.emit()
+      }
     }
   },
 }
@@ -625,7 +545,7 @@ function useStore() {
   return store
 }
 
-function TaskRow({ session, t, pinned }: {session: TaskSession; t: Translation; pinned: boolean}) {
+function TaskRow({ session, t, pinned, openSession }: {session: TaskSession; t: Translation; pinned: boolean; openSession?: (id: string) => void}) {
   const state = useStore()
   const id = session.sessionId
   const isPinned = pinned
@@ -678,7 +598,7 @@ function TaskRow({ session, t, pinned }: {session: TaskSession; t: Translation; 
       className: `xhtask-dot ${session.running ? 'xhtask-dot-running' : ''}`,
       'aria-hidden': true,
     }),
-    h('span', { className: 'xhtask-title', title: `${title} · ${id}` }, title),
+    h('button', { type: 'button', className: 'xhtask-title xhwork-task-title', title: `${title} · ${id}`, disabled: busy, onClick: (event: React.MouseEvent<HTMLButtonElement>) => { event.stopPropagation(); openSession?.(id) } }, title),
     h('span', { className: 'xhtask-time' }, relativeTime(session.updatedAt, Date.now(), document.documentElement.lang.startsWith('zh'))),
     state.menuId === id
       ? h('div', { className: 'xhtask-menu', onClick: (event: React.MouseEvent<HTMLElement>) => event.stopPropagation() },
@@ -736,34 +656,29 @@ function ArchivedRow({ id, t }: {id: string; t: Translation}) {
   )
 }
 
-function TasksPanel({ t }: {t: Translation}) {
+function TasksPanel({ t, openSession }: {t: Translation; openSession(id: string): void}) {
   const state = useStore()
   const groups = groupSessions(state.sessions, state.pinned)
+  const visibleCount = Object.values(groups).reduce((count, rows) => count + rows.length, 0)
 
   return h('div', { className: 'xhtask-panel' },
     h('div', { className: 'xhtask-head' },
       h('span', { className: 'xhtask-head-title' }, t('panel.title')),
-      h('span', { className: 'xhtask-head-count' }, String(state.sessions.length)),
+      h('span', { className: 'xhtask-head-count' }, String(visibleCount)),
       h('button', {
         type: 'button',
         className: 'xhtask-head-action',
         title: t('panel.refresh'),
         onClick: () => void state.refresh(),
       }, '⟳'),
-      h('button', {
-        type: 'button',
-        className: 'xhtask-head-action',
-        title: t('panel.close'),
-        onClick: () => state.setOpen(false),
-      }, '×'),
     ),
     state.actionError !== null
       ? h('div', { className: 'xhtask-action-error', role: 'alert' },
           t('action.failed', { message: state.actionError }))
       : null,
-    state.loading && state.sessions.length === 0
+    state.loading && visibleCount === 0
       ? h('div', { className: 'xhtask-empty' }, t('loading'))
-      : state.error !== null && state.sessions.length === 0
+      : state.error !== null && visibleCount === 0
         ? h('div', { className: 'xhtask-empty' },
             `${t('error')}: ${state.error}`,
             h('button', {
@@ -772,7 +687,7 @@ function TasksPanel({ t }: {t: Translation}) {
               onClick: () => void state.refresh(),
             }, t('retry')),
           )
-        : state.sessions.length === 0
+        : visibleCount === 0
           ? h('div', { className: 'xhtask-empty' }, t('empty'))
           : h('div', { className: 'xhtask-body' },
               GROUP_ORDER
@@ -787,7 +702,7 @@ function TasksPanel({ t }: {t: Translation}) {
                       h(TaskRow, {
                         key: session.sessionId,
                         session,
-                        t,
+                        t, openSession,
                         pinned: key === 'pinned',
                       }),
                     ),
@@ -804,12 +719,8 @@ function ArchivedSettings() {
   const [order, setOrder] = useState('newest')
   const [projectId, setProjectId] = useState('')
   const [menuId, setMenuId] = useState<string | null>(null)
-  useEffect(() => {
-    void store.refresh()
-    return () => {
-      store.deleteConfirmId = null
-    }
-  }, [])
+  useTaskRefresh()
+  useEffect(() => () => {store.deleteConfirmId = null}, [])
   const groups = groupArchived(state.archivedIds, state.snapshots, state.workspaces, query, projectId, order)
   const bulkIds = state.deleteConfirmId === 'all'
     ? [...state.archivedIds]
@@ -889,62 +800,75 @@ function ArchivedSettings() {
   )
 }
 
-function TasksRoot() {
-  const t = makeT()
-  const state = useStore()
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && state.open) state.setOpen(false)
+function adoptSnapshot(snapshot: WorkCatalogSnapshot): void {
+  store.loading = snapshot.loading
+  store.error = snapshot.error
+  // A not-yet-arrived baseline must not erase local pin/archive preferences.
+  if (snapshot.phase !== 'ready') {store.emit(); return}
+  const previous = projection
+  const sessions = sessionList(snapshot.sessions)
+  const archivedIds = stringList(snapshot.archivedSessionIds)
+  const archived = new Set(archivedIds)
+  const workspaces = workspaceList(snapshot.workspaces)
+  projection = Object.freeze({
+    sessions: Object.freeze(sessions.filter(session => !archived.has(session.sessionId))),
+    archivedIds: Object.freeze(archivedIds), workspaces: Object.freeze(workspaces),
+  })
+  // Cache only display labels; membership comes exclusively from the owner.
+  // A command acknowledgement cannot recreate a restored/deleted archive row.
+  if (pendingArchiveLabel !== undefined) {
+    pendingArchiveLabel = sessions.find(session => session.sessionId === pendingArchiveLabel?.sessionId) ?? pendingArchiveLabel
+    if (archived.has(pendingArchiveLabel.sessionId) && !previous.archivedIds.includes(pendingArchiveLabel.sessionId)) {
+      store.snapshot(pendingArchiveLabel, makeT())
     }
-    window.addEventListener('keydown', escape)
-    return () => window.removeEventListener('keydown', escape)
+  }
+  for (const id of previous.archivedIds) {if (!archived.has(id)) delete store.snapshots[id]}
+  const workspaceBySession = new Map<string, string>()
+  for (const workspace of store.workspaces) {
+    for (const id of workspace.sessionIds ?? []) workspaceBySession.set(id, workspace.workspaceId)
+  }
+  for (const session of archivedSessionList(snapshot.archivedSessions)) {
+    if (!store.archivedIds.includes(session.sessionId)) continue
+    const previous: Partial<ArchiveSnapshot> = store.snapshots[session.sessionId] ?? {}
+    store.snapshots[session.sessionId] = {...previous,
+      title: session.title || previous.title || session.sessionId,
+      updatedAt: normalizeTimestamp(session.updatedAt),
+      workspaceId: workspaceBySession.get(session.sessionId) ?? previous.workspaceId ?? null}
+  }
+  writeJson(ARCHIVE_KEY, store.snapshots)
+  const live = new Set(store.sessions.map(session => session.sessionId))
+  store.pinned = store.pinned.filter(id => live.has(id) && !archived.has(id))
+  writeJson(PINNED_KEY, store.pinned)
+  store.emit()
+}
+function useTaskRefresh(): void {
+  useEffect(() => {
+    const controller = new AbortController()
+    void store.refresh(controller.signal)
+    return () => {controller.abort(); store.menuId = null; store.renameId = null}
   }, [])
-  return h(React.Fragment, null,
-    h('button', {
-      type: 'button',
-      className: 'xhtask-trigger',
-      title: state.open ? t('panel.close') : t('panel.open'),
-      onClick: () => state.setOpen(state.closing || !state.open),
-    },
-      h('svg', {
-        viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true,
-        fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4,
-      },
-        h('path', { d: 'M2.5 3.5h8M2.5 8h11M2.5 12.5h6' }),
-      ),
-      h('span', { className: 'xhtask-trigger-label' }, t('panel.open')),
-    ),
-    state.open || state.closing
-      ? ReactDOM.createPortal(
-          h('div', {
-            className: state.closing ? 'xhtask-scrim xhtask-scrim-closing' : 'xhtask-scrim',
-            onClick: () => state.setOpen(false),
-          },
-            h('div', {
-              className: state.closing
-                ? 'xhtask-panel-wrap xhtask-panel-wrap-closing'
-                : 'xhtask-panel-wrap',
-              style: { width: PANEL_WIDTH },
-              onClick: (event: React.MouseEvent<HTMLElement>) => event.stopPropagation(),
-              onAnimationEnd: (event: React.AnimationEvent<HTMLElement>) => {
-                if (event.target === event.currentTarget && event.animationName === 'xhtask-panel-out') {
-                  state.finishClose()
-                }
-              },
-            }, h(TasksPanel, { t })),
-          ),
-          document.body,
-        )
-      : null,
-  )
+}
+
+function TasksPage({openSession}: {openSession(id: string): void}) {
+  const t = makeT()
+  useTaskRefresh()
+  return h(TasksPanel, {t, openSession})
 }
 
 // ---------------------------------------------------------------- CSS --
 
 
-const inject = ['slots', 'locale']
+const inject = ['slots', 'locale', 'workCatalog']
 
-function apply(ctx: PageContext) {
+function apply(ctx: TasksContext) {
+  const service = ctx.get('workCatalog')
+  if (service === undefined) throw Error('tasks: Work catalog service unavailable')
+  ctx.effect(() => {
+    catalog = service
+    const unsubscribe = service.subscribe(() => adoptSnapshot(service.getSnapshot()))
+    adoptSnapshot(service.getSnapshot())
+    return () => {unsubscribe(); if (catalog === service) {catalog = undefined; pendingArchiveLabel = undefined; commandGeneration++; refreshGeneration++; store.busyId = null; store.menuId = null; store.renameId = null; store.deleteConfirmId = null}}
+  }, 'xharness-ui-tasks: Work catalog subscription')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-tasks: dictionaries')
   ctx.effect(() => {
     const existing = document.getElementById(STYLE_ID)
@@ -958,13 +882,13 @@ function apply(ctx: PageContext) {
   // Keep archive management reachable even when every session is archived
   // and the conversation header is not mounted.
   ctx.slots.inject(
-    'sidebar.footer.action',
+    'work.center.tasks',
     () => ctx.slots.register({
-      name: 'sidebar.footer.action',
+      name: 'work.center.tasks',
       id: 'tasks-panel',
       order: 15,
       locale: NS,
-    }, TasksRoot),
+    }, TasksPage),
   )
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'archived-chats', order: 35,
@@ -973,4 +897,4 @@ function apply(ctx: PageContext) {
 }
 
 
-export {apply, inject, rpc, store, groupSessions, normalizeTimestamp, sessionTitle, relativeTime, groupArchived}
+export {apply, inject, store, groupSessions, normalizeTimestamp, sessionTitle, relativeTime, groupArchived}

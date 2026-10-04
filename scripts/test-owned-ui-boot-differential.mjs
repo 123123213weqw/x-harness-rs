@@ -1,4 +1,4 @@
-/** Full generated UI, genuine platform/Core, immutable old/new two-engine comparison. */
+/** Full generated UI, genuine platform/Core, old/new two-engine comparison with the explicit Work navigation delta. */
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {mkdtempSync,readFileSync,rmSync} from 'node:fs'
@@ -23,10 +23,11 @@ try{
    assert.equal(receipt.loadedPlugins,implementation==='source'?53:52,'source adds only the internal checked Plugin API helper')
    outputs.push(receipt)
   }
-  for(const key of ['text','buttons','inputs'])assert.deepEqual(outputs[0][key],outputs[1][key],`${browser}: full UI ${key} parity`)
-  const source=readFileSync(join(directory,browser+'-source-full-boot.png'))
-  const old=readFileSync(join(directory,browser+'-legacy-full-boot.png'))
-  assert.deepEqual(source,old,`${browser}: complete settled first-frame pixels must match independent frozen master`)
+  for(const receipt of outputs) assert.equal(receipt.navigationCount,1,'exactly one work navigation, legacy footer or new clock')
+  for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(outputs[0][key],outputs[1][key],`${browser}: full UI ${key} parity`)
+  const source=readFileSync(join(directory,browser+'-source-chat-boot.png'))
+  const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))
+  assert.deepEqual(source,old,`${browser}: settled conversation pixels must match independent frozen master; only sidebar navigation intentionally differs`)
   console.log(JSON.stringify({browser,implementationRuns:2,fullGraph:true,controls:'providers + model + effort + context',effortChange:true,pixelSha256:digest(source)}))
  }
 }finally{rmSync(directory,{recursive:true,force:true})}

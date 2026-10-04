@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {compileSourceModules} from './build-source-modules.mjs'
 const sources = {
+  '@xharness/dsh-client-connection':'src/modules/client-connection/index.ts',
   '@xharness/dsh-client-ui-theme':'src/modules/theme/index.ts',
   '@xharness/dsh-client-ui-workspace':'src/modules/workspace/index.ts',
   '@xlang/xharness-client-ui-directory':'src/modules/directory/index.tsx',
@@ -17,6 +18,7 @@ const sources = {
   '@xlang/xharness-client-ui-profile': 'src/modules/profile/index.tsx',
   '@xlang/xharness-client-plugin-api': 'src/plugin-api/client.ts',
   '@xlang/xharness-client-ui-tasks': 'src/modules/tasks/index.tsx',
+  '@xlang/xharness-client-ui-schedule': 'src/modules/schedule/index.tsx',
   '@xlang/xharness-client-ui-browser': 'src/modules/browser/index.tsx',
   '@xlang/xharness-client-ui-experience': 'src/modules/experience/index.tsx',
 }
