@@ -1,5 +1,12 @@
 # XHarness 总任务清单
 
+## 工具空间折叠与展示档位收敛（2026-10-04）
+
+- [x] `DISPLAY-01` 运行中按可见高度 40% 折叠较早成功工具，保留最新、失败、等待、焦点和文本选择；手动展开优先，复用整轮与虚拟列表。
+- [x] `DISPLAY-02` 四档收敛为自动／全部展开，共用策略，迁移旧偏好；整轮、Tool、Think 一致，全部展开仍保留离屏窗口化。
+- [x] `DISPLAY-03` 单元、Chromium／WebKit 设置／工具／过程、350 行窗口化、滚动意图及严格构建回归。规格见 `docs/specs/adaptive-tool-fold.md`。
+- [ ] `DISPLAY-04` 已确认回到公开 `123123213weqw/x-harness-rs`；推送 PR、CI 全绿后合并；本轮不发布或替换应用。
+
 ## 专用 VM 托管 Runtime（2026-10-01）
 
 目标：VM 内 Full Access，完整复用 Host、Durable Runtime、Goal、Provider 和 Tool Registry。

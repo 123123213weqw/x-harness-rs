@@ -1,4 +1,6 @@
 import { transcriptHasPendingTool } from './pending-tool'
+import { useAdaptiveToolFold } from './use-adaptive-tool-fold'
+import { useProcessMode } from './process-mode'
 // ChatView: the default conversation view — one stable keyed parent list over
 // final business Nodes, plus paging, pending steering and bottom-follow.
 // Each row dispatches through 'conversation.chat.node'; ui-tool owns the
@@ -29,7 +31,6 @@ import css from './ChatView.styles'
 import railCss from './MessageRail.styles'
 
 const FOLLOW_THRESHOLD = 24
-const NO_EXPANDED_TURNS: ReadonlySet<number> = new Set()
 
 /** Active column host when present; otherwise the view-local scroller. */
 function scrollerOf(from: HTMLElement): HTMLElement {
@@ -180,13 +181,23 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
   const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
   const [fileOpenBusy, setFileOpenBusy] = useState(false)
-  const [processState, setProcessState] = useState<{ sessionId: string; expanded: ReadonlySet<number> }>(
-    () => ({ sessionId, expanded: NO_EXPANDED_TURNS }),
+  const processMode = useProcessMode()
+  const [processState, setProcessState] = useState<{ sessionId: string; mode: string; choices: ReadonlyMap<number, boolean> }>(
+    () => ({ sessionId, mode: processMode, choices: new Map() }),
   )
-  // Display state belongs to one session. Reusing the view for another session
-  // must not apply its numeric turn IDs (or later resurrect stale choices).
-  if (processState.sessionId !== sessionId) setProcessState({ sessionId, expanded: NO_EXPANDED_TURNS })
-  const expandedTurns = processState.sessionId === sessionId ? processState.expanded : NO_EXPANDED_TURNS
+  // A global mode change deliberately reapplies defaults. Manual group choices
+  // win until then, stay turn/session-local and do not disable windowing.
+  if (processState.sessionId !== sessionId || processState.mode !== processMode) {
+    setProcessState({ sessionId, mode: processMode, choices: new Map() })
+  }
+  const expandedTurns = useMemo(() => {
+    const result = new Set<number>()
+    const choices = processState.sessionId === sessionId && processState.mode === processMode ? processState.choices : undefined
+    for (const turn of timeline.turns.keys()) {
+      if (choices?.get(turn) ?? processMode === 'expanded') result.add(turn)
+    }
+    return result
+  }, [timeline, processState, sessionId, processMode])
   // Close/retry must ignore a settlement that started before the latest
   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
   const fileOpenRequest = useRef(0)
@@ -293,6 +304,16 @@ export function ChatView({
       if (frame !== 0) window.cancelAnimationFrame(frame)
     }
   }, [messageMarkers, sessionId])
+  const captureAutoFoldAnchor = (commit: boolean): string | undefined => {
+    const local = listRef.current
+    if (local === null || atBottomRef.current) return undefined
+    const port = scrollerOf(local)
+    const row = pagingAnchor(local, port)
+    const key = row?.dataset.chatAnchorKey
+    if (commit && row !== null && key !== undefined) processAnchorRef.current = { key, top: flowTop(row, port) }
+    return key
+  }
+  const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
   const toggleTurnProcess = (turn: number): void => {
     const local = listRef.current
@@ -309,10 +330,9 @@ export function ChatView({
       readerDirectionRef.current = 0
     }
     setProcessState(previous => {
-      const expanded = new Set(previous.sessionId === sessionId ? previous.expanded : NO_EXPANDED_TURNS)
-      if (expanded.has(turn)) expanded.delete(turn)
-      else expanded.add(turn)
-      return { sessionId, expanded }
+      const choices = new Map(previous.sessionId === sessionId && previous.mode === processMode ? previous.choices : [])
+      choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'))
+      return { sessionId, mode: processMode, choices }
     })
   }
 
@@ -327,7 +347,7 @@ export function ChatView({
     observedTopRef.current = scrollport.scrollTop
     const position = scrollPosition(local, scrollport)
     if (position !== null) chatScroll.save(position)
-  }, [expandedTurns, chatScroll])
+  }, [expandedTurns, foldedTools, chatScroll])
 
   // One independently subscribed resident entry per loaded turn, including
   // partial history pages without the original user/start event. No full-turn
@@ -666,6 +686,7 @@ export function ChatView({
               nodeKey={nodeKey}
               useSession={useSession}
               expandedTurns={expandedTurns}
+              foldedTools={foldedTools}
               toggleTurnProcess={toggleTurnProcess}
               t={t}
             />] : []),
@@ -673,6 +694,8 @@ export function ChatView({
               key={`${sessionId}:node:${nodeKey}`}
               nodeKey={nodeKey}
               expandedTurns={expandedTurns}
+              foldedTools={foldedTools}
+              invalidateFoldedTool={invalidateFoldedTool}
               keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
               editMessage={editMessage}
               forkMessage={forkMessage}
