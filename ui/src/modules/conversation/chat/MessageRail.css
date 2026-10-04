@@ -1,0 +1,41 @@
+[data-conversation-root] { position: relative; }
+.xh-message-rail {
+  position: absolute;
+  z-index: 6;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 24px;
+  max-height: min(70%, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.xh-message-rail::-webkit-scrollbar { display: none; }
+.xh-message-rail-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.xh-message-rail-mark {
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--dsw-alias-label-dimmed);
+}
+.xh-message-rail-item:hover .xh-message-rail-mark,
+.xh-message-rail-item:focus-visible .xh-message-rail-mark,
+.xh-message-rail-item[aria-current="location"] .xh-message-rail-mark {
+  background: var(--dsw-alias-label-primary);
+}
+.xh-message-rail-item:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: -2px; border-radius: 4px; }

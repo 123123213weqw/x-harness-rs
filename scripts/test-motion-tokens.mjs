@@ -22,14 +22,14 @@ for (const name of ['panel', 'stream', 'in', 'out', 'in-out', 'standard']) {
   assert.match(source, new RegExp(`--xh-ease-${name}:`))
 }
 
-const terminal = read('ui/plugins/@xlang/xharness-client-ui-terminal/client.js')
-const tasks = read('ui/plugins/@xlang/xharness-client-ui-tasks/client.js')
-const motion = read('ui/plugins/@xlang/xharness-client-ui-motion/client.js')
-const schedule = read('ui/plugins/@xlang/xharness-client-ui-schedule/client.js')
-const computer = read('ui/plugins/@xlang/xharness-client-ui-computer/client.js')
-const context = read('ui/plugins/@xlang/xharness-client-ui-context/client.js')
+const terminal = read('ui/dist/plugins/@xlang/xharness-client-ui-terminal/client.js')
+const tasks = read('ui/dist/plugins/@xlang/xharness-client-ui-tasks/client.js')
+const motion = read('ui/dist/plugins/@xlang/xharness-client-ui-motion/client.js')
+const schedule = read('ui/dist/plugins/@xlang/xharness-client-ui-schedule/client.js')
+const computer = read('ui/dist/plugins/@xlang/xharness-client-ui-computer/client.js')
+const context = read('ui/dist/plugins/@xlang/xharness-client-ui-context/client.js')
 const logo = read('ui/overrides/logo-motion.css')
-for (const css of [terminal, tasks]) {
+for (const css of [terminal]) {
   assert.match(css, /var\(--xh-duration-panel-in,260ms\)/)
   assert.match(css, /var\(--xh-duration-panel-out,180ms\)/)
   assert.match(css, /var\(--xh-ease-panel,cubic-bezier\(\.23,1,\.32,1\)\)/)
@@ -37,8 +37,7 @@ for (const css of [terminal, tasks]) {
   assert.match(css, /finishClose\(\)/)
   assert.doesNotMatch(css, /setTimeout\([^\n]*190\)/)
 }
-assert.match(tasks, /var\(--xh-duration-overlay-in,200ms\)/)
-assert.match(tasks, /var\(--xh-duration-overlay-out,150ms\)/)
+assert.doesNotMatch(tasks, /xhtask-panel-wrap|xhtask-scrim|finishClose|setOpen|closeTimer/, 'Tasks page has no retired drawer machinery')
 assert.match(motion, /var\(--xh-duration-stream-in,900ms\)/)
 assert.match(motion, /var\(--xh-ease-stream,cubic-bezier\(\.16,1,\.3,1\)\)/)
 assert.match(schedule, /transition:transform var\(--xh-duration-fast,120ms\)/)

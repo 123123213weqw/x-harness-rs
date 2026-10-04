@@ -126,6 +126,7 @@ jobs:
           node --test scripts/test-ui-migration-reference.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs scripts/test-plugin-api-types.mjs scripts/test-owned-script-assets.mjs
           node scripts/test-foundation-source-modules.mjs
           node scripts/test-product-source-modules.mjs
+          node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
@@ -145,6 +146,7 @@ jobs:
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
+          node scripts/test-adaptive-tool-fold.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -198,6 +200,8 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs

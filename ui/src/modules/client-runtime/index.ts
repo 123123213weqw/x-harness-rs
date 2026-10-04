@@ -1,4 +1,5 @@
 /// <reference path="./externals.d.ts" />
+export type {IWorkCatalog, WorkCatalogSnapshot, WorkSession} from './contract/work-catalog'
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from './context'
 import type { ConnectionHandle, SessionId } from '../client-connection/index'
@@ -16,6 +17,7 @@ import type { ConversationSnapshot } from './sessions/conversation'
 import type { UseProjection } from './sessions/projection-store'
 import { ConversationEventRegistry } from './conversation/event-registry'
 import { ConversationViewRegistry } from './conversation/view-registry'
+import {WorkCatalog} from './work/catalog'
 
 export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '../client-connection/contracts/core/session/surface'
 
@@ -170,6 +172,9 @@ export function apply(ctx: Context): void {
     identity: candidate => sessions.scopeOf(candidate),
   })
   const workspaces = new WorkspaceRuntime(ctx, connection.api, sessions)
+  const workCatalog = new WorkCatalog(connection.api, sessions, workspaces)
+  ctx.reflect.provide('workCatalog', workCatalog, undefined)
+  ctx.effect(() => () => workCatalog.dispose(), 'runtime: Work catalog projection')
   ctx.effect(
     () => workspaces.startInitialSelection(),
     'runtime: initial Workspace selection',
