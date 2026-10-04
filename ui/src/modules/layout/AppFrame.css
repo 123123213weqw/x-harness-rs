@@ -3,3 +3,21 @@
 /* Absolute drawers use the frame, not the reserved 56px / zero-width grid
    track, as their containing block. Docked occupants keep explicit tracks. */
 ._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol,._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{grid-area:auto}
+
+/* Each column owns an inset surface. Keep the tracks and their resize handles
+   unchanged; the gutters and rounded clipping live inside those tracks. */
+._84hhiq_frame{--xh-region-inset:8px;background:var(--dsw-specific-sidebar-fill)}
+._84hhiq_sidebarCol,._84hhiq_centerCol,._84hhiq_detailsCol{box-sizing:border-box;min-height:0}
+._84hhiq_sidebarCol,._84hhiq_detailsCol{display:flex;flex-direction:column;background:transparent;border:0}
+._84hhiq_sidebarCol{padding:var(--xh-region-inset) 0 var(--xh-region-inset) var(--xh-region-inset)}
+._84hhiq_centerCol{padding:var(--xh-region-inset)}
+._84hhiq_detailsCol{padding:var(--xh-region-inset) var(--xh-region-inset) var(--xh-region-inset) 0}
+._84hhiq_regionSurface{box-sizing:border-box;flex:1;display:flex;flex-direction:column;width:100%;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-base)}
+._84hhiq_sidebarCol>._84hhiq_regionSurface{background:var(--dsw-specific-sidebar-fill)}
+._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{padding:0}
+._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol>._84hhiq_regionSurface{border:0;border-radius:0}
+._84hhiq_frame[data-sidebar-collapsed] ._84hhiq_sidebarCol{padding:var(--xh-region-inset) 0}
+._84hhiq_frame[data-sidebar-collapsed] ._84hhiq_sidebarCol>._84hhiq_regionSurface{border:0;border-radius:0;background:transparent}
+._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol,._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{padding:var(--xh-region-inset);box-shadow:none}
+._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol>._84hhiq_regionSurface{box-shadow:12px 0 32px #0003}
+._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol>._84hhiq_regionSurface{box-shadow:-14px 0 40px #0004}
