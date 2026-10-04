@@ -70,6 +70,7 @@ jobs:
       - run: python -B scripts/test-live-model-workflow.py
       - run: python -B scripts/test-desktop-release.py
       - run: node scripts/test-desktop-windows-acceptance.mjs
+      - run: node scripts/test-windows-cache-rehearsal.mjs
       - name: Real Tauri signer with disposable keys (no native compilation)
         if: matrix.os == 'windows-2025'
         shell: pwsh
