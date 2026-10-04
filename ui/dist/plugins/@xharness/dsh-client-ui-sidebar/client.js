@@ -73,6 +73,8 @@ const jsx_runtime_1 = require("react/jsx-runtime");
  * pointing at carries no bar.
  */
 const react_1 = require("react");
+const react_dom_1 = require("react-dom");
+const desktop_titlebar_1 = require("../shared/desktop-titlebar");
 const views_types_1 = require("../views-types");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const SidebarRoot_styles_1 = __importDefault(require("./SidebarRoot.styles"));
@@ -91,6 +93,13 @@ const SCROLLBAR_LINGER_MS = 2000;
  * @returns the sidebar element tree.
  */
 function SidebarRoot({ collapsed, width, startSession, toggleSidebar, t, renderSlot, }) {
+    const [titlebarHost, setTitlebarHost] = (0, react_1.useState)(desktop_titlebar_1.desktopTitlebarControls);
+    (0, react_1.useEffect)(() => {
+        const refresh = () => { setTitlebarHost((0, desktop_titlebar_1.desktopTitlebarControls)()); };
+        window.addEventListener(desktop_titlebar_1.DESKTOP_TITLEBAR_READY_EVENT, refresh);
+        refresh();
+        return () => { window.removeEventListener(desktop_titlebar_1.DESKTOP_TITLEBAR_READY_EVENT, refresh); };
+    }, []);
     // Wide content stays mounted while the collapse animates (fading via
     // .collapsed .wide), unmounts at settle, and remounts right away on expand.
     const [settled, setSettled] = (0, react_1.useState)(collapsed);
@@ -166,11 +175,28 @@ function SidebarRoot({ collapsed, width, startSession, toggleSidebar, t, renderS
             setPointerInside(true);
         }, onPointerLeave: () => { armLinger(); }, children: [(0, jsx_runtime_1.jsxs)("div", { className: SidebarRoot_styles_1.default.logoRow, children: [wide && ((0, jsx_runtime_1.jsx)("button", { type: "button", className: (0, views_types_1.classNames)(SidebarRoot_styles_1.default.brand, SidebarRoot_styles_1.default.wide), "aria-label": t('session.new.label'), onClick: () => { startSession(); }, children: (0, jsx_runtime_1.jsxs)("span", { className: SidebarRoot_styles_1.default.brandIdentity, "aria-hidden": "true", children: [(0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.brandMark, children: renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.FishLogo, { size: 24 }) }) }), (0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.brandName, children: renderSlot('sidebar.brand.name', {}, {
                                         fallback: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.fallbackBrandName, children: "XHarness" }), (0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.buildRevision, children: "141eb6f" })] })),
-                                    }) })] }) })), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: collapsed ? t('toggle.open') : t('toggle.collapse'), delayMs: 500, children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: (0, views_types_1.classNames)(SidebarRoot_styles_1.default.iconButton, SidebarRoot_styles_1.default.toggle), "aria-label": collapsed ? t('toggle.open') : t('toggle.collapse'), "data-sidebar-toggle": true, onClick: () => { toggleSidebar(); }, children: [!wide && ((0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.railMark, "aria-hidden": "true", children: renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.FishLogo, { size: 24 }) }) })), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPanelLeftOutline16, { className: SidebarRoot_styles_1.default.panelIcon, size: wide ? 16 : 18 })] }) })] }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('session.new.label'), delayMs: 500, disabled: wide, children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: SidebarRoot_styles_1.default.newSession, "aria-label": t('session.new.label'), onClick: () => { startSession(); }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconNewChatOutline16, { size: wide ? 14 : 18 }), wide && (0, jsx_runtime_1.jsx)("span", { className: (0, views_types_1.classNames)(SidebarRoot_styles_1.default.newSessionLabel, SidebarRoot_styles_1.default.wide), children: t('session.new') })] }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.regionArea, children: renderSlot('sidebar.workspaces', {
+                                    }) })] }) })), titlebarHost === null ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: collapsed ? t('toggle.open') : t('toggle.collapse'), delayMs: 500, children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: (0, views_types_1.classNames)(SidebarRoot_styles_1.default.iconButton, SidebarRoot_styles_1.default.toggle), "aria-label": collapsed ? t('toggle.open') : t('toggle.collapse'), "data-sidebar-toggle": true, onClick: () => { toggleSidebar(); }, children: [!wide && ((0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.railMark, "aria-hidden": "true", children: renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.FishLogo, { size: 24 }) }) })), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPanelLeftOutline16, { className: SidebarRoot_styles_1.default.panelIcon, size: wide ? 16 : 18 })] }) }) : !wide && ((0, jsx_runtime_1.jsx)("span", { className: SidebarRoot_styles_1.default.railMark, style: { width: 36, height: 36 }, "aria-hidden": "true", children: renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.FishLogo, { size: 24 }) }) }))] }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('session.new.label'), delayMs: 500, disabled: wide, children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: SidebarRoot_styles_1.default.newSession, "aria-label": t('session.new.label'), onClick: () => { startSession(); }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconNewChatOutline16, { size: wide ? 14 : 18 }), wide && (0, jsx_runtime_1.jsx)("span", { className: (0, views_types_1.classNames)(SidebarRoot_styles_1.default.newSessionLabel, SidebarRoot_styles_1.default.wide), children: t('session.new') })] }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.regionArea, children: renderSlot('sidebar.workspaces', {
                     wide,
                     expandSidebar: () => { if (collapsed)
                         toggleSidebar(); },
-                }) }), (0, jsx_runtime_1.jsxs)("div", { className: SidebarRoot_styles_1.default.footArea, children: [(0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.footerActions, children: renderSlot('sidebar.footer.action', { wide }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.settingsArea, children: renderSlot('sidebar.settings', { wide }) })] })] }));
+                }) }), (0, jsx_runtime_1.jsxs)("div", { className: SidebarRoot_styles_1.default.footArea, children: [(0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.footerActions, children: renderSlot('sidebar.footer.action', { wide }) }), (0, jsx_runtime_1.jsx)("div", { className: SidebarRoot_styles_1.default.settingsArea, children: renderSlot('sidebar.settings', { wide }) })] }), titlebarHost !== null && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: collapsed ? t('toggle.open') : t('toggle.collapse'), delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xh-desktop-sidebar-toggle", "aria-label": collapsed ? t('toggle.open') : t('toggle.collapse'), "aria-expanded": !collapsed, onClick: () => { toggleSidebar(); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPanelLeftOutline16, { size: 18 }) }) }), titlebarHost)] }));
+}
+
+},
+"src/modules/shared/desktop-titlebar.js": function(module, exports, require) {
+// source: src/modules/shared/desktop-titlebar.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DESKTOP_TITLEBAR_READY_EVENT = exports.DESKTOP_TITLEBAR_CONTROLS_ID = void 0;
+exports.desktopTitlebarControls = desktopTitlebarControls;
+/** DOM seat owned by the native macOS title bar, not a second layout store. */
+exports.DESKTOP_TITLEBAR_CONTROLS_ID = 'xh-desktop-titlebar-controls';
+exports.DESKTOP_TITLEBAR_READY_EVENT = 'xh-desktop-titlebar-ready';
+function desktopTitlebarControls() {
+    if (typeof document === 'undefined' || document.documentElement.dataset.xhMacTitlebar !== 'overlay')
+        return null;
+    return document.getElementById(exports.DESKTOP_TITLEBAR_CONTROLS_ID);
 }
 
 },
@@ -267,7 +293,7 @@ exports.en = {
 
 }
 };
-const __dependencies = {"src/modules/sidebar/index.js":{"./SidebarRoot":"src/modules/sidebar/SidebarRoot.js","./locales":"src/modules/sidebar/locales.js"},"src/modules/sidebar/SidebarRoot.js":{"../views-types":"src/modules/views-types.js","./SidebarRoot.styles":"src/modules/sidebar/SidebarRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/sidebar/SidebarRoot.styles.js":{"./SidebarRoot.css":"src/modules/sidebar/SidebarRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/sidebar/SidebarRoot.css":{},"src/modules/sidebar/locales.js":{}};
+const __dependencies = {"src/modules/sidebar/index.js":{"./SidebarRoot":"src/modules/sidebar/SidebarRoot.js","./locales":"src/modules/sidebar/locales.js"},"src/modules/sidebar/SidebarRoot.js":{"../shared/desktop-titlebar":"src/modules/shared/desktop-titlebar.js","../views-types":"src/modules/views-types.js","./SidebarRoot.styles":"src/modules/sidebar/SidebarRoot.styles.js"},"src/modules/shared/desktop-titlebar.js":{},"src/modules/views-types.js":{},"src/modules/sidebar/SidebarRoot.styles.js":{"./SidebarRoot.css":"src/modules/sidebar/SidebarRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/sidebar/SidebarRoot.css":{},"src/modules/sidebar/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

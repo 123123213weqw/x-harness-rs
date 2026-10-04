@@ -618,7 +618,7 @@
     {
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
-      "sha256": "2accb344eb74033b1af0f34c74efd49f1bce52c0f598dea0f8882851d6ac4e84"
+      "sha256": "92b0076321b5cdad83a17959d120aacc97738db3a9ba17fae20d940d6ec26ab2"
     },
     {
       "path": "plugin-icons/browser.svg",

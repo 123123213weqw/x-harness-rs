@@ -21576,7 +21576,7 @@ function TurnStatus({ startTime, t }) {
     // Short turns keep the plain label; the clock only appears once the turn
     // has clearly been running for a while.
     const showClock = elapsedMs >= 15000;
-    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.turnStatus, role: "status", "aria-live": "polite", children: ["Deep diving...", showClock && ((0, jsx_runtime_1.jsx)("span", { className: ChatView_styles_1.default.turnStatusClock, "aria-hidden": true, children: (0, message_chrome_1.formatRunDuration)(elapsedMs, t) }))] }));
+    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.turnStatus, role: "status", "aria-live": "polite", children: [t('xh.turn.working'), showClock && ((0, jsx_runtime_1.jsx)("span", { className: ChatView_styles_1.default.turnStatusClock, "aria-hidden": true, children: (0, message_chrome_1.formatRunDuration)(elapsedMs, t) }))] }));
 }
 /**
  * The chat view slot entry: pure component over the composed props; each
@@ -24682,7 +24682,7 @@ exports.en = {
 };
 exports.zh = {
     "view.chat": "对话",
-    "xh.turn.working": "正在处理…",
+    "xh.turn.working": "Working…",
     "hint.plan": PLAN_NEXT_ACTION_ZH,
     "hint.goal": "输入目标，智能体将持续执行",
     "hint.goal.active": "当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除",

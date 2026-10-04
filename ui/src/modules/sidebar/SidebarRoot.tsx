@@ -16,6 +16,8 @@
  * pointing at carries no bar.
  */
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { desktopTitlebarControls, DESKTOP_TITLEBAR_READY_EVENT } from '../shared/desktop-titlebar'
 import { classNames as clsx } from '../views-types'
 import {
   FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
@@ -47,6 +49,13 @@ export function SidebarRoot({
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
+  const [titlebarHost, setTitlebarHost] = useState(desktopTitlebarControls)
+  useEffect(() => {
+    const refresh = (): void => { setTitlebarHost(desktopTitlebarControls()) }
+    window.addEventListener(DESKTOP_TITLEBAR_READY_EVENT, refresh)
+    refresh()
+    return () => { window.removeEventListener(DESKTOP_TITLEBAR_READY_EVENT, refresh) }
+  }, [])
   // Wide content stays mounted while the collapse animates (fading via
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   const [settled, setSettled] = useState(collapsed)
@@ -154,7 +163,7 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
-        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+        {titlebarHost === null ? <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
@@ -170,7 +179,11 @@ export function SidebarRoot({
             {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
             <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
           </button>
-        </Tooltip>
+        </Tooltip> : !wide && (
+          <span className={css.railMark} style={{ width: 36, height: 36 }} aria-hidden="true">
+            {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+          </span>
+        )}
       </div>
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}
@@ -204,6 +217,20 @@ export function SidebarRoot({
           {renderSlot('sidebar.settings', { wide })}
         </div>
       </div>
+      {titlebarHost !== null && createPortal(
+        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+          <button
+            type="button"
+            className="xh-desktop-sidebar-toggle"
+            aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
+            aria-expanded={!collapsed}
+            onClick={() => { toggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 size={18} />
+          </button>
+        </Tooltip>,
+        titlebarHost,
+      )}
     </div>
   )
 }
