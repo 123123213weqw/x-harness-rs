@@ -1534,3 +1534,26 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 独立 PR 的 CI／审查与 Windows/macOS 验收；依赖 #196，软件不替换。
 
 见 [实验规范](specs/bash-timeout-ab.md)及[双模型结果](reports/bash-timeout-ab-20261003.md)。
+
+### Code Review real GitHub read integration (2026-10-04)
+- [x] Optional Host GitHub backend installed through the existing dynamic RPC seam; no model tool or core RPC enum change.
+- [x] Local native GitHub adapter: cancellation, bounded bodies/helper pipes, timeouts, sanitized errors, repo/page validation and loopback-only installation; now pooled HTTPS with gh credential acquisition.
+- [x] Typed UI decoders, real account/repository/PR listing, details, diff, comments/reviews and current-head SHA checks; production sample data removed.
+- [x] Account/head fences, stale request generation guard, pagination bounds and explicitly incomplete/unknown status.
+- [x] V100: Host + Host App library regressions 240 passed, 6 ignored; Clippy all targets passed. UI/protocol suite 33 passed; strict owned-type policy 23 passed.
+- [x] Real public GitHub #205/#206 read acceptance through isolated Host carrier; #206 failed check displayed as failure, not merge approval.
+- [x] Native pooled HTTPS with per-operation gh credential snapshots and verified account binding; no per-endpoint gh subprocess or frontend credential exposure.
+- [ ] GitHub App Device Flow / registered client ID; this phase still requires an already authenticated local `gh`.
+- [ ] Native Windows/macOS runtime validation and actual GitHub CI run for this change.
+- [ ] Install/restart the normal desktop or 3184 Host after separately authorized integration/release; existing processes remain unchanged.
+- [x] Code Review bounded warm loading: delayed bootstrap + first-repo list, debounced single-PR hover/focus prefetch, account/head-scoped memory TTL/LRU cache and visible stale-check refresh.
+- [x] GitHub detail independent GET fan-out with a shared 4-transport limit; remote regression covers parallelism, cancellation and permit release.
+
+### Code Review stale-while-revalidate cache (2026-10-04)
+- [x] Fresh list/detail reuse, stale data retained during refresh, known PR summary shown before cold detail; explicit Refresh bypasses once.
+- [x] Account-verified IndexedDB restoration, bounded 2 MiB estimated snapshot, 24-hour stale retention, head invalidation, reconnect deletion, nonfatal quota/blocked database failures.
+- [x] Controlled production React/IndexedDB regression in Chromium and WebKit: no duplicate fresh detail GET, restart restoration, blocked refresh, offline warning and account isolation.
+- [ ] Desktop cache adapter under stable app-data storage (sidecar uses random-port origins); same-origin Web persistence is implemented.
+- [ ] Independent cold-load description/files/comments/check sections; aggregated backend endpoint remains unchanged.
+- [ ] Independent GitHub authorization onboarding, native installed-App validation and GitHub CI/release remain separate.
+- [x] Code Review cooperative idle queue: quiet-frame/visible/online gate, one active speculative job, two automatic first-page details, foreground/input cancellation, bounded queue, no blind rate-limit retries, WebKit fallback.

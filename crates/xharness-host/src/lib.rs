@@ -30,11 +30,13 @@ mod execution;
 pub use execution::ExecutionGate;
 #[cfg(test)]
 mod failed_turn_projection_tests;
+mod github_backend;
 mod model_processor;
 mod model_settings;
 #[cfg(test)]
 mod permission_tests;
 mod plugin_backend;
+pub use github_backend::GitHubBackend;
 mod preference_settings;
 mod preset_processor;
 mod questions;
@@ -214,6 +216,7 @@ pub struct BasicHost {
     pub(crate) questions: Arc<DurableQuestionHub>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
+    pub(crate) github: Arc<std::sync::OnceLock<Arc<dyn GitHubBackend>>>,
     admission_gates: SessionGateMap,
     projection_gates: Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     background_listener_started: Arc<AtomicBool>,
@@ -311,6 +314,7 @@ impl BasicHost {
             questions,
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
+            github: Arc::new(std::sync::OnceLock::new()),
             admission_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             projection_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             background_listener_started: Arc::new(AtomicBool::new(false)),
