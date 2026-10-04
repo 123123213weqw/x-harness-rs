@@ -15,6 +15,7 @@ const service_1 = require("./sessions/service");
 const service_2 = require("./workspaces/service");
 const event_registry_1 = require("./conversation/event-registry");
 const view_registry_1 = require("./conversation/view-registry");
+const catalog_1 = require("./work/catalog");
 var surface_1 = require("../client-connection/contracts/core/session/surface");
 Object.defineProperty(exports, "isAppendSurfaceEvent", { enumerable: true, get: function () { return surface_1.isAppendSurfaceEvent; } });
 Object.defineProperty(exports, "isReplacementSurfaceEvent", { enumerable: true, get: function () { return surface_1.isReplacementSurfaceEvent; } });
@@ -92,6 +93,9 @@ function apply(ctx) {
         identity: candidate => sessions.scopeOf(candidate),
     });
     const workspaces = new service_2.WorkspaceRuntime(ctx, connection.api, sessions);
+    const workCatalog = new catalog_1.WorkCatalog(connection.api, sessions, workspaces);
+    ctx.reflect.provide('workCatalog', workCatalog, undefined);
+    ctx.effect(() => () => workCatalog.dispose(), 'runtime: Work catalog projection');
     ctx.effect(() => workspaces.startInitialSelection(), 'runtime: initial Workspace selection');
     const loop = connection.start({
         onMuxEnvelope: (envelope) => {
@@ -824,10 +828,12 @@ class SessionRuntime {
     clear() {
         this.manager.clearSelection();
     }
-    /**
-     * Refresh the real Session baseline, reusing an in-flight pull.
-     * @returns completion of the current or newly started baseline pull.
-     */
+    /** Pull status for the runtime-owned Work projection; not another list owner. */
+    catalogStatus() {
+        const { state, error } = this.manager.getListSnapshot();
+        return { state, error };
+    }
+    /** Refresh the real Session baseline, reusing an in-flight pull. */
     refresh() {
         return this.manager.refreshList();
     }
@@ -24881,10 +24887,9 @@ class WorkspaceRuntime {
             throw new Error(`workspace move failed: ${result.error.code}: ${result.error.message}`);
         return result.value.workspace;
     }
-    /**
-     * Refresh the workspace baseline, reusing an in-flight pull.
-     * @returns completion of the current or newly started workspace baseline pull.
-     */
+    /** Optional Host archive labels, filtered by authoritative archive membership. */
+    archivedSummaries() { return this.manager.archivedSummaries(); }
+    /** Refresh the workspace baseline, reusing an in-flight pull. */
     refresh() {
         return this.manager.refresh();
     }
@@ -24989,6 +24994,7 @@ class WorkspaceManager {
         this.itemViewsCache = [];
         // Full-snapshot state (list response / unary response / changed frame all
         // carry the complete set), so deltas never merge — installs replace.
+        this.archivedSessions = [];
         this.archivedSessionIds = [];
         this.state = 'idle';
         this.phase = 'pending';
@@ -25046,8 +25052,10 @@ class WorkspaceManager {
                     for (const delta of frames)
                         items = applyWorkspaceDelta(items, delta);
                     this.installViews(items);
-                    if (!this.archivedSupersedesRefresh)
+                    if (!this.archivedSupersedesRefresh) {
                         this.installArchived(result.value.archivedSessionIds);
+                        this.archivedSessions = result.value.archivedSessions ?? [];
+                    }
                     this.state = 'idle';
                     this.phase = 'ready';
                 }
@@ -25215,6 +25223,9 @@ class WorkspaceManager {
     getSnapshot() {
         this.notifier.ensureFresh();
         return this.snapshotCache;
+    }
+    archivedSummaries() {
+        return this.archivedSessions.filter(row => this.archivedSessionIds.includes(row.sessionId));
     }
     buildSnapshot() {
         return {
@@ -25636,6 +25647,111 @@ class ConversationViewRegistry extends definition_registry_1.ConversationDefinit
     }
 }
 exports.ConversationViewRegistry = ConversationViewRegistry;
+
+},
+"src/modules/client-runtime/work/catalog.js": function(module, exports, require) {
+// source: src/modules/client-runtime/work/catalog.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.WorkCatalog = void 0;
+const types_1 = require("../../client-connection/contracts/core/session/types");
+const notifier_1 = require("../sessions/notifier");
+function valueOf(result) {
+    if (!result.ok)
+        throw Error(`${result.error.code}: ${result.error.message}`);
+    return result.value;
+}
+function readerWait(job, signal) {
+    if (signal === undefined)
+        return job;
+    if (signal.aborted)
+        return Promise.reject(new DOMException('Reader cancelled', 'AbortError'));
+    return new Promise((resolve, reject) => {
+        const aborted = () => reject(new DOMException('Reader cancelled', 'AbortError'));
+        signal.addEventListener('abort', aborted, { once: true });
+        job.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted));
+    });
+}
+/** Single read projection over existing Session/Workspace owners, not another event pump. */
+class WorkCatalog {
+    constructor(api, sessions, workspaces) {
+        this.api = api;
+        this.sessions = sessions;
+        this.workspaces = workspaces;
+        this.disposed = false;
+        this.notifier = new notifier_1.Notifier(() => { if (!this.disposed)
+            this.snapshot = this.project(); });
+        this.subscribe = (listener) => this.notifier.subscribe(() => { if (!this.disposed)
+            listener(); });
+        this.getSnapshot = () => { this.notifier.ensureFresh(); return this.snapshot; };
+        this.snapshot = this.project();
+        this.unsubscribers = [sessions.list.subscribe(() => this.changed()), workspaces.list.subscribe(() => this.changed())];
+    }
+    changed() { if (!this.disposed)
+        this.notifier.markDirty(); }
+    project() {
+        const sessions = this.sessions.list.getSnapshot(), workspaces = this.workspaces.list.getSnapshot();
+        const status = this.sessions.catalogStatus();
+        return {
+            sessions: sessions.ids.flatMap(id => {
+                const row = sessions.byId[id];
+                return row === undefined ? [] : [{ sessionId: id, blank: row.blank, running: row.running,
+                        updatedAt: row.updatedAt, ...(row.cwd === undefined ? {} : { cwd: row.cwd }),
+                        projections: { values: { ...row.projectionValues, ...(row.title === undefined ? {} : { title: row.title }) } } }];
+            }),
+            workspaces: workspaces.items, archivedSessionIds: workspaces.archivedSessionIds,
+            archivedSessions: this.workspaces.archivedSummaries(),
+            phase: sessions.phase === 'ready' && workspaces.phase === 'ready' ? 'ready' : 'pending',
+            loading: this.inflight !== undefined || status.state === 'loading' || workspaces.state === 'loading',
+            error: status.error?.message ?? workspaces.error?.message ?? null,
+        };
+    }
+    refresh(signal) {
+        if (this.disposed)
+            return Promise.reject(Error('Work catalog disposed'));
+        if (signal?.aborted)
+            return Promise.reject(new DOMException('Reader cancelled', 'AbortError'));
+        if (this.inflight === undefined) {
+            this.inflight = Promise.all([this.sessions.refresh(), this.workspaces.refresh()]).then(() => {
+                if (this.disposed)
+                    throw Error('Work catalog disposed');
+                const error = this.sessions.catalogStatus().error ?? this.workspaces.list.getSnapshot().error;
+                if (error !== null)
+                    throw Error(`${error.code}: ${error.message}`);
+            }).finally(() => { this.inflight = undefined; this.changed(); });
+            this.changed();
+        }
+        return readerWait(this.inflight, signal);
+    }
+    activeId(id) {
+        if (this.disposed)
+            throw Error('Work catalog disposed');
+        if (id.trim() === '')
+            throw Error('Session id cannot be empty');
+        return (0, types_1.SessionId)(id);
+    }
+    async rename(id, title) {
+        valueOf((await this.api.sessions.rename({ sessionId: this.activeId(id), title })).result);
+        await this.sessions.refresh();
+    }
+    async archive(id) { await this.workspaces.archiveSession(this.activeId(id)); await this.sessions.refresh(); }
+    async unarchive(id) {
+        valueOf((await this.api.workspace.unarchiveSession({ sessionId: this.activeId(id) })).result);
+        await this.refresh();
+    }
+    async fork(id) { await this.sessions.fork({ sessionId: this.activeId(id) }); await this.refresh(); }
+    async deleteArchived(id) {
+        const result = valueOf((await this.api.sessions.delete({ sessionId: this.activeId(id) })).result);
+        // Idempotent false means already absent, not an invitation to re-run deletion.
+        if (typeof result.deleted !== 'boolean')
+            throw Error('Invalid delete result');
+        await this.refresh();
+    }
+    dispose() { this.disposed = true; for (const unsubscribe of this.unsubscribers)
+        unsubscribe(); }
+}
+exports.WorkCatalog = WorkCatalog;
 
 },
 "src/modules/client-connection/contracts/core/session/surface.js": function(module, exports, require) {
@@ -26396,7 +26512,7 @@ function displayFailureMessage(failure) {
 
 }
 };
-const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"zod":"vendor/zod.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"vendor/zod.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"zod":"vendor/zod.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
+const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","./work/catalog":"src/modules/client-runtime/work/catalog.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"zod":"vendor/zod.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"vendor/zod.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"zod":"vendor/zod.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/work/catalog.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

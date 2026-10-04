@@ -24,6 +24,35 @@ try {
   })
   await page.goto('http://127.0.0.1:39187/?fixture=1')
   const settings=page.getByRole('button',{name:'Settings',exact:true})
+  await settings.waitFor()
+  // Validate visible regions on the shipped graph, including the optional
+  // workspace, before exercising modal/rail behavior below. Width concessions
+  // and drag-handle alignment retain their separate browser-dock regressions.
+  const regions=async()=>page.evaluate(()=>[...document.querySelectorAll('._84hhiq_regionSurface')].filter(el=>el.getBoundingClientRect().width>0&&getComputedStyle(el).display!=='none').map(el=>{
+    const r=el.getBoundingClientRect(),s=getComputedStyle(el)
+    return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,radius:parseFloat(s.borderTopLeftRadius),border:parseFloat(s.borderTopWidth)}
+  }))
+  const assertSeparated=async count=>{
+    const boxes=await regions()
+    assert.equal(boxes.length,count)
+    for(const box of boxes){
+      assert.ok(box.radius>=12&&box.border>=1,'visible regions have rounded, outlined edges')
+      assert.ok(box.left>0&&box.right<1280&&box.top>0&&box.bottom<820,'regional chrome is inset from the window')
+    }
+    for(let i=1;i<boxes.length;i++){
+      assert.ok(boxes[i].left-boxes[i-1].right>=4,'neighboring regions have a visible gutter')
+      assert.equal(await page.evaluate(({x,y})=>!!document.elementFromPoint(x,y)?.closest('._84hhiq_regionSurface'),{x:(boxes[i].left+boxes[i-1].right)/2,y:410}),false,'the gutter is outside both interactive surfaces')
+    }
+  }
+  await assertSeparated(2)
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'browser'}})))
+  await page.getByRole('region',{name:'工作区',exact:true}).waitFor()
+  await page.waitForFunction(()=>{
+    const handle=document.querySelector('._84hhiq_handle[data-side="details"]'),panel=document.querySelector('._84hhiq_detailsCol')
+    return handle&&Math.abs(handle.getBoundingClientRect().left+4-panel.getBoundingClientRect().left)<.5
+  })
+  await assertSeparated(3)
+  await page.getByRole('button',{name:'关闭 新标签页',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Settings',exact:true})
   await settings.click()
   await dialog.waitFor()

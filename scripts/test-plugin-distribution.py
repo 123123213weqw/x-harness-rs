@@ -52,6 +52,10 @@ class Tests(unittest.TestCase):
     def test_duplicate_name_rejected(self):
         self.catalog['plugins'] *= 2; self.save()
         with self.assertRaises(ValueError): self.prepare()
+    def test_runtime_identifier_limits_are_preserved(self):
+        for name in ['demo.tool', 'a'*81, '../demo']:
+            self.catalog['plugins'][0]['name'] = name; self.save()
+            with self.assertRaises(ValueError): self.prepare()
     def test_package_digest_rejected(self):
         (self.registry / 'packages/demo/1.0/plugin.zip').write_bytes(b'changed')
         with self.assertRaises(ValueError): self.prepare()

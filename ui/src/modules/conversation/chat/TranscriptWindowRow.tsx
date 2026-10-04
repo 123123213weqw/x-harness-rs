@@ -156,9 +156,11 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
       if (typeof restored === 'boolean') node.open = restored
     })
   }, [view.mounted])
-  const focusedInput = (): boolean => {
+  const focusedControl = (): boolean => {
     const active = document.activeElement
-    return !!(active && element.current?.contains(active) && active.matches('input,textarea,select,[contenteditable="true"]'))
+    // Buttons and native disclosures also own keyboard focus. Keep only the
+    // current focused row, not every previously interacted row.
+    return !!(active && active !== document.body && element.current?.contains(active))
   }
   const onToggle = (event: React.SyntheticEvent): void => {
     const target = event.target
@@ -168,8 +170,8 @@ export function TranscriptWindowRow({ children, keepMounted = false, estimatedHe
     if (index >= 0) values.current.set('native-details:' + detailKey(target, index), target.open)
   }
   return <div {...attributes} ref={element} data-transcript-mounted={view.mounted ? 'true' : 'false'}
-    onFocusCapture={event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedInput()) }}
-    onBlurCapture={event => { attributes.onBlurCapture?.(event); queueMicrotask(() => binding.current?.focus(focusedInput())) }}
+    onFocusCapture={event => { attributes.onFocusCapture?.(event); binding.current?.focus(focusedControl()) }}
+    onBlurCapture={event => { attributes.onBlurCapture?.(event); queueMicrotask(() => binding.current?.focus(focusedControl())) }}
     {...{ onToggleCapture: (event: React.SyntheticEvent<HTMLDivElement>) => { attributes.onToggleCapture?.(event); onToggle(event) } }}
     style={view.mounted ? attributes.style : { ...attributes.style, display: 'block', height: view.height, boxSizing: 'border-box' }}>
     {view.mounted ? <transcriptState.Context.Provider value={values.current}>{children}</transcriptState.Context.Provider> : null}

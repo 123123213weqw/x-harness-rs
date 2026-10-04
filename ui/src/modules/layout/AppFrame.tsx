@@ -16,6 +16,7 @@ import type { PropsRenderSlots, PropsRuntime, PropsStore } from '../views-types'
 import { computeColumns, clampWidth, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns'
 import type { createLayoutStore } from './stores'
 import css from './AppFrame.styles'
+import {WorkCenter} from './WorkCenter'
 import {xhCreateBrowserWindowController} from './browser-window-controller'
 import {xhLoadBrowserSpaces,xhSaveBrowserSpaces,xhNextWorkspaceId,xhWorkspaceEmpty,xhWorkspaceOpen,xhWorkspaceClose,XhWorkspacePane,workspaceOpenDetail} from './workspace-pane'
 import type {BrowserSpaces,WorkspaceItem,WorkspaceSpace,WorkspaceOpenDetail} from './workspace-pane'
@@ -23,7 +24,7 @@ import type {BrowserPatch} from '../browser/index'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -31,12 +32,12 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
+  return <div className={css.centerCol}><div className={css.regionSurface}>{props.children}</div></div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
 function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
+  return <div className={css.detailsCol}><div className={css.regionSurface}>{props.children}</div></div>
 }
 
 /**
@@ -102,16 +103,23 @@ export function AppFrame({
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
-  const [pluginCenterOpen, setPluginCenterOpen] = useState(false)
-  const closePluginCenter = (): void => {
-    setPluginCenterOpen(false)
+  const [centerPage, setCenterPage] = useState<'chat' | 'plugins' | 'work'>('chat')
+  const closeCenterPage = (): void => {
+    setCenterPage('chat')
     window.dispatchEvent(new Event('xharness:plugins:closed'))
+    window.dispatchEvent(new Event('xharness:work:closed'))
   }
   useEffect(() => {
-    const open = (): void => {setPluginCenterOpen(true)}
-    window.addEventListener('xharness:plugins:open', open)
-    return () => {window.removeEventListener('xharness:plugins:open', open)}
+    const openPlugins = (): void => {setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:work:closed'))}
+    const openWork = (): void => {setCenterPage('work'); window.dispatchEvent(new Event('xharness:plugins:closed'))}
+    window.addEventListener('xharness:plugins:open', openPlugins)
+    window.addEventListener('xharness:work:open', openWork)
+    return () => {window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork)}
   }, [])
+  const openWorkSession = (id: string): void => {
+    window.dispatchEvent(new CustomEvent('xharness:work:open-session', {detail: id}))
+    closeCenterPage()
+  }
   const [viewport, setViewport] = useState(() => window.innerWidth)
   const spaceKey=useSessions(state=>state.current??'__global__')
   const spaceKeyRef=useRef(spaceKey);spaceKeyRef.current=spaceKey
@@ -215,6 +223,12 @@ export function AppFrame({
   const workspaceDrawer=workspaceOpen&&workspaceAvailable<360
   const workspaceDockWidth=workspaceOpen&&!workspaceDrawer?Math.min(workspaceWidth,workspaceAvailable):0
   const cols=computeColumns(viewport-workspaceDockWidth,sidebarCollapsed||sidebarDrawer?0:panels.sidebar===0?SIDEBAR_DEFAULT:panels.sidebar,0,workspaceDockWidth>0?480:640)
+  // Insets belong inside the existing tracks so drag handles and workspace
+  // concessions keep their geometry. SidebarRoot freezes its content width
+  // during collapse, so give it the surface's inner width, not the track width.
+  const regionInset = viewport <= 600 ? 4 : 8
+  const sidebarDrawerWidth = Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420))
+  const sidebarContentWidth = (sidebarDrawer ? sidebarDrawerWidth : cols.sidebar) - (sidebarCollapsed ? 0 : regionInset * (sidebarDrawer ? 2 : 1) + 2)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -239,7 +253,7 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px` }}
+      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px`, ...{'--xh-region-inset': `${regionInset}px`} }}
       data-xhworkspace-open={workspaceOpen||undefined}
       data-xhworkspace-drawer={workspaceDrawer||undefined}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
@@ -248,9 +262,10 @@ export function AppFrame({
       data-dragging={dragging || undefined}
     >
       {sidebarDrawer && <button type="button" className="xh-sidebar-scrim" aria-label={navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar'} onClick={actions.toggleSidebar} />}
-      <div className={css.sidebarCol} style={sidebarDrawer ? { width: Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) } : undefined} onClickCapture={event => {
+      <div className={css.sidebarCol} style={sidebarDrawer ? { width: sidebarDrawerWidth } : undefined} onClickCapture={event => {
         const target = event.target
-        if (pluginCenterOpen && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closePluginCenter()
+        if (centerPage === 'plugins' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closeCenterPage()
+        if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-sidebar-toggle]'))) closeCenterPage()
       }} onClick={event => {
         // Row actions stop propagation; dismiss only a completed navigation
         // click after the row has handled it, keeping its menu mounted.
@@ -262,10 +277,10 @@ export function AppFrame({
             component sees its rendered state as owner params decided here
             (collapsed follows the resolved rail, so a derived auto-collapse
             renders the rail UI too). */}
-        {renderSlot('sidebar', {
+        <div className={css.regionSurface}>{renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
-          width: sidebarDrawer ? Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420)) : cols.sidebar,
-        })}
+          width: sidebarContentWidth,
+        })}</div>
       </div>
       <>
         {/* Both column occupants stay at fixed tree positions from first
@@ -273,11 +288,14 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <CenterColumn>{pluginCenterOpen ? <main style={{flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)'}}>
+        <CenterColumn><div className="xhwork-conversation" hidden={centerPage !== 'chat'}>{renderSlot('conversation', {})}</div>
+        {centerPage === 'plugins' && <main style={{flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)'}}>
           <button type="button" style={{cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit'}}
-            aria-label="Back to chat" onClick={closePluginCenter}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
+            aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
           {renderSlot('plugins.center', {})}
-        </main> : renderSlot('conversation', {})}</CenterColumn>
+        </main>}
+        {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} />}
+        </CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>closeWorkspace(space.activeId)} />}
         <DetailsColumn><XhWorkspacePane space={space} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
       </>

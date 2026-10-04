@@ -159,6 +159,7 @@ export function SidebarRoot({
             type="button"
             className={clsx(css.iconButton, css.toggle)}
             aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
+            data-sidebar-toggle
             onClick={() => { toggleSidebar() }}
           >
             {!wide && (
