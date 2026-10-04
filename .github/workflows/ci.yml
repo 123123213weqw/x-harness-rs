@@ -128,7 +128,9 @@ jobs:
           node scripts/test-foundation-source-modules.mjs
           node scripts/test-product-source-modules.mjs
           node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
+          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs
           node scripts/test-view-source-modules.mjs
+          node scripts/test-desktop-sidebar-toggle.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
           node scripts/test-settings-models-source.mjs
@@ -147,7 +149,10 @@ jobs:
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
+          node scripts/test-product-brand-copy.mjs
           node scripts/test-adaptive-tool-fold.mjs
+          node --test scripts/test-session-terminal-contract.mjs
+          node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs scripts/test-history-page-intent.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -178,6 +183,7 @@ jobs:
       - run: node scripts/test-silver-surface.mjs
       - run: node scripts/test-context-accounting.mjs
       - run: node scripts/test-assistant-projection.mjs
+      - run: node scripts/test-assistant-visibility-lifecycle.mjs
       - run: node scripts/test-retry-turn-projection.mjs
       - run: node scripts/test-network-wait-ui.mjs
       - run: node scripts/test-atomic-history.mjs
@@ -204,6 +210,7 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
@@ -294,6 +301,8 @@ jobs:
           node scripts/test-transcript-row-state.mjs
           UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
+          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
+          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
           UI_TEST_BROWSER=chromium node scripts/test-compaction-progress-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-compaction-progress-browser.mjs
           node scripts/test-question-continuation-patch.mjs
@@ -367,6 +376,19 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
+        env:
+          XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
+        run: |
+          cargo test --locked -p xharness-projection export_session_terminal_contract
+          node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
+          node --test scripts/test-session-terminal-contract.mjs
+      - name: Real Rust fork announcements and lists cross the production WebSocket and HTTP decoders
+        env:
+          XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
+        run: |
+          cargo test --locked -p xharness-host export_fork_wire_contract
+          node --test scripts/test-fork-wire-contract.mjs
       - name: Goal remote HTTP replies match shipped client schemas
         env:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
@@ -379,6 +401,12 @@ jobs:
         run: |
           cargo test --locked -p xharness-host-app --test plugin_wire_contract
           node scripts/test-plugin-wire-contract.mjs "$XHARNESS_PLUGIN_WIRE_FIXTURE"
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -426,6 +454,12 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -583,6 +617,12 @@ jobs:
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native GitHub replies match checked TypeScript DTOs
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: |
+          cargo test --locked -p xharness-host-app --lib github_service
+          node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1

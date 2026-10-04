@@ -1,5 +1,5 @@
 {
-  "rev": "1096c754981d67d8",
+  "rev": "5d65719563a99748",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -26,8 +26,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=813f507a49c60d1a",
-      "rev": "813f507a49c60d1a",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=bc86d237c0166ca1",
+      "rev": "bc86d237c0166ca1",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -73,8 +73,8 @@
     },
     {
       "id": "@xharness/dsh-client-connection",
-      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=d06a3df20baf2db2",
-      "rev": "d06a3df20baf2db2",
+      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=e567f10a01ce424a",
+      "rev": "e567f10a01ce424a",
       "inject": [],
       "external": [],
       "immediately": true
@@ -142,8 +142,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=86d54580acb3c8ed",
-      "rev": "86d54580acb3c8ed",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=a4005a67b1086fd6",
+      "rev": "a4005a67b1086fd6",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -172,8 +172,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-sidebar",
-      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=1857e7652a82ef93",
-      "rev": "1857e7652a82ef93",
+      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=8b7147c606449132",
+      "rev": "8b7147c606449132",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",
@@ -182,6 +182,7 @@
       "external": [
         "@xharness/dsh-client-ui-primitives",
         "react",
+        "react-dom",
         "react/jsx-runtime"
       ]
     },
@@ -254,8 +255,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=0f567301bffb47a1",
-      "rev": "0f567301bffb47a1",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=d1f0d34910a03e7a",
+      "rev": "d1f0d34910a03e7a",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -635,8 +636,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-trajectory",
-      "url": "/plugins/@xharness/dsh-client-ui-trajectory/client.js?rev=c37024c5c907cf96",
-      "rev": "c37024c5c907cf96",
+      "url": "/plugins/@xharness/dsh-client-ui-trajectory/client.js?rev=e7ddbf87d5d49037",
+      "rev": "e7ddbf87d5d49037",
       "inject": [
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-runtime",
@@ -748,8 +749,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-plugin-hub",
-      "url": "/plugins/@xlang/xharness-client-ui-plugin-hub/client.js?rev=f2a449cf36eee67c",
-      "rev": "f2a449cf36eee67c",
+      "url": "/plugins/@xlang/xharness-client-ui-plugin-hub/client.js?rev=8a9eacc1997bf62f",
+      "rev": "8a9eacc1997bf62f",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
@@ -758,6 +759,7 @@
       ],
       "external": [
         "@xlang/xharness-client-plugin-api",
+        "@xharness/dsh-client-ui-primitives",
         "react"
       ]
     },
@@ -784,6 +786,22 @@
       ],
       "external": [
         "react"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-code-review",
+      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=e67308182f3fce56",
+      "rev": "e67308182f3fce56",
+      "inject": [
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-ui-sidebar",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ],
+      "external": [
+        "@xharness/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
       ]
     }
   ]

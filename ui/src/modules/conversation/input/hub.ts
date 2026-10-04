@@ -50,6 +50,7 @@ export class InputHub implements SessionInputResolver {
   constructor(
     private readonly rootCtx: ClientContext,
     private readonly t: TranslateNS<'conversation'>,
+    private readonly onPromptDispatch?: ((sessionId: SessionId) => void) | undefined,
   ) {}
 
   /**
@@ -183,6 +184,9 @@ export class InputHub implements SessionInputResolver {
     const editor = this.shell(session.sessionId).xhEditor
     editor?.guardSubmit()
     const editing = editor?.state.editing === true
+    // Local gesture, not a later RPC receipt: a reader gesture while admission
+    // is pending wins, including rejection/cancellation and delayed steering.
+    this.onPromptDispatch?.(session.sessionId)
     const result = await this.conversation().sendSession(session, text, imageIds, mode, signal, editing)
     if (editing && result.kind === 'success') await editor?.sent()
     return result
@@ -203,6 +207,7 @@ export class InputHub implements SessionInputResolver {
   private async steerQueue(session: SessionFace, shell: SessionInputShell): Promise<void> {
     const queued = session.getSnapshot().queue.filter(item => item.placement === 'queued')
     if (queued.length === 0) return
+    this.onPromptDispatch?.(session.sessionId)
     for (const item of queued) {
       const result = await session.updateQueue(item.id, { kind: 'steer' })
       if (result.ok) continue

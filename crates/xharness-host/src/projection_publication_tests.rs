@@ -604,6 +604,65 @@ async fn live_refresh_restart_and_fork_use_the_same_durable_projection() {
 }
 
 #[tokio::test]
+async fn export_fork_wire_contract() {
+    let (host, store) = fixture().await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let first = store.load(ID).await.unwrap().unwrap();
+    let receipt = store
+        .append(ID, first.revision(), completed_turn(1, "first", &header))
+        .await
+        .unwrap();
+    store
+        .append(ID, receipt.revision, completed_turn(2, "second", &header))
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let mut cuts: Vec<_> = source
+        .events()
+        .iter()
+        .filter_map(|event| {
+            matches!(event.data(), EventData::UserMessage { .. })
+                .then_some(json!({"sessionId":ID,"beforeUserSeq":event.seq}))
+        })
+        .collect();
+    cuts.push(json!({"sessionId":ID,"atSeq":source.events().last().unwrap().seq}));
+    let mut announcements = host.event_gateway.subscribe_host();
+    let mut cases = Vec::new();
+    for cut in cuts {
+        let fork = rpc_value(&host, RpcMethod::SessionFork, cut).await;
+        let id = fork["sessionId"].as_str().unwrap();
+        let list = rpc_value(&host, RpcMethod::SessionList, json!({})).await;
+        let summary = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["sessionId"] == id)
+            .unwrap();
+        assert_eq!(summary["origin"], "fork");
+        assert_eq!(summary["parentSessionId"], ID);
+        let added = loop {
+            let frame = announcements.try_recv().expect("fork announcement missing");
+            if frame.method == "host/session-added" && frame.payload["sessionId"] == id {
+                break frame.payload;
+            }
+        };
+        assert_eq!(added["origin"], "fork");
+        assert_eq!(added["blank"], summary["blank"]);
+        cases.push(json!({"fork":fork,"added":added,"list":list}));
+    }
+    assert_eq!(cases.len(), 3);
+    assert_eq!(cases[0]["added"]["blank"], true);
+    assert_eq!(cases[1]["added"]["blank"], false);
+    if let Ok(path) = std::env::var("XHARNESS_FORK_WIRE_EXPORT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&cases).unwrap()).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn edit_fork_cuts_before_selected_user_message_including_the_first_message() {
     let (host, store) = fixture().await;
     let header = store

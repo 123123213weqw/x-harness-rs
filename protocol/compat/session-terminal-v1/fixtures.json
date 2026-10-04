@@ -1,0 +1,237 @@
+{
+  "cases": [
+    {
+      "driver": {
+        "reason": {
+          "kind": "completed"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "kind": "completed"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "completed"
+    },
+    {
+      "driver": {
+        "reason": {
+          "kind": "max-tokens"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "kind": "max-tokens"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "kind": "max-tokens"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "max_tokens"
+    },
+    {
+      "driver": {
+        "reason": {
+          "kind": "cancelled"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "kind": "cancelled"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "kind": "cancelled"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "cancelled"
+    },
+    {
+      "driver": {
+        "reason": {
+          "kind": "cancelled"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "kind": "cancelled"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "kind": "cancelled"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "user_interrupted"
+    },
+    {
+      "driver": {
+        "reason": {
+          "kind": "max-steps"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "kind": "max-steps"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "kind": "max-steps"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "limit_reached"
+    },
+    {
+      "driver": {
+        "reason": {
+          "error": {
+            "code": "LOOP_FAILED",
+            "message": "fixture failure"
+          },
+          "kind": "error"
+        },
+        "turn": 1
+      },
+      "history": {
+        "data": {
+          "reason": {
+            "error": {
+              "code": "LOOP_FAILED",
+              "message": "fixture failure"
+            },
+            "kind": "error"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "error": {
+              "code": "LOOP_FAILED",
+              "message": "fixture failure"
+            },
+            "kind": "error"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "failed"
+    },
+    {
+      "driver": null,
+      "history": {
+        "data": {
+          "reason": {
+            "error": {
+              "code": "INTERRUPTED",
+              "message": "the previous Host stopped before this turn closed"
+            },
+            "kind": "error"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "live": {
+        "data": {
+          "reason": {
+            "error": {
+              "code": "INTERRUPTED",
+              "message": "the previous Host stopped before this turn closed"
+            },
+            "kind": "error"
+          },
+          "turn": 1
+        },
+        "seq": 6,
+        "time": 165000,
+        "type": "turn/end"
+      },
+      "name": "interrupted"
+    }
+  ],
+  "contract": "xharness-session-terminal-v1"
+}
