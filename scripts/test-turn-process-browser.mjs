@@ -6,10 +6,20 @@ import { createServer } from 'node:http'
 import { readFileSync } from 'node:fs'
 import { exposeModuleUnit } from './fixtures/module-unit-scope.mjs'
 import { compile } from './conversation-test-harness.mjs'
+import { terminalHarness, terminalRow, terminalPrefix, terminalChatFixture } from './session-terminal-test-harness.mjs'
 const deps=process.env.UI_TEST_DEPS??'/tmp/ui-tests'
 const require=createRequire(resolve(deps,'package.json'))
 const engines=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium'
 const source=compile().test
+const real = terminalHarness(source)
+const terminalFixtures = JSON.parse(readFileSync(new URL('./fixtures/session-terminal.json', import.meta.url)))
+const realWindows = terminalFixtures.cases.flatMap(item => ['live', 'history'].flatMap(mode => ['success', 'error', 'unknown'].map(outcome => {
+ const session = real.session(), prefix = terminalPrefix(outcome)
+ if (mode === 'live') {
+  session.installWindow(prefix.map(terminalRow), false); session.openState = 'open'; session.acceptLiveEvent(item.live)
+ } else session.installWindow([...prefix, item.history].map(terminalRow), false)
+ return { name: `${item.name}-${mode}-${outcome}`, outcome, failure: item.live.data.reason.error?.message, chat: terminalChatFixture(session.getSnapshot().chat) }
+})))
 const toolBundle=exposeModuleUnit(readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-ui-tool/client.js',import.meta.url),'utf8'),'tool','tool/components/ToolRow','ToolRow')
  .replace('return Object.assign({},__load("src/modules/tool/index.js"),{ToolRow:__load("src/modules/tool/tool/components/ToolRow.js")["ToolRow"]});','return __load("src/modules/tool/tool/components/ToolRow.js");')
 const server=createServer((_,res)=>{res.setHeader('content-type','text/html');res.end('<html><body style="margin:0"><div id="root"></div></body></html>')})
@@ -115,6 +125,17 @@ try {
   const root=ReactDOM.createRoot(document.getElementById('root'))
   window.render=()=>ReactDOM.flushSync(()=>root.render(jsx('div',{'data-conversation-scroll':'',style:{height:650,overflowY:'auto'},children:jsx(plugin.ChatView,{...owner,sessionId,useSession,useSessions:hook(summaries),useStore:hook(details),renderSlot})})))
   window.unmount=()=>root.unmount();seed();render()
+  window.installRealWindow=(fixture,id)=>{
+   const materialized=new Map(fixture.turns.map(turn=>[turn.turn,{...turn,data:new Map(turn.data),steps:turn.steps.map(step=>({...step,data:new Map(step.data)}))}]))
+   const rows=new Map(fixture.nodes.map(node=>{
+    const turn=materialized.get(node.location.turn),location={...node.location,turn}
+    if(location.kind==='step')location.step=turn.steps.find(step=>step.step===node.location.step)
+    return [node.key,{...node,location}]
+   }))
+   sessionId=id
+   snapshot.set({...snapshot.getSnapshot(),running:false,chat:{order:fixture.order,nodes:{get:key=>rows.get(key),values:()=>[...rows.values()]},timeline:{turns:materialized},locations:{getTurn:id=>fixture.order.filter(key=>rows.get(key).location.turn.turn===id)}}})
+   render()
+  }
  })
  // In-flight process stays visible even if Session running briefly flips false.
  assert.equal(await page.locator('[data-turn-process-summary]').count(),0)
@@ -353,9 +374,23 @@ try {
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  await page.evaluate(()=>{setId('mode-live-return');seed()})
  await live.waitFor();assert.equal(await live.getAttribute('aria-expanded'),'false','return to auto restarts bounded live folding')
+ // Actual Rust fixtures pass through production Session/Assembler, not finish()'s
+ // synthetic footer. Check every durable reason in both render modes, including
+ // all errors and outcome-unknown protections (42 assembled windows per engine).
+ for (const item of realWindows) {
+  await page.evaluate(item=>installRealWindow(item.chat,'wire-'+item.name),item)
+  const footer=page.locator('[data-turn-process-summary="1"]')
+  await footer.waitFor();assert.equal(await footer.innerText(),'Ran for 2m 45s',item.name)
+  assert.equal(await footer.getAttribute('aria-expanded'),'false')
+  await page.getByText('answer',{exact:true}).waitFor()
+  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='success'?0:1,item.name)
+  if(item.failure)await page.getByText(item.failure,{exact:true}).waitFor()
+  await footer.click();assert.equal(await footer.getAttribute('aria-expanded'),'true')
+  await page.locator('[data-chat-flow-kind="tool-call"]').waitFor()
+ }
  await page.evaluate(()=>unmount())
  assert.equal(await page.evaluate(()=>__foldObservers.size),0,'all adaptive and window resize observers disposed on unmount')
  assert.equal(await page.evaluate(()=>__foldMutations.size),0,'adaptive mutation observer disposed on unmount')
  assert.deepEqual(errors,[])
- console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive height folding, latest/pending/failure protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup passed`)
+ console.log(`${engine}: running/idle/turn-end fold, persistent footer, final answer, keyboard reopening/scroll anchor, no data mutation, session/turn isolation, Think/Tool/Compaction/native-details state, bounded remount, malformed/foreign tail, image-only/no-answer/unknown-start/error; adaptive height folding, latest/pending/failure protection, manual override, zero viewport, native-details/focus/selection protection and observer cleanup; 42 real Rust -> Session/Assembler -> DOM terminal windows passed`)
 } finally {await browser.close();await new Promise(r=>server.close(r))}

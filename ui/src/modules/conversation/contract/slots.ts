@@ -759,6 +759,9 @@ export interface ChatViewInjected {
     save: (position: ChatScrollPosition | null) => void
     /** Last reader position, or null when pinned or never recorded. */
     read: () => ChatScrollPosition | null
+    /** Explicit local send/jump intent. Optional for older view providers;
+     * neither live delivery nor history recovery may fire this signal. */
+    subscribeFollow?: ((listener: () => void) => () => void) | undefined
   }
   /** Fork through the completed turn ending at the eligible message `seq`, then open the child. */
   forkAt: (seq: number) => void

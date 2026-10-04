@@ -1,0 +1,309 @@
+{
+  "contract": "xharness-session-terminal-v1",
+  "schemas": {
+    "TurnEndData": {
+      "$defs": {
+        "TurnEndReasonWire": {
+          "description": "Current producer vocabulary. The exhaustive conversion below is the only\nmapping from durable reasons; legacy reader aliases are not producer states.",
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "completed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "max-tokens",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "cancelled",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "max-steps",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "error": {
+                  "$ref": "#/$defs/TurnFailure"
+                },
+                "kind": {
+                  "const": "error",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "TurnFailure": {
+          "description": "Lightweight lifecycle failure, not the RPC envelope's `details` contract.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/TurnEndReasonWire"
+        },
+        "turn": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "turn",
+        "reason"
+      ],
+      "title": "TurnEndData",
+      "type": "object"
+    },
+    "TurnEndDataInput": {
+      "$defs": {
+        "LegacyTurnEndReason": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "aborted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "stop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "error": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/LegacyTurnFailure"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "failure": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/LegacyTurnFailure"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "const": "error",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "LegacyTurnFailure": {
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "details": {
+              "additionalProperties": true,
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "TurnEndReasonInput": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TurnEndReasonWire"
+            },
+            {
+              "$ref": "#/$defs/LegacyTurnEndReason"
+            }
+          ]
+        },
+        "TurnEndReasonWire": {
+          "description": "Current producer vocabulary. The exhaustive conversion below is the only\nmapping from durable reasons; legacy reader aliases are not producer states.",
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "completed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "max-tokens",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "cancelled",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "max-steps",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "error": {
+                  "$ref": "#/$defs/TurnFailure"
+                },
+                "kind": {
+                  "const": "error",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "TurnFailure": {
+          "description": "Lightweight lifecycle failure, not the RPC envelope's `details` contract.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/TurnEndReasonInput"
+        },
+        "turn": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "turn",
+        "reason"
+      ],
+      "title": "TurnEndDataInput",
+      "type": "object"
+    }
+  }
+}

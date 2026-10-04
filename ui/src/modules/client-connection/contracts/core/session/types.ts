@@ -1,11 +1,11 @@
 import { z } from 'zod'
+import type { TurnEndData, TurnEndReasonWire } from '../../../../shared/generated/session-terminal'
 import type { Branded } from '../../util/brand/index'
 import type {
   AssistantMessage,
   CallId,
   LlmCallConfig,
   LlmCallConfigAdapterDefaults,
-  LlmFailure,
   StreamChunk,
   TokenUsage,
   ToolResultMessage,
@@ -153,20 +153,15 @@ export type TurnEndCancelCause = AgentCancelCause | { readonly kind: 'legacy' }
 /**
  * Why a turn ended. Merge-extensible sum type.
  */
-export interface TurnEndReasonMap {
-  completed: { kind: 'completed' }
+type HostTurnEndReasonMap = {
+  [Kind in TurnEndReasonWire['kind']]: Extract<TurnEndReasonWire, { readonly kind: Kind }>
+}
+
+export interface TurnEndReasonMap extends HostTurnEndReasonMap {
   /** A cancellation request interrupted the live turn. */
   aborted: { kind: 'aborted'; reason: TurnEndCancelCause }
 
   blocked: { kind: 'blocked' }
-  /**
-   * The turn failed. `error` is always a structured failure: the `LlmError`
-   * facts verbatim, or `{ message: errorChain(error), code: 'UNKNOWN' }`
-   * flattened from any other error.
-   */
-  error: { kind: 'error'; error: LlmFailure }
-  /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
-  'max-tokens': { kind: 'max-tokens' }
   /**
    * A persistence backend closed a crash-orphaned turn on reload. The loop never
    * emits this marker, and the events recorded before the crash remain intact.
@@ -250,7 +245,7 @@ export interface SessionEventMap {
    * `whenIdle()` flush themselves. Success commits the turn; rejection is
    * reported live and does not prevent later work.
    */
-  'turn/end': { turn: number; reason: TurnEndReason }
+  'turn/end': Omit<TurnEndData, 'reason'> & { readonly reason: TurnEndReason }
   /** Opens step `step` of turn `turn` — one model call plus the tool executions it requested. */
   'step/start': { turn: number; step: number }
   /** Closes step `step` of turn `turn`. */
