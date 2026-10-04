@@ -17,7 +17,7 @@ export interface SnapshotStore<T> extends ObservableSnapshot<T> { set(value: T):
 export interface EngineStoreHandle<T, A> { readonly spec: { init(): T; actions: A; persist?: (string) | undefined } }
 export interface SettingsScope<T> extends ObservableSnapshot<{ value: T | undefined; writable: boolean }> { set(field: string, value: unknown): Promise<void> }
 export interface PendingPayloads {
- approval: { toolName: string; approvalId: string; reason?: (string) | undefined; callId?: (string) | undefined }
+ approval: { reviewing?: boolean | undefined; toolName: string; approvalId: string; reason?: (string) | undefined; callId?: (string) | undefined }
  question: { [key: string]: unknown }
 }
 export interface PendingWait<K extends keyof PendingPayloads = keyof PendingPayloads> { readonly kind: K; readonly key: string; readonly sessionId: SessionId; readonly payload: PendingPayloads[K]; respond(result: RpcResult<unknown>): Promise<{ accepted: boolean; reason?: (string) | undefined }> }
