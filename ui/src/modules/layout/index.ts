@@ -66,6 +66,7 @@ export function apply(ctx: ClientContext): void {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'plugins.center': { kind: 'single', scope: 'root' },
         'review.center': { kind: 'single', scope: 'root' },
+        'assistant.center': { kind: 'single', scope: 'root' },
         'work.center.tasks': { kind: 'single', scope: 'root' },
         'work.center.automations': { kind: 'single', scope: 'root' },
         'details': { kind: 'single', scope: 'session' },

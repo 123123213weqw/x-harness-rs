@@ -11,7 +11,7 @@ const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER
 const {buildSync}=createRequire(new URL('../ui/package.json',import.meta.url))('esbuild')
 const idleSource=buildSync({entryPoints:[new URL('../ui/src/modules/code-review/idle.ts',import.meta.url).pathname],bundle:true,write:false,format:'iife',globalName:'IdleFixture',platform:'browser'}).outputFiles[0].text
 const browser=await({chromium,webkit}[engine]).launch({headless:true})
-const moduleSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'}]).get('@xlang/xharness-client-ui-code-review').bytes.toString()
+const moduleSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'@xlang/xharness-client-ui-code-review',source:'src/modules/code-review/index.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'}]).get('@xlang/xharness-client-ui-code-review').bytes.toString()
 try{
  const page=await browser.newPage({viewport:{width:1180,height:780}}),errors=[]
  page.on('pageerror',error=>{if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
@@ -34,7 +34,7 @@ try{
   const feature=registration.factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
   const root=ReactDOM.createRoot(document.getElementById('root'));let Component,props,dispose
   window.create=()=>{
-   const ctx={get:()=>({rpc}),effect:(fn,label)=>{if(label.includes('idle'))return;fn()},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>{if(spec.name==='review.center'){Component=component;props=spec.inject();window.cache=props.cache;dispose=()=>props.cache.dispose()}}}}
+   const ctx={get:name=>name==='connection'?{rpc}:name==='sessions'?{list:{getSnapshot:()=>({ids:[],byId:{}}),subscribe:()=>()=>{}}}:name==='workspaces'?{list:{getSnapshot:()=>({items:[]}),subscribe:()=>()=>{}}}:{input:{}},effect:(fn,label)=>{if(label.includes('idle'))return;fn()},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>{if(spec.name==='review.center'){Component=component;props=spec.inject();window.cache=props.cache;dispose=()=>props.cache.dispose()}}}}
    feature.apply(ctx)
   }
   window.mount=()=>root.render(React.createElement(Component,{...props,close:()=>root.render(null)}))

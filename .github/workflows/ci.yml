@@ -127,7 +127,7 @@ jobs:
           node scripts/test-foundation-source-modules.mjs
           node scripts/test-product-source-modules.mjs
           node --test scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
-          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs
+          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs scripts/test-code-review-filters.mjs scripts/test-code-review-structured.mjs scripts/test-code-review-p0.mjs scripts/test-global-assistant.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
@@ -202,6 +202,9 @@ jobs:
             UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
             UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-filters-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-code-review-p0-browser.mjs
+            UI_TEST_BROWSER="$browser" node scripts/test-global-assistant-browser.mjs
             for implementation in source legacy; do
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
               UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
