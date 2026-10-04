@@ -163,7 +163,7 @@ function TurnStatus({ startTime, t }: {
  * ordered business Node crosses the keyed renderer seat.
  */
 export function ChatView({
-  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt,
+  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, messageIndex, loadThroughSeq, loadImage, inspectCall, chatScroll, forkAt,
   fileMentions, editMessage, forkMessage, t,
 }: ChatViewSlotProps) {
   const order = useSession(s => s.chat.order)
@@ -224,7 +224,7 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
-  const messageMarkers = useMemo(() => order.flatMap(key => {
+  const loadedMarkers = useMemo(() => order.flatMap(key => {
     const node = nodeStore.get(key)
     if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
     const snippets: string[] = []
@@ -232,8 +232,28 @@ export function ChatView({
       if (isObjectRecord(block) && block.type === 'text' && typeof block.text === 'string') snippets.push(block.text)
     }
     const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80)
-    return [{ key, preview }]
+    return [{ key, seq: node.data.seq, preview }]
   }), [order, nodeStore])
+  const [indexedState, setIndexedState] = useState<{ sessionId: string; markers: readonly { seq: number; preview: string }[] } | null>(null)
+  const [pendingJump, setPendingJump] = useState<number | null>(null)
+  const messageIndexRef = useRef(messageIndex)
+  messageIndexRef.current = messageIndex
+  useEffect(() => {
+    if (openState !== 'open') return
+    const controller = new AbortController()
+    void messageIndexRef.current(controller.signal).then(markers => {
+      if (!controller.signal.aborted) setIndexedState({ sessionId, markers })
+    }, () => {})
+    return () => { controller.abort() }
+  }, [sessionId, openState])
+  const messageMarkers = useMemo(() => {
+    const bySeq = new Map<number, { seq: number; key?: string; preview: string }>()
+    if (indexedState?.sessionId === sessionId) {
+      for (const marker of indexedState.markers) bySeq.set(marker.seq, marker)
+    }
+    for (const marker of loadedMarkers) bySeq.set(marker.seq, marker)
+    return [...bySeq.values()].sort((a, b) => a.seq - b.seq)
+  }, [indexedState, loadedMarkers, sessionId])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
@@ -242,7 +262,7 @@ export function ChatView({
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const [railHost, setRailHost] = useState<HTMLElement | null>(null)
-  const [activeMarker, setActiveMarker] = useState<string | null>(null)
+  const [activeMarker, setActiveMarker] = useState<number | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
@@ -274,14 +294,15 @@ export function ChatView({
     const local = listRef.current
     if (local === null || messageMarkers.length === 0) { setActiveMarker(null); return }
     const scrollport = scrollerOf(local)
+    const seqByKey = new Map(loadedMarkers.map(marker => [marker.key, marker.seq]))
     let frame = 0
     const update = (): void => {
       frame = 0
       const threshold = scrollport.getBoundingClientRect().top + 48
-      let current = messageMarkers[0]?.key ?? null
+      let current = loadedMarkers[0]?.seq ?? messageMarkers.at(-1)?.seq ?? null
       for (const row of local.querySelectorAll<HTMLElement>('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')) {
         if (row.getBoundingClientRect().top > threshold) break
-        current = row.dataset.chatAnchorKey ?? current
+        current = seqByKey.get(row.dataset.chatAnchorKey ?? '') ?? current
       }
       setActiveMarker(previous => previous === current ? previous : current)
     }
@@ -292,7 +313,7 @@ export function ChatView({
       scrollport.removeEventListener('scroll', schedule)
       if (frame !== 0) window.cancelAnimationFrame(frame)
     }
-  }, [messageMarkers, sessionId])
+  }, [loadedMarkers, messageMarkers, sessionId])
 
   const toggleTurnProcess = (turn: number): void => {
     const local = listRef.current
@@ -605,7 +626,7 @@ export function ChatView({
     loadOlder()
   }
 
-  const scrollToMessage = (key: string): void => {
+  const scrollToLoadedMessage = (key: string, seq: number): void => {
     const local = listRef.current
     if (local === null) return
     const row = anchorElement(local, key)
@@ -617,9 +638,24 @@ export function ChatView({
     readerDirectionRef.current = 0
     scrollport.scrollTop += flowTop(row, scrollport) - 24
     observedTopRef.current = scrollport.scrollTop
-    setActiveMarker(key)
+    setActiveMarker(seq)
     const position = scrollPosition(local, scrollport)
     if (position !== null) chatScroll.save(position)
+  }
+
+  useLayoutEffect(() => {
+    if (pendingJump === null) return
+    const loaded = loadedMarkers.find(marker => marker.seq === pendingJump)
+    if (loaded === undefined) return
+    setPendingJump(null)
+    scrollToLoadedMessage(loaded.key, loaded.seq)
+  }, [loadedMarkers, pendingJump])
+
+  const scrollToMessage = (seq: number, key?: string): void => {
+    if (key !== undefined) { scrollToLoadedMessage(key, seq); return }
+    setActiveMarker(seq)
+    setPendingJump(seq)
+    void loadThroughSeq(seq).catch(() => { setPendingJump(null) })
   }
 
   return (
@@ -630,14 +666,14 @@ export function ChatView({
             const label = marker.preview === ''
               ? t('chat.messageRail.message', { n: index + 1 })
               : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`
-            return <Tooltip key={marker.key} label={label} side="right" delayMs={300}>
+            return <Tooltip key={marker.seq} label={label} side="right" delayMs={300}>
               <button
                 type="button"
                 className={railCss.item}
-                data-message-key={marker.key}
+                data-message-seq={marker.seq}
                 aria-label={label}
-                aria-current={activeMarker === marker.key ? 'location' : undefined}
-                onClick={() => { scrollToMessage(marker.key) }}
+                aria-current={activeMarker === marker.seq || pendingJump === marker.seq ? 'location' : undefined}
+                onClick={() => { scrollToMessage(marker.seq, marker.key) }}
               ><span className={railCss.mark} aria-hidden="true" /></button>
             </Tooltip>
           })}

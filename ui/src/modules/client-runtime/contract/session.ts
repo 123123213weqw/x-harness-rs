@@ -26,6 +26,9 @@ export interface ProjectionsFace {
   faceOf(key: string): ObservableSnapshot<unknown>
 }
 
+/** Lightweight navigation fact for one durable user-authored message. */
+export interface UserMessageMarker { seq: number; preview: string }
+
 /** Identity plus the behavior verbs features may invoke on a session. */
 export interface ISession {
   /** The session's host identity (agent id — same axis). */
@@ -77,6 +80,10 @@ export interface ISession {
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
   loadOlder(): Promise<void>
+  /** Read user-message locations across the full log without mounting older transcript pages. */
+  messageIndex(signal?: AbortSignal): Promise<readonly UserMessageMarker[]>
+  /** Page older history into the view until the requested message sequence is resident. */
+  loadThroughSeq(seq: number): Promise<void>
   /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).

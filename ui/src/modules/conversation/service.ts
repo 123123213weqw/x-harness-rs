@@ -60,6 +60,10 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
+  /** Read message navigation facts without mounting the full transcript. */
+  messageIndex(signal?: AbortSignal): Promise<readonly { seq: number; preview: string }[]>
+  /** Page history until one older user message can be rendered. */
+  loadThroughSeq(seq: number): Promise<void>
 }
 
 import { browserDraftAttachment, validateAttachments, attachmentKind, attachmentMediaType } from './attachments'
@@ -316,6 +320,14 @@ export class ConversationController extends Service implements IConversation {
   /** Pull one older history page for the scoped Session. */
   async loadOlder(): Promise<void> {
     await this.scopedSession('loadOlder').loadOlder()
+  }
+
+  messageIndex(signal?: AbortSignal): Promise<readonly { seq: number; preview: string }[]> {
+    return this.scopedSession('messageIndex').messageIndex(signal)
+  }
+
+  loadThroughSeq(seq: number): Promise<void> {
+    return this.scopedSession('loadThroughSeq').loadThroughSeq(seq)
   }
 
   /** Resolve the caller scope's session face or throw on root contexts. */

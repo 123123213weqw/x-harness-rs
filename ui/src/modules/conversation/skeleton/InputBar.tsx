@@ -710,6 +710,7 @@ export function InputBar({
               <button
                 type="button"
                 className={css.primary}
+                data-xh-send-button
                 aria-label={primaryLabel}
                 disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
                 onMouseDown={keepFocus}

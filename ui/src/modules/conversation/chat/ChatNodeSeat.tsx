@@ -84,6 +84,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       data-chat-anchor-key={node.key}
       data-chat-flow-key={node.key}
       data-chat-flow-kind={node.kind}
+      data-chat-message-seq={routedNode?.kind === 'user' || routedNode?.kind === 'steering' ? routedNode.data.seq : undefined}
     >
       {routedOwner === undefined ? <JsonBlock label={t('message.unknownSurface', { type: node.kind })} payload={node.data} truncatedLabel={(total: number) => t('json.truncated', { total })} /> : renderSlot('conversation.chat.node', routedOwner, {
         entryKey: routedOwner.node.kind,

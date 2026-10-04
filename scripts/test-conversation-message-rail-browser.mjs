@@ -35,26 +35,40 @@ try {
     'message rail belongs to the conversation, not the sidebar')
   assert.equal(await page.locator('.xh-session-rail').count(), 0, 'incorrect cross-session rail is absent')
   const marks = rail.getByRole('button')
-  const initialCount = await marks.count()
-  assert.ok(initialCount >= 3, 'one rail mark per loaded user message')
-  const older = page.getByRole('button', { name: 'Load earlier' })
-  await older.click()
-  await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
+  await page.waitForFunction(() => document.querySelectorAll('.xh-message-rail-item').length > 50)
+  const loadedBefore = await page.locator('[data-chat-message-seq]').count()
+  assert.ok(await marks.count() > loadedBefore, 'rail indexes user messages beyond the mounted history page')
   if (process.env.UI_TEST_SCREENSHOT) await page.screenshot({ path: process.env.UI_TEST_SCREENSHOT })
   const first = marks.first()
-  const key = await first.getAttribute('data-message-key')
-  assert.ok(key)
+  const seq = await first.getAttribute('data-message-seq')
+  assert.ok(seq)
   await first.hover()
   await page.getByRole('tooltip', { name: /^Message 1/ }).waitFor()
   await first.click()
-  await page.waitForFunction(targetKey => {
+  await page.waitForFunction(targetSeq => {
     const scrollport = document.querySelector('[data-conversation-scroll]')
-    const row = [...document.querySelectorAll('[data-chat-anchor-key]')]
-      .find(element => element.getAttribute('data-chat-anchor-key') === targetKey)
+    const row = document.querySelector(`[data-chat-message-seq="${targetSeq}"]`)
     if (!scrollport || !row) return false
     return Math.abs(row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top - 24) < 50
-  }, key)
+  }, seq)
+  assert.ok(await page.locator('[data-chat-message-seq]').count() > loadedBefore, 'click pages older history into the transcript')
   assert.equal(await first.getAttribute('aria-current'), 'location')
+  const sendColors = await page.locator('button[data-xh-send-button]').evaluate(button => {
+    const wasDark = document.body.hasAttribute('data-ds-dark-theme')
+    document.body.setAttribute('data-ds-dark-theme', '')
+    const before = button.disabled
+    button.disabled = false
+    const enabled = { background: getComputedStyle(button).backgroundColor, foreground: getComputedStyle(button).color }
+    button.disabled = true
+    const disabled = { background: getComputedStyle(button).backgroundColor, foreground: getComputedStyle(button).color }
+    button.disabled = before
+    if (!wasDark) document.body.removeAttribute('data-ds-dark-theme')
+    return { enabled, disabled }
+  })
+  assert.deepEqual(sendColors, {
+    enabled: { background: 'rgb(212, 212, 212)', foreground: 'rgb(35, 35, 35)' },
+    disabled: { background: 'rgb(69, 69, 69)', foreground: 'rgb(155, 155, 155)' },
+  }, 'dark send button keeps distinct enabled and disabled neutral contrast')
   assert.deepEqual(errors, [])
   console.log('PASS: message rail stays in current chat, shows user prompts, jumps to chosen message')
 } finally { await browser.close() }

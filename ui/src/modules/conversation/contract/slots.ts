@@ -742,6 +742,10 @@ export interface ChatViewInjected {
    */
   openFile: (path: string) => Promise<void>
   loadOlder: () => void
+  /** Full-session message locations; unlike the transcript, this does not mount older pages. */
+  messageIndex: (signal?: AbortSignal) => Promise<readonly { seq: number; preview: string }[]>
+  /** Load older transcript pages only when navigating to a message outside the current window. */
+  loadThroughSeq: (seq: number) => Promise<void>
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */

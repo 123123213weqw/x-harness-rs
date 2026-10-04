@@ -11,7 +11,8 @@ import type {
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '../../client-connection/contracts/host/apiproxy/api/index'
-import type { SessionFace } from '../contract/session'
+import type { SessionFace, UserMessageMarker } from '../contract/session'
+import { isObjectRecord } from '../../shared/runtime-types'
 import { ConversationNodeAssembler } from './conversation-assembler'
 import type { ConversationRuntime } from './conversation-assembler'
 import type { ConversationEventInput, ConversationPublication } from '../contract/conversation'
@@ -388,6 +389,44 @@ export class Session implements SessionFace {
 
   /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend. */
   loadOlder(): Promise<void> { return this.historyOperation(() => this.doLoadOlder(), true) }
+
+  async messageIndex(signal?: AbortSignal): Promise<readonly UserMessageMarker[]> {
+    const markers: UserMessageMarker[] = []
+    let beforeSeq: number | undefined
+    while (!signal?.aborted) {
+      const { result } = await this.history({ ...(beforeSeq === undefined ? {} : { beforeSeq }), maxMessages: PAGE_MESSAGES }, signal)
+      const value = this.responseValue(result)
+      const page: UserMessageMarker[] = []
+      for (const entry of value.events) {
+        const event = entry.event
+        if (event.type !== 'user/message' || !isObjectRecord(event.data)
+          || !isObjectRecord(event.data.source) || event.data.source.kind !== 'user'
+          || event.surfaceOp === 'replace') continue
+        const texts: string[] = []
+        if (Array.isArray(event.data.content)) {
+          const content: readonly unknown[] = event.data.content
+          for (const block of content) {
+            if (isObjectRecord(block) && block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
+          }
+        }
+        page.push({ seq: event.seq, preview: texts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80) })
+      }
+      markers.unshift(...page)
+      if (!value.hasMore || signal?.aborted) break
+      const next = value.events[0]?.event.seq
+      if (next === undefined || (beforeSeq !== undefined && next >= beforeSeq)) throw new Error('Message index history made no progress')
+      beforeSeq = next
+    }
+    return markers
+  }
+
+  async loadThroughSeq(seq: number): Promise<void> {
+    while (this.openState === 'open' && this.hasMore && this.baseSeq > seq) {
+      const before = this.baseSeq
+      await this.loadOlder()
+      if (this.baseSeq >= before) break
+    }
+  }
 
   private async doLoadOlder(): Promise<void> {
     if (this.openState === 'error') return this.retryHistory()
@@ -933,14 +972,14 @@ export class Session implements SessionFace {
   }
 
   /** Select ordinary or addressed history transport from the stored browser fact. */
-  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+  private history(payload: { beforeSeq?: number; maxMessages?: number }, signal?: AbortSignal): Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: ProjectionsBaseline | undefined
   }>> {
     return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, signal)
+      : this.api.subagents.history({ ...this.address, ...payload }, signal)
   }
 }
 

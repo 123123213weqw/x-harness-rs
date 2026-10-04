@@ -388,6 +388,8 @@ function apply(ctx) {
                     return workspaces.openPath((0, runtime_values_1.resolveWorkspacePath)(cwd, path));
                 },
                 loadOlder: () => { void scoped.loadOlder(); },
+                messageIndex: signal => scoped.messageIndex(signal),
+                loadThroughSeq: seq => scoped.loadThroughSeq(seq),
                 loadImage: attachment => conversation.resolveImage(sessionId, attachment),
                 // Unregistered 'trajectory' id is safe: the tab ring falls back to
                 // the first view, and the untouched inspect target stays inert.
@@ -1033,7 +1035,7 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
                                             : canSteerQueue
                                                 ? t('placeholder.steerQueue')
                                                 : planActive ? t('placeholder.plan') : t('placeholder.default')), rows: 2, onChange: onChange, onKeyDown: onKeyDown, onSelect: onSelect, onCopy: (e) => { onCopyOrCut(e, false); }, onCut: (e) => { onCopyOrCut(e, true); }, onPaste: onPaste, onCompositionStart: onCompositionStart, onCompositionEnd: onCompositionEnd }), (0, jsx_runtime_1.jsx)("div", { ref: mirrorRef, "aria-hidden": true, className: InputBar_styles_1.default.mirror, "data-input-mirror": true, children: `${draft}\n` })] }) }), (0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.row, children: [(0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.tools, children: [(0, jsx_runtime_1.jsx)(ComposerAddMenu_1.ComposerAddMenu, { className: InputBar_styles_1.default.add, canAttach: canAcceptDrop, canCommands: !locked && !machineBusy && toggleCommandMenu !== undefined, onAddFiles: intakeImages, onCommands: onToggleCommandMenu, onOpen: () => { if (commandMenuOpen)
-                                            onToggleCommandMenu(); }, focusInput: () => inputRef.current?.focus({ preventScroll: true }), t: t }, sessionId), (0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.modes, children: [accessSelect, renderSlot('conversation.input.plan', { locked })] }), leftItems] }), (0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.trailing, children: [rightItems, renderSlot('conversation.input.model', { locked: modelSeatLocked }), (0, jsx_runtime_1.jsx)(ContextMeter_1.ContextMeter, { useProjection: useProjection, t: t }), interruptible && ((0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: t('input.stop'), side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": t('input.stop'), disabled: stop === undefined, onMouseDown: keepFocus, onClick: stop, children: (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) }) }) })), (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: primaryLabel, side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": primaryLabel, disabled: primaryStops ? stop === undefined : empty || disabled || machineBusy, onMouseDown: keepFocus, onClick: onPrimary, children: primaryStops ? ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) })) : ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z", fill: "currentColor" }) })) }) })] })] })] }), footer] }));
+                                            onToggleCommandMenu(); }, focusInput: () => inputRef.current?.focus({ preventScroll: true }), t: t }, sessionId), (0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.modes, children: [accessSelect, renderSlot('conversation.input.plan', { locked })] }), leftItems] }), (0, jsx_runtime_1.jsxs)("div", { className: InputBar_styles_1.default.trailing, children: [rightItems, renderSlot('conversation.input.model', { locked: modelSeatLocked }), (0, jsx_runtime_1.jsx)(ContextMeter_1.ContextMeter, { useProjection: useProjection, t: t }), interruptible && ((0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: t('input.stop'), side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": t('input.stop'), disabled: stop === undefined, onMouseDown: keepFocus, onClick: stop, children: (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) }) }) })), (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: primaryLabel, side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "data-xh-send-button": true, "aria-label": primaryLabel, disabled: primaryStops ? stop === undefined : empty || disabled || machineBusy, onMouseDown: keepFocus, onClick: onPrimary, children: primaryStops ? ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) })) : ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z", fill: "currentColor" }) })) }) })] })] })] }), footer] }));
 }
 
 },
@@ -19775,6 +19777,12 @@ class ConversationController extends Service {
     async loadOlder() {
         await this.scopedSession('loadOlder').loadOlder();
     }
+    messageIndex(signal) {
+        return this.scopedSession('messageIndex').messageIndex(signal);
+    }
+    loadThroughSeq(seq) {
+        return this.scopedSession('loadThroughSeq').loadThroughSeq(seq);
+    }
     /** Resolve the caller scope's session face or throw on root contexts. */
     scopedSession(op) {
         const id = this.scopeId(op);
@@ -21581,7 +21589,7 @@ function TurnStatus({ startTime, t }) {
  * The chat view slot entry: pure component over the composed props; each
  * ordered business Node crosses the keyed renderer seat.
  */
-function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, loadImage, inspectCall, chatScroll, forkAt, fileMentions, editMessage, forkMessage, t, }) {
+function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, messageIndex, loadThroughSeq, loadImage, inspectCall, chatScroll, forkAt, fileMentions, editMessage, forkMessage, t, }) {
     const order = useSession(s => s.chat.order);
     const nodeStore = useSession(s => s.chat.nodes);
     const timeline = useSession(s => s.chat.timeline);
@@ -21629,7 +21637,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         setFileOpenBusy(false);
     }, []);
     const pendingSteering = (0, react_1.useMemo)(() => inbox.filter(item => item.placement === 'steering'), [inbox]);
-    const messageMarkers = (0, react_1.useMemo)(() => order.flatMap(key => {
+    const loadedMarkers = (0, react_1.useMemo)(() => order.flatMap(key => {
         const node = nodeStore.get(key);
         if (!(0, chat_node_codec_1.isChatNode)(node) || (node.kind !== 'user' && node.kind !== 'steering'))
             return [];
@@ -21639,8 +21647,32 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
                 snippets.push(block.text);
         }
         const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80);
-        return [{ key, preview }];
+        return [{ key, seq: node.data.seq, preview }];
     }), [order, nodeStore]);
+    const [indexedState, setIndexedState] = (0, react_1.useState)(null);
+    const [pendingJump, setPendingJump] = (0, react_1.useState)(null);
+    const messageIndexRef = (0, react_1.useRef)(messageIndex);
+    messageIndexRef.current = messageIndex;
+    (0, react_1.useEffect)(() => {
+        if (openState !== 'open')
+            return;
+        const controller = new AbortController();
+        void messageIndexRef.current(controller.signal).then(markers => {
+            if (!controller.signal.aborted)
+                setIndexedState({ sessionId, markers });
+        }, () => { });
+        return () => { controller.abort(); };
+    }, [sessionId, openState]);
+    const messageMarkers = (0, react_1.useMemo)(() => {
+        const bySeq = new Map();
+        if (indexedState?.sessionId === sessionId) {
+            for (const marker of indexedState.markers)
+                bySeq.set(marker.seq, marker);
+        }
+        for (const marker of loadedMarkers)
+            bySeq.set(marker.seq, marker);
+        return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+    }, [indexedState, loadedMarkers, sessionId]);
     const renderMessageImages = (0, react_1.useCallback)(owner => renderSlot('conversation.message.images', { ...owner, loadImage }), [loadImage, renderSlot]);
     const runningTurnStart = (0, react_1.useMemo)(() => runningTurnStartTime(timeline), [timeline]);
     const listRef = (0, react_1.useRef)(null);
@@ -21678,15 +21710,16 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
             return;
         }
         const scrollport = scrollerOf(local);
+        const seqByKey = new Map(loadedMarkers.map(marker => [marker.key, marker.seq]));
         let frame = 0;
         const update = () => {
             frame = 0;
             const threshold = scrollport.getBoundingClientRect().top + 48;
-            let current = messageMarkers[0]?.key ?? null;
+            let current = loadedMarkers[0]?.seq ?? messageMarkers.at(-1)?.seq ?? null;
             for (const row of local.querySelectorAll('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]')) {
                 if (row.getBoundingClientRect().top > threshold)
                     break;
-                current = row.dataset.chatAnchorKey ?? current;
+                current = seqByKey.get(row.dataset.chatAnchorKey ?? '') ?? current;
             }
             setActiveMarker(previous => previous === current ? previous : current);
         };
@@ -21699,7 +21732,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
             if (frame !== 0)
                 window.cancelAnimationFrame(frame);
         };
-    }, [messageMarkers, sessionId]);
+    }, [loadedMarkers, messageMarkers, sessionId]);
     const toggleTurnProcess = (turn) => {
         const local = listRef.current;
         if (local !== null) {
@@ -22036,7 +22069,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         }
         loadOlder();
     };
-    const scrollToMessage = (key) => {
+    const scrollToLoadedMessage = (key, seq) => {
         const local = listRef.current;
         if (local === null)
             return;
@@ -22050,16 +22083,34 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         readerDirectionRef.current = 0;
         scrollport.scrollTop += flowTop(row, scrollport) - 24;
         observedTopRef.current = scrollport.scrollTop;
-        setActiveMarker(key);
+        setActiveMarker(seq);
         const position = scrollPosition(local, scrollport);
         if (position !== null)
             chatScroll.save(position);
+    };
+    (0, react_1.useLayoutEffect)(() => {
+        if (pendingJump === null)
+            return;
+        const loaded = loadedMarkers.find(marker => marker.seq === pendingJump);
+        if (loaded === undefined)
+            return;
+        setPendingJump(null);
+        scrollToLoadedMessage(loaded.key, loaded.seq);
+    }, [loadedMarkers, pendingJump]);
+    const scrollToMessage = (seq, key) => {
+        if (key !== undefined) {
+            scrollToLoadedMessage(key, seq);
+            return;
+        }
+        setActiveMarker(seq);
+        setPendingJump(seq);
+        void loadThroughSeq(seq).catch(() => { setPendingJump(null); });
     };
     return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.root, "data-chat-view-root": "", children: [railHost !== null && messageMarkers.length > 1 && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsx)("nav", { className: MessageRail_styles_1.default.root, "aria-label": t('chat.messageRail'), children: messageMarkers.map((marker, index) => {
                     const label = marker.preview === ''
                         ? t('chat.messageRail.message', { n: index + 1 })
                         : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`;
-                    return (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "right", delayMs: 300, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: MessageRail_styles_1.default.item, "data-message-key": marker.key, "aria-label": label, "aria-current": activeMarker === marker.key ? 'location' : undefined, onClick: () => { scrollToMessage(marker.key); }, children: (0, jsx_runtime_1.jsx)("span", { className: MessageRail_styles_1.default.mark, "aria-hidden": "true" }) }) }, marker.key);
+                    return (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "right", delayMs: 300, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: MessageRail_styles_1.default.item, "data-message-seq": marker.seq, "aria-label": label, "aria-current": activeMarker === marker.seq || pendingJump === marker.seq ? 'location' : undefined, onClick: () => { scrollToMessage(marker.seq, marker.key); }, children: (0, jsx_runtime_1.jsx)("span", { className: MessageRail_styles_1.default.mark, "aria-hidden": "true" }) }) }, marker.seq);
                 }) }), railHost), (0, jsx_runtime_1.jsxs)("div", { ref: listRef, className: ChatView_styles_1.default.scroll, children: [(0, jsx_runtime_1.jsxs)("div", { ref: columnRef, className: ChatView_styles_1.default.column, "data-chat-flow": "", children: [openState === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.hint, children: t('chat.loadingHistory') }), openState === 'error' && openError !== null && ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.openError, role: "alert", children: [t('chat.loadError', { message: openError.message, code: openError.code }), (0, jsx_runtime_1.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlder, children: t('retry') })] })), hasMore && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.older, children: (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loadingOlder, onClick: loadOlderAnchored, children: loadingOlder ? t('loading') : t('chat.loadOlder') }) })), order.flatMap((nodeKey) => [
                                 ...(processHeads.has(nodeKey) ? [(0, jsx_runtime_1.jsx)(ChatNodeSeat_1.TurnProcessSummarySeat, { nodeKey: nodeKey, useSession: useSession, expandedTurns: expandedTurns, toggleTurnProcess: toggleTurnProcess, t: t }, `${sessionId}:process:${nodeKey}`)] : []),
                                 (0, jsx_runtime_1.jsx)(ChatNodeSeat_1.ChatNodeSeat, { nodeKey: nodeKey, expandedTurns: expandedTurns, keepMounted: running && (nodeKey === lastKey || (0, pending_tool_1.transcriptHasPendingTool)(nodeStore.get(nodeKey))), editMessage: editMessage, forkMessage: forkMessage, editAvailable: !running, useSession: useSession, selectedCallId: selectedCallId, cwd: cwd, openFile: requestOpenFile, inspectCall: inspectCall, forkAt: forkAt, renderMessageImages: renderMessageImages, fileMentions: fileMentions, renderSlot: renderSlot, t: t }, `${sessionId}:node:${nodeKey}`),
@@ -23357,7 +23408,7 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
     // keyed-slot entry passed alongside that same Node. TypeScript does not
     // distribute an object containing a union into a union of objects itself.
     const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode);
-    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
+    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-message-seq": routedNode?.kind === 'user' || routedNode?.kind === 'steering' ? routedNode.data.seq : undefined, children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
             entryKey: routedOwner.node.kind,
             hookContext: nodeKey,
             fallback: ((0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) })),
