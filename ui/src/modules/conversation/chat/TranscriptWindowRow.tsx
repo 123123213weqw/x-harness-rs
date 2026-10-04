@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { HTMLAttributes } from 'react'
+import { flushSync } from 'react-dom'
 import { transcriptState, transcriptStateFor, type TranscriptValues } from './transcript-state'
 
 type View = { mounted: boolean; height: number }
@@ -65,12 +66,24 @@ function controller(root: HTMLElement): Controller {
     if (frame) return
     frame = requestAnimationFrame(() => {
       frame = 0
+      const changes: { row: Row; mounted: boolean }[] = []
       for (const row of rows.values()) {
         const show = row.near || row.focused || row.selected || row.keep
         if (show === row.mounted) continue
-        row.mounted = show
-        row.update({ mounted: show, height: row.height })
+        changes.push({ row, mounted: show })
       }
+      if (changes.length === 0) return
+      // This is a bounded viewport transaction, not a full-history render.
+      // Do not publish controller state before its DOM exists: concurrent
+      // React can otherwise leave a resize queued beyond a settled frame.
+      // GTK WebKit then applies the first native wheel against the old range;
+      // a later placeholder shrink clamps that gesture back to the new floor.
+      flushSync(() => {
+        for (const { row, mounted } of changes) {
+          row.mounted = mounted
+          row.update({ mounted, height: row.height })
+        }
+      })
     })
   }
   function observe(): void {
