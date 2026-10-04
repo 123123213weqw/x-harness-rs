@@ -1,0 +1,78 @@
+[
+  {
+    "time": "2026-10-04T10:33:24.181Z",
+    "url": "http://127.0.0.1:57565/",
+    "expectedVersion": "0.0.901",
+    "status": {
+      "desktop": true,
+      "version": "0.0.901",
+      "hostRunning": true,
+      "hostEndpoint": "http://127.0.0.1:57565",
+      "updaterConfigured": true,
+      "startupError": null,
+      "startup": {
+        "windowMappedMs": null,
+        "hostReadyMs": 112,
+        "frontendHydratedMs": null,
+        "firstFrameMs": null
+      }
+    }
+  },
+  {
+    "time": "2026-10-04T10:33:29.973Z",
+    "url": "http://127.0.0.1:50429/",
+    "expectedVersion": "0.0.901",
+    "status": {
+      "desktop": true,
+      "version": "0.0.901",
+      "hostRunning": true,
+      "hostEndpoint": "http://127.0.0.1:50429",
+      "updaterConfigured": true,
+      "startupError": null,
+      "startup": {
+        "windowMappedMs": 105,
+        "hostReadyMs": 149,
+        "frontendHydratedMs": null,
+        "firstFrameMs": null
+      }
+    }
+  },
+  {
+    "time": "2026-10-04T10:33:31.254Z",
+    "url": "http://127.0.0.1:50429/",
+    "expectedVersion": "0.0.902",
+    "status": {
+      "desktop": true,
+      "version": "0.0.901",
+      "hostRunning": true,
+      "hostEndpoint": "http://127.0.0.1:50429",
+      "updaterConfigured": true,
+      "startupError": null,
+      "startup": {
+        "windowMappedMs": 105,
+        "hostReadyMs": 149,
+        "frontendHydratedMs": null,
+        "firstFrameMs": null
+      }
+    }
+  },
+  {
+    "time": "2026-10-04T10:33:49.491Z",
+    "url": "http://127.0.0.1:63464/",
+    "expectedVersion": "0.0.902",
+    "status": {
+      "desktop": true,
+      "version": "0.0.902",
+      "hostRunning": true,
+      "hostEndpoint": "http://127.0.0.1:63464",
+      "updaterConfigured": true,
+      "startupError": null,
+      "startup": {
+        "windowMappedMs": 334,
+        "hostReadyMs": 450,
+        "frontendHydratedMs": null,
+        "firstFrameMs": null
+      }
+    }
+  }
+]

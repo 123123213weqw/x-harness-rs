@@ -3,12 +3,18 @@ mod common;
 use common::*;
 use std::{
     fs,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 use xharness_cloud::*;
 use xharness_cloud_app::*;
 
+// A parallel process-exit fixture can briefly inherit another test's flock
+// descriptor before exec closes it. Keep independent open/reopen assertions
+// out of that fork/exec window; ordinary in-process tests remain parallel.
+static SUBPROCESS_WINDOW: RwLock<()> = RwLock::new(());
+
 fn open(path: &std::path::Path) -> SqliteCloudTaskStore {
+    let _spawn_window = SUBPROCESS_WINDOW.read().unwrap();
     SqliteCloudTaskStore::open(path, AdmissionLimits::default()).unwrap()
 }
 #[test]
@@ -315,11 +321,14 @@ fn private_dir() -> tempfile::TempDir {
 #[test]
 fn sqlite_wal_survives_real_process_exit_without_rust_destructors() {
     let dir = private_dir();
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "abrupt_exit_fixture", "--ignored"])
-        .env("XHARNESS_CLOUD_CRASH_TEST_DIRECTORY", dir.path())
-        .status()
-        .unwrap();
+    let child = {
+        let _spawn_window = SUBPROCESS_WINDOW.write().unwrap();
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "abrupt_exit_fixture", "--ignored"])
+            .env("XHARNESS_CLOUD_CRASH_TEST_DIRECTORY", dir.path())
+            .status()
+            .unwrap()
+    };
     assert!(child.success());
     let store = open(dir.path());
     let receipt = store

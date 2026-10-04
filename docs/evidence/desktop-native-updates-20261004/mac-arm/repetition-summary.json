@@ -1,0 +1,29 @@
+{
+  "candidate": {
+    "manifest_sha256": "4995d3b1b86892014270275e33455609f788b4cf2d0167678fe2465f9ce65465",
+    "package_sha256": "13575f49fba62a3f9301326df040c0cd8237236b7fa9a54c676719d5c63b385d",
+    "platform": "darwin-aarch64",
+    "scope": "isolated-production-handler-rehearsal",
+    "sha": "16e4d439efb38ab01c223c923ef2623832152bfe",
+    "version": "0.0.902"
+  },
+  "completed": [
+    {
+      "acceptance_sha256": "246422d19051149fcc93e846812cb10873144dd9486571f422330f2bd01eaf37",
+      "directory": ".",
+      "round": 1
+    },
+    {
+      "acceptance_sha256": "6e5968273e3a1471b53bca3428a458e8e1599faad42178557f8d0114beedfa1c",
+      "directory": "repetitions/2",
+      "round": 2
+    },
+    {
+      "acceptance_sha256": "3c7d64216000510553c01fcfeffd81269cbfa7e670352d4bfe65ffa2aab007d3",
+      "directory": "repetitions/3",
+      "round": 3
+    }
+  ],
+  "required": 3,
+  "status": "passed"
+}

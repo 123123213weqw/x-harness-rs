@@ -5,6 +5,8 @@
  */
 import type { LoaderEntryState } from './loader-status'
 import css from './boot-page.module.css'
+import type {} from '../../shared/tauri'
+import { StartupSurface } from '../../../startup/surface'
 
 /** Create a div with one module class and optional text. */
 function div(className: string | undefined, text?: string): HTMLDivElement {
@@ -17,10 +19,7 @@ function div(className: string | undefined, text?: string): HTMLDivElement {
 /** Kernel-owned page mounted below the application's root element. */
 export class BootPage {
   private readonly root: HTMLDivElement
-  private readonly card: HTMLDivElement
-  private readonly wordmark: HTMLDivElement
-  private readonly spinner: HTMLDivElement
-  private readonly hint: HTMLDivElement
+  private readonly surface: StartupSurface
   private readonly states = new Map<string, LoaderEntryState>()
   private readonly active = new Set<string>()
   private total = 0
@@ -33,19 +32,17 @@ export class BootPage {
   constructor(container: HTMLElement) {
     this.root = div(css.boot)
     this.root.dataset.dshBoot = ''
-    this.card = div(css.card)
-    this.wordmark = div(css.wordmark, 'HARNESS')
-    this.spinner = div(css.spinner)
-    this.spinner.dataset.dshBootSpinner = ''
-    this.hint = div(css.hint, 'Loading plugins…')
-    this.card.append(this.wordmark, this.spinner, this.hint)
-    this.root.append(this.card)
     container.append(this.root)
+    // The local desktop document already played the entrance. A browser has
+    // no shell stage, so its BootPage owns the single entrance instead.
+    this.surface = new StartupSurface(this.root, {
+      message: '正在加载界面…', intro: typeof window.__TAURI__?.core?.invoke !== 'function',
+    })
     this.updateProgress()
   }
 
   /**
-   * Set the number of loader entries represented by the progress arc.
+   * Set the number of loader entries retained as diagnostic counts.
    * @param total - Complete boot roster size.
    */
   setTotal(total: number): void {
@@ -76,28 +73,31 @@ export class BootPage {
 
   /** Detach the page before or after the UI renderer takes the mount point. */
   dispose(): void {
+    this.surface.dispose()
     this.root.remove()
   }
+
+  /** Stop motion/listeners before hydration snapshots the framework-free DOM. */
+  finish(): void { this.surface.finish() }
+
+  /** Capture before hydration removes this DOM; do not start an exit yet. */
+  prepareHandoff(container: HTMLElement): void { this.surface.prepareHandoff(container) }
+
+  /** Only the UI renderer's actual commit can reveal the decorative exit. */
+  completeHandoff(): void { this.surface.completeHandoff() }
 
   /** Redraw the state-dependent content below the wordmark. */
   private render(): void {
     const failed = [...this.states].filter(([, state]) => state === 'failed').map(([id]) => id)
     if (this.failure === undefined && failed.length === 0) {
-      if (this.spinner.parentElement !== this.card) {
-        this.card.replaceChildren(this.wordmark, this.spinner, this.hint)
-      }
+      if (this.surface.hasFailed) this.surface.resetLoading('正在加载界面…')
       return
     }
-    const report = div(css.failed)
-    report.append(div(css.failedTitle, 'Failed to load plugins'))
-    for (const id of failed) report.append(div(css.failedItem, id))
-    if (this.failure !== undefined) report.append(div(css.failedItem, this.failure))
-    this.card.replaceChildren(this.wordmark, report)
+    this.surface.fail('Failed to load plugins', [...failed, ...(this.failure === undefined ? [] : [this.failure])])
   }
 
-  /** Grow the rotating arc monotonically as loader entries activate. */
+  /** Retain real loader counts without inventing an overall boot percentage. */
   private updateProgress(): void {
-    const ratio = this.total === 0 ? 0 : Math.min(this.active.size / this.total, 1)
-    this.spinner.style.setProperty('--dsh-boot-arc', `${String(Math.round(72 + ratio * 216))}deg`)
+    this.surface.setProgress(this.active.size, this.total)
   }
 }

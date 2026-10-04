@@ -41,7 +41,17 @@ const scriptAssets = compileScriptAssets(ui, manifest.assets.filter(row => row.k
 const modules = orderModules(manifest.modules.map(row => sourceModules.has(row.id)
   ? { ...row, external: [...new Set([...(row.external ?? []), ...sourceModules.get(row.id).external])] }
   : row))
-const template = readInput(ui, manifest.bootTemplate).toString('utf8')
+const startupStyle = readInput(ui, {source:'src/startup/surface.raw.css'}).toString('utf8')
+const startupScript = scriptAssets.get('desktop-bootstrap.js')?.bytes.toString('utf8')
+if (!startupScript || startupScript.includes('</script') || startupStyle.includes('</style')) throw Error('Invalid self-contained startup assets')
+const replaceOnce = (template, marker, value) => {
+  if (template.split(marker).length !== 2) throw Error(`Startup template needs exactly one ${marker}`)
+  return template.replace(marker, () => value)
+}
+const template = replaceOnce(readInput(ui, manifest.bootTemplate).toString('utf8'), '__XHARNESS_STARTUP_STYLE__', startupStyle)
+const desktopTemplate = readInput(ui, {source:'src/startup/desktop.template.html'}).toString('utf8')
+const desktopHtml = replaceOnce(replaceOnce(desktopTemplate, '__XHARNESS_STARTUP_STYLE__', startupStyle), '__XHARNESS_STARTUP_SCRIPT__', startupScript)
+const desktopOutput = join(repoRoot, 'apps/desktop/frontend/index.html')
 if (manifest.platform !== undefined && manifest.platform.kind !== 'source-platform') throw Error('Invalid source platform kind')
 const platform = manifest.platform ? compilePlatformUi(ui, manifest.platform) : undefined
 const stage = mkdtempSync(join(dirname(output), '.xharness-ui-stage-'))
@@ -98,6 +108,7 @@ try {
   }
   if (check) {
     if (!existsSync(output) || JSON.stringify(treeHashes(stage)) !== JSON.stringify(treeHashes(output))) throw Error('UI output is stale; npm run build --prefix ui')
+    if (output === join(ui, 'dist') && (!existsSync(desktopOutput) || readFileSync(desktopOutput, 'utf8') !== desktopHtml)) throw Error('Desktop startup output is stale; npm run build --prefix ui')
   } else {
     // Publish only after complete validation. Roll back if the final rename
     // fails; a missing input or compiler error never destroys the last build.
@@ -107,6 +118,13 @@ try {
     try { renameSync(stage, output) }
     catch (error) { if (hadOutput) renameSync(backup, output); throw error }
     if (hadOutput) rmSync(backup, { recursive: true })
+    if (output === join(ui, 'dist') && (!existsSync(desktopOutput) || readFileSync(desktopOutput, 'utf8') !== desktopHtml)) {
+      mkdirSync(dirname(desktopOutput), {recursive:true})
+      // Same-directory rename keeps the bundled local document complete.
+      const desktopStage = mkdtempSync(join(dirname(desktopOutput), '.startup-'))
+      try { writeFileSync(join(desktopStage, 'index.html'), desktopHtml); renameSync(join(desktopStage, 'index.html'), desktopOutput) }
+      finally { rmSync(desktopStage, {recursive:true,force:true}) }
+    }
   }
   console.log(`XHarness UI ${check ? 'verified' : 'built'}: ${entries.length} modules, ${files.size - entries.length} assets; repository inputs only`)
 } finally { if (existsSync(stage)) rmSync(stage, { recursive: true }) }

@@ -627,25 +627,43 @@ def isolate_base_updater_timers(path):
     # A second browser timer must not inject unrelated operations mid-assertion.
     require(path.is_file() and not path.is_symlink(), 'Missing regular base updater UI')
     text = path.read_text(encoding='utf-8')
-    # Two approved generations only: the frozen script and the repository TS
-    # emitter. Do not match arbitrary timers or weaken drift/duplicate checks.
+    # Approved frozen/TS generations only (manual check and background prepare).
+    # Do not match arbitrary timers or weaken drift/duplicate checks. In prepare
+    # builds also isolate online/backoff entry points via their one shared wrapper.
     variants = [
         ('\n    initialTimer = window.setTimeout(() => controller.check(), 1500)\n',
          "\n    periodicTimer = window.setInterval(() => {\n"
          "      if (document.visibilityState === 'visible') controller.check()\n"
-         "    }, 6 * 60 * 60 * 1000)\n"),
+         "    }, 6 * 60 * 60 * 1000)\n", None),
         ('\n      initialTimer = window.setTimeout(() => controller.check(), 1500);\n',
          '\n      periodicTimer = window.setInterval(() => {\n'
          '        if (document.visibilityState === "visible") controller.check();\n'
-         '      }, 6 * 60 * 60 * 1e3);\n'),
+         '      }, 6 * 60 * 60 * 1e3);\n', None),
+        ('\n    initialTimer = window.setTimeout(prepare, 1500)\n',
+         "\n    periodicTimer = window.setInterval(() => {\n"
+         "      if (document.visibilityState === 'visible') prepare()\n"
+         "    }, 6 * 60 * 60 * 1000)\n",
+         "  const prepare = () => {\n"
+         "    if (disposed || (typeof navigator !== 'undefined' && navigator.onLine === false)) return\n"
+         "    return controller.prepare()\n  }\n"),
+        ('\n      initialTimer = window.setTimeout(prepare, 1500);\n',
+         '\n      periodicTimer = window.setInterval(() => {\n'
+         '        if (document.visibilityState === "visible") prepare();\n'
+         '      }, 6 * 60 * 60 * 1e3);\n',
+         '    const prepare = () => {\n'
+         '      if (disposed || typeof navigator !== "undefined" && navigator.onLine === false) return;\n'
+         '      return controller.prepare();\n    };\n'),
     ]
-    matches = [(initial, periodic) for initial, periodic in variants
-               if text.count(initial) == 1 and text.count(periodic) == 1]
+    matches = [(initial, periodic, wrapper) for initial, periodic, wrapper in variants
+               if text.count(initial) == 1 and text.count(periodic) == 1
+               and (wrapper is None or (text.count(wrapper) == 1 and text.count('const prepare =') == 1))]
     require(len(matches) == 1
             and text.count('initialTimer = window.setTimeout') == 1
             and text.count('periodicTimer = window.setInterval') == 1,
             'Base updater timer injection anchor drifted')
-    initial, periodic = matches[0]
+    initial, periodic, wrapper = matches[0]
+    if wrapper is not None:
+        text = text.replace(wrapper, '    const prepare = () => {}; // Isolated base only: native driver owns preparation.\n', 1)
     text = text.replace(initial, '\n    // Isolated base: native driver owns automatic checks.\n', 1)
     path.write_text(text.replace(periodic, '\n    // Production target timers remain unmodified.\n', 1), encoding='utf-8')
 
@@ -844,7 +862,8 @@ def candidate_update(args):
                         if replay:
                             break
                 code = process.poll()
-                require(code is None or (code == 0 and confirmed), 'Base exited before confirmed installation')
+                cache_restart = any(event.get('cacheRestartRequested') for event in events)
+                require(code is None or (code == 0 and (confirmed or cache_restart)), 'Base exited before confirmed installation')
                 time.sleep(.25)
             else:
                 raise TimeoutError('Updater failed to install/restart/catalogue the exact candidate within deadline')
@@ -856,14 +875,19 @@ def candidate_update(args):
         require(exact(), 'Installed artifact changed after readiness')
         required = ('checkFailureKeepsHost', 'concurrentCheckRejected', 'tamperedPackageRejected',
                     'unconfirmedInstallRejected', 'persistedSessionCreated', 'downloadBeforeCheckRejected',
-                    'installBeforeDownloadRejected')
+                    'installBeforeDownloadRejected', 'cacheRestoredAfterRestart',
+                    'cachedTamperRejectedBeforeHostStop')
         for check in required:
             require(any(event.get(check) is True for event in events), 'Missing production-handler assertion: ' + check)
         requests = json_lines(root / 'http-requests.jsonl')
         for request in ({'path': '/latest.json', 'mode': 'unavailable'}, {'path': '/candidate', 'mode': 'tampered'},
                         {'path': '/candidate', 'mode': 'normal'}):
             require(request in requests, 'Missing HTTPS failure/download evidence')
-        checks.update(unavailableFeedRejected=True, concurrentCheckRejected=True,
+        require(sum(request == {'path': '/candidate', 'mode': 'normal'} for request in requests) == 1,
+                'Cache restart caused a duplicate package download')
+        checks.update(cacheRestoredAfterRestart=True, noDuplicatePackageDownload=True,
+            cachedTamperRejectedBeforeHostStop=True, hostStoppedBeforeInstall=True,
+            unavailableFeedRejected=True, concurrentCheckRejected=True,
             tamperedPackageRejected=True, unconfirmedInstallRejected=True,
             exactCandidateInstalled=True, restartVerified=True, dataPreserved=True,
             persistedSessionCatalogued=True, nativeLaunchVerified=True)
