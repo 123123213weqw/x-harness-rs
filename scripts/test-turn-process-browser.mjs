@@ -31,8 +31,8 @@ try {
   const runtime={isAppendSurfaceEvent:()=>true,toAssistantBlocks:x=>x,createSnapshotStore:store,defineStore:x=>x}
   const DisclosureRow=({open,onToggle,title,children})=>jsx('div',{children:[jsx('button',{onClick:onToggle,'aria-expanded':open,children:title}),open&&children]})
   const primitives=new Proxy({DisclosureRow,Tooltip:({children})=>children,MarkdownText:({text})=>jsx('div',{'data-md':'',children:text}),JsonBlock:({label})=>jsx('div',{children:label}),writeClipboard:async()=>true},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))})
-  const plugin=registration.factory(name=>name==='react'?React:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
-  const toolApi=toolRegistration.factory(name=>name==='react'?React:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
+  const plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
+  const toolApi=toolRegistration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
   const t=(key,args={})=>(plugin.en[key]??key).replace(/\{(\w+)\}/g,(_,k)=>args[k])
   const hook=s=>select=>select(React.useSyncExternalStore(s.subscribe,s.getSnapshot))
   window.calls=[];window.sessionId='s';window.setId=id=>{sessionId=id;render()}

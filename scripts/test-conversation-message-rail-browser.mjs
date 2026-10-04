@@ -6,15 +6,17 @@ import { createRequire } from 'node:module'
 
 const base = resolve(process.env.UI_TEST_DIST ?? 'ui/dist')
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps', 'package.json'))
-const { chromium } = require('playwright')
-const browser = await chromium.launch({
+const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
+assert.ok(['chromium', 'webkit'].includes(engine))
+const browser = await require('playwright')[engine].launch({
   headless: true,
-  ...(process.env.UI_TEST_CHROMIUM_EXECUTABLE
+  ...(engine === 'chromium' && process.env.UI_TEST_CHROMIUM_EXECUTABLE
     ? { executablePath: process.env.UI_TEST_CHROMIUM_EXECUTABLE }
     : {}),
 })
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 820 }, locale: 'en-US' })
+  page.setDefaultTimeout(15_000)
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', route => {
@@ -38,6 +40,10 @@ try {
   const initialCount = await marks.count()
   assert.ok(initialCount >= 3, 'one rail mark per loaded user message')
   const older = page.getByRole('button', { name: 'Load earlier' })
+  // A real reader first scrolls away from live bottom-follow. Programmatic
+  // actionability scrolling alone does not establish that user intent in WebKit.
+  await page.locator('[data-conversation-scroll]').hover()
+  await page.mouse.wheel(0, -10000)
   await older.click()
   await page.waitForFunction(count => document.querySelectorAll('.xh-message-rail-item').length > count, initialCount)
   if (process.env.UI_TEST_SCREENSHOT) await page.screenshot({ path: process.env.UI_TEST_SCREENSHOT })
@@ -56,5 +62,5 @@ try {
   }, key)
   assert.equal(await first.getAttribute('aria-current'), 'location')
   assert.deepEqual(errors, [])
-  console.log('PASS: message rail stays in current chat, shows user prompts, jumps to chosen message')
+  console.log(engine + ': PASS: message rail stays in current chat, shows user prompts, jumps to chosen message')
 } finally { await browser.close() }
