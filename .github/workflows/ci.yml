@@ -147,6 +147,7 @@ jobs:
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
           node scripts/test-adaptive-tool-fold.mjs
+          node --test scripts/test-session-terminal-contract.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
@@ -365,6 +366,13 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
+        env:
+          XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
+        run: |
+          cargo test --locked -p xharness-projection export_session_terminal_contract
+          node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
+          node --test scripts/test-session-terminal-contract.mjs
       - name: Goal remote HTTP replies match shipped client schemas
         env:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json

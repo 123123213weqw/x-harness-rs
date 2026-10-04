@@ -167,13 +167,18 @@ async fn a_prompt_after_a_failed_turn_is_still_projected_to_the_browser() {
                         Some("assistant/message") => {
                             assistant_turns.push(event["data"]["turn"].as_u64())
                         }
-                        Some("turn/end") => end_turns.push((
-                            event["data"]["turn"].as_u64(),
-                            event["data"]["reason"]["kind"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_owned(),
-                        )),
+                        Some("turn/end") => {
+                            let _: xharness_projection::wire::TurnEndData =
+                                serde_json::from_value(event["data"].clone())
+                                    .expect("actual Host mux terminal must satisfy the owned DTO");
+                            end_turns.push((
+                                event["data"]["turn"].as_u64(),
+                                event["data"]["reason"]["kind"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ));
+                        }
                         _ => {}
                     }
                 }
@@ -334,13 +339,18 @@ async fn a_prompt_queued_during_a_failing_turn_is_still_projected_to_the_browser
                         Some("assistant/message") => {
                             assistant_turns.push(event["data"]["turn"].as_u64())
                         }
-                        Some("turn/end") => end_turns.push((
-                            event["data"]["turn"].as_u64(),
-                            event["data"]["reason"]["kind"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .to_owned(),
-                        )),
+                        Some("turn/end") => {
+                            let _: xharness_projection::wire::TurnEndData =
+                                serde_json::from_value(event["data"].clone())
+                                    .expect("actual Host mux terminal must satisfy the owned DTO");
+                            end_turns.push((
+                                event["data"]["turn"].as_u64(),
+                                event["data"]["reason"]["kind"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            ));
+                        }
                         _ => {}
                     }
                 }
