@@ -20,6 +20,9 @@ try{const page=await browser.newPage({viewport:{width:900,height:650}});const er
  const Directory=owner=>owner.open?React.createElement('div',{role:'dialog','aria-label':'directory'},React.createElement('button',{onClick:()=>owner.onPicked('/chosen'),disabled:owner.busy},'Use folder'),React.createElement('button',{onClick:owner.onCancel},'Cancel folder')):null;
  const Browser=()=>React.createElement(component,{...face,wide:useSource(mode,x=>x),expandSidebar:()=>mode.set(true),useSessions:select=>useSource(sessions,select),useWorkspaces:select=>useSource(workspaces,select),useStore:select=>useSource(view,select),actions,useDirectoryFlow:select=>useSource(face.hooks.directoryFlow,select),useHostDescription:select=>useSource(face.hooks.hostDescription,select),renderSlot:(_key,owner)=>Directory(owner),t:(key,args)=>key==='date.ymd'?`${args.y}-${args.m}-${args.d}`:key==='hover.created'?`Created ${args.time}`:key});window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(Browser));
  });const nav=()=>page.locator('[data-xharness-plugin-nav]');await nav().waitFor();await page.evaluate(()=>document.fonts.ready);const initialPixelsSha256=createHash('sha256').update(await page.locator('#root').screenshot({animations:'disabled'})).digest('hex');assert.equal(await nav().count(),1);await nav().click();await page.waitForFunction(()=>document.querySelector('[data-xharness-plugin-nav]').getAttribute('aria-current')==='page');await page.evaluate(()=>window.dispatchEvent(new Event('xharness:plugins:closed')));await page.waitForFunction(()=>!document.querySelector('[data-xharness-plugin-nav]').hasAttribute('aria-current'));if(implementation!=='legacy'){
+   const searchEntry=page.getByRole('button',{name:'search.sessions.aria',exact:true})
+   assert.equal(await searchEntry.count(),0,'removed search does not return in expanded sidebar')
+   assert.equal(await page.getByPlaceholder('search.placeholder',{exact:true}).count(),0,'removed search field stays absent')
    const workNav=page.locator('[data-xharness-work-nav]')
    assert.equal(await workNav.count(),1)
    for(const selector of ['[data-xharness-work-nav]','[data-xharness-plugin-nav]']) {
@@ -27,10 +30,12 @@ try{const page=await browser.newPage({viewport:{width:900,height:650}});const er
    }
    await workNav.click();await page.waitForFunction(()=>document.querySelector('[data-xharness-work-nav]').getAttribute('aria-current')==='page')
    await page.evaluate(()=>mode.set(false));await workNav.waitFor()
+   assert.equal(await searchEntry.count(),0,'removed search does not return in collapsed sidebar')
    assert.equal(await workNav.getAttribute('aria-current'),'page','clock selection survives wide/rail remount')
    await page.evaluate(()=>window.dispatchEvent(new Event('xharness:work:closed')))
    await page.waitForFunction(()=>!document.querySelector('[data-xharness-work-nav]').hasAttribute('aria-current'))
    await page.evaluate(()=>mode.set(true));await workNav.waitFor()
+   assert.equal(await searchEntry.count(),0,'search remains absent after collapsing and expanding again')
    await page.evaluate(()=>window.dispatchEvent(new CustomEvent('xharness:work:open-session',{detail:'test-open'})))
    assert.deepEqual(await page.evaluate(()=>trace.pop()),['open','test-open'],'Work navigation reaches existing session owner')
   }

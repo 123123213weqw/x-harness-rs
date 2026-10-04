@@ -30,7 +30,7 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 
 - Unix 原生包基于 `16e4d439efb38ab01c223c923ef2623832152bfe`；到 Windows 修复提交 `92d8e00c8ee042f703aaca17db86eff8a58c9cc7`，生产 Rust、UI 和 Unix 驱动源码未改变。逐文件哈希校验见 `desktop-native-updates-20261004/unix-source-binding.json`；后续仅补验收测试和报告，不拿测试／文档 SHA 冒充安装包 SHA。
 - V100 桌面库 **46 项**、全目标 check、全目标 Clippy `-D warnings` 通过。46 是整个桌面库测试数量，不是 46 个独立缓存测试。首次隔离目录缺 Tauri sidecar 资源，按既有暂存脚本补齐后重验；该 V100 lib 测试不冒充真实安装，真实 Host 在原生 runner 从同一源码重新编译。
-- Node updater **22 组**；严格 TS、确定性构建／漂移检查、干净隔离 UI 构建通过。
+- 原移植 Node updater **22 组**；合并主线侧栏锚定回归后为 **24 组**；严格 TS、确定性构建／漂移检查、干净隔离 UI 构建通过。
 - Chromium／WebKit：启动首屏各 **30** 场景，更新器交互各 **24 + 4** 场景；完整 53 模块图启动、设置、模型强度与工作中心导航通过。
 - Unix 隔离／升级契约 **43** 项、发布构建契约 **48** 项、Windows 演练来源／隔离 **18** 项；原正式 Windows 来源、签名与发布门禁未削弱。
 - 详细本地日志保存在 `/tmp/xharness-background-20261004/`，完整 CI 和原生运行日志在上面的 Actions 及 PR #215。
@@ -47,6 +47,12 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 修复仅修改两个测试，**不修改生产 UI、Rust 或更新器**。同样 Linux 双核条件的两个测试各五轮 **10/10 通过**；Mac Chromium／WebKit 两个测试 **4/4 通过**。这是 CI 夹具正确性回归，不是性能基准；最终 Node 22 全量门禁仍以 PR 当前提交的 CI 为准。机器可读计数／日志哈希见 `desktop-native-updates-20261004/ci-fixture-regression.json`。
 
 另一次最终提交的 [Linux Rust job](https://github.com/123123213weqw/x-harness-rs/actions/runs/37190968756/job/111402866041)在既有 Cloud 持久化测试重新打开数据库时返回 `EnvironmentBusy`。同一测试进程中还并行运行真实 abrupt-exit 子进程夹具；Linux 的 `flock` 绑定 open-file description，fork 得到的重复描述符也会延续锁的生命周期（[Linux man-pages](https://man7.org/linux/man-pages/man2/flock.2.html)）。因此在测试内用读写锁隔开 open/reopen 与该子进程的 fork/exec 窗口；不是在生产代码重试 `EnvironmentBusy`，也没有移除真实进程退出、单写者或 reopen 断言。V100 16 路并行的原持久化套件先编译运行一次，再重复 30 轮：每轮 14 项通过，真实子进程夹具仍实际运行，合计 **31 轮通过**。记录见 `desktop-native-updates-20261004/cloud-persistence-fixture-regression.json`。该后续修改仍仅涉及测试与报告，原生运行时代码及其哈希不变。
+
+## 主线侧栏更新的再次集成
+
+等待最终 CI 时，主线合入 PR #219（`acf74b5938da2d3b160d6ee2327456ca0273368c`），包含侧栏更新器预留行和已批准的搜索／嵌套浏览器清理。本分支保留这些主线改动，并保留后台 `prepare()`、有界重试、退出取消和显式安装确认；从合并后的 TS 源码重新生成 dist，不对产物做文本合并。
+
+这次集成改变了更新器 TS／bundle，所以前面两次原生运行是**历史基线证据**，不再将旧运行时代码哈希描述为最终合并源码。合并后须再次运行四平台原生演练及当前提交全量 CI；新运行收据将在完成后补充。正式签名门禁保持不变。
 
 ## 不包含的证明
 

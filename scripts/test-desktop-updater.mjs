@@ -188,7 +188,8 @@ await test('install confirmation and active native download suppress all backgro
 // Tiny DOM fake exercises the actual boot/listen/timer/button wiring, not just
 // projections. No additional frontend test framework/runtime dependency needed.
 class Element {
-  constructor() { this.style = {}; this.hidden = false; this.listeners = {}; this.attributes = {}; this.classes = new Set(); this.classList = { toggle: (name, value) => value ? this.classes.add(name) : this.classes.delete(name) } }
+  constructor() { this.style = {}; this.hidden = false; this.isConnected = true; this.rect = {left: 10, top: 650, width: 36, height: 42}; this.listeners = {}; this.attributes = {}; this.classes = new Set(); this.classList = { toggle: (name, value) => value ? this.classes.add(name) : this.classes.delete(name) } }
+  getBoundingClientRect() { this.rectReads = (this.rectReads ?? 0) + 1; return this.rect }
   setAttribute(name, value) { this.attributes[name] = value }
   removeAttribute(name) { delete this.attributes[name] }
   addEventListener(name, callback) { this.listeners[name] = callback }
@@ -207,13 +208,25 @@ class Root extends Element {
   constructor() { super(); this.nodes = new Map() }
   querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, (selector === '.action' ? new ButtonElement() : selector === 'progress' ? new ProgressElement() : new Element())); return this.nodes.get(selector) }
 }
-async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null } = {}) {
+async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null, slot = null } = {}) {
   const calls = [], timers = [], intervals = [], attached = [], clearedTimers = []
+  const frames = new Map()
+  const flushFrames = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()) }
+  const observers = []
+  class Observer {
+    constructor(callback) { this.callback = callback; this.targets = []; observers.push(this) }
+    observe(target) { this.targets.push(target) }
+    disconnect() { this.targets = [] }
+  }
+  let currentSlot = slot
   let listener, unlistened = false, pagehide
-  const dom = { visibilityState: 'visible', body: { append: node => attached.push(node) }, createElement: () => new Element() }
+  const dom = { visibilityState: 'visible', body: { append: node => attached.push(node) }, createElement: () => new Element(), getElementById: () => currentSlot }
   let remote = initial
   let disconnected = false
   const win = {
+    innerWidth: 1254, innerHeight: 768,
+    requestAnimationFrame: callback => {frames.set(1, callback); return 1},
+    cancelAnimationFrame: id => frames.delete(id),
     __TAURI__: {
       core: { invoke: async (command, args) => { calls.push([command, args]); if (disconnected) throw new Error('IPC disconnected'); if (command === 'desktop_status') { if (statusError) throw new Error(statusError); return { updaterConfigured: configured } }; return remote } },
       event: { listen: async (_name, callback) => { listener = callback; return () => { unlistened = true } } },
@@ -224,15 +237,15 @@ async function boot({ configured = true, initial = snapshot(0, 'idle'), statusEr
     addEventListener: (name, callback) => { if (name === 'pagehide') pagehide = callback },
     removeEventListener: () => {},
   }
-  vm.runInNewContext(source, { window: win, document: dom, HTMLElement: Element, HTMLButtonElement: ButtonElement, HTMLProgressElement: ProgressElement, KeyboardEvent: KeyEvent })
+  vm.runInNewContext(source, { window: win, document: dom, HTMLElement: Element, HTMLButtonElement: ButtonElement, HTMLProgressElement: ProgressElement, KeyboardEvent: KeyEvent, ResizeObserver: Observer, MutationObserver: Observer })
   await new Promise(resolve => setImmediate(resolve))
-  return { host: attached[0], calls, timers, intervals, clearedTimers, disconnect: () => { disconnected = true }, setRemote: value => { remote = value }, emit: value => listener?.({ payload: value }), exit: () => pagehide(), get unlistened() { return unlistened } }
+  return { host: attached[0], calls, timers, intervals, clearedTimers, disconnect: () => { disconnected = true }, observers, setSlot: value => { currentSlot = value; observers[1].callback(); flushFrames() }, resize: () => { observers[0].callback(); flushFrames() }, mutate: () => { observers[1].callback(); flushFrames() }, setRemote: value => { remote = value }, emit: value => listener?.({ payload: value }), exit: () => pagehide(), get unlistened() { return unlistened } }
 }
 
 await test('real DOM bridge shows left blue icon, safe notes, confirmation and closes without install', async () => {
   const b = await boot()
   assert.match(b.host.style.cssText, /left:11px/)
-  assert.match(b.host.style.cssText, /bottom:64px/)
+  assert.match(b.host.style.cssText, /bottom:104px/)
   assert.match(b.host.style.cssText, /z-index:11/, 'Content/composer < updater < shared shell overlays')
   assert.equal(b.host.hidden, false)
   assert.equal(b.host.root.querySelector('.panel').hidden, true)
@@ -257,6 +270,42 @@ await test('real DOM bridge shows left blue icon, safe notes, confirmation and c
   assert.equal(b.calls.some(([command]) => command === 'desktop_install_update'), false)
   b.exit()
   assert.equal(b.unlistened, true)
+})
+
+await test('sidebar reserves a real footer row, tracks resize/remount and releases observers', async () => {
+  const slot = new Element(); slot.hidden = true; slot.parentElement = new Element()
+  const b = await boot({slot})
+  assert.equal(slot.hidden, false)
+  assert.equal(slot.style.cssText, 'height:42px;flex:none;width:100%')
+  assert.equal(b.host.style.top, '654px')
+  assert.equal(b.host.style.bottom, 'auto')
+  const reads = slot.rectReads
+  b.mutate(); b.mutate()
+  assert.equal(slot.rectReads, reads, 'Streaming message mutations do not trigger layout reads')
+  slot.rect.top = 600; slot.rect.left = 12; b.resize()
+  assert.equal(b.host.style.top, '604px'); assert.equal(b.host.style.left, '13px')
+  assert.equal(b.host.root.querySelector('.panel').style.maxHeight, '576px')
+  slot.isConnected = false
+  const replacement = new Element(); replacement.rect.top = 580
+  b.setSlot(replacement)
+  assert.equal(slot.hidden, true); assert.equal(replacement.hidden, false)
+  assert.equal(b.host.style.top, '584px')
+  replacement.isConnected = false; b.setSlot(null)
+  assert.equal(b.host.style.top, 'auto'); assert.equal(b.host.style.bottom, '104px')
+  b.setSlot(replacement)
+  b.exit()
+  assert.equal(replacement.hidden, true)
+  assert.ok(b.observers.every(observer => observer.targets.length === 0))
+})
+
+await test('late sidebar mounting is adopted; plain web/unconfigured bridge reserves no row', async () => {
+  const b = await boot(); const slot = new Element()
+  b.setSlot(slot)
+  assert.equal(b.host.style.top, '654px')
+  const unusedSlot = new Element(); unusedSlot.hidden = true
+  const unavailable = await boot({configured: false, slot: unusedSlot})
+  assert.equal(unusedSlot.hidden, true)
+  assert.ok(unavailable.observers.every(observer => observer.targets.length === 0))
 })
 
 await test('unconfigured builds hide updater and do not check network', async () => {
