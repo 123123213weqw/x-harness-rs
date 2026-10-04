@@ -519,6 +519,14 @@ pub enum LoopCommand {
     ApproveTool {
         call_id: String,
     },
+    /// Internal reviewer decision, fenced against user steering at the Loop boundary.
+    ReviewToolDecision {
+        call_id: String,
+        approved: bool,
+        /// Exact admitted user event for durable runs; None only for compatibility runs.
+        user_request_seq: Option<u64>,
+        user_request_sha256: String,
+    },
     RejectTool {
         call_id: String,
         reason: String,

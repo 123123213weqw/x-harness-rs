@@ -17,6 +17,7 @@ mod export;
 mod goal;
 mod host;
 mod interaction;
+pub(crate) use interaction::respond_review;
 mod model;
 mod preset;
 mod session;
@@ -214,6 +215,8 @@ impl ApiBackend for BasicHost {
                         approval_id,
                         call_id,
                         tool_name,
+                        reviewing,
+                        reason,
                         ..
                     } => frames.push(ServerRequest::new(
                         RpcId::new(rpc_id),
@@ -224,7 +227,8 @@ impl ApiBackend for BasicHost {
                             "approvalId": approval_id,
                             "toolName": tool_name,
                             "callId": call_id,
-                            "reason": "This tool requires explicit approval.",
+                            "reason": reason,
+                            "reviewing": reviewing,
                         }),
                     )),
                 }

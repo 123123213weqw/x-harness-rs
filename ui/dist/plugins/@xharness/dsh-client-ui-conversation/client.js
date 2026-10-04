@@ -24371,7 +24371,7 @@ function ApprovalFlow({ pending, command, t }) {
         setAnswered(true);
         void pending.answer(outcome).catch(() => { setAnswered(false); });
     };
-    return ((0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.root, "data-approval-key": pending.key, children: (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.card, children: [(0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.strip, children: [(0, jsx_runtime_1.jsx)("span", { className: ApprovalPanel_styles_1.default.dot }), t('approval.waiting')] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.body, "data-approval-scroll": "", tabIndex: 0, role: "group", "aria-label": t('approval.detail.aria'), children: [(0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.headline, children: pending.reason ?? t('approval.escalation', { toolName: pending.toolName }) }), command !== undefined && (0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.command, children: command })] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.actionRow, children: [(0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", className: ApprovalPanel_styles_1.default.reject, disabled: answered, onClick: () => { answer('rejected'); }, children: t('approval.reject') }), (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "primary", disabled: answered, onClick: () => { answer('allowed-once'); }, children: t('approval.allowOnce') })] })] }) }));
+    return ((0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.root, "data-approval-key": pending.key, children: (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.card, children: [(0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.strip, children: [(0, jsx_runtime_1.jsx)("span", { className: ApprovalPanel_styles_1.default.dot }), t(pending.reviewing ? 'approval.reviewing' : 'approval.waiting')] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.body, "data-approval-scroll": "", tabIndex: 0, role: "group", "aria-label": t('approval.detail.aria'), children: [(0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.headline, children: pending.reason ?? t('approval.escalation', { toolName: pending.toolName }) }), command !== undefined && (0, jsx_runtime_1.jsx)("div", { className: ApprovalPanel_styles_1.default.command, children: command })] }), (0, jsx_runtime_1.jsxs)("div", { className: ApprovalPanel_styles_1.default.actionRow, children: [(0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", className: ApprovalPanel_styles_1.default.reject, disabled: answered, onClick: () => { answer('rejected'); }, children: t('approval.reject') }), (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "primary", disabled: answered || pending.reviewing, onClick: () => { answer('allowed-once'); }, children: t('approval.allowOnce') })] })] }) }));
 }
 
 },
@@ -24407,6 +24407,8 @@ class PendingApproval {
     get reason() {
         return this.wait.payload.reason;
     }
+    /** AI review is transient; failures return this same carrier to manual approval. */
+    get reviewing() { return this.wait.payload.reviewing === true; }
     /** The paired tool call's id when the ask names one (command-line lookup key), forwarded from the carrier payload. */
     get callId() {
         return this.wait.payload.callId;
@@ -24786,6 +24788,7 @@ exports.en = {
     "command.title": "Command",
     "command.imagesUnsupported": "/{command} does not accept image attachments; remove them first",
     "approval.waiting": "Waiting for approval",
+    "approval.reviewing": "Reviewing on your behalf…",
     "approval.detail.aria": "Approval details",
     "approval.escalation": "Tool {toolName} requests privileged execution",
     "approval.reject": "Reject",
@@ -24994,6 +24997,7 @@ exports.zh = {
     "command.title": "命令",
     "command.imagesUnsupported": "/{command} 不接受图片附件，请先移除图片",
     "approval.waiting": "等待审批",
+    "approval.reviewing": "正在代你审核…",
     "approval.detail.aria": "审批详情",
     "approval.escalation": "工具 {toolName} 请求越权执行",
     "approval.reject": "拒绝",
