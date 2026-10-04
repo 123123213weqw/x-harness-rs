@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -118,6 +118,17 @@ pub struct PluginManager {
     mutation: Mutex<()>,
 }
 impl PluginManager {
+    /// Product composition: seed a small offline catalog, or migrate only
+    /// matching vetted public GitHub entries to the first-party distribution.
+    /// No network request, installation, enablement or private catalog rewrite.
+    pub fn open_product(root: PathBuf) -> Result<Self, PluginError> {
+        let mut manager = Self::open(root)?;
+        let state = manager.state.get_mut();
+        if migrate_public_catalog(state)? {
+            save_state(&manager.root, state)?;
+        }
+        Ok(manager)
+    }
     pub fn open(root: PathBuf) -> Result<Self, PluginError> {
         fs::create_dir_all(&root)?;
         let state = load_state(&root)?;
@@ -579,6 +590,49 @@ impl PluginManager {
     }
 }
 
+fn migrate_public_catalog(state: &mut State) -> Result<bool, PluginError> {
+    const RAW: &str =
+        "https://raw.githubusercontent.com/123123213weqw/xharness-plugin-registry/main/";
+    let bundled: CatalogDocument = serde_json::from_str(include_str!("../catalog.public.json"))?;
+    for entry in &bundled.plugins {
+        valid_id(&entry.name)?;
+        validate_source(&entry.source)?;
+    }
+    if state.catalog.is_empty() {
+        state.catalog = bundled.plugins;
+        return Ok(true);
+    }
+    let mut changed = false;
+    for entry in &mut state.catalog {
+        if entry.scope != "public" {
+            continue;
+        }
+        let Some(default) = bundled.plugins.iter().find(|default| {
+            default.name == entry.name
+                && default.version == entry.version
+                && default
+                    .source
+                    .sha256
+                    .eq_ignore_ascii_case(&entry.source.sha256)
+        }) else {
+            continue;
+        };
+        let canonical = format!("{RAW}packages/{}/{}/plugin.zip", entry.name, entry.version);
+        if entry.source.url == canonical {
+            entry.source.url.clone_from(&default.source.url);
+            if entry
+                .icon
+                .as_ref()
+                .is_some_and(|icon| icon.starts_with(&format!("{RAW}icons/")))
+            {
+                entry.icon.clone_from(&default.icon);
+            }
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 fn valid_id(value: &str) -> Result<(), PluginError> {
     if value.is_empty()
         || value.len() > 80
@@ -625,44 +679,11 @@ fn validate_source(source: &PackageSource) -> Result<(), PluginError> {
     Ok(())
 }
 async fn pinned_client(raw_url: &str) -> Result<reqwest::Client, PluginError> {
-    let url = reqwest::Url::parse(raw_url).map_err(|e| PluginError::Invalid(e.to_string()))?;
-    let host = url
-        .host_str()
-        .ok_or_else(|| PluginError::Invalid("URL has no host".into()))?;
-    let address = tokio::net::lookup_host((host, 443))
+    xharness_web::public_https_client(raw_url, Duration::from_secs(90))
         .await
-        .map_err(|e| PluginError::Operation(format!("package DNS failed: {e}")))?
-        .find(|addr| public_ip(addr.ip()))
-        .ok_or_else(|| PluginError::Invalid("package host has no public address".into()))?;
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(90))
-        // Pin the validated address; a second DNS lookup must not turn the
-        // user-imported catalog into a request to a private service.
-        .resolve(host, SocketAddr::new(address.ip(), 443))
-        .build()
-        .map_err(|e| PluginError::Operation(e.to_string()))
-}
-fn public_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v) => {
-            let [a, b, c, _] = v.octets();
-            !(a == 0
-                || a == 10
-                || a == 127
-                || a >= 224
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && (b == 168 || b == 0 || b == 2))
-                || (a == 100 && (64..=127).contains(&b))
-                || (a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)))
-                || (a == 203 && b == 0 && c == 113))
-        }
-        IpAddr::V6(v) => {
-            let s = v.segments();
-            (s[0] & 0xe000) == 0x2000 && !(s[0] == 0x2001 && (s[1] == 0x0db8 || s[1] == 0x0010))
-        }
-    }
+        .map_err(|error| {
+            PluginError::Operation(format!("package target validation failed: {error}"))
+        })
 }
 fn extract_zip(bytes: &[u8], root: &Path) -> Result<(), PluginError> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
@@ -1170,9 +1191,68 @@ mod tests {
             "::1",
             "fe80::1",
         ] {
-            assert!(!public_ip(address.parse().unwrap()), "{address}");
+            assert!(
+                !xharness_web::is_public_ip(address.parse().unwrap()),
+                "{address}"
+            );
         }
-        assert!(public_ip("1.1.1.1".parse().unwrap()));
+        assert!(xharness_web::is_public_ip("1.1.1.1".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn product_catalog_is_offline_idempotent_and_does_not_enable_plugins() {
+        let root = std::env::temp_dir().join(format!("xh-plugin-product-{}", nonce()));
+        let manager = PluginManager::open_product(root.clone()).unwrap();
+        let entries = manager.catalog().await;
+        assert!(!entries.is_empty());
+        assert!(entries.iter().all(|entry| entry
+            .source
+            .url
+            .starts_with("https://engine.xxdevs.com/plugins/packages/")));
+        assert!(manager.installed().await.is_empty());
+        drop(manager);
+        let before = fs::read_dir(&root).unwrap().count();
+        let manager = PluginManager::open_product(root.clone()).unwrap();
+        assert_eq!(entries.len(), manager.catalog().await.len());
+        assert_eq!(before, fs::read_dir(&root).unwrap().count());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_exact_vetted_public_source_is_migrated() {
+        let bundled: CatalogDocument =
+            serde_json::from_str(include_str!("../catalog.public.json")).unwrap();
+        let mut managed = bundled
+            .plugins
+            .into_iter()
+            .find(|entry| entry.name == "github")
+            .unwrap();
+        managed.source.url = format!("https://raw.githubusercontent.com/123123213weqw/xharness-plugin-registry/main/packages/github/{}/plugin.zip", managed.version);
+        let mut personal = managed.clone();
+        personal.scope = "personal".into();
+        let mut custom = managed.clone();
+        custom.source.url = "https://example.com/private-package.zip".into();
+        let mut changed_hash = managed.clone();
+        changed_hash.source.sha256 = "a".repeat(64);
+        for untouched in [personal, custom, changed_hash] {
+            let before = serde_json::to_value(&untouched).unwrap();
+            let mut state = State {
+                catalog: vec![untouched],
+                ..State::default()
+            };
+            assert!(!migrate_public_catalog(&mut state).unwrap());
+            assert_eq!(before, serde_json::to_value(&state.catalog[0]).unwrap());
+        }
+        let mut state = State {
+            catalog: vec![managed],
+            ..State::default()
+        };
+        assert!(migrate_public_catalog(&mut state).unwrap());
+        assert!(state.catalog[0]
+            .source
+            .url
+            .starts_with("https://engine.xxdevs.com/plugins/"));
+        assert!(!migrate_public_catalog(&mut state).unwrap());
     }
     #[tokio::test]
     #[ignore = "requires an explicit local catalog path and network access"]
