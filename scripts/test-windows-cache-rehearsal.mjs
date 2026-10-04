@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {validateRehearsal} from './windows-cache-rehearsal.mjs'
+import {attachmentState} from './native-desktop-attachment.mjs'
 const env={GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted',GITHUB_SHA:'a'.repeat(40),GITHUB_REPOSITORY:'fixture/repo',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}
 const stage={rehearsal_only:true,sha:env.GITHUB_SHA,repository:env.GITHUB_REPOSITORY,platform:'windows-x86_64',target:'x86_64-pc-windows-msvc',version:'0.0.902',base_version:'0.0.901',release_run_id:'123',release_run_attempt:'1',endpoint:'https://github.com/fixture/repo/releases/latest/download/latest.json',base_sha256:'b'.repeat(64),package_sha256:'c'.repeat(64),manifest_sha256:'d'.repeat(64)}
 validateRehearsal(stage,env,'win32')
@@ -11,6 +12,15 @@ for(const patch of [{GITHUB_ACTIONS:'false'},{RUNNER_ENVIRONMENT:'self-hosted'},
 assert.throws(()=>validateRehearsal(stage,env,'darwin'));cases++
 const local=spawnSync(process.execPath,['scripts/windows-migration-acceptance.mjs','run'],{env:{...process.env,GITHUB_ACTIONS:'false'},encoding:'utf8'})
 assert.notEqual(local.status,0);assert.match(local.stderr,/CI only/);cases++
+const healthy={version:'0.0.902',hostRunning:true,updaterConfigured:true,startup:{frontendHydratedMs:100,firstFrameMs:110}}
+for(const [status,hydration,want] of [
+ [healthy,true,{ready:true,retired:false}],
+ [{...healthy,startup:{frontendHydratedMs:null,firstFrameMs:null}},true,{ready:false,retired:false}],
+ [{...healthy,startup:undefined},false,{ready:true,retired:false}],
+ [{...healthy,version:'0.0.901'},true,{ready:false,retired:false}],
+ [{...healthy,version:'0.0.901',hostRunning:false},true,{ready:false,retired:true}],
+ [{...healthy,hostRunning:false},true,{ready:false,retired:false}],
+]){assert.deepEqual(attachmentState('0.0.902',status,hydration),want);cases++}
 const js=readFileSync('scripts/windows-migration-acceptance.mjs','utf8'),wf=readFileSync('.github/workflows/desktop-windows-cache-rehearsal.yml','utf8')
 assert.ok(js.includes('nativeDirectLatest: cacheRehearsal ? false : directLatest'),'Formal promotion must reject rehearsal evidence')
 assert.ok(js.includes('cachedTamperRejectedBeforeHostStop: true'))

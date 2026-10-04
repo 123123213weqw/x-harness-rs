@@ -52,7 +52,13 @@ Windows 原始 `PASS.json` 和 `cache-reopen.json` 位于同目录的 `windows/`
 
 等待最终 CI 时，主线合入 PR #219（`acf74b5938da2d3b160d6ee2327456ca0273368c`），包含侧栏更新器预留行和已批准的搜索／嵌套浏览器清理。本分支保留这些主线改动，并保留后台 `prepare()`、有界重试、退出取消和显式安装确认；从合并后的 TS 源码重新生成 dist，不对产物做文本合并。
 
-这次集成改变了更新器 TS／bundle，所以前面两次原生运行是**历史基线证据**，不再将旧运行时代码哈希描述为最终合并源码。合并后须再次运行四平台原生演练及当前提交全量 CI；[集成后运行 37193933106](https://github.com/123123213weqw/x-harness-rs/actions/runs/37193933106)的三个 Unix 平台 9/9 通过；Windows 缓存重开、单次包下载和篡改拒绝通过，但目标窗口重启后等待 Host 超时，最后截图显示插件加载失败。该 Windows 轮明确记为**失败**，不使用旧 Windows 通过结果替代。正在补充旧／新 WebView 的版本、Host 和 updater 状态、资源请求失败及原生进程清单，以定位失败；没有放宽断言或改动生产代码。新成功收据将在实际完成后补充。正式签名门禁保持不变。
+这次集成改变了更新器 TS／bundle，所以前面两次原生运行是**历史基线证据**，不再将旧运行时代码哈希描述为最终合并源码。合并后须再次运行四平台原生演练及当前提交全量 CI；[集成后运行 37193933106](https://github.com/123123213weqw/x-harness-rs/actions/runs/37193933106)的三个 Unix 平台 **9/9 通过**；Windows 缓存重开、单次包下载和篡改拒绝通过，但等待新版本 Host 超时，最后截图显示插件加载失败。该轮明确记为**失败**，并保留 `integrated/windows-first-failure/`，不以旧 Windows 通过结果替代。
+
+只补观测的 `8cd6305c0584f770170ff92e9d98f22f9cca24a5` [Windows 运行 37195181584](https://github.com/123123213weqw/x-harness-rs/actions/runs/37195181584)已完成下载／缓存重开／篡改拒绝／原生安装／目标重启／合成数据保留。记录显示安装停止旧 Host 时，**旧端口**尚在加载的插件资源收到 `ERR_CONNECTION_REFUSED`；随后新端口的 `0.0.902` Host 与 frontend hydration／first frame 均正常。该新观测说明“旧截图中插件错误”不能独立证明目标包插件缺失；它不充分解释首次超时，故不把首轮标为通过，也不声称已完整复现首轮根因。
+
+现在加强夹具：源绑定的 cache 演练必须等**真实原生前端 commit 和 first frame**再开始更新；在旧版本且 Host 已停止的 CDP 页残留时断开观测连接并重新扫描真实调试端口，不重启／修复应用、不放过新版本 Host 失败。六个 readiness／旧连接判别回归加入现有 Windows 契约（合计 **24 项**）；旧正式版本无此启动字段时原门禁保持兼容。生产 Rust／UI／打包源码未改变。
+
+集成后 9 个 Unix 收据、Windows PASS／缓存与状态观测位于 `desktop-native-updates-20261004/integrated/`；完整 `crates`、`ui/src`、`ui/dist`、桌面 frontend／src-tauri Git tree 逐项一致，见 `integrated/source-binding.json`。最终提交的原生夹具复验和 CI 仍以 PR #215 对应 Actions 为准；临时签名结果不用于正式发布门禁。
 
 ## 不包含的证明
 

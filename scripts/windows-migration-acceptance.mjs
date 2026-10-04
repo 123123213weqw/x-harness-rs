@@ -10,6 +10,7 @@ import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, re
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkStaged } from './windows-cache-rehearsal.mjs'
+import { attachmentState } from './native-desktop-attachment.mjs'
 import { verifyPackage } from './verify-updater-package.mjs'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
@@ -192,6 +193,7 @@ async function run() {
   async function attached(version) {
     return until(async () => {
       if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
+      let retired = false
       for (const context of connection.contexts()) for (const page of context.pages()) {
         observePage(page)
         writeFileSync(join(evidence, 'last-page.json'), JSON.stringify({ url: page.url(), expectedVersion: version }))
@@ -200,14 +202,22 @@ async function run() {
         const sample = { time: new Date().toISOString(), url: page.url(), expectedVersion: version, status }
         if (!status.hostRunning) sample.update = await invoke(page, 'desktop_update_status').catch(error => ({ error: error.message }))
         if (attachSamples.length < 250) attachSamples.push(sample)
-        if (status.version === version && status.hostRunning && status.updaterConfigured) {
+        const attachment = attachmentState(version, status, cacheRehearsal)
+        retired ||= attachment.retired
+        if (attachment.ready) {
           const notice = page.getByRole('button', { name: 'Continue', exact: true })
           if (await notice.isVisible().catch(() => false)) await notice.click()
           return page
         }
       }
+      if (retired) {
+        // A connected CDP transport may outlive the retired native WebView.
+        // Rescan the real debugging endpoint, never relaunch or repair the app.
+        recordPageEvent({ kind: 'retired-cdp-disconnect', expectedVersion: version })
+        await connection.close(); connection = null
+      }
       return null
-    }, `App ${version} with running Host`)
+    }, `App ${version} with running Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
   }
   async function rpc(page, method, payload) {
     const result = await page.evaluate(async ({ method, payload, rpcId }) => {
