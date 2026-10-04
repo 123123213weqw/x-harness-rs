@@ -24,7 +24,7 @@ try {
   const RiskConfirmation=props=>props.open?jsx('div',{role:'dialog','aria-label':props.title,children:[jsx('input',{type:'checkbox','aria-label':props.acknowledgeLabel,checked:props.acknowledged,onChange:event=>props.onAcknowledgedChange(event.target.checked)}),jsx('button',{disabled:props.disabled||!props.acknowledged,onClick:props.onConfirm,children:props.confirmLabel}),jsx('button',{onClick:props.onCancel,children:props.cancelLabel})]}):null;
   const primitives=new Proxy({Button,Tooltip,Menu,Modal,DisclosureRow,RiskConfirmation,MarkdownText:({text})=>jsx('div',{'data-markdown':'',children:text}),MessageText:({text})=>jsx('div',{children:text}),JsonBlock:({label,payload})=>jsx('pre',{children:label+JSON.stringify(payload)}),StateDot:()=>jsx('span',{}),writeClipboard:async text=>{window.copied=text;return true},Toast:({text})=>jsx('div',{role:'alert',children:text})},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))});
   const runtime={publishChatSnapshot:value=>value,createSnapshotStore:makeStore,defineStore:spec=>({spec}),workspaceTitleOf:cwd=>cwd.split('/').filter(Boolean).at(-1)||'',sessionRecallLabels:s=>s?.labels??[],isAppendSurfaceEvent:e=>e.type==='user/message'&&e.surfaceOp?.op!=='replace',isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace',shallowEqual:(a,b)=>a===b,resolveWorkspacePath:(cwd,p)=>p.startsWith('/')?p:cwd+'/'+p,displayFailureMessage:e=>e.message};
-  window.plugin=registration.factory(name=>name==='react'?React:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
+  window.plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
   window.root=ReactDOM.createRoot(document.getElementById('root'));window.renderComponent=(name,props)=>ReactDOM.flushSync(()=>root.render(jsx(plugin[name],props)));
   window.t=(key,args)=>{let value=plugin.en[key]??key;for(const[k,v]of Object.entries(args??{}))value=value.replaceAll('{'+k+'}',String(v));return value};
   window.setMode=name=>{window.mode=name;ReactDOM.flushSync(()=>root.render(jsx(App,{})))};
@@ -104,6 +104,9 @@ try {
  // Latest master intentionally does not pin clicked buttons forever. Exercise
  // the row-owned bridge (as the real Tool/Reasoning/Cordis rows do), rather
  // than depending on browser-specific button focus preserving a React hook.
+ // Linux Chromium focuses clicked buttons; macOS/WebKit may not. Focus is
+ // intentionally protected until released, independent of click persistence.
+ await page.evaluate(()=>document.activeElement?.blur());
  await page.locator('[data-counter="0"]').waitFor({state:'detached'});
  await scroll.evaluate(e=>{e.style.width='500px';e.scrollTop=0});await page.locator('[data-counter="1"]').waitFor();assert.equal(await page.locator('[data-counter="0"]').innerText(),'row 0 count 1');
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);

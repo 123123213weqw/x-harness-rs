@@ -22,15 +22,22 @@ use xharness_projection::metrics::MetricsProjectionState;
 pub enum PermissionPreset {
     #[default]
     WorkspaceWrite,
+    /// Workspace sandbox with a separate, tool-less model approval request.
+    WorkspaceWriteAiReview,
     DangerFullAccess,
 }
 
 impl PermissionPreset {
-    pub const ALL: [Self; 2] = [Self::WorkspaceWrite, Self::DangerFullAccess];
+    pub const ALL: [Self; 3] = [
+        Self::WorkspaceWrite,
+        Self::WorkspaceWriteAiReview,
+        Self::DangerFullAccess,
+    ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "workspace-write",
+            Self::WorkspaceWriteAiReview => "workspace-write-ai-review",
             Self::DangerFullAccess => "danger-full-access",
         }
     }
@@ -38,17 +45,19 @@ impl PermissionPreset {
     pub const fn sandbox_mode(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "workspace-write",
+            Self::WorkspaceWriteAiReview => "workspace-write",
             Self::DangerFullAccess => "danger-full-access",
         }
     }
 
     pub const fn sandbox_enabled(self) -> bool {
-        matches!(self, Self::WorkspaceWrite)
+        matches!(self, Self::WorkspaceWrite | Self::WorkspaceWriteAiReview)
     }
 
     pub const fn approval_policy(self) -> &'static str {
         match self {
             Self::WorkspaceWrite => "ask",
+            Self::WorkspaceWriteAiReview => "ai-review",
             Self::DangerFullAccess => "never",
         }
     }
@@ -56,6 +65,7 @@ impl PermissionPreset {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "workspace-write" => Some(Self::WorkspaceWrite),
+            "workspace-write-ai-review" => Some(Self::WorkspaceWriteAiReview),
             "danger-full-access" => Some(Self::DangerFullAccess),
             _ => None,
         }
@@ -68,6 +78,11 @@ impl PermissionPreset {
                     "value": "workspace-write",
                     "name": "workspace-write",
                     "description": "Write inside the workspace; wider operations require approval."
+                },
+                {
+                    "value": "workspace-write-ai-review",
+                    "name": "AI review",
+                    "description": "Workspace sandbox; one independent model request reviews each approval. Errors fall back to manual approval."
                 },
                 {
                     "value": "danger-full-access",
@@ -543,6 +558,9 @@ pub(crate) enum PendingResponse {
         call_id: String,
         tool_name: String,
         control: mpsc::Sender<DriverCommand>,
+        reviewing: bool,
+        reason: String,
+        deciding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     },
 }
 
@@ -649,7 +667,7 @@ impl HostState {
             SettingsNamespace {
                 ns: "permission".to_owned(),
                 // Schemastery wire format consumed by the upstream Web
-                // permission row.  The two const nodes are the complete
+                // permission row.  The const nodes are the complete
                 // product preset catalog; Full access receives an additional
                 // confirmation modal in the client plugin.
                 schema: json!({
@@ -657,7 +675,8 @@ impl HostState {
                     "refs": {
                         "1": {"type": "const", "meta": {"description": "Workspace write"}, "value": "workspace-write"},
                         "2": {"type": "const", "meta": {"description": "Full access"}, "value": "danger-full-access"},
-                        "3": {"type": "union", "list": [1, 2]},
+                        "5": {"type": "const", "meta": {"description": "AI review (workspace sandbox)"}, "value": "workspace-write-ai-review"},
+                        "3": {"type": "union", "list": [1, 5, 2]},
                         "4": {"type": "object", "dict": {"defaultPreset": 3}}
                     }
                 }),
@@ -734,7 +753,7 @@ impl HostState {
             .ok_or_else(|| format!("agent preset {preset_id:?} was not found"))?;
 
         let permission = match session.permission_preset {
-            PermissionPreset::WorkspaceWrite => {
+            PermissionPreset::WorkspaceWrite | PermissionPreset::WorkspaceWriteAiReview => {
                 "The session uses workspace-write isolation. Keep filesystem changes inside the workspace. When the runtime requests approval for a side effect, wait for the decision and never try to bypass the approval path."
             }
             PermissionPreset::DangerFullAccess => {

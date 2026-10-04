@@ -382,6 +382,7 @@ impl LoopEngine {
             event_journal: Arc::clone(&event_journal),
             seq: 0,
             messages: Vec::new(),
+            user_request_scope: None,
             final_text: String::new(),
             usage: None,
             step_usage: Vec::new(),
@@ -527,6 +528,9 @@ struct Runner {
     event_journal: Arc<EventJournal>,
     seq: u64,
     messages: Vec<AgentMessage>,
+    /// Authorization identity is independent of the compacted model surface.
+    /// Durable sequence changes on every real user message, including identical text.
+    user_request_scope: Option<UserRequestScope>,
     final_text: String,
     usage: Option<TokenUsage>,
     step_usage: Vec<StepUsage>,
@@ -586,6 +590,21 @@ struct LoggedRequestContext {
     provider: String,
     model: String,
     context_window: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UserRequestScope {
+    seq: Option<u64>,
+    sha256: String,
+}
+
+impl UserRequestScope {
+    fn new(seq: Option<u64>, message: &AgentMessage) -> Self {
+        Self {
+            seq,
+            sha256: format!("{:x}", Sha256::digest(message.content.as_bytes())),
+        }
+    }
 }
 
 impl Runner {
@@ -2027,6 +2046,10 @@ impl Runner {
                     })?,
             };
 
+        self.user_request_scope = session
+            .latest_user_request()
+            .map(|(seq, message)| UserRequestScope::new(Some(seq), message));
+
         let last_turn = session
             .events()
             .iter()
@@ -2238,6 +2261,9 @@ impl Runner {
             .ok_or_else(|| {
                 RunFailure::Failed("session journal disappeared during recovery".to_owned())
             })?;
+        self.user_request_scope = session
+            .latest_user_request()
+            .map(|(seq, message)| UserRequestScope::new(Some(seq), message));
         self.messages = self.prompt_prefixed(session.derive_messages());
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = session.revision();
@@ -2374,6 +2400,15 @@ impl Runner {
             store.flush(&session_id).await.map_err(|error| {
                 RunFailure::Failed(format!("session journal flush failed: {error}"))
             })?;
+        }
+        for event in &receipt.events {
+            if let SessionEventData::UserMessage {
+                message,
+                surface_replace: None,
+            } = event.data()
+            {
+                self.user_request_scope = Some(UserRequestScope::new(Some(event.seq), message));
+            }
         }
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = receipt.revision;
@@ -3003,6 +3038,15 @@ impl Runner {
             }
             self.journal_append(events, true).await?;
         }
+        if self.journal.is_none() {
+            if let Some(message) = pending
+                .iter()
+                .rev()
+                .find(|message| message.role == Role::User)
+            {
+                self.user_request_scope = Some(UserRequestScope::new(None, message));
+            }
+        }
         self.messages.extend(pending);
         self.snapshot("message_injected", self.tool_batch_complete)
             .await?;
@@ -3062,12 +3106,32 @@ impl Runner {
     }
 
     fn validate_command(&self, command: &LoopCommand) -> Result<(), LoopControlError> {
-        if let LoopCommand::ApproveTool { call_id } | LoopCommand::RejectTool { call_id, .. } =
-            command
+        if let LoopCommand::ApproveTool { call_id }
+        | LoopCommand::ReviewToolDecision { call_id, .. }
+        | LoopCommand::RejectTool { call_id, .. } = command
         {
             if self.closed_approval_calls.contains(call_id) {
                 return Err(LoopControlError::Rejected(
                     "approval is no longer pending".into(),
+                ));
+            }
+        }
+        if let LoopCommand::ReviewToolDecision {
+            user_request_seq,
+            user_request_sha256,
+            ..
+        } = command
+        {
+            if self
+                .pending_messages
+                .iter()
+                .any(|message| matches!(message.role, Role::User | Role::System))
+                || self.user_request_scope.as_ref().is_none_or(|scope| {
+                    scope.seq != *user_request_seq || scope.sha256 != *user_request_sha256
+                })
+            {
+                return Err(LoopControlError::Rejected(
+                    "reviewed user request changed; manual approval required".into(),
                 ));
             }
         }
@@ -3134,6 +3198,19 @@ impl Runner {
             }
             LoopCommand::ApproveTool { call_id } => {
                 self.store_approval(call_id, ApprovalDecision::Approved);
+                Ok(false)
+            }
+            LoopCommand::ReviewToolDecision {
+                call_id, approved, ..
+            } => {
+                self.store_approval(
+                    call_id,
+                    if approved {
+                        ApprovalDecision::Approved
+                    } else {
+                        ApprovalDecision::Rejected("rejected by independent AI review".into())
+                    },
+                );
                 Ok(false)
             }
             LoopCommand::RejectTool { call_id, reason } => {
@@ -3291,6 +3368,12 @@ impl Runner {
         let history = std::mem::take(&mut self.messages);
         self.messages = self.prompt_prefixed(history);
         self.messages.extend(self.request.messages.clone());
+        self.user_request_scope = self
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == Role::User)
+            .map(|message| UserRequestScope::new(None, message));
         Ok(())
     }
 

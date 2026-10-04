@@ -7,6 +7,7 @@ const styles = {
   "frame": "_84hhiq_frame",
   "handle": "_84hhiq_handle",
   "overlayLayer": "_84hhiq_overlayLayer",
+  "regionSurface": "_84hhiq_regionSurface",
   "sidebarCol": "_84hhiq_sidebarCol",
   "workspaceScrim": "_84hhiq_workspaceScrim"
 } as const

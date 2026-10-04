@@ -77,6 +77,7 @@ try {
     // silently pass through an identity `t`.
     const STRINGS={
       'approval.waiting':'等待审批',
+      'approval.reviewing':'正在代你审核…',
       'approval.detail.aria':'审批详情',
       'approval.escalation':'工具 {toolName} 请求越权执行',
       'approval.reject':'拒绝',
@@ -90,7 +91,7 @@ try {
     window.selectPick=interactions=>{const picked=conversation.selectApproval({interactions});return picked===null?null:picked.kind};
     window.renderApproval=(options={})=>{
       const wait={key:options.key??'a:appr-1',sessionId:options.sessionId??'test',
-        payload:{approvalId:options.approvalId??'appr-1',toolName:options.toolName??'bash',
+        payload:{reviewing:options.reviewing,approvalId:options.approvalId??'appr-1',toolName:options.toolName??'bash',
           ...options.reason===undefined?{}:{reason:options.reason},
           ...options.callId===undefined?{}:{callId:options.callId}},
         respond:answer=>{
@@ -149,6 +150,15 @@ try {
   assert.equal(await detail.locator('div').count(),1,'unparsable call args must not surface or throw');
 
   // Both answerable outcomes, on the wire, with the audit correlation the host reconciles.
+  // Frozen pre-feature baseline still exercises its original human contract.
+  if (!frozen) {
+    await page.evaluate(()=>window.renderApproval({reviewing:true}));
+    assert.match(await page.locator('[data-approval-key]').innerText(),/正在代你审核/);
+    assert.equal(await page.getByRole('button',{name:'允许一次',exact:true}).isDisabled(),true,'AI review cannot be accidentally overridden by allow');
+    assert.equal(await page.getByRole('button',{name:'拒绝',exact:true}).isDisabled(),false,'user can reject during AI review');
+    await page.evaluate(()=>window.renderApproval({reviewing:false}));
+    assert.equal(await page.getByRole('button',{name:'允许一次',exact:true}).isEnabled(),true,'fallback restores manual approval on the same request');
+  }
   await page.evaluate(()=>window.renderApproval());
   await allowOnce.click();
   assert.deepEqual(await page.evaluate(()=>window.answers),[{ok:true,value:{sessionId:'test',approvalId:'appr-1',outcome:'allowed-once'}}],'allow-once posts the approval correlation and outcome');
