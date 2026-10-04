@@ -15,10 +15,43 @@ html[data-xh-mac-titlebar="overlay"] #root {
   position: absolute;
   inset: 0 0 auto;
   height: 32px;
+  z-index: 30;
   background: var(--dsw-alias-bg-base, var(--xh-startup-bg, #151517));
 }
 
 #xh-desktop-titlebar-drag {
   position: absolute;
-  inset: 0 0 0 80px;
+  inset: 0 0 0 128px;
+}
+
+/* Native traffic lights occupy x=0..80. Controls are deliberately outside
+   data-tauri-drag-region so a click/keyboard action never starts dragging. */
+#xh-desktop-titlebar-controls {
+  position: absolute;
+  left: 88px;
+  top: 2px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.xh-desktop-sidebar-toggle {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #8b8b8f);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.xh-desktop-sidebar-toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover, #80808020);
+}
+.xh-desktop-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary, #888);
+  outline-offset: -2px;
 }
