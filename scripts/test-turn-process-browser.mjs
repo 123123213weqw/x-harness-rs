@@ -146,7 +146,9 @@ try {
  await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  await page.evaluate(()=>finish())
  const summary=page.locator('[data-turn-process-summary="1"]')
- await summary.waitFor();assert.equal(await summary.innerText(),'Ran for 2m 45s')
+ // Linux WebKit may serialize the decorative SVG's final line break in
+ // innerText. Compare the complete label, without that browser-only suffix.
+ await summary.waitFor();assert.equal((await summary.innerText()).trim(),'Ran for 2m 45s')
  assert.equal(await summary.getAttribute('aria-expanded'),'false')
  assert.equal(await page.locator('[data-tool-card]').count(),0)
  assert.equal(await page.getByText('intermediate reply',{exact:true}).count(),0)
@@ -213,7 +215,7 @@ try {
  assert.equal(await page.locator('[data-chat-flow-key="job0"]').count(),0)
  await page.evaluate(()=>{setId('no-answer');seed();finish(false,false,true)})
  await page.getByRole('button',{name:/Show this turn's work/}).waitFor()
- assert.equal(await summary.innerText(),'Turn finished')
+ assert.equal((await summary.innerText()).trim(),'Turn finished')
  await page.getByText('network failed',{exact:true}).waitFor()
  assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),0)
  await summary.click();await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
@@ -324,7 +326,17 @@ try {
   getSelection().removeAllRanges();getSelection().addRange(range)
   document.querySelector('[data-conversation-scroll]').style.height='150px'
  })
- await live.waitFor();await page.waitForTimeout(180)
+ try { await live.waitFor() } catch (error) {
+  console.error('protected fold geometry', await page.evaluate(() => {
+   const port=document.querySelector('[data-conversation-scroll]'),selection=getSelection(),range=selection.rangeCount?selection.getRangeAt(0):null
+   return {top:port.scrollTop,height:port.clientHeight,active:document.activeElement?.outerHTML,selection:selection.toString(),
+    rows:[...document.querySelectorAll('[data-chat-auto-fold-turn]')].map(row=>({key:row.dataset.chatFlowKey,
+     eligible:row.dataset.chatAutoFoldEligible,height:row.getBoundingClientRect().height,top:row.getBoundingClientRect().top,
+     focused:row.contains(document.activeElement),selected:range?.intersectsNode(row)}))}
+  }))
+  throw error
+ }
+ await page.waitForTimeout(180)
  for(const key of ['job0','job1','job2','job5'])assert.equal(await page.locator('[data-chat-flow-key="'+key+'"]').count(),1,'protected '+key)
  await page.evaluate(()=>{document.activeElement.blur();getSelection().removeAllRanges()})
  await page.waitForFunction(()=>!document.querySelector('[data-chat-flow-key="job1"]')&&!document.querySelector('[data-chat-flow-key="job2"]'))
@@ -374,7 +386,7 @@ try {
  for (const item of realWindows) {
   await page.evaluate(item=>installRealWindow(item.chat,'wire-'+item.name),item)
   const footer=page.locator('[data-turn-process-summary="1"]')
-  await footer.waitFor();assert.equal(await footer.innerText(),'Ran for 2m 45s',item.name)
+  await footer.waitFor();assert.equal((await footer.innerText()).trim(),'Ran for 2m 45s',item.name)
   assert.equal(await footer.getAttribute('aria-expanded'),'false')
   await page.getByText('answer',{exact:true}).waitFor()
   assert.equal(await page.locator('[data-chat-flow-kind="tool-call"]').count(),item.outcome==='success'?0:1,item.name)

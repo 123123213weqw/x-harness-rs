@@ -15,6 +15,9 @@
 - [x] `UI-SCROLL-INTENT-01` 删除 user/steering 到达即强制到底部；底部跟随只由已有跟随状态、当前会话本地发送意图或明确回到底部恢复。发送意图在 RPC 前同步发出，迟到成功/失败/历史回声不能覆盖更新的上滑意图；会话隔离、隐藏视图和订阅释放有回归。
 - [x] `UI-FORK-WIRE-01` host/session-added 与 session.list 共用 subagent/fork 来源校验；保持缺省来源兼容，继续拒绝非法来源。真实 Rust SessionFork 的三种切点输出经生产 WebSocket/HTTP 解码回归，不借用 FixtureApiClient 绕过验证。
 - [x] `UI-LINUX-ANCHOR-01` 仅明确支持 overflow-anchor:auto 时使用原生补偿；属性缺失/空值/none 走维护的可见行锚点与实时跟随所有权。V100 真实 Linux WebKit、两本机浏览器及强制缺属性分支通过；旧失败证据保留。
+- [x] `UI-RAIL-LEFT-01` 补回此前仅留在旧工作目录的左侧消息定位栏样式；右侧工作区 dock/drawer 展开时隐藏，全部关闭后恢复。浏览器回归新增实际左边距、宽/窄屏、两个工作区标签及恢复后定位断言，不再只测“按钮能点击”。
+- [x] `UI-HISTORY-READ-UP-01` 复用 Session 单页加载与现有可见行锚点；首次/刷新仍自动加载最近 50 条，上滑接近顶部自动取一页。手动/自动/重试共享同步单飞门禁，下滑/消息定位/回到底部取消旧分页意图；到达、重排和分页完成不继续全量排空历史。错误保留手动重试、EOF 停止，旧同步注入兼容；真实 ChatView 与生产 apply 接线在两浏览器和 V100 Linux WebKit 验收。
+- [ ] `UI-LINUX-FOLD-FLAKE-01` V100 的 Playwright 1.59.1 WebKit 曾在保护焦点/选区后的 live-summary 可见等待出现一次 10s 超时；新增失败时的真实高度/焦点/选区诊断，后续三次完整用例通过，但尚未确定原因，不能用重复通过宣称该异常已修复。自动分页/左侧栏/默认与缺属性窗口化均通过；不改产品折叠算法或放宽等待上限掩盖此项。
 - [ ] 本批 PR 跨平台 CI 全绿后才可合并；源码、生成 UI 与浏览器回归不等于已安装桌面升级或 Windows 原生崩溃已验收。见 `docs/evidence/ui-scroll-fork-regression-20261004.md`。
 
 ## 工具空间折叠与展示档位收敛（2026-10-04）
