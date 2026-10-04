@@ -268,6 +268,30 @@ impl BasicHost {
             let mut cancellations =
                 xharness_session::stale_approval_cancellations(session.events());
             cancellations.extend(crate::questions::delegated_question_cancellations(&session));
+            // Append-only, flushed and idempotent repair before worker resume.
+            // Parent history is read at the child's creation cut, not at now.
+            let parent = if let Some(parent_id) = crate::delegation::restored_delegation(&session)
+                .filter(|_| crate::context_selection::needs_legacy_check(&session))
+            {
+                match store.load(&parent_id).await {
+                    Ok(parent) => parent,
+                    Err(error) => {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: format!(
+                                "could not verify inherited legacy context budget: {error}"
+                            ),
+                        });
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if let Some(repair) = crate::context_selection::legacy_repair(&session, parent.as_ref())
+            {
+                cancellations.push(repair);
+            }
             if !cancellations.is_empty() {
                 store
                     .append(&session_id, session.revision(), cancellations)
@@ -515,15 +539,20 @@ impl BasicHost {
                     || recoverable_question_count > 0
                     || runtime_background_work)
             {
-                let prompt = self
-                    .state
-                    .read()
-                    .await
-                    .prompt_assembly(&session_id)
-                    .map_err(|message| HostRestoreError::Prompt {
-                        session_id: session_id.clone(),
-                        message,
-                    })?;
+                let prompt = match self.prompt_assembly(&session_id).await {
+                    Ok(prompt) => prompt,
+                    Err(message) => {
+                        // One invalid project file must not block startup or
+                        // healthy workspaces. Keep its inbox intact and expose
+                        // the failure through the existing recovery issue path.
+                        failed_resumes.insert(session_id.clone());
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message,
+                        });
+                        continue;
+                    }
+                };
                 resumable.push((
                     session_id,
                     cwd,

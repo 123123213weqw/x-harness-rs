@@ -534,6 +534,16 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-memory",
+      "kind": "source-module",
+      "source": "src/modules/memory/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings-general"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-plugin-api",
       "kind": "plugin-api-ts",
       "source": "src/plugin-api/client.ts",
@@ -595,6 +605,17 @@
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
         "@xlang/xharness-client-ui-assistant"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-session-import",
+      "kind": "source-module",
+      "source": "src/modules/session-import/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-settings-general",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale"
       ]
     }
   ],

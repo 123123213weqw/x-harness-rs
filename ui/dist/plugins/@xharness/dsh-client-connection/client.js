@@ -15,6 +15,7 @@ const fixture_1 = require("./fixture");
 const web_api_client_1 = require("./web-api-client");
 const rpc_1 = require("./rpc");
 const loopback_hostname_1 = require("./loopback-hostname");
+const client_1 = require("../jobs/client");
 var api_1 = require("./api");
 Object.defineProperty(exports, "RpcId", { enumerable: true, get: function () { return api_1.RpcId; } });
 Object.defineProperty(exports, "AbstractApiClient", { enumerable: true, get: function () { return api_1.AbstractApiClient; } });
@@ -31,6 +32,7 @@ function apply(ctx) {
     const fixtureClient = fixture ? new fixture_1.FixtureApiClient() : undefined;
     const api = fixtureClient ?? new web_api_client_1.WebApiClient();
     const rpc = fixtureClient?.rpc ?? (0, rpc_1.createWebConnectionRpc)();
+    const jobs = new client_1.JobClient(rpc);
     let started = false;
     let description;
     const descriptionListeners = new Set();
@@ -38,6 +40,7 @@ function apply(ctx) {
         if (Object.is(description, next))
             return;
         description = next;
+        jobs.reset(next !== undefined);
         for (const listener of [...descriptionListeners]) {
             try {
                 listener();
@@ -58,6 +61,7 @@ function apply(ctx) {
             },
         },
         rpc,
+        jobs,
         start(sinks, config) {
             if (started)
                 throw new Error('connection: the stream loop is already owned by another consumer');
@@ -2354,6 +2358,9 @@ function createFixtureWorld(options) {
     };
     const api = {
         sessions: {
+            // This preview fixture deliberately does not pretend to parse or import
+            // external history. Real import acceptance uses the Rust Host.
+            importHistory: request => err(request, { code: 'bad-request', message: 'External history import requires a real XHarness Host, not fixture mode', details: { issues: [] } }),
             delete: request => {
                 const id = request.payload.sessionId, summary = summaryOf(id);
                 if (!summary)
@@ -3311,6 +3318,7 @@ class FixtureApiClient extends api_1.AbstractApiClient {
             case 'workspace.unarchiveSession': return this.api.workspace.unarchiveSession({ rpcId: request.rpcId, payload: workspace_schema_1.workspaceUnarchiveSessionRequestSchema.parse(request.payload) });
             case 'session.list': return this.api.sessions.list({ rpcId: request.rpcId, payload: sessions_schema_1.sessionListRequestSchema.parse(request.payload) });
             case 'session.search': return this.api.sessions.search({ rpcId: request.rpcId, payload: sessions_schema_1.sessionSearchRequestSchema.parse(request.payload) }, signal);
+            case 'session.import': return this.api.sessions.importHistory({ rpcId: request.rpcId, payload: sessions_schema_1.sessionImportRequestSchema.parse(request.payload) });
             case 'session.create': return this.api.sessions.create({ rpcId: request.rpcId, payload: sessions_schema_1.sessionCreateRequestSchema.parse(request.payload) });
             case 'session.history': return this.api.sessions.history({ rpcId: request.rpcId, payload: sessions_schema_1.sessionHistoryRequestSchema.parse(request.payload) });
             case 'session.models': return this.api.sessions.models({ rpcId: request.rpcId, payload: sessions_schema_1.sessionModelsRequestSchema.parse(request.payload) });
@@ -3418,7 +3426,8 @@ function isUnknownArray(value) { return Array.isArray(value); }
  * with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionOriginSchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
+exports.sessionImportRequestSchema = exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionOriginSchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
+exports.sessionImportValueSchema = void 0;
 const zod_1 = require("zod");
 const session_search_1 = require("./session-search");
 /** SessionId: one brand cast after schema validation (the only cast point in this domain). */
@@ -3715,6 +3724,16 @@ exports.sessionDeleteRequestSchema = zod_1.z.object({
 exports.sessionDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.boolean(),
     deletedSessionIds: zod_1.z.array(exports.sessionIdSchema).optional(),
+});
+/** External tools are history text only; this request never submits a prompt. */
+exports.sessionImportRequestSchema = zod_1.z.object({
+    source: zod_1.z.enum(['claude-code', 'codex']), jsonl: zod_1.z.string().max(8 * 1024 * 1024),
+    preview: zod_1.z.boolean(), cwd: zod_1.z.string().optional(), workspaceId: exports.workspaceIdSchema.optional(),
+}).strict().refine(p => p.cwd === undefined || p.workspaceId === undefined);
+exports.sessionImportValueSchema = zod_1.z.object({
+    sessionId: exports.sessionIdSchema.optional(), title: zod_1.z.string(), messages: zod_1.z.number().int().nonnegative(),
+    tools: zod_1.z.number().int().nonnegative(), warnings: zod_1.z.array(zod_1.z.string()),
+    preview: zod_1.z.array(zod_1.z.object({ role: zod_1.z.string(), content: zod_1.z.string() })),
 });
 
 },
@@ -21262,6 +21281,7 @@ exports.UNARY_VALUE_SCHEMAS = {
     'session.list': sessions_schema_1.sessionListValueSchema,
     'session.search': sessions_schema_1.sessionSearchValueSchema,
     'session.create': sessions_schema_1.sessionCreateValueSchema,
+    'session.import': sessions_schema_1.sessionImportValueSchema,
     'session.history': sessions_schema_1.sessionHistoryValueSchema,
     'session.models': sessions_schema_1.sessionModelsValueSchema,
     'session.selectModel': sessions_schema_1.sessionSelectModelValueSchema,
@@ -21339,6 +21359,7 @@ class AbstractApiClient {
             list: (payload, signal) => this.callUnary('session.list', payload, signal),
             search: (payload, signal) => this.callUnary('session.search', payload, signal),
             create: (payload, signal) => this.callUnary('session.create', payload, signal),
+            importHistory: (payload, signal) => this.callUnary('session.import', payload, signal),
             history: (payload, signal) => this.callUnary('session.history', payload, signal),
             models: (payload, signal) => this.callUnary('session.models', payload, signal),
             selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
@@ -22909,9 +22930,222 @@ function isLoopbackHostname(hostname) {
         && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255);
 }
 
+},
+"src/modules/jobs/client.js": function(module, exports, require) {
+// source: src/modules/jobs/client.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.JobClient = void 0;
+const model_1 = require("./model");
+/** One owner per connection, one in-flight read per observed session. Polls are
+ * transport reads, not model calls. Idle/unmounted/hidden scopes stop polling. */
+class JobClient {
+    constructor(rpc) {
+        this.rpc = rpc;
+        this.nodes = new Map();
+        this.connected = true;
+    }
+    node(session) { let n = this.nodes.get(session); if (!n) {
+        n = { snapshot: { loading: false }, listeners: new Set(), seq: 0 };
+        this.nodes.set(session, n);
+    } return n; }
+    snapshot(session) { return this.node(session).snapshot; }
+    publish(n, snapshot) { n.snapshot = snapshot; for (const listener of [...n.listeners]) {
+        try {
+            listener();
+        }
+        catch (error) {
+            console.error('Job projection listener failed', error);
+        }
+    } }
+    subscribe(session, listener) {
+        const n = this.node(session);
+        n.listeners.add(listener);
+        if (n.listeners.size === 1)
+            void this.refresh(session);
+        const visible = () => { if (!document.hidden)
+            void this.refresh(session); };
+        if (typeof document !== 'undefined')
+            document.addEventListener('visibilitychange', visible);
+        return () => { n.listeners.delete(listener); if (typeof document !== 'undefined')
+            document.removeEventListener('visibilitychange', visible); if (!n.listeners.size) {
+            clearTimeout(n.timer);
+            n.controller?.abort();
+            n.seq++;
+            n.request = undefined;
+            n.controller = undefined;
+            n.snapshot = { loading: false };
+        } };
+    }
+    reset(connected) {
+        this.connected = connected;
+        for (const [id, n] of this.nodes) {
+            clearTimeout(n.timer);
+            n.controller?.abort();
+            n.seq++;
+            n.request = undefined;
+            n.controller = undefined;
+            this.publish(n, { loading: false, ...(connected ? {} : { error: 'Host connection unavailable' }) });
+            if (connected && n.listeners.size)
+                void this.refresh(id);
+        }
+    }
+    async call(session, command, signal) {
+        const controller = new AbortController(), abort = () => controller.abort();
+        if (signal?.aborted)
+            controller.abort();
+        else
+            signal?.addEventListener('abort', abort, { once: true });
+        const timeout = setTimeout(abort, 15000);
+        try {
+            const result = await this.rpc.call('/api', 'job/manage', { sessionId: session, command }, controller.signal);
+            if (!result.ok)
+                throw Error(result.error.message);
+            return result.value;
+        }
+        finally {
+            clearTimeout(timeout);
+            signal?.removeEventListener('abort', abort);
+        }
+    }
+    refresh(session) {
+        const n = this.node(session);
+        if (n.request)
+            return n.request;
+        if (!this.connected || typeof document !== 'undefined' && document.hidden)
+            return Promise.resolve();
+        clearTimeout(n.timer);
+        const seq = ++n.seq, controller = new AbortController();
+        n.controller = controller;
+        const request = Promise.resolve().then(() => this.call(session, { action: 'list' }, controller.signal)).then(raw => {
+            if (seq !== n.seq)
+                return;
+            const catalog = (0, model_1.parseCatalog)(raw, session);
+            this.publish(n, { catalog, loading: false });
+        }).catch((error) => { if (seq === n.seq)
+            this.publish(n, { loading: false, error: error instanceof Error ? error.message : String(error) }); }).finally(() => {
+            if (seq !== n.seq)
+                return;
+            n.request = undefined;
+            n.controller = undefined;
+            const c = n.snapshot.catalog;
+            const delay = n.snapshot.error ? 15000 : c?.runs.some(r => model_1.ACTIVE.has(r.state)) ? 1500 : c?.plans.some(p => p.state === 'scheduled' || p.state === 'overdue') ? 15000 : undefined;
+            if (delay !== undefined && n.listeners.size && this.connected)
+                n.timer = setTimeout(() => void this.refresh(session), delay);
+        });
+        n.request = request;
+        this.publish(n, { ...n.snapshot, loading: true });
+        return request;
+    }
+    async control(session, command) {
+        const receipt = await this.call(session, command);
+        if (receipt === null || typeof receipt !== 'object' || !('version' in receipt) || receipt.version !== 1 || !('accepted' in receipt) || receipt.accepted !== true)
+            throw Error('Invalid Job control receipt');
+        const n = this.node(session);
+        clearTimeout(n.timer);
+        n.controller?.abort();
+        n.seq++;
+        n.request = undefined;
+        if (n.listeners.size)
+            await this.refresh(session);
+        else
+            n.snapshot = { loading: false };
+    }
+    async output(session, reference, signal, cursor) { return (0, model_1.parseOutput)(await this.call(session, { action: 'output', reference, ...(cursor ? { cursor } : {}) }, signal), session, reference); }
+}
+exports.JobClient = JobClient;
+
+},
+"src/modules/jobs/model.js": function(module, exports, require) {
+// source: src/modules/jobs/model.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ACTIVE = exports.PLAN_STATES = exports.RUN_STATES = void 0;
+exports.parseRun = parseRun;
+exports.parseCatalog = parseCatalog;
+exports.parseOutput = parseOutput;
+exports.processHint = processHint;
+/** Version 1 execution contract. Tool results only supply lookup hints. */
+exports.RUN_STATES = ['preparing', 'queued', 'running', 'waiting', 'stopping', 'completed', 'failed', 'cancelled', 'interrupted', 'incomplete', 'unavailable'];
+exports.PLAN_STATES = ['scheduled', 'overdue', 'paused', 'finished', 'deleted', 'inherited', 'inactive'];
+exports.ACTIVE = new Set(['preparing', 'queued', 'running', 'waiting', 'stopping']);
+function isObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+function object(v) { return isObject(v) ? v : {}; }
+function list(v) { return Array.isArray(v) ? v : []; }
+function text(v) { return typeof v === 'string' && v.length > 0; }
+function timestamp(v) { return v === null || typeof v === 'number' && Number.isSafeInteger(v) && v >= 0; }
+function runState(v) { return exports.RUN_STATES.some(s => s === v); }
+function planState(v) { return exports.PLAN_STATES.some(s => s === v); }
+function parseRef(raw) {
+    const r = object(raw);
+    if (r.kind === 'process' && text(r.id))
+        return { kind: 'process', id: r.id };
+    if (r.kind === 'automation' && text(r.planId) && text(r.inputId))
+        return { kind: 'automation', planId: r.planId, inputId: r.inputId };
+    throw Error('Invalid Job execution reference');
+}
+function parseRun(raw, session) {
+    const v = object(raw), reference = parseRef(v.reference), c = object(v.capabilities);
+    if (!text(v.id) || !text(v.label) || v.sourceSessionId !== session || !text(v.targetSessionId)
+        || !runState(v.state) || !(v.planId === null || text(v.planId))
+        || typeof c.cancelRun !== 'boolean' || typeof c.readOutput !== 'boolean' || typeof c.openSession !== 'boolean'
+        || !timestamp(v.startedAtMs) || !timestamp(v.scheduledAtMs) || !timestamp(v.finishedAtMs)
+        || !(v.detail === null || typeof v.detail === 'string'))
+        throw Error('Invalid Job execution projection');
+    if (reference.kind === 'process' ? reference.id !== v.id : reference.inputId !== v.id || reference.planId !== v.planId)
+        throw Error('Job reference identity mismatch');
+    return { id: v.id, label: v.label, sourceSessionId: session, targetSessionId: v.targetSessionId, planId: v.planId, state: v.state, reference, capabilities: { cancelRun: c.cancelRun, readOutput: c.readOutput, openSession: c.openSession }, startedAtMs: v.startedAtMs, scheduledAtMs: v.scheduledAtMs, finishedAtMs: v.finishedAtMs, detail: v.detail };
+}
+function parseCatalog(raw, session) {
+    const v = object(raw);
+    if (v.version !== 1 || v.sessionId !== session || !Array.isArray(v.runs) || !Array.isArray(v.plans))
+        throw Error('Unsupported or foreign Job contract');
+    const runs = list(v.runs).map(run => parseRun(run, session)), plans = list(v.plans).map((raw) => {
+        const p = object(raw);
+        if (!text(p.id) || !text(p.label) || !planState(p.state) || !text(p.nextAt) || !Number.isFinite(Date.parse(p.nextAt)) || !(p.everySeconds === null || typeof p.everySeconds === 'number' && Number.isSafeInteger(p.everySeconds) && p.everySeconds > 0))
+            throw Error('Invalid Job plan projection');
+        return { id: p.id, label: p.label, state: p.state, nextAt: p.nextAt, everySeconds: p.everySeconds };
+    });
+    if (new Set(runs.map(r => r.id)).size !== runs.length || new Set(plans.map(p => p.id)).size !== plans.length)
+        throw Error('Duplicate Job identity');
+    return { version: 1, sessionId: session, runs, plans };
+}
+function parseOutput(raw, session, ref) {
+    const v = object(raw), c = object(v.nextCursor);
+    if (v.version !== 1 || ref.kind !== 'process' || typeof v.stdout !== 'string' || typeof v.stderr !== 'string' || typeof v.stdoutTruncated !== 'boolean' || typeof v.stderrTruncated !== 'boolean' || c.job_id !== ref.id || typeof c.stdout !== 'number' || !Number.isSafeInteger(c.stdout) || c.stdout < 0 || typeof c.stderr !== 'number' || !Number.isSafeInteger(c.stderr) || c.stderr < 0)
+        throw Error('Invalid Job output projection');
+    const run = parseRun(v.run, session);
+    if (run.id !== ref.id)
+        throw Error('Job output identity changed');
+    return { stdout: v.stdout, stderr: v.stderr, stdoutTruncated: v.stdoutTruncated, stderrTruncated: v.stderrTruncated, nextCursor: { job_id: ref.id, stdout: c.stdout, stderr: c.stderr }, run };
+}
+/** Nested legacy envelopes are ID hints only, never executable instructions. */
+function processHint(block) {
+    const b = object(block), call = object(b.call);
+    const parse = (value) => { if (typeof value !== 'string' || value.length > 1048576)
+        return undefined; try {
+        return JSON.parse(value);
+    }
+    catch {
+        return undefined;
+    } };
+    const args = object(parse(call.argsRaw ?? b.argsRaw));
+    if (text(args.job_id))
+        return args.job_id;
+    let out = object(parse(list(b.content).map(p => { const o = object(p); return o.type === 'text' && typeof o.text === 'string' ? o.text : ''; }).join('\n')));
+    if (out.ok === false || b.isError === true)
+        return undefined;
+    if (typeof out.content === 'string')
+        out = object(parse(out.content));
+    const snapshot = object(out.snapshot);
+    return text(out.job_id) ? out.job_id : text(snapshot.id) ? snapshot.id : undefined;
+}
+
 }
 };
-const __dependencies = {"src/modules/client-connection/index.js":{"./controller":"src/modules/client-connection/controller.js","./fixture":"src/modules/client-connection/fixture.js","./web-api-client":"src/modules/client-connection/web-api-client.js","./rpc":"src/modules/client-connection/rpc.js","./loopback-hostname":"src/modules/client-connection/loopback-hostname.js","./api":"src/modules/client-connection/api.js"},"src/modules/client-connection/controller.js":{},"src/modules/client-connection/fixture.js":{"./contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./contracts/host/apiproxy/api/subagents.schema":"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js","./contracts/host/apiproxy/api/host.schema":"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js","./contracts/host/apiproxy/api/workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js","./contracts/host/apiproxy/api/skills.schema":"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js","./contracts/host/apiproxy/api/agent-presets.schema":"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js","./contracts/host/apiproxy/api/goals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js","./contracts/host/apiproxy/api/settings.schema":"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js","./contracts/host/apiproxy/api/credentials.schema":"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js","./contracts/host/apiproxy/api/llm.schema":"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js","./contracts/host/apiproxy/fetch/client":"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js","zod":"vendor/zod.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","./contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","./contracts/attachment/attachment/brand":"src/modules/client-connection/contracts/attachment/attachment/brand.js","./contracts/interaction/user-approval/types":"src/modules/client-connection/contracts/interaction/user-approval/types.js","./contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./contracts/llm/llm/message":"src/modules/client-connection/contracts/llm/llm/message.js","./contracts/interaction/commands/brand":"src/modules/client-connection/contracts/interaction/commands/brand.js","./contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./api":"src/modules/client-connection/api.js","./random-uuid":"src/modules/client-connection/random-uuid.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"vendor/zod.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js":{"../api/rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","../api/rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","../api/events.schema":"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js","../api/host.schema":"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js","../api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../api/workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js","../api/skills.schema":"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js","../api/agent-presets.schema":"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js","../api/goals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js","../api/settings.schema":"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js","../api/credentials.schema":"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js","../api/llm.schema":"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js","../api/subagents.schema":"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js":{"zod":"vendor/zod.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./approvals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/approvals.schema.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./jobs.schema":"src/modules/client-connection/contracts/host/apiproxy/api/jobs.schema.js","./workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/approvals.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/jobs.schema.js":{"zod":"vendor/zod.js"},"src/modules/shared/runtime-types.js":{},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/attachment/attachment/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/interaction/user-approval/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/llm/llm/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/llm/llm/message.js":{"./brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./call-config":"src/modules/client-connection/contracts/llm/llm/call-config.js"},"src/modules/client-connection/contracts/llm/llm/call-config.js":{},"src/modules/client-connection/contracts/interaction/commands/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-connection/api.js":{"./contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./contracts/host/apiproxy/fetch/client":"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js"},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/random-uuid.js":{},"src/modules/client-connection/web-api-client.js":{"./api":"src/modules/client-connection/api.js","./contracts/host/apiproxy/api/events.schema":"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js","./contracts/host/apiproxy/api/rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./api-path":"src/modules/client-connection/api-path.js"},"src/modules/client-connection/api-path.js":{},"src/modules/client-connection/rpc.js":{"./contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./random-uuid":"src/modules/client-connection/random-uuid.js"},"src/modules/client-connection/loopback-hostname.js":{}};
+const __dependencies = {"src/modules/client-connection/index.js":{"./controller":"src/modules/client-connection/controller.js","./fixture":"src/modules/client-connection/fixture.js","./web-api-client":"src/modules/client-connection/web-api-client.js","./rpc":"src/modules/client-connection/rpc.js","./loopback-hostname":"src/modules/client-connection/loopback-hostname.js","../jobs/client":"src/modules/jobs/client.js","./api":"src/modules/client-connection/api.js"},"src/modules/client-connection/controller.js":{},"src/modules/client-connection/fixture.js":{"./contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./contracts/host/apiproxy/api/subagents.schema":"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js","./contracts/host/apiproxy/api/host.schema":"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js","./contracts/host/apiproxy/api/workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js","./contracts/host/apiproxy/api/skills.schema":"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js","./contracts/host/apiproxy/api/agent-presets.schema":"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js","./contracts/host/apiproxy/api/goals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js","./contracts/host/apiproxy/api/settings.schema":"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js","./contracts/host/apiproxy/api/credentials.schema":"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js","./contracts/host/apiproxy/api/llm.schema":"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js","./contracts/host/apiproxy/fetch/client":"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js","zod":"vendor/zod.js","../shared/runtime-types":"src/modules/shared/runtime-types.js","./contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","./contracts/attachment/attachment/brand":"src/modules/client-connection/contracts/attachment/attachment/brand.js","./contracts/interaction/user-approval/types":"src/modules/client-connection/contracts/interaction/user-approval/types.js","./contracts/llm/llm/brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./contracts/llm/llm/message":"src/modules/client-connection/contracts/llm/llm/message.js","./contracts/interaction/commands/brand":"src/modules/client-connection/contracts/interaction/commands/brand.js","./contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./api":"src/modules/client-connection/api.js","./random-uuid":"src/modules/client-connection/random-uuid.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"zod":"vendor/zod.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"vendor/zod.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js":{"../api/rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","../api/rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","../api/events.schema":"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js","../api/host.schema":"src/modules/client-connection/contracts/host/apiproxy/api/host.schema.js","../api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../api/workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js","../api/skills.schema":"src/modules/client-connection/contracts/host/apiproxy/api/skills.schema.js","../api/agent-presets.schema":"src/modules/client-connection/contracts/host/apiproxy/api/agent-presets.schema.js","../api/goals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/goals.schema.js","../api/settings.schema":"src/modules/client-connection/contracts/host/apiproxy/api/settings.schema.js","../api/credentials.schema":"src/modules/client-connection/contracts/host/apiproxy/api/credentials.schema.js","../api/llm.schema":"src/modules/client-connection/contracts/host/apiproxy/api/llm.schema.js","../api/subagents.schema":"src/modules/client-connection/contracts/host/apiproxy/api/subagents.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js":{"zod":"vendor/zod.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./approvals.schema":"src/modules/client-connection/contracts/host/apiproxy/api/approvals.schema.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","./jobs.schema":"src/modules/client-connection/contracts/host/apiproxy/api/jobs.schema.js","./workspace.schema":"src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/approvals.schema.js":{"zod":"vendor/zod.js","./sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/client-connection/contracts/host/apiproxy/api/jobs.schema.js":{"zod":"vendor/zod.js"},"src/modules/shared/runtime-types.js":{},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/attachment/attachment/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/interaction/user-approval/types.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/llm/llm/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/llm/llm/message.js":{"./brand":"src/modules/client-connection/contracts/llm/llm/brand.js","./call-config":"src/modules/client-connection/contracts/llm/llm/call-config.js"},"src/modules/client-connection/contracts/llm/llm/call-config.js":{},"src/modules/client-connection/contracts/interaction/commands/brand.js":{"zod":"vendor/zod.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-connection/api.js":{"./contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./contracts/host/apiproxy/fetch/client":"src/modules/client-connection/contracts/host/apiproxy/fetch/client.js"},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/random-uuid.js":{},"src/modules/client-connection/web-api-client.js":{"./api":"src/modules/client-connection/api.js","./contracts/host/apiproxy/api/events.schema":"src/modules/client-connection/contracts/host/apiproxy/api/events.schema.js","./contracts/host/apiproxy/api/rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./api-path":"src/modules/client-connection/api-path.js"},"src/modules/client-connection/api-path.js":{},"src/modules/client-connection/rpc.js":{"./contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./random-uuid":"src/modules/client-connection/random-uuid.js"},"src/modules/client-connection/loopback-hostname.js":{},"src/modules/jobs/client.js":{"./model":"src/modules/jobs/model.js"},"src/modules/jobs/model.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

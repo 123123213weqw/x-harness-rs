@@ -3,6 +3,8 @@
 //! Session journals, receipts, pending-input invalidation and runtime wakeups
 //! are adapter concerns. This module owns only validated state transitions.
 
+#![forbid(unsafe_code)]
+
 use xharness_session::{GoalPhase, GoalSnapshotOperation};
 
 use crate::GoalState;

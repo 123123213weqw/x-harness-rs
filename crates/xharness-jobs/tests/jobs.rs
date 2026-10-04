@@ -15,6 +15,27 @@ fn noop_cancel() -> JobCancel {
     Arc::new(|_| Ok(()))
 }
 
+#[test]
+fn registry_generations_fence_stale_ids_and_output_cursors() {
+    let old = JobRegistry::default();
+    let (old_id, lease) = start(&old, "owner", "bash", "old run");
+    lease.finish(JobOutcome::completed("done"));
+    let old_cursor = JobOutputCursor::start(&old_id);
+    drop(old);
+    let next = JobRegistry::default();
+    let (new_id, lease) = start(&next, "owner", "bash", "new run");
+    lease.publish_stdout("new private output");
+    assert_ne!(old_id, new_id);
+    assert!(next.get("owner", &old_id).is_err());
+    assert!(next.read_since("owner", &old_id, &old_cursor).is_err());
+    assert!(next.read_since("owner", &new_id, &old_cursor).is_err());
+    assert!(
+        next.get("owner", "bash-1").is_err(),
+        "legacy ids are not aliases"
+    );
+    lease.finish(JobOutcome::completed("done"));
+}
+
 fn start(
     registry: &JobRegistry,
     owner: &str,
@@ -85,10 +106,10 @@ fn reservation_preflights_capacity_and_failed_start_does_not_consume_an_id() {
     drop(abandoned);
 
     let (id, lease) = start(&registry, "owner", "bash", "first actual process");
-    assert_eq!(id, "bash-1");
+    assert!(id.starts_with("bash-") && id.ends_with("-1"));
     lease.finish(JobOutcome::completed("exit code: 0"));
     let (next, next_lease) = start(&registry, "owner", "bash", "second process");
-    assert_eq!(next, "bash-2");
+    assert!(next.starts_with("bash-") && next.ends_with("-2"));
     next_lease.finish(JobOutcome::completed("exit code: 0"));
 }
 

@@ -1,0 +1,16 @@
+[
+  {
+    "case": "completed",
+    "framework_contract_passed": true,
+    "model_replay_attempts": 0,
+    "fixture_denied_attempts": 3,
+    "scope": "Native Job + durable Inbox continuation and actual artifact/status, not complete model instruction compliance"
+  },
+  {
+    "case": "failed",
+    "framework_contract_passed": true,
+    "model_replay_attempts": 1,
+    "fixture_denied_attempts": 2,
+    "scope": "Native Job + durable Inbox continuation and actual artifact/status, not complete model instruction compliance"
+  }
+]

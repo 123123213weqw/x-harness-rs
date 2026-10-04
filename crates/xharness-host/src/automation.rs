@@ -117,7 +117,7 @@ impl AutomationTargetProvider for HostAutomationTargets {
                 .await
                 .map_err(|e| e.message)?;
         }
-        let request = {
+        let (mut request, sections) = {
             let mut state = host.state.write().await;
             let record = state
                 .sessions
@@ -132,15 +132,18 @@ impl AutomationTargetProvider for HostAutomationTargets {
             };
             let permission = record.execution_permission();
             let cwd = record.cwd.clone();
-            let prompt = state.prompt_assembly(target)?;
-            AgentSessionRequest {
-                session_id: target.into(),
-                cwd,
-                route,
-                permission,
-                prompt: Some(prompt),
-            }
+            (
+                AgentSessionRequest {
+                    session_id: target.into(),
+                    cwd,
+                    route,
+                    permission,
+                    prompt: None,
+                },
+                state.prompt_sections(target)?,
+            )
         };
+        request.prompt = Some(host.assemble_prompt(request.cwd.clone(), sections).await?);
         host.start_background_turn_listener();
         let handle = host
             .agent_runtime

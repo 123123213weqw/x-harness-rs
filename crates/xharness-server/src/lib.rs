@@ -500,6 +500,9 @@ fn rpc_debug_body(method: &str, body: &[u8]) -> Value {
     let Ok(mut value) = serde_json::from_slice::<Value>(body) else {
         return json!("[unparsed request body omitted]");
     };
+    if method == "workspace/memory" || value["method"] == "workspace/memory" {
+        return json!("[workspace memory request omitted]");
+    }
     if method == "credentials.set" || value["method"] == "credentials.set" {
         value["payload"] = json!("[credential payload omitted]");
     }
@@ -515,6 +518,32 @@ fn credential_rpc_debug_body_does_not_contain_key() {
         rpc_debug_body("settings.mutate", b"invalid sensitive JSON"),
         json!("[unparsed request body omitted]")
     );
+}
+
+fn rpc_debug_result(method: &str, result: &RpcResult) -> Value {
+    if method == "workspace/memory" {
+        json!({"ok": result.is_ok(), "bodyOmitted": true})
+    } else {
+        json!(result)
+    }
+}
+
+#[test]
+fn workspace_memory_rpc_debug_omits_notes_in_requests_and_responses() {
+    let body = br#"{"method":"workspace/memory","payload":{"content":"PRIVATE_NOTE"}}"#;
+    for path in ["workspace/memory", "other/method"] {
+        assert!(!rpc_debug_body(path, body)
+            .to_string()
+            .contains("PRIVATE_NOTE"));
+    }
+    let result = RpcResult::success(json!({"content":"PRIVATE_NOTE"}));
+    assert_eq!(
+        rpc_debug_result("workspace/memory", &result),
+        json!({"ok":true,"bodyOmitted":true})
+    );
+    assert!(rpc_debug_result("session.history", &result)
+        .to_string()
+        .contains("PRIVATE_NOTE"));
 }
 
 async fn unary_endpoint(
@@ -631,7 +660,7 @@ async fn unary_endpoint(
         .record_lossy(DebugEvent::new(
             "server",
             "rpc.response",
-            json!({"method": &path_method, "rpcId": &rpc_id, "result": &result}),
+            json!({"method": &path_method, "rpcId": &rpc_id, "result": rpc_debug_result(&path_method, &result)}),
         ))
         .await;
     Json(ServerResponse::new(rpc_id, result)).into_response()

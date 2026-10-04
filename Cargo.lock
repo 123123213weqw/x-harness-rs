@@ -3818,12 +3818,15 @@ dependencies = [
  "xharness-control",
  "xharness-core",
  "xharness-debug",
+ "xharness-fs",
  "xharness-interaction",
+ "xharness-jobs",
  "xharness-process",
  "xharness-projection",
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",
+ "xharness-session-import",
  "xharness-session-jsonl",
  "xharness-token",
  "xharness-tools",
@@ -3860,6 +3863,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-diagnostics",
+ "xharness-fs",
  "xharness-host",
  "xharness-interaction",
  "xharness-jobs",
@@ -3913,9 +3917,12 @@ dependencies = [
 name = "xharness-jobs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4053,7 +4060,9 @@ dependencies = [
  "tokio-util",
  "xharness-agent",
  "xharness-core",
+ "xharness-jobs",
  "xharness-session",
+ "xharness-session-jsonl",
  "xharness-tools",
 ]
 
@@ -4087,6 +4096,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "xharness-interaction",
+]
+
+[[package]]
+name = "xharness-session-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "xharness-session",
 ]
 
 [[package]]

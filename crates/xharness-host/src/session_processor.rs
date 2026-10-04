@@ -1,5 +1,7 @@
 //! Pure session catalogue, search, and local history pagination policy.
 
+#![forbid(unsafe_code)]
+
 use serde_json::{json, Value};
 
 pub(crate) const MAX_SEARCH_RESULTS: usize = 20;

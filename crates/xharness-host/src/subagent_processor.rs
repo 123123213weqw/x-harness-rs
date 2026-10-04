@@ -1,5 +1,7 @@
 //! Pure navigation and authorization policy for direct child sessions.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};

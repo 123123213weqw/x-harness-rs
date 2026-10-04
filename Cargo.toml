@@ -32,6 +32,7 @@ members = [
     "crates/xharness-schedule",
     "crates/xharness-session",
     "crates/xharness-session-jsonl",
+    "crates/xharness-session-import",
     "crates/xharness-server",
     "crates/xharness-terminal",
     "crates/xharness-token",
