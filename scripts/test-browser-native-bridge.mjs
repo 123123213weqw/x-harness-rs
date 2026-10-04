@@ -81,6 +81,7 @@ try {
   await page.getByRole('alert').getByText('当前页面没有可用的终端').waitFor()
   assert.equal(await page.evaluate(() => commands.some(call => call.args?.tabId === 'browser:1')), false, 'blank home must not activate a native page')
 
+  if (process.env.UI_TEST_IMPL !== 'legacy') assert.equal(await page.locator('.xhbrowser-footer, .xhbrowser-status-dot').count(), 0, 'native pane has no engine status strip or empty footer')
   const address = page.getByRole('textbox', { name: '网址' })
   await address.fill('example.com'); await address.press('Enter')
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_navigate'))
@@ -89,6 +90,11 @@ try {
   assert.ok(bounds.args.bounds.width > 100 && bounds.args.bounds.height > 100)
   assert.equal(calls.find(call => call.command === 'desktop_browser_navigate').args.url, 'https://example.com/')
   assert.equal(await page.getByText('网页版不能嵌入 example.com').count(), 0)
+  await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'download-complete', value: '/tmp/example.zip' } })))
+  await page.getByRole('button', { name: '下载记录' }).click()
+  await page.getByRole('region', { name: '下载记录' }).getByText('example.zip', { exact: true }).waitFor()
+  await page.getByRole('region', { name: '下载记录' }).getByText('已完成', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '下载记录' }).click()
   // A queued reload acts as a barrier after React/layout observers and native work.
   const flush = async () => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))

@@ -17097,10 +17097,9 @@ const primitives_1 = require("./primitives");
 /**
  * The workspace/session browsing region filling the sidebar shell's
  * `sidebar.workspaces` hole: section header (title + view options + add
- * workspace), search, the grouped tree or flat list, and the workspace
- * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace) as 36px controls on the shell's shared
- * rail entry path, each requesting expansion through the owner share. Adding
+ * workspace), the grouped tree or flat list, and the workspace dialogs.
+ * Wide state renders the full browser; rail state keeps the workspace,
+ * Plugins and Tasks controls. Adding
  * is the header button's one action, so it raises the directory flow with no
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
@@ -17113,18 +17112,11 @@ const Rows_1 = require("./rows/Rows");
 const stores_1 = require("./stores");
 const WorkspacePicker_1 = require("./WorkspacePicker");
 const WorkspaceBrowser_styles_1 = __importDefault(require("./WorkspaceBrowser.styles"));
-/**
- * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
- * focus() forces a synchronous layout and would jank the slide.
- */
-const EXPAND_SLIDE_MS = 300;
-/** Pause between the latest keystroke and a Host content-search request. */
-const SEARCH_DEBOUNCE_MS = 250;
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
 const SEARCH_QUERY_MAX_CODE_UNITS = 500;
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5;
-/** Keep controlled input and RPC payload inside the session.search wire contract. */
+/** Bound session.search payloads; retained for the existing module contract. */
 function sanitizeSearchQuery(value) {
     const withoutNul = value.replaceAll('\0', '');
     if (withoutNul.length <= SEARCH_QUERY_MAX_CODE_UNITS)
@@ -17572,17 +17564,6 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionAr
                             }, t: t }, node.id));
                     })] }), (0, jsx_runtime_1.jsx)("span", { className: WorkspaceBrowser_styles_1.default.fade })] }));
 }
-/** Flat search body: local metadata matches plus the current Host result page. */
-function SearchResults({ useSessions, open, workspaces, archivedSessionIds, query, remote, resultLimit, t, }) {
-    const list = useSessions(s => s);
-    const currentRemote = remote.query === query
-        ? remote
-        : { query, status: 'loading', items: [], hasMore: false };
-    const results = (0, react_1.useMemo)(() => (0, tree_1.deriveSearchResults)(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit), [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit]);
-    const pending = currentRemote.status === 'loading';
-    const failed = currentRemote.status === 'error';
-    return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.treeBody, WorkspaceBrowser_styles_1.default.wide), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.list, children: [(0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchTree, role: "tree", "aria-label": t('search.results.aria'), children: results.items.map(result => ((0, jsx_runtime_1.jsx)(Rows_1.SearchResultItem, { result: result, currentId: list.current, onOpen: open, t: t }, result.id))) }), pending && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchStatus, role: "status", children: t('search.pending') })), failed && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchWarning, role: "status", children: t('search.unavailable') })), !pending && results.items.length === 0 && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.empty, children: t('search.noMatches') })), results.hasMore && ((0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.searchStatus, children: t('search.hasMore', { n: resultLimit }) }))] }), (0, jsx_runtime_1.jsx)("span", { className: WorkspaceBrowser_styles_1.default.fade })] }));
-}
 /** Same native navigation size as Plugins; opens the shell-owned work page. */
 function WorkClock({ wide, active, buttonClassName, t }) {
     return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('work.open'), side: "bottom", children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: buttonClassName, "data-xharness-work-nav": true, "aria-label": t('work.open'), "aria-current": active ? 'page' : undefined, style: active ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:work:open')), children: (0, jsx_runtime_1.jsxs)("svg", { width: wide ? 20 : 22, height: wide ? 20 : 22, viewBox: "2 2 20 20", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", children: [(0, jsx_runtime_1.jsx)("path", { d: "M20 12a8 8 0 1 1-2.34-5.66" }), (0, jsx_runtime_1.jsx)("path", { d: "M14.4 6.34h3.26V3.1" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 7.5V12l3 1.8" })] }) }) });
@@ -17596,7 +17577,7 @@ function PluginOutline16({ size = 16 }) {
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
  */
-function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, useHostDescription, renderSlot, t, }) {
+function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, useDirectoryFlow, useHostDescription, renderSlot, t, }) {
     const home = useHostDescription(description => description?.home);
     const workspaces = useWorkspaces(state => state.items);
     const workspacePhase = useWorkspaces(state => state.phase);
@@ -17618,19 +17599,6 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
             ...workspaces.map(workspace => workspace.workspaceId),
         ]);
     }, [actions.retainAccountKeys, workspacePhase, workspaces]);
-    // The query outlives the tree and the input (both wide-only) so collapsing
-    // does not silently drop an in-progress filter.
-    const [query, setQuery] = (0, react_1.useState)('');
-    const [searchExpanded, setSearchExpanded] = (0, react_1.useState)(false);
-    const normalizedQuery = sanitizeSearchQuery(query).trim();
-    const [remoteSearch, setRemoteSearch] = (0, react_1.useState)({
-        query: '',
-        status: 'idle',
-        items: [],
-        hasMore: false,
-    });
-    const searchRoot = (0, react_1.useRef)(null);
-    const searchInput = (0, react_1.useRef)(null);
     // Section-header ＋ opens the picker menu (same popover in wide and rail
     // states; the menu anchors on this button).
     const [wsPickerOpen, setWsPickerOpen] = (0, react_1.useState)(false);
@@ -17661,80 +17629,6 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
     }, []);
     const wsPlusRef = (0, react_1.useRef)(null);
     const composingRef = (0, react_1.useRef)(false);
-    // Rail search = expand + land in the search box: the flag arms before the
-    // expand request; once the shell flips wide the input mounts and takes focus.
-    const [searchOnExpand, setSearchOnExpand] = (0, react_1.useState)(false);
-    (0, react_1.useEffect)(() => {
-        if (wide && searchOnExpand) {
-            const timer = window.setTimeout(() => {
-                searchInput.current?.focus({ preventScroll: true });
-                setSearchOnExpand(false);
-            }, EXPAND_SLIDE_MS);
-            return () => { window.clearTimeout(timer); };
-        }
-    }, [wide, searchOnExpand]);
-    (0, react_1.useEffect)(() => {
-        if (!wide || !searchExpanded || searchOnExpand)
-            return;
-        searchInput.current?.focus({ preventScroll: true });
-    }, [wide, searchExpanded, searchOnExpand]);
-    // Outside-click dismissal stays off while the rail gesture is in flight
-    // (searchOnExpand): the rail click flips the shell wide and mounts this
-    // listener during its own dispatch, then keeps bubbling to document with
-    // the now-unmounted rail button as its target — outside searchRoot, so the
-    // listener would dismiss the search that click just opened.
-    (0, react_1.useEffect)(() => {
-        if (!wide || !searchExpanded || searchOnExpand)
-            return;
-        const onClick = (event) => {
-            if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true)
-                return;
-            searchInput.current?.blur();
-            if (normalizedQuery !== '')
-                return;
-            setSearchExpanded(false);
-        };
-        document.addEventListener('click', onClick);
-        return () => { document.removeEventListener('click', onClick); };
-    }, [normalizedQuery, wide, searchExpanded, searchOnExpand]);
-    (0, react_1.useEffect)(() => {
-        if (normalizedQuery === '') {
-            setRemoteSearch({ query: '', status: 'idle', items: [], hasMore: false });
-            return;
-        }
-        const controller = new AbortController();
-        setRemoteSearch({
-            query: normalizedQuery,
-            status: 'loading',
-            items: [],
-            hasMore: false,
-        });
-        const timer = window.setTimeout(() => {
-            searchSessions(normalizedQuery, controller.signal).then((result) => {
-                if (controller.signal.aborted)
-                    return;
-                setRemoteSearch({
-                    query: normalizedQuery,
-                    status: 'ready',
-                    items: result.items,
-                    hasMore: result.hasMore,
-                });
-            }).catch(() => {
-                if (controller.signal.aborted)
-                    return;
-                setRemoteSearch({
-                    query: normalizedQuery,
-                    status: 'error',
-                    items: [],
-                    hasMore: false,
-                });
-            });
-        }, SEARCH_DEBOUNCE_MS);
-        return () => {
-            window.clearTimeout(timer);
-            controller.abort();
-        };
-    }, [normalizedQuery, searchSessions]);
     // Rename dialog (browser-owned so it outlives row unmounts during collapse).
     const [renameTarget, setRenameTarget] = (0, react_1.useState)(null);
     const [renameDraft, setRenameDraft] = (0, react_1.useState)('');
@@ -17844,43 +17738,21 @@ function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, use
             setDeleteError(reason instanceof Error ? reason.message : String(reason));
         });
     };
-    return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.root, !wide && WorkspaceBrowser_styles_1.default.rail, 'xhwork-browser'), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.sectionHeader, children: [wide && ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.sectionLabel, WorkspaceBrowser_styles_1.default.wide, searchExpanded && WorkspaceBrowser_styles_1.default.sectionLabelHidden), children: groupBy === 'flat' ? t('section.sessions') : t('section.workspaces') })), wide && ((0, jsx_runtime_1.jsx)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.searchSlot, searchExpanded && WorkspaceBrowser_styles_1.default.searchSlotExpanded), children: (0, jsx_runtime_1.jsxs)("div", { ref: searchRoot, className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.search, searchExpanded && WorkspaceBrowser_styles_1.default.searchExpanded), onClick: () => {
-                                setWsPickerOpen(false);
-                                setSearchExpanded(true);
-                                searchInput.current?.focus();
-                            }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('search'), side: "bottom", delayMs: 500, disabled: searchExpanded, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "aria-label": t('search.sessions.aria'), "aria-expanded": searchExpanded, onClick: () => {
-                                            setWsPickerOpen(false);
-                                            setSearchExpanded(true);
-                                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: searchExpanded ? 11 : 14 }) }) }), (0, jsx_runtime_1.jsx)("input", { ref: searchInput, className: WorkspaceBrowser_styles_1.default.searchInput, type: "text", placeholder: t('search.placeholder'), maxLength: SEARCH_QUERY_MAX_CODE_UNITS, value: query, tabIndex: searchExpanded ? 0 : -1, onChange: (e) => { setQuery(sanitizeSearchQuery(e.target.value)); }, onKeyDown: (e) => {
-                                        if (e.key !== 'Escape')
-                                            return;
-                                        setQuery('');
-                                        setSearchExpanded(false);
-                                    } }), searchExpanded && ((0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.clearButton, "aria-label": t('search.clear'), onClick: (e) => {
-                                        e.stopPropagation();
-                                        setQuery('');
-                                        setSearchExpanded(false);
-                                    }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseFill14, {}) }))] }) })), (0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.headerActions, wide && searchExpanded && WorkspaceBrowser_styles_1.default.headerActionsHidden), children: [wide && ((0, jsx_runtime_1.jsx)(ViewOptionsMenu, { groupBy: groupBy, orderBy: orderBy, onGroupPick: (mode) => { actions.setGroupBy(mode); }, onOrderPick: (mode) => { actions.setOrderBy(mode); }, t: t })), directoryFlowAvailable && ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('workspace.add'), side: "bottom", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { ref: wsPlusRef, type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "aria-label": t('workspace.add'), onClick: () => {
+    return ((0, jsx_runtime_1.jsxs)("div", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.root, !wide && WorkspaceBrowser_styles_1.default.rail, 'xhwork-browser'), children: [(0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.sectionHeader, children: [wide && ((0, jsx_runtime_1.jsx)("span", { className: (0, class_names_1.default)(WorkspaceBrowser_styles_1.default.sectionLabel, WorkspaceBrowser_styles_1.default.wide), children: groupBy === 'flat' ? t('section.sessions') : t('section.workspaces') })), (0, jsx_runtime_1.jsxs)("div", { className: WorkspaceBrowser_styles_1.default.headerActions, children: [wide && ((0, jsx_runtime_1.jsx)(ViewOptionsMenu, { groupBy: groupBy, orderBy: orderBy, onGroupPick: (mode) => { actions.setGroupBy(mode); }, onOrderPick: (mode) => { actions.setOrderBy(mode); }, t: t })), directoryFlowAvailable && ((0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('workspace.add'), side: "bottom", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { ref: wsPlusRef, type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "aria-label": t('workspace.add'), onClick: () => {
                                         setWsPickerOpen(v => !v);
                                     }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconProjectAddOutline16, { size: wide ? 16 : 18 }) }) })), wide && (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.iconButton, t: t }), wide && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), side: "bottom", children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.iconButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 20 }) }) })] }), (0, jsx_runtime_1.jsx)(WorkspacePicker_1.WorkspacePickFlow, { t: t, open: wsPickerOpen, anchorRef: wsPlusRef, useWorkspaces: useWorkspaces, createWorkspace: createWorkspace, useDirectoryFlow: useDirectoryFlow, renderDirectoryFlow: owner => renderSlot('sidebar.workspaces.directoryFlow', owner), addOnly: true, side: "right", onPick: (workspaceId) => {
                             setWsPickerOpen(false);
                             startSession(workspaceId);
-                        }, onClose: () => { setWsPickerOpen(false); } })] }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('search'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "aria-label": t('search.sessions.aria'), onClick: () => {
-                            setSearchExpanded(true);
-                            setSearchOnExpand(true);
-                            expandSidebar();
-                        }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconSearchOutline16, { size: 18 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.searchButton, t: t }) }), (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: wide && (normalizedQuery !== ''
-                    ? ((0, jsx_runtime_1.jsx)(SearchResults, { useSessions: useSessions, open: open, workspaces: workspaces, archivedSessionIds: archivedSessionIds, query: normalizedQuery, remote: remoteSearch, resultLimit: searchResultLimit, t: t }))
-                    : groupBy === 'flat'
-                        ? ((0, jsx_runtime_1.jsx)(FlatList, { useSessions: useSessions, open: open, forkSession: forkSession, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, archivedSessionIds: archivedSessionIds, orderBy: orderBy, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, t: t }))
-                        : ((0, jsx_runtime_1.jsx)(SessionTree, { useSessions: useSessions, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, forkSession: forkSession, workspaces: workspaces, groupExpansion: groupExpansion, setGroupExpanded: actions.setGroupExpanded, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, archivedSessionIds: archivedSessionIds, startSession: startSession, open: open, insertWorkspaceBefore: insertWorkspaceBefore, insertSessionBefore: insertSessionBefore, orderBy: orderBy, home: home, t: t, onRenameRequest: (workspaceId, currentTitle) => {
-                                setRenameTarget({ workspaceId, currentTitle });
-                                setRenameDraft(currentTitle);
-                                setRenameError(null);
-                            }, onDeleteRequest: (workspaceId, title) => {
-                                setDeleteTarget({ workspaceId, title });
-                                setDeleteError(null);
-                            } }))) }), (0, jsx_runtime_1.jsxs)(primitives_1.Modal, { open: renameTarget !== null, onClose: closeRename, closeLabel: t('close'), title: t('rename.workspace.title'), footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", disabled: renaming, onClick: closeRename, children: t('cancel') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "primary", disabled: renameBlocked, onClick: confirmRename, children: t('rename') })] })), children: [(0, jsx_runtime_1.jsx)("input", { className: WorkspaceBrowser_styles_1.default.renameInput, value: renameDraft, "aria-label": t('field.workspaceName'), autoFocus: true, disabled: renaming, onFocus: (e) => { e.target.select(); }, onChange: (e) => { setRenameDraft(e.target.value); setRenameError(null); }, onCompositionStart: () => { composingRef.current = true; }, onCompositionEnd: () => { composingRef.current = false; }, onKeyDown: (e) => {
+                        }, onClose: () => { setWsPickerOpen(false); } })] }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: t('plugins.open'), children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: WorkspaceBrowser_styles_1.default.searchButton, "data-xharness-plugin-nav": true, "aria-label": t('plugins.open'), "aria-current": pluginCenterOpen ? 'page' : undefined, style: pluginCenterOpen ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : undefined, onClick: () => window.dispatchEvent(new Event('xharness:plugins:open')), children: (0, jsx_runtime_1.jsx)(PluginOutline16, { size: 22 }) }) }) }), !wide && (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.search, children: (0, jsx_runtime_1.jsx)(WorkClock, { wide: wide, active: workCenterOpen, buttonClassName: WorkspaceBrowser_styles_1.default.searchButton, t: t }) }), (0, jsx_runtime_1.jsx)("div", { className: WorkspaceBrowser_styles_1.default.listArea, children: wide && (groupBy === 'flat'
+                    ? ((0, jsx_runtime_1.jsx)(FlatList, { useSessions: useSessions, open: open, forkSession: forkSession, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, archivedSessionIds: archivedSessionIds, orderBy: orderBy, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, t: t }))
+                    : ((0, jsx_runtime_1.jsx)(SessionTree, { useSessions: useSessions, onSessionRename: onSessionRename, onSessionArchive: onSessionArchive, forkSession: forkSession, workspaces: workspaces, groupExpansion: groupExpansion, setGroupExpanded: actions.setGroupExpanded, sessionOrderByAccount: sessionOrderByAccount, sessionUpdatedAtByAccount: sessionUpdatedAtByAccount, syncSessionOrderAccount: actions.syncSessionOrderAccount, setSessionOrder: actions.setSessionOrder, archivedSessionIds: archivedSessionIds, startSession: startSession, open: open, insertWorkspaceBefore: insertWorkspaceBefore, insertSessionBefore: insertSessionBefore, orderBy: orderBy, home: home, t: t, onRenameRequest: (workspaceId, currentTitle) => {
+                            setRenameTarget({ workspaceId, currentTitle });
+                            setRenameDraft(currentTitle);
+                            setRenameError(null);
+                        }, onDeleteRequest: (workspaceId, title) => {
+                            setDeleteTarget({ workspaceId, title });
+                            setDeleteError(null);
+                        } }))) }), (0, jsx_runtime_1.jsxs)(primitives_1.Modal, { open: renameTarget !== null, onClose: closeRename, closeLabel: t('close'), title: t('rename.workspace.title'), footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "outline", disabled: renaming, onClick: closeRename, children: t('cancel') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { variant: "primary", disabled: renameBlocked, onClick: confirmRename, children: t('rename') })] })), children: [(0, jsx_runtime_1.jsx)("input", { className: WorkspaceBrowser_styles_1.default.renameInput, value: renameDraft, "aria-label": t('field.workspaceName'), autoFocus: true, disabled: renaming, onFocus: (e) => { e.target.select(); }, onChange: (e) => { setRenameDraft(e.target.value); setRenameError(null); }, onCompositionStart: () => { composingRef.current = true; }, onCompositionEnd: () => { composingRef.current = false; }, onKeyDown: (e) => {
                             if (e.key === 'Enter' && !composingRef.current) {
                                 e.preventDefault();
                                 confirmRename();
