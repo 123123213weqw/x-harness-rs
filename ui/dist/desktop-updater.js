@@ -58,6 +58,8 @@
       let state = { seq: -1, phase: "idle" };
       let pending = false;
       let confirming = false;
+      let disposed2 = false;
+      let automaticAttempts = 0;
       function notify() {
         changed(state, { pending, confirming });
       }
@@ -69,7 +71,7 @@
         notify();
       }
       async function execute(action2) {
-        if (pending || busyPhases.has(state.phase ?? "")) return;
+        if (disposed2 || pending || busyPhases.has(state.phase ?? "")) return;
         pending = true;
         confirming = false;
         const before = state.seq;
@@ -97,14 +99,32 @@
         get confirming() {
           return confirming;
         },
+        get retryDelay() {
+          if (disposed2 || pending || confirming || state.phase !== "error" || state.retryAction === "install") return;
+          return [3e4, 12e4, 6e5][automaticAttempts - 1];
+        },
         accept,
         async restore() {
           accept(await invoke2("desktop_update_status"));
+        },
+        async prepare() {
+          if (disposed2 || pending || confirming || busyPhases.has(state.phase ?? "") || automaticAttempts >= 4) return;
+          if (state.phase === "downloaded" || state.phase === "error" && state.retryAction === "install") return;
+          automaticAttempts++;
+          if (state.phase !== "available" && !(state.phase === "error" && state.retryAction === "download")) await execute("check");
+          if (disposed2) return;
+          if (state.phase === "available" || state.phase === "error" && state.retryAction === "download") await execute("download");
+          if (state.phase === "downloaded" || state.phase === "up-to-date") automaticAttempts = 0;
+          notify();
+        },
+        dispose() {
+          disposed2 = true;
         },
         check() {
           if (["idle", "up-to-date", "available"].includes(state.phase ?? "") || state.phase === "error" && state.retryAction === "check") return execute("check");
         },
         act() {
+          automaticAttempts = 0;
           if (pending || busyPhases.has(state.phase ?? "")) return;
           const action2 = state.phase === "error" ? state.retryAction ?? "check" : state.phase === "downloaded" ? "install" : state.phase === "available" ? "download" : "check";
           if (action2 === "install") {
@@ -128,6 +148,9 @@
     const listen = window.__TAURI__?.event?.listen;
     if (typeof invoke !== "function" || typeof listen !== "function" || typeof document === "undefined" || !document.body) return;
     let expanded = false;
+    let disposed = false;
+    let retryTimer;
+    let scheduledRetry;
     let bootError = null;
     const host = document.createElement("div");
     host.id = "xharness-desktop-updater";
@@ -207,7 +230,22 @@
         progress.max = state.total;
         progress.value = Math.min(state.downloaded ?? 0, state.total);
       } else progress.removeAttribute("value");
+      const delay = controller.retryDelay;
+      const retryKey = !disposed && delay !== void 0 ? `${state.seq}:${state.retryAction}:${delay}` : void 0;
+      if (retryKey !== scheduledRetry) {
+        window.clearTimeout(retryTimer);
+        retryTimer = void 0;
+        scheduledRetry = retryKey;
+        if (retryKey !== void 0 && delay !== void 0) retryTimer = window.setTimeout(() => {
+          retryTimer = void 0;
+          return prepare();
+        }, delay);
+      }
     });
+    const prepare = () => {
+      if (disposed || typeof navigator !== "undefined" && navigator.onLine === false) return;
+      return controller.prepare();
+    };
     function collapse() {
       expanded = false;
       controller.dismiss();
@@ -227,13 +265,19 @@
         toggle.focus();
       }
     });
-    let disposed = false;
     let unlisten, initialTimer, periodicTimer;
+    const online = () => {
+      if (!disposed && document.visibilityState === "visible") prepare();
+    };
+    window.addEventListener("online", online);
     window.addEventListener("pagehide", () => {
       disposed = true;
+      controller.dispose();
       unlisten?.();
       window.clearTimeout(initialTimer);
       window.clearInterval(periodicTimer);
+      window.clearTimeout(retryTimer);
+      window.removeEventListener("online", online);
     }, { once: true });
     const boot = async () => {
       const status = await invoke("desktop_status");
@@ -248,9 +292,9 @@
       await controller.restore();
       if (disposed) return;
       host.hidden = false;
-      initialTimer = window.setTimeout(() => controller.check(), 1500);
+      initialTimer = window.setTimeout(prepare, 1500);
       periodicTimer = window.setInterval(() => {
-        if (document.visibilityState === "visible") controller.check();
+        if (document.visibilityState === "visible") prepare();
       }, 6 * 60 * 60 * 1e3);
     };
     boot().catch((error) => {

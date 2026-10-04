@@ -144,4 +144,71 @@ try {
   assert.deepEqual(errors, [])
   assert.equal(cases, 24)
   console.log(`${engine}: ${cases} actual sticky-composer/updater/shell stacking cases + short viewport, long notes, confirmation, Escape/focus, editable draft passed; no installation invoked.`)
+
+  // Exercise the real bridge's boot/online timers, not only direct state injection.
+  // Native package signature/cache validation is covered by Rust, never replaced
+  // with a browser-side checksum. This mock must not touch a real feed/installer.
+  for (const start of ['idle', 'downloaded', 'cache-hit', 'offline']) {
+    const background = await browser.newPage({ viewport: { width: 900, height: 768 } })
+    background.setDefaultTimeout(10000)
+    const backgroundErrors = []
+    background.on('pageerror', error => backgroundErrors.push(error.message))
+    await background.setContent('<textarea aria-label="Task draft"></textarea>')
+    await background.evaluate(start => {
+      window.calls = []
+      window.online = start !== 'offline'
+      Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => online })
+      window.remote = { seq: 1, phase: start === 'downloaded' ? 'downloaded' : 'idle', version: '9.9.9' }
+      window.__TAURI__ = {
+        core: { invoke: async command => {
+          calls.push(command)
+          if (command === 'desktop_status') return { updaterConfigured: true }
+          if (command === 'desktop_check_update') remote = { seq: remote.seq + 1, phase: start === 'cache-hit' ? 'downloaded' : 'available', version: '9.9.9' }
+          if (command === 'desktop_download_update') {
+            remote = { seq: remote.seq + 1, phase: 'downloading', version: '9.9.9', downloaded: 50, total: 100 }
+            emitUpdate({ payload: remote })
+            await new Promise(resolve => setTimeout(resolve, 350))
+            remote = { seq: remote.seq + 1, phase: 'downloaded', version: '9.9.9', downloaded: 100, total: 100 }
+          }
+          if (command === 'desktop_install_update') throw Error('Test must not install')
+          return remote
+        } },
+        event: { listen: async (_event, callback) => { window.emitUpdate = callback; return () => {} } },
+      }
+    }, start)
+    await background.addScriptTag({ content: source })
+    const update = background.locator('#xharness-desktop-updater')
+    await update.waitFor({ state: 'visible' })
+    const draft = background.getByRole('textbox', { name: 'Task draft' })
+    await draft.fill('Task remains editable while a candidate is prepared')
+    if (start === 'offline') {
+      await background.waitForTimeout(1800)
+      assert.equal(await background.evaluate(() => calls.includes('desktop_check_update')), false, 'Offline boot does not start repeated requests')
+      await background.evaluate(() => { online = true; window.dispatchEvent(new Event('online')) })
+    }
+    if (start !== 'downloaded' && start !== 'cache-hit') {
+      await background.waitForFunction(() => remote.phase === 'downloading')
+      assert.equal(await update.locator('.panel').isVisible(), false, 'Background transfer never opens a panel')
+      await draft.fill('Draft survives background transfer and network recovery')
+    }
+    await background.waitForFunction(() => remote.phase === 'downloaded')
+    if (start === 'downloaded') await background.waitForTimeout(1800)
+    assert.equal(await update.locator('.panel').isVisible(), false, 'Ready does not open a panel')
+    assert.equal(await update.locator('.toggle').getAttribute('aria-expanded'), 'false')
+    assert.ok((await draft.inputValue()).startsWith('Task remains') || (await draft.inputValue()).startsWith('Draft survives'))
+    const requests = await background.evaluate(() => calls.filter(command => ['desktop_check_update', 'desktop_download_update'].includes(command)))
+    assert.deepEqual(requests, start === 'downloaded' ? [] : start === 'cache-hit' ? ['desktop_check_update'] : ['desktop_check_update', 'desktop_download_update'])
+    await update.locator('.toggle').click()
+    assert.equal(await update.locator('.action').textContent(), '重启更新')
+    await update.locator('.action').click()
+    await update.locator('.confirm').waitFor({ state: 'visible' })
+    await background.evaluate(() => window.dispatchEvent(new Event('online')))
+    await update.locator('.later').click()
+    await update.locator('.close').click()
+    await draft.fill('Still working after choosing later')
+    assert.equal(await background.evaluate(() => calls.includes('desktop_install_update')), false, 'Neither online, Ready nor later grants install consent')
+    assert.deepEqual(backgroundErrors, [])
+    await background.close()
+  }
+  console.log(`${engine}: 4 background preparation cases passed (boot download, restored Ready, fresh-manifest cache hit, offline-to-online); no panel takeover or installation, editable draft and explicit confirmation retained.`)
 } finally { await browser.close() }
