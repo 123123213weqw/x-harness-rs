@@ -145,6 +145,7 @@ jobs:
           node scripts/test-tool-source-module.mjs
           node scripts/test-conversation-source.mjs
           node scripts/test-turn-process.mjs
+          node scripts/test-adaptive-tool-fold.mjs
           node scripts/test-goal-source.mjs
           node scripts/test-trajectory-source-module.mjs
           node --test scripts/test-plugin-api.mjs
