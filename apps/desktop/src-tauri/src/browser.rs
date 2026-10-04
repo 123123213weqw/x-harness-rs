@@ -69,7 +69,7 @@ fn watch_native_location(
         .map_err(|_| "could not schedule native address observer".to_string())
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
     x: f64,
@@ -616,6 +616,11 @@ pub async fn desktop_browser_bounds(
         return Err("invalid browser pane bounds".into());
     }
     let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.bounds != Some(bounds) {
+        for tab in inner.tabs.values() {
+            tab.inspector.invalidate();
+        }
+    }
     inner.bounds = Some(bounds);
     if let Some(id) = inner.active.as_deref() {
         if let Some(tab) = inner.tabs.get(id) {
