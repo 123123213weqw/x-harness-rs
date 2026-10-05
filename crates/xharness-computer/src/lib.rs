@@ -488,7 +488,7 @@ pub fn definition() -> ToolDefinition {
             "properties": {
                 "action": {"type":"string","enum":["observe","move","click","drag","scroll","type","keypress","wait","window"]},
                 "surface_id": {"type":"string"},
-                "frame_id": {"type":"string"},
+                "frame_id": {"type":"string","description":"Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action."},
                 "node_id": {"type":"string"},
                 "x": {"type":"number"}, "y": {"type":"number"},
                 "button": {"type":"string","enum":["left","right","middle"]},
@@ -500,7 +500,7 @@ pub fn definition() -> ToolDefinition {
                 "keys": {"type":"array","items":{"type":"string"}},
                 "delta_x": {"type":"integer"}, "delta_y": {"type":"integer"},
                 "detail": {"type":"string","enum":["auto","low","high","semantic"]},
-                "region": {"type":"object","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
+                "region": {"type":"object","description":"Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
                 "include_screenshot": {"type":"boolean"},
                 "include_accessibility": {"type":"boolean"},
                 "observe_after": {"type":"string","enum":["never","auto","always"]},

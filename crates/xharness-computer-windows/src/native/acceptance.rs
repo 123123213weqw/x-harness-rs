@@ -130,6 +130,36 @@ impl Fixture {
                         Some(instance),
                         None,
                     ))?;
+                    // Single-line ValuePattern and password fixtures. These
+                    // never receive model input and use no real credentials.
+                    let _readable = api(CreateWindowExW(
+                        WS_EX_CLIENTEDGE,
+                        w!("EDIT"),
+                        w!("known input"),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                        24,
+                        270,
+                        200,
+                        26,
+                        Some(root),
+                        Some(HMENU(1003 as *mut _)),
+                        Some(instance),
+                        None,
+                    ))?;
+                    let _password = api(CreateWindowExW(
+                        WS_EX_CLIENTEDGE,
+                        w!("EDIT"),
+                        w!("fixture secret"),
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(0x0020),
+                        24,
+                        310,
+                        200,
+                        26,
+                        Some(root),
+                        Some(HMENU(1004 as *mut _)),
+                        Some(instance),
+                        None,
+                    ))?;
                     let _ = SetForegroundWindow(root);
                     Ok((root.0 as usize, edit.0 as usize))
                 }
@@ -243,6 +273,47 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         "native_observe",
         json!({"elapsed_ms":started.elapsed().as_millis(),"nodes":output.value["accessibility"]["nodes"].as_array().map(Vec::len)}),
     );
+    let nodes = output.value["accessibility"]["nodes"]
+        .as_array()
+        .ok_or("missing nodes")?;
+    let readable = nodes
+        .iter()
+        .find(|n| n["value_state"] == "known" && n["value"] == "known input")
+        .ok_or("single-line ValuePattern input missing")?;
+    let region = readable["bounds"].clone();
+    if !nodes.iter().any(|n| {
+        n["value_state"] == "redacted"
+            && n["value"] == "<redacted>"
+            && n["actions"].as_array().is_some_and(Vec::is_empty)
+    }) || output.value.to_string().contains("fixture secret")
+    {
+        return Err("password was not redacted".into());
+    }
+    record(
+        "native_input_state",
+        json!({"valuepattern_matches_independent_fixture":true,"password_redacted":true}),
+    );
+    let restricted = execute(
+        &driver,
+        json!({"action":"observe","detail":"semantic","region":region,"include_screenshot":false}),
+    )
+    .await?;
+    let restricted_nodes = restricted.value["accessibility"]["nodes"]
+        .as_array()
+        .ok_or("missing restricted nodes")?;
+    if !restricted_nodes.iter().any(|n| n["value"] == "known input")
+        || restricted_nodes
+            .iter()
+            .any(|n| n["context_only"] != true && n["value_state"] == "redacted")
+        || !restricted.value["accessibility"]["truncation_reasons"].is_array()
+    {
+        return Err("region filtering or truncation metadata mismatch".into());
+    }
+    record(
+        "native_ax_region",
+        json!({"outside_password_excluded":true,"ancestor_context_preserved":true,"nodes":restricted_nodes.len()}),
+    );
+    output = execute(&driver, observe.clone()).await?;
     let edit = node(&output, "edit")?;
     output = execute(
         &driver,
@@ -428,7 +499,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     record(
         "native_acceptance",
-        json!({"cases":12,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
+        json!({"cases":14,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }

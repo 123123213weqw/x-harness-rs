@@ -65,7 +65,7 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - 每次观察生成单调递增 `frame_id`。
 - 使用 `node_id` 时必须同时提交生成它的 `frame_id`；帧或节点过期返回可重试的 `stale_frame` / `stale_node`，禁止在未知位置点击。
 - 语义观察返回有界的扁平 AX 树，节点以 `parent_id` 保留层级，同时附带 role、label、bounds、状态与可执行 actions。
-- 节点数量/深度按 `detail` 分档：low 80/4、auto 220/8、semantic 300/10、high 500/12；适配器硬上限为 600/16，并返回 `truncated` 和 `visited`，禁止无界遍历桌面。
+- macOS 节点数量/深度按 `detail` 分档：low 80/4、auto 220/8、semantic 300/10、high 500/12；适配器硬上限为 600/16，并返回 `truncated` 和 `visited`，禁止无界遍历桌面。
 - `node_id` 是当前 `frame_id` 内的定位句柄，不承诺跨观察稳定；任何后续节点操作都先检查帧，路径变化时 fail closed 并要求重新观察。
 - 单次左键单击优先执行节点的 `AXPress`；没有该 action、右键/多击/带修饰键时才退回节点中心坐标。`type` 可先通过 AX 聚焦目标，`scroll` 可先移动到节点中心。
 - `AXSecureTextField` 的值固定输出 `<redacted>`；普通可编辑文本框不回传当前内容。其余值与文本字段均限长并清理控制字符。
@@ -110,6 +110,7 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - Windows 使用 **physical_desktop_pixels**，PMv2 只设置在 worker 线程。
   支持虚拟桌面负原点，截图返回 `screenshot_bounds`；不把 Retina/macOS
   logical point 规则套用到 Windows。显示器元数据包含 bounds/scale/dpi。
+- Windows 的节点/深度预算为 low 80/12、auto 220/20、semantic 300/24、high 500/32；最大深度 32，节点上限不扩大，遍历时间仍限 10 秒。浏览器多层容器不能继续套用 macOS 的 12 层高精度预算。
 - 控件树限于前台窗口的 UIA Control View，有节点/深度/遍历/时间预算；
   使用 CacheRequest 批量属性读取，不请求 Value/Text 内容。密码控件隐藏
   label/value 并拒绝输入。窗口列表最多 128 项。
@@ -145,3 +146,26 @@ Windows monitor scale is reported by `GetScaleFactorForMonitor` (null on unavail
 Windows foreground identity is normalized with `GetAncestor(..., GA_ROOT)`. UIA focus on an Edit child must not look like an app switch; a different top-level window or popup is still rejected. The disposable-VM regression reproduced the old false interruption with the same PID and child class `Edit`.
 
 原生用例及未验收边界见 [2026-10-05 Windows 验收记录](../evidence/windows-computer-20261005/README.md)。
+
+### Windows viewport observation
+
+Windows AX uses a bounded visible-first breadth traversal, followed by output
+selection with ancestor closure. Offscreen/empty wrappers are deferred, not
+assumed to have no visible descendants. `region` filters AX content as well as
+cropping the screenshot; omitted ancestors are emitted only as context with no
+action target. Limits remain independent (nodes, 5× discovery visits, depth,
+sibling count and ten-second cooperative time budget); discovery reserves two
+seconds for materialization. A blocked provider is still isolated by the worker
+process timeout, not by these cooperative checks.
+
+Observation includes `selection_policy`, `viewport`, `returned`, `eligible`,
+`omitted`, `max_visited` and `truncation_reasons` (`node_limit`, `visit_limit`,
+`depth_limit`, `time_limit`, `sibling_limit`, `provider_error`). `truncated=false`
+only means no observed limit/error, not that UIA exposes canvas or every DOM node.
+Selected visible edit/combobox values are read lazily via ValuePattern, never
+cached for the entire tree. `value_state` is `known`, `unknown`, `redacted` or
+`not_applicable`; an empty known value is distinct from an unreadable input.
+Output values are bounded to 240 non-control characters (`value_truncated`).
+Password checks fail closed and are repeated after provider reads. Values remain
+external untrusted content, not instructions. No new tools, permission elevation
+or Host/RPC/business-state changes are introduced.
