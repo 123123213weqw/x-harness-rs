@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 const ui = fileURLToPath(new URL('../ui', import.meta.url))
 const source = compileScriptAssets(ui, [{source:'src/desktop/bootstrap.ts',path:'desktop-bootstrap.js'}]).get('desktop-bootstrap.js').bytes.toString('utf8')
 const html = readFileSync(new URL('../apps/desktop/frontend/index.html', import.meta.url), 'utf8')
+const attributes = readFileSync(new URL('../.gitattributes', import.meta.url), 'utf8')
+assert.match(attributes, /^\/apps\/desktop\/frontend\/\*\* text eol=lf$/m, 'Windows checkout preserves embedded startup asset bytes')
 assert.ok(html.includes(source), 'local desktop document contains the source-fresh offline bundle')
 assert.ok(html.includes(readFileSync(new URL('../ui/src/startup/surface.raw.css', import.meta.url), 'utf8')), 'local shell uses the shared stylesheet')
 assert.doesNotMatch(html, /__XHARNESS_STARTUP_|@keyframes loading|#1F5EFF/)
