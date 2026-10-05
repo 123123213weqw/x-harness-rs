@@ -709,7 +709,7 @@ def prepare(args):
     # disposable base. Certificate/hostname/signature verification stays on.
     path = desktop / 'src/updater.rs'
     text = path.read_text()
-    anchor = '        .timeout(Duration::from_secs(30));'
+    anchor = '        .timeout(Duration::from_secs(30))'
     require(text.count(anchor) == 1, 'Updater TLS injection anchor drifted')
     text = text.replace(anchor, '        .configure_client(crate::rehearsal::tls_client)\n' + anchor, 1)
     anchor = '    if let Err(error) = update.install(bytes.as_slice()) {'

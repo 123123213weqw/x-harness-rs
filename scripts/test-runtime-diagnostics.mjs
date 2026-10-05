@@ -56,3 +56,18 @@ const capability = JSON.parse(readFileSync(new URL('../apps/desktop/src-tauri/ca
 assert.equal(capability.remote, undefined, 'deep control and export must not be granted to remote pages')
 assert.deepEqual(capability.windows, ['diagnostics'])
 console.log('Runtime diagnostics UI: consent, state restoration, export failures and no-replay checks passed')
+
+// Native lifecycle routing: retained history must not become an automatic notice.
+const desktop = readFileSync(new URL('../apps/desktop/src-tauri/src/lib.rs', import.meta.url), 'utf8')
+const updater = readFileSync(new URL('../apps/desktop/src-tauri/src/updater.rs', import.meta.url), 'utf8')
+const sidecar = readFileSync(new URL('../apps/desktop/src-tauri/src/sidecar.rs', import.meta.url), 'utf8')
+assert.match(desktop, /diagnostics\s*\.previous_run_interrupted\(\)/)
+assert.doesNotMatch(desktop, /diagnostics\.incident\(\)/)
+assert.match(updater, /state\.diagnostics\.finish\(\);\s*app\.restart\(\)/)
+const startFailure = sidecar.slice(sidecar.indexOf('if let Err(error) = &result'), sidecar.indexOf('async fn start_claimed'))
+assert.doesNotMatch(startFailure, /diagnostics::open/)
+assert.ok(/state\.endpoint[\s\S]*?\.is_some\(\)[\s\S]*?diagnostics::open_automatically/.test(sidecar.replace(/\s+/g, '')), 'ready Host gates automatic crash notices')
+console.log('Runtime diagnostics lifecycle routing: clean restart, history and startup failures passed')
+
+assert.ok(updater.includes('.on_before_exit(app.state::<DesktopState>().diagnostics.update_exit_hook())'), 'Windows direct installer exit owns a clean boundary')
+assert.ok(updater.includes('state.diagnostics.resume_after_failed_update();'), 'failed Windows installer restores crash detection')

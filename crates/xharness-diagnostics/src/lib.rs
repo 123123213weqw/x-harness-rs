@@ -303,7 +303,15 @@ impl Record {
     }
 }
 
-/// One writer per directory. Callers serialize access, and surface I/O failure
+/// Startup notification eligibility and retained diagnostic evidence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunStart {
+    /// A new interrupted run, not an old unacknowledged incident.
+    pub previous_run_interrupted: bool,
+    pub unacknowledged_incident: bool,
+}
+
+/// One writer per directory. Callers serialize access and surface I/O failure
 /// without turning a diagnostic failure into a product crash.
 pub struct Recorder {
     root: PathBuf,
@@ -357,15 +365,27 @@ impl Recorder {
     }
     /// A marker is persisted before work starts, not inferred from an exit code.
     pub fn begin_run(&mut self) -> io::Result<bool> {
+        Ok(self.begin_run_status()?.unacknowledged_incident)
+    }
+    /// Keep notification eligibility separate from retained crash evidence.
+    pub fn begin_run_status(&mut self) -> io::Result<RunStart> {
         let interrupted = self.root.join("active-run").try_exists()?;
         if interrupted {
             self.mark_incident()?;
         }
+        self.resume_run()?;
+        self.append(&Record::new(Phase::DesktopStart))?;
+        Ok(RunStart {
+            previous_run_interrupted: interrupted,
+            unacknowledged_incident: interrupted || self.has_incident()?,
+        })
+    }
+    /// Rearm an existing desktop after an installer launch failure, without
+    /// mistaking the still-current process for a previous crash.
+    pub fn resume_run(&self) -> io::Result<()> {
         let mut marker = fs::File::create(self.root.join("active-run"))?;
         marker.write_all(b"1")?;
-        marker.sync_all()?;
-        self.append(&Record::new(Phase::DesktopStart))?;
-        Ok(interrupted || self.has_incident()?)
+        marker.sync_all()
     }
     pub fn mark_incident(&self) -> io::Result<()> {
         let mut file = fs::File::create(self.root.join("unacknowledged-exit"))?;
@@ -561,6 +581,39 @@ mod tests {
         log.finish_run().unwrap();
         assert!(!log.begin_run().unwrap());
     }
+    #[test]
+    fn retained_incident_does_not_mean_a_new_interrupted_run() {
+        let dir = Temp::new();
+        let mut log = Recorder::open(&dir.0).unwrap();
+        let start = log.begin_run_status().unwrap();
+        assert!(!start.previous_run_interrupted && !start.unacknowledged_incident);
+        log.mark_incident().unwrap();
+        log.finish_run().unwrap(); // normal exit / completed update
+        for _ in 0..3 {
+            let start = log.begin_run_status().unwrap();
+            assert!(!start.previous_run_interrupted);
+            assert!(start.unacknowledged_incident); // evidence must not be erased
+            log.finish_run().unwrap();
+        }
+        log.begin_run_status().unwrap();
+        drop(log); // desktop crash bypassed finish_run
+        let mut reopened = Recorder::open(&dir.0).unwrap();
+        assert!(
+            reopened
+                .begin_run_status()
+                .unwrap()
+                .previous_run_interrupted
+        );
+        reopened.finish_run().unwrap();
+        assert!(
+            !reopened
+                .begin_run_status()
+                .unwrap()
+                .previous_run_interrupted
+        );
+        reopened.finish_run().unwrap();
+    }
+
     #[test]
     fn bounded_rotation_preserves_recent_events() {
         let dir = Temp::new();
