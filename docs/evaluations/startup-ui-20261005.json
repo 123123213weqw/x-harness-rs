@@ -1,0 +1,1479 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-05",
+  "baseCommit": "564f5277c1e97f0ecd7e02f10c70e1af60ac741a",
+  "branch": "perf/startup-warmup-20261005",
+  "decision": "Retain original JS engine; demand-load SDK/grammars and cache pinned ES2018 regex conversion. Do not ship rejected WASM/precompiled-grammar experiments.",
+  "changes": [
+    "No highlighter/grammar initialization on module import or speculative boot timer.",
+    "One deduplicated demand-loaded Shiki core shared by Markdown fences and read cards.",
+    "Original TextMate pattern strings/aliases/theme retained; build-time conversion data accelerates TS, Bash and JSON, misses use original forgiving converter.",
+    "Readability fallback on import failure; no render-triggered asset retry loop.",
+    "Assembly verifies generated caches against original pinned grammar and converter; CI runs lifecycle + actual-SDK parity tests."
+  ],
+  "unchanged": [
+    "Host/Rust startup and recovery",
+    "Session/history/protocol/provider APIs",
+    "All 54 client plugins and readiness gate",
+    "Original syntax SDK dependencies, lock files, licenses, code-block props",
+    "Streaming content/tool execution; no content pruning"
+  ],
+  "environment": {
+    "server": "WZU_Server",
+    "node": "20.20.2",
+    "playwright": "1.59.1",
+    "webKitGtk": "2.50",
+    "gtkGiApi": "4.0",
+    "display": "Xvfb",
+    "measurement": "Fresh process/context per run; paired alternating AB order; 3 repeats per variant/scenario/engine; process-tree PSS sampled every 50ms.",
+    "startup": "Built-in isolated empty/history UI fixture, no real Host, secrets or model calls. frameOpportunityMs is a double-RAF opportunity after composer commit, not physical display presentation.",
+    "gtkMemory": "Python/GTK wrapper plus its WebKit children. Excludes Rust Host/Tauri/bootstrap.",
+    "browserMemory": "Owned Playwright browser child tree, excludes Node HTTP controller. Chromium heap is forced-GC startup JS heap, not total process RAM.",
+    "fullInterval": "Startup + 1800ms settled UI + first JSON + first TS + repeat TS; not a long-duration soak."
+  },
+  "webKitGtk": {
+    "empty": {
+      "baseline": {
+        "n": 3,
+        "frameOpportunityMs": {
+          "median": 3451,
+          "min": 3322,
+          "max": 3605,
+          "samples": [
+            3451,
+            3605,
+            3322
+          ]
+        },
+        "startupPeakPssMiB": {
+          "median": 426.087890625,
+          "min": 420.759765625,
+          "max": 429.3955078125,
+          "samples": [
+            426.087890625,
+            420.759765625,
+            429.3955078125
+          ]
+        },
+        "fullIntervalPeakPssMiB": {
+          "median": 426.087890625,
+          "min": 420.759765625,
+          "max": 429.3955078125,
+          "samples": [
+            426.087890625,
+            420.759765625,
+            429.3955078125
+          ]
+        },
+        "code": {
+          "firstJson": {
+            "initialMs": {
+              "median": 16,
+              "min": 16,
+              "max": 17,
+              "samples": [
+                16,
+                17,
+                16
+              ]
+            },
+            "elapsedMs": {
+              "median": 143.0000000000009,
+              "min": 112.99999999999909,
+              "max": 147,
+              "samples": [
+                143.0000000000009,
+                147,
+                112.99999999999909
+              ]
+            }
+          },
+          "firstTypeScript": {
+            "initialMs": {
+              "median": 2,
+              "min": 1.9999999999990905,
+              "max": 2,
+              "samples": [
+                1.9999999999990905,
+                2,
+                2
+              ]
+            },
+            "elapsedMs": {
+              "median": 3,
+              "min": 2.9999999999990905,
+              "max": 3,
+              "samples": [
+                2.9999999999990905,
+                3,
+                3
+              ]
+            }
+          },
+          "repeatTypeScript": {
+            "initialMs": {
+              "median": 1,
+              "min": 1,
+              "max": 1.0000000000009095,
+              "samples": [
+                1,
+                1,
+                1.0000000000009095
+              ]
+            },
+            "elapsedMs": {
+              "median": 2,
+              "min": 1,
+              "max": 2.0000000000009095,
+              "samples": [
+                1,
+                2.0000000000009095,
+                2
+              ]
+            }
+          }
+        },
+        "firstTypeScriptMaxFrameGapMs": null
+      },
+      "optimized": {
+        "n": 3,
+        "frameOpportunityMs": {
+          "median": 2056,
+          "min": 2006.0000000000002,
+          "max": 2304.0000000000005,
+          "samples": [
+            2006.0000000000002,
+            2304.0000000000005,
+            2056
+          ]
+        },
+        "startupPeakPssMiB": {
+          "median": 394.9423828125,
+          "min": 388.271484375,
+          "max": 397.822265625,
+          "samples": [
+            388.271484375,
+            397.822265625,
+            394.9423828125
+          ]
+        },
+        "fullIntervalPeakPssMiB": {
+          "median": 398.375,
+          "min": 394.9560546875,
+          "max": 398.3759765625,
+          "samples": [
+            394.9560546875,
+            398.375,
+            398.3759765625
+          ]
+        },
+        "code": {
+          "firstJson": {
+            "initialMs": {
+              "median": 6,
+              "min": 5,
+              "max": 6.999999999999545,
+              "samples": [
+                6.999999999999545,
+                5,
+                6
+              ]
+            },
+            "elapsedMs": {
+              "median": 273,
+              "min": 252,
+              "max": 317,
+              "samples": [
+                252,
+                317,
+                273
+              ]
+            }
+          },
+          "firstTypeScript": {
+            "initialMs": {
+              "median": 1,
+              "min": 0.9999999999995453,
+              "max": 2,
+              "samples": [
+                0.9999999999995453,
+                2,
+                1
+              ]
+            },
+            "elapsedMs": {
+              "median": 340,
+              "min": 336.99999999999955,
+              "max": 397,
+              "samples": [
+                336.99999999999955,
+                397,
+                340
+              ]
+            }
+          },
+          "repeatTypeScript": {
+            "initialMs": {
+              "median": 2,
+              "min": 2,
+              "max": 2,
+              "samples": [
+                2,
+                2,
+                2
+              ]
+            },
+            "elapsedMs": {
+              "median": 2,
+              "min": 2,
+              "max": 3,
+              "samples": [
+                3,
+                2,
+                2
+              ]
+            }
+          }
+        },
+        "firstTypeScriptMaxFrameGapMs": {
+          "median": 340,
+          "min": 337,
+          "max": 396,
+          "samples": [
+            337,
+            396,
+            340
+          ]
+        }
+      },
+      "medianReductionPercent": {
+        "frameOpportunityMs": 40.42306577803535,
+        "startupPeakPssMiB": 7.309643972001815,
+        "fullIntervalPeakPssMiB": 6.50403150024982
+      }
+    },
+    "history": {
+      "baseline": {
+        "n": 3,
+        "frameOpportunityMs": {
+          "median": 3967,
+          "min": 3921.0000000000005,
+          "max": 3977,
+          "samples": [
+            3977,
+            3921.0000000000005,
+            3967
+          ]
+        },
+        "startupPeakPssMiB": {
+          "median": 474.841796875,
+          "min": 474.4052734375,
+          "max": 475.7109375,
+          "samples": [
+            474.841796875,
+            475.7109375,
+            474.4052734375
+          ]
+        },
+        "fullIntervalPeakPssMiB": {
+          "median": 474.841796875,
+          "min": 474.4052734375,
+          "max": 475.7109375,
+          "samples": [
+            474.841796875,
+            475.7109375,
+            474.4052734375
+          ]
+        },
+        "code": {
+          "firstJson": {
+            "initialMs": {
+              "median": 7.0000000000009095,
+              "min": 7,
+              "max": 21,
+              "samples": [
+                21,
+                7,
+                7.0000000000009095
+              ]
+            },
+            "elapsedMs": {
+              "median": 114,
+              "min": 94,
+              "max": 137,
+              "samples": [
+                114,
+                94,
+                137
+              ]
+            }
+          },
+          "firstTypeScript": {
+            "initialMs": {
+              "median": 2,
+              "min": 2,
+              "max": 2,
+              "samples": [
+                2,
+                2,
+                2
+              ]
+            },
+            "elapsedMs": {
+              "median": 3,
+              "min": 2,
+              "max": 3.0000000000009095,
+              "samples": [
+                3,
+                2,
+                3.0000000000009095
+              ]
+            }
+          },
+          "repeatTypeScript": {
+            "initialMs": {
+              "median": 1.0000000000009095,
+              "min": 0.9999999999990905,
+              "max": 2,
+              "samples": [
+                1.0000000000009095,
+                2,
+                0.9999999999990905
+              ]
+            },
+            "elapsedMs": {
+              "median": 2,
+              "min": 0.9999999999990905,
+              "max": 2,
+              "samples": [
+                2,
+                2,
+                0.9999999999990905
+              ]
+            }
+          }
+        },
+        "firstTypeScriptMaxFrameGapMs": null
+      },
+      "optimized": {
+        "n": 3,
+        "frameOpportunityMs": {
+          "median": 2387,
+          "min": 2358,
+          "max": 2592,
+          "samples": [
+            2387,
+            2358,
+            2592
+          ]
+        },
+        "startupPeakPssMiB": {
+          "median": 451.9921875,
+          "min": 451.5341796875,
+          "max": 452.9912109375,
+          "samples": [
+            451.5341796875,
+            452.9912109375,
+            451.9921875
+          ]
+        },
+        "fullIntervalPeakPssMiB": {
+          "median": 458.8193359375,
+          "min": 457.60546875,
+          "max": 459.1474609375,
+          "samples": [
+            457.60546875,
+            458.8193359375,
+            459.1474609375
+          ]
+        },
+        "code": {
+          "firstJson": {
+            "initialMs": {
+              "median": 6,
+              "min": 6,
+              "max": 6,
+              "samples": [
+                6,
+                6,
+                6
+              ]
+            },
+            "elapsedMs": {
+              "median": 298,
+              "min": 296,
+              "max": 312,
+              "samples": [
+                312,
+                296,
+                298
+              ]
+            }
+          },
+          "firstTypeScript": {
+            "initialMs": {
+              "median": 1,
+              "min": 1,
+              "max": 5,
+              "samples": [
+                1,
+                5,
+                1
+              ]
+            },
+            "elapsedMs": {
+              "median": 355,
+              "min": 345,
+              "max": 355.0000000000009,
+              "samples": [
+                345,
+                355.0000000000009,
+                355
+              ]
+            }
+          },
+          "repeatTypeScript": {
+            "initialMs": {
+              "median": 1,
+              "min": 0.9999999999990905,
+              "max": 2.0000000000009095,
+              "samples": [
+                1,
+                0.9999999999990905,
+                2.0000000000009095
+              ]
+            },
+            "elapsedMs": {
+              "median": 2,
+              "min": 1.9999999999990905,
+              "max": 2.0000000000009095,
+              "samples": [
+                2,
+                1.9999999999990905,
+                2.0000000000009095
+              ]
+            }
+          }
+        },
+        "firstTypeScriptMaxFrameGapMs": {
+          "median": 355,
+          "min": 342,
+          "max": 356,
+          "samples": [
+            342,
+            355,
+            356
+          ]
+        }
+      },
+      "medianReductionPercent": {
+        "frameOpportunityMs": 39.82858583312327,
+        "startupPeakPssMiB": 4.812046775447414,
+        "fullIntervalPeakPssMiB": 3.374273503921948
+      }
+    }
+  },
+  "browserSupplement": {
+    "empty": {
+      "chromium": {
+        "baseline": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 1919.5,
+            "min": 1906.1999999284744,
+            "max": 2033.2999999523163,
+            "samples": [
+              2033.2999999523163,
+              1919.5,
+              1906.1999999284744
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 351.5341796875,
+            "min": 349.1044921875,
+            "max": 356.595703125,
+            "samples": [
+              356.595703125,
+              351.5341796875,
+              349.1044921875
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 351.5341796875,
+            "min": 349.1044921875,
+            "max": 356.595703125,
+            "samples": [
+              356.595703125,
+              351.5341796875,
+              349.1044921875
+            ]
+          },
+          "postGcStartupJsHeapMiB": {
+            "median": 31.686107635498047,
+            "min": 31.683486938476562,
+            "max": 31.695465087890625,
+            "samples": [
+              31.683486938476562,
+              31.686107635498047,
+              31.695465087890625
+            ]
+          },
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 9.800000071525574,
+                "min": 8,
+                "max": 10.200000047683716,
+                "samples": [
+                  8,
+                  9.800000071525574,
+                  10.200000047683716
+                ]
+              },
+              "elapsedMs": {
+                "median": 36.60000002384186,
+                "min": 25.899999976158142,
+                "max": 39,
+                "samples": [
+                  36.60000002384186,
+                  39,
+                  25.899999976158142
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 6.899999976158142,
+                "min": 6.199999928474426,
+                "max": 7.200000047683716,
+                "samples": [
+                  6.199999928474426,
+                  6.899999976158142,
+                  7.200000047683716
+                ]
+              },
+              "elapsedMs": {
+                "median": 8.399999976158142,
+                "min": 7.5,
+                "max": 8.600000023841858,
+                "samples": [
+                  7.5,
+                  8.399999976158142,
+                  8.600000023841858
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 2.200000047683716,
+                "min": 2,
+                "max": 2.299999952316284,
+                "samples": [
+                  2,
+                  2.200000047683716,
+                  2.299999952316284
+                ]
+              },
+              "elapsedMs": {
+                "median": 3.299999952316284,
+                "min": 3,
+                "max": 3.399999976158142,
+                "samples": [
+                  3,
+                  3.299999952316284,
+                  3.399999976158142
+                ]
+              }
+            }
+          }
+        },
+        "optimized": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 1606.3000000715256,
+            "min": 1574.3999999761581,
+            "max": 1686.6000000238419,
+            "samples": [
+              1606.3000000715256,
+              1574.3999999761581,
+              1686.6000000238419
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 354.4306640625,
+            "min": 352.5908203125,
+            "max": 355.0556640625,
+            "samples": [
+              355.0556640625,
+              352.5908203125,
+              354.4306640625
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 354.4306640625,
+            "min": 352.5908203125,
+            "max": 355.0556640625,
+            "samples": [
+              355.0556640625,
+              352.5908203125,
+              354.4306640625
+            ]
+          },
+          "postGcStartupJsHeapMiB": {
+            "median": 27.993263244628906,
+            "min": 27.985069274902344,
+            "max": 28.00314712524414,
+            "samples": [
+              27.993263244628906,
+              27.985069274902344,
+              28.00314712524414
+            ]
+          },
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 4.799999952316284,
+                "min": 3,
+                "max": 4.899999976158142,
+                "samples": [
+                  3,
+                  4.899999976158142,
+                  4.799999952316284
+                ]
+              },
+              "elapsedMs": {
+                "median": 171.5,
+                "min": 142.79999995231628,
+                "max": 180.5,
+                "samples": [
+                  171.5,
+                  180.5,
+                  142.79999995231628
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 1.600000023841858,
+                "min": 1.399999976158142,
+                "max": 1.8000000715255737,
+                "samples": [
+                  1.600000023841858,
+                  1.8000000715255737,
+                  1.399999976158142
+                ]
+              },
+              "elapsedMs": {
+                "median": 191.39999997615814,
+                "min": 178.79999995231628,
+                "max": 227.40000009536743,
+                "samples": [
+                  178.79999995231628,
+                  227.40000009536743,
+                  191.39999997615814
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 0.8999999761581421,
+                "min": 0.7000000476837158,
+                "max": 1,
+                "samples": [
+                  1,
+                  0.7000000476837158,
+                  0.8999999761581421
+                ]
+              },
+              "elapsedMs": {
+                "median": 1.399999976158142,
+                "min": 1.100000023841858,
+                "max": 1.399999976158142,
+                "samples": [
+                  1.399999976158142,
+                  1.100000023841858,
+                  1.399999976158142
+                ]
+              }
+            }
+          }
+        }
+      },
+      "webkit": {
+        "baseline": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 4038.0000000000005,
+            "min": 3993,
+            "max": 4040,
+            "samples": [
+              3993,
+              4038.0000000000005,
+              4040
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 562.5322265625,
+            "min": 561.4580078125,
+            "max": 562.619140625,
+            "samples": [
+              562.5322265625,
+              561.4580078125,
+              562.619140625
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 565.837890625,
+            "min": 564.6484375,
+            "max": 567.1640625,
+            "samples": [
+              567.1640625,
+              564.6484375,
+              565.837890625
+            ]
+          },
+          "postGcStartupJsHeapMiB": null,
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 13,
+                "min": 11,
+                "max": 16,
+                "samples": [
+                  16,
+                  11,
+                  13
+                ]
+              },
+              "elapsedMs": {
+                "median": 110,
+                "min": 98.00000000000091,
+                "max": 111,
+                "samples": [
+                  110,
+                  98.00000000000091,
+                  111
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 2,
+                "min": 1.9999999999990905,
+                "max": 2,
+                "samples": [
+                  2,
+                  1.9999999999990905,
+                  2
+                ]
+              },
+              "elapsedMs": {
+                "median": 3,
+                "min": 2.9999999999990905,
+                "max": 3,
+                "samples": [
+                  3,
+                  2.9999999999990905,
+                  3
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 1,
+                "min": 1,
+                "max": 2,
+                "samples": [
+                  1,
+                  1,
+                  2
+                ]
+              },
+              "elapsedMs": {
+                "median": 1,
+                "min": 1,
+                "max": 2,
+                "samples": [
+                  1,
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        },
+        "optimized": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 2487,
+            "min": 2368,
+            "max": 2500,
+            "samples": [
+              2487,
+              2500,
+              2368
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 532.2431640625,
+            "min": 530.798828125,
+            "max": 542.74609375,
+            "samples": [
+              530.798828125,
+              532.2431640625,
+              542.74609375
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 551.8447265625,
+            "min": 544.8642578125,
+            "max": 558.3935546875,
+            "samples": [
+              551.8447265625,
+              544.8642578125,
+              558.3935546875
+            ]
+          },
+          "postGcStartupJsHeapMiB": null,
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 6,
+                "min": 5,
+                "max": 6,
+                "samples": [
+                  5,
+                  6,
+                  6
+                ]
+              },
+              "elapsedMs": {
+                "median": 296,
+                "min": 251,
+                "max": 305,
+                "samples": [
+                  251,
+                  296,
+                  305
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 1,
+                "min": 1,
+                "max": 1,
+                "samples": [
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "elapsedMs": {
+                "median": 258,
+                "min": 252,
+                "max": 275.0000000000009,
+                "samples": [
+                  258,
+                  252,
+                  275.0000000000009
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 1,
+                "min": 0.9999999999990905,
+                "max": 1.0000000000009095,
+                "samples": [
+                  1,
+                  1.0000000000009095,
+                  0.9999999999990905
+                ]
+              },
+              "elapsedMs": {
+                "median": 2,
+                "min": 1.9999999999990905,
+                "max": 2,
+                "samples": [
+                  2,
+                  2,
+                  1.9999999999990905
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "history": {
+      "chromium": {
+        "baseline": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 2107.899999976158,
+            "min": 2020.1999999284744,
+            "max": 2196.100000023842,
+            "samples": [
+              2196.100000023842,
+              2020.1999999284744,
+              2107.899999976158
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 379.427734375,
+            "min": 375.3828125,
+            "max": 379.6015625,
+            "samples": [
+              375.3828125,
+              379.6015625,
+              379.427734375
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 379.427734375,
+            "min": 375.3828125,
+            "max": 379.6015625,
+            "samples": [
+              375.3828125,
+              379.6015625,
+              379.427734375
+            ]
+          },
+          "postGcStartupJsHeapMiB": {
+            "median": 35.202762603759766,
+            "min": 35.20070266723633,
+            "max": 35.20753479003906,
+            "samples": [
+              35.20753479003906,
+              35.202762603759766,
+              35.20070266723633
+            ]
+          },
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 7.399999976158142,
+                "min": 3.899999976158142,
+                "max": 8.300000071525574,
+                "samples": [
+                  8.300000071525574,
+                  3.899999976158142,
+                  7.399999976158142
+                ]
+              },
+              "elapsedMs": {
+                "median": 23.299999952316284,
+                "min": 17.5,
+                "max": 40.700000047683716,
+                "samples": [
+                  40.700000047683716,
+                  17.5,
+                  23.299999952316284
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 5.600000023841858,
+                "min": 3.100000023841858,
+                "max": 8.099999904632568,
+                "samples": [
+                  8.099999904632568,
+                  3.100000023841858,
+                  5.600000023841858
+                ]
+              },
+              "elapsedMs": {
+                "median": 7,
+                "min": 3.9000000953674316,
+                "max": 9.799999952316284,
+                "samples": [
+                  9.799999952316284,
+                  3.9000000953674316,
+                  7
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 1.5,
+                "min": 0.8999999761581421,
+                "max": 2.1999999284744263,
+                "samples": [
+                  2.1999999284744263,
+                  0.8999999761581421,
+                  1.5
+                ]
+              },
+              "elapsedMs": {
+                "median": 2.600000023841858,
+                "min": 1.399999976158142,
+                "max": 3.399999976158142,
+                "samples": [
+                  3.399999976158142,
+                  1.399999976158142,
+                  2.600000023841858
+                ]
+              }
+            }
+          }
+        },
+        "optimized": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 1735.7999999523163,
+            "min": 1696.8999999761581,
+            "max": 1929,
+            "samples": [
+              1735.7999999523163,
+              1929,
+              1696.8999999761581
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 375.642578125,
+            "min": 374.275390625,
+            "max": 377.0009765625,
+            "samples": [
+              374.275390625,
+              377.0009765625,
+              375.642578125
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 375.642578125,
+            "min": 374.275390625,
+            "max": 377.0009765625,
+            "samples": [
+              374.275390625,
+              377.0009765625,
+              375.642578125
+            ]
+          },
+          "postGcStartupJsHeapMiB": {
+            "median": 31.517230987548828,
+            "min": 31.507186889648438,
+            "max": 31.52814483642578,
+            "samples": [
+              31.507186889648438,
+              31.52814483642578,
+              31.517230987548828
+            ]
+          },
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 3.799999952316284,
+                "min": 3.5,
+                "max": 4,
+                "samples": [
+                  4,
+                  3.799999952316284,
+                  3.5
+                ]
+              },
+              "elapsedMs": {
+                "median": 174.19999992847443,
+                "min": 163.5,
+                "max": 181.89999997615814,
+                "samples": [
+                  181.89999997615814,
+                  174.19999992847443,
+                  163.5
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 1.600000023841858,
+                "min": 1.399999976158142,
+                "max": 1.8000000715255737,
+                "samples": [
+                  1.8000000715255737,
+                  1.600000023841858,
+                  1.399999976158142
+                ]
+              },
+              "elapsedMs": {
+                "median": 228.30000007152557,
+                "min": 170.29999995231628,
+                "max": 231.80000007152557,
+                "samples": [
+                  231.80000007152557,
+                  228.30000007152557,
+                  170.29999995231628
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 1,
+                "min": 0.8999999761581421,
+                "max": 1,
+                "samples": [
+                  1,
+                  1,
+                  0.8999999761581421
+                ]
+              },
+              "elapsedMs": {
+                "median": 1.399999976158142,
+                "min": 1.399999976158142,
+                "max": 1.5,
+                "samples": [
+                  1.5,
+                  1.399999976158142,
+                  1.399999976158142
+                ]
+              }
+            }
+          }
+        }
+      },
+      "webkit": {
+        "baseline": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 4296,
+            "min": 4253,
+            "max": 4315,
+            "samples": [
+              4296,
+              4315,
+              4253
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 612.369140625,
+            "min": 612.1826171875,
+            "max": 615.62109375,
+            "samples": [
+              612.369140625,
+              615.62109375,
+              612.1826171875
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 617.267578125,
+            "min": 614.736328125,
+            "max": 617.470703125,
+            "samples": [
+              614.736328125,
+              617.470703125,
+              617.267578125
+            ]
+          },
+          "postGcStartupJsHeapMiB": null,
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 12,
+                "min": 11,
+                "max": 12.00000000000091,
+                "samples": [
+                  12,
+                  12.00000000000091,
+                  11
+                ]
+              },
+              "elapsedMs": {
+                "median": 108,
+                "min": 102,
+                "max": 111,
+                "samples": [
+                  111,
+                  102,
+                  108
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 2,
+                "min": 2,
+                "max": 2,
+                "samples": [
+                  2,
+                  2,
+                  2
+                ]
+              },
+              "elapsedMs": {
+                "median": 3.0000000000009095,
+                "min": 3,
+                "max": 3.0000000000009095,
+                "samples": [
+                  3,
+                  3.0000000000009095,
+                  3.0000000000009095
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 1.9999999999990905,
+                "min": 0.9999999999990905,
+                "max": 2,
+                "samples": [
+                  2,
+                  1.9999999999990905,
+                  0.9999999999990905
+                ]
+              },
+              "elapsedMs": {
+                "median": 1.9999999999990905,
+                "min": 1.9999999999990905,
+                "max": 2,
+                "samples": [
+                  2,
+                  1.9999999999990905,
+                  1.9999999999990905
+                ]
+              }
+            }
+          }
+        },
+        "optimized": {
+          "n": 3,
+          "frameOpportunityMs": {
+            "median": 2907,
+            "min": 2884,
+            "max": 2984,
+            "samples": [
+              2907,
+              2884,
+              2984
+            ]
+          },
+          "startupPeakPssMiB": {
+            "median": 589.51953125,
+            "min": 588.984375,
+            "max": 591.7490234375,
+            "samples": [
+              589.51953125,
+              591.7490234375,
+              588.984375
+            ]
+          },
+          "fullIntervalPeakPssMiB": {
+            "median": 606.78125,
+            "min": 606.2470703125,
+            "max": 608.09375,
+            "samples": [
+              606.2470703125,
+              608.09375,
+              606.78125
+            ]
+          },
+          "postGcStartupJsHeapMiB": null,
+          "code": {
+            "firstJson": {
+              "initialMs": {
+                "median": 3,
+                "min": 2,
+                "max": 4,
+                "samples": [
+                  4,
+                  3,
+                  2
+                ]
+              },
+              "elapsedMs": {
+                "median": 207,
+                "min": 201,
+                "max": 222,
+                "samples": [
+                  222,
+                  207,
+                  201
+                ]
+              }
+            },
+            "firstTypeScript": {
+              "initialMs": {
+                "median": 1,
+                "min": 1,
+                "max": 2.0000000000009095,
+                "samples": [
+                  1,
+                  1,
+                  2.0000000000009095
+                ]
+              },
+              "elapsedMs": {
+                "median": 259,
+                "min": 207,
+                "max": 298,
+                "samples": [
+                  298,
+                  259,
+                  207
+                ]
+              }
+            },
+            "repeatTypeScript": {
+              "initialMs": {
+                "median": 2,
+                "min": 1,
+                "max": 2,
+                "samples": [
+                  2,
+                  2,
+                  1
+                ]
+              },
+              "elapsedMs": {
+                "median": 2,
+                "min": 2,
+                "max": 2,
+                "samples": [
+                  2,
+                  2,
+                  2
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "validation": {
+    "remoteOnly": true,
+    "rustCompilation": "No Rust code changed; no Rust compilation run locally or remotely for this UI-only patch.",
+    "nodeRegression": {
+      "passed": 41,
+      "failed": 0,
+      "scripts": [
+        "test-highlighter-lifecycle.mjs",
+        "test-chat-scroll-memory.mjs",
+        "test-history-page-intent.mjs",
+        "test-owned-ui-type-policy.mjs",
+        "test-owned-script-assets.mjs"
+      ]
+    },
+    "rendererSource": {
+      "passed": 9,
+      "failed": 0
+    },
+    "finalHighlighterCleanupRerun": {
+      "passed": 8,
+      "failed": 0
+    },
+    "syntaxParity": "Original auto-target engine vs ES2018 cache exact HTML over all 26 supported grammar samples, including Unicode, emoji, CRLF, partial strings, templates and dynamic Bash here-doc end delimiters. Not a proof over every possible input.",
+    "platformBrowser": [
+      "Chromium and WebKit: exact frozen/source semantic DOM, 8 added common grammar cases, 12 exact computed-layout/pixel snapshots per engine, existing streamed math/font/singleton/Core/Slot tests."
+    ],
+    "fullPluginBoot": {
+      "chromium": 54,
+      "webkit": 54,
+      "settingsModelEffortContextAndNavigation": true,
+      "pageErrors": 0
+    },
+    "startupSurface": {
+      "chromium": 30,
+      "webkit": 30,
+      "errors": 0
+    },
+    "desktopMilestoneScript": true,
+    "typecheck": true,
+    "buildCheck": true,
+    "generatedBuild": {
+      "modules": 54,
+      "assets": 190,
+      "manifestFilesVerifiedLocally": 243,
+      "manifestSha256": "721836d2121f25965c1db9de5f28e5c94c8ea0bfcec01b69d25fdb5055c6f1d6"
+    },
+    "performanceReceipts": {
+      "gtk": 12,
+      "browserEmpty": 12,
+      "browserHistory": 12
+    }
+  },
+  "limitations": [
+    "First cold TypeScript coloring still costs 337–397ms on this WebKitGTK probe; exact plain code is visible in 1–5ms, but the roughly 0.35s recorded frame gap means first-use jank is not eliminated. Repeat highlighting is fast.",
+    "Chromium full-process peak is nearly unchanged (empty slightly higher by <1%); reduced JS heap alone is not proof of lower total memory.",
+    "Three paired repetitions establish a local signal, not statistical certainty across machines.",
+    "These are Linux UI fixtures, NOT measured native macOS/Windows startup, installed application RAM or large real-history recovery.",
+    "No leak/long-duration concurrency conclusion; no content/history memory eviction changes."
+  ],
+  "rejected": [
+    {
+      "trial": "post-paint speculative prewarm",
+      "reason": "WPE WebKit peak increased about 9%."
+    },
+    {
+      "trial": "pure demand original conversion",
+      "reason": "First cold TypeScript coloring about 1.4s."
+    },
+    {
+      "trial": "@shikijs/langs-precompiled",
+      "reason": "Exact Bash here-doc HTML mismatch; removed package/declarations/lock/provenance changes."
+    },
+    {
+      "trial": "ES2024/v prepared regex cache",
+      "reason": "WebKit first cold TypeScript still about 1.2s."
+    },
+    {
+      "trial": "Oniguruma/WASM engine",
+      "reason": "Correct HTML/pixels and fast first coloring, but WebKitGTK full peak increased about 100–120MiB."
+    }
+  ],
+  "reproduce": {
+    "source": "Sync complete current source with rsync to an isolated ~/codex-build checkout; exclude .git/,target/,node_modules/,.env,.env.*,credentials. Preserve same-base built ui/dist as the baseline before candidate build. All compilation/tests shown below execute on WZU_Server.",
+    "dependencySetup": [
+      "npm ci --prefix ui --ignore-scripts"
+    ],
+    "build": [
+      "node scripts/prepare-platform-regex-cache.mjs",
+      "npm run typecheck --prefix ui",
+      "npm run build --prefix ui",
+      "npm run check:build --prefix ui"
+    ],
+    "regression": [
+      "node --test scripts/test-highlighter-lifecycle.mjs scripts/test-chat-scroll-memory.mjs scripts/test-history-page-intent.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-owned-script-assets.mjs",
+      "node scripts/test-renderer-source-module.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps node scripts/test-platform-source-browser.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_TEST_BROWSER=chromium node scripts/test-owned-ui-boot-browser.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_TEST_BROWSER=webkit node scripts/test-owned-ui-boot-browser.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_TEST_BROWSER=chromium node scripts/test-startup-surface-browser.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_TEST_BROWSER=webkit node scripts/test-startup-surface-browser.mjs",
+      "node scripts/test-desktop-startup.mjs"
+    ],
+    "performance": [
+      "UI_STARTUP_BASELINE=/tmp/xh-startup-warmup-20261005/baseline UI_STARTUP_RESULTS=/tmp/xh-ui-repeat-gtk UI_STARTUP_REPEATS=3 python3 -B scripts/bench-ui-startup-gtk-pairs.py",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_STARTUP_BASELINE=/tmp/xh-startup-warmup-20261005/baseline UI_STARTUP_RESULTS=/tmp/xh-ui-repeat-empty UI_STARTUP_REPEATS=3 node scripts/bench-ui-startup.mjs",
+      "UI_TEST_DEPS=/home/wzu/codex-build/ui-cache-test-deps UI_STARTUP_BASELINE=/tmp/xh-startup-warmup-20261005/baseline UI_STARTUP_RESULTS=/tmp/xh-ui-repeat-history UI_STARTUP_REPEATS=3 UI_STARTUP_SESSION=fx-alpha node scripts/bench-ui-startup.mjs"
+    ]
+  },
+  "evidence": {
+    "remote": "/tmp/xh-startup-warmup-20261005/",
+    "local": "/tmp/xh-startup-warmup-20261005-final-evidence/",
+    "logs": [
+      "final-regression.log",
+      "final-renderer.log",
+      "final-highlighter-cleanup.log",
+      "final-platform.log",
+      "final-typecheck.log",
+      "final-check-build.log",
+      "final-boot.log",
+      "final-webkit-boot.log",
+      "final-surface.log",
+      "final-webkit-surface.log",
+      "final-desktop.log"
+    ],
+    "raw": [
+      "gtk-final/all.json",
+      "browser-final-empty/browser-startup.json",
+      "browser-final-history/browser-startup.json"
+    ]
+  },
+  "deliveryAtAcceptance": {
+    "pushed": false,
+    "prCreated": false,
+    "releasePublished": false,
+    "installedAppReplacedOrRestarted": false,
+    "generatedArtifacts": "Downloaded from tested remote build; verified every asset-manifest entry locally. No local rebuild."
+  }
+}
