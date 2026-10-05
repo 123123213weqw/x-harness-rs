@@ -6,6 +6,7 @@ on:
     paths:
       - 'crates/xharness-computer*/**'
       - 'crates/xharness-host-app/**'
+      - 'scripts/computer-shopping-lab/**'
       - 'Cargo.*'
       - '.github/workflows/windows-computer.yml'
 permissions:
@@ -29,6 +30,8 @@ jobs:
         with:
           key: windows-computer-v1
           cache-on-failure: true
+      - name: Offline performance evidence oracle
+        run: python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
       - name: Non-interactive native contracts
         run: |
           cargo test --locked -p xharness-computer -p xharness-computer-windows

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "source_sha": "a21fd4bcfe202a8090b7aa0cc5a0c96ef0e8c853",
+  "title_contains": "2TB NVMe SSD | Newegg.com",
+  "url": "https://www.newegg.com/p/pl?d=2TB+NVMe+SSD",
+  "required_labels": [
+    "9100 PRO",
+    "SN850X",
+    "^399$",
+    "^352$"
+  ],
+  "samples": [
+    {
+      "file": "receipt-0.json.gz",
+      "detail": "auto"
+    },
+    {
+      "file": "receipt-1.json.gz",
+      "detail": "auto"
+    },
+    {
+      "file": "receipt-2.json.gz",
+      "detail": "auto"
+    },
+    {
+      "file": "receipt-3.json.gz",
+      "detail": "semantic"
+    },
+    {
+      "file": "receipt-4.json.gz",
+      "detail": "semantic"
+    },
+    {
+      "file": "receipt-5.json.gz",
+      "detail": "semantic"
+    }
+  ],
+  "expected_inputs": [
+    {
+      "label": "Search. Enter keywords, model number or item number",
+      "value": "2TB NVMe SSD"
+    }
+  ]
+}

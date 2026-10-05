@@ -1,5 +1,30 @@
 # Windows AX performance work — 2026-10-05
 
+## Latest continuation: native pass, browser-quality gate still failing
+
+The isolated V100 connection was recovered and the candidate source was synchronized **without deletion** into `~/codex-build/x-harness-rs/ax-cache-23dd862-20261005/`. Its Rust source is the same candidate as `23dd862` (the subsequent commit changed only documentation). Linux 19 tests and all-target clippy passed; the complete output is retained in `paired-run/linux-test-clippy.log`. No local Rust compiler ran.
+
+The exact Windows artifact `23dd862` / SHA256 `00540ad6b4d32cca94be0d4a6ef8005e762c7e52e0badebe257f8cbd36fd14b0` was independently PE-audited and deployed **only to the disposable clone** after the previous probe's exit was confirmed. All **15 native fixture cases passed**, including cache availability, independent Invoke command delivery, password redaction, Unicode/key input, region closure, stale frame rejection, window move/resize, wheel delivery, cancelled-drag mouse-up, screenshot and wait. Fixture elapsed 14,730 ms; model calls 0; fixture closed on return. The full callback receipt is `paired-run/candidate-native-fixture.json`. This is not installed Host or multimodal-model acceptance.
+
+There are now **12 valid foreground-matched same-page observations**, three per detail mode per artifact, on the same Edge window/query/viewport. Independent screenshots preserve Samsung 9100 PRO 2TB $399.99 and WD_BLACK SN850X 2TB $352.00; both product labels, price text and exact address-bar URL were present in every receipt. Raw receipts are losslessly gzip-compressed, with explicit manifests and confirmed `finished`, `operations=6`, `probe_alive=false` cleanup receipts.
+
+| Detail | Baseline native median | Candidate native median | Baseline → candidate pattern-advertising median |
+| --- | ---: | ---: | ---: |
+| auto | 9,115 ms | 8,835 ms | 267 → 110 ms |
+| semantic | 8,864 ms | 8,793 ms | 171 → 100 ms |
+
+These are **descriptive samples, not an established causal speedup**: returned-node counts vary (baseline 88–155; candidate 88–107), and all twelve trees hit the existing time limit. Discovery remains approximately 8,005 ms, of which around 7,674 ms is UIA child/sibling navigation. Caching availability does not solve that hotspot.
+
+**Required-input coverage failed:** the visible page search input was returned only 2/6 times in the baseline and 0/6 in the candidate. A known existing time-budget/selection problem remains; the samples do not establish that the cache change caused it, but the candidate does not meet the interaction-quality gate. Do not ship or mark the complete optimization accepted based on native fixture/CI results. Next experiment must reduce provider navigation and stabilize visible editable-control coverage without pruning a subtree merely because its parent is offscreen, dropping guards, or increasing budgets to hide the problem.
+
+Native sampled peak working sets were 33.61 MiB baseline / 29.87 MiB candidate; Edge (all 15 retained processes, including other lab tabs) remained about 934.7 MiB. These are not PSS, full-app memory, long-running-leak measurements or proof of a memory improvement.
+
+Regenerate `paired-run/comparison.json` using `scripts/computer-shopping-lab/grade-ax-performance.py` with the two directories in `paired-run/`. Its eight negative/partial-input tests passed locally and are now included in the dedicated Windows workflow; that workflow edit has not yet run on CI. No main merge, release, local software restart or original-VM modification occurred.
+
+Read-only follow-up confirmed the historical `tbench-pilot-20260911` directory survives with 21 immediate children and both original/clone VM directories exist. Without a pre-incident manifest or deletion journal, this **does not establish preservation of all earlier remote-only files**. No permissions or unrelated concurrent build paths were changed.
+
+The sections below retain the earlier attempt's state; their “not yet” notes are superseded only where this continuation supplies concrete receipts.
+
 ## Implemented
 
 - Add per-observation phase timings and navigation-call counts. Aggregated microsecond measurements are emitted in milliseconds, without retaining UIA objects between worker requests.
