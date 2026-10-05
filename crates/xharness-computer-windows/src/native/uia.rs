@@ -92,6 +92,7 @@ impl Automation {
         request: &ComputerRequest,
         cancel: &Cancellation,
     ) -> Result<(Reply, Vec<u8>)> {
+        let started = Instant::now();
         let desktop_bounds = desktop();
         let frame = Frame {
             desktop: desktop_bounds,
@@ -111,8 +112,11 @@ impl Automation {
             .foreground
             .as_ref()
             .and_then(|front| observation::intersection(region, front.bounds));
+        let window_ms = started.elapsed().as_millis();
+        let discovery_started = Instant::now();
         let (max_nodes, max_depth) = wire::budget(request.detail.as_deref());
         let mut traversal = Traversal {
+            metrics: Metrics::default(),
             candidates: vec![],
             pending: BinaryHeap::new(),
             reasons: BTreeSet::new(),
@@ -126,6 +130,7 @@ impl Automation {
             // COM pointers never leave this worker MTA. Foreground only;
             // offscreen ancestors are deferred, not assumed to have no children.
             if let Some(front) = &frame.foreground {
+                let root_started = Instant::now();
                 let root = unsafe {
                     self.instance
                         .ElementFromHandleBuildCache(hwnd(front.handle), &self.cache)
@@ -139,9 +144,12 @@ impl Automation {
                         ),
                     )
                 })?;
+                traversal.metrics.root_us += root_started.elapsed().as_micros();
                 self.walk(root, front, &mut traversal)?;
             }
         }
+        let discovery_ms = discovery_started.elapsed().as_millis();
+        let selection_started = Instant::now();
         let metadata: Vec<_> = traversal
             .candidates
             .iter()
@@ -151,6 +159,8 @@ impl Automation {
         if selection.omitted > 0 {
             traversal.reasons.insert("node_limit");
         }
+        let selection_ms = selection_started.elapsed().as_millis();
+        let materialization_started = Instant::now();
         let mut nodes = vec![];
         let mut targets = vec![];
         for &index in &selection.indices {
@@ -164,6 +174,7 @@ impl Automation {
             let id = node_id(&candidate.surface, index);
             // No Value/Text cache: only selected, visible, non-password inputs
             // get a lazy ValuePattern read. Unknown is not an empty value.
+            let value_started = Instant::now();
             let (mut value, mut value_state, value_truncated) = if !context_only
                 && !candidate.password
                 && matches!(candidate.role, "edit" | "combobox")
@@ -174,21 +185,27 @@ impl Automation {
             } else {
                 (None, "not_applicable", false)
             };
+            traversal.metrics.value_us += value_started.elapsed().as_micros();
             // Recheck after provider calls; never expose a cached password label
             // or value if the provider changed its classification mid-snapshot.
+            let password_started = Instant::now();
             let password = candidate.password
                 || unsafe { element.CurrentIsPassword() }
                     .map(|v| v.as_bool())
                     .unwrap_or(true);
+            traversal.metrics.password_check_us += password_started.elapsed().as_micros();
             if password {
                 value = Some("<redacted>".to_owned());
                 value_state = "redacted";
             }
+            let runtime_started = Instant::now();
             let runtime = if !context_only && !password {
                 runtime_id(element).ok()
             } else {
                 None
             };
+            traversal.metrics.runtime_id_us += runtime_started.elapsed().as_micros();
+            let pattern_started = Instant::now();
             let mut actions = vec![];
             if runtime.is_some() && candidate.enabled && in_region && !password {
                 actions.push("focus");
@@ -200,6 +217,7 @@ impl Automation {
                     actions.push("invoke");
                 }
             }
+            traversal.metrics.pattern_us += pattern_started.elapsed().as_micros();
             nodes.push(json!({"node_id":id,"parent_id":candidate.metadata.parent.map(|p|node_id(&candidate.surface,p)),"surface_id":wire::surface_id(&candidate.surface),"role":candidate.role,"label":if password {"<redacted>"} else if context_only {""} else {&candidate.label},"bounds":candidate.metadata.bounds,"enabled":candidate.enabled,"visible":candidate.metadata.visible,"focused":candidate.metadata.focused,"in_region":in_region,"context_only":context_only,"value":value,"value_state":value_state,"value_truncated":value_truncated && !password,"actions":actions,"depth":candidate.metadata.depth}));
             if let Some(runtime_id) = runtime {
                 targets.push((
@@ -212,13 +230,17 @@ impl Automation {
                 ));
             }
         }
+        let materialization_ms = materialization_started.elapsed().as_millis();
         cancel.check()?;
+        let screenshot_started = Instant::now();
         let png = if request.include_screenshot == Some(true) {
             screen::screenshot(region)?
         } else {
             vec![]
         };
+        let screenshot_ms = screenshot_started.elapsed().as_millis();
         cancel.check()?;
+        let validation_started = Instant::now();
         // Validate after PNG encoding too: tree, image and action frame must
         // not refer to different foreground windows or display geometries.
         if foreground().map(|s| (s.handle, s.pid, s.bounds))
@@ -233,7 +255,9 @@ impl Automation {
                 "desktop changed during observation; observe again",
             ));
         }
-        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
+        let validation_ms = validation_started.elapsed().as_millis();
+        let timings = json!({"window_ms":window_ms,"discovery_ms":discovery_ms,"root_ms":traversal.metrics.root_us/1000,"child_navigation_ms":traversal.metrics.child_navigation_us/1000,"cached_metadata_ms":traversal.metrics.cached_metadata_us/1000,"selection_ms":selection_ms,"materialization_ms":materialization_ms,"password_check_ms":traversal.metrics.password_check_us/1000,"runtime_id_ms":traversal.metrics.runtime_id_us/1000,"pattern_ms":traversal.metrics.pattern_us/1000,"value_ms":traversal.metrics.value_us/1000,"screenshot_ms":screenshot_ms,"validation_ms":validation_ms,"total_ms":started.elapsed().as_millis(),"first_child_calls":traversal.metrics.first_child_calls,"next_sibling_calls":traversal.metrics.next_sibling_calls});
+        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","timings":timings,"region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
         Ok((
             Reply {
                 schema: 1,
@@ -265,10 +289,13 @@ impl Automation {
             let element = candidate.element.clone();
             let path = candidate.path.clone();
             // SAFETY: all UIA interfaces and cache requests live on this MTA.
+            let navigation_started = Instant::now();
+            state.metrics.first_child_calls += 1;
             let first = unsafe {
                 self.walker
                     .GetFirstChildElementBuildCache(&element, &self.cache)
             };
+            state.metrics.child_navigation_us += navigation_started.elapsed().as_micros();
             let mut child = match first {
                 Ok(child) => child,
                 Err(e) => {
@@ -294,10 +321,14 @@ impl Automation {
                 if state.discovery_stopped()? {
                     break;
                 }
-                match unsafe {
+                let navigation_started = Instant::now();
+                state.metrics.next_sibling_calls += 1;
+                let next = unsafe {
                     self.walker
                         .GetNextSiblingElementBuildCache(&child, &self.cache)
-                } {
+                };
+                state.metrics.child_navigation_us += navigation_started.elapsed().as_micros();
+                match next {
                     Ok(next) => child = next,
                     Err(e) => {
                         state.provider_error(&e);
@@ -326,7 +357,20 @@ struct Candidate {
     label: String,
     role: &'static str,
 }
+#[derive(Default)]
+struct Metrics {
+    root_us: u128,
+    value_us: u128,
+    child_navigation_us: u128,
+    cached_metadata_us: u128,
+    password_check_us: u128,
+    runtime_id_us: u128,
+    pattern_us: u128,
+    first_child_calls: usize,
+    next_sibling_calls: usize,
+}
 struct Traversal<'a> {
+    metrics: Metrics,
     candidates: Vec<Candidate>,
     pending: BinaryHeap<Reverse<(u8, usize, usize)>>,
     reasons: BTreeSet<&'static str>,
@@ -370,6 +414,7 @@ impl Traversal<'_> {
         path: Vec<u32>,
         parent: Option<usize>,
     ) {
+        let metadata_started = Instant::now();
         // SAFETY: cache was populated by BuildCache on the same MTA; denied
         // password metadata is redacted, never treated as a non-password.
         unsafe {
@@ -438,6 +483,7 @@ impl Traversal<'_> {
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
         }
+        self.metrics.cached_metadata_us += metadata_started.elapsed().as_micros();
     }
 }
 fn node_id(surface: &Surface, index: usize) -> String {
