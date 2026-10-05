@@ -6,7 +6,7 @@ use crate::{
     observation::{self, Metadata},
     wire::{self, Frame, NodeTarget, Reply, Surface},
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
