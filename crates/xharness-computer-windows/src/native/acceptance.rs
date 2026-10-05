@@ -294,8 +294,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         SendMessageW(
             HWND(fixture.edit as *mut _),
             0x00b0,
-            WPARAM((&mut start as *mut u32) as usize),
-            LPARAM((&mut end as *mut u32) as isize),
+            Some(WPARAM((&mut start as *mut u32) as usize)),
+            Some(LPARAM((&mut end as *mut u32) as isize)),
         );
     }
     if start != 0 || end as usize != fixture.text().encode_utf16().count() {
