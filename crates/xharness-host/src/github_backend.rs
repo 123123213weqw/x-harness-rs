@@ -9,6 +9,13 @@ use xharness_api::RpcError;
 
 #[async_trait]
 pub trait GitHubBackend: Send + Sync {
+    async fn save_review(&self, _target: &Value, _run: &Value) -> Result<(), RpcError> {
+        Err(RpcError::internal("Review persistence unavailable"))
+    }
+    async fn review_history(&self, _target: &Value) -> Result<Vec<Value>, RpcError> {
+        Ok(Vec::new())
+    }
+
     async fn read(
         &self,
         endpoint: &str,
