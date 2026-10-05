@@ -140,3 +140,5 @@ GUI 能力验收。`native-acceptance` 是显式 fixture feature，默认产品�
 DPI/多屏、锁屏/UAC、用户接管和 UIA 卡死，再考虑安装包发布。
 
 Windows monitor scale is reported by `GetScaleFactorForMonitor` (null on unavailable metadata), not `GetDpiForMonitor` on a PMv2 thread. UIA focus calls complete before owned modifiers are held; foreground and display geometry are revalidated after capture.
+
+Windows foreground identity is normalized with `GetAncestor(..., GA_ROOT)`. UIA focus on an Edit child must not look like an app switch; a different top-level window or popup is still rejected. The disposable-VM regression reproduced the old false interruption with the same PID and child class `Edit`.
