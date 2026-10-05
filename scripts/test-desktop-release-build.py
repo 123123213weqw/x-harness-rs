@@ -706,5 +706,43 @@ class NpmInvocationTests(unittest.TestCase):
             build.npm_invocation('win32')
 
 
+class WindowsRuntimeGates(unittest.TestCase):
+    def test_final_nsis_is_audited_before_receipt_and_failure_stops_receipt(self):
+        import types
+        ci = dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push',
+                  status='completed', conclusion='success', path='.github/workflows/ci.yml')
+        plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [], [ci],
+                                         release_scope='windows-linux')
+        args = types.SimpleNamespace(platform='windows-x86_64', target='x86_64-pc-windows-msvc',
+                                     plan=Path('plan.json'), public_key=Path('key.pub'), output=Path('receipt'))
+        calls = []
+        def run(*values, **kwargs):
+            calls.append([str(value) for value in values])
+            if any('audit-windows-runtime.py' in str(value) for value in values):
+                raise ValueError('injected unpackaged DLL')
+        with patch.object(build, 'load', return_value=plan), patch.object(build, 'run', side_effect=run), patch.object(build, 'contract') as receipt:
+            with self.assertRaisesRegex(ValueError, 'unpackaged DLL'):
+                build.collect(args)
+            receipt.assert_not_called()
+        audit_call = calls[-1]
+        self.assertIn('--installer', audit_call)
+        self.assertIn('--expected-desktop', audit_call)
+        self.assertIn('--sidecars', audit_call)
+
+    def test_every_install_owner_call_has_exact_payload_audit(self):
+        for name in ['ci.yml', 'desktop-release.yml', 'friends-release.yml', 'runtime-diagnostics.yml', 'windows-runtime-gates.yml']:
+            lines = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8').splitlines()
+            calls = [line for line in lines if 'test-windows-install-ownership.ps1 -Installer' in line]
+            self.assertTrue(calls, name)
+            for call in calls:
+                self.assertIn('-RuntimeAudit', call, name)
+
+    def test_target_config_is_not_a_global_rustflag(self):
+        text = (ROOT / '.cargo/config.toml').read_text(encoding='utf-8')
+        self.assertIn('[target.x86_64-pc-windows-msvc]', text)
+        self.assertIn('target-feature=+crt-static', text)
+        self.assertNotIn('[build]', text)
+
+
 if __name__ == '__main__':
     unittest.main()

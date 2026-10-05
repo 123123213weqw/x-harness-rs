@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -30,7 +30,7 @@ const HOST_START_MAX_TIMEOUT: Duration = Duration::from_secs(120);
 const HOST_STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct DesktopState {
-    pub(crate) diagnostics: crate::diagnostics::Diagnostics,
+    pub(crate) diagnostics: Arc<crate::diagnostics::Diagnostics>,
     pub(crate) startup: crate::startup::StartupTimeline,
     stop_requested: AtomicBool,
     #[cfg(windows)]
@@ -113,10 +113,10 @@ impl DesktopState {
             }
         }
         Ok(Self {
-            diagnostics: crate::diagnostics::Diagnostics::new(
+            diagnostics: Arc::new(crate::diagnostics::Diagnostics::new(
                 app_cache.join("diagnostics"),
                 app_config.join("diagnostics.json"),
-            ),
+            )),
             startup: crate::startup::StartupTimeline::new(),
             stop_requested: AtomicBool::new(false),
             #[cfg(windows)]
@@ -221,7 +221,6 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
     };
     if let Err(error) = &result {
         state.diagnostics.mark_incident();
-        let _ = crate::diagnostics::open(app);
         *state
             .startup_error
             .lock()
@@ -311,6 +310,8 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     *state.child.lock().expect("child mutex poisoned") = Some(child);
 
     let generation_alive = std::sync::Arc::new(AtomicBool::new(true));
+    let startup_pending = Arc::new(AtomicBool::new(true));
+    let event_startup_pending = Arc::clone(&startup_pending);
     #[cfg(windows)]
     match xharness_win32::CrashCapture::prepare(pid, &state.crash_event) {
         Ok(capture) => {
@@ -376,6 +377,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
 
     let event_app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut terminated = false;
         while let Some(event) = events.recv().await {
             match event {
                 CommandEvent::Stderr(bytes) => {
@@ -419,6 +421,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                     );
                 }
                 CommandEvent::Terminated(payload) => {
+                    terminated = true;
                     generation_alive.store(false, Ordering::SeqCst);
                     let state = event_app.state::<DesktopState>();
                     let expected = state.stop_requested.load(Ordering::SeqCst)
@@ -430,17 +433,18 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
                     record.signal = payload.signal;
                     record.expected = Some(expected);
                     state.diagnostics.record(record);
+                    let was_ready = !event_startup_pending.load(Ordering::SeqCst);
                     if !expected {
                         state.diagnostics.mark_incident();
                         *state
                             .startup_error
                             .lock()
-                            .expect("startup error mutex poisoned") = Some(
-                            "后台异常退出，已尝试保存诊断记录。请打开运行诊断；不会自动重跑工具。"
-                                .to_owned(),
-                        );
-                        if !state.closing.load(Ordering::SeqCst) {
-                            let _ = crate::diagnostics::open(&event_app);
+                            .expect("startup error mutex poisoned") =
+                            Some(host_exit_message(payload.code, payload.signal, was_ready));
+                        // Startup failures already have a bootstrap error surface.
+                        // Only a new unexpected exit of the ready Host interrupts UI.
+                        if !state.closing.load(Ordering::SeqCst) && was_ready {
+                            crate::diagnostics::open_automatically(&event_app);
                         }
                     }
                     *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
@@ -460,6 +464,51 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
             }
         }
         generation_alive.store(false, Ordering::SeqCst);
+        let state = event_app.state::<DesktopState>();
+        if !terminated
+            && state.running.load(Ordering::SeqCst)
+            && !state.closing.load(Ordering::SeqCst)
+            && event_startup_pending.load(Ordering::SeqCst)
+        {
+            // Losing the event stream is not proof the process exited. Keep
+            // ownership/running intact; readiness fails and start() requests kill.
+            {
+                let mut error = state
+                    .startup_error
+                    .lock()
+                    .expect("startup error mutex poisoned");
+                if error.is_none() {
+                    *error = Some(
+                        "Host 启动状态通道提前关闭，请重新安装完整安装包并检查运行诊断".to_owned(),
+                    );
+                    state.diagnostics.record(Record::new(Phase::HostIoError));
+                    state.diagnostics.mark_incident();
+                }
+            }
+            // The lost stream cannot deliver Terminated after cleanup. On
+            // Windows the private Job provides an independent, non-PID-based
+            // exit proof. Without it, retain running and deny restart/update.
+            #[cfg(windows)]
+            if state.host_job.terminate(1).is_ok() {
+                let deadline = Instant::now() + HOST_STOP_TIMEOUT;
+                loop {
+                    if state
+                        .host_job
+                        .accounting()
+                        .is_ok_and(|value| value.active_processes == 0)
+                    {
+                        *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
+                        state.child.lock().expect("child mutex poisoned").take();
+                        state.running.store(false, Ordering::SeqCst);
+                        break;
+                    }
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
     });
 
     #[cfg(windows)]
@@ -481,6 +530,7 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         .navigate(bootstrap)
         .map_err(|error| format!("无法打开 XHarness Web UI：{error}"))?;
     wait_until_product_ready(app, address, &mut budget).await?;
+    startup_pending.store(false, Ordering::SeqCst);
     state.startup.host_ready(&state.diagnostics);
     let _ = app.emit(
         "xharness-bootstrap",
@@ -658,17 +708,45 @@ async fn wait_until_product_ready(
     }
 }
 
-fn ensure_host_running(app: &AppHandle) -> Result<(), String> {
-    if app.state::<DesktopState>().running.load(Ordering::SeqCst) {
-        return Ok(());
+fn host_exit_message(code: Option<i32>, signal: Option<i32>, was_ready: bool) -> String {
+    if was_ready {
+        return "后台异常退出，已尝试保存诊断记录。请打开运行诊断；不会自动重跑工具。".to_owned();
     }
-    Err(app
-        .state::<DesktopState>()
+    // NTSTATUS is carried by the shell plugin as a signed i32. Do not guess
+    // a particular missing DLL from STATUS_DLL_NOT_FOUND alone.
+    let detail = match code.map(|value| value as u32) {
+        Some(0xC000_0135) => "缺少启动依赖（STATUS_DLL_NOT_FOUND）",
+        Some(0xC000_0139) => "启动依赖版本不匹配（STATUS_ENTRYPOINT_NOT_FOUND）",
+        Some(0xC000_007B) => "程序或依赖架构不匹配／文件损坏（STATUS_INVALID_IMAGE_FORMAT）",
+        _ => "在就绪前异常退出",
+    };
+    let status = code
+        .map(|value| format!("0x{:08X}", value as u32))
+        .unwrap_or_else(|| format!("signal={signal:?}"));
+    format!("Host {detail}，退出状态 {status}。请重新安装完整安装包；运行诊断可用于排查。不会自动重跑工具。")
+}
+
+fn startup_liveness(running: bool, error: Option<String>) -> Result<(), String> {
+    if let Some(error) = error {
+        return Err(error);
+    }
+    if running {
+        Ok(())
+    } else {
+        Err("XHarness Host 在就绪前退出，请检查桌面日志".to_owned())
+    }
+}
+
+fn ensure_host_running(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<DesktopState>();
+    // Fail promptly when the event channel closed, even while cleanup still
+    // owns a live process. Never flip running merely to unblock readiness.
+    let error = state
         .startup_error
         .lock()
         .expect("startup error mutex poisoned")
-        .clone()
-        .unwrap_or_else(|| "XHarness Host 在就绪前退出，请检查桌面日志".to_owned()))
+        .clone();
+    startup_liveness(state.running.load(Ordering::SeqCst), error)
 }
 
 fn observe_startup_progress(
@@ -838,6 +916,38 @@ fn read_nonempty_secret(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loader_errors_are_actionable_without_guessing_a_dll() {
+        for (code, text) in [
+            (0xC000_0135_u32, "缺少启动依赖"),
+            (0xC000_0139, "版本不匹配"),
+            (0xC000_007B, "架构不匹配"),
+        ] {
+            let message = host_exit_message(Some(code as i32), None, false);
+            assert!(message.contains(text));
+            assert!(message.contains(&format!("0x{code:08X}")));
+            assert!(!message.contains("VCRUNTIME140"));
+            assert!(!message.contains("超时"));
+        }
+        assert!(host_exit_message(Some(1), None, false).contains("就绪前"));
+        assert!(host_exit_message(None, Some(9), false).contains("signal=Some(9)"));
+        assert!(host_exit_message(Some(1), None, true).contains("后台异常退出"));
+    }
+
+    #[test]
+    fn lost_startup_channel_fails_without_faking_process_exit() {
+        assert!(startup_liveness(true, None).is_ok());
+        assert!(startup_liveness(false, None).is_err());
+        assert_eq!(
+            startup_liveness(true, Some("channel closed".to_owned())),
+            Err("channel closed".to_owned())
+        );
+        assert_eq!(
+            startup_liveness(false, Some("safe receipt".to_owned())),
+            Err("safe receipt".to_owned())
+        );
+    }
 
     #[test]
     fn startup_failure_receipt_becomes_safe_screen_text_and_diagnostic_metadata() {

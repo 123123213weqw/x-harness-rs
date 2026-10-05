@@ -130,7 +130,8 @@ async fn check(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, 
         .endpoints(vec![endpoint])
         .map_err(|error| format!("无法配置更新地址：{error}"))?
         .pubkey(UPDATE_PUBLIC_KEY.ok_or_else(not_configured)?)
-        .timeout(Duration::from_secs(30));
+        .timeout(Duration::from_secs(30))
+        .on_before_exit(app.state::<DesktopState>().diagnostics.update_exit_hook());
     // NSIS otherwise consults the last registered installation, which may be a
     // different copy. /D must be the final, unquoted NSIS argument (spaces allowed).
     #[cfg(windows)]
@@ -315,6 +316,10 @@ pub async fn desktop_install_update(
     }
     transition(&app, &state, Phase::Installing, None);
     if let Err(error) = update.install(bytes.as_slice()) {
+        // Windows can invoke its exit hook before ShellExecute fails. Restore
+        // crash detection while the existing app and recovered Host keep running.
+        #[cfg(windows)]
+        state.diagnostics.resume_after_failed_update();
         #[cfg(target_os = "macos")]
         if let Some(local_signing) = &local_signing {
             local_signing.discard();
@@ -352,6 +357,10 @@ pub async fn desktop_install_update(
         }
     }
     transition(&app, &state, Phase::Installed, None);
+    // restart may bypass RunEvent::Exit on some platforms. Host shutdown and
+    // installation have succeeded: persist the clean boundary before relaunch.
+    // Do not acknowledge or delete earlier crash evidence.
+    state.diagnostics.finish();
     app.restart();
 }
 
