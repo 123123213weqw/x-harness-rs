@@ -1,0 +1,9 @@
+{
+  "phase": "finished",
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "probe_alive": false,
+  "operations": 8,
+  "host_received_utc": "2026-10-05T12:30:25.689531+00:00",
+  "pending_input_replayed": false,
+  "old_frame_reused": false
+}

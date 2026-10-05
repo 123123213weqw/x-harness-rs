@@ -1,0 +1,138 @@
+[
+  {
+    "id": 0,
+    "ok": true,
+    "elapsed_ms": 8662,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:44:10.754070+00:00"
+  },
+  {
+    "id": 1,
+    "ok": true,
+    "elapsed_ms": 9174,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:44:32.218301+00:00"
+  },
+  {
+    "id": 2,
+    "ok": false,
+    "elapsed_ms": 2,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_frame: observe again before operating the desktop",
+      "retryable": true
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:45:06.389874+00:00"
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "elapsed_ms": 8845,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:45:39.030876+00:00"
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "elapsed_ms": 8980,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:45:55.882546+00:00"
+  },
+  {
+    "id": 5,
+    "ok": true,
+    "elapsed_ms": 8944,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:46:22.998096+00:00"
+  },
+  {
+    "id": 6,
+    "ok": true,
+    "elapsed_ms": 8825,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:47:01.089594+00:00"
+  },
+  {
+    "id": 7,
+    "ok": false,
+    "elapsed_ms": 0,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_frame: observe again before operating the desktop",
+      "retryable": true
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:47:41.214225+00:00"
+  },
+  {
+    "id": 8,
+    "ok": true,
+    "elapsed_ms": 8990,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:48:05.920240+00:00"
+  },
+  {
+    "id": 9,
+    "ok": false,
+    "elapsed_ms": 1,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_frame: observe again before operating the desktop",
+      "retryable": true
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:49:16.918561+00:00"
+  },
+  {
+    "id": 10,
+    "ok": true,
+    "elapsed_ms": 8932,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:49:34.105816+00:00"
+  },
+  {
+    "id": 11,
+    "ok": true,
+    "elapsed_ms": 5020,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:49:51.665335+00:00"
+  },
+  {
+    "id": 12,
+    "ok": false,
+    "elapsed_ms": 1,
+    "failure": {
+      "kind": "handler",
+      "message": "field \"frame_id\" is not valid for computer action \"wait\"",
+      "retryable": false
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:50:58.991014+00:00"
+  },
+  {
+    "id": 13,
+    "ok": true,
+    "elapsed_ms": 9210,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:51:20.511634+00:00"
+  },
+  {
+    "id": 14,
+    "ok": true,
+    "elapsed_ms": 8921,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "host_received_utc": "2026-10-05T12:51:43.532644+00:00"
+  }
+]
