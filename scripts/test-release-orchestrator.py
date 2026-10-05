@@ -41,6 +41,10 @@ class FakeGitHub:
     def ci(self, sha): return copy.deepcopy(self.cis)
     def releases(self): return copy.deepcopy(self.published)
     def jobs(self, run_id, attempt):
+        if run_id not in self.job_rows and self.runs.get(run_id, {}).get('path') == '.github/workflows/desktop-unix-update-acceptance.yml':
+            return [{'name': name, 'status': 'completed', 'conclusion': 'success'}
+                    for name in ['select', 'candidate linux-x86_64-appimage', 'candidate darwin-aarch64', 'candidate darwin-x86_64']] + [
+                        {'name': 'windows-cache-rehearsal', 'status': 'completed', 'conclusion': 'skipped'}]
         return self.job_rows.get(run_id, [{'status': 'completed', 'conclusion': 'success'}])
     def dispatch(self, workflow, inputs):
         if self.on_dispatch: self.on_dispatch(workflow, inputs)
@@ -206,6 +210,20 @@ class TaskTests(unittest.TestCase):
         self.ready()
         with self.assertRaisesRegex(release.TaskError, 'exactly match'): self.task.advance(confirm='0.2.21')
         self.assertEqual(len(self.client.posts), 3)
+
+    def test_unix_required_platform_cannot_be_missing_or_skipped(self):
+        for skipped in [False, True]:
+            self.setUp(); self.ready()
+            run_id = self.state['stages']['unix']['run_id']
+            jobs = self.client.jobs(run_id, 1)
+            if skipped:
+                jobs[1]['conclusion'] = 'skipped'
+            else:
+                del jobs[1]
+            self.client.job_rows[run_id] = jobs
+            with self.assertRaisesRegex(release.TaskError, 'every required job'):
+                self.task.advance(confirm='0.2.20')
+            self.assertEqual(len(self.client.posts), 3)
 
     def test_retry_known_failed_acceptance_only(self):
         self.task.advance(); self.complete('build'); self.task.advance()

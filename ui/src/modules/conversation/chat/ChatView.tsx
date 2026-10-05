@@ -25,8 +25,8 @@ import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
-import { isObjectRecord } from '../../shared/runtime-types'
 import { isChatNode } from '../contract/chat-node-codec'
+import { messagePreview } from './message-preview'
 import css from './ChatView.styles'
 import railCss from './MessageRail.styles'
 import { HistoryPageIntent } from './history-page-intent'
@@ -239,12 +239,7 @@ export function ChatView({
   const messageMarkers = useMemo(() => order.flatMap(key => {
     const node = nodeStore.get(key)
     if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
-    const snippets: string[] = []
-    for (const block of node.data.content) {
-      if (isObjectRecord(block) && block.type === 'text' && typeof block.text === 'string') snippets.push(block.text)
-    }
-    const preview = snippets.join(' ').replace(/\s+/g, ' ').trim().slice(0, 80)
-    return [{ key, preview }]
+    return [{ key, preview: messagePreview(node.data.content) }]
   }), [order, nodeStore])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
