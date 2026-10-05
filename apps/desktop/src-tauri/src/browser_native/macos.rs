@@ -222,6 +222,12 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
     }
     let reply = std::sync::Mutex::new(Some(reply));
     let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
+        let Some(reply) = reply.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
+        if reply.is_closed() {
+            return;
+        }
         let result = (|| {
             if !error.is_null() || image.is_null() {
                 return Err("WK snapshot failed".into());
@@ -244,9 +250,7 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
             .ok_or("PNG encoding failed")?;
             Ok(png.to_vec())
         })();
-        if let Some(reply) = reply.lock().unwrap().take() {
-            let _ = reply.send(result);
-        }
+        let _ = reply.send(result);
     });
     // SAFETY: block has exactly WebKit's NSImage/NSError completion signature;
     // WebKit copies it until completion. No borrowed Rust values are captured.

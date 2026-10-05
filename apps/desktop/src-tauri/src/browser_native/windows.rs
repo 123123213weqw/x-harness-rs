@@ -151,7 +151,11 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
         tx,
     );
     tauri::async_runtime::spawn(async move {
-        let result = completed(rx).await.and_then(|v| {
+        let response = completed(rx).await;
+        if reply.is_closed() {
+            return;
+        }
+        let result = response.and_then(|v| {
             base64::engine::general_purpose::STANDARD
                 .decode(v["data"].as_str().ok_or("missing PNG")?)
                 .map_err(|_| "invalid native PNG".to_string())

@@ -105,6 +105,9 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
         webkit2gtk::SnapshotOptions::NONE,
         None::<&gtk::gio::Cancellable>,
         move |result| {
+            if reply.is_closed() {
+                return;
+            }
             let result = result
                 .map_err(|_| "WebKitGTK snapshot failed".to_string())
                 .and_then(|surface| {
