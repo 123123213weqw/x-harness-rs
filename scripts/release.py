@@ -28,7 +28,7 @@ WORKFLOWS = {
     'windows': 'desktop-windows-update-acceptance.yml',
     'publish': 'desktop-promote.yml',
 }
-SCOPES = ('all-macos-preview', 'windows-linux', 'all')
+SCOPES = ('all-macos-preview', 'all-macos-selfsigned', 'windows-linux', 'all')
 
 
 class TaskError(ValueError):
@@ -72,6 +72,9 @@ class GitHub:
 
     def master(self):
         return self.get('git/ref/heads/master')['object']['sha']
+
+    def publisher_pin(self):
+        return contract.signing_fingerprint(self.get('actions/variables/XHARNESS_MACOS_PREVIEW_CERT_SHA1')['value'].lower())
 
     def opted_in(self):
         return self.get('actions/variables/XHARNESS_FRIENDS_RELEASE_REPOSITORY')['value'] == self.repo
@@ -157,17 +160,20 @@ def task_lock(path):
         stream.close()
 
 
-def new_task(repo, version, scope, sha):
+def new_task(repo, version, scope, sha, publisher_pin=None):
     contract.version(version)
     require(scope in SCOPES and re.fullmatch(r'[0-9a-f]{40}', sha or ''), 'Invalid scope or source SHA')
-    return {'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
+    require(publisher_pin is None or scope == contract.MACOS_SELFSIGNED_SCOPE, 'Signer pin outside self-signed scope')
+    if scope == contract.MACOS_SELFSIGNED_SCOPE:
+        contract.signing_fingerprint(publisher_pin)
+    return {**({'macos_signing_fingerprint': publisher_pin} if scope == contract.MACOS_SELFSIGNED_SCOPE else {}), 'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
             'source_sha': sha, 'phase': 'waiting_ci', 'stages': {}, 'history': []}
 
 
 class ReleaseTask:
     def __init__(self, client, state, persist):
         require(state.get('schema') == 1 and state.get('repository') == client.repo, 'Task repository/schema mismatch')
-        new_task(client.repo, state['version'], state['scope'], state['source_sha'])
+        new_task(client.repo, state['version'], state['scope'], state['source_sha'], state.get('macos_signing_fingerprint'))
         self.client, self.state, self.persist = client, state, persist
 
     def checkpoint(self, phase):
@@ -262,9 +268,11 @@ class ReleaseTask:
             require(jobs and all(j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs), 'Master CI has non-passing jobs')
             releases = [{'tagName': r['tag_name'], 'isDraft': r['draft']} for r in self.client.releases()]
             contract.make_plan(self.client.repo, self.client.repo, 'desktop-v' + self.state['version'], sha, 1, 1,
-                               releases, runs, self.state['scope'])
+                               releases, runs, self.state['scope'], self.state.get('macos_signing_fingerprint'))
         inputs = {'release_tag': 'desktop-v' + self.state['version'], 'release_scope': self.state['scope'],
-                  'prepare_tag': True, 'expected_sha': sha}
+                  'prepare_tag': True, 'expected_sha': sha,
+                  **({'expected_macos_signing_fingerprint': self.state['macos_signing_fingerprint']}
+                     if self.state['scope'] == contract.MACOS_SELFSIGNED_SCOPE else {})}
         if not self.stage('build', inputs, dispatch=dispatch, retry=retry):
             return self.state['phase']
         build_id = str(self.state['stages']['build']['run_id'])
@@ -316,7 +324,9 @@ def main():
                 require(state['version'] == args.version and (args.platforms is None or state['scope'] == args.platforms), 'Cannot change an existing task version/scope')
             else:
                 require(not args.status and args.confirm_publish is None, 'No task exists; prepare this version first')
-                state = new_task(repo, args.version, args.platforms or 'all-macos-preview', client.master())
+                scope = args.platforms or 'all-macos-preview'
+                state = new_task(repo, args.version, scope, client.master(),
+                                 client.publisher_pin() if scope == contract.MACOS_SELFSIGNED_SCOPE else None)
                 save(path, state)
             task = ReleaseTask(client, state, lambda value: save(path, value))
             deadline, previous = time.monotonic() + args.timeout, None
