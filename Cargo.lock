@@ -3676,6 +3676,7 @@ dependencies = [
  "tokio-util",
  "windows",
  "xharness-computer",
+ "xharness-tools",
  "xharness-win32",
 ]
 

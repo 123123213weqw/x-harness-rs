@@ -70,12 +70,13 @@ async fn probe_main() -> Result<(), Box<dyn std::error::Error>> {
 /// outside the VM; requests are typed ComputerRequests, never shell commands.
 #[cfg(all(windows, feature = "native-acceptance"))]
 async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::Arc;
     use std::{
         path::PathBuf,
         time::{Duration, Instant},
     };
-    use tokio_util::sync::CancellationToken;
-    use xharness_computer::{ComputerDriver, ComputerRequest};
+    use xharness_computer::ComputerTool;
+    use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
     if std::env::var("XHARNESS_DISPOSABLE_COMPUTER_VM").as_deref()
         != Ok("66b64058-bdcc-43e9-85ee-55a79fe2e875")
     {
@@ -83,7 +84,14 @@ async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn s
     }
     let directory = PathBuf::from(directory);
     std::fs::create_dir_all(&directory)?;
-    let driver = xharness_computer_windows::WindowsComputer::new()?;
+    let driver = Arc::new(xharness_computer_windows::WindowsComputer::new()?);
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register(ComputerTool::new(driver).spec()).await?;
+    let executor = ToolExecutor::new(registry);
+    std::fs::write(
+        directory.join("tool-definition.json"),
+        serde_json::to_vec(&xharness_computer::definition())?,
+    )?;
     let deadline = Instant::now() + Duration::from_secs(1200);
     for index in 0..80 {
         let input = directory.join(format!("request-{index}.json"));
@@ -98,23 +106,17 @@ async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn s
             return Err("lab request too large".into());
         }
         let started = Instant::now();
-        let request: ComputerRequest = serde_json::from_slice(&bytes)?;
-        let result = driver.execute(request, CancellationToken::new()).await;
-        let value = match result {
-            Ok(output) => {
-                let screenshot = if let Some(png) = output.screenshot {
-                    let name = format!("screenshot-{index}.png");
-                    std::fs::write(directory.join(&name), png.png)?;
-                    Some(name)
-                } else {
-                    None
-                };
-                serde_json::json!({"id":index,"ok":true,"elapsed_ms":started.elapsed().as_millis(),"result":output.value,"screenshot":screenshot})
-            }
-            Err(error) => {
-                serde_json::json!({"id":index,"ok":false,"elapsed_ms":started.elapsed().as_millis(),"error":{"code":error.code,"message":error.message,"retryable":error.retryable}})
-            }
-        };
+        let request = ToolRequest::new("computer", std::str::from_utf8(&bytes)?)
+            .with_execution_id(format!("shopping-native-{index}"))?;
+        let result = executor.execute(request).await;
+        let content = result
+            .output
+            .as_ref()
+            .map(|o| o.content.as_str())
+            .unwrap_or("");
+        let payload =
+            serde_json::from_str::<serde_json::Value>(content).unwrap_or(serde_json::Value::Null);
+        let value = serde_json::json!({"id":index,"ok":result.is_ok(),"elapsed_ms":started.elapsed().as_millis(),"result":payload,"failure":result.failure});
         let temporary = directory.join(format!("result-{index}.tmp"));
         std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
         std::fs::rename(temporary, directory.join(format!("result-{index}.json")))?;

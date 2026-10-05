@@ -9,6 +9,9 @@ description = "Isolated Windows UI Automation and input adapter for XHarness"
 [features]
 native-acceptance = []
 
+[dev-dependencies]
+xharness-tools = { path = "../xharness-tools" }
+
 [dependencies]
 async-trait.workspace = true
 serde.workspace = true
