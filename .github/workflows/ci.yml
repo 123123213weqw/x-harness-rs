@@ -116,7 +116,11 @@ jobs:
       - name: Strict platform pixel parity (early failure evidence)
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
-        run: node scripts/test-platform-source-browser.mjs
+        run: |
+          node scripts/test-platform-source-browser.mjs
+          # Check the exact complete plugin graph before the long UI suite.
+          # The later generated-artifact and browser gates remain mandatory.
+          node scripts/test-owned-ui-boot-differential.mjs
       - name: Check repository UI build and types
         run: |
           npm run typecheck --prefix ui
