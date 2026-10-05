@@ -64,6 +64,7 @@ jobs:
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
+      - run: python -B scripts/test-windows-runtime-audit.py
       - name: Unix updater isolation and candidate contracts
         if: runner.os != 'Windows'
         run: python3 -B scripts/test-unix-update-acceptance.py
@@ -417,6 +418,8 @@ jobs:
   rust-windows:
     name: Rust / Windows x86_64
     runs-on: windows-2025
+    env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
     defaults:
       run:
         shell: pwsh
@@ -474,14 +477,16 @@ jobs:
         run: |
           $package = "dist/xharness-host-windows-x86_64"
           New-Item -ItemType Directory -Force -Path $package | Out-Null
-          Copy-Item -LiteralPath "target/release/xharness-host.exe" -Destination $package
-          Copy-Item -LiteralPath "target/release/xharness-windows-sandbox-runner.exe" -Destination $package
+          Copy-Item -LiteralPath "target/x86_64-pc-windows-msvc/release/xharness-host.exe" -Destination $package
+          Copy-Item -LiteralPath "target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe" -Destination $package
           Copy-Item -LiteralPath $env:XHARNESS_RG -Destination $package
           New-Item -ItemType Directory -Force -Path "$package/config" | Out-Null
           Copy-Item -LiteralPath "config/providers.remote.example.json" -Destination "$package/config"
           Copy-Item -LiteralPath "scripts/start-windows.ps1" -Destination $package
           Copy-Item -LiteralPath "ui/dist" -Destination "$package/ui" -Recurse
           $archive = "dist/xharness-host-windows-x86_64.zip"
+          python -B scripts/audit-windows-runtime.py --directory $package --portable-host --output dist/windows-runtime-audit/portable.json
+          if ($LASTEXITCODE) { throw 'Portable Windows runtime dependency audit failed' }
           Compress-Archive -Path "$package/*" -DestinationPath $archive -Force
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
           "$hash  xharness-host-windows-x86_64.zip" | Set-Content -Encoding ascii "$archive.sha256"
@@ -498,11 +503,11 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           $target = 'x86_64-pc-windows-msvc'
-          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe $target
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
-          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
       - name: Stage debug Windows sidecars for PR smoke
         if: github.event_name == 'pull_request'
@@ -510,11 +515,11 @@ jobs:
           $target = 'x86_64-pc-windows-msvc'
           cargo build --locked -p xharness-host-app -p xharness-sandbox --bins
           if ($LASTEXITCODE) { throw 'Windows PR sidecar build failed' }
-          python scripts/stage-tauri-sidecar.py target/debug/xharness-host.exe $target
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows PR host staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows PR search staging failed' }
-          python scripts/stage-tauri-sidecar.py target/debug/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
+          python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'Windows PR sandbox staging failed' }
       - name: Check native Tauri desktop shell
         run: |
@@ -534,12 +539,12 @@ jobs:
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
           if ($LASTEXITCODE) { throw 'Windows native DOM probe build failed' }
-          ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe -EvidenceDir dist/native-browser-evidence/windows
-          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe.exe --evidence-dir dist/native-browser-evidence/windows
+          ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe -EvidenceDir dist/native-browser-evidence/windows
+          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe --evidence-dir dist/native-browser-evidence/windows
           if ($LASTEXITCODE) {
             # Preserve loader evidence rather than treating pre-main failure as
             # a DOM/model failure or silently skipping the native contract.
-            Get-ChildItem apps/desktop/src-tauri/target/debug -Filter '*.dll' -Recurse | Select-Object FullName,Length | ConvertTo-Json > dist/native-browser-evidence/windows/build-dlls.json
+            Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug -Filter '*.dll' -Recurse | Select-Object FullName,Length | ConvertTo-Json > dist/native-browser-evidence/windows/build-dlls.json
             throw 'Windows native DOM probe failed'
           }
       - name: Upload Windows native DOM evidence
@@ -559,6 +564,13 @@ jobs:
             --target x86_64-pc-windows-msvc
             --bundles nsis
             --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Audit final extracted Windows installer
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          $installers = @(Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe)
+          if ($installers.Count -ne 1) { throw 'Expected one NSIS installer' }
+          python -B scripts/audit-windows-runtime.py --installer $installers[0].FullName --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/windows-runtime-audit/installer.json
+          if ($LASTEXITCODE) { throw 'Final Windows runtime dependency audit failed' }
       - name: Hash Windows installer
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
@@ -577,13 +589,15 @@ jobs:
           ./scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
           & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-logic.ps1 -DesktopBinary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe
           if ($LASTEXITCODE) { throw 'Windows PowerShell 5.1 installer logic failed' }
-          ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName
+          ./scripts/test-windows-install-ownership.ps1 -Installer $installer.FullName -RuntimeAudit dist/windows-runtime-audit/installer.json
       - name: Upload installation ownership evidence
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@v7
         with:
           name: installation-ownership-evidence
-          path: dist/install-ownership-evidence/
+          path: |
+            dist/install-ownership-evidence
+            dist/windows-runtime-audit/
           if-no-files-found: warn
       - name: Upload Windows application
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master' && steps.windows-bundle.outcome == 'success'
