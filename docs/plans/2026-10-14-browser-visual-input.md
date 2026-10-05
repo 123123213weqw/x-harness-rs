@@ -13,7 +13,9 @@ No additional top-level tool. The lazy `plugin_mcp` namespace remains
 
 Use DOM observation/actions where sufficient. Use native pixels and input for
 canvas/custom controls, hover/keyboard interactions and cross-origin iframe
-**visual** targets. This is not cross-origin element discovery or global OS input.
+**visual** targets. This is not cross-origin element discovery or global OS input. System WebView
+snapshots may omit hardware-accelerated video/WebGL; do not claim universal
+screen-capture parity.
 There is no recording, drag, right/double click, arbitrary keycode/JS/selector,
 background-tab control or IME text-entry API in this change. Text fields retain
 DOM fill. Key support is explicitly a-z, navigation/editing keys, and portable
@@ -37,7 +39,8 @@ Shift/Control/Alt/Meta modifiers; Meta maps to Command on macOS.
   screen-coordinate input. Input may also consume a fresh DOM frame.
 - Per-tab gate, identity/epoch checks and visible-session/origin grants apply to
   both operations. Input consumes its frame before scheduling. Resize/layout
-  changes invalidate old frames. Every queued native closure rechecks binding,
+  changes invalidate old frames. UI-thread guards use a nonblocking registry lookup (no lock held across native
+  getters). Every queued native closure rechecks binding,
   cancellation and deadline on the UI thread. Pointer/key press/release pairs
   dispatch together, so caller cancellation cannot omit a scheduled release.
 - After dispatch, callback loss/browser change yields `effect=unknown`, never

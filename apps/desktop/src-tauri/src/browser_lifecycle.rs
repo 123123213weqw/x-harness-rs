@@ -43,7 +43,7 @@ pub fn descriptor(state: &BrowserState, owner: &str) -> Value {
         "engine":"tauri-webview","capabilities":{
             "open":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"cross_origin_pointer":true,"global_os_input":false,
             "native_input":true,"cross_origin_frames":false,
-            "screenshot":true,"recording":false,"hidden_tab_actions":false
+            "screenshot":true,"screenshot_scope":"system WebView viewport snapshot; accelerated media may be omitted","recording":false,"hidden_tab_actions":false
         },"constraints":["open requires the requesting chat to be visible; no focus stealing",
             "observe/perform/screenshot/input require a loaded, visible, chat-bound tab",
             "perform uses DOM actions; input uses browser-owned native events, not global OS input",

@@ -41,6 +41,14 @@ fn cdp(
         )
     };
 }
+async fn completed(
+    receiver: tokio::sync::oneshot::Receiver<Result<Value, String>>,
+) -> Result<Value, String> {
+    tokio::time::timeout(std::time::Duration::from_secs(8), receiver)
+        .await
+        .map_err(|_| "native protocol callback timed out")?
+        .map_err(|_| "native protocol callback closed")?
+}
 pub fn input(
     handle: PlatformWebview,
     request: super::InputRequest,
@@ -127,14 +135,7 @@ pub fn input(
     tauri::async_runtime::spawn(async move {
         let mut result = Ok(());
         for receiver in receivers {
-            if let Err(error) = tokio::time::timeout(std::time::Duration::from_secs(8), receiver)
-                .await
-                .map_err(|_| "native input callback timed out".to_string())
-                .and_then(|r| r)
-                .map_err(|_| "native input callback closed".to_string())
-                .and_then(|r| r)
-                .map(|_| ())
-            {
+            if let Err(error) = completed(receiver).await.map(|_| ()) {
                 result = Err(error);
             }
         }
@@ -150,17 +151,28 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
         tx,
     );
     tauri::async_runtime::spawn(async move {
-        let result = tokio::time::timeout(std::time::Duration::from_secs(8), rx)
-            .await
-            .map_err(|_| "native screenshot callback timed out".to_string())
-            .and_then(|r| r)
-            .map_err(|_| "native screenshot callback closed".to_string())
-            .and_then(|r| r)
-            .and_then(|v| {
-                base64::engine::general_purpose::STANDARD
-                    .decode(v["data"].as_str().ok_or("missing PNG")?)
-                    .map_err(|_| "invalid native PNG".to_string())
-            });
+        let result = completed(rx).await.and_then(|v| {
+            base64::engine::general_purpose::STANDARD
+                .decode(v["data"].as_str().ok_or("missing PNG")?)
+                .map_err(|_| "invalid native PNG".to_string())
+        });
         let _ = reply.send(result);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn protocol_receipt_flattens_timeout_channel_and_native_result_layers() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tx.send(Ok(json!({}))).unwrap();
+        assert_eq!(completed(rx).await.unwrap(), json!({}));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tx.send(Err("native failure".into())).unwrap();
+        assert_eq!(completed(rx).await.unwrap_err(), "native failure");
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        drop(tx);
+        assert!(completed(rx).await.unwrap_err().contains("closed"));
+    }
 }

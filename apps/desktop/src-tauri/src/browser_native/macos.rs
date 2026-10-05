@@ -1,11 +1,11 @@
 use block2::RcBlock;
-use objc2::{AnyThread, MainThreadMarker};
+use objc2::{msg_send, sel, AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType, NSImage,
-    NSWindowStyleMask,
+    NSTrackingAreaOptions, NSWindowStyleMask,
 };
-use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
-use objc2_web_kit::WKWebView;
+use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSRect, NSSize, NSString};
+use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
 use tauri::webview::PlatformWebview;
 use tokio::sync::oneshot::Sender;
 
@@ -17,6 +17,26 @@ fn view(handle: &PlatformWebview) -> Result<&WKWebView, String> {
     // SAFETY: Tauri owns the live WKWebView throughout with_webview; this
     // borrowed handle never leaves that main-thread closure.
     Ok(unsafe { &*ptr })
+}
+
+fn top_content_inset(view: &WKWebView) -> Result<f64, String> {
+    let window = view.window().ok_or("WKWebView window missing")?;
+    Ok(
+        if window
+            .styleMask()
+            .contains(NSWindowStyleMask::FullSizeContentView)
+            && !window.titlebarAppearsTransparent()
+            && view.enclosingScrollView().is_none()
+        {
+            window.updateConstraintsIfNeeded();
+            view.convertRect_fromView(window.contentLayoutRect(), None)
+                .origin
+                .y
+                .max(0.0)
+        } else {
+            0.0
+        },
+    )
 }
 
 fn content_point(x: f64, y: f64, height: f64, flipped: bool, top: f64) -> Result<NSPoint, String> {
@@ -52,20 +72,7 @@ fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), St
         // convertPoint alone maps view coordinates, not this content origin.
         // Do not hardcode a titlebar height, apply a DPR multiplier, or use SPI.
         // WebKit/UIProcess/mac/PageClientImplMac.mm::computeAutomaticTopObscuredInset
-        let top = if window
-            .styleMask()
-            .contains(NSWindowStyleMask::FullSizeContentView)
-            && !window.titlebarAppearsTransparent()
-            && view.enclosingScrollView().is_none()
-        {
-            window.updateConstraintsIfNeeded();
-            view.convertRect_fromView(window.contentLayoutRect(), None)
-                .origin
-                .y
-                .max(0.0)
-        } else {
-            0.0
-        };
+        let top = top_content_inset(view)?;
         let flipped = view.isFlipped();
         let bounds = view.bounds();
         let height = bounds.size.height;
@@ -88,7 +95,37 @@ fn pointer(handle: &PlatformWebview, x: f64, y: f64, phase: u8) -> Result<(), St
         match phase {
             0 => view.mouseDown(&event),
             1 => view.mouseUp(&event),
-            _ => view.mouseMoved(&event),
+            _ => {
+                // WebKit intentionally routes hover via an AppKit tracking-area
+                // owner, not WKWebView.mouseMoved (the latter is inherited/no-op).
+                // Follow the public trackingAreas/owner contract. No class-name
+                // dependency, private selector, window/app routing or OS input.
+                view.updateTrackingAreas();
+                let mut delivered = false;
+                for area in view.trackingAreas().iter() {
+                    if !area.options().contains(NSTrackingAreaOptions::MouseMoved) {
+                        continue;
+                    }
+                    let Some(owner) = area.owner() else {
+                        continue;
+                    };
+                    // SAFETY: NSObject's fixed public selector query; no model
+                    // values select a target or message. Owner is retained here.
+                    let responds: bool =
+                        unsafe { msg_send![&*owner, respondsToSelector:sel!(mouseMoved:)] };
+                    if responds {
+                        // SAFETY: AppKit documents the tracking owner's standard
+                        // void mouseMoved:(NSEvent*) callback. Both objects live
+                        // on this UI thread throughout the synchronous message.
+                        let _: () = unsafe { msg_send![&*owner, mouseMoved:&*event] };
+                        delivered = true;
+                        break;
+                    }
+                }
+                if !delivered {
+                    return Err("native browser hover tracking unavailable".into());
+                }
+            }
         }
         Ok(())
     })()
@@ -154,6 +191,35 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
         let _ = reply.send(Err("WKWebView unavailable".into()));
         return;
     };
+    let bounds = view.bounds();
+    let top = match top_content_inset(view) {
+        Ok(top) => top,
+        Err(error) => {
+            let _ = reply.send(Err(error));
+            return;
+        }
+    };
+    let height = bounds.size.height - top;
+    if !height.is_finite() || height <= 0.0 {
+        let _ = reply.send(Err("native snapshot content geometry unavailable".into()));
+        return;
+    }
+    let Some(mtm) = MainThreadMarker::new() else {
+        let _ = reply.send(Err("native snapshot is not on UI thread".into()));
+        return;
+    };
+    // SAFETY: snapshot configuration is initialized on its required main thread.
+    let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
+    // WK software snapshots start at CSS content origin even when native input
+    // starts below an obscured inset. Crop the extra bottom extent, NOT the top:
+    // CI pixels put the CSS marker at y=120 in a 560px image/532px CSS viewport.
+    // SAFETY: finite public view-contained CGRect, main-thread native object.
+    unsafe {
+        configuration.setRect(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(bounds.size.width, height),
+        ));
+    }
     let reply = std::sync::Mutex::new(Some(reply));
     let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
         let result = (|| {
@@ -185,7 +251,7 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
     // SAFETY: block has exactly WebKit's NSImage/NSError completion signature;
     // WebKit copies it until completion. No borrowed Rust values are captured.
     unsafe {
-        view.takeSnapshotWithConfiguration_completionHandler(None, &block);
+        view.takeSnapshotWithConfiguration_completionHandler(Some(&configuration), &block);
     }
 }
 
