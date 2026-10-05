@@ -61,8 +61,11 @@ function Assert-ReadOnlyTool {
     $probe = @'
 $ErrorActionPreference='Stop'
 Write-Output ('CWD=' + (Get-Location).Path)
-try { [IO.File]::WriteAllText((Join-Path (Get-Location).Path 'must-not-write.txt'), 'unexpected'); exit 41 }
-catch [UnauthorizedAccessException] { Write-Output 'READ_ONLY_DENIED' }
+try { Set-Content -LiteralPath (Join-Path (Get-Location).Path 'must-not-write.txt') -Value 'unexpected' -ErrorAction Stop; exit 41 }
+catch {
+    if ($_.CategoryInfo.Category -eq 'PermissionDenied' -or $_.Exception -is [UnauthorizedAccessException]) { Write-Output 'READ_ONLY_DENIED' }
+    else { throw }
+}
 '@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
     $out = Join-Path $root 'tool.stdout.txt'
@@ -77,7 +80,11 @@ catch [UnauthorizedAccessException] { Write-Output 'READ_ONLY_DENIED' }
         $stdout = [IO.File]::ReadAllText($out)
         $stderr = [IO.File]::ReadAllText($err)
         $cwd = @($stdout -split "`r?`n" | Where-Object { $_.StartsWith('CWD=') })
-        $matchesCwd = $cwd.Count -eq 1 -and $cwd[0].Substring(4).Replace('\\?\', '') -ieq $workspace
+        $actualCwd = if ($cwd.Count -eq 1) { $cwd[0].Substring(4) } else { '' }
+        $provider = 'Microsoft.PowerShell.Core\FileSystem::'
+        if ($actualCwd.StartsWith($provider)) { $actualCwd = $actualCwd.Substring($provider.Length) }
+        if ($actualCwd.StartsWith('\\?\')) { $actualCwd = $actualCwd.Substring(4) }
+        $matchesCwd = $actualCwd -ieq $workspace
         $passed = $ended -and $p.ExitCode -eq 0 -and $matchesCwd -and $stdout.Contains('READ_ONLY_DENIED') -and -not (Test-Path (Join-Path $workspace 'must-not-write.txt'))
         Record 'final-installer-read-only-tool' @{passed=$passed; ended=$ended; stdout=$stdout; stderr=$stderr; cwdMatches=$matchesCwd; exitCode=$(if ($ended) {$p.ExitCode} else {$null})}
         Assert-That $passed 'Read-only tool / working-directory acceptance failed'
