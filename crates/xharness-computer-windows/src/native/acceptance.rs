@@ -276,6 +276,22 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let nodes = output.value["accessibility"]["nodes"]
         .as_array()
         .ok_or("missing nodes")?;
+    let confirm = nodes
+        .iter()
+        .find(|node| node["label"] == "Confirm fixture")
+        .ok_or("fixture button missing")?;
+    let timings = &output.value["accessibility"]["timings"];
+    if !confirm["actions"]
+        .as_array()
+        .is_some_and(|actions| actions.iter().any(|action| action == "invoke"))
+        || timings["invoke_cache_hits"].as_u64().unwrap_or(0) == 0
+    {
+        return Err("cached invoke availability lost the independent fixture button".into());
+    }
+    record(
+        "native_invoke_cache",
+        json!({"button_action_preserved":true,"cache_hits":timings["invoke_cache_hits"],"live_fallbacks":timings["invoke_live_fallbacks"]}),
+    );
     let readable = nodes
         .iter()
         .find(|n| n["value_state"] == "known" && n["value"] == "known input")
@@ -499,7 +515,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     record(
         "native_acceptance",
-        json!({"cases":14,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
+        json!({"cases":15,"elapsed_ms":started.elapsed().as_millis(),"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }
