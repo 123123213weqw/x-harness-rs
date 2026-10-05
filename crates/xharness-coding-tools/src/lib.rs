@@ -164,7 +164,7 @@ impl CodingToolBundle {
                     "type": "object",
                     "properties": {
                         "command": {"type": "string", "description": "Script in the selected shell dialect. Mutually exclusive with program/args."},
-                        "program": {"type": "string", "description": "Executable to launch directly without a shell. Mutually exclusive with command."},
+                        "program": {"type": "string", "description": "Native executable to launch directly without a shell. Mutually exclusive with command. Use command for Windows .bat/.cmd scripts."},
                         "args": {"type": "array", "items": {"type": "string"}, "description": "Literal argument vector for program; no shell expansion."},
                         "description": {"type": "string"},
                         "timeout_ms": {"type": "integer"},
@@ -1017,7 +1017,7 @@ fn process_invocation(
                 program: shell.program.clone().into_os_string(),
                 args: shell.command_args(command),
                 label: command.to_owned(),
-                metadata: json!({"mode":"shell", "shell":shell.kind.label(), "program":shell.program}),
+                metadata: json!({"mode":"shell", "shell":shell.kind.label(), "program":shell.program.to_string_lossy()}),
             })
         }
         (None, Some(program)) => {
@@ -1027,6 +1027,12 @@ fn process_invocation(
                 .ok_or_else(|| {
                     ToolHandlerError::new("program must be a non-empty executable name or path")
                 })?;
+            #[cfg(windows)]
+            if Path::new(program).extension().is_some_and(|extension| {
+                extension.eq_ignore_ascii_case("bat") || extension.eq_ignore_ascii_case("cmd")
+            }) {
+                return Err(ToolHandlerError::new("Windows .bat/.cmd scripts require command mode; direct program mode only accepts native executables"));
+            }
             let args = arguments
                 .get("args")
                 .map(|value| {
@@ -1199,7 +1205,7 @@ fn process_repetition_observation(content: &str) -> Option<(bool, Value)> {
 #[cfg(test)]
 mod tests {
     use super::{managed_environment, managed_path, search_process_output};
-    use xharness_process::is_secret_env_name;
+    use xharness_process::{is_secret_env_name, shell::ShellError};
 
     #[test]
     fn shell_description_prefers_managed_jobs_without_banning_native_sessions() {
@@ -1213,6 +1219,36 @@ mod tests {
         assert!(description.contains("status, logs, and stop method"));
         assert!(!description.contains("Never emulate"));
         assert!(!description.contains("Do not use shell"));
+    }
+
+    #[test]
+    fn direct_program_does_not_require_a_shell_and_rejects_nul_args() {
+        let missing = Err(ShellError::Unavailable);
+        let invocation = super::process_invocation(
+            &serde_json::json!({"program":"native.exe","args":["a b;$(literal)"]}),
+            &missing,
+        )
+        .unwrap();
+        assert_eq!(invocation.program, "native.exe");
+        assert_eq!(
+            invocation.args,
+            [std::ffi::OsString::from("a b;$(literal)")]
+        );
+        assert!(
+            super::process_invocation(&serde_json::json!({"command":"anything"}), &missing)
+                .is_err()
+        );
+        assert!(super::process_invocation(
+            &serde_json::json!({"program":"native.exe","args":["bad\u{0}arg"]}),
+            &missing
+        )
+        .is_err());
+        #[cfg(windows)]
+        assert!(super::process_invocation(
+            &serde_json::json!({"program":"task.CMD","args":[]}),
+            &missing
+        )
+        .is_err());
     }
 
     #[test]
