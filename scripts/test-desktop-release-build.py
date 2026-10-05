@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -55,10 +56,85 @@ class SigningGate(unittest.TestCase):
         with self.assertRaises(ValueError):
             build.signing_gate('darwin-aarch64', {**self.environment(), 'APPLE_TEAM_ID': 'wrong'})
 
+    def test_fixed_publisher_policy_is_explicit_pin_bound_and_never_falls_back(self):
+        ci = dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push', status='completed',
+                  conclusion='success', path='.github/workflows/ci.yml')
+        plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [], [ci],
+                                         release_scope='all-macos-selfsigned', macos_signing_fingerprint='c'*40)
+        env = {'TAURI_SIGNING_PRIVATE_KEY':'dummy', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD':'dummy',
+               'XHARNESS_UPDATER_PUBKEY':'dummy', 'XHARNESS_MACOS_PREVIEW_CERT_SHA1':'c'*40,
+               'XHARNESS_MACOS_PREVIEW_P12':'dummy', 'XHARNESS_MACOS_PREVIEW_P12_PASSWORD':'dummy'}
+        build.signing_gate('darwin-aarch64', env, plan=plan)
+        for key in env:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                build.signing_gate('darwin-aarch64', {**env,key:''}, plan=plan)
+        with self.assertRaises(ValueError): build.signing_gate('darwin-aarch64', {**env,'XHARNESS_MACOS_PREVIEW_CERT_SHA1':'d'*40}, plan=plan)
+        # Public planning does not load private environment secrets; signing workers must.
+        public = {k:v for k,v in env.items() if k not in ['XHARNESS_MACOS_PREVIEW_P12','XHARNESS_MACOS_PREVIEW_P12_PASSWORD']}
+        build.signing_plan(plan, public)
+        with self.assertRaises(ValueError): build.signing_gate('darwin-aarch64', public, plan=plan)
+        matrix = build.platform_matrix(plan)['include']
+        self.assertEqual({r['platform'] for r in matrix if r.get('macos_selfsigned')}, {'darwin-aarch64','darwin-x86_64'})
+        self.assertFalse(any(r.get('macos_preview') for r in matrix))
+
     def test_windows_and_linux_do_not_require_apple_credentials(self):
         env = {k: v for k, v in self.environment().items() if not k.startswith('APPLE_')}
         build.signing_gate('windows-x86_64', env)
         build.signing_gate('linux-x86_64-appimage', env)
+
+
+class FixedArchiveSigning(unittest.TestCase):
+    def test_final_updater_signature_is_created_only_after_app_sign_and_repack(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            bundle = root / 'apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos'
+            bundle.mkdir(parents=True)
+            package = bundle / 'XHarness.app.tar.gz'
+            signature = Path(str(package) + '.sig')
+            package.write_bytes(b'adhoc'); signature.write_text('obsolete')
+            plan = {'release_scope':'all-macos-selfsigned', 'macos_signing_fingerprint':'c'*40}
+            args = types.SimpleNamespace(plan=root/'plan.json', target='aarch64-apple-darwin')
+            calls = []
+            def sign(*args, **kwargs):
+                calls.append('app-signed')
+            def native(args, **kwargs):
+                if args[0] == 'tar':
+                    self.assertEqual(calls, ['app-signed'])
+                    self.assertEqual(kwargs['env']['COPYFILE_DISABLE'], '1')
+                    Path(args[2]).write_bytes(b'fixed')
+                    calls.append('repacked')
+                else:
+                    self.assertEqual(calls, ['app-signed', 'repacked'])
+                    self.assertEqual(package.read_bytes(), b'fixed')
+                    self.assertFalse(signature.exists())
+                    self.assertIn('@tauri-apps/cli@2.11.4', args)
+                    signature.write_text('final-signature')
+                    calls.append('updater-signed')
+            with patch.object(build, 'ROOT', root), patch.object(build, 'load', return_value=plan), \
+                    patch.object(build._contract, 'validate_plan', return_value=plan), \
+                    patch.dict(os.environ, {'XHARNESS_MACOS_PREVIEW_CERT_SHA1':'c'*40}), \
+                    patch.object(build, 'run', side_effect=sign), patch.object(build.subprocess, 'run', side_effect=native), \
+                    patch.object(build, 'npm_invocation', return_value=['npm']):
+                build.sign_stable_preview(args)
+            self.assertEqual(calls, ['app-signed', 'repacked', 'updater-signed'])
+            self.assertEqual(signature.read_text(), 'final-signature')
+
+    def test_app_sign_failure_leaves_old_archive_unchanged_without_resigning(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            bundle = root / 'apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos'
+            bundle.mkdir(parents=True)
+            package = bundle / 'XHarness.app.tar.gz'; package.write_bytes(b'old')
+            plan = {'release_scope':'all-macos-selfsigned', 'macos_signing_fingerprint':'c'*40}
+            with patch.object(build, 'ROOT', root), patch.object(build, 'load', return_value=plan), \
+                    patch.object(build._contract, 'validate_plan', return_value=plan), \
+                    patch.dict(os.environ, {'XHARNESS_MACOS_PREVIEW_CERT_SHA1':'c'*40}), \
+                    patch.object(build, 'run', side_effect=ValueError('sign failed')), \
+                    patch.object(build.subprocess, 'run') as native:
+                with self.assertRaisesRegex(ValueError, 'sign failed'):
+                    build.sign_stable_preview(types.SimpleNamespace(plan=root/'plan.json', target='aarch64-apple-darwin'))
+                native.assert_not_called()
+            self.assertEqual(package.read_bytes(), b'old')
 
 
 class ScopeMatrix(unittest.TestCase):
@@ -631,7 +707,7 @@ class WorkflowGuard(unittest.TestCase):
         self.assertNotIn('bundles: deb', text)
         self.assertIn('XHARNESS_FRIENDS_PRIVATE_KEY', text)
         self.assertIn('Fail early unless every selected platform meets its explicit signing policy', text)
-        self.assertIn('options: [all, windows-linux, all-macos-preview]', text)
+        self.assertIn('options: [all, windows-linux, all-macos-preview, all-macos-selfsigned]', text)
         self.assertIn("signing-gate --platform '${{ matrix.platform }}' --plan dist/desktop-plan/plan.json", text)
         # The bundler selects its Apple branch with `var_os`, which reports a
         # present-but-empty variable as `Some("")`. Blanks therefore still
@@ -642,9 +718,9 @@ class WorkflowGuard(unittest.TestCase):
                         'the ad-hoc Mac preview needs its own build step that never defines Apple credentials')
         formal = text.split('      - name: Build and sign desktop bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
         preview = text.split('      - name: Build and sign ad-hoc Mac preview bundle (artifacts only)', 1)[1].split('      - name:', 1)[0]
-        self.assertIn('if: ${{ !matrix.macos_preview }}', formal)
+        self.assertIn('if: ${{ !matrix.macos_preview && !matrix.macos_selfsigned }}', formal)
         self.assertIn('APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}', formal)
-        self.assertIn('if: ${{ matrix.macos_preview }}', preview)
+        self.assertIn('if: ${{ matrix.macos_preview || matrix.macos_selfsigned }}', preview)
         self.assertIn("APPLE_SIGNING_IDENTITY: '-'", preview)
         self.assertIn('TAURI_SIGNING_PRIVATE_KEY', preview)
         for name in ('APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID'):
@@ -652,6 +728,18 @@ class WorkflowGuard(unittest.TestCase):
         for line in text.splitlines():
             if line.strip().startswith('APPLE_'):
                 self.assertNotIn("|| ''", line, f'blank Apple credential selects the formal branch: {line.strip()}')
+
+    def test_fixed_signing_credentials_only_enter_protected_release_workers(self):
+        text = (ROOT / '.github/workflows/desktop-release.yml').read_text()
+        plan_job = text.split('  plan:',1)[1].split('  build:',1)[0]
+        self.assertNotIn('secrets.XHARNESS_MACOS_PREVIEW_P12', plan_job)
+        self.assertIn("matrix.macos_selfsigned && 'macos-preview-signing'", text)
+        self.assertIn('sign-stable-preview --plan', text)
+        self.assertIn('always() && matrix.macos_selfsigned', text)
+        acceptance = (ROOT / '.github/workflows/desktop-unix-update-acceptance.yml').read_text()
+        self.assertIn("matrix.macos_selfsigned && 'macos-preview-signing'", acceptance)
+        self.assertIn('scripts/macos-stable-signing.py cleanup', acceptance)
+        self.assertIn('scripts/test-macos-stable-signing.py --native', (ROOT / '.github/workflows/ci.yml').read_text())
 
     def test_promotion_only_and_shared_serialization(self):
         for name in ['desktop-release.yml', 'desktop-promote.yml', 'friends-release.yml']:

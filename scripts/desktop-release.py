@@ -40,6 +40,11 @@ PLATFORMS = {
 MANIFEST_NOTES = 'Signed unified desktop update. Save work before restarting.'
 MACOS_PREVIEW_SCOPE = 'all-macos-preview'
 MACOS_PREVIEW_POLICY = 'ad-hoc-unnotarized-preview'
+MACOS_SELFSIGNED_SCOPE = 'all-macos-selfsigned'
+MACOS_SELFSIGNED_POLICY = 'self-signed-unnotarized-preview'
+MACOS_SELFSIGNED_NOTES = (MANIFEST_NOTES + ' macOS preview: fixed publisher self-signature, not notarized by Apple. '
+                        'First launch/migration may require Open Anyway and privacy permissions; '
+                        'signature continuity does not guarantee that macOS retains every permission.')
 MACOS_PREVIEW_NOTES = (MANIFEST_NOTES + ' macOS preview: ad-hoc signed, not notarized by Apple. '
                       'First launch may require Privacy & Security > Open Anyway; managed Macs may block it. '
                       'Do not disable system security. Windows/Linux signing requirements are unchanged.')
@@ -190,7 +195,7 @@ def select_ci(runs, sha):
 
 def release_platforms(plan):
     scope = plan.get('release_scope', 'all')
-    require(isinstance(scope, str) and scope in {'all', 'windows-linux', MACOS_PREVIEW_SCOPE}, 'Unknown release scope')
+    require(isinstance(scope, str) and scope in {'all', 'windows-linux', MACOS_PREVIEW_SCOPE, MACOS_SELFSIGNED_SCOPE}, 'Unknown release scope')
     return tuple(p for p in PLATFORMS if scope != 'windows-linux' or not p.startswith('darwin-'))
 
 
@@ -199,19 +204,42 @@ def macos_preview(plan):
     return plan.get('release_scope') == MACOS_PREVIEW_SCOPE
 
 
+def macos_selfsigned(plan):
+    release_platforms(plan)
+    return plan.get('release_scope') == MACOS_SELFSIGNED_SCOPE
+
+
+def signing_fingerprint(value):
+    require(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{40}', value), 'Invalid fixed Mac certificate fingerprint')
+    return value
+
+
+def macos_distribution(plan):
+    if macos_selfsigned(plan):
+        return MACOS_SELFSIGNED_POLICY
+    return MACOS_PREVIEW_POLICY if macos_preview(plan) else None
+
+
 def manifest_notes(plan):
+    if macos_selfsigned(plan):
+        return MACOS_SELFSIGNED_NOTES
     return MACOS_PREVIEW_NOTES if macos_preview(plan) else MANIFEST_NOTES
 
 
 def acceptance_checks(plan, platform):
     require(platform in release_platforms(plan), 'Unselected acceptance platform')
+    if platform.startswith('darwin-') and macos_selfsigned(plan):
+        return UNIX_CHECKS | {'codesignVerified', 'fixedCertificateVerified', 'designatedRequirementVerified', 'signingIdentityContinuityVerified'}
     if platform.startswith('darwin-') and macos_preview(plan):
         return UNIX_CHECKS | {'codesignVerified', 'adHocSignatureVerified'}
     return PLATFORM_CHECKS[platform]
 
 
 def validate_plan(plan):
-    fields(plan, PLAN_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()), 'plan')
+    fields(plan, PLAN_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()) |
+           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()), 'plan')
+    if macos_selfsigned(plan):
+        signing_fingerprint(plan['macos_signing_fingerprint'])
     release_platforms(plan)
     require(type(plan['schema_version']) is int and plan['schema_version'] == 1, 'Unknown schema')
     validate_repository(plan['repository'], plan['repository'])
@@ -225,7 +253,7 @@ def validate_plan(plan):
     return plan
 
 
-def make_plan(repository, configured_repository, tag, sha, run_id, attempt, releases, runs, release_scope='all'):
+def make_plan(repository, configured_repository, tag, sha, run_id, attempt, releases, runs, release_scope='all', macos_signing_fingerprint=None):
     validate_repository(repository, configured_repository)
     require(isinstance(tag, str) and tag.startswith(PREFIX), 'Wrong release tag prefix')
     target = tag[len(PREFIX):]
@@ -239,10 +267,13 @@ def make_plan(repository, configured_repository, tag, sha, run_id, attempt, rele
                 require(target_version != old_version, 'Stable version already exists in a draft or published channel release')
                 if not row['isDraft']:
                     require(target_version > old_version, 'Version must exceed every published stable channel version')
+    require(macos_signing_fingerprint is None or release_scope == MACOS_SELFSIGNED_SCOPE,
+            'Mac certificate pin requires explicit self-signed scope')
     return validate_plan({'schema_version': 1, 'repository': repository, 'tag': tag,
                           'version': target, 'sha': sha, 'endpoint': endpoint(repository),
                           'release_run_id': str(run_id), 'release_run_attempt': str(attempt),
-                          'ci': select_ci(runs, sha), **({'release_scope': release_scope} if release_scope != 'all' else {})})
+                          'ci': select_ci(runs, sha), **({'release_scope': release_scope} if release_scope != 'all' else {}),
+                          **({'macos_signing_fingerprint': macos_signing_fingerprint} if release_scope == MACOS_SELFSIGNED_SCOPE else {})})
 
 
 def package_name(plan, platform):
@@ -303,7 +334,8 @@ def validate_receipt(plan, platform, root, expected_public_key, *, receipt_name=
     if strict_tree:
         exact_tree(root, {name, name + '.sig', 'updater.pub', receipt_name})
     receipt = read_json(root / receipt_name)
-    fields(receipt, RECEIPT_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()), 'receipt')
+    fields(receipt, RECEIPT_FIELDS | ({'release_scope'} if 'release_scope' in plan else set()) |
+           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()), 'receipt')
     require(type(receipt['schema_version']) is int and receipt['schema_version'] == 1, 'Unknown receipt schema')
     validate_ci(receipt['ci'], plan['sha'])
     for key, value in plan.items():
@@ -360,8 +392,10 @@ def assemble(plan, artifacts, public_key_path, output):
                              'url': f'https://github.com/{plan["repository"]}/releases/download/{plan["tag"]}/{name}'}
     manifest = {'version': plan['version'], 'notes': manifest_notes(plan),
                 'pub_date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'platforms': entries}
-    if macos_preview(plan):
-        manifest['macos_distribution'] = MACOS_PREVIEW_POLICY
+    if macos_distribution(plan):
+        manifest['macos_distribution'] = macos_distribution(plan)
+    if macos_selfsigned(plan):
+        manifest['macos_signing_fingerprint'] = plan['macos_signing_fingerprint']
     write_json(dest / 'latest.json', manifest)
     evidence = {'schema_version': 1, 'plan': plan, 'public_key_sha256': key_hash,
                 'manifest_sha256': sha256(dest / 'latest.json'),
@@ -400,9 +434,12 @@ def validate_release(plan, root, public_key_path):
     require(set(evidence['receipts']) == set(release_platforms(plan)), 'Incomplete release receipt evidence')
     manifest = read_json(root / 'latest.json')
     fields(manifest, {'version', 'notes', 'pub_date', 'platforms'} |
-           ({'macos_distribution'} if macos_preview(plan) else set()), 'manifest')
-    if macos_preview(plan):
-        require(manifest['macos_distribution'] == MACOS_PREVIEW_POLICY, 'Mac preview policy mismatch')
+           ({'macos_distribution'} if macos_distribution(plan) else set()) |
+           ({'macos_signing_fingerprint'} if macos_selfsigned(plan) else set()), 'manifest')
+    if macos_distribution(plan):
+        require(manifest['macos_distribution'] == macos_distribution(plan), 'Mac preview policy mismatch')
+    if macos_selfsigned(plan):
+        require(manifest['macos_signing_fingerprint'] == plan['macos_signing_fingerprint'], 'Mac signer differs from plan')
     require(manifest['version'] == plan['version'], 'Manifest version mismatch')
     require(manifest['notes'] == manifest_notes(plan) and isinstance(manifest['pub_date'], str)
             and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', manifest['pub_date']), 'Unexpected manifest metadata')
@@ -430,11 +467,14 @@ def validate_live(plan, live_root, candidate_manifest, public_key_path):
     require(version(live['version']) < version(plan['version']), 'Candidate must be newer than current live version')
     require(isinstance(live['platforms'], dict) and 'windows-x86_64' in live['platforms'], 'Current live Windows channel missing')
     require(set(live['platforms']) <= set(candidate_manifest['platforms']), 'Promotion would drop a live updater platform')
-    if macos_preview(plan) and any(p.startswith('darwin-') for p in live['platforms']):
+    if macos_distribution(plan) and any(p.startswith('darwin-') for p in live['platforms']):
         # Legacy Mac feeds are treated as notarized. Enrollment in preview must
         # never silently downgrade users who installed a notarized application.
-        require(live.get('macos_distribution') == MACOS_PREVIEW_POLICY,
+        require(live.get('macos_distribution') in {MACOS_PREVIEW_POLICY, MACOS_SELFSIGNED_POLICY},
                 'Cannot downgrade an existing notarized Mac channel to unnotarized preview')
+        if live.get('macos_distribution') == MACOS_SELFSIGNED_POLICY:
+            require(macos_selfsigned(plan) and live.get('macos_signing_fingerprint') == plan['macos_signing_fingerprint'],
+                    'Cannot change the fixed Mac signer or downgrade to ad-hoc; explicit migration required')
     require(public_key(root / 'updater.pub')[1] == public_key(public_key_path)[1], 'Current live updater trust key differs')
     expected = {'latest.json', 'updater.pub'}
     urls = {}
@@ -559,7 +599,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     sub = commands.add_parser('plan')
     sub.add_argument('tag')
-    sub.add_argument('--release-scope', choices=['all', 'windows-linux', MACOS_PREVIEW_SCOPE], default='all')
+    sub.add_argument('--release-scope', choices=['all', 'windows-linux', MACOS_PREVIEW_SCOPE, MACOS_SELFSIGNED_SCOPE], default='all')
     sub.add_argument('--output', required=True, type=Path)
     sub = commands.add_parser('receipt')
     for name in ('plan', 'package', 'public-key', 'binary', 'output'):
@@ -581,7 +621,9 @@ def main():
         repository = os.environ['GITHUB_REPOSITORY']
         plan = make_plan(repository, os.environ.get('XHARNESS_FRIENDS_RELEASE_REPOSITORY', ''), args.tag,
                          os.environ['GITHUB_SHA'], os.environ['GITHUB_RUN_ID'], os.environ['GITHUB_RUN_ATTEMPT'],
-                         _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']), args.release_scope)
+                         _friends.releases(repository), fetch_ci(repository, os.environ['GITHUB_SHA']), args.release_scope,
+                         macos_signing_fingerprint=os.environ.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1', '').lower()
+                         if args.release_scope == MACOS_SELFSIGNED_SCOPE else None)
         require_environment(plan, building=True)
         tag_sha = remote_tag_commit(repository, args.tag)
         require(tag_sha == plan['sha'], 'Release tag differs from checked-out source')

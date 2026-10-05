@@ -23,10 +23,14 @@ on:
         description: Existing desktop-vMAJOR.MINOR.PATCH tag at this exact green master commit
         required: true
         type: string
+      expected_macos_signing_fingerprint:
+        description: Optional immutable publisher pin from the release task
+        required: false
+        type: string
       release_scope:
-        description: Selected platforms; `all` requires Apple Developer ID and notarization secrets, all-macos-preview explicitly uses unnotarized ad-hoc Mac apps
+        description: Selected platforms; `all` requires Apple Developer ID and notarization secrets, preview policies are explicit (ad-hoc or fixed publisher self-signature), neither is notarized
         type: choice
-        options: [all, windows-linux, all-macos-preview]
+        options: [all, windows-linux, all-macos-preview, all-macos-selfsigned]
         default: all-macos-preview
         required: true
 
@@ -42,6 +46,8 @@ concurrency:
 env:
   PYTHONUTF8: '1'
   XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}
+  XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}
+  EXPECTED_MACOS_SIGNING_FINGERPRINT: ${{ inputs.expected_macos_signing_fingerprint }}
 
 jobs:
   plan:
@@ -118,6 +124,8 @@ jobs:
   build:
     needs: plan
     name: Signed ${{ matrix.platform }} candidate
+    environment:
+      name: ${{ matrix.macos_selfsigned && 'macos-preview-signing' || 'desktop-release' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -144,6 +152,8 @@ jobs:
           path: dist/desktop-plan
       - name: Require updater signing and plan-bound Apple policy
         env:
+          XHARNESS_MACOS_PREVIEW_P12: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12 }}
+          XHARNESS_MACOS_PREVIEW_P12_PASSWORD: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12_PASSWORD }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -208,7 +218,7 @@ jobs:
       # steps below keep the credentials undefined rather than empty; the
       # signing gate above already rejects a missing formal identity.
       - name: Build and sign desktop bundle (artifacts only)
-        if: ${{ !matrix.macos_preview }}
+        if: ${{ !matrix.macos_preview && !matrix.macos_selfsigned }}
         working-directory: apps/desktop
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
@@ -221,13 +231,28 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
       - name: Build and sign ad-hoc Mac preview bundle (artifacts only)
-        if: ${{ matrix.macos_preview }}
+        if: ${{ matrix.macos_preview || matrix.macos_selfsigned }}
         working-directory: apps/desktop
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
           APPLE_SIGNING_IDENTITY: '-'
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Import fixed publisher identity into an isolated runner keychain
+        if: matrix.macos_selfsigned
+        env:
+          XHARNESS_MACOS_PREVIEW_P12: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12 }}
+          XHARNESS_MACOS_PREVIEW_P12_PASSWORD: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12_PASSWORD }}
+        run: python -B scripts/macos-stable-signing.py import
+      - name: Sign fixed publisher Mac components, repack and sign final updater bytes
+        if: matrix.macos_selfsigned
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+        run: python -B scripts/desktop-release-build.py sign-stable-preview --plan dist/desktop-plan/plan.json --target '${{ matrix.target }}'
+      - name: Destroy isolated publisher keychain even if signing fails
+        if: ${{ always() && matrix.macos_selfsigned }}
+        run: python -B scripts/macos-stable-signing.py cleanup
       - name: Remove incompatible bundled Linux desktop stack and re-sign final bytes
         if: matrix.platform == 'linux-x86_64-appimage'
         working-directory: apps/desktop

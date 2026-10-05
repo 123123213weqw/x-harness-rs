@@ -89,6 +89,10 @@ jobs:
     # explicit master dispatch, with a source-bound production build artifact.
     if: ${{ !inputs.windows_cache_only && (inputs.mode == 'rehearsal' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.mode == 'candidate' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository)) }}
     name: ${{ inputs.mode }} ${{ matrix.platform }}
+    environment:
+      name: ${{ matrix.macos_selfsigned && 'macos-preview-signing' || 'desktop-release' }}
+    env:
+      XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -176,6 +180,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ''
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}'
+      - name: Import fixed publisher identity for instrumented base continuity acceptance only
+        if: matrix.macos_selfsigned
+        env:
+          XHARNESS_MACOS_PREVIEW_P12: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12 }}
+          XHARNESS_MACOS_PREVIEW_P12_PASSWORD: ${{ secrets.XHARNESS_MACOS_PREVIEW_P12_PASSWORD }}
+        run: python3 -B scripts/macos-stable-signing.py import
       - name: Exercise production updater handlers and install/restart the exact unchanged target
         env:
           ACCEPTANCE_MODE: ${{ inputs.mode }}
@@ -185,6 +195,9 @@ jobs:
           else
             python3 -B scripts/desktop-release-build.py native-run --candidate "$CANDIDATE" --root "$UNIX_ROOT"
           fi
+      - name: Destroy isolated publisher keychain on every outcome
+        if: ${{ always() && matrix.macos_selfsigned }}
+        run: python3 -B scripts/macos-stable-signing.py cleanup
       - name: Export only synthetic evidence and public-material receipts, never temporary keys or HOME
         if: always()
         run: python3 -B scripts/desktop-release-build.py export-native --root "$UNIX_ROOT" --output 'dist/native-evidence/${{ matrix.platform }}'
