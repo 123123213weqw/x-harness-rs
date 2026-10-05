@@ -1,6 +1,12 @@
 import {
+  xml_default
+} from "./chunk-RUEIDT5F.js";
+import {
+  sql_default
+} from "./chunk-WRACKSAQ.js";
+import {
   json_default
-} from "./chunk-ST2J62G7.js";
+} from "./chunk-5V7637S5.js";
 import {
   html_default,
   javascript_default
@@ -8,13 +14,7 @@ import {
 import {
   css_default
 } from "./chunk-3HFYEBY4.js";
-import {
-  xml_default
-} from "./chunk-RUEIDT5F.js";
 import "./chunk-BT4E2EJW.js";
-import {
-  sql_default
-} from "./chunk-WRACKSAQ.js";
 import {
   init_define_process_execArgv
 } from "./chunk-YOCBWPQK.js";
@@ -34,4 +34,4 @@ var php_default = [
 export {
   php_default as default
 };
-//# sourceMappingURL=php-OZOXY4UV.js.map
+//# sourceMappingURL=php-TGZNPHVI.js.map
