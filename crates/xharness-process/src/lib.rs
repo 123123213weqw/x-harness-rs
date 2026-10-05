@@ -12,6 +12,8 @@
 //! [`ProcessHandle::wait`] before shutting down Tokio so cancellation can reach
 //! quiescence and final output can be drained.
 
+pub mod shell;
+
 use std::{
     collections::{BTreeMap, VecDeque},
     ffi::{OsStr, OsString},
