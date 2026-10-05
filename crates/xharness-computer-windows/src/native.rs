@@ -66,7 +66,7 @@ pub(super) fn rect(value: RECT) -> Region {
 pub(super) fn surface(handle: HWND) -> Option<Surface> {
     // SAFETY: Win32 checks an HWND before using it; all output slices live.
     unsafe {
-        if !IsWindow(handle).as_bool() || !IsWindowVisible(handle).as_bool() {
+        if !IsWindow(Some(handle)).as_bool() || !IsWindowVisible(handle).as_bool() {
             return None;
         }
         let mut pid = 0;
@@ -313,7 +313,7 @@ pub(super) fn windows() -> Result<Vec<Surface>> {
         }
         true.into()
     }
-    let mut entries = Vec::new();
+    let mut entries: Vec<Surface> = Vec::new();
     let result = unsafe {
         EnumWindows(
             Some(collect),
