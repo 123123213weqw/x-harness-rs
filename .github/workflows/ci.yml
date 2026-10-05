@@ -427,6 +427,11 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Portable Mac signing policy on Windows (no credentials or native signing)
+        run: python -B scripts/test-macos-stable-signing.py
       - uses: actions/setup-node@v6
         with:
           node-version: 22

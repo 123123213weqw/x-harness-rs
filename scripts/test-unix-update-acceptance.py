@@ -29,6 +29,26 @@ SPEC.loader.exec_module(m)
 
 
 class HarnessTests(unittest.TestCase):
+    def test_exported_checks_match_strict_publication_contract_for_all_unix_scopes(self):
+        # Exercise the real exporter, not receipts synthesized from the validator
+        # itself. The values are metadata fixtures, never release authorization.
+        common = {'signatureVerified': True, **m.verified_update_checks()}
+        cache_checks = {'cacheRestoredAfterRestart', 'noDuplicatePackageDownload',
+                        'cachedTamperRejectedBeforeHostStop', 'hostStoppedBeforeInstall'}
+        self.assertTrue(cache_checks <= set(common))
+        self.assertTrue(all(value is True for value in common.values()))
+        for preview in (False, True):
+            policy = {'release_scope': 'all-macos-preview' if preview else 'all'}
+            for platform in ('linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64'):
+                checks = dict(common)
+                if platform.startswith('darwin-'):
+                    apple = {'codesignVerified', 'adHocSignatureVerified'} if preview else {
+                        'codesignVerified', 'gatekeeperAccepted', 'notarizationStapleVerified'}
+                    checks.update({name: True for name in apple})
+                with self.subTest(preview=preview, platform=platform):
+                    self.assertEqual(set(checks), m._release.acceptance_checks(policy, platform))
+        self.assertFalse(cache_checks & m._release.PLATFORM_CHECKS['windows-x86_64'])
+
     def test_native_signature_delegates_explicit_policy_and_checks_version(self):
         info = {'CFBundleShortVersionString': '0.2.19'}
         for preview in (False, True):

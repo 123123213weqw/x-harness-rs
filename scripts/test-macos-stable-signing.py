@@ -38,7 +38,8 @@ class StableSigning(unittest.TestCase):
         args = [str(a) for a in args]
         result = b'Authority=XHarness Preview Signing\n'
         if '-r-' in args:
-            relative = next((r for r in m.policy.COMPONENT_IDENTIFIERS if r != '.' and args[-1].endswith(r)), '.')
+            target = Path(args[-1]).as_posix()
+            relative = next((r for r in m.policy.COMPONENT_IDENTIFIERS if r != '.' and target.endswith(r)), '.')
             result = ('designated => ' + m.policy.requirement(m.policy.COMPONENT_IDENTIFIERS[relative], PIN) + '\n').encode()
         for arg in args:
             if arg.startswith('--extract-certificates='):
@@ -110,6 +111,20 @@ class StableSigning(unittest.TestCase):
             run.assert_not_called()
         with patch.dict(os.environ, {'GITHUB_ACTIONS':'false'}), patch.object(m.sys, 'platform', 'darwin'):
             with self.assertRaises(ValueError): m.import_identity()
+
+    def test_macos_keychain_paths_do_not_depend_on_the_test_runner_os(self):
+        for value, expected in [
+            ('/Users/runner/Library/Keychains/login.keychain-db', True),
+            ('/Users/runner/Library/Keychains/login with spaces.keychain-db', True),
+            ('/Library/Keychains/System.keychain', True),
+            ('relative.keychain-db', False),
+            ('C:/Windows/publisher.keychain-db', False),
+            ('C:\\Windows\\publisher.keychain-db', False),
+            ('\\\\server\\share\\publisher.keychain-db', False),
+            ('', False), (None, False), (12, False),
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(m.macos_keychain_path(value), expected)
 
     def test_import_and_cleanup_use_only_runner_keychain_and_public_pin(self):
         with tempfile.TemporaryDirectory() as folder:

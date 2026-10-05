@@ -819,6 +819,20 @@ def receipt_binding(receipt, manifest):
     return result
 
 
+def verified_update_checks():
+    """Serialize only the assertions completed by candidate_update below.
+
+    Explicit names (not generated from the publication allowlist) let portable
+    tests detect exporter/validator drift without fabricating native evidence.
+    """
+    return dict(cacheRestoredAfterRestart=True, noDuplicatePackageDownload=True,
+        cachedTamperRejectedBeforeHostStop=True, hostStoppedBeforeInstall=True,
+        unavailableFeedRejected=True, concurrentCheckRejected=True,
+        tamperedPackageRejected=True, unconfirmedInstallRejected=True,
+        exactCandidateInstalled=True, restartVerified=True, dataPreserved=True,
+        persistedSessionCatalogued=True, nativeLaunchVerified=True)
+
+
 def candidate_update(args):
     root = isolated_root(args.root)
     config = read_json(root / 'rehearsal.json')
@@ -904,12 +918,7 @@ def candidate_update(args):
             require(request in requests, 'Missing HTTPS failure/download evidence')
         require(sum(request == {'path': '/candidate', 'mode': 'normal'} for request in requests) == 1,
                 'Cache restart caused a duplicate package download')
-        checks.update(cacheRestoredAfterRestart=True, noDuplicatePackageDownload=True,
-            cachedTamperRejectedBeforeHostStop=True, hostStoppedBeforeInstall=True,
-            unavailableFeedRejected=True, concurrentCheckRejected=True,
-            tamperedPackageRejected=True, unconfirmedInstallRejected=True,
-            exactCandidateInstalled=True, restartVerified=True, dataPreserved=True,
-            persistedSessionCatalogued=True, nativeLaunchVerified=True)
+        checks.update(verified_update_checks())
         if args.platform.startswith('darwin-'):
             checks.update(native_signature(installed, receipt['version'], root,
                           preview=args.rehearsal or _release.macos_preview(receipt), fingerprint=receipt.get('macos_signing_fingerprint')))
