@@ -1,0 +1,206 @@
+[
+  {
+    "id": 0,
+    "request": {
+      "action": "observe",
+      "detail": "semantic",
+      "include_screenshot": false
+    },
+    "ok": true,
+    "elapsed_ms": 5418,
+    "failure": null
+  },
+  {
+    "id": 1,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:37",
+      "observe_after": "auto"
+    },
+    "ok": false,
+    "elapsed_ms": 0,
+    "failure": {
+      "kind": "handler",
+      "message": "invalid_request: node_id requires the frame_id returned by observe",
+      "retryable": false
+    }
+  },
+  {
+    "id": 2,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169333448241200:1",
+      "node_id": "uia:win:1272:1d0346:37",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 4343,
+    "failure": null
+  },
+  {
+    "id": 3,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169346805444300:2",
+      "text": "SSD",
+      "observe_after": "auto"
+    },
+    "ok": false,
+    "elapsed_ms": 3,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_frame: observe again before operating the desktop",
+      "retryable": true
+    }
+  },
+  {
+    "id": 4,
+    "request": {
+      "action": "observe",
+      "detail": "semantic",
+      "include_screenshot": false,
+      "frame_id": "win:10152:1791169346805444300:2"
+    },
+    "ok": false,
+    "elapsed_ms": 10,
+    "failure": {
+      "kind": "handler",
+      "message": "field \"frame_id\" is not valid for computer action \"observe\"",
+      "retryable": false
+    }
+  },
+  {
+    "id": 5,
+    "request": {
+      "action": "observe",
+      "detail": "semantic",
+      "include_screenshot": false
+    },
+    "ok": true,
+    "elapsed_ms": 5517,
+    "failure": null
+  },
+  {
+    "id": 6,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169488031956700:3",
+      "text": "SSD",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 4036,
+    "failure": null
+  },
+  {
+    "id": 7,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169499721677600:4",
+      "node_id": "uia:win:1272:1d0346:38",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 3728,
+    "failure": null
+  },
+  {
+    "id": 8,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169511492611000:5",
+      "node_id": "uia:win:1272:1d0346:42",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 3354,
+    "failure": null
+  },
+  {
+    "id": 9,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169522117602800:6",
+      "node_id": "uia:win:1272:1d0346:44",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 5740,
+    "failure": null
+  },
+  {
+    "id": 10,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169536358818600:7",
+      "node_id": "uia:win:1272:1d0346:167",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 6543,
+    "failure": null
+  },
+  {
+    "id": 11,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169549291840300:8",
+      "node_id": "uia:win:1272:1d0346:205",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 3705,
+    "failure": null
+  },
+  {
+    "id": 12,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169560794940900:9",
+      "node_id": "uia:win:1272:1d0346:88",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 2891,
+    "failure": null
+  },
+  {
+    "id": 13,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169578636183600:10",
+      "node_id": "uia:win:1272:1d0346:45",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 1998,
+    "failure": null
+  },
+  {
+    "id": 14,
+    "request": {
+      "action": "scroll",
+      "frame_id": "win:10152:1791169584842766300:11",
+      "x": 500,
+      "y": 600,
+      "delta_x": 0,
+      "delta_y": 240,
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 2375,
+    "failure": null
+  },
+  {
+    "id": 15,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791169594269884900:12",
+      "node_id": "uia:win:1272:1d0346:85",
+      "observe_after": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 2412,
+    "failure": null
+  }
+]

@@ -1,0 +1,58 @@
+{
+  "source_sha": "520586324f4592d446919be11ede1217e858f66a",
+  "model": "deepseek-flash",
+  "public_site": "https://www.newegg.com/",
+  "actual_browser_search_observed": true,
+  "query": "1TB NVMe SSD",
+  "two_product_price_extraction_passed": false,
+  "stop_reason": "32 model tool calls exhausted; no final answer",
+  "native_calls": 32,
+  "model_turns": 32,
+  "native_failures": [
+    {
+      "id": 17,
+      "failure": {
+        "kind": "handler",
+        "message": "invalid_request: node_id requires the frame_id returned by observe",
+        "retryable": false
+      }
+    },
+    {
+      "id": 40,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 43,
+      "failure": {
+        "kind": "handler",
+        "message": "native_api_failed: Windows API failed: 0x00000000",
+        "retryable": false
+      }
+    }
+  ],
+  "final_tree": {
+    "max_depth": 20,
+    "max_nodes": 220,
+    "scope": "foreground_window",
+    "truncated": true,
+    "visited": 220
+  },
+  "final_tree_nodes": 220,
+  "final_tree_visible_nodes": 81,
+  "sampled_resource_peaks_mib": {
+    "edge_rss_bytes": 1029.21875,
+    "edge_private_bytes": 618.35546875,
+    "native_rss_bytes": 32.92578125,
+    "native_private_bytes": 7.58984375
+  },
+  "prompt_tokens_sum": 9743225,
+  "completion_tokens_sum": 10394,
+  "last_prompt_tokens": 712663,
+  "no_real_cart_login_purchase": true,
+  "full_installed_host_runtime_tested": false,
+  "exact_rmb_cost_not_reported": true
+}

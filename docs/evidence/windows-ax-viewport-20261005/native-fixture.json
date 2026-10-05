@@ -1,0 +1,173 @@
+[
+  {
+    "case": "native_observe",
+    "detail": {
+      "elapsed_ms": 889,
+      "nodes": 11
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:18.976768+00:00"
+  },
+  {
+    "case": "native_input_state",
+    "detail": {
+      "password_redacted": true,
+      "valuepattern_matches_independent_fixture": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:18.989507+00:00"
+  },
+  {
+    "case": "native_ax_region",
+    "detail": {
+      "ancestor_context_preserved": true,
+      "nodes": 2,
+      "outside_password_excluded": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:18.997585+00:00"
+  },
+  {
+    "case": "native_unicode_input",
+    "detail": {
+      "clipboard_used": false,
+      "independent_getwindowtext_matches": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.004626+00:00"
+  },
+  {
+    "case": "stale_frame_denied",
+    "detail": {
+      "text_unchanged": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.012492+00:00"
+  },
+  {
+    "case": "native_ctrl_a_delivery",
+    "detail": {
+      "independent_keydown_count": 1
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.021937+00:00"
+  },
+  {
+    "case": "native_keypress",
+    "detail": {
+      "ctrl_home_shift_end_replacement_matches": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.028417+00:00"
+  },
+  {
+    "case": "native_semantic_click",
+    "detail": {
+      "independent_command_count": 1
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.036480+00:00"
+  },
+  {
+    "case": "native_window_move",
+    "detail": {
+      "independent_bounds_match": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.047650+00:00"
+  },
+  {
+    "case": "native_window_resize",
+    "detail": {
+      "independent_bounds_match": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.056704+00:00"
+  },
+  {
+    "case": "native_scroll",
+    "detail": {
+      "independent_wheel_messages": 1
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.063479+00:00"
+  },
+  {
+    "case": "native_cancel_drag",
+    "detail": {
+      "cancel_ms": 78,
+      "mouse_up_verified": true
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.094654+00:00"
+  },
+  {
+    "case": "native_screenshot",
+    "detail": {
+      "binary_transport": true,
+      "bytes": 230172,
+      "height": 768,
+      "width": 1024
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.103842+00:00"
+  },
+  {
+    "case": "native_wait",
+    "detail": {
+      "elapsed_ms": 365
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.110545+00:00"
+  },
+  {
+    "case": "native_acceptance",
+    "detail": {
+      "cases": 14,
+      "elapsed_ms": 15261,
+      "fixture_closed_on_return": true,
+      "model_calls": 0
+    },
+    "passed": true,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "host_received_utc": "2026-10-05T12:10:19.117032+00:00"
+  },
+  {
+    "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+    "exit_code": 0,
+    "output": "{\"case\":\"native_observe\",\"detail\":{\"elapsed_ms\":889,\"nodes\":11},\"passed\":true}\n{\"case\":\"native_input_state\",\"detail\":{\"password_redacted\":true,\"valuepattern_matches_independent_fixture\":true},\"passed\":true}\n{\"case\":\"native_ax_region\",\"detail\":{\"ancestor_context_preserved\":true,\"nodes\":2,\"outside_password_excluded\":true},\"passed\":true}\n{\"case\":\"native_unicode_input\",\"detail\":{\"clipboard_used\":false,\"independent_getwindowtext_matches\":true},\"passed\":true}\n{\"case\":\"stale_frame_denied\",\"detail\":{\"text_unchanged\":true},\"passed\":true}\n{\"case\":\"native_ctrl_a_delivery\",\"detail\":{\"independent_keydown_count\":1},\"passed\":true}\n{\"case\":\"native_keypress\",\"detail\":{\"ctrl_home_shift_end_replacement_matches\":true},\"passed\":true}\n{\"case\":\"native_semantic_click\",\"detail\":{\"independent_command_count\":1},\"passed\":true}\n{\"case\":\"native_window_move\",\"detail\":{\"independent_bounds_match\":true},\"passed\":true}\n{\"case\":\"native_window_resize\",\"detail\":{\"independent_bounds_match\":true},\"passed\":true}\n{\"case\":\"native_scroll\",\"detail\":{\"independent_wheel_messages\":1},\"passed\":true}\n{\"case\":\"native_cancel_drag\",\"detail\":{\"cancel_ms\":78,\"mouse_up_verified\":true},\"passed\":true}\n{\"case\":\"native_screenshot\",\"detail\":{\"binary_transport\":true,\"bytes\":230172,\"height\":768,\"width\":1024},\"passed\":true}\n{\"case\":\"native_wait\",\"detail\":{\"elapsed_ms\":365},\"passed\":true}\n{\"case\":\"native_acceptance\",\"detail\":{\"cases\":14,\"elapsed_ms\":15261,\"fixture_closed_on_return\":true,\"model_calls\":0},\"passed\":true}",
+    "vc_runtime_installed": false,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+    "phase": "windows-computer-native-exit",
+    "host_received_utc": "2026-10-05T12:10:19.123052+00:00"
+  }
+]
