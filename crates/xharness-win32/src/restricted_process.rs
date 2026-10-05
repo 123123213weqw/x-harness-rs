@@ -189,12 +189,39 @@ fn std_handle(which: u32, api: &'static str) -> Result<HANDLE, Win32Error> {
 pub(crate) fn command_line(program: &OsStr, args: &[OsString]) -> Vec<u16> {
     let mut output = Vec::new();
     quote_arg(program, &mut output);
-    for arg in args {
+    if let Some(arguments) = cmd_script_arguments(program, args) {
         output.push(b' ' as u16);
-        quote_arg(arg, &mut output);
+        output.extend(arguments.encode_wide());
+    } else {
+        for arg in args {
+            output.push(b' ' as u16);
+            quote_arg(arg, &mut output);
+        }
     }
     output.push(0);
     output
+}
+
+/// Shared CMD encoding for native, restricted-token and ConPTY launches. The
+/// canonical /D /S /C invocation needs an outer quote pair around its script,
+/// without CRT backslash escaping. Other invocations retain their normal argv
+/// encoding, including std::process::Command's batch-file safeguards.
+pub fn cmd_script_arguments(program: &OsStr, args: &[OsString]) -> Option<OsString> {
+    let cmd_script = Path::new(program)
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe"))
+        && args.len() == 4
+        && args[..3]
+            .iter()
+            .zip(["/D", "/S", "/C"])
+            .all(|(arg, flag)| arg.eq_ignore_ascii_case(flag));
+    if !cmd_script {
+        return None;
+    }
+    let mut output = OsString::from("/D /S /C \"");
+    output.push(&args[3]);
+    output.push("\"");
+    Some(output)
 }
 
 fn quote_arg(argument: &OsStr, output: &mut Vec<u16>) {
@@ -295,5 +322,30 @@ mod tests {
             text,
             r#""C:\Program Files\tool.exe" plain "two words" "quoted\"value" ends\"#
         );
+    }
+
+    #[test]
+    fn cmd_script_uses_outer_quotes_not_crt_backslash_escaping() {
+        let args: Vec<OsString> = [
+            "/D",
+            "/S",
+            "/C",
+            r#""C:\工具目录\tool name.exe" "one & two" & exit /b 7"#,
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        assert_eq!(
+            cmd_script_arguments(OsStr::new(r"C:\Windows\System32\CMD.EXE"), &args),
+            Some(OsString::from(
+                r#"/D /S /C ""C:\工具目录\tool name.exe" "one & two" & exit /b 7""#
+            ))
+        );
+        // An ordinary program receiving these same values still uses CRT argv.
+        assert!(cmd_script_arguments(OsStr::new("tool.exe"), &args).is_none());
+        let line = command_line(OsStr::new("tool.exe"), &args);
+        assert!(String::from_utf16(&line[..line.len() - 1])
+            .unwrap()
+            .contains(r#"\"C:"#));
     }
 }

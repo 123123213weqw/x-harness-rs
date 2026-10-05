@@ -43,6 +43,17 @@ const SAFE_INHERITED_ENV: &[&str] = &[
     "LANG",
     "TMPDIR",
     "COLORTERM",
+    "SystemRoot",
+    "SystemDrive",
+    "COMSPEC",
+    "PATHEXT",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "TEMP",
+    "TMP",
 ];
 
 #[derive(Clone, Default)]
@@ -213,27 +224,6 @@ fn terminal_error(error: xharness_terminal::TerminalError) -> Response {
     failure(status, "terminal_error", error.to_string())
 }
 
-fn default_shell() -> OsString {
-    #[cfg(unix)]
-    {
-        env::var_os("SHELL")
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| {
-                if std::path::Path::new("/bin/bash").is_file() {
-                    "/bin/bash".into()
-                } else {
-                    "/bin/sh".into()
-                }
-            })
-    }
-    #[cfg(windows)]
-    {
-        env::var_os("SHELL")
-            .or_else(|| Some("pwsh.exe".into()))
-            .expect("a windows shell fallback always matches")
-    }
-}
-
 fn default_cwd() -> PathBuf {
     #[cfg(unix)]
     let home = env::var_os("HOME");
@@ -252,12 +242,24 @@ fn terminal_env(extra: &BTreeMap<String, String>) -> BTreeMap<OsString, OsString
         let Ok(key) = key.into_string() else {
             continue;
         };
-        if SAFE_INHERITED_ENV.contains(&key.as_str()) || key.starts_with("LC_") {
+        if SAFE_INHERITED_ENV
+            .iter()
+            .any(|safe| key.eq_ignore_ascii_case(safe))
+            || key.starts_with("LC_")
+        {
             environment.insert(OsString::from(key), value);
         }
     }
+    environment.retain(|name, _| !name.eq_ignore_ascii_case("PATH"));
+    environment.insert(
+        "PATH".into(),
+        xharness_process::shell::executable_search_path(),
+    );
     environment.insert("TERM".into(), "xterm-256color".into());
     for (key, value) in extra {
+        if key.eq_ignore_ascii_case("PATH") {
+            environment.retain(|name, _| !name.eq_ignore_ascii_case("PATH"));
+        }
         environment.insert(OsString::from(key), OsString::from(value));
     }
     environment
@@ -287,7 +289,16 @@ async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) ->
         cols: request.cols.unwrap_or(DEFAULT_COLS),
         rows: request.rows.unwrap_or(DEFAULT_ROWS),
     };
-    let mut process = xharness_process_spec(&request);
+    let mut process = match xharness_process_spec(&request) {
+        Ok(process) => process,
+        Err(error) => {
+            return failure(
+                StatusCode::BAD_REQUEST,
+                "shell_unavailable",
+                error.to_string(),
+            )
+        }
+    };
     process.env = terminal_env(&request.env);
     let spec = TerminalOpenSpec {
         owner,
@@ -301,18 +312,37 @@ async fn terminal_open(State(state): State<TerminalRouterState>, body: Bytes) ->
     }
 }
 
-fn xharness_process_spec(request: &OpenRequest) -> xharness_process::SpawnSpec {
-    let program = request
-        .program
-        .clone()
-        .map(OsString::from)
-        .unwrap_or_else(default_shell);
+fn xharness_process_spec(
+    request: &OpenRequest,
+) -> Result<SpawnSpec, xharness_process::shell::ShellError> {
+    process_spec_for_shell(request, xharness_process::shell::Shell::discover())
+}
+
+fn process_spec_for_shell(
+    request: &OpenRequest,
+    selected: Result<xharness_process::shell::Shell, xharness_process::shell::ShellError>,
+) -> Result<SpawnSpec, xharness_process::shell::ShellError> {
+    let (program, args) = match &request.program {
+        Some(program) => (
+            OsString::from(program),
+            request.args.iter().map(OsString::from).collect(),
+        ),
+        None => {
+            let shell = selected?;
+            let args = if request.args.is_empty() {
+                shell.interactive_args()
+            } else {
+                request.args.iter().map(OsString::from).collect()
+            };
+            (shell.program.into_os_string(), args)
+        }
+    };
     let cwd = request
         .cwd
         .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(default_cwd);
-    SpawnSpec::new(program, cwd).args(request.args.iter().map(OsString::from))
+    Ok(SpawnSpec::new(program, cwd).args(args))
 }
 
 async fn terminal_send(State(state): State<TerminalRouterState>, body: Bytes) -> Response {
@@ -458,6 +488,32 @@ async fn terminal_list(State(state): State<TerminalRouterState>, body: Bytes) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_terminal_uses_the_shared_shell_and_interactive_not_batch_args() {
+        use xharness_process::shell::{Shell, ShellKind};
+        let request: OpenRequest = serde_json::from_value(json!({"name":"test"})).unwrap();
+        let shell = Shell {
+            kind: ShellKind::WindowsPowerShell,
+            program: PathBuf::from("powershell.exe"),
+        };
+        let spec = process_spec_for_shell(&request, Ok(shell.clone())).unwrap();
+        assert_eq!(spec.program, shell.program);
+        assert_eq!(spec.args, shell.interactive_args());
+        assert!(!spec
+            .args
+            .iter()
+            .any(|a| a == "-Command" || a == "-NonInteractive"));
+        let error = xharness_process::shell::ShellError::Unavailable;
+        assert!(process_spec_for_shell(&request, Err(error.clone())).is_err());
+        let request: OpenRequest = serde_json::from_value(
+            json!({"name":"test","program":"custom.exe","args":["literal space"]}),
+        )
+        .unwrap();
+        let spec = process_spec_for_shell(&request, Err(error)).unwrap();
+        assert_eq!(spec.program, "custom.exe");
+        assert_eq!(spec.args, [OsString::from("literal space")]);
+    }
 
     #[test]
     fn terminal_env_always_sets_term_and_merges_request_entries() {
