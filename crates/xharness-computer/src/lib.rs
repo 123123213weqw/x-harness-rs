@@ -481,7 +481,7 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
 pub fn definition() -> ToolDefinition {
     ToolDefinition::new(
         COMPUTER_TOOL_NAME,
-        "Observe and operate the local macOS desktop. Use observe before coordinate or node actions and reuse its frame_id. Coordinates are logical desktop points. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+        "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
         json!({
             "type": "object",
             "additionalProperties": false,
