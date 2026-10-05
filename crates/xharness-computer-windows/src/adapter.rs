@@ -154,7 +154,13 @@ impl WindowsComputer {
             Err(_) => {
                 let _ = job.terminate(1);
                 let _ = child.start_kill();
-                child.wait().await
+                tokio::time::timeout(Duration::from_secs(2), child.wait())
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(std::io::Error::other(
+                            "computer worker did not exit after termination",
+                        ))
+                    })
             }
         };
         match result {

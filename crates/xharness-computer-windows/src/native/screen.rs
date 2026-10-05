@@ -144,7 +144,7 @@ pub(super) fn screenshot(region: Region) -> Result<Vec<u8>> {
         {
             return Err(error("capture_failed", "incomplete desktop capture"));
         }
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
