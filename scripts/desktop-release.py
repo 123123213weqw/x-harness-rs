@@ -54,7 +54,11 @@ CI_FIELDS = {'id', 'run_attempt', 'head_sha', 'head_branch', 'event', 'status', 
 RECEIPT_FIELDS = (PLAN_FIELDS - {'endpoint'}) | {
     'platform', 'target', 'package', 'package_sha256', 'package_size', 'signature',
     'public_key_sha256', 'binary_sha256', 'embedded_endpoint', 'identifier'}
-UNIX_CHECKS = {'signatureVerified', 'unavailableFeedRejected', 'concurrentCheckRejected',
+# These are already verified and exported by the native Unix updater driver.
+# Keep them mandatory rather than accepting arbitrary extra receipt fields.
+UNIX_CACHE_CHECKS = {'cacheRestoredAfterRestart', 'noDuplicatePackageDownload',
+                     'cachedTamperRejectedBeforeHostStop', 'hostStoppedBeforeInstall'}
+UNIX_CHECKS = UNIX_CACHE_CHECKS | {'signatureVerified', 'unavailableFeedRejected', 'concurrentCheckRejected',
                'tamperedPackageRejected', 'unconfirmedInstallRejected', 'exactCandidateInstalled',
                'restartVerified', 'dataPreserved', 'persistedSessionCatalogued', 'nativeLaunchVerified'}
 PLATFORM_CHECKS = {

@@ -752,6 +752,37 @@ process.stdout.write(JSON.stringify({primary: signer(1), other: signer(2)}));
                 contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
             save(path, original)
 
+    def test_unix_cache_checks_are_required_strict_booleans_not_optional_extras(self):
+        self.assemble()
+        accepted = self.acceptances()
+        manifest_hash = contract.sha256(self.output / 'latest.json')
+        cache_checks = {'cacheRestoredAfterRestart', 'noDuplicatePackageDownload',
+                        'cachedTamperRejectedBeforeHostStop', 'hostStoppedBeforeInstall'}
+        self.assertEqual(contract.UNIX_CACHE_CHECKS, cache_checks)
+        contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+        for platform in ('linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64'):
+            path = accepted / platform / 'acceptance.json'
+            original = contract.read_json(path)
+            self.assertTrue(cache_checks <= set(original['checks']))
+            for check in cache_checks:
+                for bad in ('missing', False, 1, 'true', None):
+                    value = copy.deepcopy(original)
+                    if bad == 'missing':
+                        del value['checks'][check]
+                    else:
+                        value['checks'][check] = bad
+                    save(path, value)
+                    with self.subTest(platform=platform, check=check, bad=bad), \
+                            self.assertRaisesRegex(ValueError, 'native checks'):
+                        contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+            value = copy.deepcopy(original)
+            value['checks']['unexpectedNativeCheck'] = True
+            save(path, value)
+            with self.subTest(platform=platform), self.assertRaisesRegex(ValueError, 'native checks'):
+                contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+            save(path, original)
+        contract.validate_acceptance(self.plan, accepted, self.output, manifest_hash)
+
     def test_live_key_change_manifest_signature_and_tampering_are_rejected(self):
         self.assemble()
         live = self.live()
