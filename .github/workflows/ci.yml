@@ -138,6 +138,7 @@ jobs:
           node scripts/test-settings-models-source.mjs
           node scripts/test-preset-source-modules.mjs
           node scripts/test-renderer-source-module.mjs
+          node --test scripts/test-highlighter-lifecycle.mjs
           node scripts/test-workspace-source-module.mjs
           node scripts/test-cordis-source-module.mjs
           node scripts/test-owned-cordis-services.mjs
