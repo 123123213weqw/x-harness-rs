@@ -120,8 +120,8 @@ class StableSigning(unittest.TestCase):
                     Path(values[values.index('-out')+1]).write_text('public fixture certificate')
                 if '-outform' in values: return DER
                 if '-subject' in values: return b'subject=CN=fixture\nissuer=CN=fixture\n'
-                if 'trust-settings-export' in values:
-                    Path(values[-1]).write_bytes(plistlib.dumps({'trustVersion':1, 'trustList':{}}))
+                if values == ['security','list-keychains','-d','user']:
+                    return b'    \"/Users/runner/Library/Keychains/login.keychain-db\"\n'
                 if 'find-identity' in values: return PIN.upper().encode()
                 return b''
             with patch.dict(os.environ,env), patch.object(m.sys,'platform','darwin'), patch.object(m,'command',side_effect=fake) as run:
@@ -131,44 +131,47 @@ class StableSigning(unittest.TestCase):
                 self.assertNotIn('fixture-p12',contents)
                 keychain=Path(contents.strip().split('=',1)[1])
                 self.assertFalse((keychain.parent/'publisher.p12').exists())
-                self.assertTrue((keychain.parent/'trust-intent').exists())
+                self.assertEqual(json.loads((keychain.parent/'search-list.json').read_text()), ['/Users/runner/Library/Keychains/login.keychain-db'])
                 m.cleanup_path(keychain)
                 self.assertFalse(keychain.parent.exists())
                 commands=[[str(a) for a in c.args[0]] for c in run.call_args_list]
-                self.assertTrue(any('add-trusted-cert' in c and 'codeSign' in c for c in commands))
-                self.assertEqual(sum('trust-settings-import' in c for c in commands),2)
-                self.assertFalse(any('remove-trusted-cert' in c or ('add-trusted-cert' in c and '-d' in c) for c in commands))
-                self.assertFalse(any('default-keychain' in c or 'list-keychains' in c for c in commands))
+                self.assertEqual(sum('list-keychains' in c for c in commands),3)
+                self.assertFalse(any('default-keychain' in c or 'sudo' in c or 'add-trusted-cert' in c or 'trust-settings-import' in c for c in commands))
 
     def test_local_trust_and_forged_certificate_are_refused(self):
         with patch.dict(os.environ,{'GITHUB_ACTIONS':'false'}), patch.object(m,'command') as run:
-            with self.assertRaises(ValueError): m.trust_runner_certificate('fixture.pem',PIN)
+            with self.assertRaises(ValueError): m.validate_publisher_certificate('fixture.pem',PIN)
             run.assert_not_called()
         with patch.dict(os.environ,{'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'}), patch.object(m.sys,'platform','darwin'), \
                 patch.object(m,'command',return_value=b'wrong-certificate') as run:
-            with self.assertRaises(ValueError): m.trust_runner_certificate('fixture.pem',PIN)
+            with self.assertRaises(ValueError): m.validate_publisher_certificate('fixture.pem',PIN)
             self.assertFalse(any('add-trusted-cert' in c.args[0] for c in run.call_args_list))
 
-    def test_cleanup_still_deletes_private_keychain_if_trust_cleanup_fails(self):
-        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'RUNNER_TEMP':folder}):
+    def test_cleanup_still_deletes_private_keychain_if_search_restore_fails(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'RUNNER_TEMP':folder,'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'}), patch.object(m.sys,'platform','darwin'):
             work=Path(folder)/'xharness-publisher-signing-fixture';work.mkdir()
-            keychain=work/'publisher.keychain-db';keychain.touch();(work/'trust-intent').touch()
+            keychain=work/'publisher.keychain-db';keychain.touch();(work/'search-list.json').write_text('[]')
             def fake(args,**kwargs):
-                if 'trust-settings-import' in args: raise ValueError('injected native failure')
+                if 'list-keychains' in args: raise ValueError('injected native failure')
             with patch.object(m,'command',side_effect=fake) as run:
-                with self.assertRaisesRegex(ValueError,'temporary code-signing trust'): m.cleanup_path(keychain)
+                with self.assertRaisesRegex(ValueError,'restore runner keychain search list'): m.cleanup_path(keychain)
                 self.assertTrue(any('delete-keychain' in c.args[0] for c in run.call_args_list))
                 self.assertTrue(work.exists())
 
-    def test_absent_trust_fallback_does_not_swallow_other_errors(self):
-        absent = subprocess.CalledProcessError(1, ['security'], stderr=b'No Trust Settings were found')
-        with patch.object(m.subprocess, 'run', side_effect=absent):
-            self.assertIsNone(m.command(['security','trust-settings-export','-d','fixture'], allow_absent_trust=True))
-            with self.assertRaises(ValueError): m.command(['security','delete-keychain','fixture'], allow_absent_trust=True)
-        for error in [subprocess.CalledProcessError(1,['security'],stderr=b'permission denied'),
-                      subprocess.TimeoutExpired(['security'],90)]:
-            with patch.object(m.subprocess,'run',side_effect=error), self.assertRaises(ValueError):
-                m.command(['security','trust-settings-export','-d','fixture'],allow_absent_trust=True)
+    def test_search_list_receipt_precedes_mutation_and_preserves_original_paths(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'RUNNER_TEMP':folder,'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'}), patch.object(m.sys,'platform','darwin'):
+            work=Path(folder)/'xharness-publisher-signing-fixture';work.mkdir()
+            keychain=work/'publisher.keychain-db';keychain.touch()
+            previous=['/Users/runner/Library/Keychains/login with spaces.keychain-db']
+            def fake(args,**kwargs):
+                if '-s' not in args: return json.dumps(previous[0]).encode()
+                self.assertEqual(json.loads((work/'search-list.json').read_text()),previous)
+                raise ValueError('injected search list mutation timeout')
+            with patch.object(m,'command',side_effect=fake), self.assertRaisesRegex(ValueError,'timeout'):
+                m.attach_runner_keychain(keychain)
+            with patch.object(m,'command') as run:
+                m.cleanup_path(keychain)
+                self.assertEqual(run.call_args_list[0].args[0],['security','list-keychains','-d','user','-s',*previous])
 
     def test_cleanup_reports_primary_and_secondary_failures(self):
         with patch.object(m,'cleanup_path',side_effect=ValueError('temporary trust restore failed')):
@@ -222,7 +225,8 @@ def native_fixture():
             m.command(['security','import',identity/'publisher.p12','-k',keychain,'-P',password,'-T','/usr/bin/codesign'])
             m.command(['security','set-key-partition-list','-S','apple-tool:,apple:','-s','-k',password,keychain])
             certificate=root/'certificate.pem'; certificate.write_bytes((identity/'certificate.pem').read_bytes())
-            m.trust_runner_certificate(certificate, pin)
+            m.validate_publisher_certificate(certificate, pin)
+            m.attach_runner_keychain(keychain)
             source = root / 'fixture.c'; source.write_text('int main(void) { return 0; }\n')
             apps = []
             for version in ['1.0.0','1.0.1']:
