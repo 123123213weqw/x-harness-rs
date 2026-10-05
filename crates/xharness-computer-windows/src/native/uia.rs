@@ -102,7 +102,7 @@ impl Automation {
         // Validate before contacting a provider. The same physical rectangle
         // filters accessibility content and crops the optional screenshot.
         let region = request.region.unwrap_or(desktop_bounds);
-        if observation::intersection(region, desktop_bounds) != Some(region) {
+        if !observation::contained(region, desktop_bounds) {
             return Err(ComputerError::invalid(
                 "capture region is outside the physical desktop",
             ));
@@ -233,7 +233,7 @@ impl Automation {
                 "desktop changed during observation; observe again",
             ));
         }
-        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
+        let value = json!({"platform":"windows","coordinate_space":"physical_desktop_pixels","displays":screen::displays()?,"surfaces":window_values,"permissions":{"interactive_desktop":true,"elevation":"unchanged","secure_desktop":false},"accessibility":{"nodes":nodes,"truncated":!traversal.reasons.is_empty(),"truncation_reasons":traversal.reasons,"visited":traversal.candidates.len(),"max_visited":max_nodes*5,"returned":nodes.len(),"selected":selection.indices.len(),"eligible":selection.eligible,"omitted":selection.omitted,"max_nodes":max_nodes,"max_depth":max_depth,"scope":"foreground_window","selection_policy":"visible_breadth_first","region":region,"viewport":viewport},"screenshot_included":!png.is_empty(),"screenshot_bounds":region});
         Ok((
             Reply {
                 schema: 1,
@@ -493,8 +493,8 @@ fn read_value(
         match value {
             Ok(value) if allowed() => {
                 let text = value.to_string();
-                let truncated = text.chars().filter(|c| !c.is_control()).count() > 240;
-                (Some(clipped(&text)), "known", truncated)
+                let (bounded, truncated) = observation::bounded_value(&text);
+                (Some(bounded), "known", truncated)
             }
             _ => (None, "unknown", false),
         }
