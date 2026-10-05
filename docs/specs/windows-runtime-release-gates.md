@@ -21,7 +21,8 @@ clean-machine test.
    payload's own loader-visible directories. Known Windows API sets/system DLLs
    are explicitly allowed; a runner's System32 contents are not evidence.
 2. NSIS is extracted into a disposable directory with 7-Zip. Installer-only
-   `$PLUGINSDIR` x86 modules are outside the application loader's scope. Every
+   `$PLUGINSDIR` and `uninstall.exe` can have a separate x86 loader; their imports
+   are also audited, without imposing the AMD64 app policy on NSIS itself. Every
    application PE is checked; all four root executables are mandatory.
 3. Build collection compares extracted Desktop/Host/runner/rg SHA256 with the
    freshly built/staged files. A stale sidecar or mixed installer fails before a

@@ -152,27 +152,28 @@ def system(name):
     return name in SYSTEM or name.startswith(('api-ms-win-', 'ext-ms-win-'))
 
 
-def audit(root, *, desktop_required=True, expected=None):
+def audit(root, *, desktop_required=True, expected=None, installer_tools=False):
     root = Path(root)
     require(root.is_dir() and not root.is_symlink(), 'Missing payload directory')
-    modules, by_path = [], {}
+    modules, tools, by_path = [], [], {}
     for path in sorted(root.rglob('*')):
         require(not path.is_symlink(), 'Symlink in extracted payload')
         if not path.is_file() or path.suffix.lower() not in ('.exe', '.dll'):
-            continue
-        # Installer plugins have a separate x86 loader; they are not app payload.
-        if '$PLUGINSDIR' in path.relative_to(root).parts:
             continue
         require(path.stat().st_size <= MAX_MODULE, 'Oversized PE module')
         pe = PE(path.read_bytes())
         relative = path.relative_to(root).as_posix()
         key = relative.lower()
         require(key not in by_path, 'Case-colliding PE paths')
-        require(pe.machine == 0x8664 and pe.magic == 0x20b, 'Non-x64 application module: ' + relative)
-        record = {'path': relative, 'sha256': digest(path), 'machine': 'AMD64', 'imports': pe.imports()}
+        tool = installer_tools and (key == 'uninstall.exe' or '$PLUGINSDIR' in path.relative_to(root).parts)
+        if tool:
+            require((pe.machine, pe.magic) in ((0x14c, 0x10b), (0x8664, 0x20b)), 'Invalid installer tool architecture')
+        else:
+            require(pe.machine == 0x8664 and pe.magic == 0x20b, 'Non-x64 application module: ' + relative)
+        record = {'path': relative, 'sha256': digest(path), 'machine': 'AMD64' if pe.machine == 0x8664 else 'I386', 'imports': pe.imports()}
         by_path[key] = record
-        modules.append(record)
-        require(len(modules) <= 2048, 'Too many PE modules')
+        (tools if tool else modules).append(record)
+        require(len(by_path) <= 2048, 'Too many PE modules')
     required = REQUIRED if desktop_required else REQUIRED - {'xharness-desktop.exe'}
     require(required <= set(by_path), 'Missing root application modules: ' + ', '.join(sorted(required - set(by_path))))
     for record in modules:
@@ -181,13 +182,22 @@ def audit(root, *, desktop_required=True, expected=None):
             require(not (Path(record['path']).name.lower() in OWNED and MSVC.fullmatch(name)),
                     'Owned executable imports dynamic MSVC runtime: ' + record['path'] + ' -> ' + name)
             local = name if folder == '.' else folder + '/' + name
-            require(system(name) or local in by_path or name in by_path,
+            require(system(name) or any(key in by_path and by_path[key] in modules
+                    and by_path[key]['machine'] == record['machine'] for key in (local, name)),
                     'Unpackaged loader dependency: ' + record['path'] + ' -> ' + name)
+    # NSIS's independent loader may be x86, but it must not rely on a runner's
+    # installed VC redistributable either. Do not simply ignore uninstall.exe.
+    for record in tools:
+        for name in record['imports']:
+            local = (Path(record['path']).parent / name).as_posix().lower()
+            require(system(name) or (local in by_path and by_path[local] in tools and
+                    by_path[local]['machine'] == record['machine']),
+                    'Unpackaged installer tool dependency: ' + record['path'] + ' -> ' + name)
     if expected is not None:
         require(required <= set(expected), 'Incomplete expected build manifest')
         for name in required:
             require(by_path[name]['sha256'] == expected[name], 'Stale or mixed installer payload: ' + name)
-    return {'schema': 1, 'passed': True, 'modules': modules}
+    return {'schema': 1, 'passed': True, 'modules': modules, 'installer_modules': tools}
 
 
 def expected_build(desktop, sidecars, target):
@@ -215,7 +225,7 @@ def installer_audit(installer, expected=None, seven_zip=None):
                        check=True, stdout=subprocess.DEVNULL, timeout=180)
         desktops = [p for p in Path(temp).rglob('*') if p.name.lower() == 'xharness-desktop.exe']
         require(len(desktops) == 1, 'Expected exactly one desktop executable in NSIS')
-        report = audit(desktops[0].parent, expected=expected)
+        report = audit(desktops[0].parent, expected=expected, installer_tools=True)
     report['installer_sha256'] = digest(installer)
     return report
 

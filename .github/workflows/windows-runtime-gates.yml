@@ -29,6 +29,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: windows-static-crt-experiment
+          cache-on-failure: true
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
@@ -99,3 +100,10 @@ jobs:
             dist/install-ownership-evidence/
           if-no-files-found: warn
           retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: windows-runtime-gates-unaccepted-diagnostics
+          path: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
+          retention-days: 3
