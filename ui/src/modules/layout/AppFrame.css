@@ -4,6 +4,12 @@
    track, as their containing block. Docked occupants keep explicit tracks. */
 ._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol,._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{grid-area:auto}
 
+/* Single resident conversation plus optional feature center. */
+.xhfeature-shell{display:flex;flex:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.xhfeature-shell>.xhwork-conversation{flex:1;min-width:0;min-height:0;width:100%}
+.xhfeature-shell>.xhwork-conversation[hidden]{display:none}
+
+.xhfeature-shell{flex-direction:column}.xhassistant-seat[hidden]{display:none}.xhassistant-seat{flex:none;min-width:0}
 /* Each column owns an inset surface. Keep the tracks and their resize handles
    unchanged; the gutters and rounded clipping live inside those tracks. */
 ._84hhiq_frame{--xh-region-inset:8px;background:var(--dsw-specific-sidebar-fill)}

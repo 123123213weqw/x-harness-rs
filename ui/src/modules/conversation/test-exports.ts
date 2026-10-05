@@ -46,6 +46,6 @@ export { InputHub } from './input/hub'
 
 export { permissionFeedback, PermissionSelect } from './skeleton/PermissionSelect'
 
-export { ConversationSessionHeader } from './skeleton/ConversationSession'
+export { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession'
 
 export { planToolFold, toolCanAutoFold } from './chat/adaptive-tool-fold'

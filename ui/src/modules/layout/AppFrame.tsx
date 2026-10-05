@@ -24,7 +24,7 @@ import type {BrowserPatch} from '../browser/index'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'review.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'review.center' | 'assistant.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -103,21 +103,26 @@ export function AppFrame({
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
-  const [centerPage, setCenterPage] = useState<'chat' | 'plugins' | 'work' | 'review'>('chat')
+  const [assistantVisible,setAssistantVisible]=useState(false)
+  const [centerPage, setCenterPage] = useState<'chat' | 'plugins' | 'work' | 'review' | 'assistant'>('chat')
   const closeCenterPage = (): void => {
     setCenterPage('chat')
+    window.dispatchEvent(new Event('xharness:assistant:closed'))
     window.dispatchEvent(new Event('xharness:plugins:closed'))
     window.dispatchEvent(new Event('xharness:work:closed'))
     window.dispatchEvent(new Event('xharness:review:closed'))
   }
   useEffect(() => {
-    const openPlugins = (): void => {setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:work:closed'))}
-    const openWork = (): void => {setCenterPage('work'); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:plugins:closed'))}
-    const openReview = (): void => {setCenterPage('review'); window.dispatchEvent(new Event('xharness:work:closed')); window.dispatchEvent(new Event('xharness:plugins:closed'))}
+    const openPlugins = (): void => {setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:work:closed'))}
+    const openWork = (): void => {setCenterPage('work'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:plugins:closed'))}
+    const openReview = (): void => {setCenterPage('review'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:work:closed')); window.dispatchEvent(new Event('xharness:plugins:closed'))}
+    const openAssistant = (): void => {setCenterPage('assistant');window.dispatchEvent(new Event('xharness:review:closed'));window.dispatchEvent(new Event('xharness:plugins:closed'));window.dispatchEvent(new Event('xharness:work:closed'))}
+    window.addEventListener('xharness:assistant:close', closeCenterPage)
+    window.addEventListener('xharness:assistant:open', openAssistant)
     window.addEventListener('xharness:review:open', openReview)
     window.addEventListener('xharness:plugins:open', openPlugins)
     window.addEventListener('xharness:work:open', openWork)
-    return () => {window.removeEventListener('xharness:review:open', openReview); window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork)}
+    return () => {window.removeEventListener('xharness:assistant:close', closeCenterPage);window.removeEventListener('xharness:assistant:open', openAssistant);window.removeEventListener('xharness:review:open', openReview); window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork)}
   }, [])
   const openWorkSession = (id: string): void => {
     window.dispatchEvent(new CustomEvent('xharness:work:open-session', {detail: id}))
@@ -268,6 +273,7 @@ export function AppFrame({
       {sidebarDrawer && <button type="button" className="xh-sidebar-scrim" aria-label={navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar'} onClick={actions.toggleSidebar} />}
       <div className={css.sidebarCol} style={sidebarDrawer ? { width: sidebarDrawerWidth } : undefined} onClickCapture={event => {
         const target = event.target
+        if (centerPage === 'assistant' && (!(target instanceof Element) || !target.closest('[data-xharness-assistant-nav],[data-sidebar-toggle]'))) closeCenterPage()
         if (centerPage === 'review' && (!(target instanceof Element) || !target.closest('[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]'))) closeCenterPage()
         if (centerPage === 'plugins' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closeCenterPage()
         if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-xharness-review-nav],[data-sidebar-toggle]'))) closeCenterPage()
@@ -293,7 +299,7 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <CenterColumn><div className="xhwork-conversation" hidden={centerPage !== 'chat'}>{renderSlot('conversation', {})}</div>
+        <CenterColumn><div className="xhfeature-shell"><div className="xhassistant-seat" hidden={centerPage !== 'assistant'}>{centerPage === 'assistant' && renderSlot('assistant.center', {showConversation:setAssistantVisible})}</div><div className="xhwork-conversation" hidden={centerPage !== 'chat' && !(centerPage==='assistant'&&assistantVisible)} aria-label={centerPage==='assistant'?'Little X chat':undefined}>{renderSlot('conversation', {})}</div>
         {centerPage === 'plugins' && <main style={{flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)'}}>
           <button type="button" style={{cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit'}}
             aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
@@ -301,7 +307,7 @@ export function AppFrame({
         </main>}
         {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} />}
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
-        </CenterColumn>
+        </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>closeWorkspace(space.activeId)} />}
         <DetailsColumn><XhWorkspacePane space={space} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
       </>

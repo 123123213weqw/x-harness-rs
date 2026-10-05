@@ -18,3 +18,9 @@ export class RequestLane {
  start():{signal:AbortSignal;current():boolean}{this.controller.abort();this.controller=new AbortController();const generation=++this.generation;return {signal:this.controller.signal,current:()=>generation===this.generation&&!this.controller.signal.aborted}}
  cancel():void{this.generation++;this.controller.abort()}
 }
+
+/** Vendor check URLs are navigation only, never credentialed log fetches. */
+export function checkSourceUrl(value:string|null|undefined):string|null {
+ if(typeof value!=='string')return null
+ try{const url=new URL(value);return url.protocol==='https:'&&!url.username&&!url.password?url.href:null}catch{return null}
+}

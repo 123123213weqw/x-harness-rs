@@ -1,5 +1,5 @@
 {
-  "rev": "727f5466299c1363",
+  "rev": "18b0e8fea9d6a556",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -142,8 +142,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=a4005a67b1086fd6",
-      "rev": "a4005a67b1086fd6",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=67a49212c8e41c41",
+      "rev": "67a49212c8e41c41",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -172,8 +172,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-sidebar",
-      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=8b7147c606449132",
-      "rev": "8b7147c606449132",
+      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=7daec204ff025541",
+      "rev": "7daec204ff025541",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",
@@ -789,14 +789,33 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-assistant",
+      "url": "/plugins/@xlang/xharness-client-ui-assistant/client.js?rev=3848104aad635c88",
+      "rev": "3848104aad635c88",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-primitives",
+        "@xharness/dsh-client-ui-layout",
+        "@xharness/dsh-client-ui-sidebar",
+        "@xharness/dsh-client-ui-conversation"
+      ],
+      "external": [
+        "@xharness/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-ui-code-review",
-      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=e67308182f3fce56",
-      "rev": "e67308182f3fce56",
+      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=af05415db9387445",
+      "rev": "af05415db9387445",
       "inject": [
         "@xharness/dsh-client-ui-layout",
         "@xharness/dsh-client-ui-sidebar",
         "@xharness/dsh-client-locale",
-        "@xharness/dsh-client-connection"
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-runtime",
+        "@xlang/xharness-client-ui-assistant"
       ],
       "external": [
         "@xharness/dsh-client-ui-primitives",

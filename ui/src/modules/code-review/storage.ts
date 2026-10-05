@@ -3,7 +3,7 @@
  */
 export interface ReviewStorage {read():Promise<string|undefined>;write(value:string|undefined):Promise<void>}
 export class BrowserReviewStorage implements ReviewStorage {
- constructor(private readonly factory:IDBFactory){}
+ constructor(private readonly factory:IDBFactory,private readonly key:string='snapshot'){}
  private async transaction(write:boolean,value?:string):Promise<string|undefined>{
   return new Promise((resolve,reject)=>{
    const opening=this.factory.open('xharness-code-review-v1',1)
@@ -21,8 +21,8 @@ export class BrowserReviewStorage implements ReviewStorage {
     try{
      const tx=db.transaction('cache',write?'readwrite':'readonly'),store=tx.objectStore('cache');transaction=tx
      let result:string|undefined
-     if(write){if(value===undefined)store.delete('snapshot');else store.put(value,'snapshot')}
-     else {const request:IDBRequest<unknown>=store.get('snapshot');request.onsuccess=()=>{const data:unknown=request.result;if(typeof data==='string')result=data}}
+     if(write){if(value===undefined)store.delete(this.key);else store.put(value,this.key)}
+     else {const request:IDBRequest<unknown>=store.get(this.key);request.onsuccess=()=>{const data:unknown=request.result;if(typeof data==='string')result=data}}
      tx.oncomplete=()=>{db.close();if(!settled){settled=true;clearTimeout(timer);resolve(result)}}
      tx.onerror=tx.onabort=()=>{db.close();fail()}
     }catch{db.close();fail()}

@@ -11,6 +11,7 @@ name = "xharness-host"
 path = "src/main.rs"
 
 [dependencies]
+fs2 = "0.4.3"
 xharness-attachments = { path = "../xharness-attachments" }
 xharness-cloud = { path = "../xharness-cloud" }
 xharness-cloud-app = { path = "../xharness-cloud-app" }
@@ -48,7 +49,6 @@ xharness-web = { path = "../xharness-web" }
 xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
-fs2 = "0.4.3"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 futures.workspace = true
 reqwest.workspace = true

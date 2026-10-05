@@ -1,4 +1,4 @@
-# GitHub Code Review: read-only connection
+# GitHub Code Review: read-only evidence and model review
 
 ## Boundary
 
@@ -7,8 +7,7 @@ BasicHost GitHubBackend → native NativeGitHub → pinned GitHubReader → pool
 
 The feature uses the existing RPC envelope, cancellation, slot registration,
 Markdown renderer and native Host executable. Core RpcMethod and Agent tool
-schemas are unchanged. No PR mutations, model calls, merging or background
-review scheduling are enabled.
+schemas are unchanged. User-initiated, tool-free model review/question requests reuse the configured provider runtime. No PR mutations, merging or background review scheduling are enabled.
 
 Native startup installs this feature only on a loopback listener. Public Host
 listeners do not implicitly expose the machine's private GitHub account.
@@ -47,16 +46,13 @@ not own GitHub credentials.
 
 The first 100 check runs and commit statuses are loaded; a count mismatch is
 marked incomplete, never interpreted as all checks passing. Check execution
-results are not the complete branch-protection merge gate. Check logs and inline
-review-comment bodies are not yet loaded; their existence/count and a GitHub
-link are shown instead of fabricated logs.
+results are not the complete branch-protection merge gate. Actual threads and Actions jobs/logs are loaded on demand, separately from the first-page detail request. Non-Actions checks keep their native source links.
 
-The adapter issues fixed GitHub API GET routes through a shared reqwest client
+The adapter issues fixed GitHub API GET routes and read-only GraphQL POST queries through a shared reqwest client
 (rustls TLS and connection pooling). The only subprocess is the fixed `gh auth
 token` credential lookup; no shell or per-endpoint `gh api` processes. Credential
 stdout is bounded to 4 KiB, stderr to 16 KiB, timeout 10s; both pipes belong to the
-same future. Authorization headers are marked sensitive. No redirect is followed
-and request URLs must remain on the configured GitHub origin. Production origin
+same future. Authorization headers are marked sensitive. API redirects are not followed automatically and API request URLs must remain on the configured GitHub origin. The job-log reader alone accepts GitHub’s signed HTTPS download redirect to vetted Actions/Azure destinations, resolves and rejects private addresses, and downloads without the GitHub Authorization header. Production origin
 is fixed to `https://api.github.com`; localhost origins exist only in unit tests.
 
 Each HTTP response is capped at 4 MiB, including streamed/chunked bodies without
@@ -96,9 +92,11 @@ Local JavaScript/TypeScript only:
 ```sh
 npm run build --prefix ui
 npm run check:build --prefix ui
-node --test scripts/test-code-review.mjs scripts/test-github-review.mjs
+node --test scripts/test-code-review.mjs scripts/test-github-review.mjs scripts/test-code-review-filters.mjs scripts/test-code-review-structured.mjs scripts/test-code-review-p0.mjs
 UI_TEST_BROWSER=chromium node scripts/test-code-review-cache-browser.mjs
 UI_TEST_BROWSER=webkit node scripts/test-code-review-cache-browser.mjs
+UI_TEST_BROWSER=chromium node scripts/test-code-review-filters-browser.mjs
+UI_TEST_BROWSER=webkit node scripts/test-code-review-filters-browser.mjs
 ```
 
 Rust runs on WZU_Server after syncing the complete current source, excluding
@@ -106,8 +104,9 @@ Rust runs on WZU_Server after syncing the complete current source, excluding
 
 ```sh
 XHARNESS_GITHUB_WIRE_FIXTURE=/tmp/github-wire.json \
-  cargo test -p xharness-host-app --lib github_service
-cargo clippy -p xharness-host-app --all-targets -- -D warnings
+  cargo test -p xharness-host -p xharness-host-app --lib
+cargo test -p xharness-server --test transport github_review_endpoints
+cargo clippy -p xharness-host -p xharness-host-app -p xharness-server --all-targets -- -D warnings
 ```
 
 Copy only the generated non-secret wire fixture back; then:
@@ -210,3 +209,151 @@ GitHub latency, response sizes, rate limits and network remain variable.
 - Bootstrap uses a background-only GitHubClient; a separate UI client signals
   foreground acquisition/release in try/finally, including cancellation/errors.
   Neither adds tools, model calls, credentials, RPC methods or backend changes.
+
+## Repository and author controls (2026-10-04)
+
+The compact repository trigger opens a searchable popover, not a native select.
+Search matches owner and repository names in the loaded accessible list; it is
+not an account-wide GitHub search. Load more remains explicit inside the popover.
+The last six selected repositories appear first when present in the loaded list.
+The full owner/repository is retained in tooltips and accessible option labels.
+Arrow keys navigate, Enter selects, Escape dismisses and restores trigger focus;
+outside clicks dismiss without stealing focus.
+
+All / Authored by me is a keyboard-operable segmented radio group, scoped to the
+selected repository's loaded open PRs. Changing this filter makes no extra API
+request. Repository and author choices use a separate small, validated IndexedDB
+record after live account verification. They survive same-account Reconnect and
+same-origin module recreation; account switches reset them. They do not survive
+changes to the native Host origin/port. Corrupt, oversized or foreign records
+fail closed; unavailable storage falls back to memory. No credentials or PR
+bodies are stored in this preference record.
+
+
+## P0 evidence and model endpoints
+
+The frozen HTTP transport accepts `/api/{namespace}/{method}`. Feature endpoints
+use two segments; no third-level route or core RpcMethod change is required:
+
+- `github/threads`, `github/thread-comments`: fixed read-only GraphQL, actual
+  resolved/outdated state, 20-item thread/reply pages and opaque cursors. Replies
+  are fenced to the selected repository, PR and head. Outdated locations cannot
+  jump onto unrelated current code.
+- `github/runs`, `github/jobs`, `github/logs`: head/merge-test provenance, current
+  run attempt, steps, and explicitly requested text logs (2 MiB bound). A rerun
+  invalidates an earlier attempt. Truncation and missing access remain visible.
+- `github/review-models`: configured model catalog; UI does not carry credentials.
+- `github/review-start`: review or a question, pinned account/repository/PR/SHA;
+  captures paginated files, description and exact supplied patches. Snapshot
+  storage limit is 3 MiB, not a model context definition; over-bound scope fails
+  before a paid model request. Binary/missing patches remain explicitly partial.
+- `github/review-status`, `github/review-cancel`, `github/review-history`: stream
+  projection, cancellation, and persisted initial/final receipts. Live polls omit
+  the immutable snapshot; the client reuses its captured copy. Account and target
+  fences still apply. Interrupted receipts after Host restart become failures.
+
+The Host uses the existing auxiliary model/provider seam and route TokenGuard,
+lowest declared auxiliary reasoning level, tools=[], output reservation up to
+8192 tokens subject to the existing budget check. It does not create a new Agent
+loop or use repository tools. Optional counting observes the route's existing
+transient-fallback policy. No automatic paid retry. One active generation per
+account/repository/PR, two globally; 300-second generation deadline and 1 MiB
+output/received-reasoning bound. Switching pages stops UI polling, not the review;
+reopening loads history and reattaches. Provider/reader/store worker panics are
+converted to visible terminal failures and release the live review slot; they
+cannot leave a permanent Running receipt in memory. No continuous background reviewer yet.
+
+Review output must end normally and contain one complete JSON envelope. The
+owned typed parser then checks fields, diff coordinates and exact evidence,
+rejects invalid findings individually, and displays valid ones as **AI findings /
+needs confirmation**. Quotes are not proof of a defect. Empty or all-rejected
+reports are never approval. Changed/unverifiable head is visibly stale and code
+jumps are disabled. Review/Changes/Summary stay in the same page. Questions use
+that PR's snapshot independently; this is not a multi-turn chat-memory feature.
+Discussion bodies, job steps and log text mount only in expanded sections. Log
+text is retained for at most the three most recently opened jobs (each server
+bounded to 2 MiB). Explicit Refresh resets discussion/workflow projections even
+when the head SHA is unchanged, so completed/rerun CI is not stuck in old UI state.
+
+Native composition writes bounded initial/final receipts under `state/reviews`
+using atomic files and hashed account/repository/PR directories; no tokens are
+persisted. History returns the latest bounded records (at most 30 runs/16 MiB),
+while older receipts remain on disk. There is not yet automatic disk retention.
+
+Controlled DOM regression:
+
+```sh
+node scripts/test-code-review-p0-browser.mjs
+UI_TEST_BROWSER=webkit node scripts/test-code-review-p0-browser.mjs
+```
+
+## Opt-in paid P0 acceptance
+
+`examples/review_acceptance.rs` and `scripts/review-p0-acceptance-relay.mjs`
+exercise the actual Host, NativeGitHub and configured OpenAI-compatible provider
+stream. Compile only on the remote server after rsync. A fixed public-repository
+reader and loopback SSH relay keep existing GitHub/DeepSeek credentials on the
+workstation. The relay is an acceptance fixture, not production authentication:
+production still uses pooled native HTTPS, not a per-request `gh api` process.
+No local app replacement, merge, push, provider-key transfer or private chat read.
+Stop the nonce-authenticated relay and its dedicated tunnel after acceptance.
+This fixture uses the configured DeepSeek key/model through Chat Completions
+with thinking off; it is not a claim of exact installed Anthropic-route parity.
+Real results/usage must be recorded separately from controlled passing tests.
+
+## Global assistant instead of PR chat binding
+
+A fixed top-level X entry (Little X / 小 X) opens one normal durable conversation per Host
+state directory (`xharness-global-assistant-v1`). The user chooses its workspace
+on first use. It reuses the single resident ConversationRoot, input/draft machine,
+model selection, history, tools, queue/steer/cancel and ordinary permissions.
+Code Review never embeds or associates a conversation with a PR. Creating a PR
+no longer records a source-chat receipt. Old conversation histories and legacy
+association files remain untouched; they are not read as active links. Retired
+`github/chat-get` and `github/chat-set` fail closed. New auxiliary review requests
+with the retired `sessionId` argument are rejected before model use; historical
+receipts remain readable.
+
+Ask Little X on a PR, a diff line or a validated finding stages a bounded,
+commit-pinned reference. Add to draft is explicit, preserves text and attachments,
+and never submits. PR descriptions and whole diffs are not automatically injected.
+Task overview reads currently listed Host summaries, not message bodies. Its
+bounded snapshot may be explicitly shared into the assistant draft; running,
+waiting, idle and turn-finished are distinct, not claims of successful completion.
+Opening a task returns to its existing conversation; child routing requires the
+existing resolved address. Creating a session after the user leaves this page
+must not steal their selection. Missing/ambiguous creation responses reconcile
+Host metadata and retry the same id, not create another conversation.
+
+This is a unified assistant surface, not a new privileged supervisor. The ordinary
+agent tool retains its existing direct-child scope. Arbitrary global chat control,
+cloud execution, automatic GitHub writes/merges or background PR polling-to-fix
+are not introduced here. Structured read-only PR review remains an independent,
+explicitly requested job.
+
+Controlled tests: `scripts/test-global-assistant.mjs` uses the production service
+and original input state machine. `scripts/test-global-assistant-browser.mjs`
+mounts compiled Layout/CodeReview/Assistant and original normal conversation,
+reasoning, tool tree and model controls on Chromium/WebKit with controlled Host
+ports. These are not claims of real model or installed desktop acceptance.
+
+### Global assistant acceptance (2026-10-04)
+
+- Strict TypeScript, repository-only build and generated-asset freshness passed.
+- 76 frontend unit/contract cases passed. Compiled assistant/full conversation,
+  structured review, cache and repository filters passed on Chromium and WebKit.
+- V100: Host 212 passed / 6 existing ignored; native adapter 66 passed; Clippy
+  all-targets passed. The final retirement test covers both old binding endpoints,
+  malformed requests and rejection before backend/model invocation.
+- Real Web at local port 3271 (UI here, isolated Host forwarded from V100): the
+  assistant was created through the UI and session.list reports exactly one fixed
+  assistant id. Its original composer/model/effort controls and real task summaries
+  loaded without changing the old task waiting for approval. No model prompt,
+  GitHub mutation or automatic merge was submitted by this acceptance.
+- Desktop package and the running isolated Host were not restarted. UI retirement
+  is visible now; server-side retired-endpoint rejection/source-capture removal
+  requires a later Host replacement. Historic data was not deleted.
+
+Evidence logs are local `/tmp/global-assistant-{final-unit,full-browser,final-browser,
+final-build,rust,retirement-rust}.log`. Controlled browser fixtures are explicitly
+separate from the live-Web check; no installed desktop or cloud execution claim.
