@@ -176,7 +176,9 @@ impl ShellSearch {
             } else if path.components().count() == 1 {
                 self.paths
                     .iter()
-                    .map(|root| root.join(path))
+                    // PATH may contain relative directories. Resolve them at
+                    // discovery, before a tool selects a different workspace cwd.
+                    .filter_map(|root| std::path::absolute(root.join(path)).ok())
                     .find(|candidate| available(candidate))
             } else {
                 None
@@ -303,6 +305,29 @@ mod tests {
             windows: true,
             system_root: root().join("windows"),
             program_files: root().join("programs"),
+        }
+    }
+    #[test]
+    fn relative_search_roots_pin_shell_to_discovery_directory() {
+        for windows in [false, true] {
+            for selection in ["configured", "user", "fallback"] {
+                let mut search = search();
+                search.windows = windows;
+                search.paths = vec![PathBuf::from("relative shell helpers")];
+                let name = if windows { "pwsh.exe" } else { "bash" };
+                match selection {
+                    "configured" => search.configured = Some(name.into()),
+                    "user" => search.user_shell = Some(name.into()),
+                    _ => {}
+                }
+                let relative = search.paths[0].join(name);
+                let expected = std::env::current_dir().unwrap().join(&relative);
+                let shell = search.resolve(|p| p == relative || p == expected).unwrap();
+                // The process runtime launches from the tool/workspace cwd, not
+                // necessarily the directory where discovery happened.
+                assert_eq!(shell.program, expected, "{windows}/{selection}");
+                assert!(shell.program.is_absolute());
+            }
         }
     }
     #[test]
