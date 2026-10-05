@@ -34,7 +34,7 @@ jobs:
             if ($LASTEXITCODE) { throw "Console probe iteration $_ failed; see phase evidence above" }
           }
       - name: Native console, pipe, ACL, cancellation and ConPTY regressions
-        run: cargo test --locked -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets -- --nocapture
+        run: cargo test --locked -p xharness-win32 -p xharness-process -p xharness-sandbox -p xharness-terminal --all-targets -- --nocapture
       - name: Install pinned ripgrep for full coding-tool regressions
         run: |
           $version = '15.2.0'

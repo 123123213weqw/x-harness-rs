@@ -571,8 +571,15 @@ impl ProcessRuntime {
         let pending_job = WindowsArc::new(Job::new_kill_on_close()?);
 
         let mut command = Command::new(&spec.program);
+        #[cfg(windows)]
+        if let Some(arguments) = xharness_win32::cmd_script_arguments(&spec.program, &spec.args) {
+            command.as_std_mut().raw_arg(arguments);
+        } else {
+            command.args(&spec.args);
+        }
+        #[cfg(not(windows))]
+        command.args(&spec.args);
         command
-            .args(&spec.args)
             .current_dir(&spec.cwd)
             .env_clear()
             .envs(&spec.env)

@@ -330,11 +330,13 @@ async fn cmd_fallback_preserves_a_quoted_executable_and_native_exit_code() {
     let shell = Shell::configured(path).unwrap();
     assert_eq!(shell.kind, ShellKind::Cmd);
     let workspace = Workspace::new();
+    let child = workspace.0.join("child tool.exe");
+    fs::copy(std::env::current_exe().unwrap(), &child).unwrap();
     let executor = executor(&workspace, shell.clone()).await;
     let result = executor
         .execute(ToolRequest::new(
             tool_name(),
-            json!({"command":fixture_script(&shell, "shell_native_failure_fixture")}).to_string(),
+            json!({"command":format!("\"{}\" --ignored --exact shell_native_failure_fixture --nocapture", child.display())}).to_string(),
         ))
         .await;
     assert!(!result.is_ok(), "{result:?}");
@@ -344,4 +346,13 @@ async fn cmd_fallback_preserves_a_quoted_executable_and_native_exit_code() {
         fs::read_to_string(workspace.0.join("invocations.txt")).unwrap(),
         "once\n"
     );
+    let result = executor
+        .execute(ToolRequest::new(
+            tool_name(),
+            json!({"command":"echo \"one & two\""}).to_string(),
+        ))
+        .await;
+    assert!(result.is_ok(), "{result:?}");
+    let output: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+    assert!(output["stdout"].as_str().unwrap().contains("one & two"));
 }
