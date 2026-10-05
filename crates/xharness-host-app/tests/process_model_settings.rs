@@ -41,11 +41,23 @@ impl TestHost {
         if let Some(providers) = providers {
             command.arg("--providers-file").arg(providers);
         }
-        let process = command.spawn().unwrap();
+        let mut process = command.spawn().unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .no_proxy()
+            .build()
+            .unwrap();
         let endpoint = tokio::time::timeout(Duration::from_secs(20), async {
             loop {
-                if let Ok(address) = std::fs::read_to_string(&ready) {
-                    break format!("http://{}", address.trim());
+                assert!(
+                    process.try_wait().unwrap().is_none(),
+                    "Host exited before readiness"
+                );
+                // The address file announces a bound listener, not completion
+                // of control/model restoration. Never race a settings mutation
+                // against the production readiness gate.
+                if let Some(endpoint) = ready_endpoint(&client, &ready).await {
+                    break endpoint;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -67,6 +79,71 @@ impl TestHost {
         assert_eq!(response["result"]["ok"], true, "{response}");
         response["result"]["value"].clone()
     }
+}
+
+async fn ready_endpoint(client: &reqwest::Client, ready: &std::path::Path) -> Option<String> {
+    let address = std::fs::read_to_string(ready).ok()?;
+    let endpoint = format!("http://{}", address.trim());
+    let response = client
+        .get(format!("{endpoint}/health/ready"))
+        .send()
+        .await
+        .ok()?;
+    (response.status() == reqwest::StatusCode::OK).then_some(endpoint)
+}
+
+#[tokio::test]
+async fn listener_address_does_not_imply_model_settings_readiness() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let dir = TestDir(std::env::temp_dir().join(format!(
+        "xharness-readiness-probe-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    )));
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let ready = dir.0.join("ready.address");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .no_proxy()
+        .build()
+        .unwrap();
+    assert!(ready_endpoint(&client, &ready).await.is_none());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    std::fs::write(&ready, format!("{address}\n")).unwrap();
+    let server = tokio::spawn(async move {
+        for status in ["503 Service Unavailable", "200 OK"] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+                assert!(request.len() <= 4096);
+            }
+            assert!(request.starts_with(b"GET /health/ready HTTP/1.1\r\n"));
+            stream
+                .write_all(
+                    format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .as_bytes(),
+                )
+                .await
+                .unwrap();
+        }
+    });
+    // A real listener with an address file still rejects admission while the
+    // restoration gate is closed. The very same address becomes usable later.
+    assert!(ready_endpoint(&client, &ready).await.is_none());
+    assert_eq!(
+        ready_endpoint(&client, &ready).await,
+        Some(format!("http://{address}"))
+    );
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 fn model_namespace(settings: &Value) -> &Value {

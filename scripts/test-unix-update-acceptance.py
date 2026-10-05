@@ -29,6 +29,26 @@ SPEC.loader.exec_module(m)
 
 
 class HarnessTests(unittest.TestCase):
+    def test_exported_checks_match_strict_publication_contract_for_all_unix_scopes(self):
+        # Exercise the real exporter, not receipts synthesized from the validator
+        # itself. The values are metadata fixtures, never release authorization.
+        common = {'signatureVerified': True, **m.verified_update_checks()}
+        cache_checks = {'cacheRestoredAfterRestart', 'noDuplicatePackageDownload',
+                        'cachedTamperRejectedBeforeHostStop', 'hostStoppedBeforeInstall'}
+        self.assertTrue(cache_checks <= set(common))
+        self.assertTrue(all(value is True for value in common.values()))
+        for preview in (False, True):
+            policy = {'release_scope': 'all-macos-preview' if preview else 'all'}
+            for platform in ('linux-x86_64-appimage', 'darwin-aarch64', 'darwin-x86_64'):
+                checks = dict(common)
+                if platform.startswith('darwin-'):
+                    apple = {'codesignVerified', 'adHocSignatureVerified'} if preview else {
+                        'codesignVerified', 'gatekeeperAccepted', 'notarizationStapleVerified'}
+                    checks.update({name: True for name in apple})
+                with self.subTest(preview=preview, platform=platform):
+                    self.assertEqual(set(checks), m._release.acceptance_checks(policy, platform))
+        self.assertFalse(cache_checks & m._release.PLATFORM_CHECKS['windows-x86_64'])
+
     def test_native_signature_delegates_explicit_policy_and_checks_version(self):
         info = {'CFBundleShortVersionString': '0.2.19'}
         for preview in (False, True):
@@ -41,6 +61,17 @@ class HarnessTests(unittest.TestCase):
                 patch.object(m._macos_signing, 'verify') as verify, self.assertRaises(ValueError):
             m.native_signature(pathlib.Path('app'), '0.2.18', pathlib.Path('evidence'), preview=True)
         verify.assert_not_called()
+
+    def test_fixed_native_signature_rejects_mixed_policies(self):
+        info = {'CFBundleShortVersionString': '0.2.19'}
+        with patch.object(m, 'mac_binary', return_value=(pathlib.Path('binary'), info)), \
+                patch.object(m._macos_signing, 'verify') as verify:
+            with self.assertRaisesRegex(ValueError, 'must not be combined'):
+                m.native_signature(pathlib.Path('app'), '0.2.19', pathlib.Path('evidence'),
+                                   preview=True, fingerprint='a'*40)
+            verify.assert_not_called()
+            m.native_signature(pathlib.Path('app'), '0.2.19', pathlib.Path('evidence'), fingerprint='a'*40)
+            verify.assert_called_once_with(pathlib.Path('app'), fingerprint='a'*40, evidence=pathlib.Path('evidence'))
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='unix-harness-unit-')
@@ -348,6 +379,12 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
             with opener.open(url + '/latest.json', timeout=3) as response:
                 manifest = json.load(response)
                 self.assertEqual(manifest['macos_distribution'], 'ad-hoc-unnotarized-preview')
+                self.assertIn('not notarized', manifest['notes'])
+            config['macos_signing_fingerprint'] = 'c'*40
+            with opener.open(url + '/latest.json', timeout=3) as response:
+                manifest = json.load(response)
+                self.assertEqual(manifest['macos_distribution'], 'self-signed-unnotarized-preview')
+                self.assertEqual(manifest['macos_signing_fingerprint'], 'c'*40)
                 self.assertIn('not notarized', manifest['notes'])
             (root / 'mode').write_text('unavailable')
             with self.assertRaises(urllib.error.HTTPError) as error:
