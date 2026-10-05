@@ -22,6 +22,10 @@ async fn probe_main() -> Result<(), Box<dyn std::error::Error>> {
     if args.get(1).is_some_and(|v| v == "--computer-worker") {
         return xharness_computer_windows::run_worker();
     }
+    #[cfg(feature = "native-acceptance")]
+    if args.get(1).is_some_and(|v| v == "--native-acceptance") {
+        return xharness_computer_windows::run_native_acceptance().await;
+    }
     let fixture = args
         .get(1)
         .ok_or("usage: computer-probe <fixture.json> [host.exe]")?;
