@@ -32,6 +32,18 @@ an update channel; users keep receiving the last **published** stable release.
 - Per-tag candidate locks are separate from the serialized stable publication
   lock. A controller rerun restores its run-bound journal before doing anything.
 
+### 2026-10-14：首个自动候选的 Run 可见性竞争
+
+`0.2.46` 的精确源码 CI 已通过，但汇总 worker 启动时 GitHub REST 的整个 Run
+仍是 `queued`，原先要求立即 `in_progress` 的门禁误拒绝了同一次构建。
+失败 Run `38572902260` 和不可变标签保留，不覆盖、不推广；修复后分配新的版本。
+
+同机物料交接现在只对这一暂态做最多 8 次、每次 15 秒的只读等待。每次都重新验证
+仓库、Workflow、Run ID、源码、attempt、触发事件及不可变标签；只有看到
+`in_progress` 且无 conclusion 才能继续，身份变动、终态、未知状态或等待耗尽立即失败。
+这不改变发布门禁：推广仍要求整个 Run 及四平台签名与原生升级验收全部成功。
+回归覆盖 queued→running、等待耗尽、每次读取身份/事件漂移及 queued/running 不能成为发布证据。
+
 ## Policy and retention
 
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
