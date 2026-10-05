@@ -1,0 +1,56 @@
+name: Windows static CRT experiment
+on:
+  push:
+    branches: [experiment/windows-static-crt-20261005]
+permissions:
+  contents: read
+concurrency:
+  group: windows-static-crt-experiment
+  cancel-in-progress: true
+jobs:
+  sidecars:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-static-crt-experiment
+      - name: Build sidecars (explicit target, static CRT)
+        shell: pwsh
+        run: |
+          rustc -Vv
+          cargo build --locked --release --target x86_64-pc-windows-msvc -p xharness-host-app -p xharness-sandbox --bin xharness-host --bin xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Sidecar build failed' }
+      - name: Audit direct PE imports and produce exact artifact manifest
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vs/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw 'dumpbin unavailable' }
+          New-Item -ItemType Directory -Path crt-artifact | Out-Null
+          $files = @()
+          foreach ($name in @('xharness-host.exe','xharness-windows-sandbox-runner.exe')) {
+            $src = "target/x86_64-pc-windows-msvc/release/$name"
+            $imports = & $dumpbin.FullName /dependents $src 2>&1
+            if ($LASTEXITCODE) { throw "PE audit failed: $name" }
+            $imports | Out-File "crt-artifact/$name.imports.txt" -Encoding utf8
+            $dependencies = @($imports | ForEach-Object { if ($_ -match '^\s+([A-Za-z0-9_.-]+\.dll)\s*$') { $matches[1] } })
+            if ($dependencies.Count -eq 0) { throw "No parsed imports: $name" }
+            if ($dependencies | Where-Object { $_ -match '^(vcruntime|msvcp|concrt|msvcr)\d.*\.dll$' }) { throw "Dynamic MSVC runtime remains: $name" }
+            Copy-Item $src "crt-artifact/$name"
+            $files += @{ name=$name; sha256=(Get-FileHash $src -Algorithm SHA256).Hash.ToLower(); size=(Get-Item $src).Length; direct_imports=$dependencies }
+          }
+          @{ schema=1; baseline_sha='acf74b5938da2d3b160d6ee2327456ca0273368c'; experiment_sha=$env:GITHUB_SHA; target='x86_64-pc-windows-msvc'; rustflags='-C target-feature=+crt-static'; rustc=(& rustc -V); files=$files } | ConvertTo-Json -Depth 8 | Out-File crt-artifact/manifest.json -Encoding utf8
+          Get-Content crt-artifact/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-static-crt-sidecars
+          path: crt-artifact/
+          if-no-files-found: warn
+          retention-days: 7

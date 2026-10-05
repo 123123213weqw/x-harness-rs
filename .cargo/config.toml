@@ -1,0 +1,3 @@
+# Experimental Windows sidecar CRT closure; no application behaviour changes.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
