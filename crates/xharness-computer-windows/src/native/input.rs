@@ -270,6 +270,14 @@ pub(super) fn perform(
             ));
         }
     }
+    if r.action == ComputerAction::Type {
+        if let Some(element) = &element {
+            // Provider calls can hang: complete them before holding any input.
+            api(unsafe { element.SetFocus() })?;
+            cancel.check()?;
+            require_foreground(request)?;
+        }
+    }
     let mut held = Held::new();
     for key in modifier_keys {
         held.key(key)?;
@@ -329,9 +337,6 @@ pub(super) fn perform(
             }
         }
         ComputerAction::Type => {
-            if let Some(element) = &element {
-                api(unsafe { element.SetFocus() })?;
-            }
             // UTF-16 surrogate units arrive as Unicode input. No clipboard is
             // read, overwritten or left containing user text.
             for unit in r.text.as_deref().unwrap_or("").encode_utf16() {

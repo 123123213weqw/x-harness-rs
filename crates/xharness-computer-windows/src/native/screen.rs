@@ -2,7 +2,7 @@ use super::{api, error, rect, Result};
 use crate::wire::MAX_PNG;
 use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 use serde_json::{json, Value};
-use windows::Win32::{Foundation::LPARAM, Graphics::Gdi::*, UI::HiDpi::*};
+use windows::Win32::{Foundation::LPARAM, Graphics::Gdi::*, UI::Shell::GetScaleFactorForMonitor};
 use xharness_computer::Region;
 
 pub(super) fn displays() -> Result<Vec<Value>> {
@@ -22,11 +22,15 @@ pub(super) fn displays() -> Result<Vec<Value>> {
             ..Default::default()
         };
         if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
-            let mut x = 96;
-            let mut y = 96;
-            let _ = unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut x, &mut y) };
+            // GetDpiForMonitor is application-awareness dependent and is not
+            // valid on our PMv2 thread. Report the monitor's scale directly;
+            // an unavailable scale is null, never a fabricated 96-DPI value.
+            let scale = unsafe { GetScaleFactorForMonitor(monitor) }
+                .ok()
+                .filter(|value| value.0 > 0)
+                .map(|value| f64::from(value.0) / 100.0);
             let bounds = rect(info.rcMonitor);
-            entries.push(json!({"id":format!("win-monitor:{:x}",monitor.0 as usize),"bounds":bounds,"physical_pixels":{"width":bounds.width,"height":bounds.height},"scale":f64::from(x)/96.0,"dpi":{"x":x,"y":y},"primary":info.dwFlags & 1 != 0}));
+            entries.push(json!({"id":format!("win-monitor:{:x}",monitor.0 as usize),"bounds":bounds,"physical_pixels":{"width":bounds.width,"height":bounds.height},"scale":scale,"scale_source":"GetScaleFactorForMonitor","primary":info.dwFlags & 1 != 0}));
         }
         true.into()
     }

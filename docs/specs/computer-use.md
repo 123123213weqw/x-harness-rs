@@ -138,3 +138,5 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 GUI 能力验收。`native-acceptance` 是显式 fixture feature，默认产品不包含
 测试窗口；probe 的真实 UI 输入还需验证中文/代理对、按钮、滚轮、取消拖动、
 DPI/多屏、锁屏/UAC、用户接管和 UIA 卡死，再考虑安装包发布。
+
+Windows monitor scale is reported by `GetScaleFactorForMonitor` (null on unavailable metadata), not `GetDpiForMonitor` on a PMv2 thread. UIA focus calls complete before owned modifiers are held; foreground and display geometry are revalidated after capture.
