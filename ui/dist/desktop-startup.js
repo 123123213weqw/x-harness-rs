@@ -19,7 +19,7 @@
     const inspect = () => {
       if (hydrated) return;
       const root = document.querySelector("#root");
-      if (!root || root.childElementCount === 0) return;
+      if (!root || root.childElementCount === 0 || root.querySelector(":scope > [data-dsh-boot]") !== null) return;
       hydrated = true;
       observer?.disconnect();
       report("frontend_hydrated");

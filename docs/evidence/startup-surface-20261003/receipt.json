@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-03",
+  "scope": "shared local desktop + Web startup surfaces",
+  "results": [
+    {
+      "engine": "chromium",
+      "cases": 30,
+      "sharedGeometry": true,
+      "offlineDesktop": true,
+      "oneEntrance": true,
+      "realFailure": true,
+      "fastHandoff": true,
+      "reducedMotion": true,
+      "errors": 0,
+      "centeredExit": true,
+      "clickThrough": true,
+      "exitCleanup": true
+    },
+    {
+      "engine": "webkit",
+      "cases": 30,
+      "sharedGeometry": true,
+      "offlineDesktop": true,
+      "oneEntrance": true,
+      "realFailure": true,
+      "fastHandoff": true,
+      "reducedMotion": true,
+      "errors": 0,
+      "centeredExit": true,
+      "clickThrough": true,
+      "exitCleanup": true
+    },
+    {
+      "browser": "chromium",
+      "implementationRuns": 2,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "pixelSha256": "07dd3bb9e5c17bc837326e05f07b2a5eb8a5892f7605c5e9c62bdfc2f561f2d0"
+    },
+    {
+      "browser": "webkit",
+      "implementationRuns": 2,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "pixelSha256": "87fc4d930435ae3e5efb447615db69d97dd39c0a379bf845960abc9236c01583"
+    }
+  ],
+  "sourceAndOutputSha256": {
+    "ui/src/startup/surface.ts": "87a192eb5baef922bd03d9b50c08ccceb0e19eed35c2522605845e6bb2dcd015",
+    "ui/src/startup/surface.raw.css": "0bf67e281a2dc6bdcc9eaaefe05e404bf556471f14cf36ae390431eb2faaed5b",
+    "ui/src/startup/mark.svg": "9265a62055f7b25145037fac9d8dea6d5f9c880091024f7b4d4fc1ca35fe3057",
+    "ui/src/desktop/bootstrap.ts": "ee6cdd8638e41962d4dc733b7e0cb53108024f1ce542018d48f0b2e3ff598082",
+    "ui/src/modules/platform/web/boot-page.ts": "06508ad18ef99daf0b43e35a5f56c08d84db2a09e3ae462aef1c7db1952754f8",
+    "apps/desktop/frontend/index.html": "56a2ad58e2f26fa9f390d2fb2e30ab1fa3a2368aab97030f7f0e4b1767bede94",
+    "ui/dist/index.html": "ac5e568b1baa8bfdc16be6ffdaaa24f5f4324bef386f5454edc8b88a87e16506",
+    "ui/dist/desktop-bootstrap.js": "b527515f7efcab99857e3d194baf4172f53f9be3c1fe0799b79d71a572e905dd",
+    "ui/src/startup/handoff.ts": "f648404307f540d7ac03c3e44aa926b97454d3f333816ef424729dc9b4f492b6",
+    "ui/src/modules/renderer/index.ts": "a5f30066a2c489f4fec68c545ae588ba21c43c798dd9cc72a0449a8b90f2b4f2",
+    "ui/src/modules/renderer/contracts.ts": "d0a3f23011e06c0b0510440e47eaefd10d293e1059ad0a1d94bf115f5cce62dd",
+    "ui/src/modules/platform/web/boot.ts": "e4181f361b43534bab0e68723ca0b7dbaaaa6c2f8a0fbaa2d07d01933cc94bef",
+    "scripts/test-startup-surface-browser.mjs": "2a5d6f725315e4f07d1900c23a404bedc31c953b1aac08717d1ac1b86594acbc",
+    "scripts/test-renderer-source-browser.mjs": "2b4b30e23de314f52b77f65f2bd063d0c61ac7e4e6b3dbefbe22c383ae3b2d52"
+  },
+  "portableBootstrapAndMilestones": true,
+  "strictSourceBuild": true,
+  "generatedOutputsMatch": true,
+  "ciBrowserSuiteRegistered": true,
+  "installedAppChanged": false,
+  "web3083Changed": false,
+  "nativeInstallAcceptance": "pending",
+  "rustCompilation": "not needed for this TypeScript/CSS-only change",
+  "cleanIsolatedBuild": {
+    "cases": 15,
+    "passed": 15,
+    "failed": 0,
+    "desktopDriftDetection": true,
+    "deterministicOutput": true
+  },
+  "exit": {
+    "effect": "centered scale 1 -> 1.18 with opacity fade; no translation",
+    "durationMs": 180,
+    "trigger": "real renderer application commit (not Host Ready or timer)",
+    "blocksMount": false,
+    "blocksInput": false,
+    "reducedMotion": "immediate handoff, no overlay",
+    "cleanup": [
+      "completion",
+      "cancellation",
+      "hidden",
+      "pagehide",
+      "resize",
+      "dispose",
+      "failure",
+      "unsupported animation"
+    ],
+    "reactCommitCallback": {
+      "chromium": true,
+      "webkit": true,
+      "once": true,
+      "bootDomGone": true,
+      "realUiCommitted": true
+    }
+  }
+}

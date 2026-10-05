@@ -380,11 +380,14 @@ const trajectoryTurnEndDefinition: ConversationNodeDefinition<TurnEndState> = {
       throw new Error('trajectory-turn-end start requires turn/end')
     }
     const reason = match.event.data.reason
+    const failure = reason.kind === 'error'
+      ? reason.error ?? ('failure' in reason ? reason.failure : undefined)
+      : undefined
     return {
       turn: match.event.data.turn,
       seq: match.event.seq,
       time: match.event.time,
-      ...(reason.kind === 'error' ? { error: displayFailureMessage(reason.error) } : {}),
+      ...(failure === undefined || failure === null ? {} : { error: displayFailureMessage(failure) }),
     }
   },
   update: context => context.state,

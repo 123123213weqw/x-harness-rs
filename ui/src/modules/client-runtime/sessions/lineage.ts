@@ -23,7 +23,7 @@ export interface SessionListEntry {
   blank: boolean
   parentSessionId?: SessionId | undefined
   /** Coarse durable origin for navigation filtering; not a continuation capability. */
-  origin?: 'subagent' | 'fork' | undefined
+  origin?: 'subagent' | 'fork' | 'automation' | undefined
   cwd?: string | undefined
   /** Agent preset the session's agent was composed from (summary passthrough). */
   agentPreset?: string | undefined

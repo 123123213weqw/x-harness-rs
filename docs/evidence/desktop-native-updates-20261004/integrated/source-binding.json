@@ -1,0 +1,29 @@
+{
+  "unix_tested_sha": "2327e575ce68d6ecf2a8f935e4dc84edbbb36f4f",
+  "unix_run_id": "37193933106",
+  "windows_tested_sha": "8cd6305c0584f770170ff92e9d98f22f9cca24a5",
+  "windows_run_id": "37195181584",
+  "runtime_input_trees": [
+    {
+      "path": "crates",
+      "git_tree": "f970b5286d1bb5b2c9bcb4e5f1b835e80ef6f97c"
+    },
+    {
+      "path": "ui/src",
+      "git_tree": "044c1f7abd79424cf10e9815cf4dc162d2f189b3"
+    },
+    {
+      "path": "ui/dist",
+      "git_tree": "8ebc7e5e15bb70458eb0d04d0052ab089d992221"
+    },
+    {
+      "path": "apps/desktop/frontend",
+      "git_tree": "47e2690f06595df90788f577130f01b92dd4fd7c"
+    },
+    {
+      "path": "apps/desktop/src-tauri",
+      "git_tree": "5b49dbafdc4e41fedaaaca3cb446b29170b34ff2"
+    }
+  ],
+  "scope": "Identical checked-in production inputs; only native fixtures/reports changed between tested commits. Package versions/disposable keys follow the separately recorded rehearsal recipe."
+}

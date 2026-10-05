@@ -52,6 +52,10 @@ function planStreamAnimations(added, lastRow, now, recent) {
             continue;
         if (node.closest('[data-xh-stream-animate="true"]') !== null)
             continue;
+        // The source Markdown renderer owns append-only prose motion. Never fade
+        // its whole paragraph again, including at finish or history restoration.
+        if (node.closest('[data-xh-stream-owned]') !== null)
+            continue;
         if (!STREAM_TAGS.has(node.tagName))
             continue;
         candidates.push(node);
@@ -126,8 +130,10 @@ function observeRoot(root) {
     let flush = 0;
     const drain = () => {
         flush = 0;
-        if (reduced())
+        if (reduced()) {
+            pending = [];
             return;
+        }
         if (!turnActive()) {
             pending = [];
             return;

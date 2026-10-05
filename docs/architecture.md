@@ -179,7 +179,7 @@ Platform Coding Bundle，也不会绕过统一 Schema、Guard、Lifecycle 和审
 60 秒软等待通过 `question/deferred` 解除工具阻塞而不回答问题；不再注入问答专用工具白名单，模型可继续不依赖答案的工作；原权限和审批不变，
 迟到答案用固定 RPC 身份进入 Steering，恢复过程复用已有 Session 扫描，详见 `specs/question-continuation.md`。
 
-Schedule 层同样复用正式 Registry，额外注册 `schedule_create/schedule_list/schedule_delete`。
+Schedule 层同样复用正式 Registry，额外注册一个 `automation` 工具，提醒/授权任务共享同一 Schedule Owner、Durable Inbox 和 Runtime。
 它不属于 Process/Job：规则写入 Session 的 `schedule/change`，可丢弃 Timer 只负责唤醒，实际
 投递通过 Idle-only Durable Agent Followup 进入普通 Loop/Web 投影。生产默认最多可见 15 个工具，
 但仍按平台、Profile 和 Step 动态裁剪。

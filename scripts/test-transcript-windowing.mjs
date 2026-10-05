@@ -29,8 +29,25 @@ const helper=readFileSync(resolve(root,'ui/overrides/transcript-windowing.js'),'
 assert.ok(golden.toString().includes(helper), 'shipped implementation must match maintained source');
 try {
  const page=await browser.newPage({viewport:{width:1100,height:850}});
+ if (process.env.UI_TEST_NO_NATIVE_ANCHOR === '1') {
+  assert.equal(implementation, 'source', 'unsupported anchor regression is not a frozen-baseline rewrite');
+  await page.addInitScript(() => {
+   const native = window.getComputedStyle;
+   window.getComputedStyle = (...args) => new Proxy(native(...args), {
+    get: (style, key) => {
+     if (key === 'overflowAnchor') return undefined;
+     const value = Reflect.get(style, key, style);
+     return typeof value === 'function' ? value.bind(style) : value;
+    },
+   });
+  });
+ }
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await installOwnedViewPlatform(page,shipped.toString().startsWith('// Generated from src/modules/conversation/')?'source':'legacy');
+ if (process.env.UI_TEST_NO_NATIVE_ANCHOR === '1') assert.equal(
+  await page.evaluate(() => getComputedStyle(document.body).overflowAnchor === undefined), true,
+  'the unsupported-property branch must actually be exercised',
+ );
  await page.addStyleTag({content:'.fixture-row:empty{display:none}'});
  await page.evaluate(()=>{window.registrations={};window.__ModuleLoader__={load:r=>{registrations[r.id]=r}}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))) {
@@ -56,8 +73,33 @@ try {
  const cdp=engine==='chromium'?await page.context().newCDPSession(page):null;
  async function metrics(){if(!cdp)return {dom:await page.locator('*').count()};await cdp.send('HeapProfiler.collectGarbage');const dom=await cdp.send('Memory.getDOMCounters');const heap=await cdp.send('Runtime.getHeapUsage');return {dom:dom.nodes,heapBytes:heap.usedSize};}
  const baseline=await metrics();
+ // The controller's frame must COMMIT its bounded row plan, not merely queue
+ // React state. A native wheel can arrive before a deferred commit shrinks
+ // the range. Observe the DOM after the controller's RAF in that same frame;
+ // this contract fails deterministically with asynchronous row publication.
+ if(implementation==='source')await page.evaluate(()=>{
+  const NativeIntersectionObserver=window.IntersectionObserver;
+  window.windowingFrames=[];window.recordWindowingFrames=true;
+  window.IntersectionObserver=class extends NativeIntersectionObserver{
+   constructor(callback,options){super((entries,observer)=>{
+    callback(entries,observer);
+    const visible=entries.filter(entry=>entry.isIntersecting&&entry.target.hasAttribute('data-transcript-mounted'));
+    if(!window.recordWindowingFrames||!visible.length)return;
+    requestAnimationFrame(()=>{
+     window.windowingFrames.push(visible.map(entry=>({id:entry.target.dataset.row,mounted:entry.target.dataset.transcriptMounted})));
+    });
+   },options)}
+  };
+  window.restoreIntersectionObserver=()=>{window.recordWindowingFrames=false;window.IntersectionObserver=NativeIntersectionObserver};
+ });
  const firstWindowed = await page.evaluate(()=>{virtual=true;render();return document.querySelectorAll("[data-transcript-mounted=true]").length});
  assert.equal(firstWindowed,0,"first windowed commit never mounts full history");
+ if(implementation==='source'){
+  await page.waitForFunction(()=>window.windowingFrames.length>0);
+  const frameReceipt=await page.evaluate(()=>{restoreIntersectionObserver();return window.windowingFrames.flat()});
+  assert.ok(frameReceipt.length>0);
+  assert.ok(frameReceipt.every(row=>row.mounted==='true'),'near row DOM must match the controller plan before its frame ends: '+JSON.stringify(frameReceipt));
+ }
  await page.waitForFunction(()=>document.querySelectorAll('[data-transcript-mounted="false"]').length>300);
  const optimized=await metrics();
  assert.ok(await page.locator('[data-row]').count()===350,'lightweight row keys and complete data remain');
@@ -85,14 +127,43 @@ try {
  await page.locator('[data-row="0"] button').waitFor();
  await page.evaluate(()=>document.activeElement.blur());
  // A genuine text selection is temporarily protected, then released.
- await page.evaluate(()=>{
-  const text=document.querySelector('[data-row="0"] pre span').firstChild;
+ // Releasing focus can commit pending window measurements. An attached
+ // button alone does not prove that the first row is the settled reader
+ // viewport (especially on a two-CPU Linux WebKit runner).
+ await scroll.evaluate(e=>{e.scrollTop=0});
+ const selectedText=await page.evaluate(async()=>{
+  const root=document.querySelector('[data-conversation-scroll]');
+  let previous='',stable=0,text;
+  for(let frame=0;frame<120;frame++){
+   await new Promise(resolve=>requestAnimationFrame(resolve));
+   const row=document.querySelector('[data-row="0"]'),span=row?.querySelector('pre span');
+   const viewport=root.getBoundingClientRect(),bounds=row?.getBoundingClientRect();
+   const ready=span?.firstChild&&root.scrollTop<1&&bounds.bottom>viewport.top&&bounds.top<viewport.bottom;
+   const signature=JSON.stringify([root.scrollTop,root.scrollHeight,bounds?.top,bounds?.height]);
+   stable=ready&&signature===previous?stable+1:0;previous=signature;
+   if(stable>=3){text=span.firstChild;break}
+  }
+  if(!text)throw Error('first row did not settle in the selection viewport');
   const range=document.createRange();range.selectNodeContents(text);
-  const selection=document.getSelection();selection.removeAllRanges();selection.addRange(range);
+  const selection=document.getSelection();
+  await new Promise((resolve,reject)=>{
+   const cleanup=()=>{clearTimeout(timer);document.removeEventListener('selectionchange',changed)};
+   const changed=()=>{if(selection.isCollapsed||selection.toString()!==text.textContent)return;cleanup();resolve()};
+   const timer=setTimeout(()=>{cleanup();reject(Error('native selectionchange was not delivered'))},3000);
+   document.addEventListener('selectionchange',changed);
+   selection.removeAllRanges();selection.addRange(range);
+  });
+  // Wait for native selection delivery, not an arbitrary Node-side sleep.
+  // Check the real selection again before asking the row to leave view.
+  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  if(selection.isCollapsed||!range.intersectsNode(document.querySelector('[data-row="0"]')))
+   throw Error('fixture did not establish a genuine first-row selection');
+  return selection.toString();
  });
- await page.waitForTimeout(100);
+ assert.ok(selectedText.length>0,'selection fixture must select real text');
  await scroll.evaluate(e=>{e.scrollTop=e.scrollHeight});await page.waitForTimeout(100);
  assert.equal(await page.locator('[data-row="0"] button').count(),1,'selected text is not evicted');
+ assert.equal(await page.evaluate(()=>document.getSelection().toString()),selectedText,'selected text stays intact after leaving the viewport');
  await page.evaluate(()=>document.getSelection().removeAllRanges());
  await page.waitForFunction(()=>document.querySelector('[data-row="0"]').dataset.transcriptMounted==='false');
  await scroll.evaluate(e=>{e.scrollTop=0});await page.locator('[data-row="0"] button').waitFor();
@@ -267,5 +338,5 @@ try {
  assert.ok(Math.abs(after-anchor.top)<2,'prepend preserves real ChatView anchor');
  await page.evaluate(()=>fixtureRoot.unmount());
  assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
- console.log(JSON.stringify({engine,implementation,baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
+ console.log(JSON.stringify({engine,implementation,noNativeAnchor:process.env.UI_TEST_NO_NATIVE_ANCHOR==='1',baseline,optimized,firstWindowed, resizePeak, checks:'bounded first mount/resize, tool/reasoning/native-details/draft state, call isolation, focus/selection protection and release, live tip, cleanup, real ChatView anchors',note:'synthetic 350-row fixture; JS heap/DOM only, not macOS physical footprint'}));
 } finally {await browser.close()}

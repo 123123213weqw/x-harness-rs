@@ -1,0 +1,39 @@
+{
+  "manifest_sha256": "cc78d3661b991c20f06ea7c30a34916aea3218f158ee9bf812d8d465cefc6e78",
+  "base_version": "0.0.901",
+  "provenance": {
+    "workflow": ".github/workflows/desktop-unix-update-acceptance.yml",
+    "run_id": "37193933106",
+    "run_attempt": "1",
+    "source_sha": "2327e575ce68d6ecf2a8f935e4dc84edbbb36f4f"
+  },
+  "nativeUpdateAccepted": false,
+  "version": "0.0.902",
+  "sha": "2327e575ce68d6ecf2a8f935e4dc84edbbb36f4f",
+  "release_run_id": "37193933106",
+  "platform": "darwin-aarch64",
+  "scope": "isolated-production-handler-rehearsal",
+  "schema_version": 1,
+  "status": "passed",
+  "baseInstrumented": true,
+  "release_run_attempt": "1",
+  "checks": {
+    "signatureVerified": true,
+    "codesignVerified": true,
+    "adHocSignatureVerified": true,
+    "cacheRestoredAfterRestart": true,
+    "noDuplicatePackageDownload": true,
+    "cachedTamperRejectedBeforeHostStop": true,
+    "hostStoppedBeforeInstall": true,
+    "unavailableFeedRejected": true,
+    "concurrentCheckRejected": true,
+    "tamperedPackageRejected": true,
+    "unconfirmedInstallRejected": true,
+    "exactCandidateInstalled": true,
+    "restartVerified": true,
+    "dataPreserved": true,
+    "persistedSessionCatalogued": true,
+    "nativeLaunchVerified": true
+  },
+  "package_sha256": "ce59bd2216155d52bc26829b22175ee258fc90ce86ed04969708cf3c093ef3ae"
+}

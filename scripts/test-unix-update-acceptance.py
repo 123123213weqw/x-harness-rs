@@ -462,6 +462,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         base_ui = (root / 'source/ui/dist/desktop-updater.js').read_text()
         self.assertNotIn('initialTimer = window.setTimeout', base_ui)
         self.assertNotIn('periodicTimer = window.setInterval', base_ui)
+        self.assertNotIn('return controller.prepare();', base_ui)
         self.assertIn('await listen("xharness-update"', base_ui)
         desktop = root / 'source/apps/desktop/src-tauri'
         config = m.read_json(desktop / 'tauri.conf.json')
@@ -469,6 +470,7 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
         self.assertEqual(config['version'], '0.0.901')
         updater = (desktop / 'src/updater.rs').read_text()
         self.assertIn('configure_client(crate::rehearsal::tls_client)', updater)
+        self.assertEqual(updater.count('.on_before_exit('), (source / 'apps/desktop/src-tauri/src/updater.rs').read_text().count('.on_before_exit('))
         self.assertEqual(updater.count('crate::rehearsal::snapshot_before_install();'), 1)
         self.assertLess(updater.index('sidecar::graceful_stop(&app).await'), updater.index('crate::rehearsal::snapshot_before_install();'))
         self.assertLess(updater.index('crate::rehearsal::snapshot_before_install();'), updater.index('update.install(bytes.as_slice())'))
@@ -479,13 +481,15 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
 
     def test_base_timer_isolation_rejects_missing_duplicate_or_changed_anchors(self):
         source = (m.REPO / 'ui/dist/desktop-updater.js').read_text()
-        anchor = '      initialTimer = window.setTimeout(() => controller.check(), 1500);'
+        anchor = '      initialTimer = window.setTimeout(prepare, 1500);'
         with tempfile.TemporaryDirectory() as temp:
             path = pathlib.Path(temp) / 'updater.js'
             with self.assertRaisesRegex(ValueError, 'Missing regular'):
                 m.isolate_base_updater_timers(path)
             for text in [source.replace(anchor, ''), source + '\n' + anchor,
-                         source.replace('6 * 60 * 60 * 1e3', '12345')]:
+                         source.replace('6 * 60 * 60 * 1e3', '12345'),
+                         source.replace('return controller.prepare();', 'return controller.check();'),
+                         source + '\nconst prepare = () => {};']:
                 path.write_text(text)
                 with self.assertRaisesRegex(ValueError, 'anchor drifted'):
                     m.isolate_base_updater_timers(path)
@@ -505,6 +509,9 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
                 self.assertNotIn('periodicTimer = window.setInterval', isolated)
                 self.assertIn('controller.restore()', isolated)
                 self.assertIn('xharness-update', isolated)
+                if 'return controller.prepare();' in source:
+                    self.assertNotIn('return controller.prepare();', isolated)
+                    self.assertIn('window.addEventListener("online", online)', isolated)
                 self.assertEqual(original.read_text(), source)
                 with self.assertRaisesRegex(ValueError, 'anchor drifted'):
                     m.isolate_base_updater_timers(path)

@@ -1,0 +1,4 @@
+# Owned Windows executables must start on clean Windows without VC++ redist.
+# This target-scoped setting also applies to the nested Tauri Cargo workspace.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

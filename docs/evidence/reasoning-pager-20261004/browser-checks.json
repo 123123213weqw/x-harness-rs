@@ -1,0 +1,67 @@
+{
+  "flips": [
+    {
+      "animation": "U8JO7q_page-enter",
+      "at": 1791113657037,
+      "duration": "0.18s",
+      "height": 24,
+      "incoming": "观察最近一秒的新增字符速度。超过阈值后采用单行滚页，低速时恢复普通显示。",
+      "lineCount": 2,
+      "outgoing": "把显示节奏和模型速度分",
+      "outgoingHidden": "true",
+      "sweep": "none"
+    },
+    {
+      "animation": "U8JO7q_page-enter",
+      "at": 1791113657767,
+      "duration": "0.18s",
+      "height": 24,
+      "incoming": "两行共享固定高度；旧行向上淡出，新行从下方进入，其他内容保",
+      "lineCount": 2,
+      "outgoing": "观察最近一秒的新增字符速度。超过阈值后采用单行滚页，低速时恢复普通显示。",
+      "outgoingHidden": "true",
+      "sweep": "none"
+    },
+    {
+      "animation": "U8JO7q_page-enter",
+      "at": 1791113658594,
+      "duration": "0.18s",
+      "height": 24,
+      "incoming": "结束和替换内容都立即刷新，不保留旧页。随后正文使用短合批和轻淡入，完整呈现结果",
+      "lineCount": 2,
+      "outgoing": "两行共享固定高度；旧行向上淡出，新行从下方进入，其他内容保",
+      "outgoingHidden": "true",
+      "sweep": "none"
+    }
+  ],
+  "expanded": {
+    "bodyCharacters": 5436,
+    "expanded": "true",
+    "overflow": false,
+    "paging": false,
+    "received": "5436 字符"
+  },
+  "completed": {
+    "answer": "思考收拢时，高速输出改成单行滚页。\n每页停留 800ms，切换时轻轻向上淡入淡出。完整思考仍然实时保留，点击 Think 就能展开。\n结束时不会继续播放积压的动画，正文开始正常输出。",
+    "flipping": false,
+    "notice": "输出完成50ms 合批 · 150ms 淡入",
+    "paging": false,
+    "state": "ok",
+    "summary": "先检查当前实现：收拢摘要逐片段更新，并不断滚到末尾；高速输出时，读者来不及看清文字。"
+  },
+  "slow": {
+    "animations": "U8JO7q_dsh-reasoning-row-sweep",
+    "followEnd": "true",
+    "paging": false,
+    "state": "running",
+    "summary": ""
+  },
+  "reduced": {
+    "currentAnimation": "none",
+    "paging": true,
+    "previousLines": 0,
+    "sweep": "none",
+    "text": "把显示节奏和模型速度分"
+  },
+  "medium": "Codex in-app browser, production components, simulated chunks, no API"
+}

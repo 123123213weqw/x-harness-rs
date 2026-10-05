@@ -7,11 +7,15 @@ import {validRecord} from './automation-data'
 import type {ScheduleRecord} from './automation-data'
 import {AutomationPage} from './AutomationNavigation'
 import AUTOMATION_CSS from './AutomationNavigation.css'
+import CARD_CSS from './AutomationToolCard.css'
+import {AutomationToolCard} from './AutomationToolCard'
+import {AutomationCardClient} from './automation-card-client'
+import type {ConnectionHandle} from '../client-connection/index'
 
 interface ScheduleState { seq: number; time: number; change: unknown }
 interface ScheduleSessionSnapshot { openState: string; views: ReadonlyMap<string, readonly ScheduleRecord[]> }
 interface ScheduleProps { useSession<T>(selector: (snapshot: ScheduleSessionSnapshot) => T): T; useProjection(name: string): unknown; t: Translation }
-interface ScheduleContext extends PageContext { get(name: 'workCatalog'): IWorkCatalog | undefined; conversationEvents: ConversationEvents; conversationViews: ConversationViews }
+interface ScheduleContext extends PageContext { get(name: 'workCatalog'): IWorkCatalog | undefined; get(name: 'connection'): ConnectionHandle | undefined; conversationEvents: ConversationEvents; conversationViews: ConversationViews }
 
 
 import * as React from 'react'
@@ -32,10 +36,62 @@ const UNIT_SECONDS = Object.freeze([
 ])
 
 const zh = {
-  'trigger.one': '{count} 个提醒',
-  'trigger.other': '{count} 个提醒',
+  "card.locale": "zh-CN",
+  "card.title": "自动化",
+  "card.savedTask": "已保存的任务",
+  "card.task": "任务",
+  "card.reminder": "提醒",
+  "card.newChat": "新对话运行",
+  "card.currentChat": "当前对话",
+  "card.once": "单次",
+  "card.every": "每 {minutes} 分钟",
+  "card.record": "历史记录 · 状态待同步",
+  "card.working": "执行中",
+  "card.failed": "操作失败",
+  "card.receipt": "操作已执行",
+  "card.unknownResult": "结果待检查",
+  "card.empty": "该次查询没有活动自动化",
+  "card.more": "还有 {count} 项，可在自动化页面查看",
+  "card.details": "详情",
+  "card.inspect": "检查调用",
+  "card.pause": "暂停",
+  "card.resume": "恢复",
+  "card.delete": "删除",
+  "card.cancel": "取消",
+  "card.confirmDelete": "删除后不再触发？",
+  "card.saving": "保存中…",
+  "card.syncFailed": "当前状态暂不可用",
+  "card.unavailable": "无法获取自动化状态",
+  "card.state.scheduled": "等待触发",
+  "card.state.overdue": "等待调度",
+  "card.state.paused": "已暂停",
+  "card.state.finished": "触发已结束",
+  "card.state.deleted": "已删除",
+  "card.state.inherited": "继承记录 · 不触发",
+  "card.state.inactive": "未启用",
+  "card.run.preparing": "运行准备中",
+  "card.run.queued": "运行已排队",
+  "card.run.running": "任务运行中",
+  "card.run.completed": "运行已完成",
+  "card.run.cancelled": "运行已取消",
+  "card.run.failed": "运行失败",
+  "card.run.interrupted": "运行中断",
+  "card.run.incomplete": "运行未完成",
+  "card.run.unavailable": "运行状态未知",
+  "card.action.create": "创建自动化",
+  "card.action.update": "更新自动化",
+  "card.action.list": "自动化列表",
+  "card.action.view": "查看自动化",
+  "card.action.pause": "暂停自动化",
+  "card.action.resume": "恢复自动化",
+  "card.action.delete": "删除自动化",
+  "card.action.unknown": "自动化",
+
+  'trigger.one': '{count} 个自动化',
+  'trigger.other': '{count} 个自动化',
   'list.aria': '活动提醒',
   'status.scheduled': '等待中',
+  'status.paused': '已暂停',
   'status.overdue': '已逾期',
   'frequency.once': '单次',
   'frequency.every': '{value}{unit}一次',
@@ -52,10 +108,62 @@ const zh = {
   'relative.overdue': '已逾期 {value}{unit}',
 }
 const en = {
-  'trigger.one': '{count} reminder',
-  'trigger.other': '{count} reminders',
+  "card.locale": "en",
+  "card.title": "Automation",
+  "card.savedTask": "Saved task",
+  "card.task": "Task",
+  "card.reminder": "Reminder",
+  "card.newChat": "Run in new chat",
+  "card.currentChat": "Current chat",
+  "card.once": "Once",
+  "card.every": "Every {minutes} minutes",
+  "card.record": "Historical record · syncing status",
+  "card.working": "Running",
+  "card.failed": "Operation failed",
+  "card.receipt": "Operation recorded",
+  "card.unknownResult": "Inspect result",
+  "card.empty": "No active automations in this query",
+  "card.more": "{count} more — see Automations",
+  "card.details": "Details",
+  "card.inspect": "Inspect call",
+  "card.pause": "Pause",
+  "card.resume": "Resume",
+  "card.delete": "Delete",
+  "card.cancel": "Cancel",
+  "card.confirmDelete": "Delete future triggers?",
+  "card.saving": "Saving…",
+  "card.syncFailed": "Current status unavailable",
+  "card.unavailable": "Automation status unavailable",
+  "card.state.scheduled": "Scheduled",
+  "card.state.overdue": "Awaiting dispatch",
+  "card.state.paused": "Paused",
+  "card.state.finished": "Trigger finished",
+  "card.state.deleted": "Deleted",
+  "card.state.inherited": "Inherited · not armed",
+  "card.state.inactive": "Inactive",
+  "card.run.preparing": "Preparing run",
+  "card.run.queued": "Run queued",
+  "card.run.running": "Run in progress",
+  "card.run.completed": "Run completed",
+  "card.run.cancelled": "Run cancelled",
+  "card.run.failed": "Run failed",
+  "card.run.interrupted": "Run interrupted",
+  "card.run.incomplete": "Run incomplete",
+  "card.run.unavailable": "Run state unknown",
+  "card.action.create": "Create automation",
+  "card.action.update": "Update automation",
+  "card.action.list": "Automation list",
+  "card.action.view": "View automation",
+  "card.action.pause": "Pause automation",
+  "card.action.resume": "Resume automation",
+  "card.action.delete": "Delete automation",
+  "card.action.unknown": "Automation",
+
+  'trigger.one': '{count} automation',
+  'trigger.other': '{count} automations',
   'list.aria': 'Active reminders',
   'status.scheduled': 'Scheduled',
+  'status.paused': 'Paused',
   'status.overdue': 'Overdue',
   'frequency.once': 'Once',
   'frequency.every': 'Every {value} {unit}',
@@ -91,23 +199,24 @@ function foldScheduleChanges(changes: readonly unknown[]): ScheduleRecord[] {
   const active = new Map<string, ScheduleRecord>()
   for (const rawChange of changes) {
     const change = objectValue(rawChange)
-    if (change?.operation === 'create' && validRecord(change.schedule)) {
-      if (!active.has(change.schedule.id)) active.set(change.schedule.id, { ...change.schedule })
+    if ((change?.operation === 'create' || change?.operation === 'update') && validRecord(change.schedule)) {
+      if (change.operation === 'update' || !active.has(change.schedule.id)) active.set(change.schedule.id, { ...change.schedule })
       continue
     }
-    if ((change?.operation !== 'delete' && change?.operation !== 'dispatch')
-      || typeof change.id !== 'string') continue
-    const current = active.get(change.id)
+    const id = change.operation === 'run' ? objectValue(change.run).scheduleId : change.id
+    if ((change?.operation !== 'delete' && change?.operation !== 'dispatch' && change?.operation !== 'run')
+      || typeof id !== 'string') continue
+    const current = active.get(id)
     if (current === undefined) continue
-    if (change.operation === 'dispatch'
+    if ((change.operation === 'dispatch' || change.operation === 'run')
       && current.kind === 'every'
       && Number.isInteger(current.everySeconds)
       && typeof change.acceptedAt === 'string') {
       const scheduledAt = nextEveryTarget(current, change.acceptedAt)
-      if (scheduledAt !== undefined) active.set(change.id, { ...current, scheduledAt })
-      else active.delete(change.id)
+      if (scheduledAt !== undefined) active.set(id, { ...current, scheduledAt })
+      else active.delete(id)
     } else {
-      active.delete(change.id)
+      active.delete(id)
     }
   }
   return [...active.values()]
@@ -311,14 +420,15 @@ function ScheduleCatalogAction({ useSession, useProjection, t }: ScheduleProps) 
       style: catalogPosition ?? { visibility: 'hidden', left: 0, top: 0 },
       'aria-label': t('list.aria'),
     }, rows.map(record => {
-      const overdue = Date.parse(record.scheduledAt) <= now
+      const paused = record.automation?.paused === true
+      const overdue = !paused && Date.parse(record.scheduledAt) <= now
       return h('li', {
         className: overdue ? 'xhsch-row xhsch-row-overdue' : 'xhsch-row',
         key: record.id,
       }, [
         h('span', { className: 'xhsch-status', key: 'status' }, [
           h('span', { className: 'xhsch-status-dot', 'aria-hidden': true, key: 'dot' }),
-          h('span', { key: 'label' }, t(overdue ? 'status.overdue' : 'status.scheduled')),
+          h('span', { key: 'label' }, t(paused ? 'status.paused' : overdue ? 'status.overdue' : 'status.scheduled')),
         ]),
         h('span', { className: 'xhsch-prompt', key: 'prompt' }, record.prompt),
         h('span', { className: 'xhsch-metadata', key: 'metadata' }, [
@@ -326,7 +436,7 @@ function ScheduleCatalogAction({ useSession, useProjection, t }: ScheduleProps) 
           h('span', { 'aria-hidden': true, key: 'separator-1' }, '·'),
           h('span', { key: 'time' }, formatScheduleLocalTime(record.scheduledAt, document.documentElement.lang)),
           h('span', { 'aria-hidden': true, key: 'separator-2' }, '·'),
-          h('span', { className: overdue ? 'xhsch-relative-overdue' : undefined, key: 'relative' }, formatScheduleRelative(record.scheduledAt, now, t)),
+          h('span', { className: overdue ? 'xhsch-relative-overdue' : undefined, key: 'relative' }, paused ? t('status.paused') : formatScheduleRelative(record.scheduledAt, now, t)),
         ]),
       ])
     })), document.body)
@@ -337,9 +447,12 @@ function ScheduleCatalogAction({ useSession, useProjection, t }: ScheduleProps) 
 
 
 
-const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews', 'workCatalog']
+const inject = ['slots', 'locale', 'conversationEvents', 'conversationViews', 'workCatalog', 'connection']
 
 function apply(ctx: ScheduleContext) {
+  const connection = ctx.get('connection')
+  if (!connection) throw Error('schedule: Connection service unavailable')
+  const cardClient = new AutomationCardClient(connection.rpc)
   const service = ctx.get('workCatalog')
   if (service === undefined) throw Error('schedule: Work catalog service unavailable')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-schedule: dictionaries')
@@ -359,6 +472,16 @@ function apply(ctx: ScheduleContext) {
     document.head.append(style)
     return () => style.remove()
   }, 'xharness-ui-schedule: navigation styles')
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.id = 'xharness-automation-tool-card-style'
+    style.textContent = CARD_CSS
+    document.head.append(style)
+    return () => style.remove()
+  }, 'xharness-ui-schedule: tool card styles')
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview', key: 'automation', locale: NS,
+  }, (props: Omit<React.ComponentProps<typeof AutomationToolCard>, 'client'>) => h(AutomationToolCard, {...props, client: cardClient})))
   ctx.slots.inject('work.center.automations', () => ctx.slots.register({
     name: 'work.center.automations', id: 'automations', order: 20,
   }, (props: {openSession(id: string): void}) => h(AutomationPage, {...props, service})))

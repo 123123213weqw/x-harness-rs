@@ -39,7 +39,8 @@ export function compileScriptAssets(ui, rows) {
   for (let i = 0; i < rows.length; i++) {
     const built = esbuild.buildSync({entryPoints: [entries[i]], bundle: true,
       absWorkingDir: ui, format: 'iife', platform: 'browser', target: 'es2020',
-      write:false, legalComments:'inline', metafile:true})
+      write:false, legalComments:'inline', metafile:true,
+      loader:{'.raw.css':'text','.svg':'text'}})
     if (built.outputFiles.length !== 1 || Object.values(built.metafile.outputs).some(row => row.imports.length))
       throw Error('Script asset escaped bundling')
     for (const path of Object.keys(built.metafile.inputs)) readInput(ui, {source: relative(ui, resolve(ui,path)).split(sep).join('/')})

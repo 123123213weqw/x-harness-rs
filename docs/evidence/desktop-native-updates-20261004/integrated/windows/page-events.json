@@ -1,0 +1,191 @@
+[
+  {
+    "time": "2026-10-04T10:33:23.747Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:57565/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:23.985Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:57565/api/dynamicCordisRunner/inventory",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:24.073Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:57565/api/dynamicCordisRunner/inventory",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:24.085Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:57565/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:24.302Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:57565/api/dynamicCordisRunner/inventory",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:27.723Z",
+    "kind": "page-closed",
+    "url": "http://127.0.0.1:57565/"
+  },
+  {
+    "time": "2026-10-04T10:33:31.215Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:50429/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:31.218Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:50429/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:31.428Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-tool/client.js?rev=fd171b6f83613acd",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.429Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-workflow-run/client.js?rev=9e107abb29cd4096",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.430Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-deliverables/client.js?rev=0231fcd8a83d9957",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.431Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=eb2a51c6953ca99d",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.433Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/api/settings.describe",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.433Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-input-trigger/client.js?rev=a1c00319eb51afcc",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.434Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-commands/client.js?rev=52d6456fe6a9617d",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.434Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-subagent/client.js?rev=b8f2d8342a043968",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.435Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-model-selection/client.js?rev=433477e33634872c",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.436Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-permission-presets/client.js?rev=a93a88670a10692e",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.437Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-agent-preset/client.js?rev=d323ea922a1d5bee",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.437Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-settings-plugins/client.js?rev=504a8f05b35f701e",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.438Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xharness/dsh-client-ui-trajectory/client.js?rev=c37024c5c907cf96",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.438Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/plugins/@xlang/xharness-client-ui-plugin-hub/client.js?rev=f2a449cf36eee67c",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.468Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/api/settings.describe",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.585Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/api/settings.describe",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.587Z",
+    "kind": "requestfailed",
+    "url": "http://127.0.0.1:50429/favicon.png",
+    "error": "net::ERR_CONNECTION_REFUSED"
+  },
+  {
+    "time": "2026-10-04T10:33:31.623Z",
+    "kind": "page-closed",
+    "url": "http://127.0.0.1:50429/"
+  },
+  {
+    "time": "2026-10-04T10:33:31.623Z",
+    "kind": "install-ipc-ended",
+    "error": "page.evaluate: Target page, context or browser has been closed"
+  },
+  {
+    "time": "2026-10-04T10:33:49.154Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:63464/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:49.416Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:63464/api/dynamicCordisRunner/syncInspectManifest",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:49.417Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:63464/api/dynamicCordisRunner/inventory",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:49.489Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:63464/api/dynamicCordisRunner/inventory",
+    "status": 404
+  },
+  {
+    "time": "2026-10-04T10:33:49.591Z",
+    "kind": "http-error",
+    "url": "http://127.0.0.1:63464/api/dynamicCordisRunner/inventory",
+    "status": 404
+  }
+]

@@ -29,7 +29,7 @@ try {
     const runtime=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const get=id=>{if(id==='@xharness/dsh-client-runtime/client')return runtime;if(id in staticModules)return staticModules[id];throw Error(id)}
     const slots=new Map(),cleanup=[]
-    const ctx={get:name=>name==='workCatalog'?workCatalog:undefined,effect:fn=>{const off=fn();if(typeof off==='function')cleanup.push(off)},locale:{register:()=>{}},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.set(spec.name,component)},conversationEvents:{register:()=>{}},conversationViews:{register:()=>{}}}
+    const ctx={get:name=>name==='workCatalog'?workCatalog:name==='connection'?workConnection:undefined,effect:fn=>{const off=fn();if(typeof off==='function')cleanup.push(off)},locale:{register:()=>{}},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.set(spec.name,component)},conversationEvents:{register:()=>{}},conversationViews:{register:()=>{}}}
     for(const id of ['@xlang/xharness-client-ui-tasks','@xlang/xharness-client-ui-schedule'])registrations[id].factory(get).apply(ctx)
     let Frame,definition
     registrations['@xharness/dsh-client-ui-layout'].factory(get).apply({effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,component)=>{definition=spec;Frame=component;return()=>{}}}})

@@ -246,7 +246,7 @@ jobs:
       - name: Windows real installer ownership and crash cleanup acceptance
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
-        run: ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path 'dist/desktop-package/windows-x86_64/XHarness_${{ needs.plan.outputs.version }}_x64-setup.exe').Path
+        run: ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path 'dist/desktop-package/windows-x86_64/XHarness_${{ needs.plan.outputs.version }}_x64-setup.exe').Path -RuntimeAudit dist/windows-runtime-audit/collect.json
       - name: Verify and archive exact EXE/PDB pairs separately from installers
         if: matrix.platform == 'windows-x86_64'
         run: python -B scripts/archive-desktop-symbols.py --target '${{ matrix.target }}' --output dist/desktop-symbols-windows
@@ -294,6 +294,8 @@ jobs:
         with:
           pattern: desktop-package-*
           path: dist/matrix-artifacts
+      - name: Install final Windows installer extractor
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
       - name: Independently verify all selected immutable platform receipts and aggregate once
         env:
           XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
