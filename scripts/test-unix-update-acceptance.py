@@ -42,6 +42,17 @@ class HarnessTests(unittest.TestCase):
             m.native_signature(pathlib.Path('app'), '0.2.18', pathlib.Path('evidence'), preview=True)
         verify.assert_not_called()
 
+    def test_fixed_native_signature_rejects_mixed_policies(self):
+        info = {'CFBundleShortVersionString': '0.2.19'}
+        with patch.object(m, 'mac_binary', return_value=(pathlib.Path('binary'), info)), \
+                patch.object(m._macos_signing, 'verify') as verify:
+            with self.assertRaisesRegex(ValueError, 'must not be combined'):
+                m.native_signature(pathlib.Path('app'), '0.2.19', pathlib.Path('evidence'),
+                                   preview=True, fingerprint='a'*40)
+            verify.assert_not_called()
+            m.native_signature(pathlib.Path('app'), '0.2.19', pathlib.Path('evidence'), fingerprint='a'*40)
+            verify.assert_called_once_with(pathlib.Path('app'), fingerprint='a'*40, evidence=pathlib.Path('evidence'))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='unix-harness-unit-')
         self.directory = pathlib.Path(self.tmp.name).resolve()
@@ -348,6 +359,12 @@ signature:b64('untrusted comment: sig\n'+Buffer.concat([Buffer.from('ED'),id,sig
             with opener.open(url + '/latest.json', timeout=3) as response:
                 manifest = json.load(response)
                 self.assertEqual(manifest['macos_distribution'], 'ad-hoc-unnotarized-preview')
+                self.assertIn('not notarized', manifest['notes'])
+            config['macos_signing_fingerprint'] = 'c'*40
+            with opener.open(url + '/latest.json', timeout=3) as response:
+                manifest = json.load(response)
+                self.assertEqual(manifest['macos_distribution'], 'self-signed-unnotarized-preview')
+                self.assertEqual(manifest['macos_signing_fingerprint'], 'c'*40)
                 self.assertIn('not notarized', manifest['notes'])
             (root / 'mode').write_text('unavailable')
             with self.assertRaises(urllib.error.HTTPError) as error:
