@@ -106,8 +106,11 @@ async fn browser_acceptance(directory: &std::ffi::OsStr) -> Result<(), Box<dyn s
             return Err("lab request too large".into());
         }
         let started = Instant::now();
-        let request = ToolRequest::new("computer", std::str::from_utf8(&bytes)?)
-            .with_execution_id(format!("shopping-native-{index}"))?;
+        let request = ToolRequest::new(
+            "computer",
+            std::str::from_utf8(bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes))?,
+        )
+        .with_execution_id(format!("shopping-native-{index}"))?;
         let result = executor.execute(request).await;
         let content = result
             .output

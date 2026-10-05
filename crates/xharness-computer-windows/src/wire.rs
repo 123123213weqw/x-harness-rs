@@ -107,12 +107,17 @@ pub fn write_packet(writer: &mut impl Write, bytes: &[u8], max: usize) -> io::Re
     writer.flush()
 }
 
+pub const MAX_TREE_DEPTH: usize = 32;
+
+// Windows browser providers use deep framework wrappers before page content.
+// Depth and node/visit/time budgets are independent; raising depth never
+// permits an unbounded tree or changes the macOS adapter.
 pub fn budget(detail: Option<&str>) -> (usize, usize) {
     match detail {
-        Some("low") => (80, 4),
-        Some("semantic") => (300, 10),
-        Some("high") => (500, 12),
-        _ => (220, 8),
+        Some("low") => (80, 12),
+        Some("semantic") => (300, 24),
+        Some("high") => (500, MAX_TREE_DEPTH),
+        _ => (220, 20),
     }
 }
 
@@ -161,9 +166,9 @@ mod tests {
     }
     #[test]
     fn budgets_are_finite() {
-        assert_eq!(budget(None), (220, 8));
-        assert_eq!(budget(Some("low")), (80, 4));
-        assert_eq!(budget(Some("high")), (500, 12));
-        assert_eq!(budget(Some("semantic")), (300, 10));
+        assert_eq!(budget(None), (220, 20));
+        assert_eq!(budget(Some("low")), (80, 12));
+        assert_eq!(budget(Some("high")), (500, MAX_TREE_DEPTH));
+        assert_eq!(budget(Some("semantic")), (300, 24));
     }
 }

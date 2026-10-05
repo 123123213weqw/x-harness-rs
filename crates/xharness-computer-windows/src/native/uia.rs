@@ -52,7 +52,7 @@ impl Automation {
         verify_surface(&target.surface, false)?;
         let mut element =
             api(unsafe { self.instance.ElementFromHandle(hwnd(target.surface.handle)) })?;
-        if target.path.len() > 12 {
+        if target.path.len() > wire::MAX_TREE_DEPTH {
             return Err(error("stale_node", "invalid UIA node path"));
         }
         for &index in &target.path {
