@@ -34,8 +34,8 @@ clean-machine test.
    verifies no VCRUNTIME140, installs exact official 0.2.34 then the candidate,
    checks all installed hashes, preserves a data sentinel, tests Host readiness
    and desktop-crash child cleanup. It does NOT pretend to be GitHub hosted.
-   UI screenshots/tool execution remain independent observations, not inferred
-   from an HTTP 200. It is NOT signed two-hop updater acceptance.
+   The read-only PowerShell fixture checks real working directory and write
+   denial. UI screenshots remain independent observations, not inferred from an HTTP 200. It is NOT signed two-hop updater acceptance.
 
 ## Startup errors
 

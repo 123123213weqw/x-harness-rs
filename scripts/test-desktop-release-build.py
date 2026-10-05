@@ -731,14 +731,14 @@ class WindowsRuntimeGates(unittest.TestCase):
 
     def test_every_install_owner_call_has_exact_payload_audit(self):
         for name in ['ci.yml', 'desktop-release.yml', 'friends-release.yml', 'runtime-diagnostics.yml', 'windows-runtime-gates.yml']:
-            lines = (ROOT / '.github/workflows' / name).read_text().splitlines()
+            lines = (ROOT / '.github/workflows' / name).read_text(encoding='utf-8').splitlines()
             calls = [line for line in lines if 'test-windows-install-ownership.ps1 -Installer' in line]
             self.assertTrue(calls, name)
             for call in calls:
                 self.assertIn('-RuntimeAudit', call, name)
 
     def test_target_config_is_not_a_global_rustflag(self):
-        text = (ROOT / '.cargo/config.toml').read_text()
+        text = (ROOT / '.cargo/config.toml').read_text(encoding='utf-8')
         self.assertIn('[target.x86_64-pc-windows-msvc]', text)
         self.assertIn('target-feature=+crt-static', text)
         self.assertNotIn('[build]', text)
