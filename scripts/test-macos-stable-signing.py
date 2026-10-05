@@ -168,6 +168,7 @@ class StableSigning(unittest.TestCase):
                 with self.subTest(path=path), self.assertRaises(ValueError): m.cleanup_path(path)
             run.assert_not_called()
 
+    @unittest.skipUnless(os.name == "posix", "Identity creation requires POSIX private-file permissions")
     def test_one_time_creation_never_overwrites_and_keeps_private_files_encrypted(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {'XHARNESS_MACOS_PREVIEW_P12_PASSWORD': secrets.token_urlsafe(32)}):
             identity = Path(folder) / 'identity'
