@@ -121,7 +121,7 @@ body [data-tool][data-state="preparing"] [data-disclosure-row] {
   color: var(--dsw-alias-label-secondary);
   animation: xh-switch-pulse 1.2s ease-in-out infinite;
 }
-body .xh-tool-preparing {
+body .xh-tool-preparing:not([data-tool-phase="generating"]) {
   display: inline-flex;
   align-items: center;
   min-height: 25px;
@@ -137,5 +137,5 @@ body .xh-tool-preparing {
 @media (prefers-reduced-motion: reduce) {
   body .xh-model-switching,
   body [data-tool][data-state="preparing"] [data-disclosure-row],
-  body .xh-tool-preparing { animation: none; }
+  body .xh-tool-preparing:not([data-tool-phase="generating"]) { animation: none; }
 }
