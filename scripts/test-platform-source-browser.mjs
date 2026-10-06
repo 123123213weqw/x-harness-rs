@@ -215,6 +215,35 @@ for(const engine of engines){
     surfaces.push({theme,width,kind,layout:await page.evaluate(()=>layout())});screenshots.push(sha(await page.screenshot({animations:'disabled',path:join(evidence,`${engine}-${implementation}-${theme}-${width}-${kind}.png`)})))
     if(kind==='modal'){await page.keyboard.press('Escape');assert.ok(await page.evaluate(()=>fixtureCloseCount>0),'actual modal Escape routes onClose')}
    }
+   if(implementation==='source'){
+    // Additional owning-theme acceptance, AFTER the independent platform
+    // snapshots above. Never project/mask or update the frozen pixel oracle.
+    await page.addStyleTag({content:readFileSync(join(ui,'src/modules/theme/typography.css'),'utf8')})
+    const text='# **H1**\n\n## **H2**\n\n### **H3**\n\n#### **H4**\n\n##### **H5**\n\n###### **H6**\n\n正文 **强调** English $x^2$\n\n```text\ncode value\n```\n\n| Head |\n| --- |\n| body |\n\n末尾'
+    for(const theme of ['light','dark'])for(const width of [960,390]){
+     await page.setViewportSize({width,height:720})
+     await page.evaluate(({text,theme})=>{
+      document.body.toggleAttribute('data-ds-dark-theme',theme==='dark')
+      renderMath(text,true,'typography')
+     },{text,theme})
+     const computed=await page.evaluate(()=>{
+      const css=selector=>{const s=getComputedStyle(document.querySelector(selector));return {size:s.fontSize,weight:s.fontWeight,line:s.lineHeight,margin:s.margin}}
+      return {headings:['h1','h2','h3','h4','h5','h6'].map(h=>[css(h),css(h+' strong')]),body:css('#root p'),emphasis:css('#root p strong'),code:css('.md-code-block pre'),table:css('#root th')}
+     })
+     for(const [i,size,weight] of [[0,24,700],[1,20,700],[2,18,700],[3,17,600],[4,16,600],[5,16,600]]){
+      assert.equal(computed.headings[i][0].size,size+'px',engine+'/'+theme+'/'+width+'/heading size')
+      assert.equal(computed.headings[i][0].weight,''+weight)
+      assert.equal(computed.headings[i][1].weight,''+weight,'heading emphasis inherits hierarchy')
+     }
+     assert.deepEqual(computed.body,{size:'16px',weight:'400',line:'28px',margin:'14px 0px'},'body size unchanged, theme paragraph rhythm active')
+     assert.equal(computed.emphasis.weight,'700')
+     assert.equal(computed.code.size,'14px');assert.equal(computed.code.line,'24px')
+     assert.equal(computed.table.weight,'600')
+     assert.equal(await page.locator('.katex').count(),1,'math appears while streaming')
+     await page.evaluate(text=>renderMath(text,false,'typography'),text)
+     assert.equal(await page.locator('.md-code-block pre').textContent(),'code value','settling preserves exact code')
+    }
+   }
    assert.deepEqual(errors,[])
    results.push({keys,singleton,projection,brand,shiki,coreAbi,surfaces,screenshots});await page.close()
   }

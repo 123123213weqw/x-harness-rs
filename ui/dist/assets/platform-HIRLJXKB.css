@@ -1444,7 +1444,7 @@ body[data-ds-dark-theme] .JsonTree_root {
   color: var(--dsw-alias-label-primary);
 }
 .MarkdownText_markdown strong {
-  font-weight: var(--dsw-font-markdown-base-strong-font-weight, 700);
+  font-weight: var(--xh-markdown-emphasis-weight, 600);
 }
 @keyframes MarkdownText_stream-prose-in {
   from {
@@ -1464,19 +1464,19 @@ body[data-ds-dark-theme] .JsonTree_root {
 }
 .MarkdownText_markdown h1 {
   font: var(--dsw-font-markdown-h1);
-  margin: 28px 0 12px;
+  margin: var(--xh-markdown-h12-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h2 {
   font: var(--dsw-font-markdown-h2);
-  margin: 28px 0 12px;
+  margin: var(--xh-markdown-h12-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h3 {
   font: var(--dsw-font-markdown-h3);
-  margin: 24px 0 10px;
+  margin: var(--xh-markdown-h3-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h4 {
   font: var(--dsw-font-markdown-h4);
-  margin: 20px 0 8px;
+  margin: var(--xh-markdown-h4-margin, 16px 0);
 }
 .MarkdownText_markdown :where(h5, h6) {
   font: var(--dsw-font-markdown-base-strong);
@@ -1487,7 +1487,7 @@ body[data-ds-dark-theme] .JsonTree_root {
   font-weight: inherit;
 }
 .MarkdownText_markdown p {
-  margin: 14px 0;
+  margin: var(--xh-markdown-paragraph-margin, 16px 0);
 }
 .MarkdownText_markdown :where(h4, h5, h6) + :where(ul, ol) {
   margin-top: 8px;
@@ -2974,4 +2974,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-PJGC3KCK.css.map */
+/*# sourceMappingURL=platform-HIRLJXKB.css.map */

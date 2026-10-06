@@ -24,7 +24,7 @@ test('font shorthands agree with individual inspection tokens',()=>{
  }
 })
 test('only authored emphasis strengthens; heading emphasis inherits its level',()=>{
- assert.match(markdown,/\.markdown strong\s*\{\s*font-weight: var\(--dsw-font-markdown-base-strong-font-weight, 700\);/)
+ assert.match(markdown,/\.markdown strong\s*\{\s*font-weight: var\(--xh-markdown-emphasis-weight, 600\);/)
  assert.match(markdown,/:where\(h1, h2, h3, h4, h5, h6\) strong\s*\{\s*font-weight: inherit;/)
  assert.match(markdown,/:where\(h5, h6\)[^}]*font-weight: 600;/)
  assert.doesNotMatch(tokens,/--dsw-font-markdown-base:/)
@@ -38,4 +38,17 @@ test('preview uses actual rendering and frozen before CSS, no provider traffic',
  assert.doesNotMatch(demo,/fetch\(|WebSocket|XMLHttpRequest/)
  assert.match(script,/a3d5c6d93be089eb055888e0f5fc3ee1c217023b/)
  assert.match(script,/'127\.0\.0\.1'/)
+})
+
+test('platform geometry keeps frozen fallbacks; only the theme opts in',()=>{
+ for(const [name,fallback,owned] of [
+  ['h12','32px 0 16px','28px 0 12px'],
+  ['h3','32px 0 16px','24px 0 10px'],
+  ['h4','16px 0','20px 0 8px'],
+  ['paragraph','16px 0','14px 0'],
+ ]){
+  assert.ok(markdown.includes(`margin: var(--xh-markdown-${name}-margin, ${fallback});`))
+  assert.ok(tokens.includes(`--xh-markdown-${name}-margin: ${owned};`))
+ }
+ assert.match(tokens,/--xh-markdown-emphasis-weight: 700;/)
 })

@@ -39154,4 +39154,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-R6MZEQA6.js.map
+//# sourceMappingURL=platform-RJJUECQJ.js.map
