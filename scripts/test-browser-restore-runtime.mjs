@@ -40,7 +40,7 @@ try {
     plugin.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: (config, component) => { components[config.id] = component } } })
     const instance=rootDefinition.store().create(),actions=instance.actions;rootDefinition.inject(actions)
     const slots = (name, props) => name === 'workspace.item' ? React.createElement(components['browser-pane'], props)
-      : name === 'conversation' ? React.createElement('div', null, 'Conversation') : null
+      : name === 'conversation' ? React.createElement('div', null, 'Conversation', React.createElement(plugin.BrowserToggle)) : null
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     root.render(React.createElement(AppFrame, {
       useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
@@ -50,6 +50,14 @@ try {
   await page.getByRole('tab', { name: 'example.com' }).waitFor()
   await page.waitForFunction(() => commands.some(call => call.command === 'desktop_browser_navigate'))
   assert.equal(await page.evaluate(() => window.activeTab), 'browser:7', 'an empty viewport-sized shell carrier must not hide its peer')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    assert.equal(await page.locator('.xhbrowser-header-trigger').getAttribute('aria-expanded'), 'true', 'restored tabs publish their actual visibility to the header')
+    await page.getByRole('button', {name:'收起右侧工作区'}).click()
+    await page.waitForFunction(()=>window.activeTab===null&&document.querySelector('[data-xhworkspace-open]')===null)
+    await page.getByRole('button', {name:'展开右侧工作区'}).click()
+    await page.waitForFunction(()=>window.activeTab==='browser:7')
+    assert.equal(await page.getByRole('tab').count(),1,'restored tab survives hiding without duplication')
+  }
   await page.evaluate(() => {
     const menu = document.createElement('div'); menu.id = 'shell-card'
     menu.style.cssText = 'position:absolute;right:20px;top:150px;width:220px;height:160px;background:white'

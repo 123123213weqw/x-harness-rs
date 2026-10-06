@@ -23,7 +23,8 @@ assert.equal(patchBrowserDock(Buffer.from(previousLayers)).toString(), frozen,
   'refresh an already-patched release, not just fresh upstream builds')
 assert.match(read('ui/dist/index.html'), /@xlang\/xharness-client-ui-browser/)
 assert.match(read(`ui/dist/plugins/${layout}/client.js`), /sessionId: spaceKey === ["\']__global__["\'] \? null : spaceKey/, 'the live session, not a persisted tab, owns browser binding')
-assert.match(read('ui/src/modules/layout/workspace-pane.tsx'), /item:active,sessionId,open:true/)
+assert.match(read('ui/src/modules/layout/workspace-pane.tsx'), /item:active,sessionId,open,onUpdate/,
+  'native child presentation follows dock visibility instead of always being open')
 const css=read('ui/src/modules/layout/AppFrame.css');assert.ok(shippedLayout.includes(JSON.stringify(css)), 'the exact workspace/drawer/scrim CSS is actually embedded in the source-built factory')
 assert.match(read('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js'), /"data-composer-seat"/,
   'chat shortcuts require the stable composer wrapper to survive upstream UI rebuilds')

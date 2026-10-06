@@ -3,6 +3,7 @@ import * as React from 'react'
 import type { NativeUnlisten } from '../shared/tauri'
 import type { EffectContext, SlotsService } from '../shared/runtime-types'
 import { objectValue } from '../shared/runtime-types'
+import { workspaceDockEvents, workspaceDockVisibility } from '../shared/workspace-dock'
 import CSS from './Browser.css'
 const { createElement: h, useEffect, useRef, useState } = React
 export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number }
@@ -21,7 +22,6 @@ function browserPayload(raw: unknown): {tabId: string; kind: string; value: stri
 }
 const STYLE_ID = 'xharness-browser-pane-style'
 const OPEN_EVENT = 'xharness:workspace-open'
-const openBrowser = (fresh: boolean) => window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { kind: 'browser', fresh } }))
 const native = window.__TAURI__?.core?.invoke ? window.__TAURI__ : null
 let nativeQueue: Promise<unknown> = Promise.resolve()
 const enqueueNative = <T,>(task: () => T | PromiseLike<T>): Promise<T> => {
@@ -77,17 +77,36 @@ const glyph = (name: string, size = 16) => {
     download: [h('path', { d: 'M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3', key: 1 })],
     more: [h('circle', { cx: 5, cy: 12, r: 1, key: 1 }), h('circle', { cx: 12, cy: 12, r: 1, key: 2 }), h('circle', { cx: 19, cy: 12, r: 1, key: 3 })],
     external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
-    sidebar: [h('rect', { x: 1.5, y: 2.5, width: 13, height: 11, rx: 1.6, key: 1 }), h('path', { d: 'M10.5 2.5v11', key: 2 }), h('path', { d: 'm13 6.5-1.5 1.5L13 9.5', key: 3 })],
   }
-  return h('svg', { width: size, height: size, viewBox: name === 'sidebar' ? '0 0 16 16' : '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: name === 'sidebar' ? 1.4 : 1.8,
+  return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
     strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true }, paths[name])
 }
 const button = (label: string, icon: string, onClick: () => void, disabled = false) => h('button', { type: 'button', className: 'xhbrowser-icon',
   'aria-label': label, title: label, onClick, disabled }, glyph(icon))
 
 export function BrowserToggle() {
-  return h('button', { type: 'button', className: 'xhbrowser-header-trigger', 'aria-label': '展开右侧工作区',
-    title: '展开右侧工作区', onClick: () => openBrowser(false) }, glyph('sidebar', 14))
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const onVisibility = (event: Event) => {
+      const visible = workspaceDockVisibility(event)
+      if (visible !== undefined) setOpen(visible)
+    }
+    window.addEventListener(workspaceDockEvents.visibility, onVisibility)
+    // A header can mount after browser/session restoration. Ask the owner for
+    // its current state instead of guessing from the last request we sent.
+    window.dispatchEvent(new Event(workspaceDockEvents.requestVisibility))
+    return () => window.removeEventListener(workspaceDockEvents.visibility, onVisibility)
+  }, [])
+  const label = open ? '收起右侧工作区' : '展开右侧工作区'
+  return h('button', { type: 'button', className: 'xhbrowser-header-trigger', 'aria-label': label,
+    'aria-expanded': open, title: label,
+    onClick: () => window.dispatchEvent(new Event(workspaceDockEvents.toggle)) },
+    h('svg', { className: 'xhbrowser-dock-icon', width: 16, height: 16, viewBox: '0 0 16 16',
+      fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+      h('path', { className: 'xhbrowser-dock-panel', d: 'M10 2h3.4A1.6 1.6 0 0 1 15 3.6v8.8a1.6 1.6 0 0 1-1.6 1.6H10Z', fill: 'currentColor', stroke: 'none' }),
+      h('rect', { x: 1, y: 2, width: 14, height: 12, rx: 1.6 }),
+      h('path', { d: 'M10 2v12' }),
+      h('g', { className: 'xhbrowser-dock-chevron' }, h('path', { d: 'm13.5 6-2 2 2 2' }))))
 }
 const accessText = (zh: string, en: string) => document.documentElement.lang.toLowerCase().startsWith('zh') ? zh : en
 const pageOrigin = (address: string) => {

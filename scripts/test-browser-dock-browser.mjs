@@ -17,17 +17,26 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 780 } })
   const errors = []
   page.on('pageerror', error => {if(error.message!=='owned feature fixture: stop Host boot')errors.push(error.message)})
-  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>')
+  // Host boot is intercepted before theme activation. The platform's global
+  // keyboard-focus rule needs the same primary-label token as the real shell.
+  await installOwnedViewHtml(page,process.env.UI_TEST_IMPL??'canonical','<html><head></head><body style="margin:0;--dsw-alias-label-primary:#0f1115"><div id="root" style="position:fixed;inset:0"></div></body></html>')
   await page.addScriptTag({ content: 'window.__ModuleLoader__={load:x=>{window.registrations??={};registrations[x.id]=x}}' })
   await page.addScriptTag({ content: layoutSource })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-runtime') })
-  await page.evaluate(() => {
+  if (process.env.UI_TEST_IMPL !== 'legacy') await page.addScriptTag({content:ownedViewModuleTestInput('@xharness/dsh-session-log-export')})
+  await page.evaluate(includeSessionLog => {
     const engine=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const browser = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
     browser.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
+    let SessionLogHeader
+    if (includeSessionLog) {
+      const sessionLog = registrations['@xharness/dsh-session-log-export'].factory(runtime)
+      sessionLog.apply({provide:()=>{},effect:fn=>fn(),on:()=>{},locale:{register:()=>()=>{}},
+        slots:{inject:(_,fn)=>fn(),register:(_,component)=>{SessionLogHeader=component}}})
+    }
     let AppFrame,rootDefinition
     layout.apply({
       effect: (fn, label) => { if (label.includes('service')) fn() },
@@ -39,15 +48,23 @@ try {
     const slots = (name, props) => {
       if (name === 'shell.overlay') return null
       if (name === 'workspace.item') return React.createElement(browser.BrowserPane, props)
-      if (name === 'conversation') return React.createElement('div', { style: { position: 'absolute', top: 8, right: 8 } }, React.createElement(browser.BrowserToggle))
+      if (name === 'conversation') return React.createElement('div', { style: { position: 'absolute', top: 8, right: 8, display:'flex', alignItems:'center', gap:8 } },
+        SessionLogHeader?React.createElement(SessionLogHeader,{sessionId:'toolbar-test',useSessionLogDownload:select=>select({bySession:{}}),request:async()=>{},dismiss:()=>{},t:key=>key}):null,
+        React.createElement(browser.BrowserToggle))
       return React.createElement('div', null, name)
     }
     window.root = ReactDOM.createRoot(document.getElementById('root'))
-    root.render(React.createElement(AppFrame, {
-      useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
-      useSessions: selector => selector({ current: undefined, byId: {} }), actions, renderSlot: slots,
-    }))
-  })
+    function App() {
+      const [current,setCurrent]=React.useState(undefined);window.setCurrentSession=setCurrent
+      const [headerVisible,setHeaderVisible]=React.useState(true);window.setHeaderVisible=setHeaderVisible
+      return React.createElement(AppFrame, {
+        useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
+        useSessions: selector => selector({ current, byId: current?{[current]:{blank:false}}:{} }), actions,
+        renderSlot:(name,props)=>name==='conversation'&&!headerVisible?null:slots(name,props),
+      })
+    }
+    root.render(React.createElement(App))
+  },process.env.UI_TEST_IMPL !== 'legacy')
   const centerBefore = await page.locator('._84hhiq_centerCol').evaluate(element => element.getBoundingClientRect().width)
   await page.getByRole('button', { name: '展开右侧工作区' }).click()
   await page.getByRole('region', { name: '工作区' }).waitFor()
@@ -109,9 +126,73 @@ try {
     'an expanded dock cannot be collapsed rightward by dragging')
   await page.getByRole('textbox', { name: '网址' }).fill('example.com')
   await page.getByRole('textbox', { name: '网址' }).press('Enter')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    const trigger = page.locator('.xhbrowser-header-trigger')
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'header trigger reports the actual open dock')
+    const toolbarGeometry = await page.evaluate(() => {
+      const toggle=document.querySelector('.xhbrowser-header-trigger'),log=[...document.querySelectorAll('button')].find(element=>element.textContent==='Session log')
+      const box=element=>{const r=element.getBoundingClientRect();return{width:r.width,height:r.height,centerY:r.y+r.height/2}}
+      return{toggle:box(toggle),log:box(log),toggleIcon:box(toggle.querySelector('svg')),logIcon:box(log.querySelector('svg')),
+        duration:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).transitionDuration,
+        animation:getComputedStyle(toggle.querySelector('.xhbrowser-dock-chevron')).animationName}
+    })
+    assert.equal(toolbarGeometry.toggle.width,32);assert.equal(toolbarGeometry.toggle.height,32)
+    assert.equal(toolbarGeometry.log.height,32,'the toggle shares the actual Session log capsule height')
+    assert.equal(toolbarGeometry.toggle.centerY,toolbarGeometry.log.centerY,'toolbar controls share a vertical center')
+    assert.equal(toolbarGeometry.toggleIcon.width,16);assert.equal(toolbarGeometry.toggleIcon.height,16)
+    assert.equal(toolbarGeometry.logIcon.width,16);assert.equal(toolbarGeometry.logIcon.height,16,'neighboring icons use the same enlarged size')
+    assert.equal(toolbarGeometry.duration,'0.18s','a short state transition, not a perpetual spinner')
+    assert.equal(toolbarGeometry.animation,'none')
+    await page.waitForFunction(()=>new DOMMatrix(getComputedStyle(document.querySelector('.xhbrowser-dock-chevron')).transform).a<-.999)
+    await page.emulateMedia({reducedMotion:'reduce'})
+    assert.equal(await trigger.locator('.xhbrowser-dock-chevron').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion disables the arrow transition')
+    assert.equal(await trigger.locator('.xhbrowser-dock-panel').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion also disables the panel tint transition')
+    // Enter on a mouse-focused button does not establish :focus-visible in
+    // every engine. Reach it by real keyboard navigation from its neighbor.
+    await page.getByRole('button',{name:'Session log',exact:true}).press('Tab')
+    assert.equal(await trigger.evaluate(element=>element===document.activeElement),true,'Tab reaches the workspace control after Session log')
+    await trigger.press('Enter')
+    await page.getByRole('region',{name:'工作区',exact:true}).waitFor({state:'hidden'})
+    await page.getByRole('button',{name:'展开右侧工作区',exact:true}).waitFor()
+    await page.waitForFunction(()=>new DOMMatrix(getComputedStyle(document.querySelector('.xhbrowser-dock-chevron')).transform).a>.999)
+    assert.equal(await trigger.locator('.xhbrowser-dock-chevron').evaluate(element=>new DOMMatrix(getComputedStyle(element).transform).a),1,'closed chevron points left, toward expansion')
+    assert.equal(await trigger.evaluate(element=>getComputedStyle(element).outlineStyle),'solid','keyboard focus remains visible')
+    await trigger.press('Space')
+    await page.getByRole('region',{name:'工作区',exact:true}).waitFor()
+    await page.getByRole('button',{name:'收起右侧工作区',exact:true}).waitFor()
+    await page.waitForFunction(()=>new DOMMatrix(getComputedStyle(document.querySelector('.xhbrowser-dock-chevron')).transform).a<-.999)
+    assert.equal(await trigger.locator('.xhbrowser-dock-chevron').evaluate(element=>new DOMMatrix(getComputedStyle(element).transform).a),-1,'open chevron points right, toward collapse')
+    await page.emulateMedia({reducedMotion:'no-preference'})
+    await page.evaluate(()=>setHeaderVisible(false));await trigger.waitFor({state:'detached'})
+    await page.evaluate(()=>setHeaderVisible(true));await trigger.waitFor()
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'a remounted header requests the owner\'s current visibility')
+    const residentPane = await page.locator('.xhworkspace-item').elementHandle()
+    await page.getByRole('textbox', { name: '网址' }).fill('unfinished-address.test')
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await page.getByRole('button', { name: '收起右侧工作区' }).click()
+      await page.waitForFunction(() => document.querySelector('._84hhiq_frame').hasAttribute('data-details-collapsed'))
+      assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
+      assert.equal(await page.getByRole('region', { name: '工作区', exact: true }).isVisible(), false)
+      assert.equal(await page.locator('[role="tab"]').count(), 1, 'collapse retains the tab rather than closing it')
+      await page.getByRole('button', { name: '展开右侧工作区' }).click()
+      await page.getByRole('tab', { name: 'example.com', exact: true }).waitFor()
+      assert.equal(await residentPane.evaluate(element => element.isConnected), true, 'collapse does not unmount the active pane')
+      assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(), 'unfinished-address.test', 'collapse/reopen preserves the unsubmitted address draft')
+      assert.equal(await page.locator('[role="tab"]').count(), 1, 'reopening must not add a browser tab')
+    }
+    await page.getByRole('textbox', { name: '网址' }).fill('https://example.com/')
+  }
   await page.evaluate(() => { layoutService.attachPanels(layoutActions); layoutService.openDetails() })
   await page.getByRole('tab', { name: '工具详情' }).waitFor()
   assert.equal(await page.getByRole('tab').count(), 2, 'tool details and browser share one tab strip')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    await page.getByRole('button', { name: '收起右侧工作区' }).click()
+    await page.getByRole('region', { name: '工作区', exact: true }).waitFor({state:'hidden'})
+    await page.getByRole('button', { name: '展开右侧工作区' }).click()
+    await page.getByRole('tab', { name: '工具详情', exact: true }).waitFor()
+    assert.equal(await page.getByRole('tab', { name: '工具详情', exact: true }).getAttribute('aria-selected'), 'true', 'reopening retains the selected tool, not a different browser')
+    assert.equal(await page.getByRole('tab').count(), 2)
+  }
   if (process.env.UI_TEST_IMPL !== 'legacy') {
     assert.equal(await page.getByRole('tab', { name: 'example.com', exact: true }).locator('.xhworkspace-kind').count(), 0, 'navigating does not restore the browser icon')
     assert.equal(await page.getByRole('tab', { name: '工具详情', exact: true }).locator('.xhworkspace-kind').count(), 1, 'tool tab identification is unchanged')
@@ -138,6 +219,18 @@ try {
   assert.equal(await page.getByRole('tab').count(), 2, 'same file source reuses its workspace tab')
   await page.getByRole('tab', { name: 'example.com' }).click()
   await page.getByRole('button', { name: '关闭 notes.md' }).click()
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    await page.getByRole('button', { name: '收起右侧工作区' }).click()
+    await page.getByRole('region', { name: '工作区', exact: true }).waitFor({state:'hidden'})
+    await page.evaluate(()=>setCurrentSession('other-session'))
+    await page.getByRole('button', { name: '展开右侧工作区' }).click()
+    await page.getByRole('tab', { name: '新标签页', exact: true }).waitFor()
+    await page.evaluate(()=>setCurrentSession(undefined))
+    await page.getByRole('region', { name: '工作区', exact: true }).waitFor({state:'hidden'})
+    assert.equal(await page.locator('.xhbrowser-header-trigger').getAttribute('aria-expanded'), 'false', 'switching back preserves that session\'s collapsed state')
+    await page.getByRole('button', { name: '展开右侧工作区' }).click()
+    await page.getByRole('tab', { name: 'example.com', exact: true }).waitFor()
+  }
   await page.setViewportSize({ width: 700, height: 780 })
   await page.waitForFunction(() => document.querySelector('[data-xhworkspace-drawer]') !== null)
   await page.waitForFunction(() => {
@@ -153,7 +246,26 @@ try {
   await page.getByRole('button', { name: '关闭工作区' }).click({ position: { x: 20, y: 20 } })
   await page.getByRole('region', { name: '工作区' }).waitFor({ state: 'hidden' })
   await page.getByRole('button', { name: '展开右侧工作区' }).click()
-  assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(), '', 'closing a tab discards its local navigation state')
+  assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(), process.env.UI_TEST_IMPL==='legacy'?'':'https://example.com/', 'drawer dismissal preserves navigation; explicit tab close still discards it')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    await page.setViewportSize({width:1280,height:780})
+    await page.getByRole('button', {name:'关闭 example.com'}).click()
+    await page.getByRole('region', {name:'工作区',exact:true}).waitFor({state:'hidden'})
+    await page.evaluate(()=>layoutService.openDetails())
+    await page.getByRole('tab', {name:'工具详情',exact:true}).waitFor()
+    await page.getByRole('button', {name:'收起右侧工作区'}).click()
+    await page.getByRole('region', {name:'工作区',exact:true}).waitFor({state:'hidden'})
+    await page.getByRole('button', {name:'展开右侧工作区'}).click()
+    assert.equal(await page.getByRole('tab', {name:'工具详情',exact:true}).getAttribute('aria-selected'),'true')
+    assert.equal(await page.getByRole('tab').count(),1,'tool-only reopening does not invent a browser tab')
+    await page.getByRole('button', {name:'收起右侧工作区'}).click()
+    await page.getByRole('region', {name:'工作区',exact:true}).waitFor({state:'hidden'})
+    await page.evaluate(()=>layoutService.openDetails())
+    await page.getByRole('region', {name:'工作区',exact:true}).waitFor()
+    assert.equal(await page.getByRole('tab').count(),1,'an explicit tool-open reveals the existing hidden tool')
+    await page.evaluate(()=>layoutService.closeDetails())
+    await page.waitForFunction(()=>document.querySelector('.xhbrowser-header-trigger')?.getAttribute('aria-expanded')==='false')
+  }
   await page.evaluate(() => root.unmount())
   assert.deepEqual(errors, [])
   console.log(JSON.stringify({engine,implementation:process.env.UI_TEST_IMPL??'canonical',actualPlatform:true,actualRuntimeEngine:true,initialPixelsSha256,pageErrors:errors}))
