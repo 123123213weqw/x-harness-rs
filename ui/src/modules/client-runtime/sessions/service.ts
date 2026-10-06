@@ -432,6 +432,9 @@ export class SessionRuntime implements ISessions {
     return {state, error}
   }
 
+  /** Acknowledge durable deletion without depending on the event stream. */
+  forgetDeletedSessions(ids: readonly SessionId[]): void {this.manager.forgetDeletedSessions(ids)}
+
   /** Refresh the real Session baseline, reusing an in-flight pull. */
   refresh(): Promise<void> {
     return this.manager.refreshList()

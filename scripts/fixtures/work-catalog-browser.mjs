@@ -22,8 +22,8 @@ export async function installWorkCatalogFixture(page) {
       for(const row of snap.items)byId[row.sessionId]={...row,id:row.sessionId,projectionValues:row.projectionValues}
       return {ids:snap.items.map(row=>row.sessionId),byId,phase:snap.phase}
     }}
-    const port={list:sessionList,refresh:()=>sessions.refreshList(),catalogStatus:()=>sessions.getListSnapshot(),fork:async payload=>{const result=await sessions.fork(payload);if(!result.ok)throw Error(result.error.message);return result.value.sessionId}}
-    const workspacePort={list:{subscribe:fn=>workspaces.subscribe(fn),getSnapshot:()=>workspaces.getSnapshot()},refresh:()=>workspaces.refresh(),archivedSummaries:()=>workspaces.archivedSummaries(),archiveSession:async id=>{const result=await workspaces.archiveSession(id);if(!result.ok)throw Error(result.error.message)}}
+    const port={forgetDeletedSessions:ids=>sessions.forgetDeletedSessions(ids),list:sessionList,refresh:()=>sessions.refreshList(),catalogStatus:()=>sessions.getListSnapshot(),fork:async payload=>{const result=await sessions.fork(payload);if(!result.ok)throw Error(result.error.message);return result.value.sessionId}}
+    const workspacePort={forgetDeletedSessions:ids=>workspaces.forgetDeletedSessions(ids),list:{subscribe:fn=>workspaces.subscribe(fn),getSnapshot:()=>workspaces.getSnapshot()},refresh:()=>workspaces.refresh(),archivedSummaries:()=>workspaces.archivedSummaries(),archiveSession:async id=>{const result=await workspaces.archiveSession(id);if(!result.ok)throw Error(result.error.message)}}
     window.workCatalog=new WorkCatalog(api,port,workspacePort)
     window.workManagers={sessions,workspaces,api}
   })

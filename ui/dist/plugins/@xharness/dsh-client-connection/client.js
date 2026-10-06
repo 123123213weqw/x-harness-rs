@@ -3714,6 +3714,7 @@ exports.sessionDeleteRequestSchema = zod_1.z.object({
 });
 exports.sessionDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.boolean(),
+    deletedSessionIds: zod_1.z.array(exports.sessionIdSchema).optional(),
 });
 
 },
@@ -21842,7 +21843,7 @@ exports.hostFrameSchema = zod_1.z.discriminatedUnion('type', [
         cwd: zod_1.z.string().optional(),
         agentPreset: zod_1.z.string().optional(),
     }),
-    zod_1.z.object({ type: zod_1.z.literal('host/session-removed'), sessionId: sessions_schema_1.sessionIdSchema }),
+    zod_1.z.object({ type: zod_1.z.literal('host/session-removed'), sessionId: sessions_schema_1.sessionIdSchema, permanent: zod_1.z.boolean().optional() }),
     zod_1.z.object({ type: zod_1.z.literal('host/session-status'), sessionId: sessions_schema_1.sessionIdSchema, running: zod_1.z.boolean() }),
     zod_1.z.object({ type: zod_1.z.literal('host/agent-error'), sessionId: sessions_schema_1.sessionIdSchema, message: zod_1.z.string() }),
     zod_1.z.object({ type: zod_1.z.literal('host/workspace-changed'), workspace: workspace_schema_1.workspaceViewSchema }),

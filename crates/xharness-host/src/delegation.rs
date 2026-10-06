@@ -590,7 +590,7 @@ mod tests {
     use crate::{AgentRuntime, DurableLoopAgentRuntime, HostConfig, NoTools};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use xharness_agent::MemoryLeaseManager;
-    use xharness_api::{ApiBackend, RpcMethod};
+    use xharness_api::{ApiBackend, RpcMethod, RpcResult};
     use xharness_core::{
         FinishReason, IdentityContextPolicy, ModelProvider, ProviderError, ProviderEvent,
         ProviderRequest, ProviderStream,
@@ -686,6 +686,132 @@ mod tests {
         .await
         .expect("driver did not settle");
     }
+    #[tokio::test]
+    async fn archived_parent_deletion_cleans_real_cold_subagent_and_replays_receipt() {
+        for undiscovered in [false, true] {
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            let probe = Arc::new(Probe::default());
+            let host = setup(store.clone(), probe.clone()).await;
+            parent(&host, "archive-parent").await;
+            let started = host
+                .execute_agent("archive-parent", "archive-child", start("inspect only"))
+                .await
+                .unwrap();
+            let child = started["agent_id"].as_str().unwrap().to_owned();
+            wait_for_calls(&probe, 1).await;
+            settled(&host, &child).await;
+            settled(&host, "archive-parent").await;
+            // A new Host restores catalogue metadata, not an activated child.
+            let cold = setup(store.clone(), Arc::new(Probe::default())).await;
+            cold.prepare_startup_catalog(store.clone()).await.unwrap();
+            if undiscovered {
+                // Startup streaming has not published this child yet; the journal
+                // must still be included, despite no in-memory record or index.
+                cold.state.write().await.sessions.remove(&child);
+                cold.lazy_headers.write().await.remove(&child);
+                cold.state.write().await.sessions.remove("archive-parent");
+                cold.lazy_headers.write().await.remove("archive-parent");
+            }
+            cold.state
+                .write()
+                .await
+                .archived_sessions
+                .insert("archive-parent".into());
+            let payload = json!({"sessionId":"archive-parent"});
+            let result = tokio::time::timeout(
+                Duration::from_secs(10),
+                cold.call(
+                    RpcId::new("archive-real-delete"),
+                    RpcMethod::SessionDelete,
+                    payload.clone(),
+                    CancellationToken::new(),
+                ),
+            )
+            .await
+            .expect("deletion deadlocked");
+            let RpcResult::Success {
+                value: Some(receipt),
+            } = result
+            else {
+                panic!("delete failed: {result:?}")
+            };
+            assert_eq!(receipt["deletedSessionIds"].as_array().unwrap().len(), 2);
+            assert!(store.load("archive-parent").await.unwrap().is_none());
+            assert!(store.load(&child).await.unwrap().is_none());
+            let revision = cold.state.read().await.control_revision;
+            let replay = cold
+                .call(
+                    RpcId::new("archive-real-delete"),
+                    RpcMethod::SessionDelete,
+                    payload,
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(replay,RpcResult::Success {value} if value==Some(receipt)));
+            assert_eq!(cold.state.read().await.control_revision, revision);
+        }
+    }
+
+    #[tokio::test]
+    async fn archived_parent_deletion_rejects_pending_cold_child_without_activating_it() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        for id in ["cold-parent", "cold-child"] {
+            store
+                .create(xharness_session::SessionHeader::new(id))
+                .await
+                .unwrap();
+        }
+        store
+            .append(
+                "cold-child",
+                xharness_session::Revision::ZERO,
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "cold-parent".into(),
+                        invocation_id: "old-call".into(),
+                        task: "inspect".into(),
+                    }
+                    .into(),
+                    EventData::AgentInboxSpliced {
+                        target: xharness_session::InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 0,
+                        inserted: vec![xharness_session::InboxMessage::user(
+                            "queued",
+                            "pending work",
+                        )],
+                        outcome: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let probe = Arc::new(Probe::default());
+        let host = setup(store.clone(), probe.clone()).await;
+        host.prepare_startup_catalog(store.clone()).await.unwrap();
+        host.state
+            .write()
+            .await
+            .archived_sessions
+            .insert("cold-parent".into());
+        let result = host
+            .call(
+                RpcId::new("reject-cold"),
+                RpcMethod::SessionDelete,
+                json!({"sessionId":"cold-parent"}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(result, RpcResult::Failure { .. }));
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+        let state = host.state.read().await;
+        assert!(state.deleted_sessions.is_empty());
+        assert!(!state.sessions["cold-child"].running);
+        assert!(store.load("cold-parent").await.unwrap().is_some());
+        assert!(store.load("cold-child").await.unwrap().is_some());
+    }
+
     #[tokio::test]
     async fn duplicate_start_authority_depth_and_followup() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
