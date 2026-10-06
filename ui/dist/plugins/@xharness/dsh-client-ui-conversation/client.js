@@ -22454,17 +22454,30 @@ function useProcessMode() {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NO_FOLDED_TOOLS = exports.TOOL_FOLD_VIEWPORT_SHARE = void 0;
 exports.toolCanAutoFold = toolCanAutoFold;
+exports.toolCanFoldAfterTurn = toolCanFoldAfterTurn;
 exports.planToolFold = planToolFold;
 /** Display budget only: no request, token, Tool output or runtime policy changes. */
 exports.TOOL_FOLD_VIEWPORT_SHARE = 0.4;
 exports.NO_FOLDED_TOOLS = new Map();
 /** Fail open on active, failed, recursive pending, or unknown tool carriers. */
 function toolCanAutoFold(node) {
+    return toolCanFold(node, false);
+}
+/** An authoritative turn/end can fold known failures too, but not an unresolved
+ * call or an unknown execution outcome. The original failure remains inspectable.
+ */
+function toolCanFoldAfterTurn(node) {
+    return toolCanFold(node, true);
+}
+function toolCanFold(node, includeFailures) {
     if (node.kind !== 'tool-call')
         return false;
     const stack = [node.data.root];
     for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
-        if (!('kind' in block) || block.isError)
+        // Projection's synthetic interrupted result has no settled tool/result.
+        if (!('kind' in block) || block.kind !== 'tool-result'
+            || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
+            || (!includeFailures && block.isError))
             return false;
         stack.push(...block.subCalls);
     }
@@ -24041,9 +24054,10 @@ function turnProcessPresentation(node, tail, expanded) {
         case 'assistant-step':
             return { collapsed, hidden: tail.closing === null || node.data.finalNode?.seq !== tail.closing.finalNode.seq };
         case 'tool-call':
-            // A stale turn/end must never suppress a recursive pending Tool or a
-            // reported failure. Composer approvals/questions have their own seats.
-            if (node.data.root !== undefined && !(0, adaptive_tool_fold_1.toolCanAutoFold)(node))
+            // A returned error is finished work, not an active call. Keep recursive
+            // pending/unknown outcomes visible even if a stale turn/end is present.
+            // Composer approvals/questions and turn failures have their own seats.
+            if (node.data.root !== undefined && !(0, adaptive_tool_fold_1.toolCanFoldAfterTurn)(node))
                 return { collapsed, hidden: false };
             return { collapsed, hidden: true };
         case 'model-retry':
