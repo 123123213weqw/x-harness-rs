@@ -14,6 +14,7 @@ const sources = {
   '@xharness/dsh-client-ui-tool':'src/modules/tool/index.ts',
   '@xharness/dsh-client-ui-layout':'src/modules/layout/index.ts',
   '@xharness/dsh-client-runtime':'src/modules/client-runtime/index.ts',
+  '@xharness/dsh-session-log-export':'src/modules/session-log-export/index.ts',
   '@xlang/xharness-client-ui-plugin-hub': 'src/modules/plugin-hub/index.tsx',
   '@xlang/xharness-client-ui-profile': 'src/modules/profile/index.tsx',
   '@xlang/xharness-client-plugin-api': 'src/plugin-api/client.ts',

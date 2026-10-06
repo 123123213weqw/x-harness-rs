@@ -25,8 +25,15 @@ try {
     window.nativeSize={width:1280,height:780};
     window.nativeResizeCalls=0;
     window.monitorWidth=2000;
+    window.browserCommands=[];window.nativeTabs=new Set();window.activeBrowser=null;
     Object.defineProperty(window,'innerWidth',{configurable:true,get:()=>window.nativeSize.width});
-    window.__TAURI__={window:{
+    window.__TAURI__={core:{invoke:async(command,args)=>{
+      browserCommands.push({command,args});
+      if(command==='desktop_browser_restore')return '';
+      if(command==='desktop_browser_activate'){activeBrowser=args.tabId;return nativeTabs.has(args.tabId)}
+      if(command==='desktop_browser_navigate'){nativeTabs.add(args.tabId);activeBrowser=args.tabId}
+      if(command==='desktop_browser_close'){nativeTabs.delete(args.tabId);if(activeBrowser===args.tabId)activeBrowser=null}
+    }},event:{listen:async()=>()=>{}},window:{
       LogicalSize:class {constructor(width,height){this.width=width;this.height=height}},
       currentMonitor:async()=>({workArea:{position:{x:0,y:0},size:{width:window.monitorWidth,height:1200}}}),
       getCurrentWindow:()=>({
@@ -48,6 +55,9 @@ try {
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const plugin = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
+    // Seat the real Browser.css and native lifecycle; a factory alone leaves
+    // an empty page rectangle after navigation, unlike the shipped plugin.
+    plugin.apply({effect:fn=>fn(),slots:{inject:(_,fn)=>fn(),register:()=>{}}})
     let AppFrame,rootDefinition
     layout.apply({ get:()=>({list:{getSnapshot:()=>({current:undefined,ids:[],byId:{},phase:'ready'}),subscribe:()=>()=>{}},open(){},clear(){},subagentAddress(){}}), effect: (fn, label) => { if (label.includes('service')) fn() }, reflect: { provide: () => () => {} }, slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } } })
     const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
@@ -70,6 +80,27 @@ try {
   assert.equal(await page.locator('._84hhiq_detailsCol').evaluate(element => element.getBoundingClientRect().width), 440)
   assert.equal(await page.evaluate(() => window.nativeResizeCalls), 1, 'roomy screen expands the OS window once')
   await page.evaluate(()=>document.fonts.ready);const initialPixelsSha256=createHash('sha256').update(await page.locator('#root').screenshot({animations:'disabled'})).digest('hex')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    await page.getByRole('textbox', { name: '网址' }).fill('example.com');await page.getByRole('textbox', { name: '网址' }).press('Enter')
+    await page.waitForFunction(()=>window.activeBrowser!==null)
+    const nativeTab=await page.evaluate(()=>window.activeBrowser)
+    await page.getByRole('button', { name: '收起右侧工作区' }).click()
+    await page.waitForFunction(()=>document.querySelector('[data-xhworkspace-open]')===null&&window.nativeSize.width===1280&&window.activeBrowser===null)
+    assert.equal(await center(),original,'collapse releases the native outward-expansion lease')
+    assert.equal(await page.evaluate(()=>browserCommands.filter(call=>call.command==='desktop_browser_close').length),0,'collapse deactivates rather than destroys the native page')
+    await page.getByRole('button', { name: '展开右侧工作区' }).click()
+    await page.waitForFunction(id=>window.activeBrowser===id&&window.nativeSize.width===1720,nativeTab)
+    assert.equal(await page.getByRole('textbox', { name: '网址' }).inputValue(),'https://example.com/')
+    assert.equal(await page.evaluate(()=>browserCommands.filter(call=>call.command==='desktop_browser_navigate').length),1,'reopening activates the same page without re-navigation')
+    // A burst of gestures is resolved from the current space in functional
+    // updates; queued native resizes converge to the final desired state.
+    await page.evaluate(()=>{for(let n=0;n<9;n++)window.dispatchEvent(new Event('xharness:workspace-toggle'))})
+    await page.waitForFunction(()=>document.querySelector('[data-xhworkspace-open]')===null&&window.nativeSize.width===1280&&window.activeBrowser===null)
+    await page.getByRole('button', { name: '展开右侧工作区' }).click()
+    await page.waitForFunction(id=>window.activeBrowser===id&&window.nativeSize.width===1720,nativeTab)
+    assert.equal(await page.getByRole('tab').count(),1)
+    assert.equal(await page.evaluate(()=>browserCommands.filter(call=>call.command==='desktop_browser_navigate').length),1)
+  }
   // Native resize and the divider's CSS left transition settle separately
   // in WebKit. Wait for its hit target, not only the grid column width.
   await page.waitForFunction(() => {
@@ -87,7 +118,7 @@ try {
   await page.waitForFunction(() => document.querySelector('._84hhiq_detailsCol').getBoundingClientRect().width === 500)
   assert.equal(await center(), original - 60, 'dragging grows leftward into chat, even after native right expansion')
   assert.equal(await page.evaluate(() => window.nativeSize.width), 1720, 'dragging does not grow native window again')
-  await page.getByRole('button', { name: '关闭 新标签页' }).click()
+  await page.getByRole('button', { name: process.env.UI_TEST_IMPL==='legacy'?'关闭 新标签页':'关闭 example.com' }).click()
   await page.waitForFunction(() => document.querySelector('[data-xhworkspace-open]') === null && window.nativeSize.width === 1280)
   assert.equal(await center(), original, 'closing restores original chat layout')
   await page.evaluate(() => { window.monitorWidth = 1300 })
@@ -98,6 +129,15 @@ try {
   })
   assert.equal(await page.evaluate(() => window.nativeSize.width), 1280, 'screen-edge fallback leaves native window unchanged')
   assert.equal(await center(), original - 500, 'screen-edge fallback borrows chat width instead of covering it')
+  if (process.env.UI_TEST_IMPL !== 'legacy') {
+    await page.getByRole('button', {name:'收起右侧工作区'}).click()
+    await page.getByRole('region', {name:'工作区',exact:true}).waitFor({state:'hidden'})
+    assert.equal(await page.evaluate(()=>window.nativeSize.width),1280)
+    assert.equal(await center(),original)
+    await page.getByRole('button', {name:'展开右侧工作区'}).click()
+    await page.getByRole('tab', {name:'新标签页',exact:true}).waitFor()
+    assert.equal(await page.evaluate(()=>window.nativeSize.width),1280)
+  }
   await page.getByRole('button', { name: '关闭 新标签页' }).click()
   await page.waitForFunction(() => document.querySelector('[data-xhworkspace-open]') === null)
   assert.equal(await center(), original, 'closing the fallback dock restores chat width')

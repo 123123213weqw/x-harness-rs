@@ -185,7 +185,7 @@ function SessionLogDownloadHeaderAction(props) {
     const { sessionId, useSessionLogDownload, request } = props;
     const entry = useSessionLogDownload(state => state.bySession[String(sessionId)]);
     const busy = entry?.status === 'downloading';
-    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: HeaderAction_styles_1.default.sessionLogButton, disabled: busy, "aria-busy": busy, onClick: () => { void request(sessionId); }, children: [(0, jsx_runtime_1.jsx)("span", { children: "Session log" }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDownloadOutline16, { size: 12 })] }), (0, jsx_runtime_1.jsx)(Dialog_1.SessionLogDownloadDialog, { ...props })] }));
+    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: HeaderAction_styles_1.default.sessionLogButton, disabled: busy, "aria-busy": busy, onClick: () => { void request(sessionId); }, children: [(0, jsx_runtime_1.jsx)("span", { children: "Session log" }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconDownloadOutline16, { size: 16 })] }), (0, jsx_runtime_1.jsx)(Dialog_1.SessionLogDownloadDialog, { ...props })] }));
 }
 
 },
