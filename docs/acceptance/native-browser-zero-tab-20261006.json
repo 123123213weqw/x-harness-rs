@@ -227,7 +227,7 @@
     "source": "b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4"
   },
   "unverified_or_out_of_scope": [
-    "macOS AppKit coordinate correction retest; Windows hidden screenshot unsupported in this probe",
+    "macOS scoped responder/focus acknowledgement Tauri retest; Windows hidden screenshot unsupported in this probe",
     "cross-origin iframe element traversal",
     "production native input/screenshot enablement",
     "full video recorder",
@@ -255,5 +255,30 @@
     "changed_native_pixels": true,
     "hidden_live_pixels": true,
     "core_gate_passed": false
+  },
+  "macos_coordinate_only_retest": {
+    "run": 37412701210,
+    "source": "421606729b9ff5e6968fd5e89b376955c76f4e2e",
+    "seconds": 15.245,
+    "flipped": true,
+    "native_core_passed": false,
+    "gate_correctly_failed": true
+  },
+  "macos_scoped_responder_diagnostic": {
+    "kind": "owned nonpersistent invisible WKWebView, not Tauri",
+    "window_send_event": {
+      "trusted_click": false,
+      "input": ""
+    },
+    "direct_scoped_responder": {
+      "trusted_click": true,
+      "trusted_keydown": true,
+      "trusted_input": true,
+      "trusted_keyup": true,
+      "input": "z"
+    },
+    "display_capture": false,
+    "global_input": false,
+    "provider_calls": 0
   }
 }

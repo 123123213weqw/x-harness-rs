@@ -10,6 +10,18 @@ from scripts.gui_bench.run_native_probe import command, environment, cleanup, cl
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_macos_probe_targets_owned_native_responder_and_observes_focus(self):
+        root=Path(__file__).resolve().parents[2]/'apps/desktop/src-tauri/examples'
+        native=(root/'native_api/macos.rs').read_text()
+        for action in ('mouseDown','mouseUp','keyDown','keyUp'):
+            self.assertIn('view.'+action+'(&event)',native)
+        self.assertNotIn('window.sendEvent(&event)',native)
+        self.assertNotIn('dispatchEvent',native.replace('// NSEvent/WebKit native input path, never DOM dispatchEvent or OS input.',''))
+        source=(root/'browser-inspect-probe.rs').read_text()
+        self.assertIn("document.activeElement?.id === 'answer'",source)
+        self.assertIn('input_error.is_none() && focus_observed',source)
+        self.assertIn('Duration::from_secs(2)',source)
+
     def test_core_api_gate_requires_trusted_state_and_changed_pixels(self):
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
             cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True)
