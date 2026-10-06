@@ -1,3 +1,4 @@
+import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 import {installWorkCatalogFixture} from './fixtures/work-catalog-browser.mjs'
 /** Actual shell + Tasks + schedule slots. Isolated fixture, no personal data or model calls. */
 import assert from 'node:assert/strict'
@@ -25,15 +26,17 @@ try {
   await installWorkCatalogFixture(page)
   await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>{window.registrations??={};registrations[row.id]=row}}'})
   for(const id of ['@xharness/dsh-client-runtime','@xharness/dsh-client-ui-layout','@xlang/xharness-client-ui-tasks','@xlang/xharness-client-ui-schedule'])await page.addScriptTag({content:ownedViewModuleTestInput(id)})
+  await installShellSessionsFixture(page)
   await page.evaluate(()=>{
     const runtime=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const get=id=>{if(id==='@xharness/dsh-client-runtime/client')return runtime;if(id in staticModules)return staticModules[id];throw Error(id)}
     const slots=new Map(),cleanup=[]
     const ctx={get:name=>name==='workCatalog'?workCatalog:name==='connection'?workConnection:undefined,effect:fn=>{const off=fn();if(typeof off==='function')cleanup.push(off)},locale:{register:()=>{}},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>slots.set(spec.name,component)},conversationEvents:{register:()=>{}},conversationViews:{register:()=>{}}}
     for(const id of ['@xlang/xharness-client-ui-tasks','@xlang/xharness-client-ui-schedule'])registrations[id].factory(get).apply(ctx)
+    const shellSessions=createShellSessionsFixture({current:'chat-1',ids:['chat-1'],byId:{'chat-1':{blank:false}}})
     let Frame,definition
-    registrations['@xharness/dsh-client-ui-layout'].factory(get).apply({effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,component)=>{definition=spec;Frame=component;return()=>{}}}})
-    const instance=definition.store().create();definition.inject(instance.actions)
+    registrations['@xharness/dsh-client-ui-layout'].factory(get).apply({get:name=>name==='sessions'?shellSessions:undefined,effect:(fn,label)=>{if(label.includes('service'))fn()},reflect:{provide:()=>()=>{}},slots:{register:(spec,component)=>{definition=spec;Frame=component;return()=>{}}}})
+    const instance=definition.store().create();const injected=definition.inject(instance.actions)
     window.opened=[];window.mounts=0
     window.addEventListener('xharness:work:open-session',event=>opened.push(event.detail))
     function Chat(){const [draft,setDraft]=React.useState('');React.useEffect(()=>{mounts++},[]);return React.createElement('textarea',{'aria-label':'Chat draft',value:draft,onChange:event=>setDraft(event.target.value)})}
@@ -46,7 +49,7 @@ try {
       if(name==='plugins.center')return React.createElement('h1',null,'Plugin catalog')
       const component=slots.get(name);return component?React.createElement(component,props):null
     }
-    window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(Frame,{useStore:fn=>fn(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),useSessions:fn=>fn({current:'chat-1',byId:{'chat-1':{blank:false}}}),actions:instance.actions,renderSlot}))
+    window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(Frame,{...injected,useStore:fn=>fn(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),useSessions:fn=>fn(React.useSyncExternalStore(shellSessions.list.subscribe,shellSessions.list.getSnapshot)),actions:instance.actions,renderSlot}))
   })
   await page.getByRole('textbox',{name:'Chat draft'}).fill('Keep this draft')
   const clock=page.getByRole('button',{name:'Clock',exact:true}),main=page.getByRole('main',{name:'Tasks and automations'})

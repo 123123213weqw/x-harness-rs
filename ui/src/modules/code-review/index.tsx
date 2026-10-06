@@ -1,3 +1,4 @@
+import {observeShellPage} from '../shared/shell-route'
 /// <reference path="../shared/assets.d.ts" />
 import {useEffect,useState,useRef} from 'react'
 import type {KeyboardEvent} from 'react'
@@ -26,8 +27,8 @@ function text(en:string,cn:string):string{return zh?cn:en}
 function message(error:unknown):string{return error instanceof GitHubError?`${error.message} (${error.kind})`:error instanceof Error?error.message:text('GitHub request failed','GitHub 请求失败')}
 function ReviewNavigation({wide}:{wide:boolean}){
  const [active,setActive]=useState(false)
- useEffect(()=>{const opened=()=>setActive(true),closed=()=>setActive(false);window.addEventListener('xharness:review:open',opened);window.addEventListener('xharness:review:closed',closed);return()=>{window.removeEventListener('xharness:review:open',opened);window.removeEventListener('xharness:review:closed',closed)}},[])
- return <Tooltip label="Code Review" side="right"><button type="button" className="xhreview-nav" data-xharness-review-nav aria-label="Code Review" aria-current={active?'page':undefined} onClick={()=>window.dispatchEvent(new Event('xharness:review:open'))}><IconBranchOutline16 size={22}/>{wide&&<span>Code Review</span>}</button></Tooltip>
+ useEffect(()=>observeShellPage('review',setActive),[])
+ return <Tooltip label="Code Review" side="right" disabled={wide}><button type="button" className="xhreview-nav" data-wide={wide} data-xharness-review-nav aria-label="Code Review" aria-current={active?'page':undefined} onClick={()=>window.dispatchEvent(new Event('xharness:review:open'))}><IconBranchOutline16 size={wide?16:18}/>{wide&&<span>Code Review</span>}</button></Tooltip>
 }
 function Avatar({author}:{author:string}){return <span className="xhreview-avatar" aria-hidden="true">{author.slice(0,1).toUpperCase()}</span>}
 function StatusIcon({state}:{state:CheckState}){return <span className={`xhreview-state ${state}`} aria-label={state}>{state==='failed'?<IconCloseOutline16 size={14}/>:state==='passed'?<IconCheckOutline16 size={14}/>:'·'}</span>}

@@ -8,10 +8,24 @@ export const NO_FOLDED_TOOLS: FoldedTools = new Map()
 
 /** Fail open on active, failed, recursive pending, or unknown tool carriers. */
 export function toolCanAutoFold(node: ChatNode): boolean {
+  return toolCanFold(node, false)
+}
+
+/** An authoritative turn/end can fold known failures too, but not an unresolved
+ * call or an unknown execution outcome. The original failure remains inspectable.
+ */
+export function toolCanFoldAfterTurn(node: ChatNode): boolean {
+  return toolCanFold(node, true)
+}
+
+function toolCanFold(node: ChatNode, includeFailures: boolean): boolean {
   if (node.kind !== 'tool-call') return false
   const stack: ToolCallBlock[] = [node.data.root]
   for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
-    if (!('kind' in block) || block.isError) return false
+    // Projection's synthetic interrupted result has no settled tool/result.
+    if (!('kind' in block) || block.kind !== 'tool-result'
+      || block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted'
+      || (!includeFailures && block.isError)) return false
     stack.push(...block.subCalls)
   }
   return true

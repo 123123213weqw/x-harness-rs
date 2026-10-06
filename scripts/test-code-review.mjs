@@ -42,6 +42,19 @@ test('frame retains conversation identity and borrows rather than overwrites sav
  assert.match(frame,/centerPage === 'review' \|\|/);assert.match(frame,/workspaceOpen=centerPage !== 'review'/)
  assert.ok(!frame.includes('reviewChat'));assert.match(frame,/assistantVisible/);assert.equal((frame.match(/renderSlot\('conversation', \{\}\)/g)??[]).length,1);assert.match(frame,/showConversation:setAssistantVisible/)
  assert.ok(!frame.includes('setSidebar(56)'))
- assert.match(frame,/centerPage === 'review'.*closest\('\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
+ assert.match(frame,/closest\('\[data-shell-navigation\],\[data-sidebar-toggle\],\[data-xharness-assistant-nav\],\[data-xharness-review-nav\],\[data-xharness-plugin-nav\],\[data-xharness-work-nav\]'\)/)
+ assert.match(frame,/centerPage !== 'chat'\) closeCenterPage\(\)/)
  const layout=readFileSync(new URL('../ui/src/modules/layout/index.ts',import.meta.url),'utf8');assert.match(layout,/'review.center': \{ kind: 'single', scope: 'root' \}/)
+})
+
+test('review navigation explicitly separates wide left-aligned labels from the icon-only rail',()=>{
+ const source=readFileSync(new URL('../ui/src/modules/code-review/index.tsx',import.meta.url),'utf8')
+ const css=readFileSync(new URL('../ui/src/modules/code-review/CodeReview.css',import.meta.url),'utf8')
+ assert.match(source,/className="xhreview-nav" data-wide=\{wide\}/)
+ assert.match(source,/<IconBranchOutline16 size=\{wide\?16:18\}/)
+ assert.match(source,/<Tooltip label="Code Review" side="right" disabled=\{wide\}/)
+ const rule=selector=>css.split(selector+'{')[1]?.split('}')[0]
+ assert.match(rule('.xhreview-nav'),/justify-content:flex-start/);assert.match(rule('.xhreview-nav'),/padding:0 8px/)
+ const sidebar=readFileSync(new URL('../ui/src/modules/sidebar/SidebarRoot.css',import.meta.url),'utf8');assert.match(sidebar,/\.U910La_footerActions\{display:flex;flex-direction:column\}/)
+ assert.match(rule('.xhreview-nav[data-wide=false]'),/justify-content:center/);assert.match(rule('.xhreview-nav[data-wide=false]'),/width:36px;height:36px;margin:0;padding:0/)
 })

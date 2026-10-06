@@ -311,6 +311,8 @@ export class WorkspaceRuntime implements IWorkspaces {
   }
 
   /** Optional Host archive labels, filtered by authoritative archive membership. */
+  forgetDeletedSessions(ids: readonly SessionId[]): void {this.manager.forgetDeletedSessions(ids)}
+
   archivedSummaries(): readonly ArchivedSessionSummary[] {return this.manager.archivedSummaries()}
 
   /** Refresh the workspace baseline, reusing an in-flight pull. */

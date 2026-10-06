@@ -87,3 +87,11 @@ test('surface folding preserves replacement/provenance errors and atomic increme
  const invalids=[[raw('foreign/log',{},0)],[{...raw('user/message',message('u'),0),surfaceOp:undefined}],[raw('user/message',message('u'),1)],[raw('user/message',message('u'),0),raw('user/message',message('v'),1,{op:'replace',start:0,end:0},{sourceEventSeqs:[0,0]})]]
  for(const events of invalids){const errors=surfaceApis.map(api=>{try{api.foldSurface(events);return null}catch(error){return error.message}});assert.equal(errors[1],errors[0]);assert.ok(errors[0])}
 })
+
+test('delete acknowledgement retains owned-session ids while old delete responses stay compatible',async()=>{
+ const api=apis[1];let value={deleted:true,deletedSessionIds:['root','child']}
+ class Carrier extends api.AbstractApiClient{async doFetch(_url,init){const req=JSON.parse(init.body);return new Response(JSON.stringify({type:'server-response',rpcId:req.rpcId,result:{ok:true,value}}),{headers:{'content-type':'application/json'}})}}
+ const client=new Carrier();assert.deepEqual(json((await client.sessions.delete({sessionId:'root'})).result.value),value)
+ value={deleted:true};assert.deepEqual(json((await client.sessions.delete({sessionId:'root'})).result.value),value)
+ value={deleted:true,deletedSessionIds:[3]};await assert.rejects(client.sessions.delete({sessionId:'root'}),/Invalid input/)
+})

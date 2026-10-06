@@ -24,6 +24,7 @@ import {
 } from '@xharness/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from '../views-types'
 import css from './SidebarRoot.styles'
+import { NavigationButtons } from './NavigationButtons'
 
 /** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
 const COLLAPSE_SETTLE_MS = 150
@@ -46,6 +47,7 @@ export function SidebarRoot({
   width,
   startSession,
   toggleSidebar,
+  navigation,
   t,
   renderSlot,
 }: SidebarRootComponentProps) {
@@ -163,6 +165,7 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
+        {titlebarHost === null && navigation && wide && <NavigationButtons navigation={navigation} t={t} />}
         {titlebarHost === null ? <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
@@ -185,6 +188,9 @@ export function SidebarRoot({
           </span>
         )}
       </div>
+      {/* A 56px web/Windows/Linux rail cannot fit three horizontal controls.
+          Keep the two arrows in a compact row without covering chat content. */}
+      {titlebarHost === null && navigation && !wide && <div className="xh-shell-navigation-rail"><NavigationButtons navigation={navigation} t={t} /></div>}
 
       <div className="xhsidebar-primary-actions" data-wide={wide}>
       {/* Vertically stacked peer actions; equal width and height, no nested hierarchy. */}
@@ -225,17 +231,21 @@ export function SidebarRoot({
         </div>
       </div>
       {titlebarHost !== null && createPortal(
+        <>
+        {navigation && <NavigationButtons navigation={navigation} t={t} desktop />}
         <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
             className="xh-desktop-sidebar-toggle"
+            data-sidebar-toggle
             aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
             aria-expanded={!collapsed}
             onClick={() => { toggleSidebar() }}
           >
             <IconPanelLeftOutline16 size={18} />
           </button>
-        </Tooltip>,
+        </Tooltip>
+        </>,
         titlebarHost,
       )}
     </div>

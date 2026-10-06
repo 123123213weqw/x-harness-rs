@@ -21,6 +21,7 @@ try{
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
    assert.equal(receipt.loadedPlugins,implementation==='source'?55:52,'source adds only the reviewed Plugin API helper, Code Review and Little X modules')
+   assert.equal(receipt.shellNavigationCount,implementation==='source'?2:0,'reviewed Back/Forward controls only')
    assert.equal(receipt.assistantEntryCount,implementation==='source'?1:0,'one reviewed Little X entry; frozen control stays unchanged')
    assert.equal(receipt.codeReviewEntryCount,implementation==='source'?1:0,'only the reviewed Code Review navigation is projected out of old/new text and button parity')
    assert.equal(receipt.sidebarSearchEntryCount,implementation==='source'?0:1,'source removes only the requested search entry; frozen positive control retains it')

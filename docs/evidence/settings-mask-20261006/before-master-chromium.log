@@ -1,0 +1,16 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: light/1810/Profile dialog covers viewport width: 1040 != 1810
+    at near (file:///Users/wangyue/codex-build/xharness-settings-mask-pr-20261006/scripts/test-settings-mask-browser.mjs:50:54)
+    at file:///Users/wangyue/codex-build/xharness-settings-mask-pr-20261006/scripts/test-settings-mask-browser.mjs:72:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v25.9.0
