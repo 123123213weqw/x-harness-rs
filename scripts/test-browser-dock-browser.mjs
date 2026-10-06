@@ -165,12 +165,16 @@ try {
     await page.emulateMedia({reducedMotion:'no-preference'})
     await page.evaluate(()=>setHeaderVisible(false));await trigger.waitFor({state:'detached'})
     await page.evaluate(()=>setHeaderVisible(true));await trigger.waitFor()
+    await page.getByRole('button',{name:'收起右侧工作区',exact:true}).waitFor()
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'a remounted header requests the owner\'s current visibility')
     const residentPane = await page.locator('.xhworkspace-item').elementHandle()
     await page.getByRole('textbox', { name: '网址' }).fill('unfinished-address.test')
     for (let cycle = 0; cycle < 3; cycle++) {
       await page.getByRole('button', { name: '收起右侧工作区' }).click()
       await page.waitForFunction(() => document.querySelector('._84hhiq_frame').hasAttribute('data-details-collapsed'))
+      // The owner commits first, then publishes visibility to the header.
+      // Wait for that projection rather than racing the passive effect.
+      await page.getByRole('button',{name:'展开右侧工作区',exact:true}).waitFor()
       assert.equal(await trigger.getAttribute('aria-expanded'), 'false')
       assert.equal(await page.getByRole('region', { name: '工作区', exact: true }).isVisible(), false)
       assert.equal(await page.locator('[role="tab"]').count(), 1, 'collapse retains the tab rather than closing it')
@@ -227,6 +231,7 @@ try {
     await page.getByRole('tab', { name: '新标签页', exact: true }).waitFor()
     await page.evaluate(()=>setCurrentSession(undefined))
     await page.getByRole('region', { name: '工作区', exact: true }).waitFor({state:'hidden'})
+    await page.getByRole('button',{name:'展开右侧工作区',exact:true}).waitFor()
     assert.equal(await page.locator('.xhbrowser-header-trigger').getAttribute('aria-expanded'), 'false', 'switching back preserves that session\'s collapsed state')
     await page.getByRole('button', { name: '展开右侧工作区' }).click()
     await page.getByRole('tab', { name: 'example.com', exact: true }).waitFor()
