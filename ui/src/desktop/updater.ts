@@ -326,7 +326,7 @@ function decodeState(value: unknown): UpdateState | undefined {
     currentPlace.hidden = !choosing
     currentPlace.textContent = tr('保留原位置更新', 'Keep current location')
     currentPlace.disabled = pending || view.busy
-    confirmation.textContent = (placement === 'user' ? tr('将迁移到用户目录。', 'Move to your user directory. ') : '') +
+    confirmation.textContent = (placement === 'user' ? tr('将迁移到用户目录。', 'Move to your user directory. ') : placement === 'current' ? tr('保留原位置，Windows 可能请求管理员确认。', 'Keep current location. Windows may request administrator approval. ') : '') +
       tr('重启将停止当前 Agent、工具和后台任务。会话会保存，运行中的命令不保证自动恢复。', 'Restart will stop running agents, tools and jobs. Conversations are saved; running commands may not resume.')
     action.textContent = choosing ? tr('迁移并更新（推荐）', 'Migrate & update (recommended)') : confirming ? tr('停止任务并重启更新', 'Stop tasks & update') : view.action
     action.disabled = Boolean(bootError) || pending || view.busy || (choosing && !plan?.migrationAvailable)

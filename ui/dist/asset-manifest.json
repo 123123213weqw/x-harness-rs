@@ -670,15 +670,15 @@
       "bytes": 1263
     },
     "desktop-updater.js": {
-      "sha256": "30d1f75126a14df0c9591b474c5fc2bdaa4e2d10f0521989727a4708c712a931",
-      "bytes": 23782
+      "sha256": "c925241e4c49eda80082ae42dad9cc48b31b02bf13be31a9a4847a58c5d108be",
+      "bytes": 23992
     },
     "favicon.png": {
       "sha256": "e5ed34820e7aa887e799a148057cc0825c7b0e5e642eebdef6c6c180c8f14a91",
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "81614f5739104e0526acc5f854e68051b72d48fab9fb181507a73274e9d6cc95",
+      "sha256": "250f5c3227de8883f0d8dd27d7bca4e4070040141dfb6de42ef0f877b20134cd",
       "bytes": 26088
     },
     "logo-motion.css": {
