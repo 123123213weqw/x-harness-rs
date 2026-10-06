@@ -131,16 +131,17 @@ class NativeProbeTests(unittest.TestCase):
     def test_windows_probe_embeds_common_controls_without_elevating_or_changing_app(self):
         import xml.etree.ElementTree as ET
         root = Path(__file__).resolve().parents[2] / "apps/desktop/src-tauri"
-        manifest = ET.parse(root / "examples/browser-inspect-probe.manifest")
+        manifest = ET.parse(root / "windows-common-controls.manifest")
         identity = manifest.find(".//{urn:schemas-microsoft-com:asm.v1}dependentAssembly/{urn:schemas-microsoft-com:asm.v1}assemblyIdentity")
         self.assertEqual(identity.attrib["name"], "Microsoft.Windows.Common-Controls")
         self.assertEqual(identity.attrib["version"], "6.0.0.0")
         requested = manifest.find(".//{urn:schemas-microsoft-com:asm.v3}requestedExecutionLevel")
-        self.assertEqual(requested.attrib, {"level":"asInvoker", "uiAccess":"false"})
+        self.assertIsNone(requested) # Never override production privilege policy.
         build = (root / "build.rs").read_text()
-        self.assertIn("rustc-link-arg-examples=/MANIFEST:EMBED", build)
-        self.assertIn("rustc-link-arg-examples=/MANIFESTINPUT:", build)
+        self.assertIn("rustc-link-arg=/MANIFEST:EMBED", build)
+        self.assertIn("rustc-link-arg=/MANIFESTINPUT:", build)
         self.assertNotIn("rustc-link-arg-bins=/MANIFEST", build)
+        self.assertIn('WindowsAttributes::new_without_app_manifest()', build)
 
 
 if __name__ == "__main__":

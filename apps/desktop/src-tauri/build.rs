@@ -2,7 +2,8 @@ fn main() {
     // Wry imports TaskDialogIndirect (ComCtl32 v6). Tauri resources cover
     // the production bin but not Cargo's lib test executable. Give every
     // executable target the same activation dependency, including unit tests.
-    // A dependency-only manifest can merge with Tauri's application manifest.
+    // Embed once at link time. Tauri's RC manifest is disabled for MSVC below;
+    // embedding both produces duplicate type=MANIFEST/name=1 resources.
     let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .join("windows-common-controls.manifest");
     println!("cargo:rerun-if-changed={}", manifest.display());
@@ -14,8 +15,15 @@ fn main() {
     // The bundled UI is served by the authenticated loopback Host, not a
     // tauri:// page. Remote IPC requires explicit application permissions too;
     // core:default alone only authorizes Tauri's own commands.
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&[
+    let attributes = tauri_build::Attributes::new();
+    let attributes = if std::env::var("TARGET").is_ok_and(|target| target.ends_with("windows-msvc"))
+    {
+        attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest())
+    } else {
+        attributes
+    };
+    tauri_build::try_build(
+        attributes.app_manifest(tauri_build::AppManifest::new().commands(&[
             "desktop_status",
             "desktop_report_startup_phase",
             "desktop_open_diagnostics",
@@ -40,7 +48,7 @@ fn main() {
             "desktop_browser_access",
             "desktop_browser_inspect",
             "desktop_browser_perform",
-        ]),
-    ))
+        ])),
+    )
     .expect("failed to generate desktop IPC permissions")
 }
