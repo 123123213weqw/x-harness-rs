@@ -267,7 +267,8 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
         .inspection_target("probe")?;
     guest.set_focus().map_err(|_| "native probe focus failed")?;
     evidence(&guest, r#"(() => {
-      window.nativeEvents=[];window.nativeChild=null;window.nativeClicked=false;
+      window.nativeEvents=[];window.nativePointers=[];window.nativeChild=null;window.nativeClicked=false;
+      for(const kind of ['mousedown','mouseup','click'])document.addEventListener(kind,e=>{if(nativePointers.length<30)nativePointers.push({type:e.type,trusted:e.isTrusted,x:e.clientX,y:e.clientY,id:e.target.id})},true);
       const input=document.querySelector('#answer');input.value='';input.style='position:fixed;left:20px;top:20px;width:200px;height:30px';
       input.addEventListener('input',e=>nativeEvents.push({type:e.type,trusted:e.isTrusted}));
       for(const kind of ['keydown','keyup'])input.addEventListener(kind,e=>nativeEvents.push({type:e.type,trusted:e.isTrusted,key:e.key}));
@@ -301,7 +302,24 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
     tokio::time::sleep(Duration::from_millis(120)).await;
     let child_error = native_api::click(&guest, 450.0, 190.0).await.err();
     tokio::time::sleep(Duration::from_millis(120)).await;
-    let result = evidence(&guest, "({clicked:nativeClicked,input:document.querySelector('#answer').value,events:nativeEvents,child:nativeChild,dpr:devicePixelRatio})").await?;
+    let result = evidence(&guest, "({clicked:nativeClicked,input:document.querySelector('#answer').value,events:nativeEvents,pointers:nativePointers,child:nativeChild,dpr:devicePixelRatio})").await?;
+    let pointer_coordinates_verified = result["pointers"].as_array().is_some_and(|events| {
+        [("native-probe", 450.0, 120.0), ("answer", 60.0, 35.0)]
+            .iter()
+            .all(|(id, x, y)| {
+                events.iter().any(|event| {
+                    event["type"] == "click"
+                        && event["trusted"] == true
+                        && event["id"] == *id
+                        && event["x"]
+                            .as_f64()
+                            .is_some_and(|actual| (actual - x).abs() <= 1.0)
+                        && event["y"]
+                            .as_f64()
+                            .is_some_and(|actual| (actual - y).abs() <= 1.0)
+                })
+            })
+    });
     let keyboard_verified = input_error.is_none()
         && key_error.is_none()
         && result["input"] == "z"
@@ -361,7 +379,7 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
     println!(
         "NATIVE_API_EVIDENCE {}",
         json!({"platform":std::env::consts::OS,"test_only":true,
-        "production_enabled":false,"native_mouse":{"passed":button_error.is_none()&&result["clicked"]==true,"error":button_error},
+        "production_enabled":false,"native_mouse":{"passed":button_error.is_none()&&result["clicked"]==true&&pointer_coordinates_verified,"error":button_error,"coordinates_verified":pointer_coordinates_verified},
         "native_keyboard":{"passed":keyboard_verified,"focus_error":input_error,"focus_observed":focus_observed,"error":key_error},
         "cross_origin_pointer":{"passed":child_error.is_none()&&result["child"]==true,"error":child_error},
         "cross_origin_frame_traversal":{"status":"not_implemented"},
@@ -1075,10 +1093,20 @@ fn main() {
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Native browser observation probe")
-                .inner_size(800.0, 600.0)
-                .build()?;
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Native browser observation probe")
+                    .inner_size(800.0, 600.0);
+            #[cfg(target_os = "macos")]
+            let window =
+                if std::env::var("XHARNESS_NATIVE_PROBE_TITLEBAR").as_deref() == Ok("overlay") {
+                    window
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true)
+                } else {
+                    window
+                };
+            window.build()?;
             let handle = app.handle().clone();
             let completed = completed.clone();
             tauri::async_runtime::spawn(async move {

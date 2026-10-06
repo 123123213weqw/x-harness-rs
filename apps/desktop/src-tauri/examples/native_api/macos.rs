@@ -2,6 +2,7 @@ use block2::RcBlock;
 use objc2::{AnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventModifierFlags, NSEventType, NSImage,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSDictionary, NSError, NSPoint, NSProcessInfo, NSString};
 use objc2_web_kit::WKWebView;
@@ -16,6 +17,22 @@ fn view(handle: &PlatformWebview) -> Result<&WKWebView, String> {
     // SAFETY: Tauri owns the live WKWebView throughout with_webview; this
     // borrowed handle never leaves that main-thread closure.
     Ok(unsafe { &*ptr })
+}
+
+fn content_point(x: f64, y: f64, height: f64, flipped: bool, top: f64) -> Result<NSPoint, String> {
+    if ![x, y, height, top].iter().all(|value| value.is_finite())
+        || x < 0.0
+        || y < 0.0
+        || top < 0.0
+        || height <= 0.0
+        || y + top >= height
+    {
+        return Err("native browser point is outside its content viewport".into());
+    }
+    Ok(NSPoint::new(
+        x,
+        if flipped { y + top } else { height - y - top },
+    ))
 }
 pub fn button(
     handle: PlatformWebview,
@@ -39,15 +56,35 @@ pub fn button(
         if hidden || !focused {
             return Err("owned native browser is hidden or cannot accept focus".into());
         }
-        // Browser coordinates start at the upper left. An unflipped AppKit
-        // view starts at the lower left; converting to window coordinates does
-        // not itself change that input convention. Never infer the convention
-        // from display scale or the outer window's dimensions.
+        // Match WebKit's automatic top-obscured-inset calculation using public
+        // AppKit geometry. A full-size, opaque-titlebar child WebView can retain
+        // a titlebar inset even below the titlebar: CSS clientY starts AFTER it.
+        // convertPoint alone maps view coordinates, not this content origin.
+        // Do not hardcode a titlebar height, apply a DPR multiplier, or use SPI.
+        // WebKit/UIProcess/mac/PageClientImplMac.mm::computeAutomaticTopObscuredInset
+        let top = if window
+            .styleMask()
+            .contains(NSWindowStyleMask::FullSizeContentView)
+            && !window.titlebarAppearsTransparent()
+            && view.enclosingScrollView().is_none()
+        {
+            window.updateConstraintsIfNeeded();
+            view.convertRect_fromView(window.contentLayoutRect(), None)
+                .origin
+                .y
+                .max(0.0)
+        } else {
+            0.0
+        };
         let flipped = view.isFlipped();
-        let height = view.bounds().size.height;
-        let local = NSPoint::new(x, if flipped { y } else { height - y });
+        let bounds = view.bounds();
+        let height = bounds.size.height;
+        if x >= bounds.size.width {
+            return Err("native browser point is outside its content viewport".into());
+        }
+        let local = content_point(x, y, height, flipped, top)?;
         let point = view.convertPoint_toView(local, None);
-        println!("NATIVE_INPUT_GEOMETRY flipped={flipped} height={height} browser=({x},{y}) window=({},{})", point.x, point.y);
+        println!("NATIVE_INPUT_GEOMETRY flipped={flipped} height={height} top_inset={top} browser=({x},{y}) window=({},{})", point.x, point.y);
         let kind = if pressed {
             NSEventType::LeftMouseDown
         } else {
@@ -67,6 +104,45 @@ pub fn button(
         Ok(())
     })();
     let _ = reply.send(result);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_point;
+
+    #[test]
+    fn css_points_follow_content_insets_not_titlebar_constants_or_dpr() {
+        for (height, top) in [(560.0, 0.0), (560.0, 22.0), (560.0, 28.0), (900.0, 48.0)] {
+            for flipped in [true, false] {
+                let point = content_point(60.0, 35.0, height, flipped, top).unwrap();
+                assert_eq!(point.x, 60.0);
+                assert_eq!(
+                    point.y,
+                    if flipped {
+                        35.0 + top
+                    } else {
+                        height - 35.0 - top
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_and_outside_content_points_fail_before_input_dispatch() {
+        for (x, y, height, top) in [
+            (f64::NAN, 0.0, 560.0, 0.0),
+            (0.0, f64::INFINITY, 560.0, 0.0),
+            (-1.0, 0.0, 560.0, 0.0),
+            (0.0, -1.0, 560.0, 0.0),
+            (0.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0, 560.0, -1.0),
+            (0.0, 532.0, 560.0, 28.0),
+            (0.0, 0.0, 560.0, f64::NAN),
+        ] {
+            assert!(content_point(x, y, height, true, top).is_err());
+        }
+    }
 }
 pub fn key_z(handle: PlatformWebview, pressed: bool, reply: Sender<Result<(), String>>) {
     let result = (|| {

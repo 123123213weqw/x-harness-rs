@@ -709,12 +709,15 @@ jobs:
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
           python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --evidence-dir dist/native-browser-evidence/macos
+          python3 scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe --macos-titlebar overlay --evidence-dir dist/native-browser-evidence/macos-overlay
       - name: Upload macOS native DOM evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: native-browser-dom-macos
-          path: dist/native-browser-evidence/macos/
+          path: |
+            dist/native-browser-evidence/macos/
+            dist/native-browser-evidence/macos-overlay/
           if-no-files-found: warn
       - name: Retain exact macOS probe executable for no-recompile diagnosis
         if: always()
