@@ -4,18 +4,113 @@ import itertools
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.error
 import urllib.request
 
 from scripts.gui_bench.budget import BudgetLedger
-from scripts.gui_bench.native_fixture import Fixture
-from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed
+from scripts.gui_bench.native_fixture import Fixture, zero_tab_html
+from scripts.gui_bench.run_webview import budget_receipt, tuple_address, cleanup_profile, settle_quiet, pin_binary, native_environment, acceptance_passed, classify_outcome, wait_ready, verify_unbound_discovery
 from scripts.gui_bench.webview_contract import Contract
 from scripts.terminal_bench.broker import Broker
 
 
 class WebviewTests(unittest.TestCase):
+    def test_contract_retries_only_readiness_reads_and_never_an_action(self):
+        call=Mock(side_effect=[RuntimeError('native browser is hidden'),
+                              {'source':{'engine':'tauri-webview'},'nodes':[]}])
+        with patch('scripts.gui_bench.webview_contract.time.sleep'):
+            checks=Contract(call)
+            checks.observe()
+        self.assertEqual(checks.readiness_denials,['native browser is hidden'])
+        self.assertTrue(all(item.args[0]=='observe' for item in call.call_args_list))
+        for message in ['native bridge interrupted','invalid native observation arguments']:
+            call=Mock(side_effect=RuntimeError(message))
+            with self.assertRaises(RuntimeError): Contract(call).observe()
+            self.assertEqual(call.call_count,1)
+        clock=itertools.count(0,.5)
+        call=Mock(side_effect=RuntimeError('native browser is hidden'))
+        with patch('scripts.gui_bench.webview_contract.time.sleep'), \
+             patch('scripts.gui_bench.webview_contract.time.monotonic',side_effect=lambda:next(clock)), \
+             self.assertRaises(RuntimeError):
+            Contract(call).observe()
+        self.assertLessEqual(call.call_count,11)
+
+    def test_zero_tab_fixture_loads_canonical_appframe_without_opening_a_page(self):
+        html = zero_tab_html('owned-session')
+        self.assertIn('AppFrame', html)
+        self.assertIn('/modules/runtime.js', html)
+        self.assertIn('"session": "owned-session"', html)
+        self.assertNotIn('desktop_browser_navigate', html)
+        self.assertNotIn('xharness-browser-control-open', html)
+        self.assertNotIn('config.target', html)
+        self.assertNotIn('entries:[', html)
+
+    def test_zero_tab_readiness_does_not_infer_a_binding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'private.json'
+            connection = {'address':'127.0.0.1:1234','token':'a'*64}
+            path.write_text(json.dumps(connection))
+            with patch('scripts.gui_bench.run_webview.bridge_call', side_effect=[
+                {'available':False,'bound':False}, {'available':True,'bound':False}
+            ]) as call, patch('scripts.gui_bench.run_webview.time.sleep'):
+                self.assertEqual(wait_ready(path,Mock(poll=lambda:None),'owner',zero_tabs=True),connection)
+                self.assertEqual(call.call_count,2)
+
+    def test_native_ready_requires_binding_not_just_zero_tab_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'private.json'
+            connection = {'address':'127.0.0.1:1234', 'token':'a'*64}
+            path.write_text(json.dumps(connection))
+            with patch('scripts.gui_bench.run_webview.bridge_call', side_effect=[
+                {'available':True,'bound':False}, {'available':True,'bound':True}
+            ]) as call, patch('scripts.gui_bench.run_webview.time.sleep'):
+                self.assertEqual(wait_ready(path, Mock(poll=lambda:None), 'owner'), connection)
+                self.assertEqual(call.call_count, 2)
+            clock = itertools.count(0,.2)
+            with patch('scripts.gui_bench.run_webview.bridge_call', return_value={'available':True,'bound':False}), \
+                 patch('scripts.gui_bench.run_webview.time.sleep'), \
+                 patch('scripts.gui_bench.run_webview.time.monotonic', side_effect=lambda:next(clock)):
+                with self.assertRaises(TimeoutError):
+                    wait_ready(path, Mock(poll=lambda:None), 'owner', timeout=1)
+
+    def test_public_discovery_does_not_grant_observation_or_actions(self):
+        def denied(op, arguments):
+            if op == 'list': return {'available':True,'bound':False}
+            if op == 'observe': raise RuntimeError('native browser is not delegated to this session')
+            return {'ok':False,'effect':'not_started'}
+        verify_unbound_discovery(denied)
+        faults = [
+            ('list', {'available':True,'bound':True}),
+            ('list', {'available':True,'bound':False,'tab_id':'other'}),
+            ('observe', {'nodes':[]}),
+            ('observe', RuntimeError('transport interrupted')),
+            ('perform', {'ok':True,'effect':'applied'}),
+            ('perform', {'ok':False,'effect':'unknown'}),
+        ]
+        for fault_op, value in faults:
+            def call(op, arguments):
+                if op == fault_op:
+                    if isinstance(value, Exception): raise value
+                    return value
+                return denied(op, arguments)
+            with self.subTest(op=fault_op, value=value), self.assertRaises(AssertionError):
+                verify_unbound_discovery(call)
+
+    def test_budget_gate_is_not_model_quality_and_is_never_a_pass(self):
+        settled = dict(passed=False, cleanup_passed=True, tier='genuine-host-model-tauri-webview',
+            provider_settled_before_teardown=True, pending_requests=0, model_calls=2)
+        self.assertEqual(classify_outcome(settled), 'task_failed')
+        self.assertEqual(classify_outcome(dict(settled, budget_denials=1)), 'blocked_by_budget_gate')
+        self.assertFalse(acceptance_passed(dict(settled, budget_denials=1)))
+        self.assertEqual(classify_outcome(dict(settled, model_calls=0)), 'not_evaluated')
+        self.assertEqual(classify_outcome(dict(settled, accounting_pending=True)), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, cleanup_passed=False)), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, turn_reasons=[{'kind':'error'}])), 'evaluation_failed')
+        self.assertEqual(classify_outcome(dict(settled, passed=True)), 'passed')
+        # Previous denials cannot disqualify a genuinely completed, settled task.
+        self.assertEqual(classify_outcome(dict(settled, passed=True, budget_denials=1)), 'passed')
+
     def test_task_success_cannot_hide_unverified_accounting(self):
         result = dict(passed=True,cleanup_passed=True,tier='genuine-host-model-tauri-webview',
             provider_settled_before_teardown=True,pending_requests=0,model_calls=5)

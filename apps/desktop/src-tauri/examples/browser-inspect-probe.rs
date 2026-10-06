@@ -10,19 +10,28 @@ mod browser_bridge;
 mod browser_delegation;
 #[path = "../src/browser_inspect.rs"]
 mod browser_inspect;
+#[path = "../src/browser_lifecycle.rs"]
+mod browser_lifecycle;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+
+mod native_api;
+#[path = "../src/native_startup.rs"]
+mod native_startup;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply" onclick="document.querySelector('#status').textContent='Applied '+document.querySelector('#answer').value">Apply</button><p id="status">Not applied</p><p id="ipc">IPC pending</p></main>"#;
+const HTML: &str = r#"<!doctype html><main><h1>Native observation probe</h1><label for="answer">Answer</label><input id="answer" value="unchanged"><input type="password" value="private-native-secret"><button disabled>Unavailable</button><select aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select><button id="apply" onclick="document.querySelector('#status').textContent='Applied '+document.querySelector('#answer').value">Apply</button><p id="status">Not applied</p><p id="ipc">IPC pending</p></main><script>
+window.probeEvents=[];
+for(const type of ['click','input','keydown'])document.addEventListener(type,event=>probeEvents.push({type,trusted:event.isTrusted}),true);
+</script>"#;
 
-fn fixture() -> String {
+fn serve_fixture(html: String) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("fixture bind");
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
@@ -31,10 +40,397 @@ fn fixture() -> String {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
             let mut headers = [0; 4096];
             let _ = stream.read(&mut headers);
-            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", HTML.len(), HTML);
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", html.len(), html);
         }
     });
     format!("http://{address}/")
+}
+fn fixture() -> String {
+    // Different ports are different origins; no CORS relaxation or proxy.
+    let child = serve_fixture(
+        r#"<!doctype html><style>body{margin:0}button{position:absolute;left:0;top:0;width:150px;height:44px}</style><button id='child' onclick="parent.postMessage({kind:'native-child',trusted:event.isTrusted},'*')">Cross-origin private button</button>"#.into(),
+    );
+    serve_fixture(format!(
+        "{HTML}<iframe id='cross-origin' src='{child}'></iframe>"
+    ))
+}
+
+async fn evidence(guest: &tauri::Webview, expression: &str) -> Result<Value, String> {
+    let raw = browser_inspect::evaluate(guest, format!("JSON.stringify({expression})")).await?;
+    browser_inspect::decode_callback(&raw)
+}
+
+async fn abandoned_open_probe(
+    app: &tauri::AppHandle,
+    connection: &browser_bridge::Connection,
+    url: &str,
+) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
+    let (opened, receive_open) = tokio::sync::oneshot::channel();
+    let opened = std::sync::Mutex::new(Some(opened));
+    let open_listener = app.listen_any("xharness-browser-control-open", move |event| {
+        let value: Value = serde_json::from_str(event.payload()).unwrap();
+        if let Some(sender) = opened.lock().unwrap().take() {
+            let _ = sender.send(value["requestId"].as_str().unwrap().to_owned());
+        }
+    });
+    let (cancelled, receive_cancel) = tokio::sync::oneshot::channel();
+    let cancelled = std::sync::Mutex::new(Some(cancelled));
+    let cancel_listener = app.listen_any("xharness-browser-control-cancel", move |event| {
+        let id: String = serde_json::from_str(event.payload()).unwrap();
+        if let Some(sender) = cancelled.lock().unwrap().take() {
+            let _ = sender.send(id);
+        }
+    });
+    let mut stream = tokio::net::TcpStream::connect(&connection.address)
+        .await
+        .map_err(|_| "cancel probe connect failed")?;
+    let bytes = serde_json::to_vec(&json!({"token":connection.token,"owner":"probe-owner","op":"control","arguments":{"action":"open","url":url}})).unwrap();
+    stream
+        .write_u32(bytes.len() as u32)
+        .await
+        .map_err(|_| "cancel probe write failed")?;
+    stream
+        .write_all(&bytes)
+        .await
+        .map_err(|_| "cancel probe write failed")?;
+    let id = tokio::time::timeout(Duration::from_secs(3), receive_open)
+        .await
+        .map_err(|_| "cancel probe open event missing")?
+        .map_err(|_| "cancel probe receiver closed")?;
+    drop(stream);
+    let cancelled_id = tokio::time::timeout(Duration::from_secs(3), receive_cancel)
+        .await
+        .map_err(|_| "abandoned socket did not cancel UI open")?
+        .map_err(|_| "cancel probe receiver closed")?;
+    app.unlisten(open_listener);
+    app.unlisten(cancel_listener);
+    if id != cancelled_id {
+        return Err("abandoned open cancelled a different request".into());
+    }
+    Ok(())
+}
+
+async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let connection_state = app.state::<browser_bridge::BrowserBridge>();
+    let connection = connection_state.start(app).await?;
+    let empty = bridge_call(connection, "probe-owner", "list", json!({})).await?;
+    if empty["result"]["available"] != true || empty["result"]["bound"] != false {
+        return Err("zero-tab browser discovery failed".into());
+    }
+    let denied = bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"eval","script":"private-input"}),
+    )
+    .await?;
+    if denied["result"]["ok"] != false
+        || denied["result"]["effect"] != "not_started"
+        || denied.to_string().contains("private-input")
+    {
+        return Err("invalid control did not return a sanitized predispatch denial".into());
+    }
+    abandoned_open_probe(app, connection, url).await?;
+    // A native test-owned UI adapter uses exactly the production pane commands.
+    // React sidebar expansion is tested separately, not falsely claimed here.
+    let handle = app.clone();
+    let listener = app.listen_any("xharness-browser-control-open", move |event| {
+        let value: Value = serde_json::from_str(event.payload()).unwrap();
+        let app = handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let caller = app.get_webview("main").unwrap();
+            let request_id = value["requestId"].as_str().unwrap().to_owned();
+            let tab_id = format!("browser:{request_id}");
+            let owner = value["owner"].as_str().unwrap().to_owned();
+            let url = value["url"].as_str().unwrap().to_owned();
+            browser::desktop_browser_bounds(
+                caller.clone(),
+                app.state(),
+                serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+            )
+            .await
+            .unwrap();
+            browser::desktop_browser_activate(caller.clone(), app.state(), Some(tab_id.clone()))
+                .await
+                .unwrap();
+            browser::desktop_browser_navigate(
+                app.clone(),
+                caller.clone(),
+                app.state(),
+                tab_id.clone(),
+                url,
+            )
+            .await
+            .unwrap();
+            if owner == "interrupted-owner" {
+                browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller.clone(),
+                    app.state(),
+                    request_id,
+                    browser_lifecycle::ControlReply::Failed {},
+                )
+                .await
+                .unwrap();
+                browser::desktop_browser_close(caller, app.state(), tab_id)
+                    .await
+                    .unwrap();
+                return;
+            }
+            for _ in 0..100 {
+                let (guest, _) = app
+                    .state::<browser::BrowserState>()
+                    .inspection_target(&tab_id)
+                    .unwrap();
+                let origin = guest.url().unwrap().origin().ascii_serialization();
+                let _ = browser_delegation::desktop_browser_delegate(
+                    caller.clone(),
+                    app.state(),
+                    tab_id.clone(),
+                    Some(owner.clone()),
+                    true,
+                    Some(origin),
+                )
+                .await;
+                if browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller.clone(),
+                    app.state(),
+                    request_id.clone(),
+                    browser_lifecycle::ControlReply::Ready {
+                        tab_id: tab_id.clone(),
+                    },
+                )
+                .await
+                .unwrap()
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+    });
+    let opened = bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"open","url":url}),
+    )
+    .await?;
+    if opened["result"]["state"] != "ready" {
+        return Err("native open did not reach ready".into());
+    }
+    let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
+    let fill = serde_json::to_value(action(
+        &view["result"],
+        "Answer",
+        json!({"action":"fill","text":"opened-through-control"}),
+    )?)
+    .unwrap();
+    let receipt = bridge_call(connection, "probe-owner", "perform", fill).await?;
+    let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
+    if receipt["result"]["effect"] != "applied"
+        || !view["result"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["value"] == "opened-through-control")
+    {
+        return Err("zero-tab native action lacked verified actual result".into());
+    }
+    let interrupted = bridge_call(
+        connection,
+        "interrupted-owner",
+        "control",
+        json!({"action":"open","url":url}),
+    )
+    .await?;
+    app.unlisten(listener);
+    if interrupted["result"]["ok"] != false || interrupted["result"]["effect"] != "unknown" {
+        return Err("closing an admitted native navigation incorrectly claimed not_started".into());
+    }
+    let main = app.get_webview("main").unwrap();
+    browser::desktop_browser_close(
+        main,
+        app.state(),
+        opened["result"]["tab_id"].as_str().unwrap().into(),
+    )
+    .await?;
+    println!("Native lifecycle probe passed: zero-tab discovery -> abandoned-socket cancellation -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
+    Ok(())
+}
+
+async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    guest.set_focus().map_err(|_| "native probe focus failed")?;
+    evidence(&guest, r#"(() => {
+      window.nativeEvents=[];window.nativePointers=[];window.nativeChild=null;window.nativeClicked=false;
+      for(const kind of ['mousedown','mouseup','click'])document.addEventListener(kind,e=>{if(nativePointers.length<30)nativePointers.push({type:e.type,trusted:e.isTrusted,x:e.clientX,y:e.clientY,id:e.target.id})},true);
+      const input=document.querySelector('#answer');input.value='';input.style='position:fixed;left:20px;top:20px;width:200px;height:30px';
+      input.addEventListener('input',e=>nativeEvents.push({type:e.type,trusted:e.isTrusted}));
+      for(const kind of ['keydown','keyup'])input.addEventListener(kind,e=>nativeEvents.push({type:e.type,trusted:e.isTrusted,key:e.key}));
+      const button=document.createElement('button');button.id='native-probe';button.textContent='Native API target';button.style='position:fixed;left:400px;top:100px;width:150px;height:44px';button.onclick=e=>{nativeClicked=e.isTrusted;nativeEvents.push({type:e.type,trusted:e.isTrusted})};document.body.append(button);
+      const frame=document.querySelector('#cross-origin');frame.style='position:fixed;left:400px;top:170px;width:200px;height:100px;border:0';
+      window.addEventListener('message',e=>{if(e.source===frame.contentWindow&&e.data?.kind==='native-child')nativeChild=e.data.trusted});
+      const marker=document.createElement('div');marker.id='native-marker';marker.style='position:fixed;left:20px;top:120px;width:100px;height:100px;background:rgb(255,0,0)';document.body.append(marker);
+      return true;
+    })()"#).await?;
+    let button_error = native_api::click(&guest, 450.0, 120.0).await.err();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let input_error = native_api::click(&guest, 60.0, 35.0).await.err();
+    // A native click acknowledgement is dispatch, not WebKit's cross-process
+    // focus/IME acknowledgement. Observe actual focus without replaying input;
+    // never send a key to the wrong control just because the callback returned.
+    let focus_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let focus_observed = loop {
+        if evidence(&guest, "document.activeElement?.id === 'answer'").await? == true {
+            break true;
+        }
+        if tokio::time::Instant::now() >= focus_deadline {
+            break false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let key_error = if input_error.is_none() && focus_observed {
+        native_api::key_z(&guest).await.err()
+    } else {
+        Some("native input focus was not observed; key not dispatched".into())
+    };
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let child_error = native_api::click(&guest, 450.0, 190.0).await.err();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let result = evidence(&guest, "({clicked:nativeClicked,input:document.querySelector('#answer').value,events:nativeEvents,pointers:nativePointers,child:nativeChild,dpr:devicePixelRatio})").await?;
+    let pointer_coordinates_verified = result["pointers"].as_array().is_some_and(|events| {
+        [("native-probe", 450.0, 120.0), ("answer", 60.0, 35.0)]
+            .iter()
+            .all(|(id, x, y)| {
+                events.iter().any(|event| {
+                    event["type"] == "click"
+                        && event["trusted"] == true
+                        && event["id"] == *id
+                        && event["x"]
+                            .as_f64()
+                            .is_some_and(|actual| (actual - x).abs() <= 1.0)
+                        && event["y"]
+                            .as_f64()
+                            .is_some_and(|actual| (actual - y).abs() <= 1.0)
+                })
+            })
+    });
+    let keyboard_verified = input_error.is_none()
+        && key_error.is_none()
+        && result["input"] == "z"
+        && result["events"].as_array().is_some_and(|events| {
+            ["input", "keydown", "keyup"].iter().all(|kind| {
+                events
+                    .iter()
+                    .any(|event| event["type"] == *kind && event["trusted"] == true)
+            })
+        });
+    let mut screenshots = Vec::new();
+    for (index, color) in ["rgb(255,0,0)", "rgb(0,255,0)", "rgb(0,0,255)"]
+        .iter()
+        .enumerate()
+    {
+        evidence(&guest,&format!("(() => {{document.querySelector('#native-marker').style.background={};return true}})()",json!(color))).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        match native_api::snapshot(&guest).await {
+            Ok(png) => {
+                let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+                let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+                if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+                    let path = std::path::PathBuf::from(root);
+                    std::fs::create_dir_all(&path).map_err(|_| "probe PNG directory failed")?;
+                    std::fs::write(path.join(format!("snapshot-{index}.png")), &png)
+                        .map_err(|_| "probe PNG write failed")?;
+                }
+                screenshots.push(json!({"index":index,"width":width,"height":height,"bytes":png.len(),"status":"captured"}));
+            }
+            Err(error) => screenshots.push(json!({"index":index,"status":"failed","error":error})),
+        }
+    }
+    // API feasibility only: owned disposable view, never a production grant.
+    // Change the marker while hidden so a stale cached image cannot pass.
+    guest.hide().map_err(|_| "probe hide failed")?;
+    let background_script = evidence(&guest,
+        "(() => {document.querySelector('#native-marker').style.background='rgb(255,255,0)';return true})()")
+        .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let hidden_snapshot = match native_api::snapshot(&guest).await {
+        Ok(png) => {
+            if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+                std::fs::write(
+                    std::path::PathBuf::from(root).join("snapshot-hidden.png"),
+                    &png,
+                )
+                .map_err(|_| "hidden probe PNG write failed")?;
+            }
+            json!({"status":"captured","width":u32::from_be_bytes(png[16..20].try_into().unwrap()),
+                "height":u32::from_be_bytes(png[20..24].try_into().unwrap()),"bytes":png.len()})
+        }
+        Err(error) => json!({"status":"failed","error":error}),
+    };
+    guest
+        .show()
+        .map_err(|_| "probe restore visibility failed")?;
+    println!(
+        "NATIVE_API_EVIDENCE {}",
+        json!({"platform":std::env::consts::OS,"test_only":true,
+        "production_enabled":false,"native_mouse":{"passed":button_error.is_none()&&result["clicked"]==true&&pointer_coordinates_verified,"error":button_error,"coordinates_verified":pointer_coordinates_verified},
+        "native_keyboard":{"passed":keyboard_verified,"focus_error":input_error,"focus_observed":focus_observed,"error":key_error},
+        "cross_origin_pointer":{"passed":child_error.is_none()&&result["child"]==true,"error":child_error},
+        "cross_origin_frame_traversal":{"status":"not_implemented"},
+        "screenshots":screenshots,"observed":result,
+        "recording":{"status":"frame_sequence_only; not a production video recorder"},
+        "hidden_background":{"status":"test_only; production delegation still denies hidden tabs",
+            "script_executed":background_script==true,"snapshot":hidden_snapshot}})
+    );
+    Ok(())
+}
+
+async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let view = observe(app, &app.get_webview("main").unwrap()).await?;
+    if view["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n["label"] == "Cross-origin private button")
+    {
+        return Err("top document unexpectedly advertised cross-origin refs".into());
+    }
+    let observed = evidence(&guest, r#"(() => {
+      const result={events:window.probeEvents,frameReadable:false};
+      try { result.frameReadable=Boolean(document.querySelector('#cross-origin').contentWindow.document.body); }
+      catch(error){result.frameError=error.name;}
+      return result;
+    })()"#).await?;
+    if observed["frameReadable"] != false || observed["frameError"] != "SecurityError" {
+        return Err("cross-origin negative control did not encounter the SOP boundary".into());
+    }
+    let events = observed["events"]
+        .as_array()
+        .ok_or("missing event evidence")?;
+    if !events.iter().any(|e| e["type"] == "click") || events.iter().any(|e| e["trusted"] == true) {
+        return Err("DOM action trusted-input negative control failed".into());
+    }
+    println!(
+        "HARD_CAPABILITY_EVIDENCE {}",
+        json!({
+          "platform":std::env::consts::OS,"engine":"native-tauri-system-webview",
+          "trusted_input":{"status":"not_implemented","observed_dom_events":events},
+          "cross_origin_frames":{"status":"not_implemented","top_document_probe":observed["frameError"]},
+          "screenshot":{"status":"not_implemented"},"recording":{"status":"not_implemented"},
+          "hidden_tab_actions":{"status":"unsupported_by_current_policy","verified_by_hidden_tab_guard":true},
+          "parity_gate":"blocked; DOM actions are not native input; no claim of full ZCode parity"
+        })
+    );
+    Ok(())
 }
 
 async fn observe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<Value, String> {
@@ -148,7 +544,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         return Err("guest page granted itself browser control".into());
     }
 
-    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
         return Err("native bridge appeared before user delegation".into());
     }
     if browser_delegation::desktop_browser_delegate(
@@ -277,7 +673,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     bridge_call(connection, "parent", "perform", restore).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;
-    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["available"] != false {
+    if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
         return Err("hide/reselect resurrected browser consent".into());
     }
     println!("Private native bridge passed: exact chat binding, read-only denial, frame-preserving renewal, real fill, consumed-frame denial, hide/reselect revocation (no model)");
@@ -285,6 +681,7 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    lifecycle_probe(app, &url).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
     browser::desktop_browser_bounds(
         main.clone(),
@@ -655,6 +1052,8 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hide/reselect revived an old action frame".into());
     }
+    hard_capability_probe(app).await?;
+    native_api_probe(app).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
@@ -667,11 +1066,14 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hidden tab was incorrectly inspected".into());
     }
-    println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/OS input)");
+    println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/global OS input)");
     Ok(())
 }
 
 fn main() {
+    native_startup::prepare().expect("native probe prerequisites failed");
+    let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let completed = completion.clone();
     let url = fixture();
     let mut context = tauri::generate_context!();
     let mut nonce = [0; 8];
@@ -682,22 +1084,36 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(browser::BrowserState::default())
         .manage(browser_bridge::BrowserBridge::default())
+        .manage(browser_lifecycle::BrowserLifecycle::default())
         .invoke_handler(tauri::generate_handler![
+            browser_lifecycle::desktop_browser_control_reply,
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Native browser observation probe")
-                .inner_size(800.0, 600.0)
-                .build()?;
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Native browser observation probe")
+                    .inner_size(800.0, 600.0);
+            #[cfg(target_os = "macos")]
+            let window =
+                if std::env::var("XHARNESS_NATIVE_PROBE_TITLEBAR").as_deref() == Ok("overlay") {
+                    window
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true)
+                } else {
+                    window
+                };
+            window.build()?;
             let handle = app.handle().clone();
+            let completed = completed.clone();
             tauri::async_runtime::spawn(async move {
                 let result =
-                    tokio::time::timeout(Duration::from_secs(45), probe(&handle, url)).await;
+                    tokio::time::timeout(Duration::from_secs(120), probe(&handle, url)).await;
                 let success = matches!(&result, Ok(Ok(())));
+                completed.store(success, std::sync::atomic::Ordering::SeqCst);
                 if !success {
                     eprintln!("Native observation probe failed: {result:?}");
                 }
@@ -709,4 +1125,9 @@ fn main() {
         .build(context)
         .expect("native probe startup");
     app.run(|_, _| {});
+    std::process::exit(if completion.load(std::sync::atomic::Ordering::SeqCst) {
+        0
+    } else {
+        1
+    });
 }

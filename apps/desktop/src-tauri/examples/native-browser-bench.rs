@@ -9,13 +9,18 @@ mod browser_bridge;
 mod browser_delegation;
 #[path = "../src/browser_inspect.rs"]
 mod browser_inspect;
+#[path = "../src/browser_lifecycle.rs"]
+mod browser_lifecycle;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/native_startup.rs"]
+mod native_startup;
 
 use std::io::Write;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
+    native_startup::prepare().expect("native benchmark prerequisites failed");
     let args: Vec<String> = std::env::args().collect();
     assert_eq!(
         args.len(),
@@ -40,6 +45,7 @@ fn main() {
     tauri::Builder::default()
         .manage(browser::BrowserState::default())
         .manage(browser_bridge::BrowserBridge::default())
+        .manage(browser_lifecycle::BrowserLifecycle::default())
         .on_page_load(|webview, payload| {
             if webview.label() == "main"
                 && payload.event() == tauri::webview::PageLoadEvent::Started
@@ -55,6 +61,7 @@ fn main() {
             browser::desktop_browser_bounds,
             browser::desktop_browser_action,
             browser::desktop_browser_close,
+            browser_lifecycle::desktop_browser_control_reply,
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,

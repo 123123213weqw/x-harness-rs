@@ -1621,3 +1621,17 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] ARM64 / Intel 的 Homebrew 两版本升级、首次 Gatekeeper 放行及 TCC 保留交互验收；不承诺只授权一次。
 - [ ] 新版本显式启用 all-macos-selfsigned；现有 0.2.35 候选不重绑。
 - 设计及操作步骤：[macos-fixed-publisher-signing.md](macos-fixed-publisher-signing.md)。
+
+## 内置 Browser Use 零标签页与能力门禁（2026-10-06）
+
+- [x] 复用 `plugin_mcp`：零标签页发现、`control status/open`、请求所属聊天自动展开侧栏；等待实际原生加载及会话绑定后再观察／操作／观察验证。未新增顶层模型工具。
+- [x] 请求取消、超时、关页／切换聊天、载入事件先于调用返回、重复／迟到事件、未绑定聊天拒绝观察与操作；已开始导航被中断保留 `unknown`，参数拒绝为 `not_started`，不自动重放。
+- [x] 原生验收必须有完成证据而非仅退出码 0；区分 DOM 合约与完整浏览器能力。V100 临时 Portal/GVFS 挂载只在精确的隔离测试目录中清理，失败停止后续用例。
+- [x] Windows MSVC Common Controls v6 激活清单只嵌入一次；真实 Desktop 单测、Clippy、导入／清单审计通过。Linux Xlib 在线程初始化前启动导致的复现崩溃已修复，隔离零标签页重复回归 12/12 通过。
+- [x] `b6e2c65` 真实原生回执：Linux、Windows 的可信鼠标／键盘、跨域 iframe 坐标点击和改变像素的前台截图通过；Mac 前台／隐藏截图通过。不是 Chromium／Playwright IPC 模拟。
+- [ ] Mac 原生输入门禁：`2beb668` CI 与本机未注入版本仍失败；所属窗口诊断发现可信事件落点比 CSS 目标高 28px，是 WebKit 自动顶部 inset，不是完全没有事件。公开原生几何换算的诊断通过；Rust 候选须在普通／Overlay 标题栏分别通过未注入 CI 原生验收，独立验证落点、真实状态和像素；不硬编码 28px、不用诊断替代验收。Windows 真隐藏标签页截图仍超时，不标记支持。
+- [ ] 当前候选全量 CI 通过；不能用旧 SHA 或 DOM-only 成功替代新原生能力验收。
+- [ ] 三平台公开原生 API 原型：真实鼠标／键盘及 `isTrusted`、跨域／嵌套 iframe 的定位操作、截图尺寸／DPR／内容、录制和后台可见／真正隐藏标签页行为。现有 DOM 事件及 SOP 负对照只证明当前实现不支持，不证明 Tauri 架构做不到。
+- [ ] 原生图像／录制结果复用附件与预算链路并验证有界资源、取消和导航失效；不将截图塞入现有 64 KiB 文本桥，也不静默降级成 DOM 点击。
+- [x] 新零标签页真实 DeepSeek、仅 `plugin_mcp`、自然提示：4 类任务各完整执行 2 次，8 次全部通过状态／账本／清理验收；另 4 次受测试器 80-call 上限阻塞，保留失败而不算模型失败。续跑沿用同一 USD 1 上限及旧记录，最终 160 请求、费用保守上界 USD 0.2628189、pending 0、账本关闭。见 `docs/acceptance/native-browser-zero-tab-20261006.json`。
+- [ ] 打包及安装版验证；未替换、重启本机软件或发布。Mac AX Computer Use 失败是另一个边界，不由本次 Browser 修改冒充修复。

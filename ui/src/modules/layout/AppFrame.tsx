@@ -21,6 +21,7 @@ import {xhCreateBrowserWindowController} from './browser-window-controller'
 import {xhLoadBrowserSpaces,xhSaveBrowserSpaces,xhNextWorkspaceId,xhWorkspaceEmpty,xhWorkspaceOpen,xhWorkspaceClose,XhWorkspacePane,workspaceOpenDetail} from './workspace-pane'
 import type {BrowserSpaces,WorkspaceItem,WorkspaceSpace,WorkspaceOpenDetail} from './workspace-pane'
 import type {BrowserPatch} from '../browser/index'
+import {listenModelBrowser} from '../browser/model-control'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
@@ -133,6 +134,7 @@ export function AppFrame({
   const spaceKeyRef=useRef(spaceKey);spaceKeyRef.current=spaceKey
   const [spaces,setSpaces]=useState<BrowserSpaces>(xhLoadBrowserSpaces)
   const [browserRestored,setBrowserRestored]=useState(!window.__TAURI__?.core?.invoke)
+  const restoredRef=useRef(browserRestored);restoredRef.current=browserRestored
   const space=spaces[spaceKey]??xhWorkspaceEmpty
   const nextWorkspaceId=useRef(xhNextWorkspaceId(spaces))
   useEffect(()=>{
@@ -147,6 +149,24 @@ export function AppFrame({
       if(alive&&typeof snapshot==='string'&&snapshot)setSpaces(xhLoadBrowserSpaces(snapshot))
     }).catch(()=>{}).finally(()=>{if(alive)setBrowserRestored(true)})
     return()=>{alive=false}
+  },[])
+  useEffect(()=>{
+    const native=window.__TAURI__
+    if(!native?.core?.invoke||!native.event?.listen)return
+    return listenModelBrowser(native,{
+      currentOwner:()=>spaceKeyRef.current,
+      ready:()=>restoredRef.current,
+      open:request=>{
+        const item:WorkspaceItem={id:`browser:${request.requestId}`,kind:'browser',source:'browser',
+          modelRequestId:request.requestId,title:new URL(request.url).hostname,entries:[request.url],position:0}
+        setSpaces(all=>({...all,[request.owner]:xhWorkspaceOpen(all[request.owner]??xhWorkspaceEmpty,item,false)}))
+      },
+      cancel:requestId=>{
+        setSpaces(all=>Object.fromEntries(Object.entries(all).map(([owner,space])=>[owner,
+          space.items.some(item=>item.modelRequestId===requestId)?xhWorkspaceClose(space,`browser:${requestId}`):space])))
+        void native.core.invoke('desktop_browser_close',{tabId:`browser:${requestId}`}).catch(()=>{})
+      },
+    })
   },[])
   const [workspaceWidth,setWorkspaceWidth]=useState(440)
   const updateSpace=(fn:(space:WorkspaceSpace)=>WorkspaceSpace):void=>setSpaces(all=>{

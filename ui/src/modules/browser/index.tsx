@@ -5,8 +5,8 @@ import type { EffectContext, SlotsService } from '../shared/runtime-types'
 import { objectValue } from '../shared/runtime-types'
 import CSS from './Browser.css'
 const { createElement: h, useEffect, useRef, useState } = React
-export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number }
-export interface BrowserPatch { title?: string; entries?: string[]; position?: number }
+export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number; modelRequestId?: string | undefined }
+export interface BrowserPatch { title?: string; entries?: string[]; position?: number; modelRequestId?: string | undefined }
 export interface BrowserPaneProps { item: BrowserItem; sessionId?: string | null; open?: boolean; onUpdate(patch: BrowserPatch): void; onClose(): void; onNewBrowser(): void }
 interface BrowserContext extends EffectContext { slots: SlotsService }
 type AddressResult = {url: string} | {error: string}
@@ -191,6 +191,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     let binding: {key: string; until: number} | null = null
     let renewalTimer: ReturnType<typeof setTimeout> | undefined
     let loading = false
+    let completing = false
+    let eventsReady = false
     const send = (command: string, args: Record<string, unknown>) => native.core.invoke(command, args)
     const visible = () => {
       if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
@@ -207,7 +209,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     const syncBounds = () => {
       const requested = ++generation
       return enqueueNative(async () => {
-        if (disposed || requested !== generation) return false
+        if (disposed || !eventsReady || requested !== generation) return false
         const current = () => requested === generation && visible()
         if (!current()) {
           if (lastGeometry !== 'hidden') await hide()
@@ -253,6 +255,16 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
           clearTimeout(renewalTimer)
           renewalTimer = setTimeout(syncBounds, delay)
         }
+        const requestId=itemRef.current.modelRequestId
+        if(!loading&&binding&&requestId&&!completing){
+          completing=true
+          const accepted=await send('desktop_browser_control_reply',{requestId,reply:{status:'ready',tab_id:item.id}})
+          if(accepted===true){
+            onUpdate({modelRequestId:undefined})
+            window.dispatchEvent(new CustomEvent('xharness:browser-control-settled',{detail:requestId}))
+          }
+          else completing=false
+        }
         return true
       }).catch((error: unknown) => {
         if (!disposed && requested === generation) { setError(String(error)) }
@@ -264,7 +276,6 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     observer.observe(content)
     const stopWatchingSurfaces = watchBrowserSurfaces(content, syncBounds)
     window.addEventListener('resize', syncBounds)
-    requestAnimationFrame(syncBounds)
     let unlisten: NativeUnlisten | null = null
     native.event.listen('xharness-browser-event', event => {
       const payload = browserPayload(event.payload)
@@ -288,10 +299,17 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         if (payload.kind === 'download-error') setError(payload.value || '下载失败')
       }
       else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
-    }).then(fn => { if (disposed) fn(); else unlisten = fn }).catch((error: unknown) => { if (!disposed) setError(String(error)) })
+    }).then(fn => { if (disposed) fn(); else { unlisten = fn; eventsReady = true; requestAnimationFrame(syncBounds) } }).catch((error: unknown) => { if (!disposed) setError(String(error)) })
     return () => {
       disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); stopWatchingSurfaces(); window.removeEventListener('resize', syncBounds); unlisten?.()
       if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
+      const requestId=itemRef.current.modelRequestId
+      if(requestId){
+        // Closing/switching chats cancels the rendezvous immediately, not after
+        // its full load timeout. Native verifies the main caller and request ID.
+        void native.core.invoke('desktop_browser_control_reply',{requestId,reply:{status:'failed'}}).catch(()=>{})
+        void invoke('desktop_browser_close',{tabId:item.id}).catch(()=>{})
+      }
       void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
     }
   }, [item.id, open, sessionId])
