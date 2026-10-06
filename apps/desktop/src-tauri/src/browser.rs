@@ -5,7 +5,10 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -61,6 +64,7 @@ struct BrowserTab {
     webview: Webview,
     last_used: u64,
     inspector: Arc<crate::browser_inspect::Inspector>,
+    loaded: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -80,6 +84,27 @@ impl BrowserState {
         }
         let tab = inner.tabs.get(tab_id).ok_or("browser tab is not open")?;
         Ok((tab.webview.clone(), Arc::clone(&tab.inspector)))
+    }
+    pub(super) fn loaded_receipt(
+        &self,
+        owner: &str,
+        tab_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        if self.delegated_tab(owner)? != tab_id {
+            return Err("browser owner changed".into());
+        }
+        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
+        if inner.active.as_deref() != Some(tab_id) || !tab.loaded.load(Ordering::SeqCst) {
+            return Err("browser page is not ready".into());
+        }
+        let url = tab.webview.url().map_err(|_| "browser URL unavailable")?;
+        if !tab.inspector.delegation.permits(owner, &url, false) {
+            return Err("browser binding changed".into());
+        }
+        Ok(
+            serde_json::json!({"ok":true,"effect":"applied","state":"ready","tab_id":tab_id,"url":url.to_string()}),
+        )
     }
     pub(super) fn delegated_tab(&self, owner: &str) -> Result<String, String> {
         let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
@@ -134,7 +159,7 @@ fn valid_tab_id(tab_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_'))
 }
 
-fn web_url(raw: &str) -> Result<Url, String> {
+pub(super) fn web_url(raw: &str) -> Result<Url, String> {
     if raw.len() > 4096 {
         return Err("URL is too long".into());
     }
@@ -259,6 +284,7 @@ pub async fn desktop_browser_navigate(
         let clock = inner.clock;
         let tab = inner.tabs.get_mut(&tab_id).expect("tab was present");
         tab.last_used = clock;
+        tab.loaded.store(false, Ordering::SeqCst);
         return tab
             .webview
             .navigate(target)
@@ -306,10 +332,14 @@ pub async fn desktop_browser_navigate(
     let inspector = Arc::new(crate::browser_inspect::Inspector::default());
     let navigation_inspector = Arc::clone(&inspector);
     let load_inspector = Arc::clone(&inspector);
+    let loaded = Arc::new(AtomicBool::new(false));
+    let load_ready = Arc::clone(&loaded);
+    let navigation_ready = Arc::clone(&loaded);
     let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
         .data_directory(browser_data)
         .on_navigation(move |url| {
             if matches!(url.scheme(), "http" | "https") {
+                navigation_ready.store(false, Ordering::SeqCst);
                 navigation_inspector.delegation.navigate(url);
                 navigation_inspector.invalidate();
                 emit(&event_app, &event_id, "url", url.as_str());
@@ -323,6 +353,10 @@ pub async fn desktop_browser_navigate(
             emit(&title_app, &title_id, "title", title);
         })
         .on_page_load(move |_, payload| {
+            load_ready.store(
+                matches!(payload.event(), PageLoadEvent::Finished),
+                Ordering::SeqCst,
+            );
             let status = match payload.event() {
                 PageLoadEvent::Started => {
                     load_inspector.invalidate();
@@ -397,6 +431,7 @@ pub async fn desktop_browser_navigate(
             webview: child,
             last_used,
             inspector,
+            loaded,
         },
     );
     Ok(())

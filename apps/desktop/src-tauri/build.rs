@@ -37,6 +37,7 @@ fn main() {
             "desktop_browser_close",
             "desktop_browser_restore",
             "desktop_browser_persist",
+            "desktop_browser_control_reply",
             "desktop_browser_delegate",
             "desktop_browser_access",
             "desktop_browser_inspect",

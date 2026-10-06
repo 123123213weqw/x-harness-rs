@@ -2,6 +2,7 @@ mod browser;
 mod browser_bridge;
 mod browser_delegation;
 mod browser_inspect;
+mod browser_lifecycle;
 mod browser_perform;
 mod computer_activity;
 mod diagnostics;
@@ -51,6 +52,7 @@ pub fn run() {
             app.manage(computer_activity::DesktopComputerActivityState::default());
             app.manage(browser::BrowserState::default());
             app.manage(browser_bridge::BrowserBridge::default());
+            app.manage(browser_lifecycle::BrowserLifecycle::default());
             configure_linux_webview(app.handle());
             if app
                 .state::<DesktopState>()
@@ -100,6 +102,7 @@ pub fn run() {
             browser::desktop_browser_close,
             browser::desktop_browser_restore,
             browser::desktop_browser_persist,
+            browser_lifecycle::desktop_browser_control_reply,
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
