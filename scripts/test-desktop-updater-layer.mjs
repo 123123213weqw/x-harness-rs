@@ -232,4 +232,47 @@ try {
     await background.close()
   }
   console.log(`${engine}: 4 background preparation cases passed (boot download, restored Ready, fresh-manifest cache hit, offline-to-online); no panel takeover or installation, editable draft and explicit confirmation retained.`)
+  // Actual Chromium/WebKit rendering of the new permission choice. Native IPC
+  // facts are a fixture; this does not claim a real Windows install or UAC test.
+  for (const lang of ['zh-CN', 'en']) {
+    const migration = await browser.newPage({viewport:{width:900,height:768}})
+    const migrationErrors=[]
+    migration.on('pageerror', error=>migrationErrors.push(error.message))
+    await migration.setContent(`<html lang="${lang}"><body><textarea aria-label="Draft"></textarea></body></html>`)
+    await migration.evaluate(()=>{
+      window.calls=[]
+      window.__TAURI__={
+        core:{invoke:async command=>{
+          calls.push(command)
+          if(command==='desktop_status') return {updaterConfigured:true,updatePreflightSupported:true}
+          if(command==='desktop_update_preflight') return {needsChoice:true,migrationAvailable:true,currentDirectory:'C:\\Program Files\\XHarness',userDirectory:'C:\\Users\\测试 user\\AppData\\Local\\Programs\\XHarness <img src=x onerror=alert(1)>'}
+          if(command==='desktop_install_update') throw Error('No native installation allowed in rendering test')
+          return {seq:1,phase:'downloaded',version:'9.9.9'}
+        }}, event:{listen:async()=>()=>{}}
+      }
+    })
+    await migration.addScriptTag({content:source})
+    const updater=migration.locator('#xharness-desktop-updater')
+    await updater.locator('.toggle').click()
+    await updater.locator('.action').click()
+    await updater.locator('.placement').waitFor({state:'visible'})
+    assert.equal(await updater.locator('img').count(),0,'Paths are text, never HTML')
+    assert.equal(await updater.locator('.confirm').isVisible(),false,'No stop confirmation until placement selected')
+    assert.equal(await updater.locator('.current-place').isVisible(),true)
+    await updater.locator('.action').click()
+    await updater.locator('.confirm').waitFor({state:'visible'})
+    await updater.locator('.later').click()
+    await updater.locator('.action').click()
+    await updater.locator('.current-place').waitFor({state:'visible'})
+    await updater.locator('.current-place').click()
+    await updater.locator('.confirm').waitFor({state:'visible'})
+    await updater.locator('.action').focus();await migration.keyboard.press('Escape')
+    assert.equal(await updater.locator('.panel').isVisible(),false)
+    await migration.getByRole('textbox',{name:'Draft'}).fill('Tasks are not stopped by a placement decision')
+    assert.equal(await migration.evaluate(()=>calls.includes('desktop_install_update')),false)
+    assert.deepEqual(migrationErrors,[])
+    if(output) await migration.screenshot({path:join(output,`${engine}-migration-${lang}.png`)})
+    await migration.close()
+  }
+  console.log(`${engine}: 2 bilingual Windows-placement UI fixtures passed; no native installer invoked.`)
 } finally { await browser.close() }

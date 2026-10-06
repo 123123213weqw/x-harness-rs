@@ -2,6 +2,14 @@
 
 !macro NSIS_HOOK_PREINSTALL
   InitPluginsDir
+  ; Migration is explicit and current-user only. Never retire the old directory.
+  ClearErrors
+  ${GetOptions} $CMDLINE "/XHARNESS_USER_MIGRATION" $0
+  ${If} ${Errors}
+    System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_USER_MIGRATION", t "0")'
+  ${Else}
+    System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_USER_MIGRATION", t "1")'
+  ${EndIf}
   File /oname=$PLUGINSDIR\install-ownership.ps1 "${XHARNESS_HOOK_DIR}\install-ownership.ps1"
   File /oname=$PLUGINSDIR\install-shortcuts.cs "${XHARNESS_HOOK_DIR}\install-shortcuts.cs"
   ; Execute only the fixed code embedded in this installer. Paths travel as
@@ -10,7 +18,7 @@
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_SCRIPT", t "$PLUGINSDIR\install-ownership.ps1")'
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_INVENTORY", t "$PLUGINSDIR\xharness-install-inventory.json")'
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_DIRECTORY", t "$INSTDIR")'
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessPreflight $$env:XHARNESS_INSTALL_INVENTORY $$env:XHARNESS_INSTALL_DIRECTORY"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessPreflight $$env:XHARNESS_INSTALL_INVENTORY $$env:XHARNESS_INSTALL_DIRECTORY -UserMigration:($$env:XHARNESS_USER_MIGRATION -eq 1)"'
   Pop $0
   Pop $1
   ${If} $0 != 0
@@ -26,7 +34,7 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   System::Call 'kernel32::SetEnvironmentVariable(t "XHARNESS_INSTALL_DIRECTORY", t "$INSTDIR")'
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessReconcile $$env:XHARNESS_INSTALL_DIRECTORY $$env:XHARNESS_INSTALL_INVENTORY"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command ". ([scriptblock]::Create([IO.File]::ReadAllText($$env:XHARNESS_INSTALL_SCRIPT))); Invoke-XHarnessReconcile $$env:XHARNESS_INSTALL_DIRECTORY $$env:XHARNESS_INSTALL_INVENTORY -UserMigration:($$env:XHARNESS_USER_MIGRATION -eq 1)"'
   Pop $0
   Pop $1
   ${If} $0 != 0

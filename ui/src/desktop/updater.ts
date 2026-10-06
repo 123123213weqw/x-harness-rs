@@ -12,7 +12,18 @@ interface UpdateState extends Record<string, unknown> {
   total?: number | null | undefined
 }
 interface UpdateView {label: string; action: string; busy: boolean; emphasized: boolean}
-interface UpdatePending {pending: boolean; confirming: boolean}
+type Placement = 'current' | 'user'
+interface InstallPlan {needsChoice: boolean; currentDirectory?: string | undefined; userDirectory?: string | undefined; migrationAvailable?: boolean | undefined; reason?: string | null | undefined}
+interface UpdatePending {pending: boolean; confirming: boolean; plan?: InstallPlan | undefined; placement?: Placement | undefined}
+function decodePlan(value: unknown): InstallPlan {
+  if (!isObjectRecord(value) || typeof value.needsChoice !== 'boolean') throw Error('Invalid installation permission reply')
+  if (value.needsChoice && (typeof value.currentDirectory !== 'string' || typeof value.userDirectory !== 'string' || typeof value.migrationAvailable !== 'boolean')) throw Error('Incomplete installation permission reply')
+  if (value.reason !== undefined && value.reason !== null && typeof value.reason !== 'string') throw Error('Invalid installation permission reason')
+  return {needsChoice: value.needsChoice, currentDirectory: typeof value.currentDirectory === 'string' ? value.currentDirectory : undefined,
+    userDirectory: typeof value.userDirectory === 'string' ? value.userDirectory : undefined,
+    migrationAvailable: typeof value.migrationAvailable === 'boolean' ? value.migrationAvailable : undefined,
+    reason: nullableText(value.reason)}
+}
 function updateAction(value: unknown): value is UpdateAction {
   return value === 'check' || value === 'download' || value === 'install'
 }
@@ -57,29 +68,51 @@ function decodeState(value: unknown): UpdateState | undefined {
 
   // Controller is independent of DOM/Tauri: test real command routing, reloads,
   // out-of-order events, confirmation and double-clicks without a native window.
-  function createController(invoke: NativeInvoke, changed: (state: UpdateState, pending: UpdatePending) => void = () => {}) {
+  function createController(invoke: NativeInvoke, changed: (state: UpdateState, pending: UpdatePending) => void = () => {}, options: {preflight?: boolean} = {}) {
     let state: UpdateState = { seq: -1, phase: 'idle' }
     let pending = false
     let confirming = false
     let disposed = false
     let automaticAttempts = 0
-    function notify() { changed(state, { pending, confirming }) }
+    let plan: InstallPlan | undefined
+    let placement: Placement | undefined
+    let preparation = 0
+    function resetConsent() { confirming = false; plan = undefined; placement = undefined; preparation++ }
+    function notify() { changed(state, { pending, confirming, plan, placement }) }
+    async function prepareInstall() {
+      if (disposed || pending || busyPhases.has(state.phase ?? '')) return
+      if (!options.preflight) { confirming = true; notify(); return }
+      resetConsent()
+      pending = true
+      const generation = preparation, before = state.seq
+      notify()
+      try {
+        const reply = decodePlan(await invoke('desktop_update_preflight'))
+        if (disposed || generation !== preparation || state.seq !== before) return
+        plan = reply
+        confirming = !reply.needsChoice
+      } catch (error) {
+        if (!disposed && generation === preparation && state.seq === before)
+          state = {...state, phase: 'error', retryAction: 'install', message: String(error)}
+      } finally { pending = false; notify() }
+    }
     function accept(value: unknown) {
       const next = decodeState(value)
       if (!next || next.seq < state.seq) return
+      if (busyPhases.has(next.phase ?? '') || (next.seq !== state.seq && (confirming || plan))) resetConsent()
       state = next
-      if (busyPhases.has(state.phase ?? '')) confirming = false
       notify()
     }
     async function execute(action: UpdateAction) {
       if (disposed || pending || busyPhases.has(state.phase ?? '')) return
+      const installPlacement = placement
       pending = true
-      confirming = false
+      resetConsent()
       const before = state.seq
       notify()
       try {
         const command = { check: 'desktop_check_update', download: 'desktop_download_update', install: 'desktop_install_update' }[action]
-        accept(await invoke(command, action === 'install' ? { confirmStop: true } : undefined))
+        accept(await invoke(command, action === 'install' ? { confirmStop: true, ...(installPlacement ? {placement: installPlacement} : {}) } : undefined))
       } catch (error) {
         // Rust owns the authoritative snapshot, including which operation failed.
         try { accept(await invoke('desktop_update_status')) } catch { /* bridge lost */ }
@@ -94,8 +127,15 @@ function decodeState(value: unknown): UpdateState | undefined {
     return {
       get state() { return state },
       get confirming() { return confirming },
+      get plan() { return plan },
+      enablePreflight() { options.preflight = true },
+      choose(value: Placement) {
+        if (disposed || pending || !plan?.needsChoice || confirming || (value === 'user' && !plan.migrationAvailable)) return
+        if (value !== 'user' && value !== 'current') return
+        placement = value; confirming = true; notify()
+      },
       get retryDelay() {
-        if (disposed || pending || confirming || state.phase !== 'error' || state.retryAction === 'install') return
+        if (disposed || pending || confirming || plan || state.phase !== 'error' || state.retryAction === 'install') return
         return [30_000, 120_000, 600_000][automaticAttempts - 1]
       },
       accept,
@@ -103,7 +143,7 @@ function decodeState(value: unknown): UpdateState | undefined {
       async prepare() {
         // Background preparation can only check/download. Never infer installation
         // consent from a timer, an online event, a restored cache or a UI reload.
-        if (disposed || pending || confirming || busyPhases.has(state.phase ?? '') || automaticAttempts >= 4) return
+        if (disposed || pending || confirming || plan || busyPhases.has(state.phase ?? '') || automaticAttempts >= 4) return
         if (state.phase === 'downloaded' || (state.phase === 'error' && state.retryAction === 'install')) return
         automaticAttempts++
         if (state.phase !== 'available' && !(state.phase === 'error' && state.retryAction === 'download')) await execute('check')
@@ -112,7 +152,7 @@ function decodeState(value: unknown): UpdateState | undefined {
         if (state.phase === 'downloaded' || state.phase === 'up-to-date') automaticAttempts = 0
         notify()
       },
-      dispose() { disposed = true },
+      dispose() { disposed = true; resetConsent() },
       check() {
         // Never replace a verified download or accidentally erase an install error.
         if (['idle', 'up-to-date', 'available'].includes(state.phase ?? '') || (state.phase === 'error' && state.retryAction === 'check')) return execute('check')
@@ -122,11 +162,11 @@ function decodeState(value: unknown): UpdateState | undefined {
         if (pending || busyPhases.has(state.phase ?? '')) return
         const action = state.phase === 'error' ? (state.retryAction ?? 'check')
           : state.phase === 'downloaded' ? 'install' : state.phase === 'available' ? 'download' : 'check'
-        if (action === 'install') { confirming = true; notify(); return }
+        if (action === 'install') return prepareInstall()
         return execute(action)
       },
       confirm() { if (confirming) return execute('install') },
-      dismiss() { confirming = false; notify() },
+      dismiss() { resetConsent(); notify() },
     }
   }
 
@@ -174,8 +214,9 @@ function decodeState(value: unknown): UpdateState | undefined {
       <div class="text" role="status" aria-live="polite"></div>
       <progress hidden aria-label="更新下载进度"></progress>
       <pre class="notes" hidden></pre>
+      <div class="placement" hidden></div>
       <div class="confirm" hidden>重启将停止当前 Agent、工具和后台 Job。会话会保存，但运行中的命令不保证自动恢复。确认现在更新？</div>
-      <div class="footer"><button class="later" hidden>稍后</button><button class="action primary">检查更新</button></div>
+      <div class="footer"><button class="later" hidden>稍后</button><button class="current-place" hidden></button><button class="action primary">检查更新</button></div>
       <div class="hint">下载不影响当前工作；安装需要重启应用。</div>
       <div class="footer"><button class="diagnostics">运行诊断</button></div>
     </section>
@@ -256,7 +297,10 @@ function decodeState(value: unknown): UpdateState | undefined {
     host.hidden = false
     positionAnchor()
   }
-  const controller = createController(invoke, (state, { pending, confirming }) => {
+  const tr = (zh: string, en: string) => (document.documentElement.lang || navigator.language || 'en').startsWith('zh') ? zh : en
+  const placementBox = $('.placement'), currentPlace = root.querySelector('.current-place')
+  if (!(currentPlace instanceof HTMLButtonElement)) throw Error('desktop updater: missing placement button')
+  const controller = createController(invoke, (state, { pending, confirming, plan, placement }) => {
     const view = bootError
       ? { label: '桌面更新初始化失败：' + bootError, action: '更新不可用', busy: false, emphasized: false }
       : updateView(state)
@@ -269,10 +313,26 @@ function decodeState(value: unknown): UpdateState | undefined {
     text.textContent = view.label
     notes.textContent = state.notes ?? '' // Release text is untrusted: never innerHTML.
     notes.hidden = !notes.textContent
-    action.textContent = confirming ? '停止任务并重启更新' : view.action
-    action.disabled = Boolean(bootError) || pending || view.busy
+    const choosing = Boolean(plan?.needsChoice && !confirming)
+    placementBox.hidden = !choosing
+    placementBox.textContent = choosing ? [
+      tr('旧安装位置需要权限确认，建议迁移到用户目录，后续更新无需管理员权限。', 'The current installation needs a permission decision. Move to your user directory for future non-admin updates.'),
+      plan?.userDirectory ?? '',
+      tr('会话与配置不变；旧安装不会自动删除。', 'Conversations and settings are preserved. The old installation will not be deleted.'),
+      plan?.migrationAvailable ? '' : (plan?.reason ?? tr('暂不可迁移', 'Migration unavailable')),
+    ].filter(Boolean).join('\n') : ''
+    placementBox.style.whiteSpace = 'pre-wrap'
+    placementBox.style.overflowWrap = 'anywhere'
+    currentPlace.hidden = !choosing
+    currentPlace.textContent = tr('保留原位置更新', 'Keep current location')
+    currentPlace.disabled = pending || view.busy
+    confirmation.textContent = (placement === 'user' ? tr('将迁移到用户目录。', 'Move to your user directory. ') : '') +
+      tr('重启将停止当前 Agent、工具和后台任务。会话会保存，运行中的命令不保证自动恢复。', 'Restart will stop running agents, tools and jobs. Conversations are saved; running commands may not resume.')
+    action.textContent = choosing ? tr('迁移并更新（推荐）', 'Migrate & update (recommended)') : confirming ? tr('停止任务并重启更新', 'Stop tasks & update') : view.action
+    action.disabled = Boolean(bootError) || pending || view.busy || (choosing && !plan?.migrationAvailable)
     confirmation.hidden = !confirming
-    later.hidden = !confirming
+    later.hidden = !confirming && !choosing
+    later.textContent = tr('稍后', 'Later')
     progress.hidden = state.phase !== 'downloading'
     if (typeof state.total === 'number' && state.total > 0) { progress.max = state.total; progress.value = Math.min(state.downloaded ?? 0, state.total) }
     else progress.removeAttribute('value')
@@ -295,7 +355,8 @@ function decodeState(value: unknown): UpdateState | undefined {
   toggle.addEventListener('click', () => { expanded = !expanded; controller.dismiss() })
   $('.close').addEventListener('click', collapse)
   later.addEventListener('click', () => controller.dismiss())
-  action.addEventListener('click', () => controller.confirming ? controller.confirm() : controller.act())
+  currentPlace.addEventListener('click', () => controller.choose('current'))
+  action.addEventListener('click', () => controller.confirming ? controller.confirm() : controller.plan?.needsChoice ? controller.choose('user') : controller.act())
   root.addEventListener('keydown', event => {
     if (event instanceof KeyboardEvent && event.key === 'Escape') {
       event.preventDefault()
@@ -327,6 +388,7 @@ function decodeState(value: unknown): UpdateState | undefined {
     if (!isObjectRecord(status) || typeof status.updaterConfigured !== 'boolean')
       throw Error('desktop updater: invalid desktop status')
     if (!status.updaterConfigured || disposed) return
+    if (status.updatePreflightSupported === true) controller.enablePreflight()
     unlisten = await listen('xharness-update', ({ payload }) => controller.accept(payload))
     if (disposed) { unlisten(); return }
     await controller.restore()
@@ -353,8 +415,9 @@ declare global {
   interface Window {
     __XHARNESS_DESKTOP_UPDATER_TEST__?: {
       updateView(state: Partial<UpdateState>): UpdateView
-      createController(invoke: NativeInvoke, changed?: (state: UpdateState, pending: UpdatePending) => void): {
-        readonly state: UpdateState; readonly confirming: boolean;
+      createController(invoke: NativeInvoke, changed?: (state: UpdateState, pending: UpdatePending) => void, options?: {preflight?: boolean}): {
+        readonly state: UpdateState; readonly confirming: boolean; readonly plan: InstallPlan | undefined;
+        enablePreflight(): void; choose(value: Placement): void;
         accept(value: unknown): void; restore(): Promise<void>;
         check(): Promise<void> | undefined; act(): Promise<void> | undefined;
         confirm(): Promise<void> | undefined; dismiss(): void

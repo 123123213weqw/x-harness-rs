@@ -187,6 +187,59 @@ await test('install confirmation and active native download suppress all backgro
 
 // Tiny DOM fake exercises the actual boot/listen/timer/button wiring, not just
 // projections. No additional frontend test framework/runtime dependency needed.
+const permissionPlan = {needsChoice: true, currentDirectory: 'C:\\Program Files\\XHarness', userDirectory: 'C:\\Users\\User\\AppData\\Local\\Programs\\XHarness', migrationAvailable: true}
+await test('Windows permission choice precedes stop consent and has no install side effects', async () => {
+  const calls = []
+  const c = createController(async (cmd, args) => {calls.push([cmd,args]); return cmd === 'desktop_update_preflight' ? permissionPlan : snapshot(2,'installing')}, undefined, {preflight: true})
+  c.accept(snapshot(1,'downloaded'))
+  await c.act()
+  assert.deepEqual(calls.map(x=>x[0]), ['desktop_update_preflight'])
+  assert.equal(c.confirming,false)
+  await c.prepare(); await c.confirm()
+  assert.equal(calls.length,1)
+  c.choose('user'); assert.equal(c.confirming,true)
+  assert.equal(calls.length,1)
+  await c.confirm()
+  assert.equal(calls[1][0],'desktop_install_update')
+  assert.equal(calls[1][1].placement,'user')
+  assert.equal(calls[1][1].confirmStop,true)
+})
+await test('permission failure/malformed reply never stops tasks; retry rechecks', async () => {
+  for (const reply of [{}, {needsChoice:true}, {...permissionPlan, migrationAvailable:'yes'}]) {
+    const calls=[]
+    const c=createController(async cmd=>{calls.push(cmd);return reply}, undefined, {preflight:true})
+    c.accept(snapshot(1,'downloaded'));await c.act();await c.confirm()
+    assert.equal(c.state.phase,'error');assert.equal(c.state.retryAction,'install')
+    assert.deepEqual(calls,['desktop_update_preflight'])
+    await c.act();assert.equal(calls.length,2)
+  }
+})
+await test('dismiss, dispose and a new snapshot invalidate delayed permission replies', async () => {
+  for (const cancel of [c=>c.dismiss(), c=>c.dispose(), c=>c.accept(snapshot(2,'downloaded'))]) {
+    const d=deferred(),calls=[]
+    const c=createController(cmd=>{calls.push(cmd);return d.promise}, undefined, {preflight:true})
+    c.accept(snapshot(1,'downloaded'));const first=c.act();await c.act();cancel(c)
+    d.resolve(permissionPlan);await first;await c.confirm()
+    assert.equal(c.confirming,false);assert.equal(c.plan,undefined)
+    assert.deepEqual(calls,['desktop_update_preflight'])
+  }
+})
+await test('unavailable migration permits explicit current-location choice, not implicit consent', async () => {
+  const calls=[]
+  const c=createController(async (cmd,args)=>{calls.push([cmd,args]);return cmd==='desktop_update_preflight'?{...permissionPlan,migrationAvailable:false}:snapshot(2,'installing')}, undefined, {preflight:true})
+  c.accept(snapshot(1,'downloaded'));await c.act();c.choose('user');await c.confirm()
+  assert.equal(c.confirming,false);assert.equal(calls.length,1)
+  c.choose('current');await c.confirm()
+  assert.equal(calls[1][1].placement,'current')
+})
+await test('writable/non-Windows preflight goes to normal stop confirmation, never auto-installs', async () => {
+  const calls=[]
+  const c=createController(async cmd=>{calls.push(cmd);return {needsChoice:false}}, undefined, {preflight:true})
+  c.accept(snapshot(1,'downloaded'));await c.act()
+  assert.equal(c.confirming,true);assert.deepEqual(calls,['desktop_update_preflight'])
+  c.dismiss();await c.confirm();assert.equal(calls.length,1)
+})
+
 class Element {
   constructor() { this.style = {}; this.hidden = false; this.isConnected = true; this.rect = {left: 10, top: 650, width: 36, height: 42}; this.listeners = {}; this.attributes = {}; this.classes = new Set(); this.classList = { toggle: (name, value) => value ? this.classes.add(name) : this.classes.delete(name) } }
   getBoundingClientRect() { this.rectReads = (this.rectReads ?? 0) + 1; return this.rect }
@@ -206,9 +259,9 @@ class KeyEvent {
 }
 class Root extends Element {
   constructor() { super(); this.nodes = new Map() }
-  querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, (selector === '.action' ? new ButtonElement() : selector === 'progress' ? new ProgressElement() : new Element())); return this.nodes.get(selector) }
+  querySelector(selector) { if (!this.nodes.has(selector)) this.nodes.set(selector, (['.action', '.current-place'].includes(selector) ? new ButtonElement() : selector === 'progress' ? new ProgressElement() : new Element())); return this.nodes.get(selector) }
 }
-async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null, slot = null } = {}) {
+async function boot({ configured = true, initial = snapshot(0, 'idle'), statusError = null, slot = null, preflight = false, lang = 'zh-CN' } = {}) {
   const calls = [], timers = [], intervals = [], attached = [], clearedTimers = []
   const frames = new Map()
   const flushFrames = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()) }
@@ -220,7 +273,7 @@ async function boot({ configured = true, initial = snapshot(0, 'idle'), statusEr
   }
   let currentSlot = slot
   let listener, unlistened = false, pagehide
-  const dom = { visibilityState: 'visible', body: { append: node => attached.push(node) }, createElement: () => new Element(), getElementById: () => currentSlot }
+  const dom = { documentElement: {lang}, visibilityState: 'visible', body: { append: node => attached.push(node) }, createElement: () => new Element(), getElementById: () => currentSlot }
   let remote = initial
   let disconnected = false
   const win = {
@@ -228,7 +281,7 @@ async function boot({ configured = true, initial = snapshot(0, 'idle'), statusEr
     requestAnimationFrame: callback => {frames.set(1, callback); return 1},
     cancelAnimationFrame: id => frames.delete(id),
     __TAURI__: {
-      core: { invoke: async (command, args) => { calls.push([command, args]); if (disconnected) throw new Error('IPC disconnected'); if (command === 'desktop_status') { if (statusError) throw new Error(statusError); return { updaterConfigured: configured } }; return remote } },
+      core: { invoke: async (command, args) => { calls.push([command, args]); if (disconnected) throw new Error('IPC disconnected'); if (command === 'desktop_status') { if (statusError) throw new Error(statusError); return { updaterConfigured: configured, updatePreflightSupported: preflight } }; if (command === 'desktop_update_preflight') return permissionPlan; return remote } },
       event: { listen: async (_name, callback) => { listener = callback; return () => { unlistened = true } } },
     },
     setTimeout: (callback, delay) => { callback.delay = delay; timers.push(callback); return timers.length },
@@ -394,4 +447,33 @@ const index = await readFile(scriptAssetDist('index.html'), 'utf8')
 const updaterRev = createHash('sha256').update(source.replaceAll('\r\n', '\n')).digest('hex').slice(0, 16)
 assert.ok(index.includes('/desktop-updater.js?rev=' + updaterRev), 'updater cache revision must match shipped source')
 }
+
+await test('desktop placement UI offers both paths before stop warning and escapes destination text', async () => {
+  const b=await boot({preflight:true,initial:snapshot(0,'downloaded')})
+  const $=s=>b.host.root.querySelector(s)
+  $('.toggle').listeners.click();await $('.action').listeners.click()
+  assert.equal($('.placement').hidden,false);assert.equal($('.confirm').hidden,true)
+  assert.match($('.action').textContent,/迁移并更新/)
+  assert.equal($('.current-place').hidden,false)
+  assert.equal(b.calls.some(([cmd])=>cmd==='desktop_install_update'),false)
+  $('.current-place').listeners.click()
+  assert.equal($('.placement').hidden,true);assert.equal($('.confirm').hidden,false)
+  assert.equal(b.calls.some(([cmd])=>cmd==='desktop_install_update'),false)
+  $('.later').listeners.click();assert.equal($('.confirm').hidden,true)
+  b.exit()
+})
+
+
+await test('migration consent also has readable English actions', async () => {
+  const b=await boot({preflight:true,lang:'en',initial:snapshot(0,'downloaded')})
+  const $=s=>b.host.root.querySelector(s)
+  $('.toggle').listeners.click();await $('.action').listeners.click()
+  assert.equal($('.action').textContent,'Migrate & update (recommended)')
+  assert.equal($('.current-place').textContent,'Keep current location')
+  assert.match($('.placement').textContent,/Conversations and settings are preserved/)
+  await $('.action').listeners.click()
+  assert.match($('.confirm').textContent,/Move to your user directory/)
+  assert.equal($('.action').textContent,'Stop tasks & update')
+  b.exit()
+})
 console.log(assertions + ' desktop updater tests passed; ' + (process.env.UI_TEST_SCRIPT_ONLY === '1' ? 'batch unit/config only (bundle freshness not accepted)' : 'bundle/config verified'))
