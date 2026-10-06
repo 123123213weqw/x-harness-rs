@@ -36,6 +36,18 @@ assert.equal(render(true)[0].props.anchor.props.disabled,true,'read-only/locked 
 // AI review is a distinct Host option, not an alias for Full access.
 value={...value,currentValue:'workspace-write-ai-review',options:[...value.options,{value:'workspace-write-ai-review',name:'AI review'}]};
 [menu]=render();assert.equal(menu.props.selectedId,'workspace-write-ai-review');
+const aiIcon=menu.props.items.find(item=>item.id==='workspace-write-ai-review').icon;
+assert.ok(aiIcon,'the Host AI review preset must have a leading menu icon');
+assert.equal(aiIcon.type,'svg');assert.equal(aiIcon.props['aria-hidden'],true);
+assert.equal(aiIcon.props.viewBox,'0 0 16 16');
+assert.ok(descendants(menu.props.anchor,node=>node===aiIcon).length,'selected AI review must reuse the same glyph in the trigger');
+assert.notDeepEqual(aiIcon,menu.props.items.find(item=>item.id==='danger-full-access').icon,'AI review must not use the Full access warning glyph');
+for(const option of value.options)assert.ok(menu.props.items.find(item=>item.id===option.value).icon,`built-in preset ${option.value} has a glyph`);
+const knownValue=value;
+value={...value,currentValue:'vendor-mode',options:[...value.options,{value:'vendor-mode',name:'Vendor Mode'},{value:'custom',name:'Custom'}]};
+[menu]=render();assert.equal(menu.props.items.find(item=>item.id==='vendor-mode').icon,undefined,'unknown presets do not inherit the AI icon');
+assert.equal(menu.props.items.some(item=>item.id==='custom'),false,'Custom stays display-only');
+value=knownValue;[menu]=render();
 menu.props.onSelect('workspace-write');
 assert.equal(commands.at(-1),'/permission workspace-write');
 resolve(true);await new Promise(r=>setImmediate(r));
