@@ -473,12 +473,14 @@ const design_platform_css_1 = __importDefault(require("./design-platform.css"));
 const scrollbar_css_1 = __importDefault(require("./scrollbar.css"));
 const gradient_shadow_text_css_1 = __importDefault(require("./gradient-shadow-text.css"));
 const shiki_css_1 = __importDefault(require("./shiki.css"));
+const typography_css_1 = __importDefault(require("./typography.css"));
 const PLUGIN_ID = '@xharness/dsh-client-ui-theme';
 const STYLES = [
     ['base.css', base_css_1.default],
     ['design-platform.css', design_platform_css_1.default],
     ['scrollbar.css', scrollbar_css_1.default],
     ['gradient-shadow-text.css', gradient_shadow_text_css_1.default],
+    ['typography.css', typography_css_1.default],
     ['shiki.css', shiki_css_1.default],
 ];
 /**
@@ -536,6 +538,13 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = ":root{--shiki-foreground:var(--dsw-alias-label-primary);--shiki-background:var(--dsw-alias-markdown-code-block);--shiki-token-constant:#1c7ed6;--shiki-token-string:#2f9e44;--shiki-token-comment:#868e96;--shiki-token-keyword:#d6336c;--shiki-token-parameter:#e8590c;--shiki-token-function:#6741d9;--shiki-token-string-expression:#2b8a3e;--shiki-token-punctuation:#495057;--shiki-token-link:#1971c2}body[data-ds-dark-theme]{--shiki-token-constant:#4dabf7;--shiki-token-string:#69db7c;--shiki-token-comment:#adb5bd;--shiki-token-keyword:#faa2c1;--shiki-token-parameter:#ffa94d;--shiki-token-function:#b197fc;--shiki-token-string-expression:#8ce99a;--shiki-token-punctuation:#ced4da;--shiki-token-link:#74c0fc}\n";
 
 },
+"src/modules/theme/typography.css": function(module, exports, require) {
+// source: src/modules/theme/typography.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = "/* Reading hierarchy shared by all Markdown consumers. Keep system fonts:\n   no downloaded CJK fonts, rendering effects, or platform-specific weights. */\nbody {\n  /* Primitive fallbacks remain the independent platform baseline.\n     The owning theme, not the primitive, opts into the reading hierarchy. */\n  --xh-markdown-emphasis-weight: 700;\n  --xh-markdown-h12-margin: 28px 0 12px;\n  --xh-markdown-h3-margin: 24px 0 10px;\n  --xh-markdown-h4-margin: 20px 0 8px;\n  --xh-markdown-paragraph-margin: 14px 0;\n  --dsw-font-markdown-h2: 700 20px/30px var(--dsw-font-family);\n  --dsw-font-markdown-h2-font-size: 20px;\n  --dsw-font-markdown-h2-line-height: 30px;\n  --dsw-font-markdown-h3: 700 18px/28px var(--dsw-font-family);\n  --dsw-font-markdown-h3-font-size: 18px;\n  --dsw-font-markdown-h3-line-height: 28px;\n  --dsw-font-markdown-h4: 600 17px/28px var(--dsw-font-family);\n  --dsw-font-markdown-h4-font-size: 17px;\n  --dsw-font-markdown-base-strong: 700 16px/28px var(--dsw-font-family);\n  --dsw-font-markdown-base-strong-font-weight: 700;\n  --dsw-font-markdown-base-strong-italic: italic 700 16px/28px var(--dsw-font-family);\n  --dsw-font-markdown-base-strong-italic-font-weight: 700;\n  --dsw-font-markdown-table-head: 600 15px/25px var(--dsw-font-family);\n  --dsw-font-markdown-table-head-font-weight: 600;\n  --dsw-font-markdown-code-block: 14px/24px var(--ds-font-family-code);\n  --dsw-font-markdown-code-block-font-size: 14px;\n  --dsw-font-markdown-code-block-line-height: 24px;\n}\n";
+
+},
 "src/modules/theme/locales.js": function(module, exports, require) {
 // source: src/modules/theme/locales.ts
 
@@ -586,7 +595,7 @@ function isThemePreference(value) {
 
 }
 };
-const __dependencies = {"src/modules/theme/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./AppearanceRow":"src/modules/theme/AppearanceRow.js","./settings-store":"src/modules/theme/settings-store.js","./styles":"src/modules/theme/styles.js","./locales":"src/modules/theme/locales.js","./theme-settings":"src/modules/theme/theme-settings.js"},"src/modules/shared/runtime-types.js":{},"src/modules/theme/AppearanceRow.js":{"../views-types":"src/modules/views-types.js","./AppearanceRow.styles":"src/modules/theme/AppearanceRow.styles.js"},"src/modules/views-types.js":{},"src/modules/theme/AppearanceRow.styles.js":{"./AppearanceRow.css":"src/modules/theme/AppearanceRow.css","../views-types":"src/modules/views-types.js"},"src/modules/theme/AppearanceRow.css":{},"src/modules/theme/settings-store.js":{},"src/modules/theme/styles.js":{"./base.css":"src/modules/theme/base.css","./design-platform.css":"src/modules/theme/design-platform.css","./scrollbar.css":"src/modules/theme/scrollbar.css","./gradient-shadow-text.css":"src/modules/theme/gradient-shadow-text.css","./shiki.css":"src/modules/theme/shiki.css"},"src/modules/theme/base.css":{},"src/modules/theme/design-platform.css":{},"src/modules/theme/scrollbar.css":{},"src/modules/theme/gradient-shadow-text.css":{},"src/modules/theme/shiki.css":{},"src/modules/theme/locales.js":{},"src/modules/theme/theme-settings.js":{}};
+const __dependencies = {"src/modules/theme/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./AppearanceRow":"src/modules/theme/AppearanceRow.js","./settings-store":"src/modules/theme/settings-store.js","./styles":"src/modules/theme/styles.js","./locales":"src/modules/theme/locales.js","./theme-settings":"src/modules/theme/theme-settings.js"},"src/modules/shared/runtime-types.js":{},"src/modules/theme/AppearanceRow.js":{"../views-types":"src/modules/views-types.js","./AppearanceRow.styles":"src/modules/theme/AppearanceRow.styles.js"},"src/modules/views-types.js":{},"src/modules/theme/AppearanceRow.styles.js":{"./AppearanceRow.css":"src/modules/theme/AppearanceRow.css","../views-types":"src/modules/views-types.js"},"src/modules/theme/AppearanceRow.css":{},"src/modules/theme/settings-store.js":{},"src/modules/theme/styles.js":{"./base.css":"src/modules/theme/base.css","./design-platform.css":"src/modules/theme/design-platform.css","./scrollbar.css":"src/modules/theme/scrollbar.css","./gradient-shadow-text.css":"src/modules/theme/gradient-shadow-text.css","./shiki.css":"src/modules/theme/shiki.css","./typography.css":"src/modules/theme/typography.css"},"src/modules/theme/base.css":{},"src/modules/theme/design-platform.css":{},"src/modules/theme/scrollbar.css":{},"src/modules/theme/gradient-shadow-text.css":{},"src/modules/theme/shiki.css":{},"src/modules/theme/typography.css":{},"src/modules/theme/locales.js":{},"src/modules/theme/theme-settings.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

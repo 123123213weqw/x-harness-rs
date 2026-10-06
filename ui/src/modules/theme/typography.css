@@ -1,0 +1,28 @@
+/* Reading hierarchy shared by all Markdown consumers. Keep system fonts:
+   no downloaded CJK fonts, rendering effects, or platform-specific weights. */
+body {
+  /* Primitive fallbacks remain the independent platform baseline.
+     The owning theme, not the primitive, opts into the reading hierarchy. */
+  --xh-markdown-emphasis-weight: 700;
+  --xh-markdown-h12-margin: 28px 0 12px;
+  --xh-markdown-h3-margin: 24px 0 10px;
+  --xh-markdown-h4-margin: 20px 0 8px;
+  --xh-markdown-paragraph-margin: 14px 0;
+  --dsw-font-markdown-h2: 700 20px/30px var(--dsw-font-family);
+  --dsw-font-markdown-h2-font-size: 20px;
+  --dsw-font-markdown-h2-line-height: 30px;
+  --dsw-font-markdown-h3: 700 18px/28px var(--dsw-font-family);
+  --dsw-font-markdown-h3-font-size: 18px;
+  --dsw-font-markdown-h3-line-height: 28px;
+  --dsw-font-markdown-h4: 600 17px/28px var(--dsw-font-family);
+  --dsw-font-markdown-h4-font-size: 17px;
+  --dsw-font-markdown-base-strong: 700 16px/28px var(--dsw-font-family);
+  --dsw-font-markdown-base-strong-font-weight: 700;
+  --dsw-font-markdown-base-strong-italic: italic 700 16px/28px var(--dsw-font-family);
+  --dsw-font-markdown-base-strong-italic-font-weight: 700;
+  --dsw-font-markdown-table-head: 600 15px/25px var(--dsw-font-family);
+  --dsw-font-markdown-table-head-font-weight: 600;
+  --dsw-font-markdown-code-block: 14px/24px var(--ds-font-family-code);
+  --dsw-font-markdown-code-block-font-size: 14px;
+  --dsw-font-markdown-code-block-line-height: 24px;
+}

@@ -1444,7 +1444,7 @@ body[data-ds-dark-theme] .JsonTree_root {
   color: var(--dsw-alias-label-primary);
 }
 .MarkdownText_markdown strong {
-  font-weight: 600;
+  font-weight: var(--xh-markdown-emphasis-weight, 600);
 }
 @keyframes MarkdownText_stream-prose-in {
   from {
@@ -1464,29 +1464,30 @@ body[data-ds-dark-theme] .JsonTree_root {
 }
 .MarkdownText_markdown h1 {
   font: var(--dsw-font-markdown-h1);
-  margin: 32px 0 16px;
+  margin: var(--xh-markdown-h12-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h2 {
   font: var(--dsw-font-markdown-h2);
-  margin: 32px 0 16px;
+  margin: var(--xh-markdown-h12-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h3 {
   font: var(--dsw-font-markdown-h3);
-  margin: 32px 0 16px;
+  margin: var(--xh-markdown-h3-margin, 32px 0 16px);
 }
 .MarkdownText_markdown h4 {
   font: var(--dsw-font-markdown-h4);
-  margin: 16px 0;
+  margin: var(--xh-markdown-h4-margin, 16px 0);
 }
 .MarkdownText_markdown :where(h5, h6) {
   font: var(--dsw-font-markdown-base-strong);
+  font-weight: 600;
   margin: 16px 0;
 }
 .MarkdownText_markdown :where(h1, h2, h3, h4, h5, h6) strong {
   font-weight: inherit;
 }
 .MarkdownText_markdown p {
-  margin: 16px 0;
+  margin: var(--xh-markdown-paragraph-margin, 16px 0);
 }
 .MarkdownText_markdown :where(h4, h5, h6) + :where(ul, ol) {
   margin-top: 8px;
@@ -2973,4 +2974,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-LHRSAQHG.css.map */
+/*# sourceMappingURL=platform-HIRLJXKB.css.map */
