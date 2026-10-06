@@ -1,12 +1,12 @@
 //! Safe Host side. Each request owns one suspended, Job-contained worker.
-use crate::wire::{self, Frame, NodeTarget, Reply, Request, Surface};
+use crate::state::State;
+use crate::wire::{self, Reply, Request};
 use async_trait::async_trait;
 use std::{
-    collections::BTreeMap,
     path::PathBuf,
     process::Stdio,
     sync::OnceLock,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -23,17 +23,7 @@ use xharness_win32::{
 
 static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
 static NEXT_FRAME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-const FRAME_TTL: Duration = Duration::from_secs(30);
 const WORKER_LIMIT: Duration = Duration::from_secs(45);
-
-#[derive(Default)]
-struct State {
-    id: Option<String>,
-    captured: Option<Instant>,
-    frame: Option<Frame>,
-    nodes: BTreeMap<String, NodeTarget>,
-    surfaces: BTreeMap<String, Surface>,
-}
 
 pub struct WindowsComputer {
     executable: PathBuf,
@@ -214,48 +204,17 @@ impl ComputerDriver for WindowsComputer {
             guard = SERIAL.get_or_init(|| Mutex::new(())).lock() => guard,
         };
         let mut state = self.state.lock().await;
-        let observing = request.action == ComputerAction::Observe
-            || (request.action == ComputerAction::Window
-                && request.operation.as_deref() == Some("list"));
-        let mut wire = Request {
+        let wire = Request {
             schema: 1,
             request,
             frame: None,
             node: None,
             surface: None,
         };
-        if !observing && wire.request.action != ComputerAction::Wait {
-            if state.captured.is_none_or(|t| t.elapsed() > FRAME_TTL)
-                || state.id.is_none()
-                || wire
-                    .request
-                    .frame_id
-                    .as_ref()
-                    .is_some_and(|id| Some(id) != state.id.as_ref())
-            {
-                return Err(ComputerError::retryable(
-                    "stale_frame",
-                    "observe again before operating the desktop",
-                ));
-            }
-            wire.frame = state.frame.clone();
-            if let Some(id) = &wire.request.node_id {
-                wire.node = Some(state.nodes.get(id).cloned().ok_or_else(|| {
-                    ComputerError::retryable(
-                        "stale_node",
-                        "node does not belong to the current observation",
-                    )
-                })?);
-            }
-            if let Some(id) = &wire.request.surface_id {
-                wire.surface = Some(state.surfaces.get(id).cloned().ok_or_else(|| {
-                    ComputerError::retryable(
-                        "stale_surface",
-                        "window does not belong to the current observation",
-                    )
-                })?);
-            }
-        }
+        // Model/transport latency does not invalidate an observation. Bind only
+        // references owned by this driver; the native worker rechecks actual
+        // desktop/window geometry and UIA identity immediately before input.
+        let wire = state.bind(wire)?;
         let result = self.exchange(wire, &token).await;
         // Any native dispatch consumes the old frame, even if the worker fails.
         *state = State::default();
@@ -275,7 +234,6 @@ impl ComputerDriver for WindowsComputer {
             );
             reply.value["frame_id"] = serde_json::Value::String(id.clone());
             state.id = Some(id);
-            state.captured = Some(Instant::now());
             state.frame = Some(frame);
             state.nodes = reply.nodes.into_iter().collect();
             state.surfaces = reply.surfaces.into_iter().collect();
@@ -343,22 +301,21 @@ mod tests {
         assert_eq!(error.code, "cancelled");
     }
     #[tokio::test]
-    async fn old_and_foreign_frames_fail_before_spawn() {
+    async fn foreign_frame_fails_before_spawn() {
         let driver = WindowsComputer::with_worker_executable(PathBuf::from("does-not-exist.exe"));
         {
             let mut state = driver.state.lock().await;
             state.id = Some("owned".into());
-            state.captured = Some(Instant::now() - Duration::from_secs(31));
+            state.frame = Some(crate::wire::Frame {
+                desktop: xharness_computer::Region {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                foreground: None,
+            });
         }
-        let error = driver
-            .execute(
-                request(serde_json::json!({"action":"click","frame_id":"owned","x":1,"y":1})),
-                CancellationToken::new(),
-            )
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, "stale_frame");
-        driver.state.lock().await.captured = Some(Instant::now());
         let error = driver
             .execute(
                 request(serde_json::json!({"action":"click","frame_id":"foreign","x":1,"y":1})),
@@ -367,5 +324,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "stale_frame");
+        // A pre-dispatch rejection must not consume a valid observation.
+        assert_eq!(driver.state.lock().await.id.as_deref(), Some("owned"));
     }
 }

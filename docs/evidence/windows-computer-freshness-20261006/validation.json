@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "source_base": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "uncommitted_sources_included": true,
+  "compiler_host": "WZU_Server",
+  "local_rust_compilation": false,
+  "linux_unit_tests": {
+    "passed": 26,
+    "failed": 0,
+    "new_state_cases": 5
+  },
+  "linux_clippy": {
+    "passed": true,
+    "deny_warnings": true
+  },
+  "windows_target_check": {
+    "target": "x86_64-pc-windows-msvc",
+    "all_targets": true,
+    "native_acceptance_feature": true,
+    "passed": true
+  },
+  "windows_target_clippy": {
+    "passed": true,
+    "deny_warnings": true
+  },
+  "windows_unit_tests_executed": false,
+  "windows_native_freshness_fixture_executed": false,
+  "revised_runtime_qwen_comparison_executed": false,
+  "installed_application_changed": false,
+  "automatic_retry_added": false,
+  "public_tool_schema_changed_by_this_fix": false,
+  "remaining_gap": "Existing native checks do not detect all content or occlusion changes inside an unchanged foreground window."
+}
