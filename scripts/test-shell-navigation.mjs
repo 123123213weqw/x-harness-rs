@@ -10,7 +10,7 @@ const {ShellNavigation,SHELL_HISTORY_LIMIT}=registration.factory()
 const tick=()=>new Promise(resolve=>queueMicrotask(resolve))
 const json=value=>JSON.parse(JSON.stringify(value))
 function fixture({current='a',pending=false}={}){
- let state={current,ids:['a','b','c'],byId:{a:{},b:{},c:{}},phase:pending?'pending':'ready',subagentsByParent:{}}
+ let state={current:current??undefined,ids:['a','b','c'],byId:{a:{},b:{},c:{}},phase:pending?'pending':'ready',subagentsByParent:{}}
  const listeners=new Set(),writes=[],target=new EventTarget(),addresses=new Map()
  const list={getSnapshot:()=>state,subscribe:f=>{listeners.add(f);return()=>listeners.delete(f)}}
  const set=next=>{state=next;for(const f of [...listeners])f()}
@@ -79,4 +79,29 @@ test('bounded history stores only route ids, with no transcript retention',async
 test('cleanup cancels queued visits; remount observes current state with one subscription',async()=>{
  const f=fixture();f.target.dispatchEvent(new Event('xharness:work:open'));f.dispose();f.nav.back();f.nav.forward();f.nav.close();await tick();assert.equal(f.nav.getSnapshot().route.page,'chat');assert.equal(f.listeners.size,0);assert.equal(f.writes.length,0)
  const off=f.nav.mount(f.target);assert.equal(f.listeners.size,1);await f.page('work');assert.equal(f.nav.getSnapshot().route.page,'work');off();assert.equal(f.listeners.size,0)
+})
+
+test('initial offline Host never gates local pages or back/forward and binding retains history',async()=>{
+ const f=fixture({pending:true,current:null});f.set({...f.list.getSnapshot(),current:undefined,ids:[],byId:{}});await tick()
+ for(const page of ['plugins','work','review','assistant']){await f.page(page);assert.equal(f.nav.getSnapshot().route.page,page)}
+ f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'review');f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'work');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'review');assert.deepEqual(f.writes,[])
+ f.set({...f.list.getSnapshot(),phase:'ready',current:'a',ids:['a','b'],byId:{a:{},b:{}}});await tick()
+ assert.deepEqual(json(f.nav.getSnapshot().route),{page:'review',sessionId:'a'});assert.equal(f.nav.getSnapshot().canForward,true)
+ f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'assistant');assert.deepEqual(f.writes,[])
+ f.nav.back();f.nav.back();f.nav.back();f.nav.back();assert.deepEqual(json(f.nav.getSnapshot().route),{page:'chat',sessionId:'a'});assert.equal(f.nav.getSnapshot().canBack,false);assert.deepEqual(f.writes,[]);f.dispose()
+})
+test('first loaded empty selection is intentional and retained across session visits',async()=>{
+ const f=fixture({pending:true,current:null});f.set({...f.list.getSnapshot(),current:undefined,ids:[],byId:{}});await tick();await f.page('plugins')
+ f.set({...f.list.getSnapshot(),phase:'ready',current:undefined,ids:['a'],byId:{a:{}}});await tick();await f.select('a')
+ f.nav.back();assert.deepEqual(json(f.nav.getSnapshot().route),{page:'plugins'});assert.equal(f.list.getSnapshot().current,undefined);f.dispose()
+})
+test('pending reconnect permits same-session page navigation without selection writes',async()=>{
+ const f=fixture();await f.page('plugins');await f.select('b');f.nav.back();const old=f.list.getSnapshot();f.writes.length=0
+ f.set({...old,phase:'pending',current:undefined,ids:[],byId:{}});await tick();f.nav.back();assert.equal(f.nav.getSnapshot().route.page,'chat');assert.equal(f.nav.getSnapshot().route.sessionId,'a');f.nav.forward();assert.equal(f.nav.getSnapshot().route.page,'plugins');assert.equal(f.nav.getSnapshot().canForward,false);assert.deepEqual(f.writes,[])
+ f.set(old);await tick();assert.equal(f.nav.getSnapshot().canForward,true);f.nav.forward();assert.equal(f.nav.getSnapshot().route.sessionId,'b');f.dispose()
+})
+
+test('remounted navigation markers request a projection, not another feature open',async()=>{
+ const f=fixture(),projections=[],intents=[];f.target.addEventListener('xharness:shell-route-changed',e=>projections.push(e.detail.page));f.target.addEventListener('xharness:review:open',()=>intents.push('review'))
+ await f.page('review');const before=json(f.nav.getSnapshot());f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.deepEqual(projections,['review','review']);assert.deepEqual(intents,['review']);assert.deepEqual(f.writes,[]);assert.deepEqual(json(f.nav.getSnapshot()),before);f.dispose();f.target.dispatchEvent(new Event('xharness:shell-route-requested'));assert.equal(projections.length,2)
 })

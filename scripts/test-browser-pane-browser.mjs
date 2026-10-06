@@ -46,7 +46,7 @@ try {
   await expand.waitFor()
   assert.equal(await expand.innerText(), '', 'top-right workspace trigger must be icon-only')
   assert.equal(await expand.locator('svg').count(), 1)
-  assert.equal(await expand.locator('svg').getAttribute('width'), '14', 'expand glyph should match the header icon scale')
+  assert.equal(await expand.locator('svg').getAttribute('width'), process.env.UI_TEST_IMPL === 'legacy' ? '14' : '16', 'expand glyph should match the maintained header icon scale')
   assert.equal(await expand.locator('svg').getAttribute('viewBox'), '0 0 16 16')
   assert.equal(await page.evaluate(() => api.normalizeAddress('example.com:8080').url), 'https://example.com:8080/')
   assert.equal(await page.getByText('浏览器', { exact: true }).count(), 0, 'do not show a vertical browser label')

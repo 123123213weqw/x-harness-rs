@@ -1,3 +1,4 @@
+import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
 import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
 import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
 // Isolated regression of the shipped AppFrame browser dock, no Rust Host required.
@@ -25,6 +26,7 @@ try {
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xharness/dsh-client-runtime') })
   if (process.env.UI_TEST_IMPL !== 'legacy') await page.addScriptTag({content:ownedViewModuleTestInput('@xharness/dsh-session-log-export')})
+  await installShellSessionsFixture(page)
   await page.evaluate(includeSessionLog => {
     const engine=registrations['@xharness/dsh-client-runtime'].factory(id=>{if(id in staticModules)return staticModules[id];throw Error(id)})
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
@@ -37,13 +39,14 @@ try {
       sessionLog.apply({provide:()=>{},effect:fn=>fn(),on:()=>{},locale:{register:()=>()=>{}},
         slots:{inject:(_,fn)=>fn(),register:(_,component)=>{SessionLogHeader=component}}})
     }
+    const shellSessions=createShellSessionsFixture()
     let AppFrame,rootDefinition
-    layout.apply({
+    layout.apply({get:name=>name==='sessions'?shellSessions:undefined,
       effect: (fn, label) => { if (label.includes('service')) fn() },
       reflect: { provide: (_name, service) => { window.layoutService = service; return () => {} } },
       slots: { register: (spec, component) => { rootDefinition=spec;AppFrame = component; return () => {} } },
     })
-    const instance=rootDefinition.store().create(),actions=instance.actions;rootDefinition.inject(actions)
+    const instance=rootDefinition.store().create(),actions=instance.actions;const injected=rootDefinition.inject(actions)
     window.layoutActions = actions
     const slots = (name, props) => {
       if (name === 'shell.overlay') return null
@@ -55,11 +58,11 @@ try {
     }
     window.root = ReactDOM.createRoot(document.getElementById('root'))
     function App() {
-      const [current,setCurrent]=React.useState(undefined);window.setCurrentSession=setCurrent
+      const [current,setCurrent]=React.useState(undefined);window.setCurrentSession=id=>{shellSessions.update({current:id,ids:id?[id]:[],byId:id?{[id]:{blank:false}}:{}});setCurrent(id)}
       const [headerVisible,setHeaderVisible]=React.useState(true);window.setHeaderVisible=setHeaderVisible
       return React.createElement(AppFrame, {
         useStore:selector=>selector(React.useSyncExternalStore(instance.subscribe,instance.getSnapshot)),
-        useSessions: selector => selector({ current, byId: current?{[current]:{blank:false}}:{} }), actions,
+        ...injected,useSessions: selector => selector({ current, byId: current?{[current]:{blank:false}}:{} }), actions,
         renderSlot:(name,props)=>name==='conversation'&&!headerVisible?null:slots(name,props),
       })
     }
@@ -88,7 +91,7 @@ try {
   // Global UI must paint above both peers, including the browser's local menus.
   const assertShellAboveBrowser = async () => {
     await page.getByRole('button', { name: '更多浏览器操作', exact: true }).click()
-    await page.evaluate(() => {
+  await page.evaluate(() => {
       const card = document.createElement('button')
       card.dataset.testid = 'global-menu'; card.textContent = 'Global model menu'
       card.style.cssText = 'position:absolute;right:30px;top:75px;width:160px;height:100px;background:white'
@@ -149,7 +152,7 @@ try {
     assert.equal(await trigger.locator('.xhbrowser-dock-panel').evaluate(element=>getComputedStyle(element).transitionDuration),'0s','reduced motion also disables the panel tint transition')
     // Enter on a mouse-focused button does not establish :focus-visible in
     // every engine. Reach it by real keyboard navigation from its neighbor.
-    await page.getByRole('button',{name:'Session log',exact:true}).press('Tab')
+    await page.getByRole('button',{name:'Session log',exact:true}).press(engine === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab')
     assert.equal(await trigger.evaluate(element=>element===document.activeElement),true,'Tab reaches the workspace control after Session log')
     await trigger.press('Enter')
     await page.getByRole('region',{name:'工作区',exact:true}).waitFor({state:'hidden'})

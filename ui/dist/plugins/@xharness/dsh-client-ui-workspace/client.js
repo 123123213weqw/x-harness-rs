@@ -17760,10 +17760,11 @@ function WorkspaceBrowser({ wide, useSessions, useWorkspaces, useStore, actions,
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SHELL_ROUTE_CHANGED = void 0;
+exports.SHELL_ROUTE_REQUESTED = exports.SHELL_ROUTE_CHANGED = void 0;
 exports.observeShellPage = observeShellPage;
 /** A display projection, never an instruction to re-run a page's action. */
 exports.SHELL_ROUTE_CHANGED = 'xharness:shell-route-changed';
+exports.SHELL_ROUTE_REQUESTED = 'xharness:shell-route-requested';
 function observeShellPage(page, setActive) {
     const changed = (event) => {
         if (!(event instanceof CustomEvent))
@@ -17774,6 +17775,9 @@ function observeShellPage(page, setActive) {
         }
     };
     window.addEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+    // A compact/wide sidebar remount must hydrate its active marker without
+    // replaying a feature's ':open' operation or waiting for another visit.
+    window.dispatchEvent(new Event(exports.SHELL_ROUTE_REQUESTED));
     return () => window.removeEventListener(exports.SHELL_ROUTE_CHANGED, changed);
 }
 

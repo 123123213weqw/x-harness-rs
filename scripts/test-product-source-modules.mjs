@@ -86,6 +86,17 @@ for (const name of names) {
     } else {
       const expectedLocales = normalized(before.locales)
       if (name === 'tasks') for (const dictionary of Object.values(expectedLocales[0].dictionaries)) { delete dictionary['panel.open']; delete dictionary['panel.close'] }
+      if (name === 'tasks') {
+        // Intentional subtree-delete copy: preserve all other frozen fields.
+        Object.assign(expectedLocales[0].dictionaries.en, {
+          'delete.confirm': 'Permanently delete “{title}” and its stopped subagents? This cannot be undone.',
+          'settings.bulkConfirm': 'Permanently delete {count} archived chats and their stopped subagents? This cannot be undone.',
+        })
+        Object.assign(expectedLocales[0].dictionaries.zh, {
+          'delete.confirm': '永久删除「{title}」及其已停止的子 Agent？此操作无法撤销。',
+          'settings.bulkConfirm': '永久删除 {count} 个归档会话及其已停止的子 Agent？此操作无法撤销。',
+        })
+      }
       const actualLocales = normalized(after.locales)
       if (name === 'schedule') {
         // Intentional product extension: retain the immutable migration baseline,
@@ -127,6 +138,15 @@ for (const name of names) {
         expectedStyles[0][1] += '.xhph-confirm-message{white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;font-size:13px;line-height:1.6}.xhph-confirm-actions{display:flex;justify-content:flex-end;gap:10px}\n'
       }
       if (name === 'tasks') expectedStyles[0][1] = expectedStyles[0][1].slice(expectedStyles[0][1].indexOf('.xhtask-panel{'))
+      if (name === 'profile' || name === 'tasks') {
+        const selector = name === 'profile' ? '.xhp-root' : '.xhtask-settings-root'
+        const before = `[role="dialog"]:has(${selector})`
+        const comment = name === 'profile'
+          ? '/* The native dialog owns the full-viewport mask; only widen its content card. */'
+          : '/* Archive layout must not resize the full-viewport modal/mask surface. */'
+        assert.equal(expectedStyles[0][1].split(before).length, 2, 'one exact frozen mask-width selector')
+        expectedStyles[0][1] = expectedStyles[0][1].replace(before, `${comment}\n[data-xh-settings-panel]:has(${selector})`)
+      }
       if (name === 'schedule') expectedStyles.push(['xharness-automation-navigation-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationNavigation.css'), 'utf8')], ['xharness-automation-tool-card-style', readFileSync(join(repo, 'ui/src/modules/schedule/AutomationToolCard.css'), 'utf8')])
       assert.deepEqual([...after.styles].map(([id, style]) => [id, style.textContent]), expectedStyles)
     }
