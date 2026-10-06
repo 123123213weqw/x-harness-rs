@@ -135,10 +135,15 @@ const legacy = makeLoader(false); const current = makeLoader(true)
 for (const name of modules) {
   test(`${name}: factory declarations and slot identities match frozen production`, () => {
     const before = legacy.entry(name); const after = current.entry(name)
-    assert.deepEqual(normalized(after.inject), normalized(before.inject))
+    assert.deepEqual(normalized(after.inject), name === 'layout' ? [...normalized(before.inject), 'sessions'] : normalized(before.inject))
     const one = context(); const two = context()
     before.apply(one.ctx); after.apply(two.ctx)
-    assert.deepEqual(normalized(two.namespaces), normalized(one.namespaces))
+    const namespaces = normalized(one.namespaces)
+    if (name === 'sidebar') {
+      Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
+      Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
+    }
+    assert.deepEqual(normalized(two.namespaces), namespaces)
     const expected = normalized(one.registrations.map(({spec}) => spec))
     if (name === 'layout') Object.assign(expected[0].children, {
       'work.center.tasks': {kind: 'single', scope: 'root'},

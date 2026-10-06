@@ -3,18 +3,18 @@
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {resolve} from 'node:path'
-import {mkdirSync} from 'node:fs'
+import {mkdirSync,readFileSync} from 'node:fs'
 import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
 import {compileSourceModules} from './build-source-modules.mjs'
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps','package.json'))
 const {chromium,webkit}=require('playwright'),engine=process.env.UI_TEST_BROWSER??'chromium'
-const compiled=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'sidebar-test',source:'src/modules/sidebar/SidebarRoot.tsx'},{id:'assistant-test',source:'src/modules/assistant/index.tsx'},{id:'review-test',source:'src/modules/code-review/index.tsx'},{id:'frame-test',source:'src/modules/layout/AppFrame.tsx'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'},{id:'@xharness/dsh-client-ui-conversation/test',source:'src/modules/conversation/test-exports.ts'},{id:'tool-test',source:'src/modules/tool/test-exports.ts'},{id:'model-test',source:'src/modules/model-selection/ModelSelect.tsx'},{id:'model-locales',source:'src/modules/model-selection/locales.ts'},{id:'path-test',source:'src/modules/client-runtime/workspaces/path.ts'}])
+const compiled=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:'sidebar-test',source:'src/modules/sidebar/SidebarRoot.tsx'},{id:'assistant-test',source:'src/modules/assistant/index.tsx'},{id:'review-test',source:'src/modules/code-review/index.tsx'},{id:'frame-test',source:'src/modules/layout/AppFrame.tsx'},{id:'navigation-test',source:'src/modules/layout/shell-navigation.ts'},{id:'@xharness/dsh-client-ui-conversation',source:'src/modules/conversation/index.ts'},{id:'@xharness/dsh-client-ui-conversation/test',source:'src/modules/conversation/test-exports.ts'},{id:'tool-test',source:'src/modules/tool/test-exports.ts'},{id:'model-test',source:'src/modules/model-selection/ModelSelect.tsx'},{id:'model-locales',source:'src/modules/model-selection/locales.ts'},{id:'path-test',source:'src/modules/client-runtime/workspaces/path.ts'}])
 const browser=await({chromium,webkit}[engine]).launch({headless:true})
 try {
  const page=await browser.newPage({viewport:{width:1700,height:950}}),errors=[];page.on('pageerror',e=>{if(e.message!=='owned feature fixture: stop Host boot')errors.push(e.message);console.error('browser-error:',e.message)});page.setDefaultTimeout(15000)
  await installOwnedViewHtml(page,'source','<html lang="en"><head></head><body style="margin:0"><div id="root" style="position:fixed;inset:0"></div></body></html>',{origin:'http://global-assistant.test'})
  await page.evaluate(()=>window.__ModuleLoader__={load:r=>window.registration=r})
- for(const [name,source] of [['sidebarRegistration',compiled.get('sidebar-test').bytes.toString()],['assistantRegistration',compiled.get('assistant-test').bytes.toString()],['reviewRegistration',compiled.get('review-test').bytes.toString()],['frameRegistration',compiled.get('frame-test').bytes.toString()],['conversationRegistration',compiled.get('@xharness/dsh-client-ui-conversation/test').bytes.toString()],['toolRegistration',compiled.get('tool-test').bytes.toString()],['modelRegistration',compiled.get('model-test').bytes.toString()],['modelLocales',compiled.get('model-locales').bytes.toString()],['pathRegistration',compiled.get('path-test').bytes.toString()]]){await page.addScriptTag({content:source});await page.evaluate(name=>window[name]=registration,name)}
+ for(const [name,source] of [['sidebarRegistration',compiled.get('sidebar-test').bytes.toString()],['assistantRegistration',compiled.get('assistant-test').bytes.toString()],['reviewRegistration',compiled.get('review-test').bytes.toString()],['frameRegistration',compiled.get('frame-test').bytes.toString()],['navigationRegistration',compiled.get('navigation-test').bytes.toString()],['conversationRegistration',compiled.get('@xharness/dsh-client-ui-conversation/test').bytes.toString()],['toolRegistration',compiled.get('tool-test').bytes.toString()],['modelRegistration',compiled.get('model-test').bytes.toString()],['modelLocales',compiled.get('model-locales').bytes.toString()],['pathRegistration',compiled.get('path-test').bytes.toString()]]){await page.addScriptTag({content:source});await page.evaluate(name=>window[name]=registration,name)}
  await page.evaluate(()=>{
   const jsx=React.createElement
   const makeStore=initial=>{let value=initial;const listeners=new Set();return{getSnapshot:()=>value,subscribe:f=>{listeners.add(f);return()=>listeners.delete(f)},set:next=>{value=next;for(const f of listeners)f()},update:f=>{value={...value};f(value);for(const fn of listeners)fn()}}}
@@ -32,7 +32,8 @@ try {
   const shells=new Map();window.shells=shells
   function input(id){let shell=shells.get(id);if(!shell){shell=new plugin.SessionInputShell({actx:{},defaultSink:async(text,images,mode)=>{calls.push({sessionId:id,text,images,mode});return{kind:'success'}},commandImages:{serialize:async()=>[],release(){},unsupportedNotice:()=>''}});shells.set(id,shell)}return shell}
   input('s1').setDraft('Other task draft');input(assistantId).setDraft('Keep this draft')
-  window.sessions={refresh:async()=>{},subagentAddress:()=>undefined,openSubagent:()=>{throw Error('unexpected child')},list:summaries,scope:id=>({id}),open:id=>{if(!summaries.getSnapshot().byId[id])throw Error('missing chat');summaries.set({...summaries.getSnapshot(),current:id})},create:async args=>{created.push(args);const id=args.sessionId;input(id);summaries.set({...summaries.getSnapshot(),ids:[...summaries.getSnapshot().ids,id],byId:{...summaries.getSnapshot().byId,[id]:{id,displayTitle:'New assistant',blank:true,cwd:'/repo',running:false}}});workspaces.set({...workspaces.getSnapshot(),items:workspaces.getSnapshot().items.map(w=>({...w,sessionIds:[...w.sessionIds,id]}))});return id}}
+  window.sessions={clear:()=>summaries.set({...summaries.getSnapshot(),current:undefined}),refresh:async()=>{},subagentAddress:()=>undefined,openSubagent:()=>{throw Error('unexpected child')},list:summaries,scope:id=>({id}),open:id=>{if(!summaries.getSnapshot().byId[id])throw Error('missing chat');summaries.set({...summaries.getSnapshot(),current:id})},create:async args=>{created.push(args);const id=args.sessionId;input(id);summaries.set({...summaries.getSnapshot(),ids:[...summaries.getSnapshot().ids,id],byId:{...summaries.getSnapshot().byId,[id]:{id,displayTitle:'New assistant',blank:true,cwd:'/repo',running:false}}});workspaces.set({...workspaces.getSnapshot(),items:workspaces.getSnapshot().items.map(w=>({...w,sessionIds:[...w.sessionIds,id]}))});return id}}
+  window.navigation=new (navigationRegistration.factory().ShellNavigation)(sessions)
   const conversation={input:{for:scope=>input(scope.id)}}
   const head='a'.repeat(40),summary=id=>({id,repository:'alice/project',title:id===7?'First PR':'Second PR',author:'alice',branch:'change',state:'open',draft:false,headSha:head,updatedAt:'2026-10-04T00:00:00Z'})
   const detail=id=>({...summary(id),body:'PR description',baseBranch:'main',mergeable:true,mergeableState:'clean',additions:1,deletions:1,changedFiles:1,commentCount:0,inlineCommentCount:0,files:[{path:'a.rs',status:'modified',additions:1,deletions:1,patch:'@@ -1 +1 @@\n-old\n+new'}],filesHasMore:false,comments:[],commentsHasMore:false,reviews:[],reviewsHasMore:false,checks:[],checksTruncated:false})
@@ -80,8 +81,8 @@ try {
    }
    return jsx(plugin.ConversationRoot,{sessionId:id,useSession,useSessions,useWorkspaces,useInput,useComposerBlock:()=>undefined,selectWorkspace:async()=>{},t,renderSlot,renderSlotChain:(_key,_owner,options)=>options.fallback})
   }
-  function renderSlot(key,owner){return key==='conversation'?jsx(NativeChat,{}):key==='review.center'?jsx(Component,{...props,...owner}):key==='assistant.center'?jsx(Assistant,{...assistantProps,...owner}):key==='sidebar'?jsx(SidebarRoot,{...owner,startSession:()=>calls.push({newSession:true}),toggleSidebar:()=>layout.set({...layout.getSnapshot(),sidebar:layout.getSnapshot().sidebar?0:280}),t:key=>({'session.new.label':'New session','session.new':'New Session','toggle.open':'Open sidebar','toggle.collapse':'Collapse sidebar'}[key]??key),renderSlot:(key,owner,options)=>key==='sidebar.primary.action'?jsx(AssistantNav,{...navProps,...owner}):options?.fallback??null}):null}
-  const root=ReactDOM.createRoot(document.getElementById('root'));window.closeRoot=()=>root.unmount();root.render(jsx(AppFrame,{useSessions,useStore:hook(layout),actions:{closeDetails(){},toggleSidebar(){},setNarrow(){},setSidebar(){}},renderSlot}))
+  function renderSlot(key,owner){return key==='conversation'?jsx(NativeChat,{}):key==='review.center'?jsx(Component,{...props,...owner}):key==='assistant.center'?jsx(Assistant,{...assistantProps,...owner}):key==='sidebar'?jsx(SidebarRoot,{...owner,startSession:()=>calls.push({newSession:true}),toggleSidebar:()=>layout.set({...layout.getSnapshot(),sidebar:layout.getSnapshot().sidebar?0:280}),t:key=>({'session.new.label':'New session','session.new':'New Session','navigation.back':'Back','navigation.forward':'Forward','toggle.open':'Open sidebar','toggle.collapse':'Collapse sidebar'}[key]??key),renderSlot:(key,owner,options)=>key==='sidebar.primary.action'?jsx(AssistantNav,{...navProps,...owner}):options?.fallback??null}):null}
+  const root=ReactDOM.createRoot(document.getElementById('root'));window.closeRoot=()=>root.unmount();root.render(jsx(AppFrame,{navigation,useSessions,useStore:hook(layout),actions:{closeDetails(){},toggleSidebar(){},setNarrow(){},setSidebar(){}},renderSlot}))
  })
  await page.locator('textarea').waitFor().catch(async e=>{console.error((await page.locator('body').innerText()).slice(0,4000));throw e});const resident=await page.locator('.xhwork-conversation').elementHandle(),composer=await page.locator('textarea').elementHandle()
  const peerGeometry=await page.locator('.xhsidebar-primary-actions[data-wide=true]').evaluate(row=>{const first=row.querySelector('button[aria-label="New session"]'),second=row.querySelector('[data-xharness-assistant-nav]');const a=first.getBoundingClientRect(),b=second.getBoundingClientRect();return{xDelta:Math.abs(a.x-b.x),heightDelta:Math.abs(a.height-b.height),widthDelta:Math.abs(a.width-b.width),stacked:b.y>=a.bottom,labelsFit:[first,second].every(button=>button.scrollWidth<=button.clientWidth),noBoxes:[first,second].every(button=>{const style=getComputedStyle(button);return style.borderTopWidth==='0px'&&style.boxShadow==='none'&&style.backgroundColor==='rgba(0, 0, 0, 0)'})}});assert.ok(peerGeometry.stacked);assert.ok(peerGeometry.labelsFit);assert.ok(peerGeometry.noBoxes);assert.ok(peerGeometry.xDelta<1&&peerGeometry.heightDelta<1&&peerGeometry.widthDelta<1)
@@ -115,6 +116,60 @@ try {
  await page.getByRole('button',{name:'Little X',exact:true}).click();await page.getByRole('combobox',{name:'Little X workspace',exact:true}).selectOption('w');await page.getByRole('button',{name:'Start Little X',exact:true}).click();await page.waitForFunction(()=>typeof finishCreate==='function');
  await page.evaluate(()=>window.dispatchEvent(new Event('xharness:review:open')));await page.getByRole('heading',{name:'Code Review',exact:true}).waitFor();await page.evaluate(()=>finishCreate());await page.waitForFunction(()=>!!summaries.getSnapshot().byId[assistantId]);assert.equal(await page.evaluate(()=>summaries.getSnapshot().current),'s1');assert.equal(await page.evaluate(()=>created.length),1);
  await page.getByRole('button',{name:'Little X',exact:true}).click();await page.locator('.xhwork-conversation').waitFor({state:'visible'});assert.equal(await page.evaluate(()=>summaries.getSnapshot().current),'xharness-global-assistant-v1');assert.equal(await page.getByRole('combobox',{name:'Little X workspace',exact:true}).count(),0)
+ // Shell history is UI navigation, not a replay of feature requests or Agent work.
+ await page.setViewportSize({width:1700,height:950})
+ await page.locator('.xhsidebar-primary-actions[data-wide=true]').waitFor()
+ const back=page.getByRole('button',{name:'Back',exact:true}),forward=page.getByRole('button',{name:'Forward',exact:true})
+ await page.locator('textarea').fill('Navigation draft stays intact')
+ const toolToggle=page.locator('[data-tool="read"] [aria-expanded]').first()
+ if(await toolToggle.getAttribute('aria-expanded')!=='true'){await toolToggle.focus();await toolToggle.press('Enter')}
+ await page.waitForFunction(()=>document.querySelector('[data-tool="read"] [aria-expanded]')?.getAttribute('aria-expanded')==='true')
+ const beforeNavigation=await page.evaluate(()=>({calls:calls.length,created:created.length}))
+ await page.evaluate(()=>window.dispatchEvent(new Event('xharness:review:open')))
+ await page.getByRole('heading',{name:'Code Review',exact:true}).waitFor()
+ await back.click();await page.getByRole('region',{name:'Little X',exact:true}).waitFor()
+ assert.equal(await page.locator('textarea').inputValue(),'Navigation draft stays intact')
+ assert.equal(await toolToggle.getAttribute('aria-expanded'),'true','returning from a center page preserves expanded tool DOM; '+JSON.stringify(await page.evaluate(()=>({current:summaries.getSnapshot().current,route:navigation.getSnapshot().route,tools:document.querySelectorAll('[data-tool="read"]').length,visible:!document.querySelector('.xhwork-conversation').hidden}))))
+ assert.equal(await page.getByRole('button',{name:'Little X',exact:true}).getAttribute('aria-current'),'page','replay restores active navigation without replaying Assistant request')
+ await forward.click();await page.getByRole('heading',{name:'Code Review',exact:true}).waitFor()
+ await back.click();await page.getByRole('region',{name:'Little X',exact:true}).waitFor()
+ assert.deepEqual(await page.evaluate(()=>({calls:calls.length,created:created.length})),beforeNavigation)
+ // Independent session drafts and running state survive the existing selection port.
+ await page.evaluate(()=>{navigation.close();sessions.open('s1')})
+ await page.waitForFunction(()=>navigation.getSnapshot().route.page==='chat'&&summaries.getSnapshot().current==='s1')
+ await page.locator('textarea').fill('Back draft A')
+ await page.evaluate(()=>sessions.open('s2'))
+ await page.waitForFunction(()=>summaries.getSnapshot().current==='s2')
+ await page.locator('textarea').fill('Forward draft B')
+ await back.click();await page.waitForFunction(()=>summaries.getSnapshot().current==='s1')
+ assert.equal(await page.locator('textarea').inputValue(),'Back draft A')
+ await forward.click();await page.waitForFunction(()=>summaries.getSnapshot().current==='s2')
+ assert.equal(await page.locator('textarea').inputValue(),'Forward draft B')
+ assert.equal(await page.evaluate(()=>summaries.getSnapshot().byId.s2.running),true,'navigation does not stop the running Agent')
+ // macOS physical seat: arrows to the LEFT of the same panel toggle, all
+ // outside the draggable strip; no duplicate Web controls after relocation.
+ await page.addStyleTag({content:readFileSync('ui/desktop/titlebar.css','utf8')})
+ await page.evaluate(()=>{
+  document.documentElement.dataset.xhMacTitlebar='overlay'
+  const bar=document.createElement('div');bar.id='xh-desktop-titlebar'
+  const drag=document.createElement('div');drag.id='xh-desktop-titlebar-drag';drag.setAttribute('data-tauri-drag-region','');bar.append(drag)
+  const controls=document.createElement('div');controls.id='xh-desktop-titlebar-controls';bar.append(controls);document.body.prepend(bar)
+  window.dispatchEvent(new Event('xh-desktop-titlebar-ready'))
+ })
+ await page.locator('#xh-desktop-titlebar-controls [data-shell-navigation-back]').waitFor()
+ assert.equal(await page.locator('[data-shell-navigation-back]').count(),1)
+ assert.equal(await page.locator('[data-shell-navigation-forward]').count(),1)
+ const titlebarGeometry=await page.evaluate(()=>{
+  const back=document.querySelector('[data-shell-navigation-back]'),forward=document.querySelector('[data-shell-navigation-forward]'),toggle=document.querySelector('.xh-desktop-sidebar-toggle'),drag=document.querySelector('#xh-desktop-titlebar-drag')
+  const a=back.getBoundingClientRect(),b=forward.getBoundingClientRect(),c=toggle.getBoundingClientRect(),d=drag.getBoundingClientRect()
+  return{ordered:a.right<=b.left&&b.right<=c.left,aligned:a.y===b.y&&b.y===c.y,sameSize:a.width===b.width&&b.width===c.width&&a.height===c.height,trafficSafe:a.left>=88,noOverlap:c.right<=d.left,notDraggable:![back,forward,toggle].some(el=>el.closest('[data-tauri-drag-region]'))}
+ })
+ assert.deepEqual(titlebarGeometry,{ordered:true,aligned:true,sameSize:true,trafficSafe:true,noOverlap:true,notDraggable:true})
+ await page.locator('.xh-desktop-sidebar-toggle').click()
+ await page.locator('.xhsidebar-primary-actions[data-wide=false]').waitFor()
+ await page.locator('#xh-desktop-titlebar-controls [data-shell-navigation-back]').press('Enter')
+ await page.waitForFunction(()=>summaries.getSnapshot().current==='s1')
+ if(process.env.UI_PREVIEW_DIR)await page.screenshot({path:resolve(process.env.UI_PREVIEW_DIR,'shell-navigation-'+engine+'.png')})
  await page.evaluate(()=>{assistantService.dispose();closeRoot()});
- assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,globalAssistant:true,noPrBinding:true,normalConversation:true,fullTranscript:true,originalToolTree:true,originalModelMenu:true,streamingUpdate:true,draftPreserved:true,singleOutlet:true,explicitReference:true,normalSend:true,sharedIdentityAcrossPrs:true,taskNavigation:true,mobile:true,peerActions:peerGeometry,compactRail:railGeometry}))
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,globalAssistant:true,noPrBinding:true,normalConversation:true,fullTranscript:true,originalToolTree:true,originalModelMenu:true,streamingUpdate:true,draftPreserved:true,singleOutlet:true,explicitReference:true,normalSend:true,sharedIdentityAcrossPrs:true,taskNavigation:true,shellNavigation:true,routeReplayWithoutActions:true,sessionDrafts:true,titlebarGeometry,mobile:true,peerActions:peerGeometry,compactRail:railGeometry}))
 }finally{await browser.close()}

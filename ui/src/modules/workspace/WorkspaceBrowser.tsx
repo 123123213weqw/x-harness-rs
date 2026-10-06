@@ -1,3 +1,4 @@
+import {observeShellPage} from '../shared/shell-route'
 import './WorkNavigation.styles'
 import {Menu, Modal, IconPersonalizationOutline16} from './primitives'
 /**
@@ -731,16 +732,7 @@ export function WorkspaceBrowser({
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const [pluginCenterOpen, setPluginCenterOpen] = useState(false)
-  useEffect(() => {
-    const opened = (): void => {setPluginCenterOpen(true)}
-    const closed = (): void => {setPluginCenterOpen(false)}
-    window.addEventListener('xharness:plugins:open', opened)
-    window.addEventListener('xharness:plugins:closed', closed)
-    return () => {
-      window.removeEventListener('xharness:plugins:open', opened)
-      window.removeEventListener('xharness:plugins:closed', closed)
-    }
-  }, [])
+  useEffect(() => observeShellPage('plugins', setPluginCenterOpen), [])
   useEffect(() => {
     const openRequestedSession = (event: Event) => { if (event instanceof CustomEvent && typeof event.detail === 'string') open(event.detail) }
     window.addEventListener('xharness:work:open-session', openRequestedSession)
@@ -748,12 +740,7 @@ export function WorkspaceBrowser({
   }, [open])
   // Keep navigation state in the region owner so wide/rail remounts retain it.
   const [workCenterOpen, setWorkCenterOpen] = useState(false)
-  useEffect(() => {
-    const opened = () => setWorkCenterOpen(true), closed = () => setWorkCenterOpen(false)
-    window.addEventListener('xharness:work:open', opened)
-    window.addEventListener('xharness:work:closed', closed)
-    return () => {window.removeEventListener('xharness:work:open', opened); window.removeEventListener('xharness:work:closed', closed)}
-  }, [])
+  useEffect(() => observeShellPage('work', setWorkCenterOpen), [])
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
 

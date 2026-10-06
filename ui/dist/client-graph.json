@@ -1,5 +1,5 @@
 {
-  "rev": "9cc96c1be717a9f3",
+  "rev": "023ce4f41f06dcb9",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -142,8 +142,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=67a49212c8e41c41",
-      "rev": "67a49212c8e41c41",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=03962fcf9595542b",
+      "rev": "03962fcf9595542b",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -172,8 +172,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-sidebar",
-      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=7daec204ff025541",
-      "rev": "7daec204ff025541",
+      "url": "/plugins/@xharness/dsh-client-ui-sidebar/client.js?rev=a2330a1f36d343cb",
+      "rev": "a2330a1f36d343cb",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-layout",
@@ -386,8 +386,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-workspace",
-      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=a3f3fbcf05c49363",
-      "rev": "a3f3fbcf05c49363",
+      "url": "/plugins/@xharness/dsh-client-ui-workspace/client.js?rev=95579cbc7359a7f6",
+      "rev": "95579cbc7359a7f6",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -790,8 +790,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-assistant",
-      "url": "/plugins/@xlang/xharness-client-ui-assistant/client.js?rev=3848104aad635c88",
-      "rev": "3848104aad635c88",
+      "url": "/plugins/@xlang/xharness-client-ui-assistant/client.js?rev=f55f991f57bbd201",
+      "rev": "f55f991f57bbd201",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-primitives",
@@ -807,8 +807,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-code-review",
-      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=af05415db9387445",
-      "rev": "af05415db9387445",
+      "url": "/plugins/@xlang/xharness-client-ui-code-review/client.js?rev=9978d7352e865f65",
+      "rev": "9978d7352e865f65",
       "inject": [
         "@xharness/dsh-client-ui-layout",
         "@xharness/dsh-client-ui-sidebar",

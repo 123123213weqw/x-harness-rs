@@ -14,6 +14,7 @@ const AppFrame_1 = require("./AppFrame");
 const stores_1 = require("./stores");
 const service_1 = require("./service");
 const theme_presenter_1 = require("./theme-presenter");
+const shell_navigation_1 = require("./shell-navigation");
 // Contract exports only (export-convergence rule: cross-package consumers
 // keep a symbol exported; test-only/package-internal symbols live off /src).
 // ILayout: the ctx.layout face consumers and test fakes type against.
@@ -22,7 +23,7 @@ const theme_presenter_1 = require("./theme-presenter");
 var service_2 = require("./service");
 Object.defineProperty(exports, "LayoutController", { enumerable: true, get: function () { return service_2.LayoutController; } });
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
-exports.inject = ['slots', 'theme'];
+exports.inject = ['slots', 'theme', 'sessions'];
 /**
  * Client plugin body: provide ctx.layout, then one register() call — AppFrame
  * into 'root' with the four child-slot declarations, the layout store seat,
@@ -31,6 +32,7 @@ exports.inject = ['slots', 'theme'];
  */
 function apply(ctx) {
     const layout = new service_1.LayoutController();
+    const navigation = new shell_navigation_1.ShellNavigation(ctx.get('sessions'));
     ctx.effect(() => {
         const disposeService = ctx.reflect.provide('layout', layout);
         const disposeRegistration = ctx.slots.register({
@@ -54,7 +56,7 @@ function apply(ctx) {
             // conversation business actions belong to their registrants.
             inject: (actions) => {
                 layout.attachPanels(actions);
-                return {};
+                return { navigation };
             },
         }, AppFrame_1.AppFrame);
         return () => {
@@ -157,7 +159,7 @@ function DragHandle(props) {
     return ((0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.handle, style: { left: props.left }, "data-side": props.side, "data-dragging": dragging || undefined, onPointerDown: onPointerDown, onPointerMove: onPointerMove, onPointerUp: onPointerUp }));
 }
 /** The three-column frame (see module doc). */
-function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
+function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
     const panels = useStore(s => s);
     const detailsSession = useSessions((s) => {
         const current = s.current;
@@ -165,26 +167,9 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
     });
     const frameRef = (0, react_1.useRef)(null);
     const [assistantVisible, setAssistantVisible] = (0, react_1.useState)(false);
-    const [centerPage, setCenterPage] = (0, react_1.useState)('chat');
-    const closeCenterPage = () => {
-        setCenterPage('chat');
-        window.dispatchEvent(new Event('xharness:assistant:closed'));
-        window.dispatchEvent(new Event('xharness:plugins:closed'));
-        window.dispatchEvent(new Event('xharness:work:closed'));
-        window.dispatchEvent(new Event('xharness:review:closed'));
-    };
-    (0, react_1.useEffect)(() => {
-        const openPlugins = () => { setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed')); window.dispatchEvent(new Event('xharness:work:closed')); };
-        const openWork = () => { setCenterPage('work'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed')); window.dispatchEvent(new Event('xharness:plugins:closed')); };
-        const openReview = () => { setCenterPage('review'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:work:closed')); window.dispatchEvent(new Event('xharness:plugins:closed')); };
-        const openAssistant = () => { setCenterPage('assistant'); window.dispatchEvent(new Event('xharness:review:closed')); window.dispatchEvent(new Event('xharness:plugins:closed')); window.dispatchEvent(new Event('xharness:work:closed')); };
-        window.addEventListener('xharness:assistant:close', closeCenterPage);
-        window.addEventListener('xharness:assistant:open', openAssistant);
-        window.addEventListener('xharness:review:open', openReview);
-        window.addEventListener('xharness:plugins:open', openPlugins);
-        window.addEventListener('xharness:work:open', openWork);
-        return () => { window.removeEventListener('xharness:assistant:close', closeCenterPage); window.removeEventListener('xharness:assistant:open', openAssistant); window.removeEventListener('xharness:review:open', openReview); window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork); };
-    }, []);
+    const { route: { page: centerPage } } = (0, react_1.useSyncExternalStore)(navigation.subscribe, navigation.getSnapshot);
+    const closeCenterPage = navigation.close;
+    (0, react_1.useEffect)(() => navigation.mount(window), [navigation]);
     const openWorkSession = (id) => {
         window.dispatchEvent(new CustomEvent('xharness:work:open-session', { detail: id }));
         closeCenterPage();
@@ -333,13 +318,11 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
     const updateItem = (id, patch) => updateSpace(value => ({ ...value, items: value.items.map(item => item.id === id ? { ...item, ...patch } : item) }));
     return ((0, jsx_runtime_1.jsxs)("div", { ref: frameRef, className: AppFrame_styles_1.default.frame, style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${workspaceDockWidth}px`, ...{ '--xh-region-inset': `${regionInset}px` } }, "data-xhworkspace-open": workspaceOpen || undefined, "data-xhworkspace-drawer": workspaceDrawer || undefined, "data-sidebar-collapsed": sidebarCollapsed || undefined, "data-sidebar-drawer": sidebarDrawer || undefined, "data-details-collapsed": !workspaceOpen || undefined, "data-dragging": dragging || undefined, children: [sidebarDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xh-sidebar-scrim", "aria-label": navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar', onClick: actions.toggleSidebar }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.sidebarCol, style: sidebarDrawer ? { width: sidebarDrawerWidth } : undefined, onClickCapture: event => {
                     const target = event.target;
-                    if (centerPage === 'assistant' && (!(target instanceof Element) || !target.closest('[data-xharness-assistant-nav],[data-sidebar-toggle]')))
-                        closeCenterPage();
-                    if (centerPage === 'review' && (!(target instanceof Element) || !target.closest('[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]')))
-                        closeCenterPage();
-                    if (centerPage === 'plugins' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]')))
-                        closeCenterPage();
-                    if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-xharness-review-nav],[data-sidebar-toggle]')))
+                    // Shell controls and peer page entries own their transitions. Do not
+                    // insert an intermediate chat route (or close the replayed destination).
+                    if (target instanceof Element && target.closest('[data-shell-navigation],[data-sidebar-toggle],[data-xharness-assistant-nav],[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]'))
+                        return;
+                    if (centerPage !== 'chat')
                         closeCenterPage();
                 }, onClick: event => {
                     // Row actions stop propagation; dismiss only a completed navigation
@@ -350,6 +333,7 @@ function AppFrame({ useStore, useSessions, actions, renderSlot, }) {
                 }, children: (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.regionSurface, children: renderSlot('sidebar', {
                         collapsed: sidebarCollapsed,
                         width: sidebarContentWidth,
+                        navigation,
                     }) }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(CenterColumn, { children: (0, jsx_runtime_1.jsxs)("div", { className: "xhfeature-shell", children: [(0, jsx_runtime_1.jsx)("div", { className: "xhassistant-seat", hidden: centerPage !== 'assistant', children: centerPage === 'assistant' && renderSlot('assistant.center', { showConversation: setAssistantVisible }) }), (0, jsx_runtime_1.jsx)("div", { className: "xhwork-conversation", hidden: centerPage !== 'chat' && !(centerPage === 'assistant' && assistantVisible), "aria-label": centerPage === 'assistant' ? 'Little X chat' : undefined, children: renderSlot('conversation', {}) }), centerPage === 'plugins' && (0, jsx_runtime_1.jsxs)("main", { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)' }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", style: { cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit' }, "aria-label": "Back to chat", onClick: closeCenterPage, children: ["\u2190 ", navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'] }), renderSlot('plugins.center', {})] }), centerPage === 'work' && (0, jsx_runtime_1.jsx)(WorkCenter_1.WorkCenter, { close: closeCenterPage, renderTasks: () => renderSlot('work.center.tasks', { openSession: openWorkSession }), renderAutomations: () => renderSlot('work.center.automations', { openSession: openWorkSession }) }), centerPage === 'review' && renderSlot('review.center', { close: closeCenterPage })] }) }), workspaceDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: AppFrame_styles_1.default.workspaceScrim, "aria-label": "\u5173\u95ED\u5DE5\u4F5C\u533A", onClick: () => closeWorkspace(space.activeId) }), (0, jsx_runtime_1.jsx)(DetailsColumn, { children: (0, jsx_runtime_1.jsx)(workspace_pane_1.XhWorkspacePane, { space: space, sessionId: spaceKey === '__global__' ? null : spaceKey, renderSlot: renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: updateItem, onNewBrowser: () => openWorkspace('browser', true) }) })] }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.overlayLayer, "data-shell-overlay": true, children: renderSlot('shell.overlay', {}) }), !sidebarCollapsed && !sidebarDrawer && (0, jsx_runtime_1.jsx)(DragHandle, { side: "sidebar", left: cols.sidebar, onStart: onSidebarStart, onDrag: onSidebarDrag, onEnd: onDragEnd }), workspaceDockWidth > 0 && (0, jsx_runtime_1.jsx)(DragHandle, { side: "details", left: viewport - workspaceDockWidth, onStart: onWorkspaceStart, onDrag: onWorkspaceDrag, onEnd: onDragEnd })] }));
 }
 
@@ -901,9 +885,222 @@ class ThemePresenter {
 }
 exports.ThemePresenter = ThemePresenter;
 
+},
+"src/modules/layout/shell-navigation.js": function(module, exports, require) {
+// source: src/modules/layout/shell-navigation.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ShellNavigation = exports.SHELL_HISTORY_LIMIT = void 0;
+const shell_route_1 = require("../shared/shell-route");
+const pages = ['plugins', 'work', 'review', 'assistant'];
+const sameRoute = (a, b) => a.page === b.page && a.sessionId === b.sessionId;
+exports.SHELL_HISTORY_LIMIT = 128;
+/** One history owner for session selection and center-page transitions. History
+ * is window-local and bounded; deleted routes are skipped, never recreated. */
+class ShellNavigation {
+    constructor(sessions) {
+        this.sessions = sessions;
+        this.entries = [];
+        this.position = -1;
+        this.snapshot = {
+            route: { page: 'chat', sessionId: undefined }, canBack: false, canForward: false,
+        };
+        this.listeners = new Set();
+        this.replaying = false;
+        this.scheduled = false;
+        this.generation = 0;
+        this.initialized = false;
+        this.getSnapshot = () => this.snapshot;
+        this.subscribe = (listener) => {
+            this.listeners.add(listener);
+            return () => { this.listeners.delete(listener); };
+        };
+        this.back = () => { this.travel(-1); };
+        this.forward = () => { this.travel(1); };
+        this.close = () => { this.openPage('chat'); };
+        this.schedule = () => {
+            if (this.replaying || this.scheduled || !this.target)
+                return;
+            this.scheduled = true;
+            const generation = this.generation;
+            queueMicrotask(() => {
+                if (generation !== this.generation)
+                    return;
+                this.scheduled = false;
+                this.flush();
+            });
+        };
+    }
+    /** Owned by AppFrame's effect, with symmetric cleanup (also StrictMode safe). */
+    mount(target) {
+        if (this.target)
+            throw new Error('shell navigation: already mounted');
+        this.target = target;
+        const bindings = pages.map(page => {
+            const listener = () => { this.openPage(page); };
+            target.addEventListener(`xharness:${page}:open`, listener);
+            return () => target.removeEventListener(`xharness:${page}:open`, listener);
+        });
+        target.addEventListener('xharness:assistant:close', this.close);
+        const off = this.sessions.list.subscribe(this.schedule);
+        this.flush();
+        this.present(this.snapshot.route.page);
+        return () => {
+            off();
+            for (const remove of bindings)
+                remove();
+            target.removeEventListener('xharness:assistant:close', this.close);
+            this.target = undefined;
+            this.generation++;
+            this.scheduled = false;
+            this.pendingPage = undefined;
+        };
+    }
+    flush() {
+        const state = this.sessions.list.getSnapshot();
+        if (state.phase !== 'ready') {
+            this.publish();
+            return;
+        }
+        // A list re-pull may temporarily mask a retained selection. It is not a
+        // user visit to the empty page and must not cut off the forward branch.
+        const masked = state.current === undefined && this.selected !== undefined && state.byId[this.selected] === undefined;
+        const sessionId = masked ? this.selected : state.current;
+        if (!this.initialized) {
+            this.initialized = true;
+            this.selected = sessionId;
+            this.entries = [{ page: 'chat', sessionId }];
+            this.position = 0;
+            this.publish();
+        }
+        const page = this.pendingPage ?? this.snapshot.route.page;
+        this.pendingPage = undefined;
+        this.selected = sessionId;
+        // Coalesce a feature's open event and its same-gesture session selection.
+        // Returning to a page never replays that feature's open operation.
+        this.visit({ page, sessionId });
+        this.publish();
+    }
+    openPage(page) {
+        if (!this.target)
+            return;
+        this.pendingPage = page;
+        this.schedule();
+    }
+    visit(route) {
+        const previous = this.entries[this.position];
+        if (previous && sameRoute(previous, route))
+            return;
+        this.entries = this.entries.slice(0, this.position + 1);
+        this.entries.push(route);
+        if (this.entries.length > exports.SHELL_HISTORY_LIMIT)
+            this.entries.shift();
+        this.position = this.entries.length - 1;
+        this.publish();
+        this.present(route.page);
+    }
+    available(route) {
+        const state = this.sessions.list.getSnapshot();
+        if (state.phase !== 'ready')
+            return false;
+        if (route.sessionId === undefined)
+            return true;
+        if (state.ids.includes(route.sessionId))
+            return true;
+        // Catalog children are deliberately absent from ids after leaving them.
+        // Retained addresses are enough while their catalog is not yet loaded;
+        // a loaded catalog tombstone is authoritative and must not be reopened.
+        const address = this.sessions.subagentAddress(route.sessionId);
+        if (typeof address !== 'object' || address === null || !('parentSessionId' in address)
+            || typeof address.parentSessionId !== 'string')
+            return false;
+        const catalog = state.subagentsByParent?.[address.parentSessionId];
+        return catalog === undefined || catalog.entries.some(entry => entry.id === route.sessionId && entry.kind === 'child');
+    }
+    find(direction) {
+        const current = this.entries[this.position];
+        for (let i = this.position + direction; i >= 0 && i < this.entries.length; i += direction) {
+            const route = this.entries[i];
+            if (route && (!current || !sameRoute(route, current)) && this.available(route))
+                return i;
+        }
+        return -1;
+    }
+    travel(direction) {
+        if (!this.target)
+            return;
+        this.flush();
+        const next = this.find(direction);
+        if (next === -1)
+            return;
+        const route = this.entries[next];
+        if (route === undefined)
+            return;
+        this.replaying = true;
+        try {
+            if (route.sessionId !== this.sessions.list.getSnapshot().current) {
+                if (route.sessionId === undefined)
+                    this.sessions.clear();
+                else
+                    this.sessions.open(route.sessionId);
+            }
+            // Selection is synchronous; never advance a cursor on an unaccepted
+            // route. Transcript loading continues through the existing runtime.
+            if (this.sessions.list.getSnapshot().current !== route.sessionId)
+                return;
+            this.selected = route.sessionId;
+            this.position = next;
+            this.publish();
+            this.present(route.page);
+        }
+        finally {
+            this.replaying = false;
+        }
+    }
+    publish() {
+        const route = this.entries[this.position] ?? this.snapshot.route;
+        const canBack = this.find(-1) !== -1, canForward = this.find(1) !== -1;
+        if (sameRoute(route, this.snapshot.route) && canBack === this.snapshot.canBack && canForward === this.snapshot.canForward)
+            return;
+        this.snapshot = { route, canBack, canForward };
+        for (const listener of [...this.listeners])
+            listener();
+    }
+    present(page) {
+        // Presentation projection is intentionally not an ':open' intent event:
+        // Assistant's handler selects a session and may stage references.
+        this.target?.dispatchEvent(new CustomEvent(shell_route_1.SHELL_ROUTE_CHANGED, { detail: { page } }));
+    }
+}
+exports.ShellNavigation = ShellNavigation;
+
+},
+"src/modules/shared/shell-route.js": function(module, exports, require) {
+// source: src/modules/shared/shell-route.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SHELL_ROUTE_CHANGED = void 0;
+exports.observeShellPage = observeShellPage;
+/** A display projection, never an instruction to re-run a page's action. */
+exports.SHELL_ROUTE_CHANGED = 'xharness:shell-route-changed';
+function observeShellPage(page, setActive) {
+    const changed = (event) => {
+        if (!(event instanceof CustomEvent))
+            return;
+        const detail = event.detail;
+        if (typeof detail === 'object' && detail !== null && 'page' in detail && typeof detail.page === 'string') {
+            setActive(detail.page === page);
+        }
+    };
+    window.addEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+    return () => window.removeEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+}
+
 }
 };
-const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{}};
+const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js","./shell-navigation":"src/modules/layout/shell-navigation.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{},"src/modules/layout/shell-navigation.js":{"../shared/shell-route":"src/modules/shared/shell-route.js"},"src/modules/shared/shell-route.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

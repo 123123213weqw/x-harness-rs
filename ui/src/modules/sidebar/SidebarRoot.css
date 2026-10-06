@@ -8,3 +8,14 @@
 .xhsidebar-primary-actions[data-wide=false] .U910La_newSession{width:36px;height:36px;margin:0;padding:0}
 
 .xhsidebar-primary-actions[data-wide=true] .U910La_newSession:hover{background:var(--dsw-alias-interactive-bg-hover)}
+
+/* Route controls share the panel-toggle baseline, with no extra card/chrome. */
+.xh-shell-navigation{display:inline-flex;align-items:center;gap:2px;flex:none}
+.xh-shell-navigation button{width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#8b8b8f);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.xh-shell-navigation button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,#80808020)}
+.xh-shell-navigation button:disabled{opacity:.35;cursor:default}
+.xh-shell-navigation button:focus-visible{outline:2px solid var(--dsw-alias-label-primary,#888);outline-offset:-2px}
+.xh-shell-navigation-rail{width:48px;display:flex;justify-content:center;flex:none;margin:-6px -6px 12px}
+.xh-shell-navigation-rail .xh-shell-navigation{gap:0}
+.xh-shell-navigation-rail button{width:24px;height:28px}
+.xh-shell-navigation-desktop{margin-right:4px}

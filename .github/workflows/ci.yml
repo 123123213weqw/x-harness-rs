@@ -139,6 +139,7 @@ jobs:
           node --test scripts/test-code-review.mjs scripts/test-github-review.mjs scripts/test-code-review-filters.mjs scripts/test-code-review-structured.mjs scripts/test-code-review-p0.mjs scripts/test-global-assistant.mjs
           node scripts/test-view-source-modules.mjs
           node scripts/test-desktop-sidebar-toggle.mjs
+          node --test scripts/test-shell-navigation.mjs
           node scripts/test-model-selection-source.mjs
           node scripts/test-attachment-source.mjs
           node scripts/test-settings-models-source.mjs

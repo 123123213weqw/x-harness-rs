@@ -6,6 +6,8 @@ export const zh = {
   'session.new.label': '新建会话',
   'toggle.open': '打开侧边栏',
   'toggle.collapse': '收起侧边栏',
+  'navigation.back': '后退',
+  'navigation.forward': '前进',
 } satisfies Record<string, string>
 
 /** The sidebar namespace key union. */
@@ -17,4 +19,6 @@ export const en = {
   'session.new.label': 'New session',
   'toggle.open': 'Open sidebar',
   'toggle.collapse': 'Collapse sidebar',
+  'navigation.back': 'Back',
+  'navigation.forward': 'Forward',
 } satisfies Record<SidebarKey, string>
