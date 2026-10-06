@@ -10,7 +10,7 @@
  * through the three framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '../views-types'
 import { computeColumns, clampWidth, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns'
@@ -22,6 +22,7 @@ import {xhLoadBrowserSpaces,xhSaveBrowserSpaces,xhNextWorkspaceId,xhWorkspaceEmp
 import type {BrowserSpaces,WorkspaceItem,WorkspaceSpace,WorkspaceOpenDetail} from './workspace-pane'
 import type {BrowserPatch} from '../browser/index'
 import {listenModelBrowser} from '../browser/model-control'
+import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
@@ -29,6 +30,7 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
+  navigation: ShellNavigation
 }
 
 /** Center column grid item (session-body building block). */
@@ -96,6 +98,7 @@ export function AppFrame({
   useStore,
   useSessions,
   actions,
+  navigation,
   renderSlot,
 }: AppFrameProps) {
   const panels = useStore(s => s)
@@ -105,26 +108,9 @@ export function AppFrame({
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [assistantVisible,setAssistantVisible]=useState(false)
-  const [centerPage, setCenterPage] = useState<'chat' | 'plugins' | 'work' | 'review' | 'assistant'>('chat')
-  const closeCenterPage = (): void => {
-    setCenterPage('chat')
-    window.dispatchEvent(new Event('xharness:assistant:closed'))
-    window.dispatchEvent(new Event('xharness:plugins:closed'))
-    window.dispatchEvent(new Event('xharness:work:closed'))
-    window.dispatchEvent(new Event('xharness:review:closed'))
-  }
-  useEffect(() => {
-    const openPlugins = (): void => {setCenterPage('plugins'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:work:closed'))}
-    const openWork = (): void => {setCenterPage('work'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:review:closed'));  window.dispatchEvent(new Event('xharness:plugins:closed'))}
-    const openReview = (): void => {setCenterPage('review'); window.dispatchEvent(new Event('xharness:assistant:closed')); window.dispatchEvent(new Event('xharness:work:closed')); window.dispatchEvent(new Event('xharness:plugins:closed'))}
-    const openAssistant = (): void => {setCenterPage('assistant');window.dispatchEvent(new Event('xharness:review:closed'));window.dispatchEvent(new Event('xharness:plugins:closed'));window.dispatchEvent(new Event('xharness:work:closed'))}
-    window.addEventListener('xharness:assistant:close', closeCenterPage)
-    window.addEventListener('xharness:assistant:open', openAssistant)
-    window.addEventListener('xharness:review:open', openReview)
-    window.addEventListener('xharness:plugins:open', openPlugins)
-    window.addEventListener('xharness:work:open', openWork)
-    return () => {window.removeEventListener('xharness:assistant:close', closeCenterPage);window.removeEventListener('xharness:assistant:open', openAssistant);window.removeEventListener('xharness:review:open', openReview); window.removeEventListener('xharness:plugins:open', openPlugins); window.removeEventListener('xharness:work:open', openWork)}
-  }, [])
+  const { route: { page: centerPage } } = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot)
+  const closeCenterPage = navigation.close
+  useEffect(() => navigation.mount(window), [navigation])
   const openWorkSession = (id: string): void => {
     window.dispatchEvent(new CustomEvent('xharness:work:open-session', {detail: id}))
     closeCenterPage()
@@ -293,10 +279,10 @@ export function AppFrame({
       {sidebarDrawer && <button type="button" className="xh-sidebar-scrim" aria-label={navigator.language.startsWith('zh') ? '关闭侧栏' : 'Close sidebar'} onClick={actions.toggleSidebar} />}
       <div className={css.sidebarCol} style={sidebarDrawer ? { width: sidebarDrawerWidth } : undefined} onClickCapture={event => {
         const target = event.target
-        if (centerPage === 'assistant' && (!(target instanceof Element) || !target.closest('[data-xharness-assistant-nav],[data-sidebar-toggle]'))) closeCenterPage()
-        if (centerPage === 'review' && (!(target instanceof Element) || !target.closest('[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]'))) closeCenterPage()
-        if (centerPage === 'plugins' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav]'))) closeCenterPage()
-        if (centerPage === 'work' && (!(target instanceof Element) || !target.closest('[data-xharness-plugin-nav],[data-xharness-work-nav],[data-xharness-review-nav],[data-sidebar-toggle]'))) closeCenterPage()
+        // Shell controls and peer page entries own their transitions. Do not
+        // insert an intermediate chat route (or close the replayed destination).
+        if (target instanceof Element && target.closest('[data-shell-navigation],[data-sidebar-toggle],[data-xharness-assistant-nav],[data-xharness-review-nav],[data-xharness-plugin-nav],[data-xharness-work-nav]')) return
+        if (centerPage !== 'chat') closeCenterPage()
       }} onClick={event => {
         // Row actions stop propagation; dismiss only a completed navigation
         // click after the row has handled it, keeping its menu mounted.
@@ -311,6 +297,7 @@ export function AppFrame({
         <div className={css.regionSurface}>{renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
           width: sidebarContentWidth,
+          navigation,
         })}</div>
       </div>
       <>

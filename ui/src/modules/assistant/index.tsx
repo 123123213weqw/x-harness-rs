@@ -1,3 +1,4 @@
+import {observeShellPage} from '../shared/shell-route'
 /// <reference path="../shared/assets.d.ts" />
 import {useEffect,useState,useSyncExternalStore,useRef} from 'react'
 import {Tooltip} from '@xharness/dsh-client-ui-primitives'
@@ -12,7 +13,7 @@ const zh=navigator.language.startsWith('zh')
 const label=(en:string,cn:string):string=>zh?cn:en
 function AssistantNavigation({wide}:{wide:boolean}) {
   const [active,setActive]=useState(false)
-  useEffect(()=>{const opened=():void=>setActive(true),closed=():void=>setActive(false);window.addEventListener(ASSISTANT_OPEN,opened);window.addEventListener('xharness:assistant:closed',closed);return()=>{window.removeEventListener(ASSISTANT_OPEN,opened);window.removeEventListener('xharness:assistant:closed',closed)}},[])
+  useEffect(()=>observeShellPage('assistant',setActive),[])
   return <Tooltip label={label('Little X','小 X')} side="right" disabled={wide}><button type="button" data-xharness-assistant-nav className="xhassistant-nav" aria-label={label('Little X','小 X')} aria-current={active?'page':undefined} onClick={()=>openAssistant()}><OrbitIcon size={wide?16:18}/>{wide&&<span>X</span>}</button></Tooltip>
 }
 export function AssistantCenter({service,showConversation}:{service:GlobalAssistant;showConversation(visible:boolean):void}) {

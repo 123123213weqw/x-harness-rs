@@ -15,6 +15,7 @@ exports.inject = void 0;
 exports.AssistantCenter = AssistantCenter;
 exports.apply = apply;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const shell_route_1 = require("../shared/shell-route");
 /// <reference path="../shared/assets.d.ts" />
 const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
@@ -26,7 +27,7 @@ const zh = navigator.language.startsWith('zh');
 const label = (en, cn) => zh ? cn : en;
 function AssistantNavigation({ wide }) {
     const [active, setActive] = (0, react_1.useState)(false);
-    (0, react_1.useEffect)(() => { const opened = () => setActive(true), closed = () => setActive(false); window.addEventListener(contracts_1.ASSISTANT_OPEN, opened); window.addEventListener('xharness:assistant:closed', closed); return () => { window.removeEventListener(contracts_1.ASSISTANT_OPEN, opened); window.removeEventListener('xharness:assistant:closed', closed); }; }, []);
+    (0, react_1.useEffect)(() => (0, shell_route_1.observeShellPage)('assistant', setActive), []);
     return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: label('Little X', '小 X'), side: "right", disabled: wide, children: (0, jsx_runtime_1.jsxs)("button", { type: "button", "data-xharness-assistant-nav": true, className: "xhassistant-nav", "aria-label": label('Little X', '小 X'), "aria-current": active ? 'page' : undefined, onClick: () => (0, contracts_1.openAssistant)(), children: [(0, jsx_runtime_1.jsx)(OrbitIcon_1.OrbitIcon, { size: wide ? 16 : 18 }), wide && (0, jsx_runtime_1.jsx)("span", { children: "X" })] }) });
 }
 function AssistantCenter({ service, showConversation }) {
@@ -47,6 +48,29 @@ function apply(ctx) {
     ctx.effect(() => { const style = document.createElement('style'); style.dataset.xharnessAssistant = ''; style.textContent = Assistant_css_1.default; document.head.append(style); return () => style.remove(); }, 'assistant: scoped styles');
     ctx.slots.inject('sidebar.primary.action', () => ctx.slots.register({ name: 'sidebar.primary.action', id: 'global-assistant', inject: () => ({}) }, AssistantNavigation));
     ctx.slots.inject('assistant.center', () => ctx.slots.register({ name: 'assistant.center', id: 'global-assistant', inject: () => ({ service }) }, AssistantCenter));
+}
+
+},
+"src/modules/shared/shell-route.js": function(module, exports, require) {
+// source: src/modules/shared/shell-route.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SHELL_ROUTE_CHANGED = void 0;
+exports.observeShellPage = observeShellPage;
+/** A display projection, never an instruction to re-run a page's action. */
+exports.SHELL_ROUTE_CHANGED = 'xharness:shell-route-changed';
+function observeShellPage(page, setActive) {
+    const changed = (event) => {
+        if (!(event instanceof CustomEvent))
+            return;
+        const detail = event.detail;
+        if (typeof detail === 'object' && detail !== null && 'page' in detail && typeof detail.page === 'string') {
+            setActive(detail.page === page);
+        }
+    };
+    window.addEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+    return () => window.removeEventListener(exports.SHELL_ROUTE_CHANGED, changed);
 }
 
 },
@@ -18738,7 +18762,7 @@ function OrbitIcon({ size }) {
 
 }
 };
-const __dependencies = {"src/modules/assistant/index.js":{"./service":"src/modules/assistant/service.js","./contracts":"src/modules/assistant/contracts.js","./Assistant.css":"src/modules/assistant/Assistant.css","./OrbitIcon":"src/modules/assistant/OrbitIcon.js"},"src/modules/assistant/service.js":{"../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../client-runtime/contract/store":"src/modules/client-runtime/contract/store.js"},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/value-guards.js":{},"vendor/immer.js":{},"src/modules/assistant/contracts.js":{},"src/modules/assistant/Assistant.css":{},"src/modules/assistant/OrbitIcon.js":{}};
+const __dependencies = {"src/modules/assistant/index.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./service":"src/modules/assistant/service.js","./contracts":"src/modules/assistant/contracts.js","./Assistant.css":"src/modules/assistant/Assistant.css","./OrbitIcon":"src/modules/assistant/OrbitIcon.js"},"src/modules/shared/shell-route.js":{},"src/modules/assistant/service.js":{"../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../client-runtime/contract/store":"src/modules/client-runtime/contract/store.js"},"src/modules/client-connection/contracts/core/session/types.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/value-guards.js":{},"vendor/immer.js":{},"src/modules/assistant/contracts.js":{},"src/modules/assistant/Assistant.css":{},"src/modules/assistant/OrbitIcon.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

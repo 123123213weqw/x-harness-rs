@@ -15,6 +15,7 @@ exports.reportIsStale = exports.diffLines = exports.decodeReviewReport = exports
 exports.CodeReview = CodeReview;
 exports.apply = apply;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const shell_route_1 = require("../shared/shell-route");
 /// <reference path="../shared/assets.d.ts" />
 const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
@@ -37,7 +38,7 @@ function text(en, cn) { return zh ? cn : en; }
 function message(error) { return error instanceof client_1.GitHubError ? `${error.message} (${error.kind})` : error instanceof Error ? error.message : text('GitHub request failed', 'GitHub 请求失败'); }
 function ReviewNavigation({ wide }) {
     const [active, setActive] = (0, react_1.useState)(false);
-    (0, react_1.useEffect)(() => { const opened = () => setActive(true), closed = () => setActive(false); window.addEventListener('xharness:review:open', opened); window.addEventListener('xharness:review:closed', closed); return () => { window.removeEventListener('xharness:review:open', opened); window.removeEventListener('xharness:review:closed', closed); }; }, []);
+    (0, react_1.useEffect)(() => (0, shell_route_1.observeShellPage)('review', setActive), []);
     return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Tooltip, { label: "Code Review", side: "right", children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: "xhreview-nav", "data-xharness-review-nav": true, "aria-label": "Code Review", "aria-current": active ? 'page' : undefined, onClick: () => window.dispatchEvent(new Event('xharness:review:open')), children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconBranchOutline16, { size: 22 }), wide && (0, jsx_runtime_1.jsx)("span", { children: "Code Review" })] }) });
 }
 function Avatar({ author }) { return (0, jsx_runtime_1.jsx)("span", { className: "xhreview-avatar", "aria-hidden": "true", children: author.slice(0, 1).toUpperCase() }); }
@@ -345,6 +346,29 @@ var structured_2 = require("./structured");
 Object.defineProperty(exports, "decodeReviewReport", { enumerable: true, get: function () { return structured_2.decodeReviewReport; } });
 Object.defineProperty(exports, "diffLines", { enumerable: true, get: function () { return structured_2.diffLines; } });
 Object.defineProperty(exports, "reportIsStale", { enumerable: true, get: function () { return structured_2.reportIsStale; } });
+
+},
+"src/modules/shared/shell-route.js": function(module, exports, require) {
+// source: src/modules/shared/shell-route.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SHELL_ROUTE_CHANGED = void 0;
+exports.observeShellPage = observeShellPage;
+/** A display projection, never an instruction to re-run a page's action. */
+exports.SHELL_ROUTE_CHANGED = 'xharness:shell-route-changed';
+function observeShellPage(page, setActive) {
+    const changed = (event) => {
+        if (!(event instanceof CustomEvent))
+            return;
+        const detail = event.detail;
+        if (typeof detail === 'object' && detail !== null && 'page' in detail && typeof detail.page === 'string') {
+            setActive(detail.page === page);
+        }
+    };
+    window.addEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+    return () => window.removeEventListener(exports.SHELL_ROUTE_CHANGED, changed);
+}
 
 },
 "src/modules/code-review/CodeReview.css": function(module, exports, require) {
@@ -1532,7 +1556,7 @@ function AuthorFilter({ mine, change, zh }) {
 
 }
 };
-const __dependencies = {"src/modules/code-review/index.js":{"./CodeReview.css":"src/modules/code-review/CodeReview.css","./EvidencePanel":"src/modules/code-review/EvidencePanel.js","../assistant/contracts":"src/modules/assistant/contracts.js","./assistant-reference":"src/modules/code-review/assistant-reference.js","./ReviewPanel":"src/modules/code-review/ReviewPanel.js","./structured":"src/modules/code-review/structured.js","./diff-rows":"src/modules/code-review/diff-rows.js","./client":"src/modules/code-review/client.js","./cache":"src/modules/code-review/cache.js","./storage":"src/modules/code-review/storage.js","./preferences":"src/modules/code-review/preferences.js","./RepositoryPicker":"src/modules/code-review/RepositoryPicker.js","./idle":"src/modules/code-review/idle.js","./data":"src/modules/code-review/data.js"},"src/modules/code-review/CodeReview.css":{},"src/modules/code-review/EvidencePanel.js":{"./data":"src/modules/code-review/data.js"},"src/modules/code-review/data.js":{},"src/modules/assistant/contracts.js":{},"src/modules/code-review/assistant-reference.js":{"./diff-rows":"src/modules/code-review/diff-rows.js"},"src/modules/code-review/diff-rows.js":{"./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/structured.js":{},"src/modules/code-review/ReviewPanel.js":{"./data":"src/modules/code-review/data.js","./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/client.js":{},"src/modules/code-review/cache.js":{"./client":"src/modules/code-review/client.js","./idle":"src/modules/code-review/idle.js"},"src/modules/code-review/idle.js":{},"src/modules/code-review/storage.js":{},"src/modules/code-review/preferences.js":{},"src/modules/code-review/RepositoryPicker.js":{"./preferences":"src/modules/code-review/preferences.js"}};
+const __dependencies = {"src/modules/code-review/index.js":{"../shared/shell-route":"src/modules/shared/shell-route.js","./CodeReview.css":"src/modules/code-review/CodeReview.css","./EvidencePanel":"src/modules/code-review/EvidencePanel.js","../assistant/contracts":"src/modules/assistant/contracts.js","./assistant-reference":"src/modules/code-review/assistant-reference.js","./ReviewPanel":"src/modules/code-review/ReviewPanel.js","./structured":"src/modules/code-review/structured.js","./diff-rows":"src/modules/code-review/diff-rows.js","./client":"src/modules/code-review/client.js","./cache":"src/modules/code-review/cache.js","./storage":"src/modules/code-review/storage.js","./preferences":"src/modules/code-review/preferences.js","./RepositoryPicker":"src/modules/code-review/RepositoryPicker.js","./idle":"src/modules/code-review/idle.js","./data":"src/modules/code-review/data.js"},"src/modules/shared/shell-route.js":{},"src/modules/code-review/CodeReview.css":{},"src/modules/code-review/EvidencePanel.js":{"./data":"src/modules/code-review/data.js"},"src/modules/code-review/data.js":{},"src/modules/assistant/contracts.js":{},"src/modules/code-review/assistant-reference.js":{"./diff-rows":"src/modules/code-review/diff-rows.js"},"src/modules/code-review/diff-rows.js":{"./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/structured.js":{},"src/modules/code-review/ReviewPanel.js":{"./data":"src/modules/code-review/data.js","./structured":"src/modules/code-review/structured.js"},"src/modules/code-review/client.js":{},"src/modules/code-review/cache.js":{"./client":"src/modules/code-review/client.js","./idle":"src/modules/code-review/idle.js"},"src/modules/code-review/idle.js":{},"src/modules/code-review/storage.js":{},"src/modules/code-review/preferences.js":{},"src/modules/code-review/RepositoryPicker.js":{"./preferences":"src/modules/code-review/preferences.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
