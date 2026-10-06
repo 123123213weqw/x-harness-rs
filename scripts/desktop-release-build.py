@@ -489,7 +489,7 @@ def current_build(plan, *, require_pipeline=True):
     return value
 
 
-def wait_build_artifacts(plan, names, destination, *, timeout=3600, interval=20, require_pipeline=True):
+def wait_build_artifacts(plan, names, destination, *, timeout=4500, interval=60, require_pipeline=True):
     """Bounded intra-run handoff; artifacts are uploaded before native acceptance.
 
     Aggregate depends on plan, not on workers waiting for its complete manifest.
@@ -499,14 +499,18 @@ def wait_build_artifacts(plan, names, destination, *, timeout=3600, interval=20,
     require(not destination.exists(), 'Artifact handoff destination must be fresh')
     deadline = time.monotonic() + timeout
     repo = plan['repository']
+    value = current_build(plan, require_pipeline=require_pipeline)
+    polls = 0
     while True:
-        value = current_build(plan, require_pipeline=require_pipeline)
         pages = api_pages(f"repos/{repo}/actions/runs/{value['id']}/artifacts?per_page=100")
         rows = [a for page in pages for a in page['artifacts'] if a['name'] in names
                 and a['created_at'] >= value['run_started_at']]
         for name in names:
             require(len([a for a in rows if a['name'] == name]) <= 1, 'Ambiguous current-attempt artifact')
         if {a['name'] for a in rows} == set(names):
+            # Reauthenticate the attempt at the handoff; polling immutable run
+            # metadata every minute adds no information and burns API quota.
+            value = current_build(plan, require_pipeline=require_pipeline)
             require(all(not a['expired'] and a.get('workflow_run', {}).get('head_sha') == plan['sha']
                         for a in rows), 'Unsafe build artifact identity')
             destination.mkdir(parents=True)
@@ -514,9 +518,11 @@ def wait_build_artifacts(plan, names, destination, *, timeout=3600, interval=20,
                 download_artifact(repo, value, name, destination / name)
             return
         # Detect a failed producer rather than spending another hour waiting.
-        jobs = api_pages(f"repos/{repo}/actions/runs/{value['id']}/attempts/{value['run_attempt']}/jobs?per_page=100")
-        require(not any(j.get('status') == 'completed' and j.get('conclusion') != 'success'
-                        for page in jobs for j in page['jobs']), 'Candidate producer failed or was cancelled')
+        if polls % 3 == 0:
+            jobs = api_pages(f"repos/{repo}/actions/runs/{value['id']}/attempts/{value['run_attempt']}/jobs?per_page=100")
+            require(not any(j.get('status') == 'completed' and j.get('conclusion') != 'success'
+                            for page in jobs for j in page['jobs']), 'Candidate producer failed or was cancelled')
+        polls += 1
         require(time.monotonic() < deadline, 'Timed out waiting for current build artifacts')
         time.sleep(interval)
 

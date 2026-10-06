@@ -138,7 +138,7 @@ class Checkpoints:
         self.last = value
 
 
-def advance_until_done(task, publish, *, timeout=14400, interval=30, sleep=time.sleep, clock=time.monotonic):
+def advance_until_done(task, publish, *, timeout=14400, interval=60, sleep=time.sleep, clock=time.monotonic):
     deadline, failures, unknown_reads = clock() + timeout, 0, 0
     previous = None
     while True:
@@ -161,6 +161,8 @@ def advance_until_done(task, publish, *, timeout=14400, interval=30, sleep=time.
         if phase == 'published' or phase == 'awaiting_confirmation' and not publish:
             return phase
         require(clock() < deadline, 'Coordinator deadline reached; rerun this same service run')
+        if phase == 'awaiting_confirmation' and publish:
+            continue  # Version-bound authorization exists; do not add a polling delay before promotion.
         sleep(interval)
 
 
