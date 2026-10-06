@@ -90,6 +90,25 @@ class NativeProbeTests(unittest.TestCase):
                     remove.assert_not_called()
                     self.assertEqual(process.call_count, int(filesystem == "fuse.portal"))
 
+    def test_gnome_gvfs_cleanup_is_limited_to_exact_owned_runtime_mount(self):
+        with tempfile.TemporaryDirectory(prefix="xh-webview-profile-") as directory:
+            root = Path(directory)
+            for suffix, code, allowed in [("runtime/gvfs",0,True), ("runtime/gvfs",1,False),
+                                          ("runtime/foreign",0,False), ("other/gvfs",0,False)]:
+                target = root / suffix
+                mounts = (f"1 2 0:3 / {target} rw - fuse.gvfsd-fuse gvfsd-fuse rw\n"
+                          "4 5 0:6 / /user/runtime/gvfs rw - fuse.gvfsd-fuse gvfsd-fuse rw\n")
+                with patch("scripts.gui_bench.run_native_probe.Path.exists", return_value=True), \
+                     patch("scripts.gui_bench.run_native_probe.Path.read_text", return_value=mounts), \
+                     patch("scripts.gui_bench.run_native_probe.subprocess.run", return_value=SimpleNamespace(returncode=code)) as process, \
+                     patch("scripts.gui_bench.run_native_probe.cleanup", return_value=True) as remove:
+                    self.assertEqual(cleanup_profile(root),allowed)
+                    self.assertEqual(process.call_count,int(suffix=="runtime/gvfs"))
+                    if allowed:
+                        process.assert_called_once_with(["fusermount3","-uz",str(target)],capture_output=True,timeout=5)
+                        remove.assert_called_once_with(root)
+                    else: remove.assert_not_called()
+
     def test_profile_cleanup_rejects_user_relative_outside_temp_and_symlink_roots(self):
         with tempfile.TemporaryDirectory() as directory:
             link = Path(directory) / "xh-native-dom-symlink"
