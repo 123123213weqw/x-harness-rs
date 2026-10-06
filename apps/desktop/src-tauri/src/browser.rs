@@ -143,6 +143,36 @@ fn emit(app: &AppHandle, tab_id: &str, kind: &'static str, value: impl Into<Stri
     );
 }
 
+#[derive(Serialize)]
+pub struct BrowserPageState {
+    url: String,
+    loaded: bool,
+}
+
+/// Frame-agnostic navigation callbacks are hints, never address authority.
+/// Only the trusted shell may sample the native top-level location/readiness.
+#[tauri::command]
+pub async fn desktop_browser_page_state(
+    caller: Webview,
+    state: State<'_, BrowserState>,
+    tab_id: String,
+) -> Result<BrowserPageState, String> {
+    ensure_main(&caller)?;
+    let inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.active.as_deref() != Some(&tab_id) || inner.bounds.is_none() {
+        return Err("only the active, laid-out browser tab can be sampled".into());
+    }
+    let tab = inner.tabs.get(&tab_id).ok_or("browser tab is not open")?;
+    Ok(BrowserPageState {
+        url: tab
+            .webview
+            .url()
+            .map_err(|_| "browser URL unavailable")?
+            .to_string(),
+        loaded: tab.loaded.load(Ordering::SeqCst),
+    })
+}
+
 pub(super) fn ensure_main(webview: &Webview) -> Result<(), String> {
     if webview.label() == "main" {
         Ok(())
@@ -289,6 +319,9 @@ pub async fn desktop_browser_navigate(
         let clock = inner.clock;
         let tab = inner.tabs.get_mut(&tab_id).expect("tab was present");
         tab.last_used = clock;
+        // Explicit UI navigation is a top-level intent. Invalidate before it
+        // enters native dispatch, even if the old document is still visible.
+        tab.inspector.revoke();
         tab.loaded.store(false, Ordering::SeqCst);
         return tab
             .webview
@@ -339,15 +372,18 @@ pub async fn desktop_browser_navigate(
     let load_inspector = Arc::clone(&inspector);
     let loaded = Arc::new(AtomicBool::new(false));
     let load_ready = Arc::clone(&loaded);
-    let navigation_ready = Arc::clone(&loaded);
     let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
         .data_directory(browser_data)
         .on_navigation(move |url| {
             if matches!(url.scheme(), "http" | "https") {
-                navigation_ready.store(false, Ordering::SeqCst);
-                navigation_inspector.delegation.navigate(url);
+                // Wry 0.55 also calls this policy for subframe navigations on
+                // WKWebView. It provides no main-frame bit. Do not publish its
+                // URL, reset top-level readiness or revoke the page's origin
+                // binding here. Still invalidate action refs conservatively.
                 navigation_inspector.invalidate();
-                emit(&event_app, &event_id, "url", url.as_str());
+                // Hash/history navigations need not emit a page-load callback.
+                // Ask the UI to sample WebView.url(), never this frame's URL.
+                emit(&event_app, &event_id, "navigation-policy", "");
                 true
             } else {
                 emit(&event_app, &event_id, "blocked-url", url.as_str());
@@ -364,11 +400,19 @@ pub async fn desktop_browser_navigate(
             );
             let status = match payload.event() {
                 PageLoadEvent::Started => {
+                    load_inspector.delegation.navigate(payload.url());
                     load_inspector.invalidate();
                     "loading"
                 }
-                PageLoadEvent::Finished => "loaded",
+                PageLoadEvent::Finished => {
+                    load_inspector.delegation.navigate(payload.url());
+                    "loaded"
+                }
             };
+            // Page-load callbacks carry the native top-level URL, unlike the
+            // navigation policy. Publish it before readiness so redirects are
+            // synchronized before the UI attempts an exact-origin binding.
+            emit(&load_app, &load_id, "url", payload.url().as_str());
             emit(&load_app, &load_id, status, payload.url().as_str());
         })
         .on_new_window(move |url, _| {

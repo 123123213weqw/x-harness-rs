@@ -212,6 +212,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     let loading = false
     let completing = false
     let eventsReady = false
+    let pageVersion = 0
+    let locationFrame: number | null = null
     const send = (command: string, args: Record<string, unknown>) => native.core.invoke(command, args)
     const visible = () => {
       if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
@@ -291,6 +293,36 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       })
     }
     nativeSyncRef.current = syncBounds
+    const updateAddress = (value: string) => {
+      const current = itemRef.current
+      const entries = current.entries ?? []
+      if (entries[current.position] === value) return
+      const previous = entries.lastIndexOf(value)
+      const patch = previous >= 0
+        ? { position: previous, title: new URL(value).hostname }
+        : { entries: [...entries.slice(0, current.position + 1), value], position: current.position + 1, title: new URL(value).hostname }
+      itemRef.current = { ...current, ...patch }
+      onUpdate(patch)
+    }
+    const sampleLocation = () => {
+      // Coalesce iframe policy bursts; no background polling. A top-level
+      // load event arriving during this request supersedes the stale sample.
+      if (locationFrame !== null) return
+      locationFrame = requestAnimationFrame(() => {
+        locationFrame = null
+        const version = pageVersion
+        void enqueueNative(async () => {
+          if (!visible()) return
+          const result = objectValue(await send('desktop_browser_page_state', { tabId: item.id }))
+          if (!visible() || version !== pageVersion || typeof result.url !== 'string' || typeof result.loaded !== 'boolean') return
+          const url = new URL(result.url)
+          if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return
+          loading = !result.loaded
+          updateAddress(url.href)
+          void syncBounds()
+        }).catch(() => { /* A hidden/closed tab is not an actionable sample. */ })
+      })
+    }
     const observer = new ResizeObserver(syncBounds)
     observer.observe(content)
     const stopWatchingSurfaces = watchBrowserSurfaces(content, syncBounds)
@@ -300,19 +332,15 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       const payload = browserPayload(event.payload)
       if (disposed || !payload || payload.tabId !== item.id) return
       if (payload.kind === 'url') {
-        loading = true
-        const current = itemRef.current
-        const entries = current.entries ?? []
-        if (entries[current.position] === payload.value) return
-        const previous = entries.lastIndexOf(payload.value)
-        const patch = previous >= 0
-          ? { position: previous, title: new URL(payload.value).hostname }
-          : { entries: [...entries.slice(0, current.position + 1), payload.value], position: current.position + 1, title: new URL(payload.value).hostname }
-        itemRef.current = { ...current, ...patch }
-        onUpdate(patch)
+        // Only native top-level page-load events publish this address. The
+        // separate loading/loaded events own readiness; a duplicate address
+        // notification must not leave an already-ready page waiting forever.
+        pageVersion++
+        updateAddress(payload.value)
       } else if (payload.kind === 'title') onUpdate({ title: payload.value || item.title })
-      else if (payload.kind === 'loading') { loading = true }
-      else if (payload.kind === 'loaded') { loading = false; void syncBounds() }
+      else if (payload.kind === 'navigation-policy') sampleLocation()
+      else if (payload.kind === 'loading') { pageVersion++; loading = true }
+      else if (payload.kind === 'loaded') { pageVersion++; loading = false; void syncBounds() }
       else if (payload.kind.startsWith('download-')) {
         setDownloads(previous => [{ kind: payload.kind, name: String(payload.value || '').split(/[/\\]/).pop() || '下载文件' }, ...previous].slice(0, 5))
         if (payload.kind === 'download-error') setError(payload.value || '下载失败')
@@ -321,6 +349,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     }).then(fn => { if (disposed) fn(); else { unlisten = fn; eventsReady = true; requestAnimationFrame(syncBounds) } }).catch((error: unknown) => { if (!disposed) setError(String(error)) })
     return () => {
       disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); stopWatchingSurfaces(); window.removeEventListener('resize', syncBounds); unlisten?.()
+      if (locationFrame !== null) cancelAnimationFrame(locationFrame)
       if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
       const requestId=itemRef.current.modelRequestId
       if(requestId){
