@@ -114,6 +114,19 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     if empty["result"]["available"] != true || empty["result"]["bound"] != false {
         return Err("zero-tab browser discovery failed".into());
     }
+    let denied = bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"eval","script":"private-input"}),
+    )
+    .await?;
+    if denied["result"]["ok"] != false
+        || denied["result"]["effect"] != "not_started"
+        || denied.to_string().contains("private-input")
+    {
+        return Err("invalid control did not return a sanitized predispatch denial".into());
+    }
     abandoned_open_probe(app, connection, url).await?;
     // A native test-owned UI adapter uses exactly the production pane commands.
     // React sidebar expansion is tested separately, not falsely claimed here.

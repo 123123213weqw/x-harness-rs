@@ -137,9 +137,10 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         return Ok(browser_lifecycle::descriptor(&state, &request.owner));
     }
     if matches!(request.op, Operation::Control) {
-        let action: browser_lifecycle::ControlRequest =
-            serde_json::from_value(request.arguments)
-                .map_err(|_| "invalid native control arguments")?;
+        let action = match parse_control(request.arguments) {
+            Ok(action) => action,
+            Err(receipt) => return Ok(receipt),
+        };
         return match action {
             browser_lifecycle::ControlRequest::Status {} => {
                 Ok(browser_lifecycle::descriptor(&state, &request.owner))
@@ -198,9 +199,27 @@ fn parse_action(arguments: Value) -> Result<browser_perform::PerformRequest, Val
     serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native action arguments; describe perform for the action-specific schema; no action was scheduled"))
 }
 
+fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, Value> {
+    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open; no navigation was scheduled"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn malformed_control_is_unstarted_and_does_not_echo_private_input() {
+        for arguments in [
+            json!({"action":"eval","script":"private-input"}),
+            json!({"action":"status","owner":"private-input"}),
+            json!({"action":"open","url":123}),
+        ] {
+            let receipt = parse_control(arguments).err().unwrap();
+            assert_eq!(receipt["ok"], false);
+            assert_eq!(receipt["effect"], "not_started");
+            assert!(!receipt.to_string().contains("private-input"));
+        }
+        assert!(parse_control(json!({"action":"status"})).is_ok());
+    }
     #[test]
     fn malformed_action_is_not_started_not_unknown_and_never_echoes_input() {
         let receipt = parse_action(json!({"action":"eval","script":"private-input"})).unwrap_err();
