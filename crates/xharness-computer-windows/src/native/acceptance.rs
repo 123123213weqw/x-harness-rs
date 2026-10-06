@@ -257,8 +257,7 @@ fn verify_filtered_descendant(root: usize) -> Result<(), Box<dyn std::error::Err
         )?;
         let walker = automation.CreateTreeWalker(&condition)?;
         let child = walker.GetFirstChildElement(&root)?;
-        if child.CurrentName()?.to_string() != "Promoted visible child"
-            || child.CurrentIsOffscreen()?.as_bool()
+        if child.CurrentName()? != "Promoted visible child" || child.CurrentIsOffscreen()?.as_bool()
         {
             return Err("filtered walker lost the visible nested child".into());
         }

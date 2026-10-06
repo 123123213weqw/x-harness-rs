@@ -34,7 +34,7 @@ jobs:
         run: python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
       - name: Non-interactive native contracts
         run: |
-          cargo test --locked -p xharness-computer -p xharness-computer-windows
+          cargo test --locked -p xharness-computer -p xharness-computer-windows --features xharness-computer-windows/native-acceptance
           if ($LASTEXITCODE) { throw 'Computer contracts failed' }
           cargo clippy --locked -p xharness-computer-windows --all-targets --features native-acceptance -- -D warnings
           if ($LASTEXITCODE) { throw 'Computer clippy failed' }
