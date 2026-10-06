@@ -1,0 +1,303 @@
+native	Non-interactive native contracts	﻿2026-10-06T00:25:20.5726193Z ##[group]Run cargo test --locked -p xharness-computer -p xharness-computer-windows
+native	Non-interactive native contracts	2026-10-06T00:25:20.5726919Z ^[[36;1mcargo test --locked -p xharness-computer -p xharness-computer-windows^[[0m
+native	Non-interactive native contracts	2026-10-06T00:25:20.5727406Z ^[[36;1mif ($LASTEXITCODE) { throw 'Computer contracts failed' }^[[0m
+native	Non-interactive native contracts	2026-10-06T00:25:20.5728037Z ^[[36;1mcargo clippy --locked -p xharness-computer-windows --all-targets --features native-acceptance -- -D warnings^[[0m
+native	Non-interactive native contracts	2026-10-06T00:25:20.5728640Z ^[[36;1mif ($LASTEXITCODE) { throw 'Computer clippy failed' }^[[0m
+native	Non-interactive native contracts	2026-10-06T00:25:20.5800845Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+native	Non-interactive native contracts	2026-10-06T00:25:20.5801202Z env:
+native	Non-interactive native contracts	2026-10-06T00:25:20.5801402Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Non-interactive native contracts	2026-10-06T00:25:20.5801760Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Non-interactive native contracts	2026-10-06T00:25:20.5802020Z   CARGO_INCREMENTAL: 0
+native	Non-interactive native contracts	2026-10-06T00:25:20.5802217Z   CARGO_TERM_COLOR: always
+native	Non-interactive native contracts	2026-10-06T00:25:20.5802423Z   CACHE_ON_FAILURE: true
+native	Non-interactive native contracts	2026-10-06T00:25:20.5802638Z ##[endgroup]
+native	Non-interactive native contracts	2026-10-06T00:25:21.0135736Z ^[[1m^[[92m    Updating^[[0m crates.io index
+native	Non-interactive native contracts	2026-10-06T00:25:21.8901231Z ^[[1m^[[92m Downloading^[[0m crates ...
+native	Non-interactive native contracts	2026-10-06T00:25:22.0211920Z ^[[1m^[[92m  Downloaded^[[0m async-trait v0.1.92
+native	Non-interactive native contracts	2026-10-06T00:25:22.0762580Z ^[[1m^[[92m  Downloaded^[[0m adler2 v2.0.1
+native	Non-interactive native contracts	2026-10-06T00:25:22.0939705Z ^[[1m^[[92m  Downloaded^[[0m block-buffer v0.10.4
+native	Non-interactive native contracts	2026-10-06T00:25:22.1082901Z ^[[1m^[[92m  Downloaded^[[0m bytemuck v1.25.2
+native	Non-interactive native contracts	2026-10-06T00:25:22.1452360Z ^[[1m^[[92m  Downloaded^[[0m autocfg v1.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:22.1622737Z ^[[1m^[[92m  Downloaded^[[0m bitflags v2.13.1
+native	Non-interactive native contracts	2026-10-06T00:25:22.2136356Z ^[[1m^[[92m  Downloaded^[[0m futures-executor v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:22.2298719Z ^[[1m^[[92m  Downloaded^[[0m futures-sink v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:22.2377605Z ^[[1m^[[92m  Downloaded^[[0m futures-channel v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:22.2550011Z ^[[1m^[[92m  Downloaded^[[0m typenum v1.20.1
+native	Non-interactive native contracts	2026-10-06T00:25:22.3133637Z ^[[1m^[[92m  Downloaded^[[0m version_check v0.9.5
+native	Non-interactive native contracts	2026-10-06T00:25:22.3284510Z ^[[1m^[[92m  Downloaded^[[0m bytes v1.12.1
+native	Non-interactive native contracts	2026-10-06T00:25:22.3667770Z ^[[1m^[[92m  Downloaded^[[0m futures-util v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:22.5183350Z ^[[1m^[[92m  Downloaded^[[0m moxcms v0.8.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.0832588Z ^[[1m^[[92m  Downloaded^[[0m windows-strings v0.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.1183358Z ^[[1m^[[92m  Downloaded^[[0m flate2 v1.1.10
+native	Non-interactive native contracts	2026-10-06T00:25:23.1737406Z ^[[1m^[[92m  Downloaded^[[0m fdeflate v0.3.7
+native	Non-interactive native contracts	2026-10-06T00:25:23.1913114Z ^[[1m^[[92m  Downloaded^[[0m simd-adler32 v0.3.10
+native	Non-interactive native contracts	2026-10-06T00:25:23.2201289Z ^[[1m^[[92m  Downloaded^[[0m futures-core v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:23.2346580Z ^[[1m^[[92m  Downloaded^[[0m windows-core v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:25:23.2708888Z ^[[1m^[[92m  Downloaded^[[0m windows-targets v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:25:23.2782744Z ^[[1m^[[92m  Downloaded^[[0m memchr v2.8.3
+native	Non-interactive native contracts	2026-10-06T00:25:23.3378574Z ^[[1m^[[92m  Downloaded^[[0m windows-link v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.3466473Z ^[[1m^[[92m  Downloaded^[[0m socket2 v0.6.5
+native	Non-interactive native contracts	2026-10-06T00:25:23.3627219Z ^[[1m^[[92m  Downloaded^[[0m quote v1.0.47
+native	Non-interactive native contracts	2026-10-06T00:25:23.3954558Z ^[[1m^[[92m  Downloaded^[[0m futures-macro v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:23.4072828Z ^[[1m^[[92m  Downloaded^[[0m windows-result v0.4.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.4263050Z ^[[1m^[[92m  Downloaded^[[0m itoa v1.0.18
+native	Non-interactive native contracts	2026-10-06T00:25:23.4406429Z ^[[1m^[[92m  Downloaded^[[0m crc32fast v1.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.4633416Z ^[[1m^[[92m  Downloaded^[[0m futures v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:23.5279129Z ^[[1m^[[92m  Downloaded^[[0m futures-task v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:23.5489316Z ^[[1m^[[92m  Downloaded^[[0m futures-io v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:23.5577558Z ^[[1m^[[92m  Downloaded^[[0m windows-future v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:25:23.5729195Z ^[[1m^[[92m  Downloaded^[[0m windows-implement v0.60.2
+native	Non-interactive native contracts	2026-10-06T00:25:23.5871223Z ^[[1m^[[92m  Downloaded^[[0m windows-threading v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.5976716Z ^[[1m^[[92m  Downloaded^[[0m num-traits v0.2.19
+native	Non-interactive native contracts	2026-10-06T00:25:23.6290695Z ^[[1m^[[92m  Downloaded^[[0m proc-macro2 v1.0.107
+native	Non-interactive native contracts	2026-10-06T00:25:23.6662607Z ^[[1m^[[92m  Downloaded^[[0m zmij v1.0.23
+native	Non-interactive native contracts	2026-10-06T00:25:23.6861066Z ^[[1m^[[92m  Downloaded^[[0m serde_core v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:23.7097033Z ^[[1m^[[92m  Downloaded^[[0m pin-project-lite v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:25:23.7934971Z ^[[1m^[[92m  Downloaded^[[0m miniz_oxide v0.8.9
+native	Non-interactive native contracts	2026-10-06T00:25:23.8140516Z ^[[1m^[[92m  Downloaded^[[0m miniz_oxide v0.9.1
+native	Non-interactive native contracts	2026-10-06T00:25:23.8408649Z ^[[1m^[[92m  Downloaded^[[0m mio v1.2.2
+native	Non-interactive native contracts	2026-10-06T00:25:23.9136995Z ^[[1m^[[92m  Downloaded^[[0m serde_json v1.0.151
+native	Non-interactive native contracts	2026-10-06T00:25:24.3488141Z ^[[1m^[[92m  Downloaded^[[0m cfg-if v1.0.4
+native	Non-interactive native contracts	2026-10-06T00:25:24.3643520Z ^[[1m^[[92m  Downloaded^[[0m png v0.18.1
+native	Non-interactive native contracts	2026-10-06T00:25:24.4003188Z ^[[1m^[[92m  Downloaded^[[0m thiserror-impl v2.0.20
+native	Non-interactive native contracts	2026-10-06T00:25:24.4205247Z ^[[1m^[[92m  Downloaded^[[0m slab v0.4.12
+native	Non-interactive native contracts	2026-10-06T00:25:24.4317149Z ^[[1m^[[92m  Downloaded^[[0m thiserror v2.0.20
+native	Non-interactive native contracts	2026-10-06T00:25:24.5155320Z ^[[1m^[[92m  Downloaded^[[0m windows-interface v0.59.3
+native	Non-interactive native contracts	2026-10-06T00:25:24.5259595Z ^[[1m^[[92m  Downloaded^[[0m crypto-common v0.1.7
+native	Non-interactive native contracts	2026-10-06T00:25:24.5345918Z ^[[1m^[[92m  Downloaded^[[0m byteorder-lite v0.1.0
+native	Non-interactive native contracts	2026-10-06T00:25:24.5433980Z ^[[1m^[[92m  Downloaded^[[0m image v0.25.10
+native	Non-interactive native contracts	2026-10-06T00:25:24.6289423Z ^[[1m^[[92m  Downloaded^[[0m tokio-macros v2.7.2
+native	Non-interactive native contracts	2026-10-06T00:25:24.6410354Z ^[[1m^[[92m  Downloaded^[[0m zlib-rs v0.6.7
+native	Non-interactive native contracts	2026-10-06T00:25:24.7000185Z ^[[1m^[[92m  Downloaded^[[0m unicode-ident v1.0.24
+native	Non-interactive native contracts	2026-10-06T00:25:24.7458076Z ^[[1m^[[92m  Downloaded^[[0m generic-array v0.14.7
+native	Non-interactive native contracts	2026-10-06T00:25:24.7796309Z ^[[1m^[[92m  Downloaded^[[0m windows-collections v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:25:24.7985739Z ^[[1m^[[92m  Downloaded^[[0m windows-numerics v0.3.1
+native	Non-interactive native contracts	2026-10-06T00:25:24.8649168Z ^[[1m^[[92m  Downloaded^[[0m cpufeatures v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:25:24.9421455Z ^[[1m^[[92m  Downloaded^[[0m sha2 v0.10.9
+native	Non-interactive native contracts	2026-10-06T00:25:25.0711731Z ^[[1m^[[92m  Downloaded^[[0m digest v0.10.7
+native	Non-interactive native contracts	2026-10-06T00:25:25.1741194Z ^[[1m^[[92m  Downloaded^[[0m serde v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:25.3274248Z ^[[1m^[[92m  Downloaded^[[0m serde_derive v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:25.7910122Z ^[[1m^[[92m  Downloaded^[[0m tokio-util v0.7.19
+native	Non-interactive native contracts	2026-10-06T00:25:26.0848890Z ^[[1m^[[92m  Downloaded^[[0m syn v2.0.119
+native	Non-interactive native contracts	2026-10-06T00:25:26.3900744Z ^[[1m^[[92m  Downloaded^[[0m syn v3.0.3
+native	Non-interactive native contracts	2026-10-06T00:25:26.8179545Z ^[[1m^[[92m  Downloaded^[[0m pxfm v0.1.30
+native	Non-interactive native contracts	2026-10-06T00:25:27.5795563Z ^[[1m^[[92m  Downloaded^[[0m tokio v1.53.1
+native	Non-interactive native contracts	2026-10-06T00:25:28.1035859Z ^[[1m^[[92m  Downloaded^[[0m windows_x86_64_msvc v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:25:28.1252180Z ^[[1m^[[92m  Downloaded^[[0m windows-sys v0.52.0
+native	Non-interactive native contracts	2026-10-06T00:25:29.1960098Z ^[[1m^[[92m  Downloaded^[[0m windows-sys v0.61.2
+native	Non-interactive native contracts	2026-10-06T00:25:29.7495515Z ^[[1m^[[92m  Downloaded^[[0m windows v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:25:31.0112891Z ^[[1m^[[92m   Compiling^[[0m proc-macro2 v1.0.107
+native	Non-interactive native contracts	2026-10-06T00:25:31.0113639Z ^[[1m^[[92m   Compiling^[[0m unicode-ident v1.0.24
+native	Non-interactive native contracts	2026-10-06T00:25:31.0114192Z ^[[1m^[[92m   Compiling^[[0m quote v1.0.47
+native	Non-interactive native contracts	2026-10-06T00:25:31.0114740Z ^[[1m^[[92m   Compiling^[[0m windows-link v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:25:31.0759007Z ^[[1m^[[92m   Compiling^[[0m version_check v0.9.5
+native	Non-interactive native contracts	2026-10-06T00:25:31.1401433Z ^[[1m^[[92m   Compiling^[[0m memchr v2.8.3
+native	Non-interactive native contracts	2026-10-06T00:25:31.6273819Z ^[[1m^[[92m   Compiling^[[0m generic-array v0.14.7
+native	Non-interactive native contracts	2026-10-06T00:25:32.0838968Z ^[[1m^[[92m   Compiling^[[0m pin-project-lite v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:25:32.1400101Z ^[[1m^[[92m   Compiling^[[0m windows_x86_64_msvc v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:25:33.8435282Z ^[[1m^[[92m   Compiling^[[0m typenum v1.20.1
+native	Non-interactive native contracts	2026-10-06T00:25:33.9032931Z ^[[1m^[[92m   Compiling^[[0m serde_core v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:33.9064492Z ^[[1m^[[92m   Compiling^[[0m cfg-if v1.0.4
+native	Non-interactive native contracts	2026-10-06T00:25:33.9937534Z ^[[1m^[[92m   Compiling^[[0m windows-sys v0.61.2
+native	Non-interactive native contracts	2026-10-06T00:25:34.5892723Z ^[[1m^[[92m   Compiling^[[0m zmij v1.0.23
+native	Non-interactive native contracts	2026-10-06T00:25:35.5755357Z ^[[1m^[[92m   Compiling^[[0m syn v3.0.3
+native	Non-interactive native contracts	2026-10-06T00:25:35.8430764Z ^[[1m^[[92m   Compiling^[[0m futures-core v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:36.0157493Z ^[[1m^[[92m   Compiling^[[0m futures-sink v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:36.2154352Z ^[[1m^[[92m   Compiling^[[0m serde_json v1.0.151
+native	Non-interactive native contracts	2026-10-06T00:25:36.5175494Z ^[[1m^[[92m   Compiling^[[0m thiserror v2.0.20
+native	Non-interactive native contracts	2026-10-06T00:25:37.1533574Z ^[[1m^[[92m   Compiling^[[0m serde v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:37.8674298Z ^[[1m^[[92m   Compiling^[[0m windows-targets v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:25:38.4453057Z ^[[1m^[[92m   Compiling^[[0m mio v1.2.2
+native	Non-interactive native contracts	2026-10-06T00:25:39.4382142Z ^[[1m^[[92m   Compiling^[[0m socket2 v0.6.5
+native	Non-interactive native contracts	2026-10-06T00:25:39.9251771Z ^[[1m^[[92m   Compiling^[[0m block-buffer v0.10.4
+native	Non-interactive native contracts	2026-10-06T00:25:39.9945747Z ^[[1m^[[92m   Compiling^[[0m crypto-common v0.1.7
+native	Non-interactive native contracts	2026-10-06T00:25:40.0600623Z ^[[1m^[[92m   Compiling^[[0m futures-channel v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:40.1174023Z ^[[1m^[[92m   Compiling^[[0m syn v2.0.119
+native	Non-interactive native contracts	2026-10-06T00:25:40.3245785Z ^[[1m^[[92m   Compiling^[[0m bytes v1.12.1
+native	Non-interactive native contracts	2026-10-06T00:25:40.3961295Z ^[[1m^[[92m   Compiling^[[0m itoa v1.0.18
+native	Non-interactive native contracts	2026-10-06T00:25:40.6495903Z ^[[1m^[[92m   Compiling^[[0m futures-task v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:40.8652773Z ^[[1m^[[92m   Compiling^[[0m slab v0.4.12
+native	Non-interactive native contracts	2026-10-06T00:25:41.0975367Z ^[[1m^[[92m   Compiling^[[0m futures-io v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:41.4657762Z ^[[1m^[[92m   Compiling^[[0m digest v0.10.7
+native	Non-interactive native contracts	2026-10-06T00:25:41.6961324Z ^[[1m^[[92m   Compiling^[[0m windows-sys v0.52.0
+native	Non-interactive native contracts	2026-10-06T00:25:43.5402225Z ^[[1m^[[92m   Compiling^[[0m cpufeatures v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:25:43.6024714Z ^[[1m^[[92m   Compiling^[[0m simd-adler32 v0.3.10
+native	Non-interactive native contracts	2026-10-06T00:25:43.9068077Z ^[[1m^[[92m   Compiling^[[0m sha2 v0.10.9
+native	Non-interactive native contracts	2026-10-06T00:25:44.3838371Z ^[[1m^[[92m   Compiling^[[0m windows-result v0.4.1
+native	Non-interactive native contracts	2026-10-06T00:25:44.5726151Z ^[[1m^[[92m   Compiling^[[0m windows-strings v0.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:44.7909363Z ^[[1m^[[92m   Compiling^[[0m crc32fast v1.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:45.1362489Z ^[[1m^[[92m   Compiling^[[0m autocfg v1.5.1
+native	Non-interactive native contracts	2026-10-06T00:25:45.1897574Z ^[[1m^[[92m   Compiling^[[0m adler2 v2.0.1
+native	Non-interactive native contracts	2026-10-06T00:25:45.4274084Z ^[[1m^[[92m   Compiling^[[0m serde_derive v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:25:45.6826656Z ^[[1m^[[92m   Compiling^[[0m thiserror-impl v2.0.20
+native	Non-interactive native contracts	2026-10-06T00:25:46.0854851Z ^[[1m^[[92m   Compiling^[[0m tokio-macros v2.7.2
+native	Non-interactive native contracts	2026-10-06T00:25:47.6815323Z ^[[1m^[[92m   Compiling^[[0m futures-macro v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:49.4165703Z ^[[1m^[[92m   Compiling^[[0m futures-util v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:49.4326525Z ^[[1m^[[92m   Compiling^[[0m tokio v1.53.1
+native	Non-interactive native contracts	2026-10-06T00:25:49.5895795Z ^[[1m^[[92m   Compiling^[[0m windows-interface v0.59.3
+native	Non-interactive native contracts	2026-10-06T00:25:51.1842024Z ^[[1m^[[92m   Compiling^[[0m windows-implement v0.60.2
+native	Non-interactive native contracts	2026-10-06T00:25:52.7611275Z ^[[1m^[[92m   Compiling^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Non-interactive native contracts	2026-10-06T00:25:53.8782723Z ^[[1m^[[92m   Compiling^[[0m futures-executor v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:53.9526349Z ^[[1m^[[92m   Compiling^[[0m async-trait v0.1.92
+native	Non-interactive native contracts	2026-10-06T00:25:54.2248948Z ^[[1m^[[92m   Compiling^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Non-interactive native contracts	2026-10-06T00:25:54.2694697Z ^[[1m^[[92m   Compiling^[[0m futures v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:25:54.3803507Z ^[[1m^[[92m   Compiling^[[0m windows-core v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:25:55.1871646Z ^[[1m^[[92m   Compiling^[[0m num-traits v0.2.19
+native	Non-interactive native contracts	2026-10-06T00:25:55.5322092Z ^[[1m^[[92m   Compiling^[[0m tokio-util v0.7.19
+native	Non-interactive native contracts	2026-10-06T00:25:55.6206407Z ^[[1m^[[92m   Compiling^[[0m miniz_oxide v0.9.1
+native	Non-interactive native contracts	2026-10-06T00:25:56.9581670Z ^[[1m^[[92m   Compiling^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Non-interactive native contracts	2026-10-06T00:25:56.9840529Z ^[[1m^[[92m   Compiling^[[0m flate2 v1.1.10
+native	Non-interactive native contracts	2026-10-06T00:25:57.3685805Z ^[[1m^[[92m   Compiling^[[0m miniz_oxide v0.8.9
+native	Non-interactive native contracts	2026-10-06T00:25:57.6756391Z ^[[1m^[[92m   Compiling^[[0m fdeflate v0.3.7
+native	Non-interactive native contracts	2026-10-06T00:25:58.3987792Z ^[[1m^[[92m   Compiling^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Non-interactive native contracts	2026-10-06T00:25:58.6537821Z ^[[1m^[[92m   Compiling^[[0m windows-threading v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:25:58.6772787Z ^[[1m^[[92m   Compiling^[[0m bitflags v2.13.1
+native	Non-interactive native contracts	2026-10-06T00:25:58.7940673Z ^[[1m^[[92m   Compiling^[[0m pxfm v0.1.30
+native	Non-interactive native contracts	2026-10-06T00:25:59.0152791Z ^[[1m^[[92m   Compiling^[[0m png v0.18.1
+native	Non-interactive native contracts	2026-10-06T00:26:01.4166226Z ^[[1m^[[92m   Compiling^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Non-interactive native contracts	2026-10-06T00:26:01.7481603Z ^[[1m^[[92m   Compiling^[[0m windows-future v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:26:01.8531413Z ^[[1m^[[92m   Compiling^[[0m windows-collections v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:26:02.5858470Z ^[[1m^[[92m   Compiling^[[0m moxcms v0.8.1
+native	Non-interactive native contracts	2026-10-06T00:26:02.7469682Z ^[[1m^[[92m   Compiling^[[0m windows-numerics v0.3.1
+native	Non-interactive native contracts	2026-10-06T00:26:02.8754811Z ^[[1m^[[92m   Compiling^[[0m bytemuck v1.25.2
+native	Non-interactive native contracts	2026-10-06T00:26:03.0090597Z ^[[1m^[[92m   Compiling^[[0m byteorder-lite v0.1.0
+native	Non-interactive native contracts	2026-10-06T00:26:03.2542367Z ^[[1m^[[92m   Compiling^[[0m windows v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:26:07.4486044Z ^[[1m^[[92m   Compiling^[[0m image v0.25.10
+native	Non-interactive native contracts	2026-10-06T00:26:24.5671618Z ^[[1m^[[92m   Compiling^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Non-interactive native contracts	2026-10-06T00:26:31.1406709Z ^[[1m^[[92m    Finished^[[0m `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+native	Non-interactive native contracts	2026-10-06T00:26:31.2216197Z ^[[1m^[[92m     Running^[[0m unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\xharness_computer-0061ee20d66fd9c2.exe)
+native	Non-interactive native contracts	2026-10-06T00:26:31.2336696Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2337460Z running 7 tests
+native	Non-interactive native contracts	2026-10-06T00:26:31.2398071Z test tests::fields_from_another_action_fail_before_side_effects ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2399052Z test tests::keypress_accepts_observed_frame_through_tool_registry ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2399882Z test tests::action_specific_validation_fails_before_driver ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2400635Z test tests::one_tool_covers_the_complete_action_surface ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2402362Z test tests::semantic_observe_works_without_vision_sink ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2407395Z test tests::semantic_type_still_requires_the_observation_frame ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2428221Z test tests::every_action_has_a_valid_minimal_request ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2428502Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2428800Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+native	Non-interactive native contracts	2026-10-06T00:26:31.2429156Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2455685Z ^[[1m^[[92m     Running^[[0m unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\xharness_computer_windows-fb0b709de3183988.exe)
+native	Non-interactive native contracts	2026-10-06T00:26:31.2619346Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2620245Z running 22 tests
+native	Non-interactive native contracts	2026-10-06T00:26:31.2631155Z test adapter::tests::lost_input_is_never_automatically_replayed ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2634821Z test adapter::tests::read_only_loss_is_not_a_side_effect_uncertainty ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2639813Z test native::input::tests::key_names_are_explicit ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2644360Z test native::input::tests::modifiers_are_not_arbitrary_keys ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2648249Z test native::uia::tests::known_availability_does_not_contact_provider_again ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2651794Z test adapter::tests::cancelled_wait_never_starts_a_worker ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2653860Z test adapter::tests::no_input_before_observation ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2655759Z test adapter::tests::old_and_foreign_frames_fail_before_spawn ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2657277Z test native::uia::tests::only_boolean_cache_values_are_authoritative ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2658525Z test native::uia::tests::unknown_availability_retains_live_query_semantics ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2659934Z test observation::tests::bounded_values_distinguish_empty_and_preserve_input_whitespace ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2662417Z test observation::tests::fractional_regions_are_valid_without_roundtrip_equality ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2663715Z test observation::tests::focused_node_wins_and_all_limits_preserve_parent_closure ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2665657Z test observation::tests::geometry_handles_negative_origins_and_rejects_invalid_rectangles ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2666887Z test observation::tests::invisible_wrapper_is_not_a_pruning_signal ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2668274Z test observation::tests::long_offscreen_sidebar_cannot_spend_output_budget ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2669746Z test observation::tests::out_of_scope_focus_and_invalid_ancestry_cannot_leak ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2671248Z test observation::tests::region_filters_visible_controls_but_preserves_ancestors ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2672431Z test observation::tests::traversal_priority_is_breadth_first_not_sidebar_depth_first ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2673734Z test wire::tests::budgets_are_finite ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2674266Z test wire::tests::coordinates_handle_negative_origin_and_endpoints ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2675075Z test wire::tests::packet_is_bounded_before_allocation ... ok
+native	Non-interactive native contracts	2026-10-06T00:26:31.2675369Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2675618Z test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+native	Non-interactive native contracts	2026-10-06T00:26:31.2675959Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.2699969Z ^[[1m^[[92m   Doc-tests^[[0m xharness_computer
+native	Non-interactive native contracts	2026-10-06T00:26:31.3747986Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.3749216Z running 0 tests
+native	Non-interactive native contracts	2026-10-06T00:26:31.3749517Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.3750153Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native	Non-interactive native contracts	2026-10-06T00:26:31.3750675Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.3846890Z ^[[1m^[[92m   Doc-tests^[[0m xharness_computer_windows
+native	Non-interactive native contracts	2026-10-06T00:26:31.5409457Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.5410222Z running 0 tests
+native	Non-interactive native contracts	2026-10-06T00:26:31.5410871Z 
+native	Non-interactive native contracts	2026-10-06T00:26:31.5411394Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native	Non-interactive native contracts	2026-10-06T00:26:31.5412116Z 
+native	Non-interactive native contracts	2026-10-06T00:26:32.4079506Z ^[[1m^[[92m    Checking^[[0m windows-link v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:26:32.4083195Z ^[[1m^[[92m    Checking^[[0m cfg-if v1.0.4
+native	Non-interactive native contracts	2026-10-06T00:26:32.4084723Z ^[[1m^[[92m    Checking^[[0m memchr v2.8.3
+native	Non-interactive native contracts	2026-10-06T00:26:32.4085395Z ^[[1m^[[92m    Checking^[[0m typenum v1.20.1
+native	Non-interactive native contracts	2026-10-06T00:26:32.4551839Z ^[[1m^[[92m    Checking^[[0m pin-project-lite v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:26:32.4666104Z ^[[1m^[[92m    Checking^[[0m windows-sys v0.61.2
+native	Non-interactive native contracts	2026-10-06T00:26:32.5289545Z ^[[1m^[[92m    Checking^[[0m futures-core v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:32.6427735Z ^[[1m^[[92m    Checking^[[0m futures-sink v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:32.7370799Z ^[[1m^[[92m    Checking^[[0m serde_core v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:26:32.9972597Z ^[[1m^[[92m    Checking^[[0m windows_x86_64_msvc v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:26:33.0455153Z ^[[1m^[[92m    Checking^[[0m simd-adler32 v0.3.10
+native	Non-interactive native contracts	2026-10-06T00:26:33.2052299Z ^[[1m^[[92m    Checking^[[0m windows-targets v0.52.6
+native	Non-interactive native contracts	2026-10-06T00:26:33.2562828Z ^[[1m^[[92m    Checking^[[0m zmij v1.0.23
+native	Non-interactive native contracts	2026-10-06T00:26:33.5073616Z ^[[1m^[[92m    Checking^[[0m generic-array v0.14.7
+native	Non-interactive native contracts	2026-10-06T00:26:33.6036003Z ^[[1m^[[92m    Checking^[[0m futures-channel v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:33.8417580Z ^[[1m^[[92m    Checking^[[0m windows-result v0.4.1
+native	Non-interactive native contracts	2026-10-06T00:26:34.0063962Z ^[[1m^[[92m    Checking^[[0m windows-strings v0.5.1
+native	Non-interactive native contracts	2026-10-06T00:26:34.2167751Z ^[[1m^[[92m    Checking^[[0m itoa v1.0.18
+native	Non-interactive native contracts	2026-10-06T00:26:34.3584732Z ^[[1m^[[92m    Checking^[[0m crypto-common v0.1.7
+native	Non-interactive native contracts	2026-10-06T00:26:34.3746466Z ^[[1m^[[92m    Checking^[[0m block-buffer v0.10.4
+native	Non-interactive native contracts	2026-10-06T00:26:34.4609060Z ^[[1m^[[92m    Checking^[[0m bytes v1.12.1
+native	Non-interactive native contracts	2026-10-06T00:26:34.4911444Z ^[[1m^[[92m    Checking^[[0m slab v0.4.12
+native	Non-interactive native contracts	2026-10-06T00:26:34.6623708Z ^[[1m^[[92m    Checking^[[0m futures-io v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:34.8018623Z ^[[1m^[[92m    Checking^[[0m futures-task v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:34.9710888Z ^[[1m^[[92m    Checking^[[0m adler2 v2.0.1
+native	Non-interactive native contracts	2026-10-06T00:26:35.0736655Z ^[[1m^[[92m    Checking^[[0m futures-util v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:35.1912368Z ^[[1m^[[92m    Checking^[[0m digest v0.10.7
+native	Non-interactive native contracts	2026-10-06T00:26:35.3938129Z ^[[1m^[[92m    Checking^[[0m thiserror v2.0.20
+native	Non-interactive native contracts	2026-10-06T00:26:35.5153147Z ^[[1m^[[92m    Checking^[[0m windows-core v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:26:35.7565555Z ^[[1m^[[92m    Checking^[[0m serde v1.0.229
+native	Non-interactive native contracts	2026-10-06T00:26:35.9649634Z ^[[1m^[[92m    Checking^[[0m serde_json v1.0.151
+native	Non-interactive native contracts	2026-10-06T00:26:36.2898511Z ^[[1m^[[92m    Checking^[[0m socket2 v0.6.5
+native	Non-interactive native contracts	2026-10-06T00:26:36.4351084Z ^[[1m^[[92m    Checking^[[0m mio v1.2.2
+native	Non-interactive native contracts	2026-10-06T00:26:36.6388435Z ^[[1m^[[92m    Checking^[[0m windows-sys v0.52.0
+native	Non-interactive native contracts	2026-10-06T00:26:36.9179275Z ^[[1m^[[92m    Checking^[[0m tokio v1.53.1
+native	Non-interactive native contracts	2026-10-06T00:26:37.0589084Z ^[[1m^[[92m    Checking^[[0m cpufeatures v0.2.17
+native	Non-interactive native contracts	2026-10-06T00:26:37.1442041Z ^[[1m^[[92m    Checking^[[0m sha2 v0.10.9
+native	Non-interactive native contracts	2026-10-06T00:26:37.4811793Z ^[[1m^[[92m    Checking^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Non-interactive native contracts	2026-10-06T00:26:37.9450652Z ^[[1m^[[92m    Checking^[[0m crc32fast v1.5.1
+native	Non-interactive native contracts	2026-10-06T00:26:38.0986021Z ^[[1m^[[92m    Checking^[[0m miniz_oxide v0.9.1
+native	Non-interactive native contracts	2026-10-06T00:26:38.5991075Z ^[[1m^[[92m    Checking^[[0m futures-executor v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:38.6565482Z ^[[1m^[[92m    Checking^[[0m flate2 v1.1.10
+native	Non-interactive native contracts	2026-10-06T00:26:38.7666566Z ^[[1m^[[92m    Checking^[[0m futures v0.3.34
+native	Non-interactive native contracts	2026-10-06T00:26:38.8342438Z ^[[1m^[[92m    Checking^[[0m num-traits v0.2.19
+native	Non-interactive native contracts	2026-10-06T00:26:38.9081043Z ^[[1m^[[92m    Checking^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Non-interactive native contracts	2026-10-06T00:26:39.0828590Z ^[[1m^[[92m    Checking^[[0m miniz_oxide v0.8.9
+native	Non-interactive native contracts	2026-10-06T00:26:39.2222927Z ^[[1m^[[92m    Checking^[[0m fdeflate v0.3.7
+native	Non-interactive native contracts	2026-10-06T00:26:39.5342957Z ^[[1m^[[92m    Checking^[[0m windows-threading v0.2.1
+native	Non-interactive native contracts	2026-10-06T00:26:39.6160348Z ^[[1m^[[92m    Checking^[[0m bitflags v2.13.1
+native	Non-interactive native contracts	2026-10-06T00:26:39.6323475Z ^[[1m^[[92m    Checking^[[0m pxfm v0.1.30
+native	Non-interactive native contracts	2026-10-06T00:26:39.7785942Z ^[[1m^[[92m    Checking^[[0m png v0.18.1
+native	Non-interactive native contracts	2026-10-06T00:26:39.8839756Z ^[[1m^[[92m    Checking^[[0m windows-future v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:26:40.5844304Z ^[[1m^[[92m    Checking^[[0m windows-collections v0.3.2
+native	Non-interactive native contracts	2026-10-06T00:26:40.7905733Z ^[[1m^[[92m    Checking^[[0m windows-numerics v0.3.1
+native	Non-interactive native contracts	2026-10-06T00:26:40.9638178Z ^[[1m^[[92m    Checking^[[0m byteorder-lite v0.1.0
+native	Non-interactive native contracts	2026-10-06T00:26:41.2405407Z ^[[1m^[[92m    Checking^[[0m bytemuck v1.25.2
+native	Non-interactive native contracts	2026-10-06T00:26:41.2732737Z ^[[1m^[[92m    Checking^[[0m windows v0.62.2
+native	Non-interactive native contracts	2026-10-06T00:26:41.8316024Z ^[[1m^[[92m    Checking^[[0m tokio-util v0.7.19
+native	Non-interactive native contracts	2026-10-06T00:26:41.8317187Z ^[[1m^[[92m    Checking^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Non-interactive native contracts	2026-10-06T00:26:42.4498680Z ^[[1m^[[92m    Checking^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Non-interactive native contracts	2026-10-06T00:26:42.8301177Z ^[[1m^[[92m    Checking^[[0m moxcms v0.8.1
+native	Non-interactive native contracts	2026-10-06T00:26:43.4015289Z ^[[1m^[[92m    Checking^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Non-interactive native contracts	2026-10-06T00:26:45.8432109Z ^[[1m^[[92m    Checking^[[0m image v0.25.10
+native	Non-interactive native contracts	2026-10-06T00:26:57.7994451Z ^[[1m^[[92m    Checking^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Non-interactive native contracts	2026-10-06T00:26:58.7275774Z ^[[1m^[[91merror^[[0m^[[1m^[[97m: this creates an owned instance just for comparison^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:58.7277288Z    ^[[1m^[[96m--> ^[[0mcrates\xharness-computer-windows\src\native\acceptance.rs:260:12
+native	Non-interactive native contracts	2026-10-06T00:26:58.7278109Z     ^[[1m^[[96m|^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:58.7279208Z ^[[1m^[[96m260^[[0m ^[[1m^[[96m|^[[0m         if child.CurrentName()?.to_string() != "Promoted visible child"
+native	Non-interactive native contracts	2026-10-06T00:26:58.7280408Z     ^[[1m^[[96m|^[[0m            ^[[1m^[[91m^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[[0m ^[[1m^[[91mhelp: try: `child.CurrentName()?`^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:58.7281172Z     ^[[1m^[[96m|^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:58.7282295Z     ^[[1m^[[96m= ^[[0m^[[1m^[[97mhelp^[[0m: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#cmp_owned
+native	Non-interactive native contracts	2026-10-06T00:26:58.7284176Z     ^[[1m^[[96m= ^[[0m^[[1m^[[97mnote^[[0m: `-D clippy::cmp-owned` implied by `-D warnings`
+native	Non-interactive native contracts	2026-10-06T00:26:58.7285311Z     ^[[1m^[[96m= ^[[0m^[[1m^[[97mhelp^[[0m: to override `-D warnings` add `#[allow(clippy::cmp_owned)]`
+native	Non-interactive native contracts	2026-10-06T00:26:58.7285882Z 
+native	Non-interactive native contracts	2026-10-06T00:26:58.8242640Z ^[[1m^[[91merror^[[0m: could not compile `xharness-computer-windows` (lib) due to 1 previous error
+native	Non-interactive native contracts	2026-10-06T00:26:58.8243845Z ^[[1m^[[93mwarning^[[0m: build failed, waiting for other jobs to finish...
+native	Non-interactive native contracts	2026-10-06T00:26:58.9346954Z ^[[1m^[[91merror^[[0m: could not compile `xharness-computer-windows` (lib test) due to 1 previous error
+native	Non-interactive native contracts	2026-10-06T00:26:59.1834714Z ^[[31;1mException: ^[[0mD:\a\_temp\1c8637a6-da59-43ee-a6c4-ea40645bba6a.ps1:5^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:59.1835881Z ^[[31;1m^[[0m^[[36;1mLine |^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:59.1836930Z ^[[31;1m^[[0m^[[36;1m^[[36;1m   5 | ^[[0m if ($LASTEXITCODE) { ^[[36;1mthrow 'Computer clippy failed'^[[0m }^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:59.1838762Z ^[[31;1m^[[0m^[[36;1m^[[36;1m^[[0m^[[36;1m^[[0m^[[36;1m     | ^[[31;1m                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:59.1840212Z ^[[31;1m^[[0m^[[36;1m^[[36;1m^[[0m^[[36;1m^[[0m^[[36;1m^[[31;1m^[[31;1m^[[36;1m     | ^[[31;1mComputer clippy failed^[[0m
+native	Non-interactive native contracts	2026-10-06T00:26:59.2071282Z ##[error]Process completed with exit code 1.

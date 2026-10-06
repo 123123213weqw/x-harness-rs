@@ -27,6 +27,13 @@ class PerformanceEvidenceTests(unittest.TestCase):
         self.receipt['result']['surfaces'][0]['title'] = 'Windows task switcher'
         self.reject(self.receipt)
 
+    def test_wrong_logical_view_rejects_same_source_experiment_mix(self):
+        self.manifest['tree_view'] = 'visible_control_experiment'
+        self.receipt['result']['accessibility']['tree_view'] = 'control'
+        self.reject(self.receipt)
+        self.receipt['result']['accessibility']['tree_view'] = 'visible_control_experiment'
+        grade_ax.validate(self.receipt, self.manifest)
+
     def test_wrong_artifact_source(self):
         self.receipt['source_sha'] = 'previous'
         self.reject(self.receipt)

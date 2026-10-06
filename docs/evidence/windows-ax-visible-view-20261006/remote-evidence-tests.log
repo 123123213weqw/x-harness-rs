@@ -1,0 +1,162 @@
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.004s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.245s
+
+OK
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.235s
+
+OK
+{
+  "baseline": {
+    "source_sha": "70231439b85a8d45c191ec69097ea4d677bb53c1",
+    "geometry": {
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "viewport": {
+        "height": 728.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scope": "foreground_window"
+    },
+    "modes": {
+      "auto": {
+        "samples": 3,
+        "native_elapsed_median_ms": 8906,
+        "timing_medians": {
+          "discovery_ms": 8001,
+          "child_navigation_ms": 7647,
+          "materialization_ms": 445,
+          "pattern_ms": 112,
+          "invoke_cache_hits": 33,
+          "invoke_live_fallbacks": 40
+        },
+        "returned_range": [
+          92,
+          155
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 31772672,
+        "edge_peak_working_set_bytes": 994193408
+      },
+      "semantic": {
+        "samples": 3,
+        "native_elapsed_median_ms": 8818,
+        "timing_medians": {
+          "discovery_ms": 8007,
+          "child_navigation_ms": 7681,
+          "materialization_ms": 460,
+          "pattern_ms": 111,
+          "invoke_cache_hits": 32,
+          "invoke_live_fallbacks": 37
+        },
+        "returned_range": [
+          88,
+          112
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 31465472,
+        "edge_peak_working_set_bytes": 993976320
+      }
+    },
+    "tree_view": "control",
+    "all_required_anchors_observed": true,
+    "expected_input_coverage": {
+      "Search. Enter keywords, model number or item number": {
+        "observed_samples": 1,
+        "total_samples": 6
+      }
+    },
+    "required_input_coverage_passed": false,
+    "complete_tree_accepted": false,
+    "causal_speedup_claim": false,
+    "memory_scope": "Process working-set sums, not PSS or installed XHarness memory."
+  },
+  "candidate": {
+    "source_sha": "70231439b85a8d45c191ec69097ea4d677bb53c1",
+    "geometry": {
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "viewport": {
+        "height": 728.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scope": "foreground_window"
+    },
+    "modes": {
+      "auto": {
+        "samples": 3,
+        "native_elapsed_median_ms": 9081,
+        "timing_medians": {
+          "discovery_ms": 8007,
+          "child_navigation_ms": 7772,
+          "materialization_ms": 671,
+          "pattern_ms": 193,
+          "invoke_cache_hits": 51,
+          "invoke_live_fallbacks": 87
+        },
+        "returned_range": [
+          157,
+          177
+        ],
+        "partial_samples": 2,
+        "time_limit_samples": 2,
+        "native_peak_working_set_bytes": 30367744,
+        "edge_peak_working_set_bytes": 993689600
+      },
+      "semantic": {
+        "samples": 3,
+        "native_elapsed_median_ms": 9098,
+        "timing_medians": {
+          "discovery_ms": 8001,
+          "child_navigation_ms": 7789,
+          "materialization_ms": 780,
+          "pattern_ms": 208,
+          "invoke_cache_hits": 51,
+          "invoke_live_fallbacks": 87
+        },
+        "returned_range": [
+          177,
+          177
+        ],
+        "partial_samples": 2,
+        "time_limit_samples": 2,
+        "native_peak_working_set_bytes": 30535680,
+        "edge_peak_working_set_bytes": 993804288
+      }
+    },
+    "tree_view": "visible_control_experiment",
+    "all_required_anchors_observed": true,
+    "expected_input_coverage": {
+      "Search. Enter keywords, model number or item number": {
+        "observed_samples": 6,
+        "total_samples": 6
+      }
+    },
+    "required_input_coverage_passed": true,
+    "complete_tree_accepted": false,
+    "causal_speedup_claim": false,
+    "memory_scope": "Process working-set sums, not PSS or installed XHarness memory."
+  },
+  "comparison": "Descriptive same-page samples; partial trees and varying node counts do not establish a causal speedup."
+}
