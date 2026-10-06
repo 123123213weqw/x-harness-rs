@@ -3,6 +3,7 @@ import * as React from "react"
 import type { PageContext, Translation } from "../shared/runtime-types"
 import CSS from "./Experience.css"
 import { normalizeProcessMode, PROCESS_MODE_KEY, type ProcessMode } from '../shared/process-display'
+import { InstallationStatistics, statisticsLabels } from "./InstallationStatistics"
 const h = React.createElement
 const { useEffect, useState } = React
 const MODES = ['auto', 'expanded'] as const
@@ -122,6 +123,10 @@ function Settings({ t }: { t: Translation }) {
 
 export const inject = ['slots', 'locale']
 export function apply(ctx: PageContext) {
+  ctx.effect(() => ctx.locale.register('xharness-installations', statisticsLabels), 'xharness-installations: locale')
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section', id: 'installation-statistics', order: 36, label: () => ctx.locale.bind('xharness-installations')('nav'), inject: () => ({ t: ctx.locale.bind('xharness-installations') }),
+  }, InstallationStatistics))
   ctx.effect(() => ctx.locale.register('xharness-experience', labels), 'xharness-experience: locale')
   ctx.effect(() => {
     if (document.getElementById('xharness-experience-css')) return () => {}

@@ -7,6 +7,7 @@ mod browser_perform;
 mod computer_activity;
 mod diagnostics;
 mod native_startup;
+mod installations;
 mod sidecar;
 mod startup;
 mod updater;
@@ -51,6 +52,8 @@ pub fn run() {
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
+            app.manage(installations::InstallationState::initialize(app.handle()));
+            tauri::async_runtime::spawn(installations::worker(app.handle().clone()));
             app.manage(computer_activity::DesktopComputerActivityState::default());
             app.manage(browser::BrowserState::default());
             app.manage(browser_bridge::BrowserBridge::default());
@@ -80,12 +83,16 @@ pub fn run() {
                             message: error,
                         },
                     );
+                } else {
+                    installations::started(&handle);
                 }
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             sidecar::desktop_status,
+            installations::desktop_installation_status,
+            installations::desktop_set_installation_statistics,
             startup::desktop_report_startup_phase,
             diagnostics::desktop_open_diagnostics,
             diagnostics::desktop_diagnostics_status,

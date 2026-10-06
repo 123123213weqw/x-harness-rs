@@ -1,4 +1,6 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=XHARNESS_INSTALLATION_ENDPOINT");
+    println!("cargo:rerun-if-env-changed=XHARNESS_RELEASE_CHANNEL");
     // Wry imports TaskDialogIndirect (ComCtl32 v6). Tauri resources cover
     // the production bin but not Cargo's lib test executable. Give every
     // executable target the same activation dependency, including unit tests.
@@ -25,6 +27,8 @@ fn main() {
     tauri_build::try_build(
         attributes.app_manifest(tauri_build::AppManifest::new().commands(&[
             "desktop_status",
+            "desktop_installation_status",
+            "desktop_set_installation_statistics",
             "desktop_report_startup_phase",
             "desktop_open_diagnostics",
             "desktop_diagnostics_status",

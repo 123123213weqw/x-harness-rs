@@ -204,6 +204,7 @@ jobs:
       - run: node --check scripts/assemble-static-ui.mjs
       - run: node scripts/test-model-controls.mjs
       - run: node scripts/test-upstream-ui-experience.mjs
+      - run: node scripts/test-installation-statistics-ui.mjs
       - run: node scripts/test-workspace-directory.mjs
       - run: node scripts/test-browser-ui.mjs
       - run: node scripts/test-browser-window-controller.mjs

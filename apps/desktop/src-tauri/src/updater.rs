@@ -68,6 +68,13 @@ pub async fn desktop_check_update(
         Ok(update) => {
             let version = update.as_ref().map(|update| update.version.clone());
             let notes = update.as_ref().and_then(|update| update.body.clone());
+            if let Some(target) = version.as_deref() {
+                crate::installations::event(
+                    &app,
+                    xharness_installation::Kind::UpdateAvailable,
+                    Some(target),
+                );
+            }
             state
                 .update_session
                 .lock()
@@ -314,6 +321,11 @@ pub async fn desktop_install_update(
         )
         .map(|_| ());
     }
+    crate::installations::event(
+        &app,
+        xharness_installation::Kind::InstallStarted,
+        Some(&update.version),
+    );
     transition(&app, &state, Phase::Installing, None);
     if let Err(error) = update.install(bytes.as_slice()) {
         // Windows can invoke its exit hook before ShellExecute fails. Restore
@@ -442,6 +454,19 @@ fn fail(
         .lock()
         .expect("update session mutex poisoned")
         .fail(action, error.clone());
+    match action {
+        Action::Install => crate::installations::event(
+            app,
+            xharness_installation::Kind::InstallFailed,
+            snapshot.version.as_deref(),
+        ),
+        Action::Download => crate::installations::event(
+            app,
+            xharness_installation::Kind::DownloadFailed,
+            snapshot.version.as_deref(),
+        ),
+        _ => {}
+    }
     publish(app, snapshot);
     Err(error)
 }
