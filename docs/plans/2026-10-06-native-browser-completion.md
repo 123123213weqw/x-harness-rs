@@ -50,12 +50,17 @@ No arbitrary JS-eval tool or global desktop-input bypass was added.
    iframe coordinate click, three changed-color screenshots and hidden yellow
    pixels all verified. 11.282 seconds; API calls zero. This is not OS-global
    automation, general iframe element traversal, or a video recorder.
-4. macOS/Windows prototype: require the new candidate's native CI receipts; older
-   DOM-only probe success does not establish these new API results.
+4. Exact `b6e2c65` CI receipts: Windows trusted mouse/key, cross-origin coordinate
+   click and changed-color foreground PNGs passed (23.109 s); a hidden snapshot
+   timed out and is **not** marked supported. macOS changed-color foreground/
+   hidden PNGs passed, but native input produced no trusted events (19.190 s).
+   The callback-only gate incorrectly passed that probe. The strict core gate
+   now fails unsuccessful input; the next candidate fixes AppKit's lower-left
+   coordinate convention and must be retested. This is not three-platform parity.
 5. Paid DeepSeek: actual Host with only `plugin_mcp`, genuine native WebView and
    canonical AppFrame; starts with zero tabs and natural prompts (no tool-name
    hint). Each trial has an independent fixture-state grader and accounting/
-   teardown gates. Outcome counts are recorded separately after completion.
+   teardown gates. Outcome counts and retained admission failures are recorded below.
 
 Paid trials use a **new browser-only USD 1 ceiling**, with verified 2026-10-06
 peak cache-miss rates (USD 0.30/M input, 1.20/M output). Every request durably
@@ -65,10 +70,55 @@ not reset or relabelled. The key stays in local memory; the remote Host receives
 only an expiring loopback capability. USD numbers are conservative bounds, not a
 provider invoice. Source: <https://api-docs.deepseek.com/quick_start/pricing/>.
 
+## Real DeepSeek zero-tab outcomes (2026-10-06)
+
+Machine-readable, numeric-only result: `docs/acceptance/native-browser-zero-tab-20261006.json`.
+Raw receipts/histories and the closed ledger are retained in the local acceptance
+evidence directory, not checked into the public repository. Large raw transfer
+timed out; compressed essential receipt/history/log transfer completed.
+
+Exact native/Host candidate: `b6e2c65d811f4b0e7867b00210e5a5ec3ec45cd4`.
+Each accepted trial checked real fixture state, settled provider accounting,
+zero pending requests and owned-process/profile teardown. Natural prompts did
+not name `plugin_mcp` or any browser operation. Only that tool was available.
+
+| Disposable browser task | First complete run | Second complete run | API calls |
+| --- | ---: | ---: | ---: |
+| Issue form + independent issue state | 45.962 s, pass | 43.188 s, pass | 18 + 17 |
+| PR review + independent review state | 46.749 s, pass | 40.310 s, pass | 18 + 18 |
+| Dynamic page controls | 67.829 s, pass | 46.280 s, pass | 17 + 20 |
+| Keyboard/game page state | 81.196 s, pass | 72.444 s, pass | 25 + 25 |
+
+There were **12 attempted trials, not 8/8 attempts**: eight fully executed trials
+passed; four intermediate trials were blocked by the evaluator's original
+80-call gate (2/0/0/0 admitted calls), before complete execution. These original
+failed receipts are retained; they are not erased, marked successful or blamed
+on model quality. No real GitHub Issue/PR was created; these are disposable web
+fixtures for browser-control acceptance.
+
+The original USD 1 financial ledger was explicitly closed/settled, then continued
+with a 200-call limit, preserving the initial 80 calls, rows, denials and
+USD 0.1262214 cumulative bound. Its money ceiling never increased. Final closed
+ledger: **160 requests, pending 0, conservative USD 0.2628189**, eight numeric
+admission denials. This is a peak-cache-miss cost upper bound, not an invoice.
+Original CNY experiment accounts were untouched; the ephemeral remote provider
+capabilities were removed and the local controller stopped.
+
+The runner now separates `passed`, `blocked_by_budget_gate`, `evaluation_failed`,
+`task_failed` and `not_evaluated`. A numeric admission failure stops later doomed
+trials; provider/Host error turns are not silently counted as task-quality scores.
+No output/action is replayed or edited to make a failed trial pass.
+
+Engineering validation: 61 portable Python tests, 54 remote desktop library
+unit tests, strict source UI typecheck/build equality. Remote Linux prototype
+core APIs passed; the independent CI repeat also passed in 11.745 s, plus 4/4
+pre-opened and 4/4 genuine-zero-tab contracts. Core native feasibility now
+requires trusted state AND decoded changed-marker pixels, not merely receipt
+presence. Full browser parity remains a separate gate.
+
 ## Remaining release gates
 
-- Collect new macOS/Windows native-API results on the exact candidate SHA.
-- Finish and independently grade all paid zero-tab trials; close their ledger.
+- Retest the AppKit coordinate correction and strict core gate on macOS/Windows.
 - Review cross-origin **element discovery/refs**, full recording/encoding,
   background policy, non-ASCII/IME/shortcuts, transfers and ownership revocation
   before enabling native inputs/screenshots as production capabilities.

@@ -27,7 +27,15 @@ pub fn button(
     let result = (|| {
         let view = view(&handle)?;
         let window = view.window().ok_or("WKWebView window missing")?;
-        let point = view.convertPoint_toView(NSPoint::new(x, y), None);
+        // Browser coordinates start at the upper left. An unflipped AppKit
+        // view starts at the lower left; converting to window coordinates does
+        // not itself change that input convention. Never infer the convention
+        // from display scale or the outer window's dimensions.
+        let flipped = view.isFlipped();
+        let height = view.bounds().size.height;
+        let local = NSPoint::new(x, if flipped { y } else { height - y });
+        let point = view.convertPoint_toView(local, None);
+        println!("NATIVE_INPUT_GEOMETRY flipped={flipped} height={height} browser=({x},{y}) window=({},{})", point.x, point.y);
         let kind = if pressed {
             NSEventType::LeftMouseDown
         } else {

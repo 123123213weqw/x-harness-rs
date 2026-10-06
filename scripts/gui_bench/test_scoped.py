@@ -9,6 +9,29 @@ from scripts.gui_bench.budget import INPUT_LIMIT, OUTPUT_LIMIT
 
 
 class ScopedLedgerTests(unittest.TestCase):
+    def test_explicit_continuation_preserves_total_and_cannot_raise_money_ceiling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'budget.json';ledger=ScopedLedger(path,calls=2)
+            ticket=ledger.reserve(ledger.token,0)
+            ledger.settle(ticket,dict(prompt_tokens=1000,completion_tokens=100),200,.1)
+            spent=ledger.spent;ledger.close();ledger.release()
+            with self.assertRaises(ValueError): ScopedLedger(path,dollars=.9,continuation=True)
+            resumed=ScopedLedger(path,calls=200,continuation=True)
+            try:
+                self.assertEqual(resumed.spent,spent)
+                self.assertEqual(resumed.calls,1)
+                self.assertEqual(len(resumed.rows),1)
+                self.assertEqual(resumed.limit,1)
+                self.assertEqual(resumed.continuations[0]['start_usd'],spent)
+            finally: resumed.close();resumed.release()
+
+    def test_pending_and_nonexistent_scopes_cannot_be_continued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'budget.json'
+            with self.assertRaises(ValueError): ScopedLedger(path,continuation=True)
+            ledger=ScopedLedger(path);ledger.reserve(ledger.token,0);ledger.close();ledger.release()
+            with self.assertRaises(ValueError): ScopedLedger(path,calls=200,continuation=True)
+
     def test_admission_is_durable_before_forwarding_and_no_key_is_saved(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'budget.json'
