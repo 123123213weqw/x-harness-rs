@@ -73,7 +73,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -B -m unittest discover -s scripts/terminal_bench -p test_broker.py -v
-      - run: python3 -B -m unittest scripts.gui_bench.test_budget scripts.gui_bench.test_runner scripts.gui_bench.test_native_probe scripts.gui_bench.test_webview -v
+      - run: python3 -B -m unittest scripts.gui_bench.test_budget scripts.gui_bench.test_runner scripts.gui_bench.test_native_probe scripts.gui_bench.test_native_png scripts.gui_bench.test_scoped scripts.gui_bench.test_webview -v
 
   browser-contract:
     runs-on: ubuntu-latest

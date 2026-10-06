@@ -10,6 +10,16 @@ from scripts.gui_bench.run_native_probe import command, environment, cleanup, cl
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_all_gui_entry_points_prepare_x11_before_tauri_initialization(self):
+        root = Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri'
+        for relative in ['src/lib.rs','examples/browser-inspect-probe.rs','examples/native-browser-bench.rs']:
+            source=(root/relative).read_text()
+            self.assertLess(source.index('native_startup::prepare()'),source.index('tauri::Builder::default()'))
+        source=(root/'src/native_startup.rs').read_text()
+        self.assertIn('std::env::var_os("DISPLAY").is_some()',source)
+        self.assertIn('(xlib.XInitThreads)()',source)
+        self.assertNotIn('XOpenDisplay',source)
+
     def test_early_zero_exit_or_partial_pass_is_not_acceptance(self):
         import json
         self.assertFalse(contract_completed(""))

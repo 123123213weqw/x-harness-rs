@@ -6,6 +6,7 @@ mod browser_lifecycle;
 mod browser_perform;
 mod computer_activity;
 mod diagnostics;
+mod native_startup;
 mod sidecar;
 mod startup;
 mod updater;
@@ -25,6 +26,7 @@ struct DesktopBootstrapEvent {
 }
 
 pub fn run() {
+    native_startup::prepare().expect("native runtime prerequisites failed");
     let app = tauri::Builder::default()
         // Keep the identifier stable across release channels and install paths.
         // This must run before any plugin/setup that can start a second Host.

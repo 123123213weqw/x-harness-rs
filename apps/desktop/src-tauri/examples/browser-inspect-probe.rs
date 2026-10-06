@@ -15,6 +15,10 @@ mod browser_lifecycle;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 
+mod native_api;
+#[path = "../src/native_startup.rs"]
+mod native_startup;
+
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
@@ -44,7 +48,7 @@ fn serve_fixture(html: String) -> String {
 fn fixture() -> String {
     // Different ports are different origins; no CORS relaxation or proxy.
     let child = serve_fixture(
-        "<!doctype html><button id='child'>Cross-origin private button</button>".into(),
+        r#"<!doctype html><style>body{margin:0}button{position:absolute;left:0;top:0;width:150px;height:44px}</style><button id='child' onclick="parent.postMessage({kind:'native-child',trusted:event.isTrusted},'*')">Cross-origin private button</button>"#.into(),
     );
     serve_fixture(format!(
         "{HTML}<iframe id='cross-origin' src='{child}'></iframe>"
@@ -254,6 +258,101 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     )
     .await?;
     println!("Native lifecycle probe passed: zero-tab discovery -> abandoned-socket cancellation -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
+    Ok(())
+}
+
+async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    guest.set_focus().map_err(|_| "native probe focus failed")?;
+    evidence(&guest, r#"(() => {
+      window.nativeEvents=[];window.nativeChild=null;window.nativeClicked=false;
+      const input=document.querySelector('#answer');input.value='';input.style='position:fixed;left:20px;top:20px;width:200px;height:30px';
+      input.addEventListener('input',e=>nativeEvents.push({type:e.type,trusted:e.isTrusted}));
+      for(const kind of ['keydown','keyup'])input.addEventListener(kind,e=>nativeEvents.push({type:e.type,trusted:e.isTrusted,key:e.key}));
+      const button=document.createElement('button');button.id='native-probe';button.textContent='Native API target';button.style='position:fixed;left:400px;top:100px;width:150px;height:44px';button.onclick=e=>{nativeClicked=e.isTrusted;nativeEvents.push({type:e.type,trusted:e.isTrusted})};document.body.append(button);
+      const frame=document.querySelector('#cross-origin');frame.style='position:fixed;left:400px;top:170px;width:200px;height:100px;border:0';
+      window.addEventListener('message',e=>{if(e.source===frame.contentWindow&&e.data?.kind==='native-child')nativeChild=e.data.trusted});
+      const marker=document.createElement('div');marker.id='native-marker';marker.style='position:fixed;left:20px;top:120px;width:100px;height:100px;background:rgb(255,0,0)';document.body.append(marker);
+      return true;
+    })()"#).await?;
+    let button_error = native_api::click(&guest, 450.0, 120.0).await.err();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let input_error = native_api::click(&guest, 60.0, 35.0).await.err();
+    let key_error = native_api::key_z(&guest).await.err();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let child_error = native_api::click(&guest, 450.0, 190.0).await.err();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let result = evidence(&guest, "({clicked:nativeClicked,input:document.querySelector('#answer').value,events:nativeEvents,child:nativeChild,dpr:devicePixelRatio})").await?;
+    let keyboard_verified = input_error.is_none()
+        && key_error.is_none()
+        && result["input"] == "z"
+        && result["events"].as_array().is_some_and(|events| {
+            ["input", "keydown", "keyup"].iter().all(|kind| {
+                events
+                    .iter()
+                    .any(|event| event["type"] == *kind && event["trusted"] == true)
+            })
+        });
+    let mut screenshots = Vec::new();
+    for (index, color) in ["rgb(255,0,0)", "rgb(0,255,0)", "rgb(0,0,255)"]
+        .iter()
+        .enumerate()
+    {
+        evidence(&guest,&format!("(() => {{document.querySelector('#native-marker').style.background={};return true}})()",json!(color))).await?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        match native_api::snapshot(&guest).await {
+            Ok(png) => {
+                let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
+                let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+                if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+                    let path = std::path::PathBuf::from(root);
+                    std::fs::create_dir_all(&path).map_err(|_| "probe PNG directory failed")?;
+                    std::fs::write(path.join(format!("snapshot-{index}.png")), &png)
+                        .map_err(|_| "probe PNG write failed")?;
+                }
+                screenshots.push(json!({"index":index,"width":width,"height":height,"bytes":png.len(),"status":"captured"}));
+            }
+            Err(error) => screenshots.push(json!({"index":index,"status":"failed","error":error})),
+        }
+    }
+    // API feasibility only: owned disposable view, never a production grant.
+    // Change the marker while hidden so a stale cached image cannot pass.
+    guest.hide().map_err(|_| "probe hide failed")?;
+    let background_script = evidence(&guest,
+        "(() => {document.querySelector('#native-marker').style.background='rgb(255,255,0)';return true})()")
+        .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let hidden_snapshot = match native_api::snapshot(&guest).await {
+        Ok(png) => {
+            if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+                std::fs::write(
+                    std::path::PathBuf::from(root).join("snapshot-hidden.png"),
+                    &png,
+                )
+                .map_err(|_| "hidden probe PNG write failed")?;
+            }
+            json!({"status":"captured","width":u32::from_be_bytes(png[16..20].try_into().unwrap()),
+                "height":u32::from_be_bytes(png[20..24].try_into().unwrap()),"bytes":png.len()})
+        }
+        Err(error) => json!({"status":"failed","error":error}),
+    };
+    guest
+        .show()
+        .map_err(|_| "probe restore visibility failed")?;
+    println!(
+        "NATIVE_API_EVIDENCE {}",
+        json!({"platform":std::env::consts::OS,"test_only":true,
+        "production_enabled":false,"native_mouse":{"passed":button_error.is_none()&&result["clicked"]==true,"error":button_error},
+        "native_keyboard":{"passed":keyboard_verified,"focus_error":input_error,"error":key_error},
+        "cross_origin_pointer":{"passed":child_error.is_none()&&result["child"]==true,"error":child_error},
+        "cross_origin_frame_traversal":{"status":"not_implemented"},
+        "screenshots":screenshots,"observed":result,
+        "recording":{"status":"frame_sequence_only; not a production video recorder"},
+        "hidden_background":{"status":"test_only; production delegation still denies hidden tabs",
+            "script_executed":background_script==true,"snapshot":hidden_snapshot}})
+    );
     Ok(())
 }
 
@@ -919,6 +1018,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
         return Err("hide/reselect revived an old action frame".into());
     }
     hard_capability_probe(app).await?;
+    native_api_probe(app).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
@@ -931,11 +1031,12 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hidden tab was incorrectly inspected".into());
     }
-    println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/OS input)");
+    println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/global OS input)");
     Ok(())
 }
 
 fn main() {
+    native_startup::prepare().expect("native probe prerequisites failed");
     let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completed = completion.clone();
     let url = fixture();
@@ -965,7 +1066,7 @@ fn main() {
             let completed = completed.clone();
             tauri::async_runtime::spawn(async move {
                 let result =
-                    tokio::time::timeout(Duration::from_secs(75), probe(&handle, url)).await;
+                    tokio::time::timeout(Duration::from_secs(120), probe(&handle, url)).await;
                 let success = matches!(&result, Ok(Ok(())));
                 completed.store(success, std::sync::atomic::Ordering::SeqCst);
                 if !success {
