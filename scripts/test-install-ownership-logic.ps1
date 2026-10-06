@@ -193,3 +193,32 @@ Assert-That $failed 'Redirected backup root accepted'
 Assert-That (@(Get-ChildItem -LiteralPath $outside -Force).Count -eq $outsideCount) 'Wrote into redirected backup destination'
 Set-Item Function:Get-XHarnessShortcutBackupRoot $originalBackupRoot
 Write-Output "Installer logic passed: custom/unknown preservation, shortcut repair, recoverable retirement. Fixtures: $fixture"
+
+
+# Explicit migration must preserve even recognized legacy binaries/uninstallers.
+# Override only native path resolvers: fixtures never touch the real Start Menu.
+$migrated = New-TestCopy 'user-migrated-install'
+$retained = New-TestCopy 'known-legacy-retained-on-migration'
+[IO.File]::WriteAllText((Join-Path $retained 'uninstall.exe'), 'retain old uninstaller')
+$migrationLink = Join-Path $fixture 'migration-old.lnk'
+New-TestShortcut $migrationLink (Join-Path $retained 'xharness-desktop.exe')
+$migrationMenu = Join-Path $fixture 'migration-start-menu.lnk'
+function Get-XHarnessUserInstallDirectory { $migrated }
+function Get-XHarnessUserStartMenuLink { $migrationMenu }
+function Get-XHarnessLegacyLocations { $retained }
+$migrationInventory = Join-Path $fixture 'migration.json'
+@([pscustomobject]@{ Link = $migrationLink; Directory = $retained; Custom = $false }) |
+    ConvertTo-Json | Set-Content -LiteralPath $migrationInventory -Encoding UTF8
+Invoke-XHarnessReconcile $migrated $migrationInventory -UserMigration
+Assert-That (Test-Path -LiteralPath (Join-Path $retained 'xharness-desktop.exe')) 'Migration retired old executable'
+Assert-That ((Get-Content -LiteralPath (Join-Path $retained 'uninstall.exe') -Raw) -eq 'retain old uninstaller') 'Migration modified old uninstaller'
+Assert-That ((Get-Content -LiteralPath (Join-Path $retained 'user-project.txt') -Raw) -eq 'DO NOT DELETE') 'Migration modified user data'
+Assert-That ([XHarnessInstaller.Shortcuts]::Read($migrationLink).TargetPath -ieq (Join-Path $migrated 'xharness-desktop.exe')) 'Old user shortcut not repointed'
+Assert-That ([XHarnessInstaller.Shortcuts]::Read($migrationMenu).TargetPath -ieq (Join-Path $migrated 'xharness-desktop.exe')) 'Missing per-user launch entry not created'
+$failed = $false
+try { Invoke-XHarnessReconcile $canonical $migrationInventory -UserMigration } catch { $failed = $true }
+Assert-That $failed 'Migration accepted an arbitrary destination'
+$failed = $false
+try { Invoke-XHarnessPreflight $migrationInventory $canonical -UserMigration } catch { $failed = $true }
+Assert-That $failed 'Migration preflight accepted an arbitrary destination'
+Write-Output 'Explicit migration fixture passed: old installation/data retained, user entry created, arbitrary targets refused.'

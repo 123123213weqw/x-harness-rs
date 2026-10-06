@@ -6,6 +6,18 @@
   }
 
   // src/desktop/updater.ts
+  function decodePlan(value) {
+    if (!isObjectRecord(value) || typeof value.needsChoice !== "boolean") throw Error("Invalid installation permission reply");
+    if (value.needsChoice && (typeof value.currentDirectory !== "string" || typeof value.userDirectory !== "string" || typeof value.migrationAvailable !== "boolean")) throw Error("Incomplete installation permission reply");
+    if (value.reason !== void 0 && value.reason !== null && typeof value.reason !== "string") throw Error("Invalid installation permission reason");
+    return {
+      needsChoice: value.needsChoice,
+      currentDirectory: typeof value.currentDirectory === "string" ? value.currentDirectory : void 0,
+      userDirectory: typeof value.userDirectory === "string" ? value.userDirectory : void 0,
+      migrationAvailable: typeof value.migrationAvailable === "boolean" ? value.migrationAvailable : void 0,
+      reason: nullableText(value.reason)
+    };
+  }
   function updateAction(value) {
     return value === "check" || value === "download" || value === "install";
   }
@@ -54,31 +66,65 @@
       return view;
     }
     function createController(invoke2, changed = () => {
-    }) {
+    }, options = {}) {
       let state = { seq: -1, phase: "idle" };
       let pending = false;
       let confirming = false;
       let disposed2 = false;
       let automaticAttempts = 0;
+      let plan;
+      let placement;
+      let preparation = 0;
+      function resetConsent() {
+        confirming = false;
+        plan = void 0;
+        placement = void 0;
+        preparation++;
+      }
       function notify() {
-        changed(state, { pending, confirming });
+        changed(state, { pending, confirming, plan, placement });
+      }
+      async function prepareInstall() {
+        if (disposed2 || pending || busyPhases.has(state.phase ?? "")) return;
+        if (!options.preflight) {
+          confirming = true;
+          notify();
+          return;
+        }
+        resetConsent();
+        pending = true;
+        const generation = preparation, before = state.seq;
+        notify();
+        try {
+          const reply = decodePlan(await invoke2("desktop_update_preflight"));
+          if (disposed2 || generation !== preparation || state.seq !== before) return;
+          plan = reply;
+          confirming = !reply.needsChoice;
+        } catch (error) {
+          if (!disposed2 && generation === preparation && state.seq === before)
+            state = { ...state, phase: "error", retryAction: "install", message: String(error) };
+        } finally {
+          pending = false;
+          notify();
+        }
       }
       function accept(value) {
         const next = decodeState(value);
         if (!next || next.seq < state.seq) return;
+        if (busyPhases.has(next.phase ?? "") || next.seq !== state.seq && (confirming || plan)) resetConsent();
         state = next;
-        if (busyPhases.has(state.phase ?? "")) confirming = false;
         notify();
       }
       async function execute(action2) {
         if (disposed2 || pending || busyPhases.has(state.phase ?? "")) return;
+        const installPlacement = placement;
         pending = true;
-        confirming = false;
+        resetConsent();
         const before = state.seq;
         notify();
         try {
           const command = { check: "desktop_check_update", download: "desktop_download_update", install: "desktop_install_update" }[action2];
-          accept(await invoke2(command, action2 === "install" ? { confirmStop: true } : void 0));
+          accept(await invoke2(command, action2 === "install" ? { confirmStop: true, ...installPlacement ? { placement: installPlacement } : {} } : void 0));
         } catch (error) {
           try {
             accept(await invoke2("desktop_update_status"));
@@ -99,8 +145,21 @@
         get confirming() {
           return confirming;
         },
+        get plan() {
+          return plan;
+        },
+        enablePreflight() {
+          options.preflight = true;
+        },
+        choose(value) {
+          if (disposed2 || pending || !plan?.needsChoice || confirming || value === "user" && !plan.migrationAvailable) return;
+          if (value !== "user" && value !== "current") return;
+          placement = value;
+          confirming = true;
+          notify();
+        },
         get retryDelay() {
-          if (disposed2 || pending || confirming || state.phase !== "error" || state.retryAction === "install") return;
+          if (disposed2 || pending || confirming || plan || state.phase !== "error" || state.retryAction === "install") return;
           return [3e4, 12e4, 6e5][automaticAttempts - 1];
         },
         accept,
@@ -108,7 +167,7 @@
           accept(await invoke2("desktop_update_status"));
         },
         async prepare() {
-          if (disposed2 || pending || confirming || busyPhases.has(state.phase ?? "") || automaticAttempts >= 4) return;
+          if (disposed2 || pending || confirming || plan || busyPhases.has(state.phase ?? "") || automaticAttempts >= 4) return;
           if (state.phase === "downloaded" || state.phase === "error" && state.retryAction === "install") return;
           automaticAttempts++;
           if (state.phase !== "available" && !(state.phase === "error" && state.retryAction === "download")) await execute("check");
@@ -119,6 +178,7 @@
         },
         dispose() {
           disposed2 = true;
+          resetConsent();
         },
         check() {
           if (["idle", "up-to-date", "available"].includes(state.phase ?? "") || state.phase === "error" && state.retryAction === "check") return execute("check");
@@ -127,18 +187,14 @@
           automaticAttempts = 0;
           if (pending || busyPhases.has(state.phase ?? "")) return;
           const action2 = state.phase === "error" ? state.retryAction ?? "check" : state.phase === "downloaded" ? "install" : state.phase === "available" ? "download" : "check";
-          if (action2 === "install") {
-            confirming = true;
-            notify();
-            return;
-          }
+          if (action2 === "install") return prepareInstall();
           return execute(action2);
         },
         confirm() {
           if (confirming) return execute("install");
         },
         dismiss() {
-          confirming = false;
+          resetConsent();
           notify();
         }
       };
@@ -181,8 +237,9 @@
       <div class="text" role="status" aria-live="polite"></div>
       <progress hidden aria-label="\u66F4\u65B0\u4E0B\u8F7D\u8FDB\u5EA6"></progress>
       <pre class="notes" hidden></pre>
+      <div class="placement" hidden></div>
       <div class="confirm" hidden>\u91CD\u542F\u5C06\u505C\u6B62\u5F53\u524D Agent\u3001\u5DE5\u5177\u548C\u540E\u53F0 Job\u3002\u4F1A\u8BDD\u4F1A\u4FDD\u5B58\uFF0C\u4F46\u8FD0\u884C\u4E2D\u7684\u547D\u4EE4\u4E0D\u4FDD\u8BC1\u81EA\u52A8\u6062\u590D\u3002\u786E\u8BA4\u73B0\u5728\u66F4\u65B0\uFF1F</div>
-      <div class="footer"><button class="later" hidden>\u7A0D\u540E</button><button class="action primary">\u68C0\u67E5\u66F4\u65B0</button></div>
+      <div class="footer"><button class="later" hidden>\u7A0D\u540E</button><button class="current-place" hidden></button><button class="action primary">\u68C0\u67E5\u66F4\u65B0</button></div>
       <div class="hint">\u4E0B\u8F7D\u4E0D\u5F71\u54CD\u5F53\u524D\u5DE5\u4F5C\uFF1B\u5B89\u88C5\u9700\u8981\u91CD\u542F\u5E94\u7528\u3002</div>
       <div class="footer"><button class="diagnostics">\u8FD0\u884C\u8BCA\u65AD</button></div>
     </section>
@@ -263,7 +320,10 @@
       host.hidden = false;
       positionAnchor();
     }
-    const controller = createController(invoke, (state, { pending, confirming }) => {
+    const tr = (zh, en) => (document.documentElement.lang || navigator.language || "en").startsWith("zh") ? zh : en;
+    const placementBox = $(".placement"), currentPlace = root.querySelector(".current-place");
+    if (!(currentPlace instanceof HTMLButtonElement)) throw Error("desktop updater: missing placement button");
+    const controller = createController(invoke, (state, { pending, confirming, plan, placement }) => {
       const view = bootError ? { label: "\u684C\u9762\u66F4\u65B0\u521D\u59CB\u5316\u5931\u8D25\uFF1A" + bootError, action: "\u66F4\u65B0\u4E0D\u53EF\u7528", busy: false, emphasized: false } : updateView(state);
       panel.hidden = !expanded;
       toggle.classList.toggle("primary", view.emphasized);
@@ -274,10 +334,25 @@
       text.textContent = view.label;
       notes.textContent = state.notes ?? "";
       notes.hidden = !notes.textContent;
-      action.textContent = confirming ? "\u505C\u6B62\u4EFB\u52A1\u5E76\u91CD\u542F\u66F4\u65B0" : view.action;
-      action.disabled = Boolean(bootError) || pending || view.busy;
+      const choosing = Boolean(plan?.needsChoice && !confirming);
+      placementBox.hidden = !choosing;
+      placementBox.textContent = choosing ? [
+        tr("\u65E7\u5B89\u88C5\u4F4D\u7F6E\u9700\u8981\u6743\u9650\u786E\u8BA4\uFF0C\u5EFA\u8BAE\u8FC1\u79FB\u5230\u7528\u6237\u76EE\u5F55\uFF0C\u540E\u7EED\u66F4\u65B0\u65E0\u9700\u7BA1\u7406\u5458\u6743\u9650\u3002", "The current installation needs a permission decision. Move to your user directory for future non-admin updates."),
+        plan?.userDirectory ?? "",
+        tr("\u4F1A\u8BDD\u4E0E\u914D\u7F6E\u4E0D\u53D8\uFF1B\u65E7\u5B89\u88C5\u4E0D\u4F1A\u81EA\u52A8\u5220\u9664\u3002", "Conversations and settings are preserved. The old installation will not be deleted."),
+        plan?.migrationAvailable ? "" : plan?.reason ?? tr("\u6682\u4E0D\u53EF\u8FC1\u79FB", "Migration unavailable")
+      ].filter(Boolean).join("\n") : "";
+      placementBox.style.whiteSpace = "pre-wrap";
+      placementBox.style.overflowWrap = "anywhere";
+      currentPlace.hidden = !choosing;
+      currentPlace.textContent = tr("\u4FDD\u7559\u539F\u4F4D\u7F6E\u66F4\u65B0", "Keep current location");
+      currentPlace.disabled = pending || view.busy;
+      confirmation.textContent = (placement === "user" ? tr("\u5C06\u8FC1\u79FB\u5230\u7528\u6237\u76EE\u5F55\u3002", "Move to your user directory. ") : "") + tr("\u91CD\u542F\u5C06\u505C\u6B62\u5F53\u524D Agent\u3001\u5DE5\u5177\u548C\u540E\u53F0\u4EFB\u52A1\u3002\u4F1A\u8BDD\u4F1A\u4FDD\u5B58\uFF0C\u8FD0\u884C\u4E2D\u7684\u547D\u4EE4\u4E0D\u4FDD\u8BC1\u81EA\u52A8\u6062\u590D\u3002", "Restart will stop running agents, tools and jobs. Conversations are saved; running commands may not resume.");
+      action.textContent = choosing ? tr("\u8FC1\u79FB\u5E76\u66F4\u65B0\uFF08\u63A8\u8350\uFF09", "Migrate & update (recommended)") : confirming ? tr("\u505C\u6B62\u4EFB\u52A1\u5E76\u91CD\u542F\u66F4\u65B0", "Stop tasks & update") : view.action;
+      action.disabled = Boolean(bootError) || pending || view.busy || choosing && !plan?.migrationAvailable;
       confirmation.hidden = !confirming;
-      later.hidden = !confirming;
+      later.hidden = !confirming && !choosing;
+      later.textContent = tr("\u7A0D\u540E", "Later");
       progress.hidden = state.phase !== "downloading";
       if (typeof state.total === "number" && state.total > 0) {
         progress.max = state.total;
@@ -309,7 +384,8 @@
     });
     $(".close").addEventListener("click", collapse);
     later.addEventListener("click", () => controller.dismiss());
-    action.addEventListener("click", () => controller.confirming ? controller.confirm() : controller.act());
+    currentPlace.addEventListener("click", () => controller.choose("current"));
+    action.addEventListener("click", () => controller.confirming ? controller.confirm() : controller.plan?.needsChoice ? controller.choose("user") : controller.act());
     root.addEventListener("keydown", (event) => {
       if (event instanceof KeyboardEvent && event.key === "Escape") {
         event.preventDefault();
@@ -342,6 +418,7 @@
       if (!isObjectRecord(status) || typeof status.updaterConfigured !== "boolean")
         throw Error("desktop updater: invalid desktop status");
       if (!status.updaterConfigured || disposed) return;
+      if (status.updatePreflightSupported === true) controller.enablePreflight();
       unlisten = await listen("xharness-update", ({ payload }) => controller.accept(payload));
       if (disposed) {
         unlisten();

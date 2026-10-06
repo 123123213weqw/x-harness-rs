@@ -101,6 +101,7 @@ pub fn run() {
             diagnostics::desktop_set_deep_diagnostics,
             updater::desktop_check_update,
             updater::desktop_update_status,
+            updater::desktop_update_preflight,
             updater::desktop_download_update,
             updater::desktop_install_update,
             computer_activity::desktop_set_computer_activity,
