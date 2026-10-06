@@ -1,0 +1,1 @@
+{"name":"xharness-release-service","private":true,"version":"1.0.0","dependencies":{"@actions/artifact":"6.3.1"}}

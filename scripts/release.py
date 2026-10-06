@@ -57,6 +57,18 @@ def gh(arguments, payload=None):
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
+def gh_read(arguments):
+    # This helper is deliberately private to GET callers. A timed-out POST is
+    # an uncertain mutation, not something a retry decorator may repeat.
+    for attempt in range(3):
+        try:
+            return gh(arguments)
+        except TransportError:
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
+
+
 class GitHub:
     def __init__(self, repo):
         require(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo), 'Invalid repository')
@@ -64,10 +76,10 @@ class GitHub:
         self.root = f'repos/{repo}'
 
     def get(self, path):
-        return gh(['api', f'{self.root}/{path}'])
+        return gh_read(['api', f'{self.root}/{path}'])
 
     def pages(self, path, field):
-        pages = gh(['api', '--paginate', '--slurp', f'{self.root}/{path}'])
+        pages = gh_read(['api', '--paginate', '--slurp', f'{self.root}/{path}'])
         return [item for page in pages for item in (page[field] if field else page)]
 
     def master(self):
@@ -160,20 +172,21 @@ def task_lock(path):
         stream.close()
 
 
-def new_task(repo, version, scope, sha, publisher_pin=None):
+def new_task(repo, version, scope, sha, publisher_pin=None, *, pipeline=False):
     contract.version(version)
     require(scope in SCOPES and re.fullmatch(r'[0-9a-f]{40}', sha or ''), 'Invalid scope or source SHA')
     require(publisher_pin is None or scope == contract.MACOS_SELFSIGNED_SCOPE, 'Signer pin outside self-signed scope')
     if scope == contract.MACOS_SELFSIGNED_SCOPE:
         contract.signing_fingerprint(publisher_pin)
-    return {**({'macos_signing_fingerprint': publisher_pin} if scope == contract.MACOS_SELFSIGNED_SCOPE else {}), 'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
+    require(type(pipeline) is bool, 'Pipeline selection must be a boolean')
+    return {**({'pipeline': True} if pipeline else {}), **({'macos_signing_fingerprint': publisher_pin} if scope == contract.MACOS_SELFSIGNED_SCOPE else {}), 'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
             'source_sha': sha, 'phase': 'waiting_ci', 'stages': {}, 'history': []}
 
 
 class ReleaseTask:
     def __init__(self, client, state, persist):
         require(state.get('schema') == 1 and state.get('repository') == client.repo, 'Task repository/schema mismatch')
-        new_task(client.repo, state['version'], state['scope'], state['source_sha'], state.get('macos_signing_fingerprint'))
+        new_task(client.repo, state['version'], state['scope'], state['source_sha'], state.get('macos_signing_fingerprint'), pipeline=state.get('pipeline', False))
         self.client, self.state, self.persist = client, state, persist
 
     def checkpoint(self, phase):
@@ -271,20 +284,22 @@ class ReleaseTask:
                                releases, runs, self.state['scope'], self.state.get('macos_signing_fingerprint'))
         inputs = {'release_tag': 'desktop-v' + self.state['version'], 'release_scope': self.state['scope'],
                   'prepare_tag': True, 'expected_sha': sha,
+                  **({'integrated_acceptance': True} if self.state.get('pipeline') else {}),
                   **({'expected_macos_signing_fingerprint': self.state['macos_signing_fingerprint']}
                      if self.state['scope'] == contract.MACOS_SELFSIGNED_SCOPE else {})}
         if not self.stage('build', inputs, dispatch=dispatch, retry=retry):
             return self.state['phase']
         build_id = str(self.state['stages']['build']['run_id'])
-        unix = self.stage('unix', {'mode': 'candidate', 'release_run_id': build_id}, dispatch=dispatch, retry=retry)
-        windows = self.stage('windows', {'release_run_id': build_id}, dispatch=dispatch, retry=retry)
+        pipeline = self.state.get('pipeline', False)
+        unix = pipeline or self.stage('unix', {'mode': 'candidate', 'release_run_id': build_id}, dispatch=dispatch, retry=retry)
+        windows = pipeline or self.stage('windows', {'release_run_id': build_id}, dispatch=dispatch, retry=retry)
         if not (unix and windows):
             return self.checkpoint('acceptance_running')
         if confirm is None and 'publish' not in self.state['stages']:
             return self.checkpoint('awaiting_confirmation')
         inputs = {'release_run_id': build_id,
-                  'unix_acceptance_run_id': str(self.state['stages']['unix']['run_id']),
-                  'windows_acceptance_run_id': str(self.state['stages']['windows']['run_id'])}
+                  'unix_acceptance_run_id': build_id if pipeline else str(self.state['stages']['unix']['run_id']),
+                  'windows_acceptance_run_id': build_id if pipeline else str(self.state['stages']['windows']['run_id'])}
         if self.stage('publish', inputs, dispatch=dispatch, retry=retry):
             return self.checkpoint('published')
         return self.state['phase']
@@ -302,6 +317,9 @@ def main():
     parser.add_argument('version')
     parser.add_argument('--platforms', choices=SCOPES, default=None)
     parser.add_argument('--repo')
+    parser.add_argument('--pipeline', action='store_true', help='New tasks only: build/sign/native acceptance on the same hosted workers')
+    parser.add_argument('--hosted', action='store_true', help='Preferred new-release entry: hand off once to the durable GitHub coordinator')
+    parser.add_argument('--publish-after-acceptance', metavar='VERSION', help='Hosted entry only: explicitly authorize this exact version after all gates')
     parser.add_argument('--state-dir', type=Path, default=Path.home() / '.xharness' / 'release-tasks')
     parser.add_argument('--status', action='store_true', help='Read GitHub status without triggering any workflow')
     parser.add_argument('--no-wait', action='store_true', help='Advance once and exit; invoke again to resume')
@@ -317,16 +335,28 @@ def main():
         repo = args.repo or gh(['repo', 'view', '--json', 'nameWithOwner'])['nameWithOwner']
         client = GitHub(repo)
         path = args.state_dir / repo.replace('/', '--') / (args.version + '.json')
+        require(args.publish_after_acceptance is None or args.hosted and args.publish_after_acceptance == args.version,
+                'Hosted publication authorization must match the exact version')
+        if args.hosted:
+            require(not args.retry and args.confirm_publish is None and not args.pipeline,
+                    'Hosted mode owns pipeline selection; retry the same Actions run, not local stages')
+            spec = importlib.util.spec_from_file_location('release_service', ROOT / 'scripts/desktop-release-service.py')
+            service = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(service)
+            print(json.dumps(service.handoff(client, path, args.version, args.platforms,
+                                           args.publish_after_acceptance is not None, status=args.status), sort_keys=True))
+            return 0
         with task_lock(path):
             require(not path.is_symlink(), 'Task state must not be a symlink')
             if path.exists():
                 state = json.loads(path.read_text(encoding='utf-8'))
                 require(state['version'] == args.version and (args.platforms is None or state['scope'] == args.platforms), 'Cannot change an existing task version/scope')
+                require(not args.pipeline or state.get('pipeline') is True, 'Cannot change an existing task to the new pipeline')
             else:
                 require(not args.status and args.confirm_publish is None, 'No task exists; prepare this version first')
                 scope = args.platforms or 'all-macos-preview'
                 state = new_task(repo, args.version, scope, client.master(),
-                                 client.publisher_pin() if scope == contract.MACOS_SELFSIGNED_SCOPE else None)
+                                 client.publisher_pin() if scope == contract.MACOS_SELFSIGNED_SCOPE else None, pipeline=args.pipeline)
                 save(path, state)
             task = ReleaseTask(client, state, lambda value: save(path, value))
             deadline, previous = time.monotonic() + args.timeout, None

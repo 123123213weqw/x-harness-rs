@@ -19,9 +19,22 @@ export function requireHostedWindows(env, platform) {
   assert.equal(env.XHARNESS_FRIENDS_RELEASE_REPOSITORY, env.GITHUB_REPOSITORY)
   assert.match(env.GITHUB_REPOSITORY, /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/)
 }
-export function validateRun(run, plan) {
-  assert.equal(run.conclusion, 'success')
-  assert.equal(run.status, 'completed')
+export function validateRun(run, plan, env) {
+  if (plan.acceptance_mode === 'in-build') {
+    assert.ok(env, 'In-build acceptance needs its authenticated runner identity')
+    assert.equal(env.GITHUB_ACTIONS, 'true')
+    assert.equal(env.RUNNER_ENVIRONMENT, 'github-hosted')
+    assert.equal(env.GITHUB_REPOSITORY, plan.repository)
+    assert.equal(env.GITHUB_SHA, plan.sha)
+    assert.equal(env.GITHUB_RUN_ID, String(run.id))
+    assert.equal(env.GITHUB_RUN_ATTEMPT, String(run.run_attempt))
+    assert.ok(env.GITHUB_WORKFLOW_REF?.startsWith(`${plan.repository}/.github/workflows/desktop-release.yml@`))
+    assert.equal(run.conclusion, null)
+    assert.equal(run.status, 'in_progress')
+  } else {
+    assert.equal(run.conclusion, 'success')
+    assert.equal(run.status, 'completed')
+  }
   assert.equal(run.path, '.github/workflows/desktop-release.yml')
   assert.ok(['push', 'workflow_dispatch'].includes(run.event))
   assert.equal(run.head_branch, run.event === 'push' ? plan.tag : 'master')
@@ -74,11 +87,13 @@ function main(command) {
   const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8', timeout: 180000, stdio: ['ignore', 'pipe', 'pipe'] })
   const run = JSON.parse(gh('api', `repos/${repo}/actions/runs/${e.RELEASE_RUN_ID}`))
   if (command === 'stage') {
-    assert.ok(!existsSync(candidate) && !existsSync(root), 'Refuse pre-existing acceptance directories')
-    mkdirSync(candidate, { recursive: true })
-    gh('run', 'download', e.RELEASE_RUN_ID, '--repo', repo, '--name', 'desktop-candidate', '--dir', candidate)
+    assert.ok(!existsSync(root), 'Refuse pre-existing acceptance directories')
+    if (!existsSync(candidate)) {
+      mkdirSync(candidate, { recursive: true })
+      gh('run', 'download', e.RELEASE_RUN_ID, '--repo', repo, '--name', 'desktop-candidate', '--dir', candidate)
+    } else assert.equal(json(join(candidate, 'plan.json')).acceptance_mode, 'in-build', 'Local candidate allowed only in the exact build worker')
     const plan = json(join(candidate, 'plan.json'))
-    validateRun(run, plan)
+    validateRun(run, plan, e)
     assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), plan.sha, 'Checkout must match candidate source')
     assert.equal(plan.repository, repo)
     const key = e.UPSTREAM_PUBLIC_KEY?.trim()
@@ -118,12 +133,12 @@ function main(command) {
     }
     console.log('Verified unified candidate and current stable Windows base; ready for native one-hop test.')
   } else if (command === 'collect') {
-    const staged = json(join(root, 'unified-stage.json')); validateRun(run, staged.plan)
+    const staged = json(join(root, 'unified-stage.json')); validateRun(run, staged.plan, e)
     const pass = json(join(root, 'evidence/PASS.json'))
     const target = join(root, 'next', `XHarness_${staged.plan.version}_x64-setup.exe`)
     assert.equal(sha(readFileSync(target)), staged.package_sha256)
     assert.equal(sha(readFileSync(join(root, 'next/latest.json'))), staged.manifest_sha256)
-    const provenance = { workflow: '.github/workflows/desktop-windows-update-acceptance.yml',
+    const provenance = { workflow: staged.plan.acceptance_mode === 'in-build' ? '.github/workflows/desktop-release.yml' : '.github/workflows/desktop-windows-update-acceptance.yml',
       run_id: e.GITHUB_RUN_ID, run_attempt: e.GITHUB_RUN_ATTEMPT,
       source_sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }
     assert.equal(provenance.source_sha, staged.plan.sha)
