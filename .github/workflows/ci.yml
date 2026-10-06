@@ -716,6 +716,14 @@ jobs:
           name: native-browser-dom-macos
           path: dist/native-browser-evidence/macos/
           if-no-files-found: warn
+      - name: Retain exact macOS probe executable for no-recompile diagnosis
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-browser-probe-macos-arm64
+          path: apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe
+          if-no-files-found: warn
+          retention-days: 3
       - name: Build installable macOS application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: tauri-apps/tauri-action@v0.6.2

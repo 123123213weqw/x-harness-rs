@@ -280,5 +280,48 @@
     "display_capture": false,
     "global_input": false,
     "provider_calls": 0
+  },
+  "ci_c1_strict_native": {
+    "run": 37413582695,
+    "source": "c1f9b21805f1156a52a4aae16ff0533177585b1f",
+    "linux": {
+      "native_core_passed": true,
+      "seconds": 10.717,
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "focus_observed": true,
+      "cross_origin_coordinate_click": true,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": true,
+      "binary_sha256": "77e848f6384245f1660224292f84b99242380977ef93ad265a57bbca2b4c4410",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    },
+    "windows": {
+      "native_core_passed": true,
+      "seconds": 24.328,
+      "trusted_mouse": true,
+      "trusted_keyboard": true,
+      "focus_observed": true,
+      "cross_origin_coordinate_click": true,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": false,
+      "binary_sha256": "d69451ab1547caf2df5b1a0411a27806e68c48a7bcc6b231b928583246f00341",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    },
+    "macos": {
+      "native_core_passed": false,
+      "seconds": 18.7,
+      "trusted_mouse": false,
+      "trusted_keyboard": false,
+      "focus_observed": false,
+      "cross_origin_coordinate_click": false,
+      "changed_native_pixels": true,
+      "hidden_live_pixels": true,
+      "binary_sha256": "526c878f5897fcc02f727e55d65eceaafefe5b1753ae4ce852e205981e76fae0",
+      "browser_parity_passed": false,
+      "cleanup_passed": true
+    }
   }
 }
