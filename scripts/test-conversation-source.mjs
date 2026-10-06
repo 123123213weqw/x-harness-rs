@@ -37,7 +37,12 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const css=h=>Object.fromEntries(h.styles.filter(s=>!s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')&&!s.dataset.pluginCss.endsWith('/MessageRail.css')).map(s=>[s.dataset.pluginCss,s.textContent]));
  const oldCss=css(old),nextCss=css(next),reasoningId='@xharness/dsh-client-ui-conversation/ReasoningRow.module.css';
  assert.equal(nextCss[reasoningId],readFileSync(new URL('../ui/src/modules/conversation/chat/ReasoningRow.css',import.meta.url),'utf8'),'the emitted reasoning stylesheet is exactly its maintained source');
- assert.ok(nextCss[reasoningId].startsWith(oldCss[reasoningId]),'existing reasoning styles and sweep are preserved before the page rules');
+ // Reviewed typography delta: only the Think title moves from 400 to 500.
+ // Keep the frozen sheet intact and pin that exact single rule; every other
+ // byte (including running sweep and reduced-motion rules) still matches.
+ const oldThinkTitle='.U8JO7q_title{font-weight:400}',newThinkTitle='.U8JO7q_title{font-weight:500}';
+ assert.equal(oldCss[reasoningId].split(oldThinkTitle).length,2,'frozen Think title is an exact positive control');
+ assert.ok(nextCss[reasoningId].startsWith(oldCss[reasoningId].replace(oldThinkTitle,newThinkTitle)),'only reviewed Think weight differs; existing reasoning styles and sweep are preserved before the page rules');
  // Explicit product delta: theme foreground on the primary Send/Stop glyph.
  // Keep the frozen reference intact; only this exact declaration may differ.
  const inputId='@xharness/dsh-client-ui-conversation/InputBar.module.css';
