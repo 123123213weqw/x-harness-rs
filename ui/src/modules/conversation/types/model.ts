@@ -37,7 +37,7 @@ export type AssistantBlock =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
   | { kind: 'image'; attachment: ImageAttachmentRef }
-  | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
+  | { kind: 'tool-call'; callId: string; name: string; argsRaw: string; /** First normalized argument delta, Unix epoch ms; UI-only. */ startedAt?: number | undefined }
   | { kind: 'other'; block: unknown }
 
 /**

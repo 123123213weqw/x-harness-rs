@@ -4,6 +4,16 @@ const PLAN_NEXT_ACTION_EN = "describe your task to generate plan"
 
 export const NS = 'conversation'
 export const en = {
+			"tool.arguments.generating": "Generating tool input",
+			"tool.arguments.received": "{size} received",
+			"tool.arguments.elapsed": "{seconds}s",
+			"tool.arguments.notExecuted": "The model is still generating input. The tool has not executed yet.",
+			"tool.arguments.preview": "Input preview",
+			"tool.arguments.raw": "Raw JSON",
+			"tool.arguments.showPreview": "Show preview",
+			"tool.arguments.showRaw": "Show raw JSON",
+			"tool.arguments.waiting": "Waiting for input…",
+			"tool.arguments.truncated": "Preview limited to {count} characters. The actual tool input is not truncated.",
 			"view.chat": "Chat",
 			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_EN,
@@ -213,6 +223,16 @@ export const en = {
 			"clock.ymd": "{y}-{m}-{d}"
 		}
 export const zh = {
+			"tool.arguments.generating": "正在生成工具参数",
+			"tool.arguments.received": "已接收 {size}",
+			"tool.arguments.elapsed": "{seconds} 秒",
+			"tool.arguments.notExecuted": "模型仍在生成参数，工具尚未执行。",
+			"tool.arguments.preview": "内容预览",
+			"tool.arguments.raw": "原始 JSON",
+			"tool.arguments.showPreview": "查看内容预览",
+			"tool.arguments.showRaw": "查看原始 JSON",
+			"tool.arguments.waiting": "等待参数内容…",
+			"tool.arguments.truncated": "仅预览前 {count} 个字符，实际工具参数未被截断。",
 			"view.chat": "对话",
 			"xh.turn.working": "Working…",
 			"hint.plan": PLAN_NEXT_ACTION_ZH,
