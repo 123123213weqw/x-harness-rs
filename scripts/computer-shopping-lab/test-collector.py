@@ -38,6 +38,17 @@ class CollectorTests(unittest.TestCase):
                 for i in range(30):post('/browser-result',{'id':i,'data':'x'*80000})
                 for reader in readers:reader.join(timeout=5);self.assertFalse(reader.is_alive())
                 self.assertEqual(errors,[])
+                import base64
+                png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=')
+                def binary_post(path, data):
+                    return http.open(urllib.request.Request(base+path, data=data, headers={'Content-Type':'image/png'}),timeout=3).read()
+                self.assertEqual(binary_post('/browser-image/0.png', png), b'OK')
+                self.assertEqual(http.open(base+'/browser-image/0.png',timeout=3).read(), png)
+                for path in ('/browser-image/80.png','/browser-image/01.png','/browser-image/../secret.png','/browser-image/0.png?x=1'):
+                    with self.assertRaises(urllib.error.HTTPError) as error:binary_post(path, png)
+                    self.assertEqual(error.exception.code,404)
+                with self.assertRaises(urllib.error.HTTPError) as error:binary_post('/browser-image/1.png', b'not png')
+                self.assertEqual(error.exception.code,400)
                 self.assertEqual(post('/browser-job',{'stop':True}),b'OK')
             finally:
                 if idle:idle.close()
