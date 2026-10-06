@@ -38,6 +38,8 @@ struct State {
 pub struct WindowsComputer {
     executable: PathBuf,
     state: Mutex<State>,
+    #[cfg(feature = "native-acceptance")]
+    visible_view_experiment: bool,
 }
 impl WindowsComputer {
     pub fn new() -> Result<Self, ComputerError> {
@@ -53,6 +55,15 @@ impl WindowsComputer {
         Self {
             executable,
             state: Mutex::new(State::default()),
+            #[cfg(feature = "native-acceptance")]
+            visible_view_experiment: wire::visible_view_experiment(
+                std::env::var("XHARNESS_UIA_VISIBLE_EXPERIMENT")
+                    .ok()
+                    .as_deref(),
+                std::env::var("XHARNESS_DISPOSABLE_COMPUTER_VM")
+                    .ok()
+                    .as_deref(),
+            ),
         }
     }
     async fn exchange(
@@ -84,6 +95,12 @@ impl WindowsComputer {
             .stderr(Stdio::null())
             .creation_flags(WINDOWS_CREATE_NO_WINDOW | WINDOWS_CREATE_SUSPENDED)
             .kill_on_drop(true);
+        // Freeze the lab-only view in this driver for both observations and
+        // input resolution. Never read a mutable view option from tool args.
+        #[cfg(feature = "native-acceptance")]
+        if self.visible_view_experiment {
+            command.arg("--uia-visible-view-experiment");
+        }
         for name in [
             "SystemRoot",
             "WINDIR",

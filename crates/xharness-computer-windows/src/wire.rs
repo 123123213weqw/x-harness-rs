@@ -109,6 +109,12 @@ pub fn write_packet(writer: &mut impl Write, bytes: &[u8], max: usize) -> io::Re
 
 pub const MAX_TREE_DEPTH: usize = 32;
 
+/// An acceptance-only experiment, never a model/RPC option or production mode.
+#[cfg(feature = "native-acceptance")]
+pub fn visible_view_experiment(enabled: Option<&str>, disposable_vm: Option<&str>) -> bool {
+    enabled == Some("1") && disposable_vm == Some("66b64058-bdcc-43e9-85ee-55a79fe2e875")
+}
+
 // Windows browser providers use deep framework wrappers before page content.
 // Depth and node/visit/time budgets are independent; raising depth never
 // permits an unbounded tree or changes the macOS adapter.
@@ -146,6 +152,18 @@ pub fn absolute_axis(point: f64, origin: f64, extent: f64) -> Result<i32, Comput
 mod tests {
     use super::*;
     use std::io::Cursor;
+    #[cfg(feature = "native-acceptance")]
+    #[test]
+    fn visible_view_requires_explicit_flag_and_exact_disposable_vm() {
+        let vm = Some("66b64058-bdcc-43e9-85ee-55a79fe2e875");
+        assert!(visible_view_experiment(Some("1"), vm));
+        for enabled in [None, Some("0"), Some("true"), Some("1 ")] {
+            assert!(!visible_view_experiment(enabled, vm));
+        }
+        for identity in [None, Some("other-machine"), Some("")] {
+            assert!(!visible_view_experiment(Some("1"), identity));
+        }
+    }
     #[test]
     fn packet_is_bounded_before_allocation() {
         for n in [0u32, 129, u32::MAX] {
