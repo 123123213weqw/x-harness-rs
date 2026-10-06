@@ -1,0 +1,2583 @@
+{
+  "sourceCommit": "bd14d189",
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "scripts/test-platform-source-browser.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-ui-boot-differential.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck",
+        "--prefix",
+        "ui"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check:plugin-api",
+        "--prefix",
+        "ui"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check:build",
+        "--prefix",
+        "ui"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "build",
+        "--prefix",
+        "ui"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-icon-assets.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check:build",
+        "--prefix",
+        "ui"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-standalone-ui-build.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-ui-migration-reference.mjs",
+        "scripts/test-owned-ui-type-policy.mjs",
+        "scripts/test-source-module-builder.mjs",
+        "scripts/test-plugin-api-types.mjs",
+        "scripts/test-owned-script-assets.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-foundation-source-modules.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-product-source-modules.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-automation-tool-card.mjs",
+        "scripts/test-automation-navigation.mjs",
+        "scripts/test-work-catalog.mjs",
+        "scripts/test-tasks-state-ownership.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-stream-presentation.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-reasoning-summary.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-code-review.mjs",
+        "scripts/test-github-review.mjs",
+        "scripts/test-code-review-filters.mjs",
+        "scripts/test-code-review-structured.mjs",
+        "scripts/test-code-review-p0.mjs",
+        "scripts/test-global-assistant.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-view-source-modules.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-desktop-sidebar-toggle.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-selection-source.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachment-source.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-models-source.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-preset-source-modules.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-renderer-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-highlighter-lifecycle.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-cordis-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-cordis-services.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-service-boundaries.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-main-differential.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-history-rollback.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-connection-boundaries.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-layout-workspace-source.mjs"
+      ],
+      "env": {
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-layout-workspace-source.mjs"
+      ],
+      "env": {
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tool-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-source.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-turn-process.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-product-brand-copy.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-adaptive-tool-fold.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-session-terminal-contract.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-chat-scroll-memory.mjs",
+        "scripts/test-fork-wire-contract.mjs",
+        "scripts/test-history-page-intent.mjs",
+        "scripts/test-message-preview.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-source.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-trajectory-source-module.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-plugin-api.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "python3",
+        "-B",
+        "scripts/test-remote-sync.py"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-internal-queue.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-max-tokens-notice.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-context-plugin.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-profile-plugin.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-center.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-terminal-plugin.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tasks-plugin.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-motion-plugin.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-motion-tokens.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-ui.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-projection.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-wire.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-scroll-follow.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-computer-ui.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-brand-headline.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-brand-identity.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-logo-gradient.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-logo-motion.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-monochrome-theme.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-silver-surface.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-context-accounting.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-assistant-projection.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-assistant-visibility-lifecycle.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-retry-turn-projection.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-network-wait-ui.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-atomic-history.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-ui-lifecycle-recovery.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-live-answer-recovery.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-startup-catalog-refresh.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-permission-selection.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "--check",
+        "scripts/assemble-static-ui.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-controls.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-upstream-ui-experience.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-ui.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-window-controller.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-created-at.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-save-feedback.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-startup-surface-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-startup-surface-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-script-assets-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-script-assets-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-chat-scroll-intent-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-chat-scroll-intent-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-turn-process-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-turn-process-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-automation-navigation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-automation-navigation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-cache-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-cache-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-filters-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-filters-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-p0-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-code-review-p0-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-global-assistant-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-global-assistant-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-renderer-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-renderer-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-renderer-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-renderer-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-selection-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-selection-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-selection-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-selection-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachment-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachment-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachment-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachment-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-models-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-models-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-models-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-models-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tool-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tool-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tool-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tool-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-trajectory-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-trajectory-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-trajectory-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-trajectory-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tasks-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tasks-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tasks-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-tasks-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-profile-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-profile-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-profile-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-profile-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-cordis-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-cordis-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-cordis-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-cordis-source-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-view-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-view-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-view-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-view-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "legacy"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-platform-source-browser.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-owned-ui-boot-differential.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-page-priority-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-page-priority-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-sidebar-row-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-sidebar-row-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-context-layout.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-center-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-context-layout.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-center-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-plugin-hub-functional.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-motion-tokens-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-motion-tokens-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-terminal-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-terminal-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-save-feedback-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-settings-save-feedback-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-desktop-updater-layer.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-runtime-diagnostics-browser.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-desktop-updater-layer.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-controls-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-model-controls-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-upstream-ui-experience-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-upstream-ui-experience-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-subagent-navigation.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-subagent-navigation.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-workspace-directory-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-pane-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-pane-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-native-bridge.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-native-bridge.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-model-control.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-model-control.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-access.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-access.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-persistence-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-browser-restore-runtime.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-conversation-message-edit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-attachments-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-execution-checkpoints-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-streaming-math.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-session-history-cache.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-session-history-cache.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-transcript-row-state.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-transcript-windowing.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-transcript-windowing.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-transcript-windowing.mjs"
+      ],
+      "env": {
+        "UI_TEST_NO_NATIVE_ANCHOR": "1",
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-transcript-windowing.mjs"
+      ],
+      "env": {
+        "UI_TEST_NO_NATIVE_ANCHOR": "1",
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-compaction-progress-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-patch.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-question-continuation-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-approval-prompt-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-patch.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-ui-namespace.mjs"
+      ],
+      "env": {}
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-goal-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-computer-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-computer-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      }
+    },
+    {
+      "argv": [
+        "node",
+        "scripts/test-request-audit-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      }
+    }
+  ]
+}

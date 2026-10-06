@@ -100,261 +100,196 @@ jobs:
       - run: python3 -B scripts/test-cloud-native-acceptance.py
       - run: python3 -B scripts/test-cloud-goal-acceptance.py
 
+  # Preserve the existing required check. A failed/skipped/cancelled matrix must
+  # never turn into a green merge gate through `if: always()`.
   context-layout:
     name: Harness layout / Chromium + WebKit
+    needs: [ui-build, ui-contracts, ui-browser, ui-parity]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Require every UI shard and parity gate
+        env:
+          UI_CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-ui-gate.mjs
+
+  ui-build:
+    name: UI / locked build and shard contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
       - name: Install locked source UI toolchain
         run: npm ci --prefix ui --ignore-scripts
-      - name: Install isolated UI test dependencies
+      - name: Validate sharding, baseline coverage and fail-closed gate
         run: |
-          npm install --prefix "$RUNNER_TEMP/ui-tests" --no-save --package-lock=false playwright@1.61.1 react@18.3.1 react-dom@18.3.1
-          node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
-      - name: Strict platform pixel parity (early failure evidence)
+          node --test scripts/test-ci-ui-suite.mjs
+          python3 -B scripts/test-ci-tiering.py
+      - name: Check committed artifacts, strict types and deterministic build
+        run: node scripts/ci-ui-suite.mjs --suite build
+      - name: Seal same-run UI artifact (not a compiler cache)
+        run: |
+          node scripts/ci-ui-artifact.mjs --write "$RUNNER_TEMP/ui-build-receipt.json"
+          tar -czf "$RUNNER_TEMP/ui-build.tar.gz" ui/dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-build-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/ui-build.tar.gz
+            ${{ runner.temp }}/ui-build-receipt.json
+          retention-days: 3
+          if-no-files-found: error
+      - name: Upload build timing receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-timing-build
+          path: dist/ci-ui-timings/
+          if-no-files-found: warn
+
+  ui-contracts:
+    name: UI contracts / shard ${{ matrix.shard }}
+    needs: ui-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-build-${{ github.sha }}
+          path: ${{ runner.temp }}/ui-build
+      - name: Restore and verify this exact run's UI build
+        run: |
+          tar -xzf "$RUNNER_TEMP/ui-build/ui-build.tar.gz"
+          node scripts/ci-ui-artifact.mjs --verify "$RUNNER_TEMP/ui-build/ui-build-receipt.json"
+      - name: Run all assigned contracts (isolated test processes)
+        run: node scripts/ci-ui-suite.mjs --suite contract --shard ${{ matrix.shard }} --shards 4
+      - name: Upload contract timing and evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-contract-evidence-${{ matrix.shard }}
+          path: dist/
+          if-no-files-found: warn
+
+  ui-browser:
+    name: UI browser / ${{ matrix.browser }} / shard ${{ matrix.shard }}
+    needs: ui-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        browser: [chromium, webkit]
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            scripts/ui-test-deps/package-lock.json
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
+      - name: Install isolated locked browser test dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/ui-tests"
+          cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/ui-tests/"
+          (cd "$RUNNER_TEMP/ui-tests" && npm ci --ignore-scripts)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ui-browser-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('scripts/ui-test-deps/package-lock.json') }}
+      # Runtime Linux libraries are still installed on every fresh runner.
+      - name: Install selected browser and system libraries
+        run: node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps ${{ matrix.browser }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ui-build-${{ github.sha }}
+          path: ${{ runner.temp }}/ui-build
+      - name: Restore and verify this exact run's UI build
+        run: |
+          tar -xzf "$RUNNER_TEMP/ui-build/ui-build.tar.gz"
+          node scripts/ci-ui-artifact.mjs --verify "$RUNNER_TEMP/ui-build/ui-build-receipt.json"
+      - name: Run source, legacy and layout fixtures for this engine
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: node scripts/ci-ui-suite.mjs --suite browser --browser ${{ matrix.browser }} --shard ${{ matrix.shard }} --shards 4
+      - name: Upload browser timing and evidence (including failures)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-browser-evidence-${{ matrix.browser }}-${{ matrix.shard }}
+          path: dist/
+          if-no-files-found: warn
+
+  ui-parity:
+    name: UI / committed and rebuilt strict pixel parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            scripts/ui-test-deps/package-lock.json
+      - name: Install locked source UI toolchain
+        run: npm ci --prefix ui --ignore-scripts
+      - name: Install isolated locked browser test dependencies
         run: |
-          node scripts/test-platform-source-browser.mjs
-          # Check the exact complete plugin graph before the long UI suite.
-          # The later generated-artifact and browser gates remain mandatory.
-          node scripts/test-owned-ui-boot-differential.mjs
-      - name: Check repository UI build and types
-        run: |
-          npm run typecheck --prefix ui
-          npm run check:plugin-api --prefix ui
-          npm run check:build --prefix ui
-          npm run build --prefix ui
-          node scripts/test-plugin-icon-assets.mjs
-          npm run check:build --prefix ui
-          node --test scripts/test-standalone-ui-build.mjs
-          node --test scripts/test-ui-migration-reference.mjs scripts/test-owned-ui-type-policy.mjs scripts/test-source-module-builder.mjs scripts/test-plugin-api-types.mjs scripts/test-owned-script-assets.mjs
-          node scripts/test-foundation-source-modules.mjs
-          node scripts/test-product-source-modules.mjs
-          node --test scripts/test-automation-tool-card.mjs scripts/test-automation-navigation.mjs scripts/test-work-catalog.mjs scripts/test-tasks-state-ownership.mjs
-          node --test scripts/test-stream-presentation.mjs
-          node --test scripts/test-reasoning-summary.mjs
-          node --test scripts/test-code-review.mjs scripts/test-github-review.mjs scripts/test-code-review-filters.mjs scripts/test-code-review-structured.mjs scripts/test-code-review-p0.mjs scripts/test-global-assistant.mjs
-          node scripts/test-view-source-modules.mjs
-          node scripts/test-desktop-sidebar-toggle.mjs
-          node scripts/test-model-selection-source.mjs
-          node scripts/test-attachment-source.mjs
-          node scripts/test-settings-models-source.mjs
-          node scripts/test-preset-source-modules.mjs
-          node scripts/test-renderer-source-module.mjs
-          node --test scripts/test-highlighter-lifecycle.mjs
-          node scripts/test-workspace-source-module.mjs
-          node scripts/test-cordis-source-module.mjs
-          node scripts/test-owned-cordis-services.mjs
-          node scripts/test-conversation-service-boundaries.mjs
-          node scripts/test-conversation-main-differential.mjs
-          node scripts/test-conversation-history-rollback.mjs
-          node scripts/test-conversation-connection-boundaries.mjs
-          UI_TEST_IMPL=source node scripts/test-layout-workspace-source.mjs
-          UI_TEST_IMPL=legacy node scripts/test-layout-workspace-source.mjs
-          node scripts/test-question-source-module.mjs
-          node scripts/test-tool-source-module.mjs
-          node scripts/test-conversation-source.mjs
-          node scripts/test-turn-process.mjs
-          node scripts/test-product-brand-copy.mjs
-          node scripts/test-adaptive-tool-fold.mjs
-          node --test scripts/test-session-terminal-contract.mjs
-          node --test scripts/test-chat-scroll-memory.mjs scripts/test-fork-wire-contract.mjs scripts/test-history-page-intent.mjs scripts/test-message-preview.mjs
-          node scripts/test-goal-source.mjs
-          node scripts/test-trajectory-source-module.mjs
-          node --test scripts/test-plugin-api.mjs
-      - run: python3 -B scripts/test-remote-sync.py
-      - run: node scripts/test-execution-checkpoints.mjs
-      - run: node scripts/test-attachments.mjs
-      - run: node scripts/test-conversation-message-edit.mjs
-      - run: node scripts/test-internal-queue.mjs
-      - run: node scripts/test-max-tokens-notice.mjs
-      - run: node scripts/test-context-plugin.mjs
-      - run: node scripts/test-profile-plugin.mjs
-      - run: node scripts/test-plugin-center.mjs
-      - run: node scripts/test-terminal-plugin.mjs
-      - run: node scripts/test-tasks-plugin.mjs
-      - run: node scripts/test-motion-plugin.mjs
-      - run: node scripts/test-motion-tokens.mjs
-      - run: node scripts/test-compaction-ui.mjs
-      - run: node scripts/test-compaction-progress.mjs
-      - run: node scripts/test-compaction-projection.mjs
-      - run: node scripts/test-compaction-wire.mjs
-      - run: node scripts/test-conversation-scroll-follow.mjs
-      - run: node scripts/test-computer-ui.mjs
-      - run: node scripts/test-brand-headline.mjs
-      - run: node scripts/test-brand-identity.mjs
-      - run: node scripts/test-logo-gradient.mjs
-      - run: node scripts/test-logo-motion.mjs
-      - run: node scripts/test-monochrome-theme.mjs
-      - run: node scripts/test-silver-surface.mjs
-      - run: node scripts/test-context-accounting.mjs
-      - run: node scripts/test-assistant-projection.mjs
-      - run: node scripts/test-assistant-visibility-lifecycle.mjs
-      - run: node scripts/test-retry-turn-projection.mjs
-      - run: node scripts/test-network-wait-ui.mjs
-      - run: node scripts/test-atomic-history.mjs
-      - run: node scripts/test-ui-lifecycle-recovery.mjs
-      - run: node scripts/test-live-answer-recovery.mjs
-      - run: node scripts/test-startup-catalog-refresh.mjs
-      - run: node scripts/test-permission-selection.mjs
-      - run: node --check scripts/assemble-static-ui.mjs
-      - run: node scripts/test-model-controls.mjs
-      - run: node scripts/test-upstream-ui-experience.mjs
-      - run: node scripts/test-workspace-directory.mjs
-      - run: node scripts/test-browser-ui.mjs
-      - run: node scripts/test-browser-window-controller.mjs
-      - run: node scripts/test-workspace-created-at.mjs
-      - run: node scripts/test-settings-save-feedback.mjs
-      - name: Source migration browser differential regression
+          mkdir -p "$RUNNER_TEMP/ui-tests"
+          cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/ui-tests/"
+          (cd "$RUNNER_TEMP/ui-tests" && npm ci --ignore-scripts)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ui-browser-${{ runner.os }}-both-${{ hashFiles('scripts/ui-test-deps/package-lock.json') }}
+      - name: Install both browsers and system libraries
+        run: node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - name: Strict committed platform and full plugin graph parity
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
-        run: |
-          for browser in chromium webkit; do
-            UI_TEST_BROWSER="$browser" node scripts/test-startup-surface-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-script-assets-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-chat-scroll-intent-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-turn-process-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-conversation-message-rail-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-automation-navigation-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-code-review-cache-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-code-review-filters-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-code-review-p0-browser.mjs
-            UI_TEST_BROWSER="$browser" node scripts/test-global-assistant-browser.mjs
-            for implementation in source legacy; do
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-renderer-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-model-selection-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-attachment-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-settings-models-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-tool-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-conversation-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-trajectory-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-tasks-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-profile-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-cordis-source-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-owned-view-persistence-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-plugin-hub-functional.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-dock-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-dock-native-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-persistence-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-browser-restore-runtime.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-question-continuation-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-goal-runtime-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-approval-prompt-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-workspace-directory-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-request-audit-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-conversation-message-edit-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-attachments-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-execution-checkpoints-browser.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-streaming-math.mjs
-              UI_TEST_BROWSER="$browser" UI_TEST_IMPL="$implementation" node scripts/test-compaction-progress-browser.mjs
-            done
-          done
-          node scripts/test-platform-source-browser.mjs
-          node scripts/test-owned-ui-boot-differential.mjs
-      - name: Real browser layout regression
+        run: node scripts/ci-ui-suite.mjs --suite parity --phase before
+      - name: Rebuild without substituting a reference tree
+        run: npm run build --prefix ui
+      - name: Strict rebuilt platform and full plugin graph parity
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
-        run: |
-          UI_TEST_BROWSER=chromium node scripts/test-page-priority-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-page-priority-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-sidebar-row-actions-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-sidebar-row-actions-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-plugin-center-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-plugin-hub-functional.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-context-layout.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-plugin-center-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-plugin-hub-functional.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-motion-tokens-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-motion-tokens-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-terminal-layout-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-terminal-layout-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-settings-save-feedback-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-settings-save-feedback-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-desktop-updater-layer.mjs
-          node scripts/test-runtime-diagnostics-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-desktop-updater-layer.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-model-controls-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-model-controls-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-upstream-ui-experience-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-upstream-ui-experience-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-subagent-navigation.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-subagent-navigation.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-workspace-directory-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-workspace-directory-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-pane-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-pane-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-dock-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-dock-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-dock-native-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-dock-native-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-native-bridge.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-native-bridge.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-model-control.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-model-control.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-access.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-access.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-persistence-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-persistence-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-browser-restore-runtime.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-browser-restore-runtime.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-conversation-message-edit-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-conversation-message-edit-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-attachments-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-attachments-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-execution-checkpoints-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-execution-checkpoints-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-streaming-math.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-streaming-math.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-session-history-cache.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-session-history-cache.mjs
-          node scripts/test-transcript-row-state.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
-          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=chromium node scripts/test-transcript-windowing.mjs
-          UI_TEST_NO_NATIVE_ANCHOR=1 UI_TEST_BROWSER=webkit node scripts/test-transcript-windowing.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-compaction-progress-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-compaction-progress-browser.mjs
-          node scripts/test-question-continuation-patch.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-question-continuation-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-question-continuation-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-approval-prompt-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-approval-prompt-browser.mjs
-          node scripts/test-goal-runtime-patch.mjs
-          node scripts/test-ui-namespace.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-goal-runtime-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-goal-runtime-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-computer-ui-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-computer-ui-browser.mjs
-          UI_TEST_BROWSER=chromium node scripts/test-request-audit-browser.mjs
-          UI_TEST_BROWSER=webkit node scripts/test-request-audit-browser.mjs
-      - name: Upload strict platform parity evidence
+        run: node scripts/ci-ui-suite.mjs --suite parity --phase after
+      - name: Upload strict parity timing and evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: platform-source-ui-evidence
-          path: dist/platform-source-evidence/
-          if-no-files-found: warn
-
-      - name: Upload workspace directory UI evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: workspace-directory-ui-evidence
-          path: dist/workspace-directory-evidence/
-          if-no-files-found: warn
-
-      - name: Upload approval prompt UI evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: approval-prompt-ui-evidence
-          path: dist/approval-ui/
+          path: dist/
           if-no-files-found: warn
 
   rust-linux:
