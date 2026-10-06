@@ -833,6 +833,8 @@ class SessionRuntime {
         const { state, error } = this.manager.getListSnapshot();
         return { state, error };
     }
+    /** Acknowledge durable deletion without depending on the event stream. */
+    forgetDeletedSessions(ids) { this.manager.forgetDeletedSessions(ids); }
     /** Refresh the real Session baseline, reusing an in-flight pull. */
     refresh() {
         return this.manager.refreshList();
@@ -18389,6 +18391,7 @@ exports.sessionDeleteRequestSchema = zod_1.z.object({
 });
 exports.sessionDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.boolean(),
+    deletedSessionIds: zod_1.z.array(exports.sessionIdSchema).optional(),
 });
 
 },
@@ -20300,6 +20303,7 @@ class SessionManager {
          *  same store so history-baseline seeding and frames converge on one row set. */
         this.projectionStores = new Map();
         this.summaries = [];
+        this.deletedSessionIds = new Set();
         this.listState = 'idle';
         /** Arrival phase; the pending → ready edge fires on the first successful pull (see SessionListPhase). */
         this.listPhase = 'pending';
@@ -20614,7 +20618,7 @@ class SessionManager {
                         if (!this.prevRunning.has(s.sessionId))
                             this.prevRunning.set(s.sessionId, s.running);
                     }
-                    let summaries = baseline;
+                    let summaries = baseline.filter(row => !this.deletedSessionIds.has(row.sessionId));
                     for (const mutation of mutations) {
                         summaries = applyMutation(summaries, mutation);
                         this.summaries = summaries;
@@ -20783,11 +20787,79 @@ class SessionManager {
     }
     /** Apply immediately and retain for replay when a list response is in flight. */
     recordMutation(mutation) {
+        const id = mutation.kind === 'upsert' ? mutation.summary.sessionId : mutation.sessionId;
+        if (this.deletedSessionIds.has(id) && mutation.kind !== 'remove')
+            return;
         this.listMutations?.push(mutation);
         this.summaries = applyMutation(this.summaries, mutation);
         // Eager edge reconciliation — a snapshot-build-time pass would miss consecutive status frames.
         this.syncCompletedNotifications();
         this.notifier.markDirty();
+    }
+    /** Durable deletion is distinct from a child Activation temporarily detaching. */
+    forgetDeletedSessions(ids) {
+        for (const sessionId of ids) {
+            this.deletedSessionIds.add(sessionId);
+            this.removeSession(sessionId, true);
+        }
+        this.notifier.notifyNow();
+    }
+    removeSession(sessionId, permanent) {
+        const summary = this.summaries.find(candidate => candidate.sessionId === sessionId);
+        if (permanent)
+            this.deletedSessionIds.add(sessionId);
+        const durableSubagent = !permanent && (summary?.origin === 'subagent' || this.addresses.has(sessionId));
+        this.recordMutation(durableSubagent
+            ? { kind: 'status', sessionId, running: false }
+            : { kind: 'remove', sessionId });
+        this.updateCatalogActivity(sessionId, false);
+        if (durableSubagent) {
+            // An Activation detaching is not durable child deletion:
+            // keep its lineage and conversation while returning it to idle.
+            this.sessions.get(sessionId)?.handleRunning(false);
+        }
+        else {
+            this.sessions.get(sessionId)?.handleRemoved();
+        }
+        this.pendingBuffers.delete(sessionId); // a removed session's buffered frames must not replay on a future instantiation
+        this.pendingInteractions.delete(sessionId); // a removed session cannot wait on anyone
+        // Owner disposal already dropped these registry-side, but that lands on
+        // the mux stream while this frame rides the host stream, so the two have
+        // no relative order. Clearing here makes a detached Activation's rows
+        // disappear whichever arrives first.
+        this.jobsBySession.delete(sessionId);
+        if (!durableSubagent)
+            this.projectionStores.delete(sessionId);
+        // A pull already in flight was requested before this removal and can
+        // carry the pre-removal parentAvailable:true, which would resurrect
+        // the writable editor this invalidation just closed. Replay false over
+        // that response and queue one trailing refresh so the post-removal
+        // host truth converges.
+        const inflightCatalog = this.catalogInflight.get(sessionId);
+        if (inflightCatalog !== undefined) {
+            inflightCatalog.parentAvailableOverride = false;
+            this.catalogStale.add(sessionId);
+        }
+        // The removed session can no longer be the delivery owner of its
+        // catalog: invalidate availability immediately. Removal schedules no
+        // catalog refresh, and without this an addressed child keeps a
+        // writable editor against a dead continuation owner until an
+        // unrelated refresh (or forever, for a closed menu).
+        const ownedCatalog = this.catalogs.get(sessionId);
+        if (ownedCatalog !== undefined && ownedCatalog.parentAvailable) {
+            this.catalogs.set(sessionId, { ...ownedCatalog, parentAvailable: false });
+        }
+        for (const [childId, address] of this.addresses) {
+            if (address.parentSessionId !== sessionId)
+                continue;
+            this.sessions.get(childId)?.handleSubagentParentAvailable(false);
+        }
+        if (permanent) {
+            this.addresses.delete(sessionId);
+            for (const [parentId, catalog] of this.catalogs) {
+                this.catalogs.set(parentId, { ...catalog, entries: catalog.entries.filter(entry => entry.id !== sessionId) });
+            }
+        }
     }
     // ---- Subscription API (for useSessionList) ----
     /**
@@ -20838,6 +20910,8 @@ class SessionManager {
         const frame = envelope.payload;
         if (frame.type === 'stream/error')
             return; // Controller already treats this as stream failure
+        if (this.deletedSessionIds.has(frame.sessionId))
+            return; // Never retain late frames for durably deleted identities
         if (frame.type === 'session/event'
             && frame.event.type === 'user/message'
             && (0, value_guards_1.isRecord)(frame.event.data) && (0, value_guards_1.isRecord)(frame.event.data.source)
@@ -20975,6 +21049,8 @@ class SessionManager {
      */
     handleHostEnvelope(envelope) {
         const frame = envelope.payload;
+        if ('sessionId' in frame && this.deletedSessionIds.has(frame.sessionId))
+            return;
         switch (frame.type) {
             case 'host/remote-event': {
                 if (frame.event === 'xharness/catalog-updated')
@@ -21000,53 +21076,7 @@ class SessionManager {
                 return;
             }
             case 'host/session-removed': {
-                const summary = this.summaries.find(candidate => candidate.sessionId === frame.sessionId);
-                const durableSubagent = summary?.origin === 'subagent' || this.addresses.has(frame.sessionId);
-                this.recordMutation(durableSubagent
-                    ? { kind: 'status', sessionId: frame.sessionId, running: false }
-                    : { kind: 'remove', sessionId: frame.sessionId });
-                this.updateCatalogActivity(frame.sessionId, false);
-                if (durableSubagent) {
-                    // An Activation detaching is not durable child deletion:
-                    // keep its lineage and conversation while returning it to idle.
-                    this.sessions.get(frame.sessionId)?.handleRunning(false);
-                }
-                else {
-                    this.sessions.get(frame.sessionId)?.handleRemoved();
-                }
-                this.pendingBuffers.delete(frame.sessionId); // a removed session's buffered frames must not replay on a future instantiation
-                this.pendingInteractions.delete(frame.sessionId); // a removed session cannot wait on anyone
-                // Owner disposal already dropped these registry-side, but that lands on
-                // the mux stream while this frame rides the host stream, so the two have
-                // no relative order. Clearing here makes a detached Activation's rows
-                // disappear whichever arrives first.
-                this.jobsBySession.delete(frame.sessionId);
-                if (!durableSubagent)
-                    this.projectionStores.delete(frame.sessionId);
-                // A pull already in flight was requested before this removal and can
-                // carry the pre-removal parentAvailable:true, which would resurrect
-                // the writable editor this invalidation just closed. Replay false over
-                // that response and queue one trailing refresh so the post-removal
-                // host truth converges.
-                const inflightCatalog = this.catalogInflight.get(frame.sessionId);
-                if (inflightCatalog !== undefined) {
-                    inflightCatalog.parentAvailableOverride = false;
-                    this.catalogStale.add(frame.sessionId);
-                }
-                // The removed session can no longer be the delivery owner of its
-                // catalog: invalidate availability immediately. Removal schedules no
-                // catalog refresh, and without this an addressed child keeps a
-                // writable editor against a dead continuation owner until an
-                // unrelated refresh (or forever, for a closed menu).
-                const ownedCatalog = this.catalogs.get(frame.sessionId);
-                if (ownedCatalog !== undefined && ownedCatalog.parentAvailable) {
-                    this.catalogs.set(frame.sessionId, { ...ownedCatalog, parentAvailable: false });
-                }
-                for (const [childId, address] of this.addresses) {
-                    if (address.parentSessionId !== frame.sessionId)
-                        continue;
-                    this.sessions.get(childId)?.handleSubagentParentAvailable(false);
-                }
+                this.removeSession(frame.sessionId, frame.permanent === true);
                 return;
             }
             case 'host/session-status': {
@@ -21165,7 +21195,7 @@ class SessionManager {
     }
     /** Fold request-local row mutations into one catalog result before publication. */
     withCatalogMutations(entries, expandableRows, activityRows) {
-        return entries.map((entry) => {
+        return entries.filter(entry => !this.deletedSessionIds.has(entry.id)).map((entry) => {
             if (entry.kind !== 'child')
                 return entry;
             const activity = activityRows.get(entry.id);
@@ -24947,6 +24977,7 @@ class WorkspaceRuntime {
         return result.value.workspace;
     }
     /** Optional Host archive labels, filtered by authoritative archive membership. */
+    forgetDeletedSessions(ids) { this.manager.forgetDeletedSessions(ids); }
     archivedSummaries() { return this.manager.archivedSummaries(); }
     /** Refresh the workspace baseline, reusing an in-flight pull. */
     refresh() {
@@ -25082,6 +25113,7 @@ class WorkspaceManager {
          * into permanent blindfolds and must clear them instead.
          */
         this.removedIds = new Set();
+        this.deletedSessionIds = new Set();
         this.notifier = new notifier_1.Notifier(() => {
             this.snapshotCache = this.buildSnapshot();
         });
@@ -25259,6 +25291,9 @@ class WorkspaceManager {
             this.orderFrameGeneration++;
             this.installOrder(envelope.payload.workspaceIds, true);
         }
+        else if (envelope.payload.type === 'host/session-removed' && envelope.payload.permanent === true) {
+            this.forgetDeletedSessions([envelope.payload.sessionId]);
+        }
         else if (envelope.payload.type === 'host/archived-sessions-changed') {
             this.installArchived(envelope.payload.archivedSessionIds);
         }
@@ -25283,6 +25318,20 @@ class WorkspaceManager {
         this.notifier.ensureFresh();
         return this.snapshotCache;
     }
+    /** Apply only a successful delete acknowledgement or a permanent-removal frame. */
+    forgetDeletedSessions(ids) {
+        for (const id of ids)
+            this.deletedSessionIds.add(id);
+        this.archivedSessions = this.archivedSessions.filter(row => !this.deletedSessionIds.has(row.sessionId));
+        this.installArchived(this.archivedSessionIds);
+        for (const workspace of this.items) {
+            const view = workspace.getSnapshot().view;
+            if (view !== undefined)
+                workspace.adopt({ ...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id)) });
+        }
+        this.items = [...this.items];
+        this.notifier.notifyNow();
+    }
     archivedSummaries() {
         return this.archivedSessions.filter(row => this.archivedSessionIds.includes(row.sessionId));
     }
@@ -25303,6 +25352,7 @@ class WorkspaceManager {
     installArchived(archivedSessionIds) {
         if (this.refreshFrames !== null)
             this.archivedSupersedesRefresh = true;
+        archivedSessionIds = archivedSessionIds.filter(id => !this.deletedSessionIds.has(id));
         if (archivedSessionIds.length === this.archivedSessionIds.length
             && archivedSessionIds.every((id, index) => id === this.archivedSessionIds[index]))
             return;
@@ -25329,6 +25379,7 @@ class WorkspaceManager {
     }
     /** Upsert one Host view, optionally retaining the local object that materialized it. */
     upsert(view, identity) {
+        view = { ...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id)) };
         if (this.removedIds.has(view.workspaceId))
             return;
         this.refreshFrames?.push({ type: 'upsert', workspace: view });
@@ -25377,6 +25428,7 @@ class WorkspaceManager {
             this.notifier.markDirty();
     }
     installViews(views) {
+        views = views.map(view => ({ ...view, sessionIds: view.sessionIds.filter(id => !this.deletedSessionIds.has(id)) }));
         const existing = new Map(this.items.flatMap((workspace) => {
             const view = workspace.getSnapshot().view;
             return view === undefined ? [] : [[view.workspaceId, workspace]];
@@ -25805,7 +25857,17 @@ class WorkCatalog {
         // Idempotent false means already absent, not an invitation to re-run deletion.
         if (typeof result.deleted !== 'boolean')
             throw Error('Invalid delete result');
-        await this.refresh();
+        // Publish Host-confirmed tombstones before any baseline read. A pending
+        // pre-delete refresh or a missing stream frame cannot resurrect these ids.
+        if (this.disposed)
+            return;
+        const deletedIds = [...new Set([(0, types_1.SessionId)(id), ...(result.deletedSessionIds ?? [])])];
+        this.sessions.forgetDeletedSessions(deletedIds);
+        this.workspaces.forgetDeletedSessions(deletedIds);
+        this.changed();
+        // The mutation has committed; reconciliation errors belong to the feed,
+        // not to the deletion result, and must not stall a bulk delete.
+        void this.refresh().catch(() => { });
     }
     dispose() { this.disposed = true; for (const unsubscribe of this.unsubscribers)
         unsubscribe(); }

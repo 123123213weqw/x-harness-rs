@@ -22,6 +22,7 @@ pub(crate) use interaction::respond_review;
 mod model;
 mod preset;
 mod session;
+mod session_delete;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
@@ -54,7 +55,9 @@ impl ApiBackend for BasicHost {
         } else {
             payload.get("sessionId").and_then(Value::as_str)
         };
-        if let Some(session_id) = target {
+        // Permanent deletion verifies cold work read-only before recovery can
+        // activate it; its owner hydrates only the verified idle closure.
+        if let Some(session_id) = target.filter(|_| method != RpcMethod::SessionDelete) {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
@@ -80,7 +83,7 @@ impl ApiBackend for BasicHost {
             RpcMethod::SessionAttachment => turn::attachment(self, &payload).await,
             RpcMethod::SessionUpdateQueue => turn::update_queue(self, &payload).await,
             RpcMethod::SessionCancel => turn::cancel(self, &payload).await,
-            RpcMethod::SessionDelete => session_lifecycle::delete(self, rpc_id, &payload).await,
+            RpcMethod::SessionDelete => session_delete::delete(self, rpc_id, &payload).await,
             method @ (RpcMethod::SubagentList
             | RpcMethod::SubagentHistory
             | RpcMethod::SubagentPrompt

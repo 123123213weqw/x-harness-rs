@@ -9,6 +9,7 @@ import {Notifier} from '../sessions/notifier'
 export interface WorkSessionsPort {
   readonly list: ObservableSnapshot<SessionListState>
   refresh(): Promise<void>
+  forgetDeletedSessions(ids: readonly SessionId[]): void
   catalogStatus(): {state: 'idle' | 'loading' | 'error'; error: RpcError | null}
   fork(opts: {sessionId: SessionId}): Promise<SessionId>
 }
@@ -16,6 +17,7 @@ export interface WorkWorkspacesPort {
   readonly list: ObservableSnapshot<WorkspaceListState>
   refresh(): Promise<void>
   archiveSession(id: SessionId): Promise<void>
+  forgetDeletedSessions(ids: readonly SessionId[]): void
   archivedSummaries(): readonly ArchivedSessionSummary[]
 }
 function valueOf<T>(result: RpcResult<T>): T {
@@ -96,7 +98,16 @@ export class WorkCatalog implements IWorkCatalog {
     const result = valueOf((await this.api.sessions.delete({sessionId: this.activeId(id)})).result)
     // Idempotent false means already absent, not an invitation to re-run deletion.
     if (typeof result.deleted !== 'boolean') throw Error('Invalid delete result')
-    await this.refresh()
+    // Publish Host-confirmed tombstones before any baseline read. A pending
+    // pre-delete refresh or a missing stream frame cannot resurrect these ids.
+    if (this.disposed) return
+    const deletedIds = [...new Set([sessionIdOf(id), ...(result.deletedSessionIds ?? [])])]
+    this.sessions.forgetDeletedSessions(deletedIds)
+    this.workspaces.forgetDeletedSessions(deletedIds)
+    this.changed()
+    // The mutation has committed; reconciliation errors belong to the feed,
+    // not to the deletion result, and must not stall a bulk delete.
+    void this.refresh().catch(() => {})
   }
   dispose(): void {this.disposed = true; for (const unsubscribe of this.unsubscribers) unsubscribe()}
 }

@@ -77,7 +77,7 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
     cwd: z.string().optional(),
     agentPreset: z.string().optional(),
   }),
-  z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema }),
+  z.object({ type: z.literal('host/session-removed'), sessionId: sessionIdSchema, permanent: z.boolean().optional() }),
   z.object({ type: z.literal('host/session-status'), sessionId: sessionIdSchema, running: z.boolean() }),
   z.object({ type: z.literal('host/agent-error'), sessionId: sessionIdSchema, message: z.string() }),
   z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
