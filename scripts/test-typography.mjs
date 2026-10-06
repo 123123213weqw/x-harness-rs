@@ -52,3 +52,10 @@ test('platform geometry keeps frozen fallbacks; only the theme opts in',()=>{
  }
  assert.match(tokens,/--xh-markdown-emphasis-weight: 700;/)
 })
+
+test('browser typography acceptance loads the complete production theme stack',()=>{
+ const fixture=read('scripts/test-platform-source-browser.mjs')
+ assert.ok(fixture.includes("['base.css','design-platform.css','scrollbar.css','gradient-shadow-text.css','typography.css','shiki.css']"))
+ assert.match(fixture,/assert\.deepEqual\(actualPixels,expectedPixels/)
+ assert.match(fixture,/heading emphasis inherits hierarchy/)
+})

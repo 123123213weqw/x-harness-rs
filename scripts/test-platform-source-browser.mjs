@@ -218,7 +218,11 @@ for(const engine of engines){
    if(implementation==='source'){
     // Additional owning-theme acceptance, AFTER the independent platform
     // snapshots above. Never project/mask or update the frozen pixel oracle.
-    await page.addStyleTag({content:readFileSync(join(ui,'src/modules/theme/typography.css'),'utf8')})
+    // The standalone platform fixture deliberately has no theme plugin.
+    // Mount the same ordered sheets as installThemeStyles before testing
+    // owning-theme typography (including unchanged body/H1 font tokens).
+    for(const name of ['base.css','design-platform.css','scrollbar.css','gradient-shadow-text.css','typography.css','shiki.css'])
+     await page.addStyleTag({content:readFileSync(join(ui,'src/modules/theme',name),'utf8')})
     const text='# **H1**\n\n## **H2**\n\n### **H3**\n\n#### **H4**\n\n##### **H5**\n\n###### **H6**\n\n正文 **强调** English $x^2$\n\n```text\ncode value\n```\n\n| Head |\n| --- |\n| body |\n\n末尾'
     for(const theme of ['light','dark'])for(const width of [960,390]){
      await page.setViewportSize({width,height:720})
