@@ -13,6 +13,7 @@ members = [
     "crates/xharness-core",
     "crates/xharness-debug",
     "crates/xharness-diagnostics",
+    "crates/xharness-installation",
     "crates/xharness-fs",
     "crates/xharness-goal",
     "crates/xharness-host",

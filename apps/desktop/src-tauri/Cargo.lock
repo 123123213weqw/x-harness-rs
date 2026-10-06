@@ -5418,6 +5418,8 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-web-kit",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",
@@ -5433,6 +5435,7 @@ dependencies = [
  "windows",
  "x11-dl",
  "xharness-diagnostics",
+ "xharness-installation",
  "xharness-win32",
 ]
 
@@ -5442,6 +5445,18 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "xharness-installation"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.3.4",
+ "semver",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

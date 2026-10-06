@@ -12,6 +12,8 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-size",
     "allow-desktop-status",
+    "allow-desktop-installation-status",
+    "allow-desktop-set-installation-statistics",
     "allow-desktop-report-startup-phase",
     "allow-desktop-open-diagnostics",
     "allow-desktop-check-update",

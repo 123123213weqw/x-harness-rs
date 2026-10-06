@@ -16,3 +16,21 @@
 .xhe-key[data-recording=true]{border-color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover)}
 .xhe-note{color:var(--dsw-alias-state-error-primary)!important}.xhe-footer{display:flex;justify-content:flex-end;margin-top:9px}
 @media(max-width:700px){.xhe-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Consent is a small native-top-layer modal, not an onboarding takeover. */
+.xhi-dialog{width:min(460px,100%)!important;padding:0!important;border-radius:20px!important;max-height:calc(100dvh - 48px);overflow:auto!important}
+.xhi-card{box-sizing:border-box;width:100%;padding:30px;color:var(--dsw-alias-label-primary);font-family:inherit}
+.xhi-card h2{margin:0 0 14px;font-size:23px;line-height:1.25;font-weight:600;letter-spacing:-.025em}
+.xhi-card p{margin:10px 0;font-size:14px;line-height:1.65;color:var(--dsw-alias-label-secondary)}
+.xhi-links{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:18px;color:var(--dsw-alias-label-secondary)}
+.xhi-links button{border:0;padding:2px 0;background:transparent;color:inherit;font:inherit;font-size:12px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.xhi-card .xhi-disclosure{padding:12px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);border-radius:10px;font-size:12px}
+.xhi-disclosure p{font-size:12px}
+.xhi-disclosure p:first-child{margin-top:0}.xhi-disclosure p:last-child{margin-bottom:0}
+.xhi-actions{display:flex;gap:10px;margin-top:26px}
+.xhi-actions button{flex:1;min-width:0;min-height:44px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:10px 12px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;font-weight:500;cursor:pointer}
+.xhi-actions .xhi-primary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);border-color:var(--dsw-alias-label-primary)}
+.xhi-card button:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:3px}
+.xhi-card button:disabled{opacity:.55;cursor:wait}
+.xhi-card .xhi-error{color:var(--dsw-alias-state-error-primary);font-size:12px}
+@media(max-width:480px){.xhi-card{padding:24px}.xhi-card h2{font-size:21px}.xhi-links{gap:8px}}
