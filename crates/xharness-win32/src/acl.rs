@@ -209,7 +209,7 @@ pub fn can_replace_file(path: &Path) -> Result<bool, Win32Error> {
     // SAFETY: unique ownership of newly duplicated token.
     let impersonation = unsafe { OwnedWin32Handle::from_raw(raw) }
         .ok_or_else(|| Win32Error::last("DuplicateToken"))?;
-    let mut mapping = GENERIC_MAPPING {
+    let mapping = GENERIC_MAPPING {
         GenericRead: 0x120089,
         GenericWrite: FILE_GENERIC_WRITE,
         GenericExecute: 0x1200a0,
@@ -226,7 +226,7 @@ pub fn can_replace_file(path: &Path) -> Result<bool, Win32Error> {
             descriptor,
             impersonation.as_raw(),
             FILE_GENERIC_WRITE | DELETE,
-            &mut mapping,
+            &mapping,
             privileges.as_mut_ptr().cast::<PRIVILEGE_SET>(),
             &mut len,
             &mut granted,
