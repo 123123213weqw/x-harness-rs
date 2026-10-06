@@ -56,6 +56,57 @@ async fn evidence(guest: &tauri::Webview, expression: &str) -> Result<Value, Str
     browser_inspect::decode_callback(&raw)
 }
 
+async fn abandoned_open_probe(
+    app: &tauri::AppHandle,
+    connection: &browser_bridge::Connection,
+    url: &str,
+) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
+    let (opened, receive_open) = tokio::sync::oneshot::channel();
+    let opened = std::sync::Mutex::new(Some(opened));
+    let open_listener = app.listen_any("xharness-browser-control-open", move |event| {
+        let value: Value = serde_json::from_str(event.payload()).unwrap();
+        if let Some(sender) = opened.lock().unwrap().take() {
+            let _ = sender.send(value["requestId"].as_str().unwrap().to_owned());
+        }
+    });
+    let (cancelled, receive_cancel) = tokio::sync::oneshot::channel();
+    let cancelled = std::sync::Mutex::new(Some(cancelled));
+    let cancel_listener = app.listen_any("xharness-browser-control-cancel", move |event| {
+        let id: String = serde_json::from_str(event.payload()).unwrap();
+        if let Some(sender) = cancelled.lock().unwrap().take() {
+            let _ = sender.send(id);
+        }
+    });
+    let mut stream = tokio::net::TcpStream::connect(&connection.address)
+        .await
+        .map_err(|_| "cancel probe connect failed")?;
+    let bytes = serde_json::to_vec(&json!({"token":connection.token,"owner":"probe-owner","op":"control","arguments":{"action":"open","url":url}})).unwrap();
+    stream
+        .write_u32(bytes.len() as u32)
+        .await
+        .map_err(|_| "cancel probe write failed")?;
+    stream
+        .write_all(&bytes)
+        .await
+        .map_err(|_| "cancel probe write failed")?;
+    let id = tokio::time::timeout(Duration::from_secs(3), receive_open)
+        .await
+        .map_err(|_| "cancel probe open event missing")?
+        .map_err(|_| "cancel probe receiver closed")?;
+    drop(stream);
+    let cancelled_id = tokio::time::timeout(Duration::from_secs(3), receive_cancel)
+        .await
+        .map_err(|_| "abandoned socket did not cancel UI open")?
+        .map_err(|_| "cancel probe receiver closed")?;
+    app.unlisten(open_listener);
+    app.unlisten(cancel_listener);
+    if id != cancelled_id {
+        return Err("abandoned open cancelled a different request".into());
+    }
+    Ok(())
+}
+
 async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let connection_state = app.state::<browser_bridge::BrowserBridge>();
     let connection = connection_state.start(app).await?;
@@ -63,6 +114,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     if empty["result"]["available"] != true || empty["result"]["bound"] != false {
         return Err("zero-tab browser discovery failed".into());
     }
+    abandoned_open_probe(app, connection, url).await?;
     // A native test-owned UI adapter uses exactly the production pane commands.
     // React sidebar expansion is tested separately, not falsely claimed here.
     let handle = app.clone();
@@ -163,7 +215,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
         opened["result"]["tab_id"].as_str().unwrap().into(),
     )
     .await?;
-    println!("Native lifecycle probe passed: zero-tab discovery -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
+    println!("Native lifecycle probe passed: zero-tab discovery -> abandoned-socket cancellation -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
     Ok(())
 }
 
