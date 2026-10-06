@@ -261,6 +261,8 @@ jobs:
         run: |
           UI_TEST_BROWSER=chromium node scripts/test-page-priority-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-page-priority-browser.mjs
+          UI_TEST_BROWSER=chromium node scripts/test-settings-mask-browser.mjs
+          UI_TEST_BROWSER=webkit node scripts/test-settings-mask-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-sidebar-row-actions-browser.mjs
           UI_TEST_BROWSER=webkit node scripts/test-sidebar-row-actions-browser.mjs
           UI_TEST_BROWSER=chromium node scripts/test-context-layout.mjs

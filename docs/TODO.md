@@ -84,6 +84,12 @@
 - [x] `UI-PRIORITY-TEST-01` Chromium／WebKit 整图隔离回归、平台差分、严格类型与确定性构建通过。规范见 `docs/specs/page-priority.md`，验收记录见 `docs/evidence/page-priority-20261003.md`。
 - [ ] `UI-PRIORITY-RELEASE-01` PR 合并与桌面／运行中服务部署验收；代码通过不等于已替换 3082。
 
+## 设置遮罩尺寸修复（2026-10-06 集成）
+
+- [x] `UI-MASK-01` Profile／归档页只调整带 `data-xh-settings-panel` 标记的内容卡片，不再缩窄原生 dialog 和全屏遮罩。
+- [x] `UI-MASK-TEST-01` 同步最新 master 后，Chromium／WebKit 各 50 个主题、页面及窗口尺寸场景通过；右侧边缘可点击关闭、重开正常。当前集成证据见 `docs/evidence/settings-mask-pr-20261006.md`；此前系统 WKWebView 的独立资源 A/B 见 `docs/evidence/settings-mask-20261005.md`。原有 WebKit Tab 焦点用例在 master／候选均失败，不计为通过。
+- [ ] `UI-MASK-RELEASE-01` 发布修复安装包并对实际安装版验收；当前没有替换 `/Applications/XHarness.app`、重启 Host 或部署 3082。
+
 ## 整轮折叠 TS 正式接入（2026-10-03）
 
 - [x] `TURN-PROCESS-01` 将仅存在于本机预览工作区的整轮折叠迁入最新严格 TS 源码。以真实 turn/end 的 turn-tail 为唯一结束证据；用时按钮常驻，不受 hover、最终正文或扩展槽有无影响。最终文字／图片、错误／超限／检查点保留。

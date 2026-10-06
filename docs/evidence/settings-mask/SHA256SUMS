@@ -1,0 +1,8 @@
+b03d2ca3d47bb13070bfce3f520dc86a6ad6b000bac372d57fae5310b13562b7  ui/dist/index.html
+48aa4191d5b88fda1889d9004310b5d5a4a85cedfbb07b21fd5e9983d102dc28  ui/dist/plugins/@xharness/dsh-client-ui-settings-general/client.js
+7fa07a11a3a5e111a4e456624abb5c3ef97bc7d9d1c12b5489a2e4f7759baf24  ui/dist/plugins/@xlang/xharness-client-ui-profile/client.js
+24f7f004beefa49297e544710e11788d336878e8153ed802f9da1efc9219dde1  ui/dist/plugins/@xlang/xharness-client-ui-tasks/client.js
+c483681de53ee793e2e89b24abd496d5c7f2c13d0831943a35177506faade205  scripts/test-settings-mask-browser.mjs
+b0694e21e972ccd9cd9e047d18aeed3c919b1ec73b92c737e4f4c671a4143d27  docs/evidence/settings-mask/MaskProbe.swift
+aace21a0b02d9ccc4aae8a67a63c38176815e189e61bda2f4fdcb16b1fec9e37  docs/evidence/settings-mask/run-native.py
+3bab172d0150e7ba92c7a37f6189f403986270898311cc73af426f3abc9ed03b  docs/evidence/settings-mask/verify-native.py
