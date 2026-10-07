@@ -57,7 +57,9 @@ function Assert-XHarnessFilesAvailable([string[]]$Directories) {
                 $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
                 $stream.Dispose()
             } catch {
-                throw "Application file is busy or not writable: $path. Close the application using this directory and retry; do not remove its locks."
+                $failure = $_.Exception.GetBaseException()
+                $code = '0x{0:X8}' -f $failure.HResult
+                throw "Application file is busy or not writable: $path ($($failure.GetType().FullName), $code). Close the application using this directory and retry; do not remove its locks."
             }
         }
     }
