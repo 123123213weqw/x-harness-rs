@@ -44,6 +44,22 @@ an update channel; users keep receiving the last **published** stable release.
 这不改变发布门禁：推广仍要求整个 Run 及四平台签名与原生升级验收全部成功。
 回归覆盖 queued→running、等待耗尽、每次读取身份/事件漂移及 queued/running 不能成为发布证据。
 
+### 2026-10-15：Windows 文件占用恢复与可诊断性
+
+`0.2.47` 的 Windows 安装后 Reconcile 在独占读写检查时报错，退出码为 3。
+旧日志未保留初装/重装阶段和底层 HRESULT，不能认定是 Defender、Host 泄漏或句柄保留。
+同源码 CI 安装包（不是失败版的原始字节）两次回放均通过；这些对照不能代替正式升级验收。
+
+明确修复单次瞬时共享冲突就中止安装的缺陷：只有 Win32 32/33 的 IOException 可在
+全文件集合共用的单调时钟 10 秒预算内等待。每次重验路径、重解析点和文件元数据；
+文件变化、ACL/权限错误、其他 I/O 错误与持续占用仍失败。等待后重验进程，PID 复用
+与新启动的进程不能利用等待窗口绕过原来的活进程门禁。不杀进程、不删除锁、不改文件内容。
+
+安装验收保留分阶段退出码与失败堆栈，文件探测保留异常类型和 HRESULT。
+失败 Windows worker 单独保留 3 天的 `desktop-windows-unaccepted-diagnostic`，只含安装器、
+公开签名/计划/依赖审计，不含私钥与用户数据；该名称不满足候选或验收物料契约，不能推广。
+旧失败 tag/Run 保持不变，修复后新建版本，四平台原生验收与唯一 Promote 门禁不变。
+
 ## Policy and retention
 
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
