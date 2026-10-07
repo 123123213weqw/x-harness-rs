@@ -12,6 +12,7 @@ exports.inject = void 0;
 exports.refreshIfLoaded = refreshIfLoaded;
 exports.apply = apply;
 /// <reference path="./external.d.ts" />
+const ManagedAccount_1 = require("./ManagedAccount");
 const ModelsSection_1 = require("./ModelsSection");
 const store_1 = require("./store");
 const schema_operations_1 = require("./schema-operations");
@@ -29,6 +30,8 @@ function apply(ctx) {
     ctx.effect(() => ctx.locale.register(NS, { zh: locales_1.zh, en: locales_1.en }), 'ui-settings-models: copy dictionaries');
     const connection = ctx.get('connection'), schema = (0, schema_operations_1.createSettingsSchemaOperations)(ctx.settingsSchema);
     const controller = new store_1.ModelsSettingsStore(connection.api, schema, ctx.settingsScope.describe());
+    ctx.effect(() => ctx.locale.register("xharness-managed-account", ManagedAccount_1.managedLabels), "managed-account: locale");
+    ctx.slots.inject("settings.section", () => ctx.slots.register({ name: "settings.section", id: "managed-account", order: 11, label: () => ctx.locale.bind("xharness-managed-account")("nav"), inject: () => ({ api: connection.api, describe: ctx.settingsScope.describe(), t: ctx.locale.bind("xharness-managed-account") }) }, ManagedAccount_1.ManagedAccount));
     const t = ctx.locale.bind(NS);
     const injected = () => ({ controller, hooks: { snapshot: controller.store }, api: connection.api, schema, t });
     // Retain the current bound scope's lifecycle, but do not reinstall removed
@@ -44,6 +47,158 @@ function apply(ctx) {
             dispose(); };
     }, 'ui-settings-models: pushed invalidations');
     ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'models', order: 10, label: () => t('nav'), inject: injected }, ModelsSection_1.ModelsSection));
+}
+
+},
+"src/modules/settings-models/ManagedAccount.js": function(module, exports, require) {
+// source: src/modules/settings-models/ManagedAccount.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.managedLabels = void 0;
+exports.saveManagedAccess = saveManagedAccess;
+exports.ManagedAccount = ManagedAccount;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const runtime_types_1 = require("../shared/runtime-types");
+const REF = 'XHARNESS_MANAGED_API_TOKEN', ROUTE = 'xharness-managed', NS = 'llm-pi-ai';
+exports.managedLabels = {
+    zh: { nav: '账户与模型服务', title: 'XHarness 模型服务', intro: '连接管理员分配的模型额度。自有模型配置不会改变。', connect: '连接账号', open: '打开登录网页', code: '连接代码', waiting: '在网页确认连接后，软件会自动接入。', done: '已连接。请在模型选择中选择 XHarness 服务。', cancel: '取消', disconnect: '移除本机连接', disconnectConfirm: '移除本机密钥？已授权设备仍可在账户网页撤销。', web: '请在桌面软件中连接账号。', error: '连接未完成，请重试或检查账号额度。', retry: '重试保存', manage: '账户与额度', clear: '在账户网页可撤销已授权设备。' },
+    en: { nav: 'Account & model service', title: 'XHarness model service', intro: 'Connect model allowance assigned by your administrator. Your own providers remain unchanged.', connect: 'Connect account', open: 'Open sign-in page', code: 'Connection code', waiting: 'Confirm in the website; the app will connect automatically.', done: 'Connected. Select XHarness in the model picker.', cancel: 'Cancel', disconnect: 'Remove local connection', disconnectConfirm: 'Remove this local credential? Authorized devices can still be revoked on the account website.', web: 'Connect your account in the desktop app.', error: 'Connection incomplete. Retry or check your model allowance.', retry: 'Retry saving', manage: 'Account & allowance', clear: 'Revoke authorized devices on the account website.' }
+};
+async function saveManagedAccess(api, describe, raw) {
+    const v = (0, runtime_types_1.objectValue)(raw);
+    if (v.status !== 'authorized' || typeof v.accessToken !== 'string' || typeof v.baseURL !== 'string' || !Array.isArray(v.models))
+        throw Error('invalid_access');
+    await describe.ensure();
+    const snap = describe.getSnapshot();
+    const ns = snap.view?.namespaces.find(n => n.ns === NS);
+    if (snap.status !== 'ready' || !ns || !snap.view?.writable)
+        throw Error('settings_unavailable');
+    const existing = (0, runtime_types_1.objectValue)((0, runtime_types_1.objectValue)(ns.value).providers)[ROUTE];
+    if (existing !== undefined) {
+        const p = (0, runtime_types_1.objectValue)(existing);
+        if (p.apiKeyEnv !== REF || p.baseURL !== v.baseURL || p.api !== 'openai-completions')
+            throw Error('provider_conflict');
+    }
+    const profile = { displayName: 'XHarness', api: 'openai-completions', baseURL: v.baseURL, apiKeyEnv: REF, models: v.models };
+    const write = await api.settings.mutate({ ns: NS, expectedRevision: ns.revision, ops: [{ op: 'set', path: ['providers', ROUTE], value: profile }] });
+    if (!write.result.ok)
+        throw Error('settings_write_failed');
+    describe.acceptView(write.result.value);
+    const stored = await api.credentials.set({ ref: REF, value: v.accessToken });
+    if (!stored.result.ok)
+        throw Error('credential_store_failed');
+}
+function ManagedAccount({ api, describe, t }) {
+    const invoke = window.__TAURI__?.core?.invoke;
+    const [flow, setFlow] = (0, react_1.useState)(null), [connected, setConnected] = (0, react_1.useState)(false), [busy, setBusy] = (0, react_1.useState)(false), [error, setError] = (0, react_1.useState)(false), [retry, setRetry] = (0, react_1.useState)(false);
+    const alive = (0, react_1.useRef)(true), saving = (0, react_1.useRef)(false), halted = (0, react_1.useRef)(false);
+    (0, react_1.useEffect)(() => { alive.current = true; if (invoke)
+        void invoke('desktop_account_status').then(raw => { const v = (0, runtime_types_1.objectValue)(raw); if (alive.current && typeof v.userCode === 'string' && typeof v.verificationUri === 'string')
+            setFlow({ code: v.userCode, uri: v.verificationUri }); }).catch(() => { if (alive.current)
+            setError(true); }); void api.credentials.describe({ refs: [REF] }).then(r => { if (alive.current && r.result.ok)
+        setConnected(r.result.value.credentials[REF]?.configured === true); }); return () => { alive.current = false; }; }, [api, invoke]);
+    (0, react_1.useEffect)(() => { if (!flow || !invoke)
+        return; let active = true; const tick = async () => { if (saving.current || halted.current)
+        return; saving.current = true; try {
+        const raw = await invoke('desktop_account_poll');
+        if (!active)
+            return;
+        const v = (0, runtime_types_1.objectValue)(raw);
+        if (v.status === 'authorized') {
+            await saveManagedAccess(api, describe, raw);
+            await invoke('desktop_account_finish', { saved: true });
+            if (active) {
+                setConnected(true);
+                setFlow(null);
+                setError(false);
+                setRetry(false);
+            }
+        }
+    }
+    catch {
+        if (active) {
+            setError(true);
+            setRetry(true);
+            halted.current = true;
+        }
+    }
+    finally {
+        saving.current = false;
+    } }; const timer = setInterval(() => { void tick(); }, 5000); return () => { active = false; clearInterval(timer); }; }, [flow, invoke, api, describe]);
+    async function start() { if (!invoke || busy)
+        return; setBusy(true); setError(false); try {
+        const v = (0, runtime_types_1.objectValue)(await invoke('desktop_account_start'));
+        if (typeof v.userCode !== 'string' || typeof v.verificationUri !== 'string')
+            throw Error();
+        if (alive.current)
+            setFlow({ code: v.userCode, uri: v.verificationUri });
+    }
+    catch {
+        if (alive.current)
+            setError(true);
+    }
+    finally {
+        if (alive.current)
+            setBusy(false);
+    } }
+    async function cancel() { if (!invoke || saving.current || busy)
+        return; setBusy(true); try {
+        await invoke('desktop_account_finish', { saved: false });
+        setFlow(null);
+        setRetry(false);
+        halted.current = false;
+    }
+    catch {
+        setError(true);
+    }
+    finally {
+        setBusy(false);
+    } }
+    async function disconnect() { if (busy || !confirm(t('disconnectConfirm')))
+        return; setBusy(true); try {
+        const r = await api.credentials.unset({ ref: REF });
+        if (!r.result.ok)
+            throw Error();
+        setConnected(false);
+    }
+    catch {
+        setError(true);
+    }
+    finally {
+        setBusy(false);
+    } }
+    return (0, jsx_runtime_1.jsxs)("div", { className: "xhe-root", children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("h2", { children: t('title') }), (0, jsx_runtime_1.jsx)("p", { children: t('intro') })] }), !invoke ? (0, jsx_runtime_1.jsx)("p", { children: t('web') }) : flow ? (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsxs)("p", { children: [t('code'), ": ", (0, jsx_runtime_1.jsx)("strong", { children: flow.code })] }), (0, jsx_runtime_1.jsx)("button", { onClick: () => void invoke('desktop_account_open').catch(() => setError(true)), children: t('open') }), (0, jsx_runtime_1.jsx)("p", { children: t('waiting') }), (0, jsx_runtime_1.jsx)("button", { disabled: busy || saving.current, onClick: () => void cancel(), children: t('cancel') }), retry && (0, jsx_runtime_1.jsx)("button", { onClick: () => { halted.current = false; setRetry(false); setError(false); }, children: t('retry') })] }) : connected ? (0, jsx_runtime_1.jsxs)("div", { children: [(0, jsx_runtime_1.jsx)("p", { role: "status", children: t('done') }), (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void disconnect(), children: t('disconnect') }), (0, jsx_runtime_1.jsx)("p", { children: t('clear') })] }) : (0, jsx_runtime_1.jsx)("button", { disabled: busy, onClick: () => void start(), children: t('connect') }), error && (0, jsx_runtime_1.jsx)("p", { role: "alert", children: t('error') })] });
+}
+
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 },
@@ -995,35 +1150,6 @@ function DeepSeekModelsEditor(props) {
                                 : null] }, index))) })), (0, jsx_runtime_1.jsxs)("button", { type: "button", className: styles_1.ModelsSectionCss['addModelButton'], disabled: props.disabled, onClick: () => { props.onChange([...props.models.map(model => ({ ...model })), { id: '' }]); }, children: [(0, jsx_runtime_1.jsx)(primitives_1.IconPlusOutline16, { size: 14 }), props.t('addModel')] })] }));
 }
 function isUnknownArray(value) { return Array.isArray(value); }
-
-},
-"src/modules/shared/runtime-types.js": function(module, exports, require) {
-// source: src/modules/shared/runtime-types.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isObjectRecord = isObjectRecord;
-exports.objectValue = objectValue;
-exports.errorText = errorText;
-exports.textValue = textValue;
-exports.numberValue = numberValue;
-function isObjectRecord(value) {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-function objectValue(value) {
-    return isObjectRecord(value) ? value : {};
-}
-function errorText(error) {
-    const record = objectValue(error);
-    const rpc = objectValue(record.rpcError);
-    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
-}
-function textValue(value, fallback = '') {
-    return typeof value === 'string' ? value : fallback;
-}
-function numberValue(value, fallback = 0) {
-    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
 
 },
 "src/modules/settings-models/ModelListEditor.js": function(module, exports, require) {
@@ -2260,7 +2386,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/settings-models/index.js":{"./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
+const __dependencies = {"src/modules/settings-models/index.js":{"./ManagedAccount":"src/modules/settings-models/ManagedAccount.js","./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ManagedAccount.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
