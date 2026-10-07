@@ -91,6 +91,12 @@ function Assert-XHarnessFilesAvailable([string[]]$Directories, [ValidateRange(0,
             Assert-XHarnessNoRedirect $item
             if ($item.Length -ne $file.Length -or $item.CreationTimeUtc.Ticks -ne $file.Created -or
                 $item.LastWriteTimeUtc.Ticks -ne $file.Written) { throw "Application binary changed while waiting: $($file.Path)" }
+        }
+        # Validate the WHOLE namespace before attempting a writer. Otherwise a
+        # lock on the first binary could hide a changed/missing later binary.
+        foreach ($file in $files) {
+            if (-not $file.Exists) { continue }
+            Assert-XHarnessRecoveryPath $file.Path
             try { Invoke-XHarnessFileWriteProbe $file.Path }
             catch {
                 $failure = $_.Exception.GetBaseException()
