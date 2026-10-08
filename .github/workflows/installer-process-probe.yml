@@ -39,6 +39,8 @@ jobs:
           python-version: '3.12'
       - name: Native Windows release aggregation and runtime manifest contracts
         shell: pwsh
+        env:
+          PYTHONUTF8: '1'
         run: |
           python -B scripts/test-desktop-release-build.py
           if ($LASTEXITCODE) { throw 'Windows release aggregation contract failed' }
