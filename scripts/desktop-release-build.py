@@ -1041,6 +1041,10 @@ def main():
         for platform in release_platforms(plan):
             shutil.copytree(args.artifacts / f'desktop-package-{platform}', normalized / platform, symlinks=True)
             if platform == 'windows-x86_64':
+                # The independent Linux aggregator has no Windows worker's
+                # resource directory. Recreate it from the canonical vendor pin,
+                # never from the candidate's self-declared manifest.
+                run(sys.executable, '-B', ROOT / 'scripts/powershell-runtime.py', 'stage', '--target', PLATFORMS[platform])
                 run(sys.executable, '-B', ROOT / 'scripts/audit-windows-runtime.py',
                     '--installer', normalized / platform / _contract.package_name(plan, platform),
                     '--output', args.output.parent / 'windows-runtime-audit/aggregate.json')
