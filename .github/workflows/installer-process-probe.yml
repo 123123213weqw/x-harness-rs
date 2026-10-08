@@ -19,6 +19,10 @@ on:
       - 'scripts/test-windows-install-ownership.ps1'
       - 'scripts/diagnose-install-file-probe.ps1'
       - 'scripts/test-install-ownership-contract.mjs'
+      - 'scripts/desktop-release-build.py'
+      - 'scripts/test-desktop-release-build.py'
+      - 'scripts/powershell-runtime.py'
+      - 'scripts/test-powershell-runtime.py'
       - '.github/workflows/installer-process-probe.yml'
 
 permissions:
@@ -30,6 +34,18 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native Windows release aggregation and runtime manifest contracts
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python -B scripts/test-desktop-release-build.py
+          if ($LASTEXITCODE) { throw 'Windows release aggregation contract failed' }
+          python -B scripts/test-powershell-runtime.py
+          if ($LASTEXITCODE) { throw 'Windows runtime manifest contract failed' }
       - name: Windows PowerShell 5.1 fault injection and native process regression
         shell: powershell
         run: ./scripts/test-install-process-probe.ps1 -Native
