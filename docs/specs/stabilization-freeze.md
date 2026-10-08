@@ -17,7 +17,9 @@ itself. Only bug fixes and backwards-compatible additions belong in this phase.
 | Installation/update | Application identity, install ownership, updater trust and Host shutdown | Windows desktop/unit/loader tests, updater contracts; existing release-only install/upgrade acceptance remains mandatory for publication |
 
 Tool handlers, descriptions, defaults, argument/result schemas and new tools in
-`xharness-coding-tools` remain flexible, as do tool UI cards. They still undergo
+`xharness-coding-tools` remain flexible, as do its own dependency manifest and tool
+UI cards. Shared workspace and Tauri dependency declarations require a foundation
+record; the entire Cargo lockfile/tool dependency catalogue is not hash-frozen. They still undergo
 normal tests, permission checks and crate dependency rules. A schema/description
 change can affect model decisions; this policy does not certify model quality or
 silently authorize paid evaluations. If a tool change also touches shared

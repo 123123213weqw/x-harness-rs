@@ -27,7 +27,8 @@
         "crates/xharness-terminal/Cargo.toml",
         ".cargo/config.toml",
         "runtime/powershell.lock.json",
-        "scripts/powershell-runtime.py"
+        "scripts/powershell-runtime.py",
+        "Cargo.toml"
       ],
       "regressions": [
         "native",
@@ -91,7 +92,8 @@
         "apps/desktop/src-tauri/src/installations.rs",
         "apps/desktop/src-tauri/windows/**",
         "ui/src/desktop/updater.ts",
-        "scripts/desktop-release*.py"
+        "scripts/desktop-release*.py",
+        "apps/desktop/src-tauri/Cargo.toml"
       ],
       "regressions": [
         "windows",
@@ -122,6 +124,7 @@
   "flexible": [
     "crates/xharness-coding-tools/src/**",
     "crates/xharness-coding-tools/tests/**",
-    "ui/src/modules/tool/**"
+    "ui/src/modules/tool/**",
+    "crates/xharness-coding-tools/Cargo.toml"
   ]
 }

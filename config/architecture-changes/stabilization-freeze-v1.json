@@ -10,7 +10,7 @@
     },
     "config/architecture-freeze.json": {
       "before": null,
-      "after": "adf0e17b170ae984b2592be4126ec32c7fbf8f892c04601da3bc73d96afc6578"
+      "after": "521cdf17d123a6395901d3f88555a0869cb9749a0216d620e01bb383ffa7d069"
     },
     "scripts/regression/architecture_freeze.py": {
       "before": null,
@@ -26,7 +26,7 @@
     },
     "scripts/regression/test_architecture_freeze.py": {
       "before": null,
-      "after": "e64e30d64d6a054b7c5c85c9f63a35653800fa2f4f2285bfe42a9d88a87bfa4e"
+      "after": "edd787494a86043a9ca934a74769dfcf2b3a21090adec96f478457020178cbf6"
     },
     "scripts/test-ci-tiering.py": {
       "before": "d6bf08b23d5840ab9596cae3340c47d59984826df4b7c9b237d3b0a6795693f4",
