@@ -856,6 +856,68 @@ class NpmInvocationTests(unittest.TestCase):
             build.npm_invocation('win32')
 
 
+class AggregateRuntimePrerequisites(unittest.TestCase):
+    def scenario(self, failure=None):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [],
+                [dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push',
+                      status='completed', conclusion='success', path='.github/workflows/ci.yml')], 'windows-linux')
+            source = root / 'packages'
+            source.mkdir()
+            for platform in build.release_platforms(plan):
+                package = source / ('desktop-package-' + platform)
+                package.mkdir()
+                (package / build._contract.package_name(plan, platform)).write_bytes(b'immutable fixture')
+            candidate = root / 'candidate'
+            candidate.mkdir()
+            build.write(candidate / 'plan.json', plan)
+            runtime = root / 'trusted-runtime-staged'
+            calls = []
+
+            def native(*values, **kwargs):
+                values = list(map(str, values))
+                if any(value.endswith('/powershell-runtime.py') for value in values):
+                    calls.append('stage')
+                    self.assertIn('stage', values)
+                    self.assertEqual(values[-2:], ['--target', 'x86_64-pc-windows-msvc'])
+                    if failure == 'stage': raise ValueError('pinned runtime staging rejected')
+                    runtime.mkdir()
+                elif any(value.endswith('/audit-windows-runtime.py') for value in values):
+                    calls.append('audit')
+                    if not runtime.is_dir(): raise ValueError('Missing runtime prerequisite on fresh Linux aggregator')
+                    if failure == 'audit': raise ValueError('extracted package audit rejected')
+                else:
+                    raise AssertionError(values)
+
+            def aggregate(*values):
+                self.assertEqual(calls, ['stage', 'audit'])
+                calls.append('aggregate')
+
+            arguments = ['desktop-release-build.py', 'aggregate', '--plan', str(candidate/'plan.json'),
+                         '--artifacts', str(source), '--output', str(candidate/'release')]
+            with patch.object(build.sys, 'argv', arguments), patch.object(build, 'run', side_effect=native), \
+                    patch.object(build, 'public_key', side_effect=lambda path: path.write_bytes(b'public fixture')), \
+                    patch.object(build, 'contract', side_effect=aggregate):
+                if failure:
+                    with self.assertRaisesRegex(ValueError, 'runtime staging rejected' if failure == 'stage' else 'package audit rejected'):
+                        build.main()
+                else:
+                    build.main()
+            self.assertEqual(calls, ['stage'] if failure == 'stage' else ['stage', 'audit'] if failure == 'audit' else ['stage', 'audit', 'aggregate'])
+            for path in source.rglob('*'):
+                if path.is_file(): self.assertEqual(path.read_bytes(), b'immutable fixture')
+
+    def test_fresh_linux_aggregator_stages_pinned_windows_runtime_before_independent_audit(self):
+        self.scenario()
+
+    def test_stage_failure_cannot_reach_audit_or_aggregation(self):
+        self.scenario('stage')
+
+    def test_audit_failure_cannot_reach_aggregation(self):
+        self.scenario('audit')
+
+
 class WindowsRuntimeGates(unittest.TestCase):
     def test_final_nsis_is_audited_before_receipt_and_failure_stops_receipt(self):
         import types

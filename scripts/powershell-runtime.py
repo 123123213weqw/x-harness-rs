@@ -207,7 +207,10 @@ def stage(root=STAGED, *, lock=None, archive=None, cache=None):
     if root.exists():
         # Never overwrite an existing runtime (possibly in use). Invalid/stale
         # staging is an explicit error, not a PATH fallback or hot DLL update.
-        return verify(root, lock)
+        receipt = verify(root, lock)
+        require(b'\r' not in (root / 'manifest.json').read_bytes(),
+                'Non-canonical runtime manifest newline; explicitly regenerate unused staging, never rewrite an in-use runtime')
+        return receipt
     root.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='powershell-', dir=root.parent) as temp:
         temp = Path(temp)
@@ -238,7 +241,9 @@ def stage(root=STAGED, *, lock=None, archive=None, cache=None):
                     shutil.copyfileobj(source, output, 1024 * 1024)
                 files[path.relative_to(payload).as_posix()] = {'size': path.stat().st_size, 'sha256': digest(path)}
         manifest = {'schema': 1, 'version': lock['version'], 'target': TARGET, 'archive_sha256': lock['archives'][TARGET]['sha256'], 'files': dict(sorted(files.items()))}
-        (payload / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        # These bytes are independently hashed on Windows and Linux. Platform
+        # text newline translation must not change the canonical manifest hash.
+        (payload / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8', newline='\n')
         receipt = verify(payload, lock)
         # Directory move, not an in-place partial extraction. A racing existing
         # destination makes this fail; its files are never deleted/replaced.
