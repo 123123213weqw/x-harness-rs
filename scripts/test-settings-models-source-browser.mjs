@@ -42,5 +42,21 @@ try{
  await page.evaluate(()=>{failKeys=false});await page.getByRole('button',{name:'apply',exact:true}).click();await page.waitForFunction(()=>closes.length===1);assert.equal(await page.evaluate(()=>calls.filter(c=>c[0]==='mutate').length),1);
  await page.evaluate(()=>{mode='editor-conflict';conflict=true;render()});await page.getByText('customized',{exact:true}).click();await page.getByRole('textbox',{name:'baseUrl',exact:true}).fill('https://conflict.example');await page.getByRole('button',{name:'apply',exact:true}).click();await page.getByText('conflict',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'cancel',exact:true}).isEnabled(),true);
  await page.evaluate(()=>{mode='readonly';render()});assert.equal(await page.getByRole('button',{name:'apply',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'cancel',exact:true}).isEnabled(),true);
+ // A legacy hidden minimum can contradict an edited visible maximum. Reject
+ // before RPC, then permit a valid edit and preserve the hidden/user metadata.
+ if(process.env.UI_TEST_IMPL!=='legacy'){
+  await page.evaluate(()=>{calls=[];closes=[];conflict=false;failKeys=false;mode='editor-budget-invalid';namespace.user.providers.test.models[0].minimumOutputTokens=8192;render()});
+  await page.getByText('model 1: modelOutputBudgetInvalid',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'apply',exact:true}).isDisabled(),true);
+  assert.equal(await page.evaluate(()=>calls.filter(c=>c[0]==='mutate').length),0);
+  await page.getByText('customized',{exact:true}).click();
+  await page.getByRole('button',{name:'modelAdvanced 1',exact:true}).click();
+  await page.getByRole('textbox',{name:'modelMaxTokens 1',exact:true}).fill('32K');
+  assert.equal(await page.getByRole('button',{name:'apply',exact:true}).isEnabled(),true);
+  await page.getByRole('button',{name:'apply',exact:true}).click();
+  await page.waitForFunction(()=>closes.length===1);
+  const saved=await page.evaluate(()=>calls.find(c=>c[0]==='mutate')[1].ops.find(op=>op.path.at(-1)==='models').value[0]);
+  assert.equal(saved.maxTokens,32000);assert.equal(saved.minimumOutputTokens,8192);assert.deepEqual(saved.unknown,{keep:true});
+ }
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${process.env.UI_TEST_IMPL??'source'}: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed`);
 }finally{await browser.close()}

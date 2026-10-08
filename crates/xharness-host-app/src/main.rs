@@ -268,7 +268,7 @@ async fn run(
     let host = BasicHost::with_agent_runtime_control_and_questions(
         config,
         host_runtime,
-        control_store,
+        Arc::clone(&control_store),
         questions,
     );
     // Local gh credentials must never be exposed by a public unauthenticated Host.
@@ -298,6 +298,24 @@ async fn run(
         None => serde_json::json!({"providers":{}}),
     };
     *failure_code = Some(StartupFailureCode::ModelSettings);
+    // Migrate before settings restore, pending inputs and public RPC serving.
+    let migration = xharness_host_app::output_budget_migration::migrate_output_budgets(
+        control_store.as_ref(),
+        &args.state_dir,
+        &model_settings_base,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    if let xharness_host_app::output_budget_migration::MigrationOutcome::Applied {
+        cleared_fields,
+        ..
+    } = migration
+    {
+        if cleared_fields > 0 {
+            eprintln!("output budget migration v1: reset {cleared_fields} legacy overrides; backup retained");
+        }
+    }
+
     let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
     let calibration_path = args.state_dir.join("token-calibration-v1.json");
     let calibration = tokio::task::spawn_blocking(move || {

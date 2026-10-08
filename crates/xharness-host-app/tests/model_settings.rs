@@ -70,6 +70,14 @@ async fn fixture_with_store(
     credentials: Arc<dyn CredentialStore>,
     store: Arc<dyn Store>,
 ) -> (Arc<BasicHost>, Arc<DurableLoopAgentRuntime>) {
+    fixture_with_base(dir, credentials, store, json!({"providers":{}})).await
+}
+async fn fixture_with_base(
+    dir: &TempDir,
+    credentials: Arc<dyn CredentialStore>,
+    store: Arc<dyn Store>,
+    base: Value,
+) -> (Arc<BasicHost>, Arc<DurableLoopAgentRuntime>) {
     let runtime = Arc::new(
         DurableLoopAgentRuntime::from_registry(
             ModelRoute::new("none", "unconfigured"),
@@ -95,7 +103,7 @@ async fn fixture_with_store(
             credentials,
             DebugRecorder::disabled(),
         )),
-        json!({"providers":{}}),
+        base,
     )
     .await
     .unwrap();
@@ -1028,4 +1036,111 @@ async fn repro_c_live_settings_edit_heals_without_a_restart() {
             .contains("context window 32768 -> 16384"),
         "the live repair is reported too: {describe}"
     );
+}
+
+#[tokio::test]
+async fn legacy_output_migration_restores_native_budget_and_preserves_later_rpc_edits() {
+    use xharness_control::{ControlEvent, MutationReceipt, SettingsSnapshot};
+    use xharness_host_app::output_budget_migration::{migrate_output_budgets, MigrationOutcome};
+    let dir = TempDir::new();
+    let control = JsonlControlStore::new(dir.0.join("control")).unwrap();
+    let endpoint = "https://example.invalid/v1";
+    let mut original = profile(endpoint);
+    original["models"][0]["contextWindow"] = json!(131072);
+    original["models"][0]["minimumOutputTokens"] = json!(8192);
+    original["models"][0]["reasoning"] = Value::Null;
+    let user = json!({"providers":{"test-gateway":original}});
+    control
+        .append(
+            control.load().await.unwrap().revision(),
+            vec![
+                ControlEvent::SettingsSet {
+                    settings: SettingsSnapshot {
+                        namespace: MODEL_SETTINGS_NAMESPACE.to_owned(),
+                        user: user.clone(),
+                        value: user.clone(),
+                        revision: 1,
+                    },
+                },
+                ControlEvent::MutationCommitted {
+                    receipt: MutationReceipt {
+                        rpc_id: "legacy-import".into(),
+                        method: "settings.mutate".into(),
+                        fingerprint: "0".repeat(64),
+                        response: json!({}),
+                    },
+                },
+            ],
+        )
+        .await
+        .unwrap();
+    // Old max < hidden minimum is invalid before migration; no provider network
+    // is involved in this check or in capability-independent restore below.
+    assert!(xharness_host::parse_model_settings(&user).is_err());
+    let mut deployment = profile(endpoint);
+    deployment["models"][0]["contextWindow"] = json!(131072);
+    deployment["models"][0]["maxTokens"] = json!(65536);
+    deployment["models"][0]["reasoning"] = Value::Null;
+    let base = json!({"providers":{"test-gateway":deployment}});
+    assert!(matches!(
+        migrate_output_budgets(&control, &dir.0, &base)
+            .await
+            .unwrap(),
+        MigrationOutcome::Applied {
+            cleared_fields: 2,
+            ..
+        }
+    ));
+    let credentials = Arc::new(TestCredentials::default());
+    credentials
+        .set("XHARNESS_SETTINGS_TEST_KEY", "test-only-key")
+        .await
+        .unwrap();
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, runtime) =
+        fixture_with_base(&dir, credentials.clone(), store.clone(), base.clone()).await;
+    let route = ModelRoute::new("test-gateway", "coder");
+    let guard = runtime.auxiliary_token_guard(&route).unwrap();
+    assert_eq!(guard.budget().reserved_output_tokens, 65536);
+    assert_eq!(guard.budget().minimum_output_tokens, 1024);
+    let describe = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+    let ns = describe["namespaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["ns"] == MODEL_SETTINGS_NAMESPACE)
+        .unwrap();
+    assert_eq!(ns["revision"], 2);
+    assert!(ns["user"]["providers"]["test-gateway"]["models"][0]
+        .get("maxTokens")
+        .is_none());
+    assert_eq!(
+        ns["value"]["providers"]["test-gateway"]["models"][0]["maxTokens"],
+        65536
+    );
+    let mut manual = ns["user"]["providers"]["test-gateway"]["models"].clone();
+    manual[0]["maxTokens"] = json!(32000);
+    manual[0]["minimumOutputTokens"] = json!(8192);
+    rpc(&host,RpcMethod::SettingsMutate,json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":2,"ops":[{"op":"set","path":["providers","test-gateway","models"],"value":manual}]})).await;
+    assert_eq!(
+        runtime
+            .auxiliary_token_guard(&route)
+            .unwrap()
+            .budget()
+            .reserved_output_tokens,
+        32000
+    );
+    drop(host);
+    drop(runtime);
+    assert_eq!(
+        migrate_output_budgets(&control, &dir.0, &base)
+            .await
+            .unwrap(),
+        MigrationOutcome::AlreadyApplied
+    );
+    let (_host, runtime) = fixture_with_base(&dir, credentials, store, base).await;
+    let restored_guard = runtime.auxiliary_token_guard(&route).unwrap();
+    let budget = restored_guard.budget();
+    assert_eq!(budget.reserved_output_tokens, 32000);
+    assert_eq!(budget.minimum_output_tokens, 8192);
 }

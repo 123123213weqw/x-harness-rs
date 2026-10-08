@@ -33,6 +33,8 @@ test('published ABI, exact CSS and no removed onboarding slot',async()=>{
  const receipts=[];for(const{plugin}of[old,next]){const slots=[],dicts=[],events=[],cleanup=[];const scope={getSnapshot:()=>({status:'ready',value:{accepted:false},writable:true}),subscribe:()=>()=>{},set:async()=>{}};
  const ctx={effect:fn=>{const result=fn();if(typeof result==="function")cleanup.push(result)},locale:{register:(...v)=>dicts.push(v),bind:()=>k=>k},get:()=>({api:{}}),settingsSchema:schema,settingsScope:{describe:()=>mirror(),bind:()=>scope},remote:{$on:(n)=>{events.push(n);return()=>{}}},on:n=>{events.push(n);return()=>{}},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component})}};
  plugin.apply(ctx);assert.equal(slots.length,1);assert.equal(slots[0].spec.name,'settings.section');cleanup.forEach(fn=>fn());receipts.push({inject:json(plugin.inject),dicts:json(dicts),events,slot:{...slots[0].spec,inject:undefined,label:slots[0].spec.label()}});}
+ // Only the explicit new budget-validation copy differs from the reference.
+ for(const [,dicts] of receipts[1].dicts)for(const dict of Object.values(dicts)){assert.equal(typeof dict.modelOutputBudgetInvalid,'string');delete dict.modelOutputBudgetInvalid;}
  assert.deepEqual(receipts[1],receipts[0]);
 });
 test('API-key validation permits literal keys but rejects pasted quotes/env or unsafe chars',()=>{
@@ -70,4 +72,21 @@ test('profile removal respects credential-first idempotent retry and settings fa
 
 test('discovered image capability preserves true/false/unknown without guessing or rewriting fields',()=>{
  for(const imageInput of [undefined,true,false,'yes',null]){const candidate={id:'vision',name:'Vision',contextWindow:8192,maxTokens:2048,reasoning:{efforts:[{id:'high'}]},imageInput};const rows=apis.map(({plugin})=>json(plugin.adopt(candidate)));assert.deepEqual(rows[1],rows[0]);assert.equal(rows[1].imageInput,typeof imageInput==='boolean'?imageInput:undefined);assert.deepEqual(rows[1].reasoning,candidate.reasoning);}
+});
+
+test('adaptive output cross-field checks reject stale hidden minima without rejecting a large target',()=>{
+ const check=apis[1].plugin.validateOutputBudgets;
+ for(const row of [
+  {id:'old',contextWindow:262144,maxTokens:4096,minimumOutputTokens:8192},
+  {id:'old',contextWindow:2048,maxTokens:8192},
+  {id:'old',minimumOutputTokens:0},{id:'old',tokenSafetyMargin:-1},
+  {id:'old',maxTokens:1_000_000_001}, {id:'old',minimumOutputTokens:'8192'},
+ ])assert.equal(check([row]).key,'modelOutputBudgetInvalid');
+ for(const row of [{id:'m'},{id:'m',contextWindow:8192,maxTokens:8192},
+  {id:'m',maxTokens:32000},{id:'m',maxTokens:1},{id:'m',maxTokens:4096,minimumOutputTokens:4096}])assert.equal(check([row]),undefined);
+ const defaults={api:'openai-completions',baseURL:'https://example.com',models:[{id:'m',maxTokens:65536}]};
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{},defaults),undefined);
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{baseURL:'https://other.example'},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',upstreamModel:'different',minimumOutputTokens:8192}],{},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{maxTokens:16384}),undefined);
 });
