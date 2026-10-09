@@ -142,5 +142,26 @@ in-memory buffer.
   provide reconciliation; Actions failure notifications/evidence show a blocked
   website update. Native acceptance and releases have their own gates.
 
-Only `audit/` public-material receipts are uploaded as Actions evidence, not
-installers, source exports, SSH/signing keys or credential directories.
+Actions retain `audit/` public-material receipts and a separate small **signed
+public envelope**, not installers, source checkouts, SSH/signing private keys or
+credential directories. The envelope is uploaded before the network write and
+contains feed/signatures/key/inventory/licenses only. It can be combined with
+independently validated ORIGINAL packages for operator recovery via the existing
+restricted receiver; never re-sign, change the manifest or bypass native proof.
+Verify the reconstructed deterministic tar hash against the CI bundle receipt
+before sending, and read back the live CAS state before any recovery write.
+
+Measured 2026-10-09: hosted-runner→Engine bulk SSH and Engine/WZU→GitHub installer
+GET were approximately **17–25 KiB/s**, not build slowness. A 170 MiB upload alone
+can exceed two hours. A 20-minute SSH/35-minute job deadline cannot finish it.
+Publication therefore has a bounded three-hour SSH deadline, installer HTTPS
+read deadlines scale to at least 12 KiB/s (capped at three hours each), and a
+350-minute job ceiling, following the existing Gitee mirror's slow-route policy.
+Metadata/HEAD/no-op reads retain a five-minute bound. No timeout is unbounded,
+and changing deadlines does not relax hash/signature/CAS/native gates. Operators
+may use the small signed envelope over a faster already authorized nearby route
+without putting an administration key into Actions or restarting XS.
+
+HEAD checks keep a small header-file limit, but their curl declared-size quota
+is the installer quota: curl otherwise rejects legitimate 17–102 MiB installers
+when `--head --max-filesize 1MiB` sees Content-Length, despite receiving no body.
