@@ -1,4 +1,4 @@
-# Computer Use 工具规范（macOS 首版）
+# Computer Use 工具规范（macOS 与 Windows 适配）
 
 ## 目标
 
@@ -22,11 +22,11 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 - `xharness-computer` 不依赖操作系统和 Host。
 - `xharness-computer-macos` 是唯一允许接触 macOS FFI 的边界。
 - Host 负责把 PNG 存为会话附件；工具文本和 Debug 日志不放 Base64。
-- 非 macOS 构建保留不可用适配器以支持全工作区检查，但 Host 不注册工具。
+- Windows 适配器沿用同一协议，由 Host composition 在 Windows 构建中注入；Linux 尚无桌面驱动，不注册工具。
 
 ## 注册策略
 
-- macOS + `danger-full-access`：注册一个 `computer`。
+- macOS / Windows + `danger-full-access`：注册一个 `computer`（Windows 仍受下文开发分支验收门禁约束）。
 - `workspace-write`：不注册。GUI 输入无法被工作区文件沙箱约束，不能伪装成沙箱内能力。
 - macOS Accessibility / Screen Recording 权限由适配器在每次操作前探测，缺失时返回 `permission_required`，不在后台自动弹授权窗口。
 - 全部 Computer 调用使用 `ToolConcurrency::Exclusive`。键盘、鼠标和前台窗口是全局资源，不允许同批并行。
@@ -95,6 +95,10 @@ xharness-host-app                 权限策略、附件持久化、多模态投�
 
 ## Windows 适配（开发分支，未发布）
 
+- 架构清单显式允许 `xharness-computer-windows → xharness-computer / xharness-win32`：
+  前者提供平台无关协议，后者提供句柄及 Job 原语；适配器不反向依赖 Host/RPC。
+  `xharness-host-app → xharness-computer-windows` 仅负责 Windows composition 注入，
+  与 macOS 边界对称；没有放宽其他 crate 的依赖门禁。
 - 复用相同 `ComputerDriver` / 单一 `computer` / 附件投影与工具卡；仅
   `danger-full-access` 注册。macOS API 与调用方式不改变。
 - `xharness-computer-windows` 的 Host 侧是安全 Rust。原生 UIA/Win32 仅在

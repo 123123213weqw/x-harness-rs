@@ -15,6 +15,22 @@ The synthetic cart has no login, checkout, real order or payment. Public shop te
 
 Resource samples are summed process working sets/private memory during operations, not unique PSS or a continuously measured absolute peak. Include all retained Edge tabs in the stated scope; never report this as full XHarness desktop memory or evidence of no long-duration leak.
 
+## Collector concurrency regression
+
+Published files are read under the same lock used for append/atomic replacement;
+the lock is released before HTTP responses are written. An open Windows read
+handle can otherwise deny replacement and disconnect the POST client. The
+collector retains body limits, loopback binding and its route whitelist.
+`test-collector.py` covers a deterministic simulated sharing violation, all
+published/missing GET routes, unlocked socket responses and concurrent 80 KiB
+JSON publication. Removing the read lock makes the controlled regression fail;
+this is not an automatic HTTP retry or a GUI action replay.
+
+The extended fixture subclasses the base handler through `collector.main`,
+instead of replacing/`exec`-ing source text. `test-expanded-collector.py` still
+checks the exact scenario allowlist and rejects unrelated files/query parameters.
+These tests validate the disposable lab bridge, not Windows desktop task quality.
+
 ## AX performance comparison
 
 `grade-ax-performance.py <baseline-directory> <candidate-directory>` is an offline oracle. Each directory contains `manifest.json` and at least three receipts per detail mode (plain JSON or deterministic gzip). The manifest records the exact artifact source, observed URL, foreground title, visible-label anchors, expected editable inputs and per-sample modes. Retain independent before/after screenshots alongside the receipts. The grader rejects wrong foreground/source/query, missing content, invalid timings, broken ancestry, duplicate samples and changed geometry. It reports missing inputs and partial/time-limited trees separately rather than treating fast truncation as successful task coverage. Native latency and process working sets are descriptive; varying visited/returned counts do not prove a causal improvement. Run `python3 -B test-grade-ax-performance.py` for negative-case regression.

@@ -9,12 +9,6 @@ import struct
 from pathlib import Path
 from threading import Lock
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--root', type=Path, required=True)
-parser.add_argument('--port', type=int, default=18086)
-args = parser.parse_args()
-root = args.root.resolve()
-root.mkdir(parents=True, exist_ok=True)
 lock = Lock()
 files = {'/shop.html': ('shop.html', 'text/html; charset=utf-8'),
          '/guest-shopping.ps1': ('guest-shopping.ps1', 'text/plain; charset=utf-8'),
@@ -53,7 +47,11 @@ class Handler(BaseHTTPRequestHandler):
         else:
             return self.send(b'Not published', status=404)
         try:
-            data=(root/filename).read_bytes()
+            # Windows readers can deny replacement while their file handle is
+            # open. Serialize the entire read with publication, not the socket
+            # response: slow clients must never hold the filesystem lock.
+            with lock:
+                data=(root/filename).read_bytes()
         except FileNotFoundError:
             if self.path in ('/browser-next', '/browser-latest'):
                 data=b'{}'
@@ -107,6 +105,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(b'Invalid input', status=400)
         self.send(b'OK')
 
-server=ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-print(json.dumps({'port':server.server_address[1], 'root':str(root)}), flush=True)
-server.serve_forever()
+def main(handler_class=Handler):
+    global root
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--port', type=int, default=18086)
+    args = parser.parse_args()
+    root = args.root.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    with ThreadingHTTPServer(('127.0.0.1', args.port), handler_class) as server:
+        print(json.dumps({'port':server.server_address[1], 'root':str(root)}), flush=True)
+        server.serve_forever()
+
+if __name__ == '__main__':
+    main()
