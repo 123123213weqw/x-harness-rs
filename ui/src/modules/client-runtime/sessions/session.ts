@@ -481,7 +481,7 @@ export class Session implements SessionFace {
         return
       }
       case 'session/queue': {
-        this.queueMirror.replace(frame.items)
+        this.queueMirror.replace(frame.items, this.events)
         this.notifier.markDirty()
         return
       }
@@ -702,7 +702,9 @@ export class Session implements SessionFace {
     this.hasMore = hasMore
     if (events.some(event => event.type === 'turn/start')) this.firstPromptPendingTurn = false
     if (projections !== undefined) this.projections.seed(projections)
-    for (const item of accepted) this.queueMirror.acceptDurable(item.event)
+    // A queue baseline may have landed before history on open/reconnect.
+    // Reconcile the complete installed window, not only newly buffered events.
+    for (const event of events) this.queueMirror.acceptDurable(event)
     this.liveBuffer = []
     this.notifier.markDirty()
     this.xhHistoryOwner?.changed(this)

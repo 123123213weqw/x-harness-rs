@@ -116,6 +116,42 @@ impl ModelProvider for SteeringProvider {
     }
 }
 
+// Keeps the post-steering request active so turn-end cleanup cannot hide a
+// consumed input incorrectly left pending in the durable inbox.
+#[derive(Clone, Default)]
+struct HandoffProvider {
+    attempts: Arc<AtomicUsize>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl ModelProvider for HandoffProvider {
+    async fn stream(
+        &self,
+        _request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+        let release = Arc::clone(&self.release);
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tokio::spawn(async move {
+            let _ = tx
+                .send(Ok(ProviderEvent::TextDelta(format!("step-{attempt}"))))
+                .await;
+            tokio::select! {
+                _ = cancellation.cancelled() => {},
+                _ = release.notified() => {
+                    let _ = tx.send(Ok(ProviderEvent::Completed {
+                        finish_reason: Some(FinishReason::Stop), usage: None,
+                        provider_items: Vec::new(),
+                    })).await;
+                }
+            }
+        });
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+}
+
 #[async_trait]
 impl TurnRequestFactory for Factory {
     async fn build(
@@ -412,6 +448,75 @@ async fn active_steer_is_durable_and_consumed_at_the_next_step() {
         ["prompt", "steer"]
     );
     assert!(!handle.inbox().snapshot().await.unwrap().has_pending());
+}
+
+#[tokio::test]
+async fn consumed_late_answers_leave_the_inbox_before_the_turn_finishes() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(Arc::clone(&store), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("late-answer-handoff"))
+        .await
+        .unwrap();
+    let provider = Arc::new(HandoffProvider::default());
+    let handle = DurableAgentHandle::start(
+        activation,
+        Arc::new(Factory {
+            provider: provider.clone(),
+        }),
+        64,
+    );
+    let mut events = handle.subscribe();
+    handle
+        .followup(InboxMessage::user("prompt", "begin"))
+        .await
+        .unwrap();
+    for attempt in 0..3 {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if matches!(events.recv().await.unwrap(), AgentEvent::TurnEvent {
+                    event: xharness_core::LoopEvent { kind: xharness_core::LoopEventKind::TextDelta(ref text), .. }, ..
+                } if text == &format!("step-{attempt}")) { break; }
+            }
+        }).await.expect("provider boundary should be reached");
+        assert_eq!(handle.status(), xharness_agent::AgentStatus::Running);
+        assert!(
+            !handle.inbox().snapshot().await.unwrap().has_pending(),
+            "a consumed answer must disappear while the model is still running"
+        );
+        if attempt < 2 {
+            handle
+                .steer(InboxMessage::user(
+                    format!("question-late-answer:question:{attempt}"),
+                    "fixture answer",
+                ))
+                .await
+                .unwrap();
+        }
+    }
+    provider.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let AgentEvent::TurnFinished { result, .. } = events.recv().await.unwrap() {
+                assert_eq!(result.status, xharness_core::LoopStatus::Completed);
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let session = store.load("late-answer-handoff").await.unwrap().unwrap();
+    for attempt in 0..2 {
+        let id = format!("question-late-answer:question:{attempt}");
+        assert_eq!(
+            session
+                .derive_messages()
+                .iter()
+                .filter(|message| message.id.as_deref() == Some(&id))
+                .count(),
+            1
+        );
+    }
 }
 
 #[tokio::test]

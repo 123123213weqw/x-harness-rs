@@ -1151,14 +1151,14 @@ impl DriverWorker {
                 _ = self.shutdown.cancelled() => {
                     let _ = run.send(LoopCommand::Cancel).await;
                     while let Some(event) = run.next().await {
-                        let _ = self.events.send(AgentEvent::TurnEvent { turn, event });
+                        self.publish_turn_event(turn, event).await;
                     }
                     let result = run.result().await;
                     let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
                     return Err(AgentCommandError::Closed);
                 }
                 event = run.next() => match event {
-                    Some(event) => { let _ = self.events.send(AgentEvent::TurnEvent { turn, event }); }
+                    Some(event) => { self.publish_turn_event(turn, event).await; }
                     None => break,
                 },
                 command = self.commands.recv() => match command {
@@ -1166,7 +1166,7 @@ impl DriverWorker {
                     None => {
                         let _ = run.send(LoopCommand::Cancel).await;
                         while let Some(event) = run.next().await {
-                            let _ = self.events.send(AgentEvent::TurnEvent { turn, event });
+                            self.publish_turn_event(turn, event).await;
                         }
                         let result = run.result().await;
                         let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
@@ -1204,6 +1204,18 @@ impl DriverWorker {
         }
         let _ = self.events.send(AgentEvent::TurnFinished { turn, result });
         Ok(())
+    }
+
+    async fn publish_turn_event(&self, turn: u32, event: LoopEvent) {
+        if matches!(event.kind, xharness_core::LoopEventKind::InputCommitted) {
+            // A live steer is durable in next-step before reaching the Loop.
+            // Remove it as soon as its user/message is durable, not at turn end.
+            // Keep the existing crash reconciliation and retry on later boundaries.
+            if let Err(error) = self.activation.inbox().reconcile_consumed().await {
+                self.publish_error(error.to_string());
+            }
+        }
+        let _ = self.events.send(AgentEvent::TurnEvent { turn, event });
     }
 
     async fn next_turn(&self) -> Result<u32, AgentCommandError> {
