@@ -9,7 +9,10 @@ use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 use xharness_api::{RpcError, RpcErrorCode};
 
-use crate::state::SettingsNamespace;
+use crate::{
+    model_settings_layers::{merge_model_layers, merge_object},
+    state::SettingsNamespace,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SettingsStateView {
@@ -194,35 +197,6 @@ fn check_revision(namespace: &SettingsNamespace, expected: Option<u64>) -> Resul
         }
     }
     Ok(())
-}
-
-/// Model `value` is derived state, not a replayable snapshot. Rebase user
-/// overrides on each deployment's current provider defaults.
-pub(crate) fn merge_model_layers(base: &Value, user: &Value) -> Value {
-    let mut merged = base.clone();
-    merge_object(&mut merged, user);
-    merged
-}
-
-fn merge_object(target: &mut Value, patch: &Value) {
-    let Some(patch) = patch.as_object() else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_object() {
-        *target = json!({});
-    }
-    let target = target.as_object_mut().expect("initialized as object");
-    for (key, value) in patch {
-        match target.get_mut(key) {
-            Some(existing) if existing.is_object() && value.is_object() => {
-                merge_object(existing, value);
-            }
-            _ => {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-    }
 }
 
 fn set_json_path(target: &mut Value, path: &[String], value: Value) -> Result<(), RpcError> {

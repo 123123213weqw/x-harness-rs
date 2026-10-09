@@ -39,6 +39,8 @@ test('published ABI, exact CSS and no removed onboarding slot',async()=>{
  for(const [,dict] of receipts[1].dicts)for(const locale of ['en','zh']) {
   for(const key of added){assert.equal(typeof dict[locale][key],'string');assert.ok(dict[locale][key].length);delete dict[locale][key];}
  }
+ // Only the explicit new budget-validation copy differs from the reference.
+ for(const [,dicts] of receipts[1].dicts)for(const dict of Object.values(dicts)){assert.equal(typeof dict.modelOutputBudgetInvalid,'string');delete dict.modelOutputBudgetInvalid;}
  assert.deepEqual(receipts[1],receipts[0]);
 });
 test('API-key validation permits literal keys but rejects pasted quotes/env or unsafe chars',()=>{
@@ -101,4 +103,21 @@ test('local reasoning recipes are explicit, isolated, and match checked-in deplo
  const first=reasoningRecipe('enable-thinking');first.efforts[0].request_patch.chat_template_kwargs.enable_thinking=true;
  assert.equal(reasoningRecipe('enable-thinking').efforts[0].request_patch.chat_template_kwargs.enable_thinking,false);
  assert.deepEqual(json(reasoningRecipe('native-effort').efforts.map(e=>e.id)),['low','medium','high']);
+});
+
+test('adaptive output cross-field checks reject stale hidden minima without rejecting a large target',()=>{
+ const check=apis[1].plugin.validateOutputBudgets;
+ for(const row of [
+  {id:'old',contextWindow:262144,maxTokens:4096,minimumOutputTokens:8192},
+  {id:'old',contextWindow:2048,maxTokens:8192},
+  {id:'old',minimumOutputTokens:0},{id:'old',tokenSafetyMargin:-1},
+  {id:'old',maxTokens:1_000_000_001}, {id:'old',minimumOutputTokens:'8192'},
+ ])assert.equal(check([row]).key,'modelOutputBudgetInvalid');
+ for(const row of [{id:'m'},{id:'m',contextWindow:8192,maxTokens:8192},
+  {id:'m',maxTokens:32000},{id:'m',maxTokens:1},{id:'m',maxTokens:4096,minimumOutputTokens:4096}])assert.equal(check([row]),undefined);
+ const defaults={api:'openai-completions',baseURL:'https://example.com',models:[{id:'m',maxTokens:65536}]};
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{},defaults),undefined);
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{baseURL:'https://other.example'},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',upstreamModel:'different',minimumOutputTokens:8192}],{},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{maxTokens:16384}),undefined);
 });
