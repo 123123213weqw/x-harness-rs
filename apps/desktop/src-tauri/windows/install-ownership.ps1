@@ -4,6 +4,11 @@ param(
     [string]$InventoryPath
 )
 $ErrorActionPreference = 'Stop'
+# Shell Link known-folder resolution depends on the reader's architecture.
+# Never silently classify x64 Program Files shortcuts from a WOW64 process.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    throw 'Installation ownership requires native 64-bit Windows PowerShell on this system'
+}
 $shortcutSource = Join-Path $(if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $env:XHARNESS_INSTALL_SCRIPT }) 'install-shortcuts.cs'
 if (-not ('XHarnessInstaller.Shortcuts' -as [type])) { Add-Type -Path $shortcutSource }
 
