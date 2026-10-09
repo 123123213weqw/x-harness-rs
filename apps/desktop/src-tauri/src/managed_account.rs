@@ -4,7 +4,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
-use tauri::{State, WebviewWindow};
+use tauri::{Emitter, Manager, State, WebviewWindow};
 use tokio::sync::Mutex;
 use url::Url;
 #[derive(Default)]
@@ -18,6 +18,8 @@ struct Flow {
     expires: Instant,
     result: Option<Value>,
     code: String,
+    callback_state: String,
+    authorization_code: Option<String>,
 }
 fn main_only(window: &WebviewWindow) -> Result<(), String> {
     if window.label() == "main" {
@@ -92,13 +94,14 @@ pub async fn desktop_account_start(
     }
     let origin = origin()?;
     let verifier = secret()?;
+    let callback_state = secret()?;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|_| "account_client_unavailable")?;
-    let result=post(&client,origin.join("api/account/device/start").map_err(|_|"account_origin_invalid")?,json!({"name":format!("XHarness ({})",std::env::consts::OS),"verifier_hash":format!("{:x}",Sha256::digest(verifier.as_bytes()))})).await?;
+    let result=post(&client,origin.join("api/account/device/start").map_err(|_|"account_origin_invalid")?,json!({"name":format!("XHarness ({})",std::env::consts::OS),"code_challenge":URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())),"code_challenge_method":"S256","callback_state":callback_state})).await?;
     let device = text(&result, "deviceCode")?;
     let code = text(&result, "userCode")?;
     let verification = text(&result, "verificationUri")?;
@@ -125,6 +128,8 @@ pub async fn desktop_account_start(
         expires: Instant::now() + Duration::from_secs(300),
         result: None,
         code: code.clone(),
+        callback_state,
+        authorization_code: None,
     });
     Ok(json!({"userCode":code,"verificationUri":verification}))
 }
@@ -189,20 +194,76 @@ pub async fn desktop_account_status(
     })
 }
 #[tauri::command]
-pub async fn desktop_account_open(window: WebviewWindow) -> Result<(), String> {
+pub async fn desktop_account_open(
+    window: WebviewWindow,
+    state: State<'_, ManagedAccountState>,
+) -> Result<(), String> {
     main_only(&window)?;
+    let guard = state.0.lock().await;
+    let f = guard
+        .as_ref()
+        .filter(|f| Instant::now() <= f.expires)
+        .ok_or("account_connection_expired")?;
+    let mut u = f
+        .origin
+        .join("account")
+        .map_err(|_| "account_origin_invalid")?;
+    u.query_pairs_mut().append_pair("connect", &f.code);
     use tauri_plugin_shell::ShellExt;
     #[allow(deprecated)]
     window
         .shell()
-        .open(
-            origin()?
-                .join("account")
-                .map_err(|_| "account_origin_invalid")?
-                .as_str(),
-            None,
-        )
+        .open(u.as_str(), None)
         .map_err(|_| "account_browser_unavailable".into())
+}
+/// The OS URL is never trusted to provide credentials or a server origin.
+async fn receive_callback(app: tauri::AppHandle, raw: String) {
+    let store = app.state::<ManagedAccountState>();
+    let mut guard = store.0.lock().await;
+    let Some(f) = guard.as_mut() else {
+        return;
+    }; // cold launch requires a new login
+    if !accept_callback(f, &raw) {
+        return;
+    }
+    drop(guard);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        // Only a wakeup reaches the trusted UI, never code/state/token.
+        let _ = window.emit("xharness-account-ready", ());
+    }
+}
+fn accept_callback(f: &mut Flow, raw: &str) -> bool {
+    let Some((code, state)) = crate::account_callback::parse(raw) else {
+        return false;
+    };
+    if Instant::now() > f.expires
+        || f.callback_state != state
+        || f.authorization_code.is_some()
+        || f.result.is_some()
+    {
+        return false;
+    }
+    f.authorization_code = Some(code);
+    f.next = Instant::now();
+    true
+}
+pub fn install_callbacks(app: &tauri::AppHandle) {
+    use tauri_plugin_deep_link::DeepLinkExt;
+    #[cfg(any(target_os = "linux", windows))]
+    {
+        let _ = app.deep_link().register_all();
+    } // user-level; polling if unavailable
+    let handle = app.clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            tauri::async_runtime::spawn(receive_callback(handle.clone(), url.into()));
+        }
+    });
+    // A cold callback cannot authorize without a matching live local proof.
+    // No verifier or pending authorization is persisted in plaintext.
 }
 #[tauri::command]
 pub async fn desktop_account_poll(
@@ -223,12 +284,22 @@ pub async fn desktop_account_poll(
         return Ok(json!({"status":"pending"}));
     }
     f.next = Instant::now() + Duration::from_secs(5);
+    let callback = f.authorization_code.take();
+    let (path, body) = if let Some(code) = callback {
+        (
+            "api/account/device/exchange",
+            json!({"device_code":f.device,"verifier":f.verifier,"code":code,"state":f.callback_state}),
+        )
+    } else {
+        (
+            "api/account/device/poll",
+            json!({"device_code":f.device,"verifier":f.verifier}),
+        )
+    };
     let result = post(
         &f.client,
-        f.origin
-            .join("api/account/device/poll")
-            .map_err(|_| "account_origin_invalid")?,
-        json!({"device_code":f.device,"verifier":f.verifier}),
+        f.origin.join(path).map_err(|_| "account_origin_invalid")?,
+        body,
     )
     .await?;
     match result.get("status").and_then(Value::as_str) {
@@ -249,10 +320,12 @@ pub async fn desktop_account_finish(
 ) -> Result<(), String> {
     main_only(&window)?;
     let mut guard = state.0.lock().await;
-    let Some(f) = guard.take() else { return Ok(()) };
+    let Some(f) = guard.as_ref() else {
+        return Ok(());
+    };
     if !saved {
-        if let Some(v) = f.result {
-            let token = text(&v, "accessToken")?;
+        if let Some(v) = &f.result {
+            let token = text(v, "accessToken")?;
             let r = f
                 .client
                 .post(
@@ -269,11 +342,46 @@ pub async fn desktop_account_finish(
             }
         }
     }
+    *guard = None;
     Ok(())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn callback_is_bound_to_a_live_initiated_flow() {
+        let expected = secret().unwrap();
+        let uri = format!(
+            "{}?code={}&state={}",
+            crate::account_callback::CALLBACK,
+            secret().unwrap(),
+            expected
+        );
+        let mut flow = Flow {
+            client: reqwest::Client::new(),
+            origin: Url::parse("https://engine.xxdevs.com").unwrap(),
+            device: secret().unwrap(),
+            verifier: secret().unwrap(),
+            next: Instant::now(),
+            expires: Instant::now() + Duration::from_secs(300),
+            result: None,
+            code: "ABCDEF012345".into(),
+            callback_state: expected.clone(),
+            authorization_code: None,
+        };
+        assert!(!accept_callback(
+            &mut flow,
+            &uri.replace(&expected, &secret().unwrap())
+        ));
+        assert!(accept_callback(&mut flow, &uri));
+        assert!(!accept_callback(&mut flow, &uri));
+        flow.authorization_code = None;
+        flow.expires = Instant::now() - Duration::from_secs(1);
+        assert!(!accept_callback(&mut flow, &uri));
+        flow.expires = Instant::now() + Duration::from_secs(300);
+        flow.result = Some(json!({"status":"authorized"}));
+        assert!(!accept_callback(&mut flow, &uri));
+    }
     #[test]
     fn rejects_credentials_pointing_at_another_origin() {
         let u = Url::parse("https://engine.xxdevs.com").unwrap();

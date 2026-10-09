@@ -143,6 +143,17 @@ for (const name of modules) {
       Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
     }
+    if (name === 'settings-general') {
+      // Reviewed account-menu addition; all pre-existing copy remains frozen.
+      Object.assign(namespaces[0].dictionaries.zh, {
+        'account.trigger':'账号与设置','account.name':'XHarness','account.caption':'账号与设置',
+        'account.local':'本机工作区','account.menu':'账号与额度','account.profile':'使用档案',
+      })
+      Object.assign(namespaces[0].dictionaries.en, {
+        'account.trigger':'Account & settings','account.name':'XHarness','account.caption':'Account & settings',
+        'account.local':'Local workspace','account.menu':'Account & allowance','account.profile':'Usage profile',
+      })
+    }
     assert.deepEqual(normalized(two.namespaces), namespaces)
     const expected = normalized(one.registrations.map(({spec}) => spec))
     if (name === 'layout') Object.assign(expected[0].children, {
@@ -154,6 +165,10 @@ for (const name of modules) {
     if (name === 'sidebar') Object.assign(expected[0].children, {
       'sidebar.primary.action': {kind: 'list', scope: 'root'},
     })
+    if (name === 'settings-general') {
+      expected[0].children['settings.account-entry'] = {kind:'single',scope:'root'}
+      expected.splice(2, 0, {name:'settings.account-entry',locale:'settings'})
+    }
     assert.deepEqual(normalized(two.registrations.map(({spec}) => spec)), expected)
   })
 }

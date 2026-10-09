@@ -1,5 +1,6 @@
 /// <reference path="./external.d.ts" />
 import {ManagedAccount,managedLabels} from './ManagedAccount'
+import {ManagedConnection} from './managed-connection'
 import { ModelsSection } from './ModelsSection'
 import type { ModelsSectionInjected } from './ModelsSection'
 import { ModelsSettingsStore } from './store'
@@ -19,7 +20,9 @@ export function apply(ctx: ModelsClientContext): void {
   const connection = ctx.get('connection'), schema = createSettingsSchemaOperations(ctx.settingsSchema)
   const controller = new ModelsSettingsStore(connection.api, schema, ctx.settingsScope.describe())
   ctx.effect(() => ctx.locale.register("xharness-managed-account", managedLabels), "managed-account: locale")
-  ctx.slots.inject("settings.section", () => ctx.slots.register({name:"settings.section",id:"managed-account",order:11,label:()=>ctx.locale.bind("xharness-managed-account")("nav"),inject:()=>({api:connection.api,describe:ctx.settingsScope.describe(),t:ctx.locale.bind("xharness-managed-account")})},ManagedAccount))
+  const managed = new ManagedConnection(connection.api, ctx.settingsScope.describe())
+  ctx.effect(() => managed.attach(window.__TAURI__), 'managed-account: native lifecycle')
+  ctx.slots.inject("settings.section", () => ctx.slots.register({name:"settings.section",id:"managed-account",order:11,label:()=>ctx.locale.bind("xharness-managed-account")("nav"),inject:()=>({controller:managed,t:ctx.locale.bind("xharness-managed-account")})},ManagedAccount))
   const t = ctx.locale.bind(NS)
   const injected = (): ModelsSectionInjected => ({ controller, hooks: { snapshot: controller.store }, api: connection.api, schema, t })
   // Retain the current bound scope's lifecycle, but do not reinstall removed
