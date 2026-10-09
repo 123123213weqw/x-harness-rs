@@ -174,3 +174,19 @@ ToolResult + TurnEnd → Goal 报告结算 → 继续 / 等待 / 暂停 / 待确
 ### 重启恢复顺序
 
 先恢复 Control 配置，再解析凭据并激活模型路由，最后恢复会话与消费队列。禁止空的 bootstrap registry 提前拒绝已有消息。配置激活失败时清空旧路由并保留错误和设置入口，不使用旧配置执行排队工作。
+
+## 报告资源引用门禁（2026-10-09）
+
+- `goal` 的 `action=report` 对 `progress`、`blocked`、`complete` 都执行引用准入检查；Agent/Job 的 `reference` 必须是精确资源 ID，不得夹带空白、括号说明或不可见字符，也不自动裁剪/猜测 ID。说明放在 `summary`。
+- Host 在返回成功报告 metadata 前检查资源存在性及当前会话归属。无效引用返回 `invalid_goal_reference` 工具错误，模型可以在同一轮修正并重新报告；无效报告不写入 Goal 状态、不因此暂停 Goal。
+- `SessionToolFactory::validate_goal_references` 只验证身份/归属，`goal_dependencies` 仍负责运行状态与完成门禁。运行中或失败资源可以作为进度/阻塞证据，不能凭“引用有效”宣称已经成功完成。
+- 未提供资源验证服务的 factory 对 Agent/Job 引用失败关闭；无资源引用及 Artifact 路径/URL 沿用原规则，Artifact 不新增文件读取或真实性背书。
+- 本次不修改历史日志解码、RPC 格式、轮数预算、自动恢复或用户暂停语义；已暂停的旧 Goal 不会被自动修复引用或重新启动。
+
+## 持久化 Provider 恢复与问题范围（2026-10-09）
+
+- Core 在 durable `turn/end` 的 `failed` 原因里附带可选 `provider_failure` 分类。仅明确的可重试传输诊断、408/429/5xx 进入恢复；不通过错误文本关键词推断。鉴权、参数、协议、本地持久化失败以及旧日志缺少分类的失败仍暂停。
+- Goal 持久化 `retry`（失败轮次、连续失败次数、UTC 毫秒截止时间），5 秒起指数退避，遵守更长的 Provider Retry-After，最多自动续试 5 次。等待期间不消费轮数、不排队新模型请求；真正开始的新轮次沿用原轮数预算。成功轮次重置计数，连续耗尽后暂停并保留错误详情。
+- 重启重放沿用已记录截止时间与去重键；现有 Host watcher 唤醒到期的活动 Goal。用户输入优先；暂停、编辑、取消及结果未知不自动恢复。当前失败轮次存在未结工具调用或 `outcome_unknown` 时不创建恢复计划；恢复是新模型轮次，保留历史工具结果，不重新执行旧工具调用。
+- `ask_user_question.questions[].blocksGoal` 可选，默认 `true`（旧记录行为不变）；设置 `false` 表示问题超时 deferred 后独立工作仍可继续。问题仍保留在 UI，迟到回答照原来的持久化投递机制送达；不伪造答案，不改变工具权限或审批。需要答案才能继续时使用 `true`，或报告明确的 blocker。
+- Goal 投影展示 `network_backoff`，已失败轮次中的 complete 报告不视作等待完成确认。公共 `turn/end` UI DTO 与现有 RPC 方法保持不变；日志新增字段向后读取兼容，但不承诺旧版严格解码器能读取新版含 retry 的 Goal 状态。

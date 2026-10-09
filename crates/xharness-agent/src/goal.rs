@@ -102,6 +102,7 @@ impl GoalController {
             review: None,
             pause_reason: None,
             pause_detail: None,
+            retry: None,
         };
         state.definition.validate()?;
         self.append(
@@ -210,8 +211,16 @@ impl GoalController {
         &self,
         dependencies: bool,
     ) -> Result<GoalDecision, GoalError> {
+        self.reconcile_at(dependencies, unix_ms()).await
+    }
+    /// Deterministic deadline evaluation; production passes the current wall clock.
+    pub async fn reconcile_at(
+        &self,
+        dependencies: bool,
+        now_ms: u64,
+    ) -> Result<GoalDecision, GoalError> {
         for _ in 0..3 {
-            let d = self.reconcile_once(dependencies).await?;
+            let d = self.reconcile_once(dependencies, now_ms).await?;
             if d == (GoalDecision::Wait {
                 reason: WaitReason::Recovery,
             }) && self.state().await?.is_some_and(|s| s.running.is_none())
@@ -224,7 +233,11 @@ impl GoalController {
             reason: WaitReason::Recovery,
         })
     }
-    async fn reconcile_once(&self, dependencies: bool) -> Result<GoalDecision, GoalError> {
+    async fn reconcile_once(
+        &self,
+        dependencies: bool,
+        now_ms: u64,
+    ) -> Result<GoalDecision, GoalError> {
         let session = self.load().await?;
         let state = execution_state(&session);
         let inbox = InboxProjection::from_session(&session)?;
@@ -297,13 +310,14 @@ impl GoalController {
         }
         let inbox = InboxProjection::from_session(&session)?;
         let pending_id = s.pending.as_ref().map(|p| p.message_id.as_str());
-        let runtime = if xharness_session::has_unanswered_deferred_question(session.events()) {
-            RuntimeState::AwaitingAnswer
-        } else if open_turn(&session).is_some() {
-            RuntimeState::NeedsRecovery
-        } else {
-            RuntimeState::Idle
-        };
+        let runtime =
+            if xharness_session::has_unanswered_blocking_deferred_question(session.events()) {
+                RuntimeState::AwaitingAnswer
+            } else if open_turn(&session).is_some() {
+                RuntimeState::NeedsRecovery
+            } else {
+                RuntimeState::Idle
+            };
         let observation = GoalObservation {
             goal: Some(s.definition.clone()),
             session_revision: session.revision(),
@@ -323,6 +337,8 @@ impl GoalController {
             admitted_intents: s.admitted.clone(),
             empty_report_rounds: s.empty_report_rounds,
             empty_report_limit: s.empty_report_limit,
+            now_ms,
+            retry: s.retry.clone(),
         };
         let d = decide(&observation)?;
         match &d {
@@ -359,6 +375,13 @@ impl GoalController {
             }
             GoalDecision::Pause { reason, .. } => {
                 s.pause_reason = Some(*reason);
+                if *reason == PauseReason::ExecutionError
+                    && s.retry
+                        .as_ref()
+                        .is_some_and(|r| r.attempts > MAX_GOAL_PROVIDER_RETRIES)
+                {
+                    s.pause_detail = Some(format!("Automatic provider recovery exhausted after {MAX_GOAL_PROVIDER_RETRIES} retries; {}", s.pause_detail.as_deref().unwrap_or("provider failure")));
+                }
                 s.definition.snapshot.phase = GoalPhase::Paused;
                 self.commit_phase(&session, s, GoalSnapshotOperation::Pause)
                     .await?;
@@ -488,7 +511,17 @@ impl GoalController {
         let tools = session.events().iter().any(
             |e| matches!(e.data(), EventData::ToolResult { turn, .. } if *turn == running.turn),
         );
-        s.empty_report_rounds = if report.is_some() || tools {
+        let retry = provider_retry_after_turn(session.events(), running.turn, s.retry.as_ref());
+        s.pause_detail = session.events().iter().rev().find_map(|e| match e.data() {
+            EventData::TurnEnd {
+                turn,
+                reason: TurnEndReason::Failed { error, .. },
+            } if *turn == running.turn => Some(error.chars().take(2048).collect()),
+            _ => None,
+        });
+        s.empty_report_rounds = if retry.is_some() {
+            s.empty_report_rounds
+        } else if report.is_some() || tools {
             0
         } else {
             s.empty_report_rounds.saturating_add(1)
@@ -503,6 +536,7 @@ impl GoalController {
         });
         s.running = None;
         s.review = None;
+        s.retry = retry;
         self.append(
             session.revision(),
             vec![execution(GoalExecutionOperation::Settle, s)],
@@ -556,6 +590,14 @@ fn remove_intent(session: &Session, p: &GoalIntent) -> Result<Vec<SessionEvent>,
         })
         .into_iter()
         .collect())
+}
+fn unix_ms() -> u64 {
+    std::time::SystemTime::UNIX_EPOCH
+        .elapsed()
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 fn snapshot_change(
     session: &Session,

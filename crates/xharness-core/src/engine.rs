@@ -648,6 +648,7 @@ impl Runner {
         }
 
         let outcome = self.run_inner().await;
+        let mut provider_failure = None;
         let (mut status, mut error, phase) = match outcome {
             Ok(status) => {
                 let phase = match status {
@@ -678,6 +679,15 @@ impl Runner {
                     .await;
                 (LoopStatus::Failed, Some(message), "failed")
             }
+            Err(RunFailure::Provider { message, failure }) => {
+                provider_failure = Some(failure);
+                let _ = self
+                    .emit(LoopEventKind::RunFailed {
+                        error: message.clone(),
+                    })
+                    .await;
+                (LoopStatus::Failed, Some(message), "failed")
+            }
             Err(RunFailure::ContextOverflow(message)) => {
                 let message = format!(
                     "provider rejected the request for context overflow and recovery did not run: {message}"
@@ -691,7 +701,10 @@ impl Runner {
             }
         };
 
-        if let Err(journal_error) = self.finalize_journal(status, error.as_deref()).await {
+        if let Err(journal_error) = self
+            .finalize_journal(status, error.as_deref(), provider_failure)
+            .await
+        {
             status = LoopStatus::Failed;
             error = Some(journal_error.clone());
             let _ = self
@@ -902,9 +915,8 @@ impl Runner {
                                 Ok(CompactionOutcome::NotApplied) => {}
                                 Err(error @ RunFailure::Stopped(_)) => return Err(error),
                                 Err(compaction_error) => {
-                                    return Err(RunFailure::Failed(format!(
-                                        "token budget rejected request: {error}; overflow compaction failed: {compaction_error}"
-                                    )));
+                                    let message = format!("token budget rejected request: {error}; overflow compaction failed: {compaction_error}");
+                                    return Err(compaction_error.context(message));
                                 }
                             }
                         }
@@ -976,9 +988,10 @@ impl Runner {
                         }
                         Err(error @ RunFailure::Stopped(_)) => return Err(error),
                         Err(error) => {
-                            return Err(RunFailure::Failed(format!(
+                            let message = format!(
                                 "provider context overflow: {message}; recovery failed: {error}"
-                            )));
+                            );
+                            return Err(error.context(message));
                         }
                     }
                 }
@@ -1042,8 +1055,8 @@ impl Runner {
                             entropy,
                             &mut self.network_backoff,
                         )
-                        .map_err(RunFailure::Failed)?
-                        .ok_or_else(|| RunFailure::Failed(error.diagnostic_message()))?;
+                        .map_err(|message| RunFailure::provider(&error, message))?
+                        .ok_or_else(|| RunFailure::provider(&error, error.diagnostic_message()))?;
                     let steered = self
                         .wait_model_retry(plan, &error, recovery.deadline, true)
                         .await?;
@@ -1719,9 +1732,13 @@ impl Runner {
                         .insert(fingerprint, error.to_string());
                 }
                 let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
+                let failure_message = error.to_string();
                 let error = match error {
                     crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
-                    _ => RunFailure::Failed(error.to_string()),
+                    crate::compaction::SummaryError::Provider(error) => {
+                        RunFailure::provider(&error, failure_message)
+                    }
+                    _ => RunFailure::Failed(failure_message),
                 };
                 self.journal_append(
                     vec![SessionEventData::CompactionEnd {
@@ -2979,6 +2996,7 @@ impl Runner {
         &mut self,
         status: LoopStatus,
         error: Option<&str>,
+        provider_failure: Option<xharness_session::ProviderFailure>,
     ) -> Result<(), String> {
         if self.journal.is_none() {
             if status == LoopStatus::Cancelled && self.user_interrupted {
@@ -3023,6 +3041,7 @@ impl Runner {
             LoopStatus::LimitReached => TurnEndReason::LimitReached,
             LoopStatus::Failed => TurnEndReason::Failed {
                 error: error.unwrap_or("loop failed").to_owned(),
+                provider_failure,
             },
         };
         let turn = journal.turn;
@@ -3485,7 +3504,8 @@ impl Runner {
                 return Ok(true);
             }
             if recovery_deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
-                return Err(RunFailure::Failed(
+                return Err(RunFailure::provider(
+                    error,
                     "provider recovery deadline exceeded while waiting".into(),
                 ));
             }
@@ -3510,6 +3530,7 @@ impl Runner {
     async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
         let mut round = ModelRound::default();
         let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
+        let mut last_provider_error: Option<ProviderError> = None;
 
         loop {
             self.ensure_running()?;
@@ -3526,7 +3547,8 @@ impl Runner {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                     _ = recovery_timeout(recovery.deadline), if !round.saw_delta => {
                         provider_cancellation.cancel();
-                        return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
+                        let message = "provider recovery deadline exceeded before model output".to_owned();
+                        return Err(last_provider_error.as_ref().map_or_else(|| RunFailure::Failed(message.clone()), |e| RunFailure::provider(e, message.clone())));
                     },
                     command = self.command_rx.recv(), if self.command_open => {
                         ProviderStart::Command(command)
@@ -3562,6 +3584,7 @@ impl Runner {
                     if error.is_context_overflow() && !round.saw_delta {
                         return Err(RunFailure::ContextOverflow(error.message));
                     }
+                    last_provider_error = Some(error.clone());
                     if !round.saw_delta {
                         let entropy = self.retry_entropy();
                         if let Some(plan) = recovery
@@ -3571,7 +3594,7 @@ impl Runner {
                                 entropy,
                                 &mut self.network_backoff,
                             )
-                            .map_err(RunFailure::Failed)?
+                            .map_err(|message| RunFailure::provider(&error, message))?
                         {
                             provider_cancellation.cancel();
                             if self
@@ -3585,7 +3608,7 @@ impl Runner {
                             continue;
                         }
                     }
-                    return Err(RunFailure::Failed(error.diagnostic_message()));
+                    return Err(RunFailure::provider(&error, error.diagnostic_message()));
                 }
             };
 
@@ -3601,7 +3624,8 @@ impl Runner {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                     _ = recovery_timeout(recovery.deadline), if !round.saw_delta => {
                         provider_cancellation.cancel();
-                        return Err(RunFailure::Failed("provider recovery deadline exceeded before model output".into()));
+                        let message = "provider recovery deadline exceeded before model output".to_owned();
+                        return Err(last_provider_error.as_ref().map_or_else(|| RunFailure::Failed(message.clone()), |e| RunFailure::provider(e, message.clone())));
                     },
                     command = self.command_rx.recv(), if self.command_open => {
                         ModelInput::Command(command)
@@ -3754,6 +3778,7 @@ impl Runner {
             if error.is_context_overflow() && !round.saw_delta {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
+            last_provider_error = Some(error.clone());
             if !round.saw_delta {
                 let entropy = self.retry_entropy();
                 if let Some(plan) = recovery
@@ -3763,7 +3788,7 @@ impl Runner {
                         entropy,
                         &mut self.network_backoff,
                     )
-                    .map_err(RunFailure::Failed)?
+                    .map_err(|message| RunFailure::provider(&error, message))?
                 {
                     provider_cancellation.cancel();
                     if self
@@ -3823,11 +3848,11 @@ impl Runner {
                     self.messages.push(partial);
                     self.snapshot("network_interrupted", true).await?;
                 }
-                return Err(RunFailure::Failed(format!(
+                return Err(RunFailure::provider(&error, format!(
                     "{}\n本轮已中断；已有文本已保留，未完成的工具调用未执行。请发送新消息“继续”明确恢复；这是新的模型请求，可能额外计费，不是原连接的无损续传。", error.diagnostic_message()
                 )));
             }
-            return Err(RunFailure::Failed(error.diagnostic_message()));
+            return Err(RunFailure::provider(&error, error.diagnostic_message()));
         }
     }
 
@@ -4644,6 +4669,37 @@ enum RunFailure {
     Failed(String),
     #[error("provider context overflow: {0}")]
     ContextOverflow(String),
+    #[error("{message}")]
+    Provider {
+        message: String,
+        failure: xharness_session::ProviderFailure,
+    },
+}
+impl RunFailure {
+    fn provider(error: &ProviderError, message: String) -> Self {
+        Self::Provider {
+            message,
+            failure: xharness_session::ProviderFailure {
+                retryable: error.is_transient_transport()
+                    || (error.retryable
+                        && error
+                            .http_status
+                            .is_some_and(|s| s == 408 || s == 429 || (500..600).contains(&s))),
+                http_status: error.http_status,
+                retry_after_ms: error.retry_after_ms,
+            },
+        }
+    }
+    fn context(self, context: String) -> Self {
+        match self {
+            Self::Provider { failure, .. } => Self::Provider {
+                message: context,
+                failure,
+            },
+            other @ Self::Stopped(_) => other,
+            _ => Self::Failed(context),
+        }
+    }
 }
 
 impl From<String> for RunFailure {
