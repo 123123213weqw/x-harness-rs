@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -44,6 +44,33 @@ pub fn build_openai_request(
     model: &str,
     request: &ProviderRequest,
 ) -> Value {
+    // Resolve results by the provider replay ID, not by a lookalike JSON shape.
+    // An orphan or an ID reused by different tools must keep its diagnostics.
+    let mut tool_names = HashMap::new();
+    for message in request
+        .messages
+        .iter()
+        .filter(|m| m.role == Role::Assistant)
+    {
+        for call in &message.tool_calls {
+            if !call.provider_id().is_empty() {
+                tool_names
+                    .entry(call.provider_id())
+                    .and_modify(|name| {
+                        if *name != Some(call.name.as_str()) {
+                            *name = None;
+                        }
+                    })
+                    .or_insert(Some(call.name.as_str()));
+            }
+        }
+    }
+    let tool_name = |message: &AgentMessage| {
+        message
+            .tool_call_id
+            .as_deref()
+            .and_then(|id| tool_names.get(id).copied().flatten())
+    };
     let tools = request
         .tools
         .iter()
@@ -56,7 +83,7 @@ pub fn build_openai_request(
                 "model": model,
                 "stream": true,
                 "stream_options": { "include_usage": true },
-                "messages": request.messages.iter().map(encode_chat_message).collect::<Vec<_>>(),
+                "messages": request.messages.iter().map(|m| encode_chat_message(m, tool_name(m))).collect::<Vec<_>>(),
             });
             if !tools.is_empty() {
                 root["tools"] = Value::Array(tools);
@@ -70,7 +97,7 @@ pub fn build_openai_request(
             let input = request
                 .messages
                 .iter()
-                .flat_map(encode_response_message)
+                .flat_map(|m| encode_response_message_for_tool(m, tool_name(m)))
                 .collect::<Vec<_>>();
             let mut root = json!({
                 "model": model,
@@ -129,8 +156,10 @@ fn encode_tool(protocol: OpenAiProtocol, tool: &ToolDefinition) -> Value {
 }
 
 /// Project only the known Harness tool envelope. No textual content is cut,
-/// and every unknown/diagnostic field survives. Logs keep the original result.
-fn model_content(message: &AgentMessage) -> String {
+/// and every unknown/diagnostic field survives. Only the incidental PID of a
+/// verified, successful foreground Bash result is omitted. Logs and the process
+/// executor keep the original result, including that PID.
+fn model_content(message: &AgentMessage, tool_name: Option<&str>) -> String {
     if message.role != Role::Tool {
         return message.content.clone();
     }
@@ -142,11 +171,13 @@ fn model_content(message: &AgentMessage) -> String {
     {
         return message.content.clone();
     }
-    let Some(content) = outer.get("content").and_then(Value::as_str) else {
-        return message.content.clone();
-    };
-    let Ok(inner) = serde_json::from_str::<Value>(content) else {
-        return message.content.clone();
+    let (mut inner, was_string) = match outer.get("content") {
+        Some(Value::String(content)) => match serde_json::from_str::<Value>(content) {
+            Ok(inner) => (inner, true),
+            Err(_) => return message.content.clone(),
+        },
+        Some(inner @ Value::Object(_)) if tool_name == Some("bash") => (inner.clone(), false),
+        _ => return message.content.clone(),
     };
     if !inner.is_object()
         || !(inner.get("exit_code").is_some()
@@ -155,14 +186,50 @@ fn model_content(message: &AgentMessage) -> String {
     {
         return message.content.clone();
     }
+    let omit_pid = tool_name == Some("bash") && is_complete_foreground_bash(&outer, &inner);
+    if omit_pid {
+        inner.as_object_mut().unwrap().remove("pid");
+    } else if !was_string {
+        // Preserve the existing wire representation for ineligible object input.
+        return message.content.clone();
+    }
     outer["content"] = inner;
     serde_json::to_string(&outer).unwrap_or_else(|_| message.content.clone())
 }
 
-fn encode_chat_message(message: &AgentMessage) -> Value {
+fn is_complete_foreground_bash(outer: &Value, inner: &Value) -> bool {
+    outer.get("ok").and_then(Value::as_bool) == Some(true)
+        && outer.get("truncated").and_then(Value::as_bool) == Some(false)
+        && outer.get("error").and_then(Value::as_str) == Some("")
+        && outer.get("archive").is_none()
+        && outer.get("reduction").is_none()
+        && inner.get("kind").and_then(Value::as_str) == Some("foreground")
+        && inner.get("success").and_then(Value::as_bool) == Some(true)
+        && inner.get("exit_code").and_then(Value::as_i64) == Some(0)
+        && inner.get("signal") == Some(&Value::Null)
+        && inner.get("termination").and_then(Value::as_str) == Some("exited")
+        && inner.get("stdout").is_some_and(Value::is_string)
+        && inner.get("stderr").is_some_and(Value::is_string)
+        && inner.get("stdout_bytes").and_then(Value::as_u64).is_some()
+        && inner.get("stderr_bytes").and_then(Value::as_u64).is_some()
+        && inner.get("stdout_truncated").and_then(Value::as_bool) == Some(false)
+        && inner.get("stderr_truncated").and_then(Value::as_bool) == Some(false)
+        && inner.get("stdout_omitted_bytes").and_then(Value::as_u64) == Some(0)
+        && inner.get("stderr_omitted_bytes").and_then(Value::as_u64) == Some(0)
+        && inner.get("job_id").is_none()
+        && inner
+            .get("pid")
+            .and_then(Value::as_u64)
+            .is_some_and(|pid| pid > 0)
+}
+
+fn encode_chat_message(message: &AgentMessage, tool_name: Option<&str>) -> Value {
     let mut object = Map::new();
     object.insert("role".to_owned(), json!(message.role.as_str()));
-    object.insert("content".to_owned(), json!(model_content(message)));
+    object.insert(
+        "content".to_owned(),
+        json!(model_content(message, tool_name)),
+    );
     if !message.reasoning.is_empty() {
         object.insert("reasoning_content".to_owned(), json!(message.reasoning));
     }
@@ -194,11 +261,15 @@ fn encode_chat_message(message: &AgentMessage) -> Value {
 }
 
 pub(crate) fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
+    encode_response_message_for_tool(message, None)
+}
+
+fn encode_response_message_for_tool(message: &AgentMessage, tool_name: Option<&str>) -> Vec<Value> {
     if message.role == Role::Tool {
         return vec![json!({
             "type": "function_call_output",
             "call_id": message.tool_call_id.clone().unwrap_or_default(),
-            "output": model_content(message),
+            "output": model_content(message, tool_name),
         })];
     }
     if message.role == Role::Assistant && !message.provider_items.is_empty() {
@@ -212,7 +283,7 @@ pub(crate) fn encode_response_message(message: &AgentMessage) -> Vec<Value> {
     };
     let mut output = vec![json!({
         "role": message.role.as_str(),
-        "content": [{ "type": content_type, "text": model_content(message) }],
+        "content": [{ "type": content_type, "text": model_content(message, tool_name) }],
     })];
     if message.role == Role::Assistant {
         output.extend(message.tool_calls.iter().map(encode_response_tool_call));
@@ -657,7 +728,7 @@ mod lossless_tool_projection_tests {
             content: outer.to_string(),
             ..Default::default()
         };
-        let projected: Value = serde_json::from_str(&model_content(&m)).unwrap();
+        let projected: Value = serde_json::from_str(&model_content(&m, None)).unwrap();
         assert_eq!(projected["content"], inner);
         assert_eq!(projected["metadata"], outer["metadata"]);
         assert_eq!(m.content, outer.to_string());
@@ -691,7 +762,7 @@ mod lossless_tool_projection_tests {
                 content: raw.into(),
                 ..Default::default()
             };
-            assert_eq!(model_content(&m), raw);
+            assert_eq!(model_content(&m, None), raw);
         }
     }
 }
