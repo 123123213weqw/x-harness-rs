@@ -615,7 +615,7 @@ pub enum LoopEventKind {
     /// carried into execution.
     OutputContinuationScheduled {
         attempt: usize,
-        max_attempts: usize,
+        max_attempts: Option<usize>,
         cumulative_output_tokens: u64,
     },
     /// The turn ended at the configured cumulative/continuation ceiling.
@@ -695,11 +695,13 @@ pub struct LoopConfig {
     pub network_wait_enabled: bool,
     pub network_wait_max_delay_ms: u64,
     /// Fresh model calls allowed after a provider reports an output-token
-    /// ceiling. A value of zero exposes max-tokens immediately.
-    pub max_output_continuations: usize,
-    /// Hard cumulative generation budget for one LoopRun. Reasoning and
+    /// ceiling. None means no task-wide continuation cap; Some(0) exposes
+    /// max-tokens immediately. Explicit caps retain their task-wide meaning.
+    pub max_output_continuations: Option<usize>,
+    /// Optional cumulative generation budget for one LoopRun. None means
+    /// usage is statistics only, not a task stopping condition. Reasoning and
     /// visible output are counted together when provider usage is available.
-    pub max_turn_output_tokens: u64,
+    pub max_turn_output_tokens: Option<u64>,
     /// Maximum number of events retained by the non-blocking in-memory event
     /// journal. Slow subscribers receive an explicit lag record.
     pub event_buffer: usize,
@@ -737,8 +739,8 @@ impl Default for LoopConfig {
             provider_retry_jitter_percent: 20,
             network_wait_enabled: true,
             network_wait_max_delay_ms: 30_000,
-            max_output_continuations: 2,
-            max_turn_output_tokens: 131_072,
+            max_output_continuations: None,
+            max_turn_output_tokens: None,
             event_buffer: 128,
             event_buffer_bytes: 8 * 1024 * 1024,
             command_buffer: 64,
@@ -774,7 +776,7 @@ impl LoopConfig {
                 "max_tool_concurrency must be greater than zero",
             ));
         }
-        if self.max_turn_output_tokens == 0 {
+        if self.max_turn_output_tokens == Some(0) {
             return Err(LoopValidationError::new(
                 "max_turn_output_tokens must be greater than zero",
             ));
