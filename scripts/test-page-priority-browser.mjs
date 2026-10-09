@@ -1,3 +1,4 @@
+import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 /** Page priority regressions run the owned graph with isolated fixture transport. */
 import assert from 'node:assert/strict'
 import {readFileSync, existsSync, mkdirSync} from 'node:fs'
@@ -23,7 +24,7 @@ try {
     return route.fulfill({body:readFileSync(local),contentType:types[extname(local)]??'application/octet-stream'})
   })
   await page.goto('http://127.0.0.1:39187/?fixture=1')
-  const settings=page.getByRole('button',{name:'Settings',exact:true})
+  const settings=page.getByRole('button',{name:'Account & settings',exact:true})
   await settings.waitFor()
   // Validate visible regions on the shipped graph, including the optional
   // workspace, before exercising modal/rail behavior below. Width concessions
@@ -54,7 +55,7 @@ try {
   await assertSeparated(3)
   await page.getByRole('button',{name:'关闭 新标签页',exact:true}).click()
   const dialog=page.getByRole('dialog',{name:'Settings',exact:true})
-  await settings.click()
+  await openAccountSettings(page)
   await dialog.waitFor()
   const language=dialog.getByRole('button',{name:'English',exact:true})
   await language.click()
@@ -77,7 +78,7 @@ try {
   await dialog.waitFor({state:'hidden'})
   assert.equal(await settings.evaluate(el=>el===document.activeElement),true,'close restores the opening trigger')
 
-  await settings.click()
+  await openAccountSettings(page)
   await page.setViewportSize({width:426,height:664})
   await page.locator('[data-sidebar-collapsed]').waitFor()
   await page.waitForFunction(()=>{
@@ -114,7 +115,7 @@ try {
   // The scrim sits below the drawer; its unobstructed right edge must work.
   await page.getByRole('button',{name:'Close sidebar',exact:true}).click({position:{x:410,y:30}})
   await page.getByRole('button',{name:'Open sidebar',exact:true}).waitFor()
-  await settings.click()
+  await openAccountSettings(page)
   await dialog.waitFor()
   await dialog.getByRole('button',{name:'Close',exact:true}).click()
   // Exercise the actual platform Modal/Menu exports without Host fixtures
