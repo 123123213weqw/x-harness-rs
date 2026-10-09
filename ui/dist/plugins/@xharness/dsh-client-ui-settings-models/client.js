@@ -1053,6 +1053,7 @@ const react_1 = require("react");
 const primitives_1 = require("./primitives");
 const DeepSeekModelsEditor_1 = require("./DeepSeekModelsEditor");
 const store_1 = require("./store");
+const reasoning_presets_1 = require("./reasoning-presets");
 const styles_1 = require("./styles");
 /** A row's text field, or the empty string when unset or not a string. */
 function textOf(model, key) {
@@ -1121,6 +1122,7 @@ function ModelListEditor(props) {
     const [picked, setPicked] = (0, react_1.useState)(new Set());
     // Rows carry an id and a name; capacities are the exception, so they stay
     // folded until asked for rather than crowding every row with four inputs.
+    const [recipes, setRecipes] = (0, react_1.useState)(new Map());
     const [expanded, setExpanded] = (0, react_1.useState)(new Set());
     // Capacities are edited as text, so a field's keystrokes are held here rather
     // than re-derived from the parsed count on every change — that would rewrite
@@ -1270,8 +1272,13 @@ function ModelListEditor(props) {
                                         return next;
                                     });
                                     setEditing(current => reindexOnRemove(current, index));
+                                    setRecipes(current => new Map([...current].filter(([at]) => at !== index).map(([at, value]) => [at > index ? at - 1 : at, value])));
                                 }, children: (0, jsx_runtime_1.jsx)(IconTrash, {}) })] }), expanded.has(index)
-                        ? ((0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['modelAdvanced'], children: [(0, jsx_runtime_1.jsxs)("label", { className: styles_1.ModelsSectionCss['modelField'], children: [(0, jsx_runtime_1.jsx)("span", { children: "\u652F\u6301\u56FE\u7247\u8F93\u5165" }), (0, jsx_runtime_1.jsx)("input", { type: "checkbox", disabled: disabled, checked: model['imageInput'] === true, "aria-label": `支持图片输入 ${index + 1}`, onChange: event => { patch(index, { imageInput: event.target.checked }); } }), (0, jsx_runtime_1.jsx)("small", { children: model['imageInput'] === undefined
+                        ? ((0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['modelAdvanced'], children: [(0, reasoning_presets_1.supportsReasoningRecipes)(probe.api) ? ((0, jsx_runtime_1.jsxs)("div", { className: styles_1.ModelsSectionCss['modelField'], children: [(0, jsx_runtime_1.jsxs)("label", { children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['modelFieldLabel'], children: t('reasoningRecipe') }), (0, jsx_runtime_1.jsxs)("select", { className: styles_1.ModelsSectionCss['input'], "aria-label": `${t('reasoningRecipe')} ${index + 1}`, disabled: disabled, value: recipes.get(index) ?? 'keep', onChange: event => { setRecipes(current => new Map(current).set(index, event.target.value)); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "keep", children: t('reasoningKeep') }), (0, jsx_runtime_1.jsx)("option", { value: "enable-thinking", children: t('reasoningEnableThinking') }), (0, jsx_runtime_1.jsx)("option", { value: "thinking", children: t('reasoningThinking') }), (0, jsx_runtime_1.jsx)("option", { value: "native-effort", children: t('reasoningNativeEffort') }), (0, jsx_runtime_1.jsx)("option", { value: "disabled", children: t('reasoningDisabled') })] })] }), (0, jsx_runtime_1.jsx)("small", { children: t('reasoningRecipeHint') }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['linkButton'], "aria-label": `${t('reasoningApply')} ${index + 1}`, disabled: disabled || (recipes.get(index) ?? 'keep') === 'keep', onClick: () => {
+                                                onChange(models.map((row, at) => at === index
+                                                    ? (0, reasoning_presets_1.applyReasoningRecipe)(row, recipes.get(index) ?? 'keep', probe.api) : row));
+                                                setRecipes(current => new Map(current).set(index, 'keep'));
+                                            }, children: t('reasoningApply') })] })) : null, (0, jsx_runtime_1.jsxs)("label", { className: styles_1.ModelsSectionCss['modelField'], children: [(0, jsx_runtime_1.jsx)("span", { children: "\u652F\u6301\u56FE\u7247\u8F93\u5165" }), (0, jsx_runtime_1.jsx)("input", { type: "checkbox", disabled: disabled, checked: model['imageInput'] === true, "aria-label": `支持图片输入 ${index + 1}`, onChange: event => { patch(index, { imageInput: event.target.checked }); } }), (0, jsx_runtime_1.jsx)("small", { children: model['imageInput'] === undefined
                                                 ? '视觉能力未声明；请确认模型 API 支持后启用。'
                                                 : '不支持视觉时明确报错，不自动丢弃图片。' })] }), (0, jsx_runtime_1.jsxs)("label", { className: styles_1.ModelsSectionCss['modelField'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['modelFieldLabel'], children: t('modelContextWindow') }), (0, jsx_runtime_1.jsx)("input", { className: styles_1.ModelsSectionCss['input'], type: "text", inputMode: "numeric", value: capacityText(model, index, 'contextWindow'), placeholder: CAPACITY_HINT.contextWindow, "aria-label": `${t('modelContextWindow')} ${index + 1}`, disabled: disabled, onChange: (event) => { editCapacity(index, 'contextWindow', event.target.value); } })] }), (0, jsx_runtime_1.jsxs)("label", { className: styles_1.ModelsSectionCss['modelField'], children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['modelFieldLabel'], children: t('modelMaxTokens') }), (0, jsx_runtime_1.jsx)("input", { className: styles_1.ModelsSectionCss['input'], type: "text", inputMode: "numeric", value: capacityText(model, index, 'maxTokens'), placeholder: CAPACITY_HINT.maxTokens, "aria-label": `${t('modelMaxTokens')} ${index + 1}`, disabled: disabled, onChange: (event) => { editCapacity(index, 'maxTokens', event.target.value); } })] })] }))
                         : null] }, index))), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.ModelsSectionCss['addModelButton'], disabled: disabled, onClick: () => { onChange([...models, { id: '' }]); }, children: t('addModel') }), failure !== undefined ? (0, jsx_runtime_1.jsx)("p", { className: styles_1.ModelsSectionCss['error'], children: failure }) : null, (0, jsx_runtime_1.jsxs)(primitives_1.Modal, { open: candidates !== undefined, onClose: closePicker, title: t('fetchTitle'), closeLabel: t('close'), description: t('fetchDescription'), className: styles_1.ModelsSectionCss['fetchDialog'], footer: ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", onClick: closePicker, children: t('cancel') }), (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "outline", onClick: adoptPicked, children: t('fetchAdopt') })] })), children: [(0, jsx_runtime_1.jsx)("div", { className: styles_1.ModelsSectionCss['candidateActions'], children: (0, jsx_runtime_1.jsx)(primitives_1.Button, { variant: "ghost", size: "sm", onClick: toggleAllCandidates, children: t(allCandidatesPicked ? 'fetchDeselectAll' : 'fetchSelectAll') }) }), (0, jsx_runtime_1.jsx)("ul", { className: styles_1.ModelsSectionCss['candidateList'], children: (candidates ?? []).map(candidate => ((0, jsx_runtime_1.jsx)("li", { className: styles_1.ModelsSectionCss['candidate'], children: (0, jsx_runtime_1.jsxs)("label", { className: styles_1.ModelsSectionCss['candidateLabel'], children: [(0, jsx_runtime_1.jsx)("input", { type: "checkbox", checked: picked.has(candidate.id), onChange: () => { toggle(candidate.id); } }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.ModelsSectionCss['candidateId'], children: candidate.id })] }) }, candidate.id))) })] })] }));
@@ -1534,6 +1541,49 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createModelSettingsStore = void 0;
 var client_1 = require("@xharness/dsh-client-runtime/client");
 Object.defineProperty(exports, "createModelSettingsStore", { enumerable: true, get: function () { return client_1.createSnapshotStore; } });
+
+},
+"src/modules/settings-models/reasoning-presets.js": function(module, exports, require) {
+// source: src/modules/settings-models/reasoning-presets.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.supportsReasoningRecipes = supportsReasoningRecipes;
+exports.reasoningRecipe = reasoningRecipe;
+exports.applyReasoningRecipe = applyReasoningRecipe;
+/** Only Chat Completions recipes are declared here; do not leak them into Responses. */
+function supportsReasoningRecipes(api) {
+    return api === 'openai-completions';
+}
+function reasoningRecipe(id) {
+    switch (id) {
+        case 'disabled': return null; // Hide controls, not a request to turn thinking off.
+        case 'enable-thinking': return {
+            default_effort: 'on',
+            efforts: [
+                { id: 'off', name: 'Off', request_patch: { chat_template_kwargs: { enable_thinking: false } } },
+                { id: 'on', name: 'On', request_patch: { chat_template_kwargs: { enable_thinking: true } } },
+            ],
+        };
+        case 'thinking': return {
+            default_effort: 'on',
+            efforts: [
+                { id: 'off', name: 'Off', request_patch: { chat_template_kwargs: { thinking: false } } },
+                { id: 'on', name: 'On', request_patch: { chat_template_kwargs: { thinking: true } } },
+            ],
+        };
+        case 'native-effort': return {
+            default_effort: 'medium',
+            efforts: ['low', 'medium', 'high'].map(id => ({ id, name: id, request_patch: { reasoning_effort: id } })),
+        };
+        default: return undefined; // Keep custom/unknown profiles untouched.
+    }
+}
+/** Copy only the explicitly chosen recipe; preserve all unrelated model fields. */
+function applyReasoningRecipe(model, id, api) {
+    const reasoning = supportsReasoningRecipes(api) ? reasoningRecipe(id) : undefined;
+    return reasoning === undefined ? { ...model } : { ...model, reasoning };
+}
 
 },
 "src/modules/settings-models/ProviderEditor.js": function(module, exports, require) {
@@ -2108,6 +2158,14 @@ exports.en = {
     contextWindowPlaceholder: 'Uses the provider default',
     maxTokens: 'Max output tokens',
     maxTokensPlaceholder: 'Uses the provider default',
+    reasoningRecipe: 'Reasoning controls',
+    reasoningKeep: 'Keep current configuration',
+    reasoningEnableThinking: 'Template switch · enable_thinking (llama.cpp / vLLM)',
+    reasoningThinking: 'Template switch · thinking (vLLM)',
+    reasoningNativeEffort: 'Native effort · low / medium / high',
+    reasoningDisabled: 'Hide reasoning controls',
+    reasoningRecipeHint: 'Use only a recipe supported by this model and server template. Applying replaces its reasoning configuration; save the provider to persist.',
+    reasoningApply: 'Apply recipe',
     modelAdvanced: 'Capacities',
     addModel: 'Add model',
     removeModel: 'Delete model',
@@ -2206,6 +2264,14 @@ exports.zh = {
     contextWindowPlaceholder: '使用提供方默认值',
     maxTokens: '最大输出 token 数',
     maxTokensPlaceholder: '使用提供方默认值',
+    reasoningRecipe: '思考控制',
+    reasoningKeep: '保留当前配置',
+    reasoningEnableThinking: '模板开关 · enable_thinking（llama.cpp / vLLM）',
+    reasoningThinking: '模板开关 · thinking（vLLM）',
+    reasoningNativeEffort: '原生强度 · low / medium / high',
+    reasoningDisabled: '隐藏思考控制',
+    reasoningRecipeHint: '仅选择模型和服务模板支持的方案。应用会替换思考配置，保存提供方后生效。',
+    reasoningApply: '应用方案',
     modelAdvanced: '容量',
     addModel: '添加模型',
     removeModel: '删除模型',
@@ -2260,7 +2326,7 @@ exports.zh = {
 
 }
 };
-const __dependencies = {"src/modules/settings-models/index.js":{"./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
+const __dependencies = {"src/modules/settings-models/index.js":{"./ModelsSection":"src/modules/settings-models/ModelsSection.js","./store":"src/modules/settings-models/store.js","./schema-operations":"src/modules/settings-models/schema-operations.js","./welcome-store":"src/modules/settings-models/welcome-store.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js","./locales":"src/modules/settings-models/locales.js"},"src/modules/settings-models/ModelsSection.js":{"./primitives":"src/modules/settings-models/primitives.js","./CustomProviderCard":"src/modules/settings-models/CustomProviderCard.js","./store":"src/modules/settings-models/store.js","./ProviderEditor":"src/modules/settings-models/ProviderEditor.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/primitives.js":{},"src/modules/settings-models/CustomProviderCard.js":{"./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/apiKey.js":{},"src/modules/settings-models/EditorFooter.js":{"./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/styles.js":{"./ModelsSection.css":"src/modules/settings-models/ModelsSection.css","./OnboardingModal.css":"src/modules/settings-models/OnboardingModal.css","./DeepSeekOnboardingDialog.css":"src/modules/settings-models/DeepSeekOnboardingDialog.css","./WelcomeNotice.css":"src/modules/settings-models/WelcomeNotice.css"},"src/modules/settings-models/ModelsSection.css":{},"src/modules/settings-models/OnboardingModal.css":{},"src/modules/settings-models/DeepSeekOnboardingDialog.css":{},"src/modules/settings-models/WelcomeNotice.css":{},"src/modules/settings-models/DeepSeekModelsEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./primitives":"src/modules/settings-models/primitives.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/shared/runtime-types.js":{},"src/modules/settings-models/ModelListEditor.js":{"./primitives":"src/modules/settings-models/primitives.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./store":"src/modules/settings-models/store.js","./reasoning-presets":"src/modules/settings-models/reasoning-presets.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js"},"src/modules/settings-models/snapshot.js":{},"src/modules/settings-models/reasoning-presets.js":{},"src/modules/settings-models/ProviderEditor.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./DeepSeekModelsEditor":"src/modules/settings-models/DeepSeekModelsEditor.js","./apiKey":"src/modules/settings-models/apiKey.js","./EditorFooter":"src/modules/settings-models/EditorFooter.js","./ModelListEditor":"src/modules/settings-models/ModelListEditor.js","./store":"src/modules/settings-models/store.js","./styles":"src/modules/settings-models/styles.js"},"src/modules/settings-models/schema-operations.js":{},"src/modules/settings-models/welcome-store.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./snapshot":"src/modules/settings-models/snapshot.js","./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"},"src/modules/settings-models/onboarding-copy.js":{},"src/modules/settings-models/locales.js":{"./onboarding-copy":"src/modules/settings-models/onboarding-copy.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
