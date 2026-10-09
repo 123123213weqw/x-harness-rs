@@ -21,6 +21,7 @@ import { Button, Modal } from './primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor'
 import { messageOf } from './store'
+import { applyReasoningRecipe, supportsReasoningRecipes } from './reasoning-presets'
 import type { en } from './locales'
 import { ModelsSectionCss as styles } from './styles'
 
@@ -168,6 +169,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   // Rows carry an id and a name; capacities are the exception, so they stay
   // folded until asked for rather than crowding every row with four inputs.
+  const [recipes, setRecipes] = useState<ReadonlyMap<number, string>>(new Map())
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set())
   // Capacities are edited as text, so a field's keystrokes are held here rather
   // than re-derived from the parsed count on every change — that would rewrite
@@ -397,6 +399,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                   return next
                 })
                 setEditing(current => reindexOnRemove(current, index))
+                setRecipes(current => new Map([...current].filter(([at]) => at !== index).map(([at, value]) => [at > index ? at - 1 : at, value])))
               }}
             >
               <IconTrash />
@@ -405,6 +408,38 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           {expanded.has(index)
             ? (
               <div className={styles['modelAdvanced']}>
+                {supportsReasoningRecipes(probe.api) ? (
+                  <div className={styles['modelField']}>
+                    <label>
+                      <span className={styles['modelFieldLabel']}>{t('reasoningRecipe')}</span>
+                      <select
+                        className={styles['input']}
+                        aria-label={`${t('reasoningRecipe')} ${index + 1}`}
+                        disabled={disabled}
+                        value={recipes.get(index) ?? 'keep'}
+                        onChange={event => { setRecipes(current => new Map(current).set(index, event.target.value)) }}
+                      >
+                        <option value="keep">{t('reasoningKeep')}</option>
+                        <option value="enable-thinking">{t('reasoningEnableThinking')}</option>
+                        <option value="thinking">{t('reasoningThinking')}</option>
+                        <option value="native-effort">{t('reasoningNativeEffort')}</option>
+                        <option value="disabled">{t('reasoningDisabled')}</option>
+                      </select>
+                    </label>
+                    <small>{t('reasoningRecipeHint')}</small>
+                    <button
+                      type="button"
+                      className={styles['linkButton']}
+                      aria-label={`${t('reasoningApply')} ${index + 1}`}
+                      disabled={disabled || (recipes.get(index) ?? 'keep') === 'keep'}
+                      onClick={() => {
+                        onChange(models.map((row, at) => at === index
+                          ? applyReasoningRecipe(row, recipes.get(index) ?? 'keep', probe.api) : row))
+                        setRecipes(current => new Map(current).set(index, 'keep'))
+                      }}
+                    >{t('reasoningApply')}</button>
+                  </div>
+                ) : null}
                 <label className={styles['modelField']}>
                   <span>支持图片输入</span>
                   <input
