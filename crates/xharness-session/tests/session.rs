@@ -1300,6 +1300,81 @@ fn session_title_source_and_message_sequences_are_validated_atomically() {
 }
 
 #[test]
+fn completed_goal_reopen_replays_and_still_requires_exact_definition_and_revision() {
+    let mut session = Session::new(header("goal-reopen")).unwrap();
+    session
+        .append_batch_at(
+            Revision::ZERO,
+            vec![
+                goal_snapshot_event(
+                    1,
+                    "Ship it",
+                    GoalPhase::Active,
+                    8,
+                    GoalSnapshotOperation::Create,
+                    10,
+                ),
+                goal_snapshot_event(
+                    2,
+                    "Ship it",
+                    GoalPhase::Complete,
+                    8,
+                    GoalSnapshotOperation::Complete,
+                    11,
+                ),
+            ],
+            11,
+        )
+        .unwrap();
+    let revision = session.revision();
+    for (goal_revision, objective, budget) in [
+        (2, "Ship it", 8),
+        (3, "Different objective", 8),
+        (3, "Ship it", 9),
+    ] {
+        assert!(matches!(
+            session.append(
+                revision,
+                goal_snapshot_event(
+                    goal_revision,
+                    objective,
+                    GoalPhase::Active,
+                    budget,
+                    GoalSnapshotOperation::Resume,
+                    12
+                )
+            ),
+            Err(SessionError::InvalidLifecycle { .. })
+        ));
+        assert_eq!(session.revision(), revision);
+    }
+    session
+        .append(
+            revision,
+            goal_snapshot_event(
+                3,
+                "Ship it",
+                GoalPhase::Active,
+                8,
+                GoalSnapshotOperation::Resume,
+                12,
+            ),
+        )
+        .unwrap();
+    // Restoring the entire journal must accept the same transition, not just a cached snapshot.
+    assert_eq!(
+        Session::restore(
+            session.header().clone(),
+            session.revision(),
+            session.events().to_vec()
+        )
+        .unwrap()
+        .revision(),
+        session.revision()
+    );
+}
+
+#[test]
 fn goal_changes_require_full_monotonic_snapshots_and_a_revisioned_tombstone() {
     let mut session = Session::new(header("goal-lifecycle")).unwrap();
     session

@@ -218,6 +218,55 @@ async fn permanent_and_legacy_failures_never_retry_even_if_text_says_network() {
 }
 
 #[tokio::test]
+async fn cold_start_admits_unreconciled_agent_completion_and_failed_completion_report() {
+    use crate::{AgentRuntime, DurableLoopAgentRuntime};
+    for reason in [TurnEndReason::Completed, transient(Some(17_000))] {
+        let (store, _, _) = fixture().await;
+        let session = store.load("report-gate").await.unwrap().unwrap();
+        store
+            .append(
+                "report-gate",
+                session.revision(),
+                vec![EventData::TurnEnd { turn: 1, reason }.into()],
+            )
+            .await
+            .unwrap();
+        let controller = GoalController::new(store.clone(), "report-gate");
+        controller
+            .settle(Some(report(
+                GoalReportStatus::Complete,
+                vec![GoalEvidence::Artifact {
+                    reference: "test://checked".into(),
+                }],
+            )))
+            .await
+            .unwrap();
+        let session = store.load("report-gate").await.unwrap().unwrap();
+        let state = execution_state(&session).unwrap();
+        assert_eq!(state.definition.verification, VerificationMode::AgentReport);
+        assert!(state.pending.is_none() && state.running.is_none());
+        assert!(xharness_agent::InboxProjection::from_session(&session)
+            .unwrap()
+            .next_turn()
+            .is_empty());
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test",
+            None,
+            Arc::new(NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+            store,
+            Arc::new(xharness_agent::MemoryLeaseManager::default()),
+            128,
+        );
+        assert!(
+            runtime.needs_session_resume(&session).unwrap(),
+            "a report alone must not hide required startup settlement or durable retries"
+        );
+    }
+}
+
+#[tokio::test]
 async fn user_pause_and_user_input_take_priority_over_an_expired_retry() {
     let (store, _, _) = fixture().await;
     let c = finish(&store, 1, transient(None)).await;
@@ -493,7 +542,7 @@ async fn actual_host_watcher_resumes_after_exhausted_core_retries_without_user_i
                 assert_eq!(state.definition.snapshot.phase, GoalPhase::Active);
                 assert_eq!(state.rounds_started, 1);
             }
-            if projection["state"] == "awaiting_confirmation" {
+            if projection["state"] == "complete" {
                 let state = execution_state(&s).unwrap();
                 assert_eq!(state.rounds_started, 2);
                 assert!(state.retry.is_none());

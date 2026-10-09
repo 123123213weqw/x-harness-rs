@@ -142,9 +142,9 @@ function GoalControls({ projection, onComplete, onResume, onBudget, runAction, p
     if (!projection?.goal)
         return null;
     const execution = projection.execution;
-    const glyph = { '启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '预算': '⋯', '取消预算修改': '×' };
+    const glyph = { '启用自动推进': '▶', '确认完成': '✓', '继续': '▶', '重新开启': '▶', '预算': '⋯', '取消预算修改': '×' };
     const button = (label, action) => (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": label, title: label, onClick: action, style: { flexShrink: 0, whiteSpace: 'nowrap' }, children: glyph[label] ?? label });
-    return (0, jsx_runtime_1.jsxs)("span", { "data-goal-runtime": true, style: { display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }, children: [execution?.state === 'disabled' && button('启用自动推进', () => { void runAction(onResume); }), execution?.state === 'awaiting_confirmation' && button('确认完成', () => { void runAction(onComplete); }), execution?.state === 'awaiting_confirmation' && button('继续', () => { void runAction(onResume); }), projection.goal.phase !== 'complete' && (editing ? (0, jsx_runtime_1.jsxs)("form", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, onSubmit: async (event) => {
+    return (0, jsx_runtime_1.jsxs)("span", { "data-goal-runtime": true, style: { display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }, children: [projection.goal.phase === 'complete' && button('重新开启', () => { void runAction(onResume); }), execution?.state === 'disabled' && button('启用自动推进', () => { void runAction(onResume); }), execution?.state === 'awaiting_confirmation' && button('确认完成', () => { void runAction(onComplete); }), execution?.state === 'awaiting_confirmation' && button('继续', () => { void runAction(onResume); }), projection.goal.phase !== 'complete' && (editing ? (0, jsx_runtime_1.jsxs)("form", { style: { display: 'inline-flex', alignItems: 'center', gap: 4 }, onSubmit: async (event) => {
                     event.preventDefault();
                     const value = Number(budget);
                     if (!Number.isSafeInteger(value) || value < 1)

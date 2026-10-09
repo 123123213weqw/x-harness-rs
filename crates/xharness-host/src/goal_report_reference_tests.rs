@@ -74,7 +74,11 @@ async fn fixture_with_store(
             acceptance_criteria: vec![],
             max_goal_rounds: rounds,
             created_at_ms: 1,
-            workspace: "/workspace".into(),
+            workspace: std::env::temp_dir()
+                .join("goal-report-workspace")
+                .to_str()
+                .unwrap()
+                .into(),
             provider: "test".into(),
             model: "test".into(),
             reasoning_effort: None,
@@ -452,7 +456,7 @@ async fn actual_host_loop_delivers_reference_error_and_accepts_correction_withou
     let session = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let s = store.load("report-gate").await.unwrap().unwrap();
-            if execution_projection(&s)["state"] == "awaiting_confirmation" {
+            if execution_projection(&s)["state"] == "complete" {
                 break s;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -462,7 +466,7 @@ async fn actual_host_loop_delivers_reference_error_and_accepts_correction_withou
     .unwrap();
     let state = execution_state(&session).unwrap();
     assert_eq!(state.rounds_started, 1);
-    assert_eq!(state.definition.snapshot.phase, GoalPhase::Active);
+    assert_eq!(state.definition.snapshot.phase, GoalPhase::Complete);
     assert!(state.pause_reason.is_none());
     let report = state.latest_turn.unwrap().report.unwrap();
     assert_eq!(report.status, GoalReportStatus::Complete);
