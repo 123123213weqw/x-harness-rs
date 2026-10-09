@@ -168,16 +168,19 @@ mod tests {
     #[test]
     fn probes_preserve_bytes_and_cancel_creates_no_target() {
         let tmp = tempfile::tempdir().unwrap();
-        let file = tmp.path().join("xharness-desktop.exe");
+        // Resolve the platform temporary-root alias (e.g. macOS /var) in the
+        // fixture, never in production placement validation.
+        let path = tmp.path().canonicalize().unwrap();
+        let file = path.join("xharness-desktop.exe");
         fs::write(&file, "retained").unwrap();
-        assert!(writable(tmp.path()).unwrap());
+        assert!(writable(&path).unwrap());
         assert_eq!(fs::read_to_string(file).unwrap(), "retained");
-        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 1);
-        let target = migration_target(tmp.path()).unwrap();
+        assert_eq!(fs::read_dir(&path).unwrap().count(), 1);
+        let target = migration_target(&path).unwrap();
         assert!(!target.exists());
         fs::create_dir_all(&target).unwrap();
         fs::write(target.join("unrelated"), "keep").unwrap();
-        assert!(migration_target(tmp.path()).is_err());
+        assert!(migration_target(&path).is_err());
         assert_eq!(
             fs::read_to_string(target.join("unrelated")).unwrap(),
             "keep"
@@ -187,7 +190,10 @@ mod tests {
     #[test]
     fn redirected_destination_is_refused() {
         let tmp = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(tmp.path(), tmp.path().join("Programs")).unwrap();
-        assert!(migration_target(tmp.path()).is_err());
+        let path = tmp.path().canonicalize().unwrap();
+        std::os::unix::fs::symlink(&path, path.join("Programs")).unwrap();
+        assert!(migration_target(&path)
+            .unwrap_err()
+            .contains("Redirected installation path"));
     }
 }
