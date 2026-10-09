@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/desktop/src-tauri/windows/**'
       - 'scripts/test-install-process-*.ps1'
+      - 'scripts/test-install-ownership-*.ps1'
+      - 'scripts/test-install-native-shell.ps1'
       - 'scripts/test-install-ownership-contract.mjs'
       - '.github/workflows/installer-process-probe.yml'
 
@@ -27,3 +29,6 @@ jobs:
       - name: Installer wiring and safety contracts
         shell: pwsh
         run: node scripts/test-install-ownership-contract.mjs
+      - name: Native Shell Link ownership regression from a real WOW64 parent
+        shell: powershell
+        run: ./scripts/test-install-ownership-fixture.ps1
