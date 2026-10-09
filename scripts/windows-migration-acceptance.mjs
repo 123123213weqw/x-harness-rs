@@ -217,7 +217,7 @@ async function run() {
         await connection.close(); connection = null
       }
       return null
-    }, `App ${version} with running Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
+    }, `App ${version} with product-ready Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
   }
   async function rpc(page, method, payload) {
     const result = await page.evaluate(async ({ method, payload, rpcId }) => {

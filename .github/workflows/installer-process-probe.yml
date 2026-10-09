@@ -23,6 +23,9 @@ on:
       - 'scripts/test-desktop-release-build.py'
       - 'scripts/powershell-runtime.py'
       - 'scripts/test-powershell-runtime.py'
+      - 'scripts/native-desktop-attachment.mjs'
+      - 'scripts/windows-migration-acceptance.mjs'
+      - 'scripts/test-windows-cache-rehearsal.mjs'
       - '.github/workflows/installer-process-probe.yml'
 
 permissions:
@@ -61,6 +64,9 @@ jobs:
       - name: Installer wiring and safety contracts
         shell: pwsh
         run: node scripts/test-install-ownership-contract.mjs
+      - name: Native update attachment lifecycle contracts
+        shell: pwsh
+        run: node scripts/test-windows-cache-rehearsal.mjs
 
   reuse-installer-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.source_ci_run_id != ''

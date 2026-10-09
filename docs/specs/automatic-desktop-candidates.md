@@ -72,6 +72,22 @@ an update channel; users keep receiving the last **published** stable release.
 文本换行转换，要求字节一致；依赖 staging 或安装器审计任一失败都不能进入聚合。
 失败版本保持不变，后续新版本仍须完整签名和原生升级验收。
 
+### 2026-10-15: Process liveness is not product readiness
+
+Candidate `0.2.49` passed independent aggregation and Windows installation ownership,
+but its one-hop updater acceptance queried `session.list` while the new Host was
+still restoring sessions. Captured status identified the new version and a live
+process, but `startup.hostReadyMs` was null and the page was `/desktop/starting`;
+the API correctly returned its temporary startup HTTP 503.
+
+Native attachment now waits for a finite, non-negative `hostReadyMs` whenever the
+installed version exposes startup telemetry, and rejects any startup error.
+Legacy versions without that snapshot retain compatibility. Cache rehearsals still
+require frontend hydration and the first frame as additional gates. No installer
+relaunch, API error retry, delay increase, or data-preservation assertion bypass is
+introduced. Regression tests replay restoring-to-ready snapshots in both modes.
+The failed candidate remains immutable; a fresh version must pass full acceptance.
+
 ## Policy and retention
 
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
