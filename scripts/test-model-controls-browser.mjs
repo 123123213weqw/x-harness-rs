@@ -29,7 +29,7 @@ try {
   const groups=[{id:'p',models:[{id:'large',name:'Large',contextWindow:131072,contextWindowSource:'provider_reported',reasoning:{defaultEffort:'high',efforts:[{id:'high',name:'高'},{id:'max',name:'极高'}]}},{id:'small',name:'Small',contextWindow:32768},{id:'unknown',name:'Unknown'}]}];
   const sessions={models:async(payload)=>{if(payload?.refreshCapabilities)refreshes++;if(offline)throw Error('offline');return {result:{ok:true,value:{current:saved,groups,failures:[],routable:true}}}},selectModel:async payload=>{if(offline)throw Error('offline');calls.push(payload);saved={...payload};delete saved.sessionId;return {result:{ok:true,value:{selected:saved}}}}};
   window.root=ReactDOM.createRoot(document.getElementById('root'));
-  window.mount=async()=>{window.directory=new api.ModelDirectory(sessions,'test',()=>true);await directory.load();root.render(React.createElement(api.XHarnessModelSelect,{t:(key,args)=>({'trigger.aria':'选择模型 '+args?.model,'trigger.ariaEffort':'选择模型 '+args?.model,'menu.model':'模型','menu.effort':'思考强度','menu.aria':'模型设置'}[key]??key),locked:false,available:true,directory:directory.store,load:(refresh)=>directory.load(refresh).catch(()=>{}),select:s=>directory.select(s).then(()=>true,()=>false)}))};
+  window.mount=async()=>{window.directory=new api.ModelDirectory(sessions,'test',()=>true);await directory.load();root.render(React.createElement(api.XHarnessModelSelect,{t:(key,args)=>({'trigger.aria':'选择模型 '+args?.model,'trigger.ariaEffort':'选择模型 '+args?.model,'menu.model':'模型','menu.effort':'思考强度','menu.aria':'模型设置','menu.custom':'自定义'}[key]??key),locked:false,available:true,directory:directory.store,load:(refresh)=>directory.load(refresh).catch(()=>{}),select:s=>directory.select(s).then(()=>true,()=>false)}))};
   await mount();
  })
 
@@ -78,6 +78,9 @@ try {
  await openContext();assert.equal(await page.getByRole('button',{name:'保存',exact:true}).isDisabled(),true);
  await page.getByText('当前模型未提供上限，暂时无法调整。').waitFor();
  await closeAll();await openMenu();await page.getByRole('menuitem',{name:/^模型/}).click();
+ // BYOK models are deliberately under Custom, not the account-service list.
+ assert.equal(await page.getByRole('menuitemradio',{name:'Small',exact:true}).count(),0,'custom models must not leak into account-service list');
+ await page.getByRole('menuitem',{name:'自定义',exact:true}).click();
  await page.getByRole('menuitemradio',{name:'Small',exact:true}).click();
  await page.waitForFunction(()=>saved.model==='small');assert.equal(await page.evaluate(()=>saved.contextWindowTokens),undefined,'new model must not inherit old soft context');
  await openContext();assert.equal(await page.getByRole('textbox').inputValue(),'32768');await closeAll();
