@@ -21,6 +21,50 @@ use url::Url;
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
+/// WebView2 does not deliver fragment changes through Wry's navigation policy.
+/// Listen to the native Source property instead. This is only a resample hint:
+/// guests still have no IPC permission, and no frame-provided URL is trusted.
+#[cfg(windows)]
+fn watch_native_location(
+    child: &Webview,
+    app: AppHandle,
+    tab_id: String,
+    inspector: Arc<crate::browser_inspect::Inspector>,
+) -> Result<(), String> {
+    child
+        .with_webview(move |platform| {
+            // SAFETY: with_webview runs on the WebView2 owning UI apartment.
+            // Neither the controller nor view is moved to another thread.
+            let registration = unsafe { platform.controller().CoreWebView2() }.and_then(|view| {
+                let event_app = app.clone();
+                let event_id = tab_id.clone();
+                let callback =
+                    webview2_com::SourceChangedEventHandler::create(Box::new(move |_, _| {
+                        inspector.invalidate();
+                        emit(&event_app, &event_id, "navigation-policy", "");
+                        Ok(())
+                    }));
+                let mut token = 0;
+                // SAFETY: the token pointer is valid during this synchronous
+                // call. WebView2 retains the callback until the view closes.
+                // The callback owns no COM view/controller (no reference cycle).
+                unsafe { view.add_SourceChanged(&callback, &mut token) }
+            });
+            if registration.is_err() {
+                // Queuing with_webview is not proof that COM registration
+                // succeeded. Surface failure without exposing native details.
+                eprintln!("browser native location observer registration failed");
+                emit(
+                    &app,
+                    &tab_id,
+                    "location-error",
+                    "Native address updates are unavailable",
+                );
+            }
+        })
+        .map_err(|_| "could not schedule native address observer".to_string())
+}
+
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
@@ -469,6 +513,13 @@ pub async fn desktop_browser_navigate(
             LogicalSize::new(bounds.width, bounds.height),
         )
         .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    if let Err(error) =
+        watch_native_location(&child, app.clone(), tab_id.clone(), Arc::clone(&inspector))
+    {
+        let _ = child.close();
+        return Err(error);
+    }
     if inner.active.as_deref() != Some(&tab_id) {
         let _ = child.hide();
     }

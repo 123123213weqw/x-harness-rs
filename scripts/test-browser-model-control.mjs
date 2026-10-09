@@ -161,6 +161,11 @@ try{
  await page.evaluate(()=>selectOwner('chat-a'))
  await page.getByRole('textbox',{name:'网址'}).waitFor()
  assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+ // A queued native observer must not silently claim registration success.
+ await page.evaluate(tabId=>emitNative('xharness-browser-event',{tabId,kind:'location-error',value:'Native address updates are unavailable'}),tabId)
+ await page.getByRole('alert').waitFor()
+ assert.equal(await page.getByRole('alert').textContent(),'Native address updates are unavailable')
+ assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
  await page.evaluate(()=>root.unmount())
  assert.deepEqual(errors,[])
  console.log(engine+': zero-tab → sidebar → load-before-promise → owner binding → ready; background/late/cancel/schema guards passed (mock transport)')

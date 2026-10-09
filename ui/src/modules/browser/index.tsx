@@ -339,6 +339,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         updateAddress(payload.value)
       } else if (payload.kind === 'title') onUpdate({ title: payload.value || item.title })
       else if (payload.kind === 'navigation-policy') sampleLocation()
+      else if (payload.kind === 'location-error') setError(payload.value || 'Native address updates are unavailable')
       else if (payload.kind === 'loading') { pageVersion++; loading = true }
       else if (payload.kind === 'loaded') { pageVersion++; loading = false; void syncBounds() }
       else if (payload.kind.startsWith('download-')) {

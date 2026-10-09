@@ -34,6 +34,7 @@ url = "2"
 
 [target.'cfg(windows)'.dependencies]
 xharness-win32 = { path = "../../../crates/xharness-win32" }
+webview2-com = "0.38.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"
@@ -47,7 +48,6 @@ objc2-foundation = "0.3.2"
 
 # Public native-API feasibility probes are examples, not production tool backends.
 [target.'cfg(windows)'.dev-dependencies]
-webview2-com = "0.38.2"
 windows = "0.61.3"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
