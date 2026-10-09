@@ -1,5 +1,13 @@
 # XHarness 总任务清单
 
+## Stabilization freeze (2026-10-15)
+
+- [x] Protect execution, tool machinery, wire, persistence and installation boundaries with base-policy, content-bound change records; keep tool handlers/schemas flexible.
+- [x] Retain existing crate/Host dependency guards; reject app identity/install-mode drift and removal of existing RPC names.
+- [x] Enroll an unconditional lightweight freeze CI check and native Windows policy mutations; preserve the existing full Windows/native/desktop regressions.
+- [ ] Complete V100 and exact-head Windows CI acceptance; do not infer release/upgrade acceptance or change repository rulesets.
+
+
 ## 本机全局与工作区记忆（2026-10-14）
 
 - [x] `WMEM-01` 与 AGENTS/Goal 分离；应用数据目录按 canonical cwd 隔离，跨会话/模型复用，不写入项目 Git。
