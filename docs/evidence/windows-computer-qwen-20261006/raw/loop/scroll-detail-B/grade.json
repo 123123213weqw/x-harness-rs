@@ -1,0 +1,74 @@
+{
+  "case": "scroll-detail",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "scrolled": false,
+    "detail_opened": false,
+    "returned": false,
+    "no_search": true,
+    "answer_exact": false
+  },
+  "events": 0,
+  "report_field_types_ok": false,
+  "model": "qwen3.8-27b-uncensored",
+  "variant": "B",
+  "tool_calls": 12,
+  "tool_failures": 5,
+  "elapsed_s": 402.64,
+  "termination_class": "experimental_response_bound",
+  "final_answer_present": false,
+  "failures": [
+    {
+      "id": 23,
+      "action": "scroll",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 25,
+      "action": "scroll",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 27,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 29,
+      "action": "scroll",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 31,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    }
+  ],
+  "model_latency_range_s": [
+    7.417,
+    31.025
+  ]
+}

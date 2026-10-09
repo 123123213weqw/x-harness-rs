@@ -1,0 +1,30 @@
+{
+  "browser_thread_id": "01a04295-1f0d-7151-a306-d5f3471f4fb0",
+  "browser_thread_title": "了解 DeepSeek Harness (4)",
+  "browser_checkout": "/Users/wangyue/codex-build/xharness-browser-bootstrap-20261006",
+  "head": "81e1751692e49fdbe50ccc6fe8d912104c248ab2",
+  "working_tree_dirty": true,
+  "inspected_file_hashes": {
+    "crates/xharness-host-app/src/native_browser.rs": "e8395d5cd2ca44d390de63ff7e2716fb099b4d2b2d5b57da38e9ebb78f6844d7",
+    "apps/desktop/src-tauri/src/browser_inspect.rs": "ef7c70033184148a5735b04c2edc35b99d3e63c7ae4ba9a6b98be38b64af48f3",
+    "apps/desktop/src-tauri/src/browser_perform.rs": "87512a4613022e74f00eee25af82ce9f2ef3be143366eb6bbf911a0322cf4367",
+    "apps/desktop/src-tauri/examples/native_api/mod.rs": "13166285cd1c0ab9df6834a0cd7ec7cfb0fec5f5974530e13890fc0aab261467",
+    "apps/desktop/src-tauri/examples/native_api/windows.rs": "e7e6d39b6292f45a656a3102eb43650e48f9bd94223721b01529107c7b991ff6"
+  },
+  "read_only": true,
+  "shared_already": [
+    "attachment_store",
+    "session_content_blocks",
+    "provider_image_projection"
+  ],
+  "small_candidate": "Host-side PNG storage and ToolOutput image block composition; delegate existing ComputerMediaSink to a generic helper when a second production caller actually exists",
+  "keep_separate": [
+    "desktop versus tab authority",
+    "physical-desktop-pixel versus CSS-view coordinates",
+    "UIA node versus DOM ref",
+    "frame expiry/navigation epoch",
+    "Win32 input versus WebView native input/CDP",
+    "MCP versus native computer tool entry"
+  ],
+  "no_changes_to_other_thread": true
+}

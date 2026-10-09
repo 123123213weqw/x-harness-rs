@@ -1,0 +1,11 @@
+{
+  "action": "observe",
+  "detail": "high",
+  "include_screenshot": true,
+  "region": {
+    "x": 0,
+    "y": 80,
+    "width": 1024,
+    "height": 640
+  }
+}

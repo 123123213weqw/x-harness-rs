@@ -1,0 +1,307 @@
+{
+  "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+  "definition": {
+    "name": "computer",
+    "description": "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "observe",
+            "move",
+            "click",
+            "drag",
+            "scroll",
+            "type",
+            "keypress",
+            "wait",
+            "window"
+          ],
+          "type": "string"
+        },
+        "button": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "delta_x": {
+          "type": "integer"
+        },
+        "delta_y": {
+          "type": "integer"
+        },
+        "detail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "semantic"
+          ],
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "frame_id": {
+          "description": "Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action.",
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "include_accessibility": {
+          "type": "boolean"
+        },
+        "include_screenshot": {
+          "type": "boolean"
+        },
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modifiers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "observe_after": {
+          "enum": [
+            "never",
+            "auto",
+            "always"
+          ],
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "list",
+            "focus",
+            "move",
+            "resize",
+            "minimize",
+            "maximize",
+            "fullscreen",
+            "close"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "region": {
+          "additionalProperties": false,
+          "description": "Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.",
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "surface_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  "pid": 1648,
+  "native_receipts": [
+    {
+      "case": "native_filtered_descendant",
+      "detail": {
+        "actual_intermediate_parent_verified": true,
+        "visible_descendant_promoted": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_observe",
+      "detail": {
+        "elapsed_ms": 1065,
+        "nodes": 13
+      },
+      "passed": true
+    },
+    {
+      "case": "native_invoke_cache",
+      "detail": {
+        "button_action_preserved": true,
+        "cache_hits": 6,
+        "live_fallbacks": 5
+      },
+      "passed": true
+    },
+    {
+      "case": "native_input_state",
+      "detail": {
+        "password_redacted": true,
+        "valuepattern_matches_independent_fixture": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_ax_region",
+      "detail": {
+        "ancestor_context_preserved": true,
+        "nodes": 2,
+        "outside_password_excluded": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_unicode_input",
+      "detail": {
+        "clipboard_used": false,
+        "independent_getwindowtext_matches": true
+      },
+      "passed": true
+    },
+    {
+      "case": "stale_frame_denied",
+      "detail": {
+        "text_unchanged": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_ctrl_a_delivery",
+      "detail": {
+        "independent_keydown_count": 1
+      },
+      "passed": true
+    },
+    {
+      "case": "native_keypress",
+      "detail": {
+        "ctrl_home_shift_end_replacement_matches": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_semantic_click",
+      "detail": {
+        "independent_command_count": 1
+      },
+      "passed": true
+    },
+    {
+      "case": "native_window_move",
+      "detail": {
+        "independent_bounds_match": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_window_resize",
+      "detail": {
+        "independent_bounds_match": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_scroll",
+      "detail": {
+        "independent_wheel_messages": 1
+      },
+      "passed": true
+    },
+    {
+      "case": "native_cancel_drag",
+      "detail": {
+        "cancel_ms": 24,
+        "mouse_up_verified": true
+      },
+      "passed": true
+    },
+    {
+      "case": "native_screenshot",
+      "detail": {
+        "binary_transport": true,
+        "bytes": 277751,
+        "height": 768,
+        "width": 1024
+      },
+      "passed": true
+    },
+    {
+      "case": "native_wait",
+      "detail": {
+        "elapsed_ms": 248
+      },
+      "passed": true
+    },
+    {
+      "case": "native_acceptance",
+      "detail": {
+        "cases": 16,
+        "elapsed_ms": 12508,
+        "fixture_closed_on_return": true,
+        "model_calls": 0
+      },
+      "passed": true
+    }
+  ],
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "phase": "ready",
+  "host_received_utc": "2026-10-06T03:01:21.293488+00:00"
+}

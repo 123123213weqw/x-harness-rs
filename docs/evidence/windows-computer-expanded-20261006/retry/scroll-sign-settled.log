@@ -1,0 +1,9 @@
+{"id": 36, "action": "observe", "ok": true, "native_ms": 399, "wall_s": 2.84, "image": false}
+{"id": 37, "action": "keypress", "ok": true, "native_ms": 356, "wall_s": 2.67, "image": false}
+{"id": 38, "action": "type", "ok": true, "native_ms": 422, "wall_s": 6.17, "image": false}
+{"id": 39, "action": "keypress", "ok": true, "native_ms": 376, "wall_s": 2.69, "image": false}
+{"id": 40, "action": "observe", "ok": true, "native_ms": 370, "wall_s": 3.29, "image": false}
+{"id": 41, "action": "click", "ok": true, "native_ms": 318, "wall_s": 4.87, "image": false}
+{"id": 42, "action": "scroll", "ok": true, "native_ms": 394, "wall_s": 3.11, "image": false}
+{"id": 43, "action": "scroll", "ok": true, "native_ms": 411, "wall_s": 6.08, "image": false}
+{"positive_moves_down": true, "negative_moves_up": false, "positions": [{"delta_y": 360, "scrollY": 9, "receipt_id": 42}, {"delta_y": -360, "scrollY": 292, "receipt_id": 43}], "baseline_scrollY": 0, "model_controlled": false, "observation_settings": "AX/screenshot disabled for diagnostic only; avoids WAN media latency", "production_runtime_modified": false, "sampling": "last external scroll event after 1.5s animation settle; earlier trial sampled first animation event"}

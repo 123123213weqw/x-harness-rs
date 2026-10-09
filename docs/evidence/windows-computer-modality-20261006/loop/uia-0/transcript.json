@@ -1,0 +1,64 @@
+[
+  {
+    "message": {
+      "role": "assistant",
+      "content": "I'll start by observing the current page to find the search form.",
+      "tool_calls": [
+        {
+          "index": 0,
+          "id": "call_00_OFFMSfdO5psDH61scmEx4807",
+          "type": "function",
+          "function": {
+            "name": "computer",
+            "arguments": "{\"action\": \"observe\", \"include_accessibility\": true, \"include_screenshot\": false, \"detail\": \"semantic\"}"
+          }
+        }
+      ]
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 1160,
+      "completion_tokens": 103,
+      "total_tokens": 1263,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1160
+    },
+    "finish_reason": "tool_calls",
+    "model_s": 0.869126208126545,
+    "turn": 0
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "I found the page search form: edit node `uia:win:1272:f0396:69` (Search products) and button `uia:win:1272:f0396:70` (Search). I'll type SSD into the search field.",
+      "tool_calls": [
+        {
+          "index": 0,
+          "id": "call_00_fUFIWRt9MdWJeNRCmdZm5825",
+          "type": "function",
+          "function": {
+            "name": "computer",
+            "arguments": "{\"action\": \"click\", \"node_id\": \"uia:win:1272:f0396:69\", \"frame_id\": \"win:1648:1791227460004781200:5\", \"observe_after\": \"never\"}"
+          }
+        }
+      ]
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 14190,
+      "completion_tokens": 167,
+      "total_tokens": 14357,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 13038
+    },
+    "finish_reason": "tool_calls",
+    "model_s": 0.9585155840031803,
+    "turn": 1
+  }
+]

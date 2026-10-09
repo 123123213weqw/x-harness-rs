@@ -1,0 +1,27 @@
+{
+  "products": [
+    {
+      "name_tokens": [
+        "Samsung",
+        "9100",
+        "2TB"
+      ],
+      "price": 399.99
+    },
+    {
+      "name_tokens": [
+        "WD_BLACK",
+        "SN850X",
+        "2TB"
+      ],
+      "price": 352.0
+    }
+  ],
+  "search_input_bounds": [
+    186,
+    95,
+    398,
+    137
+  ],
+  "oracle_source": "native PNG human inspection; main price not crossed-out price; textbox excluding search button"
+}

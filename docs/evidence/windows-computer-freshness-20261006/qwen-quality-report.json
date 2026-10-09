@@ -1,0 +1,117 @@
+{
+  "source_sha": "9837341741632e5a6ebd83e3169573abb9f40698",
+  "primary_parser_unchanged": true,
+  "secondary_is_posthoc_not_primary_pass": true,
+  "cases": [
+    {
+      "case": "filter",
+      "primary": {
+        "case": "filter",
+        "pass": false,
+        "checks": {
+          "fresh_reset": true,
+          "no_controller_error": true,
+          "no_cart": true,
+          "filtered_sorted": false,
+          "comparison": false,
+          "answer_exact": true
+        },
+        "events": 0,
+        "report_field_types_ok": true
+      },
+      "primary_parse_error": null,
+      "strict_json_only": false,
+      "secondary_semantic": {
+        "case": "filter",
+        "pass": false,
+        "checks": {
+          "fresh_reset": true,
+          "no_controller_error": true,
+          "no_cart": true,
+          "filtered_sorted": false,
+          "comparison": false,
+          "answer_exact": true
+        },
+        "events": 0,
+        "report_field_types_ok": true
+      },
+      "secondary_answer": {
+        "sorted_names": [
+          "Orion Small SSD",
+          "Classic SSD",
+          "Rapid Mini SSD",
+          "Light SSD",
+          "Orion Pro SSD",
+          "Lyra Plus SSD",
+          "Nova Max SSD"
+        ],
+        "compared": [
+          {
+            "name": "Orion Pro SSD",
+            "price": 549
+          },
+          {
+            "name": "Lyra Plus SSD",
+            "price": 599
+          }
+        ]
+      },
+      "native_calls": 9,
+      "all_native_ok": true,
+      "elapsed_s": 451.26262699300423
+    },
+    {
+      "case": "scroll-detail",
+      "primary": {
+        "case": "scroll-detail",
+        "pass": false,
+        "checks": {
+          "fresh_reset": true,
+          "no_controller_error": true,
+          "no_cart": true,
+          "scrolled": true,
+          "detail_opened": true,
+          "returned": true,
+          "no_search": true,
+          "answer_exact": false
+        },
+        "events": 4,
+        "report_field_types_ok": false
+      },
+      "primary_parse_error": "Expected exactly one final JSON block",
+      "strict_json_only": false,
+      "secondary_semantic": {
+        "case": "scroll-detail",
+        "pass": true,
+        "checks": {
+          "fresh_reset": true,
+          "no_controller_error": true,
+          "no_cart": true,
+          "scrolled": true,
+          "detail_opened": true,
+          "returned": true,
+          "no_search": true,
+          "answer_exact": true
+        },
+        "events": 4,
+        "report_field_types_ok": true
+      },
+      "secondary_answer": {
+        "name": "Accessory 779",
+        "price": 98,
+        "returned": true
+      },
+      "native_calls": 5,
+      "all_native_ok": true,
+      "elapsed_s": 168.1310867019929
+    }
+  ],
+  "cleanup": {
+    "phase": "finished",
+    "stderr": {},
+    "source_sha": "9837341741632e5a6ebd83e3169573abb9f40698",
+    "probe_alive": false,
+    "operations": 22,
+    "host_received_utc": "2026-10-06T13:41:03.641449+00:00"
+  }
+}

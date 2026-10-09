@@ -1,0 +1,97 @@
+{
+  "model": "deepseek-flash",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "runtime_changed": false,
+  "cases": [
+    {
+      "case": "filter",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "filtered_sorted": true,
+        "comparison": false,
+        "answer_exact": false
+      },
+      "events": 13,
+      "report_field_types_ok": true,
+      "strict_final_json": null,
+      "format_error": "No final answer; bounded experiment stopped",
+      "tool_calls": 20,
+      "tool_failures": 0,
+      "elapsed_s": 474.88,
+      "controller_error": "Turn limit reached, not completion"
+    },
+    {
+      "case": "scroll-detail",
+      "pass": false,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": false,
+        "no_cart": true,
+        "scrolled": false,
+        "detail_opened": false,
+        "returned": false,
+        "no_search": true,
+        "answer_exact": false
+      },
+      "events": 0,
+      "report_field_types_ok": true,
+      "strict_final_json": null,
+      "format_error": "No final answer; bounded experiment stopped",
+      "tool_calls": 3,
+      "tool_failures": 0,
+      "elapsed_s": 76.7,
+      "controller_error": "Non-whitelisted action; not dispatched"
+    },
+    {
+      "case": "modal",
+      "pass": true,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": true,
+        "no_cart": true,
+        "search": true,
+        "answer_exact": true,
+        "modal_dismissed": true
+      },
+      "events": 3,
+      "report_field_types_ok": false,
+      "strict_final_json": false,
+      "format_error": null,
+      "tool_calls": 7,
+      "tool_failures": 1,
+      "elapsed_s": 219.3,
+      "controller_error": null
+    },
+    {
+      "case": "slow-layout",
+      "pass": true,
+      "checks": {
+        "fresh_reset": true,
+        "no_controller_error": true,
+        "no_cart": true,
+        "search": true,
+        "answer_exact": true,
+        "layout_shift": true
+      },
+      "events": 3,
+      "report_field_types_ok": false,
+      "strict_final_json": false,
+      "format_error": null,
+      "tool_calls": 13,
+      "tool_failures": 4,
+      "elapsed_s": 292.71,
+      "controller_error": null
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 4672030,
+    "completion_tokens": 5663,
+    "cache_hit": 4098816,
+    "cache_miss": 573214
+  },
+  "responses": 46,
+  "actual_billed_cost_unavailable": true
+}

@@ -1,0 +1,17 @@
+{
+  "imports": [
+    "api-ms-win-core-synch-l1-2-0.dll",
+    "api-ms-win-shcore-scaling-l1-1-1.dll",
+    "bcryptprimitives.dll",
+    "gdi32.dll",
+    "kernel32.dll",
+    "ntdll.dll",
+    "ole32.dll",
+    "oleaut32.dll",
+    "propsys.dll",
+    "user32.dll"
+  ],
+  "no_dynamic_msvc": true,
+  "machine": 34404,
+  "sha256": "29c6b8359c566eb49cafa05ee03ceec7ef53d49f1859eb95e5a6aa3ee7279ce0"
+}

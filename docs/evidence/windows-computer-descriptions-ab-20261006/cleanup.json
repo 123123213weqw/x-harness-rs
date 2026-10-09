@@ -1,0 +1,17 @@
+{
+  "primary_probe_alive": false,
+  "primary_operations": 50,
+  "fresh_probe_alive": false,
+  "fresh_operations": 17,
+  "collectors_stopped_and_verified": [
+    61188,
+    119911,
+    208343
+  ],
+  "owned_local_tunnels_stopped": [
+    10944
+  ],
+  "own_console_tab_closed": true,
+  "original_vm_changed": false,
+  "user_app_restarted": false
+}

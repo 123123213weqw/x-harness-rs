@@ -1,0 +1,12 @@
+{"mode": "default", "turn": 0, "model_s": 0.62, "calls": 1, "usage": {"prompt_tokens": 1091, "completion_tokens": 63, "total_tokens": 1154, "prompt_tokens_details": {"cached_tokens": 0}, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1091}}
+{"id": 0, "action": "observe", "ok": true, "native_ms": 9120, "wall_s": 11.11, "image": false}
+{"mode": "default", "turn": 1, "model_s": 1.53, "calls": 1, "usage": {"prompt_tokens": 25478, "completion_tokens": 134, "total_tokens": 25612, "prompt_tokens_details": {"cached_tokens": 1152}, "prompt_cache_hit_tokens": 1152, "prompt_cache_miss_tokens": 24326}}
+{"id": 1, "action": "observe", "ok": true, "native_ms": 9069, "wall_s": 11.85, "image": true}
+{"mode": "default", "turn": 2, "model_s": 1.57, "calls": 1, "usage": {"prompt_tokens": 40621, "completion_tokens": 127, "total_tokens": 40748, "prompt_tokens_details": {"cached_tokens": 25600}, "prompt_cache_hit_tokens": 25600, "prompt_cache_miss_tokens": 15021}}
+{"id": 2, "action": "click", "ok": true, "native_ms": 9413, "wall_s": 11.7, "image": true}
+{"mode": "default", "turn": 3, "model_s": 1.44, "calls": 1, "usage": {"prompt_tokens": 53527, "completion_tokens": 135, "total_tokens": 53662, "prompt_tokens_details": {"cached_tokens": 40704}, "prompt_cache_hit_tokens": 40704, "prompt_cache_miss_tokens": 12823}}
+{"id": 3, "action": "type", "ok": true, "native_ms": 9371, "wall_s": 12.18, "image": true}
+{"mode": "default", "turn": 4, "model_s": 1.93, "calls": 1, "usage": {"prompt_tokens": 64507, "completion_tokens": 114, "total_tokens": 64621, "prompt_tokens_details": {"cached_tokens": 53632}, "prompt_cache_hit_tokens": 53632, "prompt_cache_miss_tokens": 10875}}
+{"id": 4, "action": "click", "ok": true, "native_ms": 3914, "wall_s": 7.1, "image": true}
+{"mode": "default", "turn": 5, "model_s": 1.38, "calls": 0, "usage": {"prompt_tokens": 82687, "completion_tokens": 119, "total_tokens": 82806, "prompt_tokens_details": {"cached_tokens": 64512}, "prompt_cache_hit_tokens": 64512, "prompt_cache_miss_tokens": 18175}}
+{"mode": "default", "error": null, "native_calls": 5, "elapsed_s": 77.12}

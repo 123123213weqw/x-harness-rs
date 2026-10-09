@@ -1,0 +1,21 @@
+{
+  "probe_exit_receipts_verified": true,
+  "probe_alive": false,
+  "owned_collector_sigterm_pids": [
+    4144488,
+    4190828
+  ],
+  "tunnels": [
+    {
+      "pid": 4282,
+      "owned_tunnel_stopped": true
+    },
+    {
+      "pid": 84303,
+      "owned_tunnel_stopped": true
+    }
+  ],
+  "own_noVNC_tab_closed": true,
+  "user_3271_and_original_vm_unchanged": true,
+  "owned_collectors_verified_exited": true
+}

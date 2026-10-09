@@ -1,0 +1,96 @@
+{
+  "mode": "default",
+  "label": "auto-1",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0,
+    "observation_policy": "model selected; schema defaults unchanged"
+  },
+  "error": null,
+  "calls": [
+    {
+      "id": 7,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8835,
+      "wall_s": 11.829883500002325
+    },
+    {
+      "id": 8,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 9237,
+      "wall_s": 12.54908954212442
+    },
+    {
+      "id": 9,
+      "action": "type",
+      "ok": true,
+      "elapsed_ms": 8839,
+      "wall_s": 10.996430166065693
+    },
+    {
+      "id": 10,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4415,
+      "wall_s": 6.417003208305687
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1091,
+      "completion_tokens": 67,
+      "total_tokens": 1158,
+      "prompt_tokens_details": {
+        "cached_tokens": 896
+      },
+      "prompt_cache_hit_tokens": 896,
+      "prompt_cache_miss_tokens": 195
+    },
+    {
+      "prompt_tokens": 13930,
+      "completion_tokens": 116,
+      "total_tokens": 14046,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 12778
+    },
+    {
+      "prompt_tokens": 26827,
+      "completion_tokens": 96,
+      "total_tokens": 26923,
+      "prompt_tokens_details": {
+        "cached_tokens": 13952
+      },
+      "prompt_cache_hit_tokens": 13952,
+      "prompt_cache_miss_tokens": 12875
+    },
+    {
+      "prompt_tokens": 37767,
+      "completion_tokens": 113,
+      "total_tokens": 37880,
+      "prompt_tokens_details": {
+        "cached_tokens": 26880
+      },
+      "prompt_cache_hit_tokens": 26880,
+      "prompt_cache_miss_tokens": 10887
+    },
+    {
+      "prompt_tokens": 55946,
+      "completion_tokens": 88,
+      "total_tokens": 56034,
+      "prompt_tokens_details": {
+        "cached_tokens": 37760
+      },
+      "prompt_cache_hit_tokens": 37760,
+      "prompt_cache_miss_tokens": 18186
+    }
+  ],
+  "elapsed_s": 59.12823637481779,
+  "actual_cost_not_reported": true
+}

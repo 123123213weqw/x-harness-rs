@@ -1,0 +1,11 @@
+{
+  "probe_alive": false,
+  "probe_operations": 33,
+  "collector_stopped_and_verified": 224181,
+  "initial_collector_launch_failed_after_rsync_disconnect": 223492,
+  "own_tunnel_stopped": 17806,
+  "own_console_tab_closed": true,
+  "model_service_restarted": false,
+  "original_vm_changed": false,
+  "user_app_restarted": false
+}

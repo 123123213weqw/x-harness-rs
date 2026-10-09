@@ -1,0 +1,22 @@
+{"mode": "vision", "turn": 0, "model_s": 1.14, "calls": 1, "usage": {"prompt_tokens": 1158, "completion_tokens": 98, "total_tokens": 1256, "prompt_tokens_details": {"cached_tokens": 1024}, "prompt_cache_hit_tokens": 1024, "prompt_cache_miss_tokens": 134}}
+{"id": 20, "action": "observe", "ok": true, "native_ms": 561, "wall_s": 5.89, "image": true}
+{"mode": "vision", "turn": 1, "model_s": 1.25, "calls": 1, "usage": {"prompt_tokens": 3871, "completion_tokens": 143, "total_tokens": 4014, "prompt_tokens_details": {"cached_tokens": 1152}, "prompt_cache_hit_tokens": 1152, "prompt_cache_miss_tokens": 2719}}
+{"id": 21, "action": "click", "ok": true, "native_ms": 358, "wall_s": 1.8, "image": false}
+{"mode": "vision", "turn": 2, "model_s": 1.41, "calls": 1, "usage": {"prompt_tokens": 4058, "completion_tokens": 89, "total_tokens": 4147, "prompt_tokens_details": {"cached_tokens": 3840}, "prompt_cache_hit_tokens": 3840, "prompt_cache_miss_tokens": 218}}
+{"id": 22, "action": "observe", "ok": true, "native_ms": 278, "wall_s": 2.48, "image": true}
+{"mode": "vision", "turn": 3, "model_s": 1.17, "calls": 1, "usage": {"prompt_tokens": 6571, "completion_tokens": 134, "total_tokens": 6705, "prompt_tokens_details": {"cached_tokens": 4096}, "prompt_cache_hit_tokens": 4096, "prompt_cache_miss_tokens": 2475}}
+{"id": 23, "action": "click", "ok": true, "native_ms": 464, "wall_s": 2.11, "image": false}
+{"mode": "vision", "turn": 4, "model_s": 1.31, "calls": 1, "usage": {"prompt_tokens": 6749, "completion_tokens": 102, "total_tokens": 6851, "prompt_tokens_details": {"cached_tokens": 6528}, "prompt_cache_hit_tokens": 6528, "prompt_cache_miss_tokens": 221}}
+{"id": 24, "action": "type", "ok": false, "native_ms": 0, "wall_s": 2.1, "image": false}
+{"mode": "vision", "turn": 5, "model_s": 1.48, "calls": 1, "usage": {"prompt_tokens": 6911, "completion_tokens": 89, "total_tokens": 7000, "prompt_tokens_details": {"cached_tokens": 6656}, "prompt_cache_hit_tokens": 6656, "prompt_cache_miss_tokens": 255}}
+{"id": 25, "action": "observe", "ok": true, "native_ms": 478, "wall_s": 2.14, "image": true}
+{"mode": "vision", "turn": 6, "model_s": 1.15, "calls": 1, "usage": {"prompt_tokens": 9515, "completion_tokens": 126, "total_tokens": 9641, "prompt_tokens_details": {"cached_tokens": 6912}, "prompt_cache_hit_tokens": 6912, "prompt_cache_miss_tokens": 2603}}
+{"id": 26, "action": "type", "ok": true, "native_ms": 255, "wall_s": 2.04, "image": false}
+{"mode": "vision", "turn": 7, "model_s": 1.23, "calls": 1, "usage": {"prompt_tokens": 9685, "completion_tokens": 89, "total_tokens": 9774, "prompt_tokens_details": {"cached_tokens": 9472}, "prompt_cache_hit_tokens": 9472, "prompt_cache_miss_tokens": 213}}
+{"id": 27, "action": "observe", "ok": true, "native_ms": 448, "wall_s": 2.38, "image": true}
+{"mode": "vision", "turn": 8, "model_s": 1.01, "calls": 1, "usage": {"prompt_tokens": 12198, "completion_tokens": 137, "total_tokens": 12335, "prompt_tokens_details": {"cached_tokens": 9728}, "prompt_cache_hit_tokens": 9728, "prompt_cache_miss_tokens": 2470}}
+{"id": 28, "action": "click", "ok": true, "native_ms": 397, "wall_s": 2.08, "image": false}
+{"mode": "vision", "turn": 9, "model_s": 1.02, "calls": 1, "usage": {"prompt_tokens": 12379, "completion_tokens": 89, "total_tokens": 12468, "prompt_tokens_details": {"cached_tokens": 12160}, "prompt_cache_hit_tokens": 12160, "prompt_cache_miss_tokens": 219}}
+{"id": 29, "action": "observe", "ok": true, "native_ms": 545, "wall_s": 2.45, "image": true}
+{"mode": "vision", "turn": 10, "model_s": 1.0, "calls": 0, "usage": {"prompt_tokens": 14892, "completion_tokens": 99, "total_tokens": 14991, "prompt_tokens_details": {"cached_tokens": 12416}, "prompt_cache_hit_tokens": 12416, "prompt_cache_miss_tokens": 2476}}
+{"mode": "vision", "error": null, "native_calls": 10, "elapsed_s": 71.16}

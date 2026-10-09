@@ -1,0 +1,32 @@
+{
+  "case": "filter",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "filtered_sorted": false,
+    "comparison": false,
+    "answer_exact": false
+  },
+  "events": 4,
+  "report_field_types_ok": false,
+  "variant": "A",
+  "run": "primary",
+  "label": "filter-A",
+  "response_bound": 12,
+  "strict_final_json": null,
+  "format_error": "No final answer",
+  "error": "Turn limit reached, not completion",
+  "tool_calls": 12,
+  "tool_failures": 0,
+  "elapsed_s": 267.15,
+  "failures": [],
+  "first_scroll": {
+    "action": "scroll",
+    "frame_id": "win:6548:1791245040758479900:41",
+    "delta_y": -300,
+    "x": 512,
+    "y": 500
+  }
+}

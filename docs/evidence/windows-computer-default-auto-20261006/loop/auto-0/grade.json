@@ -1,0 +1,10 @@
+{
+  "pass": true,
+  "native_all_success": true,
+  "search_submitted": true,
+  "final_exact": true,
+  "forbidden_events": [],
+  "reset_found": true,
+  "strict_final_json": false,
+  "format_style": "prose_and_json_fence"
+}

@@ -1,0 +1,5 @@
+{"id": 0, "action": "observe", "ok": true, "native_ms": 408, "wall_s": 1.06, "image": false}
+Traceback (most recent call last):
+  File "/home/data/wzu/windows-computer-freshness-20261006/reset-case.py", line 6, in <module>
+    assert v['ok'] and any(s.get('frontmost') and 'XHarness Shopping Load Lab' in s.get('title','') for s in v['result']['surfaces'])
+AssertionError

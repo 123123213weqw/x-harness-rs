@@ -1,0 +1,10 @@
+{
+  "provider_reported_usage": {
+    "prompt_tokens": 3889856,
+    "completion_tokens": 6917,
+    "cache_hit_tokens": 3256320,
+    "cache_miss_tokens": 633536
+  },
+  "responses": 48,
+  "actual_currency_charge": null
+}

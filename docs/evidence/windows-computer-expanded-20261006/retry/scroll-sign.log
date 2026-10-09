@@ -1,0 +1,9 @@
+{"id": 28, "action": "observe", "ok": true, "native_ms": 457, "wall_s": 3.38, "image": false}
+{"id": 29, "action": "keypress", "ok": true, "native_ms": 456, "wall_s": 4.9, "image": false}
+{"id": 30, "action": "type", "ok": true, "native_ms": 447, "wall_s": 6.17, "image": false}
+{"id": 31, "action": "keypress", "ok": true, "native_ms": 210, "wall_s": 4.56, "image": false}
+{"id": 32, "action": "observe", "ok": true, "native_ms": 329, "wall_s": 2.1, "image": false}
+{"id": 33, "action": "click", "ok": true, "native_ms": 319, "wall_s": 3.67, "image": false}
+{"id": 34, "action": "scroll", "ok": true, "native_ms": 383, "wall_s": 6.73, "image": false}
+{"id": 35, "action": "scroll", "ok": true, "native_ms": 408, "wall_s": 4.48, "image": false}
+{"positive_moves_down": true, "negative_moves_up": false, "positions": [{"delta_y": 360, "scrollY": 9, "receipt_id": 34}, {"delta_y": -360, "scrollY": 292, "receipt_id": 35}], "baseline_scrollY": 0, "model_controlled": false, "observation_settings": "AX/screenshot disabled for diagnostic only; avoids WAN media latency", "production_runtime_modified": false}

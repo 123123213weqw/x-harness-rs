@@ -1,0 +1,3 @@
+{"id": 44, "action": "observe", "ok": true, "native_ms": 393, "wall_s": 2.24, "image": false}
+{"id": 45, "action": "keypress", "ok": false, "native_ms": 360, "wall_s": 3.32, "image": false}
+{"kind": "handler", "message": "invalid_request: unsupported Windows key: Page_Up", "retryable": false}

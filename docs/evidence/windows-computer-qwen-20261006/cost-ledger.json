@@ -1,0 +1,12 @@
+{
+  "model_service": "User-owned local Qwen service",
+  "reported_usage": {
+    "prompt_tokens": 970091,
+    "completion_tokens": 1958,
+    "cached_tokens": 822718
+  },
+  "responses": 24,
+  "external_api_charge": null,
+  "gpu_power_and_resource_cost_not_measured": true,
+  "no_deepseek_requests_in_this_round": true
+}
