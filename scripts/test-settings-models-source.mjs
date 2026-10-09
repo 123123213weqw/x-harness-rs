@@ -35,7 +35,7 @@ test('published ABI, exact CSS and no removed onboarding slot',async()=>{
  plugin.apply(ctx);const managed=slots.find(row=>row.spec.id==='managed-account');if(plugin===next.plugin)assert.ok(managed,'new managed service section registered');const original=slots.filter(row=>row.spec.id!=='managed-account');dicts.splice(0,dicts.length,...dicts.filter(row=>row[0]!=='xharness-managed-account'));slots.splice(0,slots.length,...original);assert.equal(slots.length,1);assert.equal(slots[0].spec.name,'settings.section');cleanup.forEach(fn=>fn());receipts.push({inject:json(plugin.inject),dicts:json(dicts),events,slot:{...slots[0].spec,inject:undefined,label:slots[0].spec.label()}});}
  for (const lang of ['zh','en']) {
   const next=receipts[1].dicts[0][1][lang], before=receipts[0].dicts[0][1][lang];
-  assert.deepEqual(Object.keys(next).filter(key => !(key in before)).sort(), ['accountReadOnly','accountTag']);
+  assert.deepEqual(Object.keys(next).filter(key => !(key in before)).sort(), ['accountReadOnly','accountTag','modelOutputBudgetInvalid','reasoningRecipe','reasoningKeep','reasoningEnableThinking','reasoningThinking','reasoningNativeEffort','reasoningDisabled','reasoningRecipeHint','reasoningApply'].sort());
   for(const key of Object.keys(before)) assert.equal(next[key],before[key]);
  }
  assert.deepEqual({...receipts[1],dicts:undefined},{...receipts[0],dicts:undefined});
@@ -96,4 +96,45 @@ test('account profile cannot be deleted from generic model management; same rout
  assert.deepEqual(calls,[]);
  assert.equal(await apis[1].plugin.removeProviderProfile(api,controller,{...target,settingsNs:'custom-ns'}),undefined);
  assert.deepEqual(calls,['credential','settings','load']);
+});
+
+test('local reasoning recipes are explicit, isolated, and match checked-in deployment examples',()=>{
+ const {reasoningRecipe,applyReasoningRecipe,supportsReasoningRecipes}=harness(compiled).plugin;
+ const example=JSON.parse(readFileSync('config/providers.local-reasoning.example.json','utf8'));
+ for(const [providerIndex,modelIndex,id] of [[0,0,'enable-thinking'],[0,1,'native-effort'],[1,0,'enable-thinking'],[1,1,'thinking'],[1,2,'native-effort']]) {
+  assert.deepEqual(json(reasoningRecipe(id)),example.providers[providerIndex].models[modelIndex].reasoning);
+ }
+ const original={id:'unknown',reasoning:{custom:'keep'},imageInput:false,contextWindow:4096,extension:{keep:true}};
+ for(const id of ['keep','','unknown','budget'])assert.deepEqual(json(applyReasoningRecipe(original,id,'openai-completions')),original);
+ for(const api of [undefined,'openai-responses','anthropic-messages','chat','llama','vllm']) {
+  assert.equal(supportsReasoningRecipes(api),false);
+  assert.deepEqual(json(applyReasoningRecipe(original,'native-effort',api)),original);
+ }
+ assert.equal(supportsReasoningRecipes('openai-completions'),true);
+ for(const id of ['disabled','enable-thinking','thinking','native-effort']) {
+  const next=applyReasoningRecipe(original,id,'openai-completions');
+  assert.deepEqual(json({...next,reasoning:original.reasoning}),original);
+  assert.deepEqual(original.reasoning,{custom:'keep'});
+ }
+ assert.equal(applyReasoningRecipe(original,'disabled','openai-completions').reasoning,null);
+ const first=reasoningRecipe('enable-thinking');first.efforts[0].request_patch.chat_template_kwargs.enable_thinking=true;
+ assert.equal(reasoningRecipe('enable-thinking').efforts[0].request_patch.chat_template_kwargs.enable_thinking,false);
+ assert.deepEqual(json(reasoningRecipe('native-effort').efforts.map(e=>e.id)),['low','medium','high']);
+});
+
+test('adaptive output cross-field checks reject stale hidden minima without rejecting a large target',()=>{
+ const check=apis[1].plugin.validateOutputBudgets;
+ for(const row of [
+  {id:'old',contextWindow:262144,maxTokens:4096,minimumOutputTokens:8192},
+  {id:'old',contextWindow:2048,maxTokens:8192},
+  {id:'old',minimumOutputTokens:0},{id:'old',tokenSafetyMargin:-1},
+  {id:'old',maxTokens:1_000_000_001}, {id:'old',minimumOutputTokens:'8192'},
+ ])assert.equal(check([row]).key,'modelOutputBudgetInvalid');
+ for(const row of [{id:'m'},{id:'m',contextWindow:8192,maxTokens:8192},
+  {id:'m',maxTokens:32000},{id:'m',maxTokens:1},{id:'m',maxTokens:4096,minimumOutputTokens:4096}])assert.equal(check([row]),undefined);
+ const defaults={api:'openai-completions',baseURL:'https://example.com',models:[{id:'m',maxTokens:65536}]};
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{},defaults),undefined);
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{baseURL:'https://other.example'},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',upstreamModel:'different',minimumOutputTokens:8192}],{},defaults).key,'modelOutputBudgetInvalid');
+ assert.equal(check([{id:'m',minimumOutputTokens:8192}],{maxTokens:16384}),undefined);
 });

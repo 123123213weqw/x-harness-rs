@@ -621,7 +621,8 @@ pub fn token_guard(
     TokenGuard::conservative(TokenBudget {
         context_window_tokens,
         reserved_output_tokens: max_output_tokens,
-        minimum_output_tokens: minimum_output_tokens.unwrap_or(max_output_tokens),
+        minimum_output_tokens: minimum_output_tokens
+            .unwrap_or_else(|| xharness_host::automatic_minimum_output_tokens(max_output_tokens)),
         safety_margin_tokens: token_safety_margin,
     })
     .map(Some)
@@ -714,10 +715,36 @@ mod tests {
         let guard = token_guard("model", Some(53_248), 4_096, None, 1_024)
             .unwrap()
             .unwrap();
-        assert_eq!(guard.budget().available_input_tokens(), 48_128);
+        assert_eq!(guard.budget().available_input_tokens(), 51_200);
+        assert_eq!(guard.budget().reserved_output_tokens, 4_096);
+        assert_eq!(guard.budget().minimum_output_tokens, 1_024);
         assert!(token_guard("unconfigured", None, 4_096, None, 1_024)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn automatic_maximum_is_adaptive_but_explicit_minimum_is_honored() {
+        let guard = token_guard("model", Some(8192), 65536, None, 1024)
+            .unwrap()
+            .unwrap();
+        assert_eq!(guard.budget().minimum_output_tokens, 1024);
+        assert_eq!(guard.budget().reserved_output_tokens, 65536);
+        assert_eq!(guard.budget().resolve_output_tokens(4096), 3072);
+        assert!(token_guard("model", Some(8192), 65536, Some(8192), 1024).is_err());
+        assert!(token_guard("model", Some(32768), 4096, Some(8192), 1024).is_err());
+        let guard = token_guard("model", Some(32768), 16384, Some(8192), 1024)
+            .unwrap()
+            .unwrap();
+        assert_eq!(guard.budget().minimum_output_tokens, 8192);
+        assert_eq!(
+            token_guard("model", Some(32768), 512, None, 1024)
+                .unwrap()
+                .unwrap()
+                .budget()
+                .minimum_output_tokens,
+            512
+        );
     }
 
     #[test]

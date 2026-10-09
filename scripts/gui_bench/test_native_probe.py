@@ -85,7 +85,13 @@ class NativeProbeTests(unittest.TestCase):
         evidence = {name: {"status": "not_implemented"} for name in [
             "trusted_input", "cross_origin_frames", "screenshot", "recording", "hidden_tab_actions"]}
         log = "Native lifecycle probe passed:\nNative Tauri DOM probe passed:\nHARD_CAPABILITY_EVIDENCE " + json.dumps(evidence)
-        self.assertTrue(contract_completed(log))
+        self.assertFalse(contract_completed(log), 'older probe lacks subframe regression evidence')
+        subframe = '\nSUBFRAME_NAVIGATION_EVIDENCE ' + json.dumps({
+            'same_origin': 'passed', 'cross_origin': 'passed', 'same_document': 'passed', 'guest_caller': 'denied',
+            'top_level_address': 'preserved', 'loaded_owner_receipt': 'preserved', 'test_only': True})
+        self.assertTrue(contract_completed(log + subframe))
+        self.assertFalse(contract_completed(log + subframe + subframe), 'duplicate evidence is ambiguous')
+        self.assertFalse(contract_completed(log + subframe.replace('"cross_origin": "passed"', '"cross_origin": "failed"')))
         self.assertFalse(contract_completed(log + "\nNative observation probe failed:"))
 
     def test_capability_evidence_is_not_inferred_from_dom_pass_or_silent_skip(self):
