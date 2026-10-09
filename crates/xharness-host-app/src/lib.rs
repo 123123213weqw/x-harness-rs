@@ -430,7 +430,13 @@ impl SessionToolFactory for NativeToolFactory {
         }
         // Questions collect information; they do not change tool permissions.
         // Existing platform policy and approval requirements remain authoritative.
-        Ok(ToolExecutor::new(registry).with_debug(self.debug.clone()))
+        let mut executor = ToolExecutor::new(registry).with_debug(self.debug.clone());
+        if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            executor = executor.with_guards(vec![xharness_host::AgentTool::model_selection_guard(
+                &host, session_id,
+            )]);
+        }
+        Ok(executor)
     }
 
     async fn shutdown(&self) -> Result<(), String> {
