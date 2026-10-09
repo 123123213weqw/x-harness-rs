@@ -64,7 +64,7 @@ jobs:
          github.event.workflow_run.head_branch == 'master' &&
          github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 350
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -95,6 +95,23 @@ jobs:
           test -n "$TAURI_SIGNING_PRIVATE_KEY"
           npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri signer sign dist/engine-sync/export/latest.json
           python3 -B scripts/engine-release-sync.py seal --work dist/engine-sync
+      # Public signed envelope enables independently verified operator recovery
+      # over a nearby route if hosted-runner international bulk transfer is slow.
+      # No installers, source checkout, signer private key or SSH credentials.
+      - name: Retain the signed public envelope before attempting network publication
+        if: steps.prepare.outputs.sync_needed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine-release-signed-envelope
+          path: |
+            dist/engine-sync/export/*.json
+            dist/engine-sync/export/*.sig
+            dist/engine-sync/export/updater.pub
+            dist/engine-sync/export/SHA256SUMS
+            dist/engine-sync/export/LICENSE
+            dist/engine-sync/export/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14
       - name: Restricted installer-store publication and full HTTPS read-back
         if: steps.prepare.outputs.sync_needed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
         env:
