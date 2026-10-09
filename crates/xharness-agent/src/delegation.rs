@@ -12,6 +12,13 @@ pub enum AgentOperation {
         task: String,
         #[serde(default)]
         label: Option<String>,
+        /// User-requested selectors; Host requires per-call human confirmation for changes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reasoning_effort: Option<String>,
     },
     Send {
         agent_id: String,
@@ -38,10 +45,28 @@ impl AgentOperation {
             }
         }
         match self {
-            Self::Start { task, label } => {
+            Self::Start {
+                task,
+                label,
+                provider,
+                model,
+                reasoning_effort,
+            } => {
                 text(task, "task", 32768)?;
                 if let Some(label) = label {
                     text(label, "label", 160)?;
+                }
+                for (value, field, max) in [
+                    (provider, "provider", 128),
+                    (model, "model", 512),
+                    (reasoning_effort, "reasoning_effort", 128),
+                ] {
+                    if let Some(value) = value {
+                        text(value, field, max)?;
+                        if value.trim() != value || value.chars().any(char::is_control) {
+                            return Err(format!("{field} must not contain control characters or surrounding whitespace"));
+                        }
+                    }
                 }
             }
             Self::Send { agent_id, message } => {
@@ -82,8 +107,59 @@ mod tests {
             json!({"action":"send","agent_id":"a"}),
             json!({"action":"delete","agent_id":"a"}),
             json!({"action":"inspect","parent_id":"fake"}),
+            json!({"action":"send","agent_id":"a","message":"x","model":"test"}),
+            json!({"action":"inspect","provider":"test"}),
+            json!({"action":"stop","agent_id":"a","reasoning_effort":"high"}),
         ] {
             assert!(serde_json::from_value::<AgentOperation>(value).is_err());
+        }
+    }
+    #[test]
+    fn model_selectors_are_optional_and_round_trip_without_a_global_effort_enum() {
+        let inherited: AgentOperation =
+            serde_json::from_value(json!({"action":"start","task":"inspect"})).unwrap();
+        assert!(matches!(
+            inherited,
+            AgentOperation::Start {
+                provider: None,
+                model: None,
+                reasoning_effort: None,
+                ..
+            }
+        ));
+        let selected = json!({"action":"start","task":"inspect","label":"review",
+            "provider":"configured-provider","model":"model/v2","reasoning_effort":"vendor-level-3"});
+        let op: AgentOperation = serde_json::from_value(selected.clone()).unwrap();
+        op.validate().unwrap();
+        assert_eq!(serde_json::to_value(op).unwrap(), selected);
+        assert!(serde_json::to_value(inherited)
+            .unwrap()
+            .get("model")
+            .is_none());
+    }
+
+    #[test]
+    fn rejects_malformed_model_selectors_before_admission() {
+        for (field, maximum) in [("provider", 128), ("model", 512), ("reasoning_effort", 128)] {
+            for invalid in [
+                "".into(),
+                " ".into(),
+                " x".into(),
+                "x ".into(),
+                "x\ny".into(),
+                "x\0y".into(),
+                "中".repeat(maximum / 3 + 1),
+            ] {
+                let mut value = json!({"action":"start","task":"inspect"});
+                value[field] = json!(invalid);
+                let op: AgentOperation = serde_json::from_value(value).unwrap();
+                assert!(op.validate().is_err(), "accepted malformed {field}");
+            }
+            for invalid in [json!(42), json!([]), json!({})] {
+                let mut value = json!({"action":"start","task":"inspect"});
+                value[field] = invalid;
+                assert!(serde_json::from_value::<AgentOperation>(value).is_err());
+            }
         }
     }
     #[test]
@@ -102,7 +178,10 @@ mod tests {
         }
         assert!(AgentOperation::Start {
             task: " ".into(),
-            label: None
+            label: None,
+            provider: None,
+            model: None,
+            reasoning_effort: None,
         }
         .validate()
         .is_err());

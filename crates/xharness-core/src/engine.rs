@@ -753,6 +753,11 @@ impl Runner {
         'steps: loop {
             self.settle_control_at_boundary().await?;
             self.ensure_running()?;
+            // Explicit task budgets stop at a boundary, never manufacture a
+            // 1-token model request after the budget has already been exhausted.
+            if self.remaining_turn_output_tokens() == Some(0) {
+                return self.finish_at_output_limit().await;
+            }
             if self.step >= self.request.config.max_steps {
                 break;
             }
@@ -850,13 +855,18 @@ impl Runner {
                             }
                         }
                         if let Some(report) = report.as_ref() {
-                            let turn_remaining = self
-                                .request
-                                .config
-                                .max_turn_output_tokens
-                                .saturating_sub(self.cumulative_output_tokens);
                             provider_request.max_output_tokens =
-                                Some(report.selected_output_tokens.min(turn_remaining.max(1)));
+                                Some(report.selected_output_tokens);
+                        }
+                        // A fresh request gets the route's full safe per-call
+                        // allowance. Only an explicitly configured task budget
+                        // may reduce it; apply that budget even without a guard.
+                        if let Some(remaining) = self.remaining_turn_output_tokens() {
+                            provider_request.max_output_tokens = Some(
+                                provider_request
+                                    .max_output_tokens
+                                    .map_or(remaining, |limit| limit.min(remaining)),
+                            );
                         }
                         break (provider_request, prepared, context_tools, report);
                     }
@@ -1132,9 +1142,20 @@ impl Runner {
 
             if reached_output_limit {
                 self.journal_step_end().await?;
-                let within_turn_budget =
-                    self.cumulative_output_tokens < self.request.config.max_turn_output_tokens;
-                if self.output_continuations < self.request.config.max_output_continuations
+                // An empty truncated response provides nothing to continue.
+                // Fail visibly instead of spinning unlimited paid requests.
+                let last = self.messages.last().expect("assistant just saved");
+                if model.calls.is_empty() && last.content.is_empty() && last.reasoning.is_empty() {
+                    return Err(RunFailure::Failed(
+                        "provider reported an output-token limit without resumable text, reasoning, or tool-call fragments".into(),
+                    ));
+                }
+                let within_turn_budget = self.remaining_turn_output_tokens() != Some(0);
+                if self
+                    .request
+                    .config
+                    .max_output_continuations
+                    .is_none_or(|limit| self.output_continuations < limit)
                     && within_turn_budget
                 {
                     self.output_continuations = self.output_continuations.saturating_add(1);
@@ -1150,13 +1171,7 @@ impl Runner {
                     .await?;
                     continue 'steps;
                 }
-                self.emit(LoopEventKind::RunMaxTokens {
-                    text: self.final_text.clone(),
-                    continuations: self.output_continuations,
-                    cumulative_output_tokens: self.cumulative_output_tokens,
-                })
-                .await?;
-                return Ok(LoopStatus::MaxTokens);
+                return self.finish_at_output_limit().await;
             }
 
             if self.checkpoint.pending_notice.is_some() {
@@ -1193,6 +1208,23 @@ impl Runner {
 
         self.emit(LoopEventKind::LimitReached).await?;
         Ok(LoopStatus::LimitReached)
+    }
+
+    fn remaining_turn_output_tokens(&self) -> Option<u64> {
+        self.request
+            .config
+            .max_turn_output_tokens
+            .map(|limit| limit.saturating_sub(self.cumulative_output_tokens))
+    }
+
+    async fn finish_at_output_limit(&mut self) -> Result<LoopStatus, RunFailure> {
+        self.emit(LoopEventKind::RunMaxTokens {
+            text: self.final_text.clone(),
+            continuations: self.output_continuations,
+            cumulative_output_tokens: self.cumulative_output_tokens,
+        })
+        .await?;
+        Ok(LoopStatus::MaxTokens)
     }
 
     fn record_model_completion(&mut self, usage: Option<TokenUsage>, finish_reason: FinishReason) {
@@ -2796,13 +2828,18 @@ impl Runner {
         &mut self,
         approval_id: &str,
         call: &ToolCall,
+        reasons: &[String],
     ) -> Result<(), RunFailure> {
         self.journal_append(
             vec![SessionEventData::ApprovalAsked {
                 id: approval_id.to_owned(),
                 tool_name: call.name.clone(),
                 call_id: Some(call.id.clone()),
-                reason: Some("This tool requires explicit approval.".to_owned()),
+                reason: Some(if reasons.is_empty() {
+                    "This tool requires explicit approval.".to_owned()
+                } else {
+                    reasons.join("\n")
+                }),
             }],
             true,
         )
@@ -3037,6 +3074,9 @@ impl Runner {
                 }
             }
             self.journal_append(events, true).await?;
+            // MessageInjected only acknowledges acceptance into the in-memory
+            // pending list. Publish consumption only after user/message is durable.
+            self.emit(LoopEventKind::InputCommitted).await?;
         }
         if self.journal.is_none() {
             if let Some(message) = pending
@@ -4146,7 +4186,6 @@ impl Runner {
                 if response.is_closed() {
                     return Ok(());
                 }
-                let _approval_reasons = reasons;
                 let (order, call) = calls
                     .iter()
                     .find(|(_, call)| call.id == execution_id)
@@ -4160,7 +4199,8 @@ impl Runner {
                     None => (self.approval_id(*order), false),
                 };
                 if !recovered {
-                    self.journal_approval_asked(&approval_id, call).await?;
+                    self.journal_approval_asked(&approval_id, call, &reasons)
+                        .await?;
                 }
                 pending_approval_ids.push(approval_id.clone());
                 self.emit(LoopEventKind::ToolApprovalRequested {
