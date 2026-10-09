@@ -11,9 +11,9 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 
 | action | 参数 | 语义 |
 | --- | --- | --- |
-| start | task；可选 label | 创建独立子会话，持久化任务后返回 agent_id / message_id |
+| start | task；可选 label；provider/model/reasoning_effort 仅传递用户明确指定的选择 | 创建独立子会话，继承设置或先获用户确认，再持久化后返回 agent_id / message_id / model |
 | send | agent_id、message | 运行中安全 Steering；空闲时下一轮；暂停时只入队 |
-| inspect | 可选 agent_id | 指定孩子状态，或列出自己的直接孩子 |
+| inspect | 可选 agent_id | 指定孩子状态与模型；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
 | stop | agent_id | 中断当前轮，保留未领取消息，暂停后续派发 |
 
 工具根 Schema 使用便携 object + action enum；Rust tagged enum 严格验证分支字段，
@@ -34,11 +34,64 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 - `xharness-host::AgentTool`：现有 ToolSpec / ToolExecutor 的薄适配。
 - Host 委派协调层：绑定调用者、创建关系、复用消息准入/控制/状态投影。
 - NativeToolFactory 用 Weak<BasicHost> 绑定，避免 Host→Runtime→Factory→Host 强引用环。
-- 子级复制创建时的模型、推理、上下文设置、工作区、权限、Preset、PlanMode；
+- 子级默认继承创建时的模型、推理、上下文设置；仅用户明确请求且逐调用人工确认后允许覆盖。
+  工作区、权限、Preset、PlanMode 继续继承；
   不复制父对话历史。任务必须自包含。API Key 不进入会话描述符。
 - 不允许模型通过 start 自选更高权限、任意目录、任意父级身份。
 - NativePlatform 保持同工作区/权限缓存，继续复用文件观察版本与路径锁。
   任意 shell 写入和跨权限实例的写冲突不承诺事务隔离；独立工作树属于后续。
+
+## 用户请求＋逐调用确认的子模型选择（2026-10-09）
+
+仍只有一个 `agent` 工具，允许用户通过聊天明确指定子模型／思考强度；模型仅传递选择。
+用户没有指定时完整继承父会话设置，不按任务复杂度／成本自主选择其他模型或强度。
+
+```json
+{"action":"inspect"}
+{"action":"start","task":"独立只读审查","provider":"configured-provider","model":"configured-model","reasoning_effort":"high"}
+```
+
+### 硬约束，不仅是 description
+
+- start 覆盖值实际改变路由或强度时，Host 注册的单调 Guard 要求现有逐调用审批。
+  没改变设置时不弹确认，也不把等待确认放进全局创建锁，其他会话可继续工作。
+- 使用既有确认卡片：显示目标 provider/model、强度与父设置，用户允许一次后才创建孩子。
+  普通 full-access 和 AI-review **都不代替这次人工确认**；不会让模型审查自己是否能换模型。
+- Guard 的精确绑定进入既有 `approval/asked.reason`，Core 保留 Guard 原因而非丢弃。
+  绑定只包含调用者、调用 ID、参数哈希、当前用户请求序号和父／子配置，不重复写任务正文。
+- Handler 再查持久化的 ToolCall、绑定和对应 `approval/decided: allowed-once`。
+  模型提供 `authorized=true`、任务文本声称用户同意、单纯问过 ask_user_question、
+  临时 ApprovalProvider 返回 Approved，都不能替代这一对持久化事实。
+- 确认期间父设置、目标默认强度、任务参数或已提交用户请求改变，旧确认失效并返回明确错误。
+  拒绝、停止、取消、审批不可用或超时均不创建／执行孩子；迟到答复不能恢复已结束调用。
+- Host 不通过自然语言关键字推测用户授权。description 引导只在用户明确指定时传参；
+  最后的人工卡片是可验证边界，即使模型误解或擅自提议，仍不能静默执行。
+  这是模型工具边界，不声称能阻止具有任意本机 Shell 权限的程序自行修改配置或调用本机 API。
+
+### 路由与恢复
+
+- provider/model 必须来自运行时注册目录；inspect.models 只返回 ID、合法 effort ID 与默认值，
+  不含端点、凭据或 wire patch。目录可见不等于获准切换。
+- 未指定路由时继承父配置；改变路由但未指定强度时使用目标默认值，预算用目标 TokenGuard。
+  不向小模型复制父级的大预算。不支持的路由／强度在确认与创建前拒绝，不静默回退。
+- 字段只用于 start；send 不能悄悄修改已有孩子配置。既有用户模型 RPC 仍可修改配置。
+- 初始路由与 `agent/delegated` 同批使用既有 `session/model-selected` 持久化，不新增日志事件。
+  重试对照原始准入，不能覆盖用户后来修改的孩子配置，也不重复启动或重复要求已准入的确认。
+  无显式字段的旧调用仍兼容缺少原始模型选择的旧日志。
+- 未确认调用重启后仍需要确认，恢复原审批身份与绑定，不因重启而自动执行。
+- provider 128、model 512、effort 128 UTF-8 bytes；拒绝空白、控制字符及跨 action 字段。
+
+验收包括真实 ToolExecutor／Core／DurableLoop → 人工 respond RPC → Recording Provider，
+覆盖三个权限预设、拒绝、取消、超时、过期确认、不阻塞其他会话、JSONL 审批重启恢复、
+模型路由和强度传递、旧记录兼容及准入幂等。Recording Provider 不消耗真实 API 额度。
+
+真实 DeepSeek 参数脚本 `scripts/eval-subagent-model-selection.py` 读取当前工具声明，
+使用合成任务，检查用户明确指定／没有指定时的参数；**不执行真实子任务或人工确认**。
+实际确认链路由上述真实 Host/Recording Provider 测试验证，不将模型参数实验混称为全链路验收。
+另用生产 `NativeToolFactory` 与公开 mux/respond 接口做集成测试，检查 full-access 下仍显示
+目标路由／强度确认卡片，未回答不创建孩子，允许一次后才向目标 Provider 传递强度。
+
+此前开放自主选择和中间菜单-only 版本的测试只是历史基线，当前验收以人工确认版本的报告为准。
 
 ## 执行与并发
 
@@ -131,7 +184,7 @@ Rust 编译、单测、Clippy 均在 WZU_Server 的 `~/codex-build/x-harness-rs/
 
 ## 后续 TODO（不混入本次完成项）
 
-- 子 Agent 独立 Provider/Profile/工具白名单选择、外部后端和多层谱系。
+- 子 Agent 独立 Profile/工具白名单选择、外部后端和多层谱系。
 - 配置化容量/队列限额；细分 queued/model/tool/waiting 的可观测状态。
 - 父级等待孩子的 UI 聚合状态；立即/下一轮通知策略可配置。
 - stop 的用户/Agent 来源区分；整棵子树停止和独立后台托管语义。

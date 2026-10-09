@@ -1,0 +1,138 @@
+name: Sync desktop releases to engine
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sync-engine-releases.yml'
+      - 'scripts/engine-release-sync.py'
+      - 'scripts/test-engine-release-sync.py'
+      - 'scripts/engine-sync-signature-fixture.mjs'
+      - 'scripts/desktop-release*.py'
+      - 'scripts/verify-updater-package.mjs'
+      - 'docs/runbooks/engine-release-sync.md'
+  release:
+    types: [published]
+  # Publishing with GITHUB_TOKEN does not trigger release.published workflows.
+  workflow_run:
+    workflows: ['Desktop Promote']
+    types: [completed]
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Verify accepted release and prepare, without signing or publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: engine-release-sync-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'publication' }}
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -B scripts/test-engine-release-sync.py
+      - run: node scripts/test-updater-signature.mjs
+
+  sync:
+    if: >-
+      github.repository == '123123213weqw/x-harness-rs' &&
+      github.event_name != 'pull_request' &&
+      vars.XHARNESS_ENGINE_RELEASE_SYNC_ENABLED == 'true' &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master') &&
+      (github.event_name != 'release' ||
+        (!github.event.release.draft && !github.event.release.prerelease && startsWith(github.event.release.tag_name, 'desktop-v'))) &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'master' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Never run code from a candidate tag, triggering workflow artifact or fork.
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Offline publication and signature contracts
+        run: |
+          python3 -B scripts/test-engine-release-sync.py
+          node scripts/test-updater-signature.mjs
+      - name: Authenticate current formal release, native promotion and unchanged website baseline
+        id: prepare
+        run: python3 -B scripts/engine-release-sync.py prepare --work dist/engine-sync
+      - name: Sign only the verified domain projection, retaining original installer bytes
+        if: steps.prepare.outputs.sync_needed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.XHARNESS_FRIENDS_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.XHARNESS_FRIENDS_PASSWORD }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri signer sign dist/engine-sync/export/latest.json
+          python3 -B scripts/engine-release-sync.py seal --work dist/engine-sync
+      # Public signed envelope enables independently verified operator recovery
+      # over a nearby route if hosted-runner international bulk transfer is slow.
+      # No installers, source checkout, signer private key or SSH credentials.
+      - name: Retain the signed public envelope before attempting network publication
+        if: steps.prepare.outputs.sync_needed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine-release-signed-envelope
+          path: |
+            dist/engine-sync/export/*.json
+            dist/engine-sync/export/*.sig
+            dist/engine-sync/export/updater.pub
+            dist/engine-sync/export/SHA256SUMS
+            dist/engine-sync/export/LICENSE
+            dist/engine-sync/export/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Restricted installer-store publication and full HTTPS read-back
+        if: steps.prepare.outputs.sync_needed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        env:
+          PUBLISH_KEY: ${{ secrets.XHARNESS_ENGINE_RELEASE_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.XHARNESS_ENGINE_RELEASE_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$PUBLISH_KEY" && test -n "$KNOWN_HOSTS"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/engine-release-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/engine-release-ssh"' EXIT
+          printf '%s\n' "$PUBLISH_KEY" > "$RUNNER_TEMP/engine-release-ssh/key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/engine-release-ssh/known_hosts"
+          python3 -B scripts/engine-release-sync.py publish --work dist/engine-sync \
+            --ssh-key "$RUNNER_TEMP/engine-release-ssh/key" \
+            --known-hosts "$RUNNER_TEMP/engine-release-ssh/known_hosts"
+      - name: Preserve public-material receipts, never keys or installers
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: engine-release-sync-evidence
+          path: dist/engine-sync/audit/
+          if-no-files-found: warn
+          retention-days: 90

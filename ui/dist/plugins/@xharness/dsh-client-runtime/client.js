@@ -22140,7 +22140,7 @@ class Session {
                 return;
             }
             case 'session/queue': {
-                this.queueMirror.replace(frame.items);
+                this.queueMirror.replace(frame.items, this.events);
                 this.notifier.markDirty();
                 return;
             }
@@ -22371,8 +22371,10 @@ class Session {
             this.firstPromptPendingTurn = false;
         if (projections !== undefined)
             this.projections.seed(projections);
-        for (const item of accepted)
-            this.queueMirror.acceptDurable(item.event);
+        // A queue baseline may have landed before history on open/reconnect.
+        // Reconcile the complete installed window, not only newly buffered events.
+        for (const event of events)
+            this.queueMirror.acceptDurable(event);
         this.liveBuffer = [];
         this.notifier.markDirty();
         this.xhHistoryOwner?.changed(this);
@@ -24384,9 +24386,22 @@ class SessionQueueMirror {
     /**
      * Replace from one authoritative stream queue frame.
      * @param items - complete host queue snapshot.
+     * @param events - current durable history window, including already consumed inputs.
      */
-    replace(items) {
-        this.current = items.map(item => ({
+    replace(items, events = []) {
+        // A durable event can arrive before a queue snapshot (or before reconnect
+        // history). Consult retained history instead of keeping unbounded tombstones.
+        const consumed = new Set();
+        const candidates = new Set(items.filter(item => item.placement === 'steering').map(item => item.message.id));
+        if (candidates.size > 0) {
+            for (const event of events) {
+                if (event.type === 'user/message' && (0, value_guards_1.isRecord)(event.data)
+                    && typeof event.data.id === 'string' && candidates.has(event.data.id)) {
+                    consumed.add(event.data.id);
+                }
+            }
+        }
+        this.current = items.filter(item => item.placement !== 'steering' || !consumed.has(item.message.id)).map(item => ({
             id: item.id,
             messageId: item.message.id,
             placement: item.placement,

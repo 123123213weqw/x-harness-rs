@@ -54,6 +54,25 @@ impl BasicHost {
         approval_id: String,
         call: ToolCall,
     ) -> Result<(), RpcError> {
+        let human_model_confirmation =
+            crate::delegation::model_selection::human_confirmation_call(&call);
+        let reason = if human_model_confirmation {
+            let session = self
+                .agent_runtime
+                .authoritative_session(session_id)
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            session
+                .as_ref()
+                .and_then(|s| {
+                    crate::delegation::model_selection::confirmation_reason(s, &approval_id)
+                })
+                .unwrap_or_else(|| {
+                    "Child model selection requires your confirmation; do not approve an unsolicited change.".into()
+                })
+        } else {
+            "This tool requires explicit approval.".into()
+        };
         let rpc_id = RpcId::new(self.mint_id("approval"));
         let (binding, reviewing) = {
             let mut state = self.state.write().await;
@@ -65,8 +84,8 @@ impl BasicHost {
                 .control
                 .clone()
                 .ok_or_else(|| RpcError::internal("session control channel is unavailable"))?;
-            let reviewing =
-                session.execution_permission() == PermissionPreset::WorkspaceWriteAiReview;
+            let reviewing = !human_model_confirmation
+                && session.execution_permission() == PermissionPreset::WorkspaceWriteAiReview;
             let binding = ReviewBinding {
                 rpc_id: rpc_id.clone(),
                 session_id: session_id.into(),
@@ -90,16 +109,13 @@ impl BasicHost {
                     tool_name: binding.call.name.clone(),
                     control,
                     reviewing,
-                    reason: "This tool requires explicit approval.".into(),
+                    reason: reason.clone(),
                     deciding: Arc::new(AtomicBool::new(false)),
                 },
             );
             (binding, reviewing)
         };
-        self.push_mux_correlated(
-            rpc_id,
-            approval_frame(&binding, reviewing, "This tool requires explicit approval."),
-        );
+        self.push_mux_correlated(rpc_id, approval_frame(&binding, reviewing, &reason));
         if reviewing {
             let Some(weak) = self.self_ref.get().cloned() else {
                 self.review_fallback(

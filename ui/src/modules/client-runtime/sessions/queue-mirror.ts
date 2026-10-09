@@ -45,9 +45,22 @@ export class SessionQueueMirror {
   /**
    * Replace from one authoritative stream queue frame.
    * @param items - complete host queue snapshot.
+   * @param events - current durable history window, including already consumed inputs.
    */
-  replace(items: QueueItems): void {
-    this.current = items.map(item => ({
+  replace(items: QueueItems, events: readonly SessionWireEvent[] = []): void {
+    // A durable event can arrive before a queue snapshot (or before reconnect
+    // history). Consult retained history instead of keeping unbounded tombstones.
+    const consumed = new Set<string>()
+    const candidates = new Set<string>(items.filter(item => item.placement === 'steering').map(item => item.message.id))
+    if (candidates.size > 0) {
+      for (const event of events) {
+        if (event.type === 'user/message' && isRecord(event.data)
+          && typeof event.data.id === 'string' && candidates.has(event.data.id)) {
+          consumed.add(event.data.id)
+        }
+      }
+    }
+    this.current = items.filter(item => item.placement !== 'steering' || !consumed.has(item.message.id)).map(item => ({
       id: item.id,
       messageId: item.message.id,
       placement: item.placement,
