@@ -39,7 +39,9 @@ export function AccountEntry({ wide, rows, openSection, t }: AccountEntryProps) 
   const buttons = () => entries.map(entry => labels.current.get(entry.id)?.closest<HTMLButtonElement>('button'))
     .filter((button): button is HTMLButtonElement => button != null && !button.disabled)
   const close = useCallback(() => setOpen(false), [])
-  const getAnchorRect = useCallback(() => trigger.current?.getBoundingClientRect() ?? null, [])
+  // A sidebar collapse settles after its fade. Re-anchor the live menu at
+  // that layout commit; it must not dismiss a menu opened during the fade.
+  const getAnchorRect = useCallback(() => trigger.current?.getBoundingClientRect() ?? null, [wide])
   useEffect(() => {
     if (!open) return
     // Menu measures its portal while hidden. Focus after placement is visible,
@@ -54,7 +56,6 @@ export function AccountEntry({ wide, rows, openSection, t }: AccountEntryProps) 
     // Opening focus is a view transition, not a reaction to locale/ledger changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-  useEffect(close, [wide, close])
 
   return <span ref={root} className={css.root} data-xh-account-entry=""
     onMouseDownCapture={event => {

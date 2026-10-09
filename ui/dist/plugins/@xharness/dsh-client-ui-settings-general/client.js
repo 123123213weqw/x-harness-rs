@@ -349,7 +349,9 @@ function AccountEntry({ wide, rows, openSection, t }) {
     const buttons = () => entries.map(entry => labels.current.get(entry.id)?.closest('button'))
         .filter((button) => button != null && !button.disabled);
     const close = (0, react_1.useCallback)(() => setOpen(false), []);
-    const getAnchorRect = (0, react_1.useCallback)(() => trigger.current?.getBoundingClientRect() ?? null, []);
+    // A sidebar collapse settles after its fade. Re-anchor the live menu at
+    // that layout commit; it must not dismiss a menu opened during the fade.
+    const getAnchorRect = (0, react_1.useCallback)(() => trigger.current?.getBoundingClientRect() ?? null, [wide]);
     (0, react_1.useEffect)(() => {
         if (!open)
             return;
@@ -366,7 +368,6 @@ function AccountEntry({ wide, rows, openSection, t }) {
         // Opening focus is a view transition, not a reaction to locale/ledger changes.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
-    (0, react_1.useEffect)(close, [wide, close]);
     return (0, jsx_runtime_1.jsx)("span", { ref: root, className: AccountEntry_styles_1.default.root, "data-xh-account-entry": "", onMouseDownCapture: event => {
             if (event.button !== 0 || !(event.target instanceof Node))
                 return;
