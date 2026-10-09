@@ -59,6 +59,15 @@ jobs:
           "CANDIDATE=$env:RUNNER_TEMP/windows-cache-candidate" >> $env:GITHUB_ENV
           python -B scripts/desktop-release-build.py rehearsal-init --output "$env:RUNNER_TEMP/windows-cache-candidate"
           if ($LASTEXITCODE) { throw 'Disposable key initialization failed' }
+          # The generic rehearsal initializer defaults to 0.0.902. Keep its
+          # runner-owned receipt plan aligned with this isolated fixture series;
+          # do not change the product/release helper or weaken signature gates.
+          $planPath = Join-Path $env:RUNNER_TEMP 'windows-cache-candidate/plan.json'
+          $plan = Get-Content -LiteralPath $planPath -Raw | ConvertFrom-Json
+          if ($plan.rehearsal_only -ne $true -or $plan.sha -ne $env:EXPECTED_PR_HEAD -or $plan.version -ne '0.0.902' -or $plan.tag -ne 'desktop-v0.0.902' -or $plan.repository -ne $env:GITHUB_REPOSITORY) { throw 'Unexpected disposable plan identity' }
+          $plan.version = '0.0.912'
+          $plan.tag = 'desktop-v0.0.912'
+          [IO.File]::WriteAllText($planPath, ($plan | ConvertTo-Json -Depth 8))
       - name: Lock product source and stage signed second-hop fixture
         run: |
           if ((git rev-parse HEAD) -ne $env:EXPECTED_PR_HEAD) { throw 'PR source identity changed' }
