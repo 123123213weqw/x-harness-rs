@@ -43,6 +43,7 @@ export interface SessionsWire {
   selectModel(params: ModelSelection & { sessionId: string }): Promise<{ result: RemoteResult<{ selected: ModelSelection }> }>
 }
 export interface ModelSelectInjected {
+  manageModels?(): void
   available: boolean
   directory: ObservableStore<ModelDirectoryState>
   load(refreshCapabilities?: boolean): void | Promise<unknown>
@@ -70,6 +71,7 @@ export interface ModelClientContext extends EffectContext {
   sessions: ClientSessions
   modelDirectories: ModelDirectoryResolver
   remote: { $on(event: string, listener: () => void): unknown }
+  emit(event: 'settings/open-section', section: string): void
   on(event: string, listener: () => void): unknown
   get(name: 'sessions'): ClientSessions
   get(name: 'connection'): { api: { sessions: SessionsWire } }

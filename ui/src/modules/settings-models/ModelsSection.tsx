@@ -13,6 +13,7 @@
  */
 
 import { useState } from 'react'
+import { isManagedModelProfile } from '../shared/managed-models'
 import type { ReactNode } from 'react'
 import type { IApiClient } from './contracts'
 import { Button, IconPlusOutline16, Modal } from './primitives'
@@ -104,6 +105,8 @@ export async function removeProviderProfile(
   controller: ModelsSettingsStore,
   target: { settingsNs: string; settingsPath: readonly string[]; credentialRef?: string },
 ): Promise<string | undefined> {
+  // Account connection owns this profile; this UI guard is not a Host authorization boundary.
+  if (isManagedModelProfile(target.settingsNs, target.settingsPath)) return 'Account service is managed through Account settings.'
   try {
     if (target.credentialRef !== undefined) {
       const credential = await api.credentials.unset({ ref: target.credentialRef })
@@ -316,7 +319,8 @@ function Loaded({ injected }: { injected: ModelsSectionFace }): ReactNode {
               </li>
             )
           }
-          const open = !adding && editing?.provider === row.entry.provider
+          const managed = isManagedModelProfile(target.settingsNs, target.settingsPath)
+          const open = !managed && !adding && editing?.provider === row.entry.provider
           const credentialConfigured = row.credential?.configured === true
           const credentialMissing = !credentialConfigured
             && row.apiKeyEnv !== undefined
@@ -329,7 +333,7 @@ function Loaded({ injected }: { injected: ModelsSectionFace }): ReactNode {
                   {/* Only the adapter can tell a hand-declared route from a
                       shipped one it also has a stored profile for, so the tag
                       follows its answer and stays off when it gives none. */}
-                  {row.entry.declared === true
+                  {managed ? <span className={styles['rowTag']}>{t('accountTag')}</span> : row.entry.declared === true
                     ? <span className={styles['rowTag']}>{t('customTag')}</span>
                     : null}
                   {credentialConfigured
@@ -353,7 +357,7 @@ function Loaded({ injected }: { injected: ModelsSectionFace }): ReactNode {
                       : null}
                 </span>
                 <span className={styles['rowActions']}>
-                  <button
+                  {managed ? <span className={styles['rowTag']}>{t('accountReadOnly')}</span> : <button
                     type="button"
                     className={styles['secondaryButton']}
                     aria-label={providerCopy(t('editProvider'), target)}
@@ -368,8 +372,8 @@ function Loaded({ injected }: { injected: ModelsSectionFace }): ReactNode {
                     }}
                   >
                     {t('edit')}
-                  </button>
-                  {row.removable
+                  </button>}
+                  {!managed && row.removable
                     ? (
                       <button
                         type="button"
