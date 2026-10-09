@@ -16,6 +16,14 @@ impl ModelProvider for DelegateModel {
         request: ProviderRequest,
         _: CancellationToken,
     ) -> Result<ProviderStream, ProviderError> {
+        if let Some(tool) = request.tools.iter().find(|t| t.name == "agent") {
+            assert!(tool.description.len() <= 1600);
+            let schema: Value =
+                serde_json::from_str(include_str!("agent-tool-schema.json")).unwrap();
+            assert_eq!(tool.parameters, schema, "provider-visible schema changed");
+            assert!(tool.description.contains("Host confirmation"));
+            assert!(tool.description.contains("admission, not success"));
+        }
         if request.tools.iter().any(|t| t.name == "agent")
             && !request
                 .messages
