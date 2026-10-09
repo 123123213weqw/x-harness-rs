@@ -5,13 +5,14 @@ import type { ModelSelection, ModelSelectProps } from './contracts'
 import { ContextPane, ContextRow, ReasoningStatus } from './ContextPane'
 import { css } from './styles'
 import contextStyles from './ContextPane.css'
+import { isManagedModelProvider } from '../shared/managed-models'
 
-type Pane = 'root' | 'model' | 'effort' | 'context'
+type Pane = 'root' | 'model' | 'custom' | 'effort' | 'context'
 type EffortChoice = { key: string; effort: string | undefined; label: string; description?: string }
 function classes(...values: (string | false)[]): string { return values.filter(Boolean).join(' ') }
 
 /** One composer trigger; model, effort and context live in its nested menu. */
-function ModelSelect({ locked, available, directory, load, select, t }: ModelSelectProps) {
+function ModelSelect({ locked, available, directory, load, select, manageModels, t }: ModelSelectProps) {
   const state = useSyncExternalStore(fn => directory.subscribe(fn), () => directory.getSnapshot())
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
@@ -32,6 +33,8 @@ function ModelSelect({ locked, available, directory, load, select, t }: ModelSel
     ...(reasoning.defaultEffort === undefined ? [{ key: 'provider-default', effort: undefined, label: t('effort.providerDefault') }] : []),
     ...reasoning.efforts.map(effort => ({ key: `effort:${effort.id}`, effort: effort.id, label: effort.name, ...(effort.description === undefined ? {} : { description: effort.description }) })),
   ], [reasoning, t])
+  const visibleGroups = state.groups.filter(group => isManagedModelProvider(group.id) === (pane !== 'custom'))
+  const customSelected = state.current !== null && !isManagedModelProvider(state.current.provider)
   const busy = state.status === 'selecting'
   const reload = () => { lastActionRef.current = 'load'; load() }
   useEffect(() => { if (available) { lastActionRef.current = 'load'; load() } }, [available, load])
@@ -41,6 +44,9 @@ function ModelSelect({ locked, available, directory, load, select, t }: ModelSel
     document.addEventListener('mousedown', closeOutside)
     return () => { document.removeEventListener('mousedown', closeOutside) }
   }, [open])
+  useEffect(() => {
+    if (open && pane !== 'root' && pane !== 'context') itemRefs.current.find(item => item !== null && !item.disabled)?.focus()
+  }, [open, pane])
   if (!available) return null
 
   const close = (restoreFocus = false) => {
@@ -49,15 +55,16 @@ function ModelSelect({ locked, available, directory, load, select, t }: ModelSel
   }
   const show = () => { setPane('root'); setOpen(true); reload() }
   const moveFocus = (offset: number) => {
-    const items = itemRefs.current.filter((item): item is HTMLButtonElement => item !== null)
+    const items = itemRefs.current.filter((item): item is HTMLButtonElement => item !== null && !item.disabled)
     if (items.length === 0) return
     const active = items.findIndex(item => item === document.activeElement)
-    items[(Math.max(active, 0) + offset + items.length) % items.length]?.focus()
+    items[active < 0 ? (offset > 0 ? 0 : items.length - 1) : (active + offset + items.length) % items.length]?.focus()
   }
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape' && open) {
+    if ((event.key === 'Escape' || (event.key === 'ArrowLeft' && pane !== 'root' && pane !== 'context')) && open) {
       event.preventDefault()
-      if (pane !== 'root') setPane('root'); else close(true)
+      if (pane !== 'root') setPane(pane === 'custom' ? 'model' : 'root'); else close(true)
+      queueMicrotask(() => { itemRefs.current.find(item => item !== null)?.focus() })
       return
     }
     if (!open || pane === 'context') return
@@ -114,14 +121,17 @@ function ModelSelect({ locked, available, directory, load, select, t }: ModelSel
         <ContextRow state={state} itemRef={itemRef()} open={() => { setPane('context') }} />
       </>}
       {pane === 'context' && <ContextPane locked={locked} directory={directory} load={reload} select={select} back={() => { setPane('root') }} saved={() => { close(true) }} />}
-      {pane === 'model' && <>
+      {(pane === 'model' || pane === 'custom') && <>
+        {pane === 'custom' && <button ref={itemRef()} type="button" role="menuitem" className={css.cell} aria-label={t('menu.back')} onClick={() => { setPane('model') }}>
+          <IconChevronRightOutline14 className={css.backChevron} /><span>{t('menu.custom')}</span>
+        </button>}
         {state.status === 'loading' && <div className={css.status}>{t('status.loading')}</div>}
         {loadError('retry')}
         {state.failures.map(failure => <div className={css.warning} key={failure.id}>
           <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span><button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
         </div>)}
-        <div className={classes(css.groups, 'scrollable')}>{state.groups.map(group => <section role="group" aria-labelledby={`${id}-${group.id}`} className={css.group} key={group.id}>
-          <div className={css.groupTitle} id={`${id}-${group.id}`}>{group.name}</div>
+        <div className={classes(css.groups, 'scrollable')}>{visibleGroups.map(group => <section role="group" aria-labelledby={`${id}-${group.id}`} className={css.group} key={group.id}>
+          <div className={css.groupTitle} id={`${id}-${group.id}`}><span>{isManagedModelProvider(group.id) ? 'XHarness' : group.name}</span>{isManagedModelProvider(group.id) && <span className={css.sourceBadge} title={t('source.accountHint')}>{t('source.account')}</span>}</div>
           {group.models.map(model => {
             const selected = state.current?.provider === group.id && state.current.model === model.id
             return <button ref={itemRef()} type="button" role="menuitemradio" aria-checked={selected} className={classes(css.option, selected && css.selected)} title={model.name} disabled={busy}
@@ -131,7 +141,17 @@ function ModelSelect({ locked, available, directory, load, select, t }: ModelSel
             </button>
           })}
         </section>)}</div>
-        {state.status === 'ready' && choices.length === 0 && <div className={css.empty}>{t('empty.models')}</div>}
+        {state.status === 'ready' && pane === 'custom' && visibleGroups.every(group => group.models.length === 0) && <div className={css.empty}>{t('empty.custom')}</div>}
+        {pane === 'model' && <>
+          <div role="separator" className={css.separator} />
+          <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('custom') }}>
+            <span className={css.cellLabel}>{t('menu.custom')}</span><span className={css.cellValue} />{customSelected && <IconCheckOutline16 className={css.check} />}<IconChevronRightOutline14 className={css.cellChevron} />
+          </button>
+        </>}
+        {manageModels !== undefined && <>
+          <div role="separator" className={css.separator} />
+          <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { close(true); queueMicrotask(manageModels) }}>{t('menu.manage')}</button>
+        </>}
       </>}
       {pane === 'effort' && <>
         {loadError('action.reload')}

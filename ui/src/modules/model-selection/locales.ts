@@ -1,4 +1,11 @@
 export const zh = {
+  'menu.back': '返回模型',
+  'menu.custom': '自定义',
+  'menu.manage': '管理模型',
+  'source.account': '账号服务',
+  'source.accountHint': '由 XHarness 提供，使用账号额度',
+  'empty.custom': '没有自定义模型。请在管理模型中添加。',
+
 			"command.description": "选择本会话使用的模型",
 			"option.loadError": "目录加载失败：{message}",
 			"trigger.fallback": "选择模型",
@@ -18,6 +25,13 @@ export const zh = {
 			"empty.efforts": "当前模型未提供推理等级。"
 		}
 export const en: Record<keyof typeof zh,string> = {
+  'menu.back': 'Back to models',
+  'menu.custom': 'Custom',
+  'menu.manage': 'Manage models',
+  'source.account': 'Account service',
+  'source.accountHint': 'Provided by XHarness, uses account credits',
+  'empty.custom': 'No custom models. Add one in Manage models.',
+
 			"command.description": "Select the model for this conversation",
 			"option.loadError": "Catalog failed to load: {message}",
 			"trigger.fallback": "Select model",

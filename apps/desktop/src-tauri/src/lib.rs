@@ -1,3 +1,4 @@
+mod account_callback;
 mod browser;
 mod browser_bridge;
 mod browser_delegation;
@@ -7,6 +8,7 @@ mod browser_perform;
 mod computer_activity;
 mod diagnostics;
 mod installations;
+mod managed_account;
 mod native_startup;
 mod sidecar;
 mod startup;
@@ -38,6 +40,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_page_load(|webview, payload| {
@@ -52,6 +55,8 @@ pub fn run() {
         .setup(|app| {
             let state = DesktopState::initialize(app.handle())?;
             app.manage(state);
+            app.manage(managed_account::ManagedAccountState::default());
+            managed_account::install_callbacks(app.handle());
             app.manage(installations::InstallationState::initialize(app.handle()));
             tauri::async_runtime::spawn(installations::worker(app.handle().clone()));
             app.manage(computer_activity::DesktopComputerActivityState::default());
@@ -90,6 +95,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            managed_account::desktop_account_status,
+            managed_account::desktop_account_open,
+            managed_account::desktop_account_start,
+            managed_account::desktop_account_poll,
+            managed_account::desktop_account_finish,
             sidecar::desktop_status,
             installations::desktop_installation_status,
             installations::desktop_set_installation_statistics,

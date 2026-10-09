@@ -79,6 +79,7 @@ try {
  await openContext();assert.equal(await page.getByRole('button',{name:'保存',exact:true}).isDisabled(),true);
  await page.getByText('当前模型未提供上限，暂时无法调整。').waitFor();
  await closeAll();await openMenu();await page.getByRole('menuitem',{name:/^模型/}).click();
+ if(process.env.UI_TEST_IMPL !== 'legacy')await page.getByRole('menuitem',{name:'menu.custom',exact:true}).click();
  await page.getByRole('menuitemradio',{name:'Small',exact:true}).click();
  await page.waitForFunction(()=>saved.model==='small');assert.equal(await page.evaluate(()=>saved.contextWindowTokens),undefined,'new model must not inherit old soft context');
  await openContext();assert.equal(await page.getByRole('textbox').inputValue(),'32768');await closeAll();
