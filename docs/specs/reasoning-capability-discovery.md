@@ -7,13 +7,13 @@
 1. Provider 能力层获取原生档位与请求映射；不把所有模型强制归入 low/medium/high。
 2. Host 将来源、有效档位和默认档位投影到 `session.models`。
 3. UI 使用同一目录生成选择项；用户选择仍存于原会话模型选择中。
-4. OpenAI-compatible 适配器根据已验证的 request patch 构造请求。UI 不接触请求 patch。
+4. OpenAI-compatible 适配器根据已验证的 request patch 构造请求。会话 UI 不接触请求 patch；模型设置可显式应用配置方案，详见 [本地推理控制](local-reasoning-controls.md)。
 
 能力与请求中返回的 reasoning 正文是两件事：本文实现前者，不通过是否返回思考文字判断能否调节强度。
 
 ## 解析顺序
 
-显式模型配置（包括 `reasoning: null`）→ 配置的能力接口/其上次有效缓存 → 精确官方 endpoint+模型+协议的内置能力表 → unknown。
+显式模型配置（包括 `reasoning: null`）→ 配置的能力接口/其上次有效缓存 → unknown。不根据厂商或模型名自动补全档位。
 
 `null` 表示禁用该模型的自定义强度控制与自动补全，并非强制模型停止思考。要关闭思考，选择厂商支持的 off 档及其真实请求映射。
 

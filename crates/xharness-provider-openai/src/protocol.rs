@@ -327,10 +327,13 @@ impl OpenAiStreamNormalizer {
                 output.push(ProviderEvent::TextDelta(text.to_owned()));
             }
         }
-        let reasoning = delta
-            .get("reasoning_content")
-            .or_else(|| delta.get("reasoning"))
-            .and_then(Value::as_str)
+        // llama.cpp/older vLLM use reasoning_content, newer vLLM uses reasoning.
+        // A null/empty legacy field must not mask an actual reasoning delta.
+        // Prefer one non-empty string rather than concatenating aliases twice.
+        let reasoning = ["reasoning_content", "reasoning"]
+            .iter()
+            .filter_map(|key| delta.get(*key).and_then(Value::as_str))
+            .find(|text| !text.is_empty())
             .unwrap_or_default();
         if !reasoning.is_empty() {
             output.push(ProviderEvent::ReasoningDelta(reasoning.to_owned()));
