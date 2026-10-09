@@ -1,0 +1,125 @@
+name: PR248 isolated VM fixture build (NOT release)
+on:
+  push:
+    branches: [lab/pr248-vm-fixtures-20261009]
+permissions:
+  contents: read
+jobs:
+  native:
+    name: Source-locked signed fixtures for V100 VM
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      EXPECTED_PR_HEAD: '45a794d7c326e97998bc8eb6b950207add7a30ed'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: 45a794d7c326e97998bc8eb6b950207add7a30ed
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --prefix ui --ignore-scripts
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Install pinned portable search dependency
+        run: |
+          $version = '15.2.0'
+          $archive = Join-Path $env:RUNNER_TEMP 'rg.zip'
+          Invoke-WebRequest "https://github.com/BurntSushi/ripgrep/releases/download/$version/ripgrep-$version-x86_64-pc-windows-msvc.zip" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
+          Expand-Archive $archive (Join-Path $env:RUNNER_TEMP 'rg')
+          "XHARNESS_RG=$env:RUNNER_TEMP/rg/ripgrep-$version-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
+      - name: Build native Host and sandbox sidecars remotely
+        run: |
+          cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
+          if ($LASTEXITCODE) { throw 'Native sidecar compilation failed' }
+          python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Host staging failed' }
+          python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG x86_64-pc-windows-msvc --name rg
+          if ($LASTEXITCODE) { throw 'Search staging failed' }
+          python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner
+          if ($LASTEXITCODE) { throw 'Sandbox staging failed' }
+      - name: Create runner-local signing key (never publishable)
+        run: |
+          "CANDIDATE=$env:RUNNER_TEMP/windows-cache-candidate" >> $env:GITHUB_ENV
+          python -B scripts/desktop-release-build.py rehearsal-init --output "$env:RUNNER_TEMP/windows-cache-candidate"
+          if ($LASTEXITCODE) { throw 'Disposable key initialization failed' }
+      - name: Lock product source and stage signed second-hop fixture
+        run: |
+          if ((git rev-parse HEAD) -ne $env:EXPECTED_PR_HEAD) { throw 'PR source identity changed' }
+          New-Item -ItemType Directory -Force dist/pr248-vm-fixtures | Out-Null
+          python -B scripts/prepare-desktop-test-version.py 0.0.903
+          if ($LASTEXITCODE) { throw 'Second-hop fixture configuration failed' }
+          Push-Location apps/desktop
+          try {
+            npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis
+            if ($LASTEXITCODE) { throw 'Second-hop NSIS build failed' }
+          } finally { Pop-Location }
+          $package = 'apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_0.0.903_x64-setup.exe'
+          Copy-Item $package, ($package + '.sig') dist/pr248-vm-fixtures/
+          Copy-Item "$env:CANDIDATE/release/updater.pub" dist/pr248-vm-fixtures/
+          node scripts/verify-updater-package.mjs $package ($package + '.sig') dist/pr248-vm-fixtures/updater.pub
+          if ($LASTEXITCODE) { throw 'Second-hop signature verification failed' }
+          python -B scripts/audit-windows-runtime.py --installer $package --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/pr248-vm-fixtures/runtime-0.0.903.json
+          if ($LASTEXITCODE) { throw 'Second-hop PE dependency closure failed' }
+          python -B scripts/prepare-desktop-test-version.py 0.0.902
+          if ($LASTEXITCODE) { throw 'First-hop fixture configuration failed' }
+      - name: Build untouched signed target NSIS installer
+        working-directory: apps/desktop
+        run: |
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis
+          if ($LASTEXITCODE) { throw 'Target NSIS build failed' }
+      - name: Audit first-hop PE dependency closure
+        run: |
+          python -B scripts/audit-windows-runtime.py --installer apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_0.0.902_x64-setup.exe --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/pr248-vm-fixtures/runtime-0.0.902.json
+          if ($LASTEXITCODE) { throw 'First-hop PE dependency closure failed' }
+      - name: Verify and seal exact target receipt; delete private key
+        run: |
+          python -B scripts/desktop-release-build.py rehearsal-receipt --candidate "$env:CANDIDATE" --platform windows-x86_64 --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Target receipt verification failed' }
+      - name: Prepare disposable base only; target remains unchanged
+        run: |
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          python -B scripts/prepare-desktop-test-version.py 0.0.901
+          if ($LASTEXITCODE) { throw 'Base version preparation failed' }
+      - name: Build unsigned disposable base NSIS (not a release artifact)
+        working-directory: apps/desktop
+        run: |
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          npm exec --yes --package @tauri-apps/cli@2.11.4 -- tauri build --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          if ($LASTEXITCODE) { throw 'Base NSIS build failed' }
+      - name: Seal explicit fixture artifact (not an acceptance result)
+        run: |
+          Copy-Item apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/XHarness_0.0.901_x64-setup.exe dist/pr248-vm-fixtures/
+          Copy-Item "$env:CANDIDATE/release/XHarness_0.0.902_x64-setup.exe", "$env:CANDIDATE/release/XHarness_0.0.902_x64-setup.exe.sig" dist/pr248-vm-fixtures/
+          python -B scripts/audit-windows-runtime.py --installer dist/pr248-vm-fixtures/XHarness_0.0.901_x64-setup.exe --expected-desktop apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/xharness-desktop.exe --sidecars apps/desktop/src-tauri/binaries --output dist/pr248-vm-fixtures/runtime-0.0.901.json
+          if ($LASTEXITCODE) { throw 'Base PE dependency closure failed' }
+          $files = @(Get-ChildItem dist/pr248-vm-fixtures -File | Sort-Object Name | ForEach-Object { @{name=$_.Name; size=$_.Length; sha256=(Get-FileHash $_.FullName).Hash.ToLowerInvariant()} })
+          @{schema=1; rehearsal_only=$true; acceptance_passed=$false; product_source_sha=$env:EXPECTED_PR_HEAD; workflow_source_sha=$env:GITHUB_SHA; workflow_run_id=$env:GITHUB_RUN_ID; workflow_run_attempt=$env:GITHUB_RUN_ATTEMPT; versions=@('0.0.901','0.0.902','0.0.903'); embedded_endpoint=$env:XHARNESS_UPDATER_ENDPOINT; files=$files} | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 dist/pr248-vm-fixtures/provenance.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pr248-v100-vm-fixtures
+          path: dist/pr248-vm-fixtures/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove runner-local signing remnants
+        if: always()
+        run: |
+          Remove-Item -LiteralPath "$env:CANDIDATE/disposable.key", "$env:CANDIDATE/disposable.key.pub" -ErrorAction SilentlyContinue
