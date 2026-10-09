@@ -2,6 +2,10 @@ mod cache;
 #[cfg(target_os = "macos")]
 mod local_signing;
 mod state;
+#[cfg(windows)]
+mod windows;
+#[cfg(any(windows, test))]
+mod windows_plan;
 
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -127,6 +131,16 @@ pub async fn desktop_check_update(
 }
 
 async fn check(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    check_at(app, None).await
+}
+
+async fn check_at(
+    app: &AppHandle,
+    executable: Option<std::path::PathBuf>,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    #[cfg(not(windows))]
+    let _ = executable;
+
     if !configured() {
         return Err(not_configured());
     }
@@ -142,11 +156,16 @@ async fn check(app: &AppHandle) -> Result<Option<tauri_plugin_updater::Update>, 
     // NSIS otherwise consults the last registered installation, which may be a
     // different copy. /D must be the final, unquoted NSIS argument (spaces allowed).
     #[cfg(windows)]
-    let builder = builder
-        .clear_installer_args()
-        .installer_arg(windows_install_directory_arg(
-            &std::env::current_exe().map_err(|error| format!("无法定位当前安装目录：{error}"))?,
-        )?);
+    let builder = {
+        let migrating = executable.is_some();
+        let mut builder = builder.clear_installer_args();
+        if migrating {
+            builder = builder.installer_arg("/XHARNESS_USER_MIGRATION");
+        }
+        builder.installer_arg(windows_install_directory_arg(&executable.unwrap_or(
+            std::env::current_exe().map_err(|error| format!("无法定位当前安装目录：{error}"))?,
+        ))?)
+    };
     let updater = builder
         .build()
         .map_err(|error| format!("无法初始化更新器：{error}"))?;
@@ -246,10 +265,33 @@ pub async fn desktop_download_update(
 }
 
 #[tauri::command]
+pub async fn desktop_update_preflight(
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<serde_json::Value, String> {
+    let _guard = acquire(&state.update_busy, &state.closing)?;
+    // Do not stop Host or launch any installer during this permission query.
+    #[cfg(windows)]
+    {
+        tokio::task::spawn_blocking(move || {
+            windows::inspect(&app).and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string()))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Ok(serde_json::json!({ "needsChoice": false }))
+    }
+}
+
+#[tauri::command]
 pub async fn desktop_install_update(
     app: AppHandle,
     state: State<'_, DesktopState>,
     confirm_stop: bool,
+    placement: Option<String>,
 ) -> Result<(), String> {
     let _guard = acquire(&state.update_busy, &state.closing)?;
     let (update, path) = state
@@ -257,6 +299,38 @@ pub async fn desktop_install_update(
         .lock()
         .expect("update session mutex poisoned")
         .install_payload(confirm_stop)?;
+    #[cfg(windows)]
+    let (update, needs_elevation) = {
+        let choice = placement
+            .map(|p| {
+                serde_json::from_value::<windows_plan::Placement>(serde_json::Value::String(p))
+            })
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        let inspection_app = app.clone();
+        let (destination, needs_elevation) =
+            tokio::task::spawn_blocking(move || windows::select(&inspection_app, choice))
+                .await
+                .map_err(|e| e.to_string())??;
+        if let Some(executable) = destination {
+            // Public updater API holds installer arguments in a private context.
+            // Rebuild it with the user destination; retain the verified package
+            // only if a fresh manifest still identifies exactly the same release.
+            let fresh = cancellable(&state.closing, check_at(&app, Some(executable)))
+                .await?
+                .ok_or("Update no longer available; check again")?;
+            if cache_identity(&fresh)? != cache_identity(&update)? {
+                return Err("Update changed before migration; check and download again".into());
+            }
+            (fresh, false)
+        } else {
+            (update, needs_elevation)
+        }
+    };
+    #[cfg(not(windows))]
+    if placement.as_deref().is_some_and(|p| p != "current") {
+        return Err("Installation migration is only available on Windows".into());
+    }
     let identity = cache_identity(&update)?;
     let root = cache_root(&app)?;
     let verified = tokio::task::spawn_blocking(move || {
@@ -291,6 +365,15 @@ pub async fn desktop_install_update(
             .map(|_| ());
         }
     };
+    #[cfg(windows)]
+    let elevated_installer = if needs_elevation {
+        Some(windows::ElevatedInstaller::prepare(
+            &bytes,
+            &std::env::current_exe().map_err(|e| e.to_string())?,
+        )?)
+    } else {
+        None
+    };
     // A locally distributed, unnotarized macOS build may use a persistent
     // self-signed identity. Tauri's downloaded archive is signature-verified,
     // but CI cannot hold this machine's private key: prepare a rollback copy
@@ -300,6 +383,9 @@ pub async fn desktop_install_update(
         Ok(signing) => signing,
         Err(error) => return fail(&app, &state, Action::Install, error).map(|_| ()),
     };
+    if state.closing.load(Ordering::SeqCst) {
+        return Err("Application is closing; installation cancelled".into());
+    }
     transition(
         &app,
         &state,
@@ -327,7 +413,19 @@ pub async fn desktop_install_update(
         Some(&update.version),
     );
     transition(&app, &state, Phase::Installing, None);
-    if let Err(error) = update.install(bytes.as_slice()) {
+    #[cfg(windows)]
+    let installation = if let Some(installer) = elevated_installer {
+        state.diagnostics.finish();
+        match installer.launch() {
+            Ok(()) => std::process::exit(0), // NSIS /R launches the chosen directory, not old app.restart().
+            Err(error) => Err(error),
+        }
+    } else {
+        update.install(bytes.as_slice()).map_err(|e| e.to_string())
+    };
+    #[cfg(not(windows))]
+    let installation = update.install(bytes.as_slice()).map_err(|e| e.to_string());
+    if let Err(error) = installation {
         // Windows can invoke its exit hook before ShellExecute fails. Restore
         // crash detection while the existing app and recovered Host keep running.
         #[cfg(windows)]

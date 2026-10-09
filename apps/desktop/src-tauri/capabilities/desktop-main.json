@@ -26,6 +26,7 @@
     "allow-desktop-open-diagnostics",
     "allow-desktop-check-update",
     "allow-desktop-update-status",
+    "allow-desktop-update-preflight",
     "allow-desktop-download-update",
     "allow-desktop-install-update",
     "allow-desktop-set-computer-activity",

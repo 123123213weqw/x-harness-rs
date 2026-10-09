@@ -156,6 +156,7 @@ pub struct DesktopStatus {
     host_running: bool,
     host_endpoint: Option<String>,
     updater_configured: bool,
+    update_preflight_supported: bool,
     startup_error: Option<String>,
     startup: crate::startup::StartupSnapshot,
 }
@@ -179,6 +180,7 @@ pub fn desktop_status(state: State<'_, DesktopState>) -> DesktopStatus {
             .expect("endpoint mutex poisoned")
             .clone(),
         updater_configured: crate::updater::configured(),
+        update_preflight_supported: true,
         startup_error: state
             .startup_error
             .lock()

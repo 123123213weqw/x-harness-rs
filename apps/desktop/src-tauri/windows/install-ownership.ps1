@@ -4,6 +4,11 @@ param(
     [string]$InventoryPath
 )
 $ErrorActionPreference = 'Stop'
+# Shell Link known-folder resolution depends on the reader's architecture.
+# Never silently classify x64 Program Files shortcuts from a WOW64 process.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    throw 'Installation ownership requires native 64-bit Windows PowerShell on this system'
+}
 $shortcutSource = Join-Path $(if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $env:XHARNESS_INSTALL_SCRIPT }) 'install-shortcuts.cs'
 if (-not ('XHarnessInstaller.Shortcuts' -as [type])) { Add-Type -Path $shortcutSource }
 
@@ -128,7 +133,28 @@ function Get-XHarnessLinks([string[]]$Roots) {
     }
 }
 
-function Invoke-XHarnessPreflight([string]$Inventory, [string]$Directory) {
+function Get-XHarnessUserInstallDirectory {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\XHarness'
+}
+function Get-XHarnessUserStartMenuLink {
+    Join-Path ([Environment]::GetFolderPath('Programs')) 'XHarness.lnk'
+}
+
+function Invoke-XHarnessPreflight([string]$Inventory, [string]$Directory, [switch]$UserMigration) {
+    if ($UserMigration) {
+        $expected = Get-XHarnessUserInstallDirectory
+        if ([IO.Path]::GetFullPath($Directory) -ine $expected) { throw 'Invalid user migration destination' }
+        Assert-XHarnessRecoveryPath $Directory
+        $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+        if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'User migration must run without administrator privileges'
+        }
+        # Recheck after the manifest request and Host exit: no occupied target,
+        # no unrelated files or existing installation may be silently replaced.
+        if ((Test-Path -LiteralPath $Directory) -and @(Get-ChildItem -LiteralPath $Directory -Force).Count) {
+            throw 'User migration destination became occupied; installation stopped'
+        }
+    }
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     do {
         $live = @(Get-XHarnessProcesses -Directories @($Directory))
@@ -240,8 +266,11 @@ function Move-XHarnessLegacyShortcutBackup([string]$Link, [string]$Target, [vers
     }
 }
 
-function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
+function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory, [switch]$UserMigration) {
     $canonical = Get-XHarnessDirectory $Directory
+    if ($UserMigration -and $canonical -ine (Get-XHarnessUserInstallDirectory)) {
+        throw 'User migration target does not match the current-user directory'
+    }
     if (@(Get-XHarnessProcesses -Directories @($canonical)).Count) { throw 'An XHarness process started during installation; close it and retry' }
     Assert-XHarnessFilesAvailable @($canonical)
     # Windows PowerShell 5.1 can wrap an empty JSON array as one pipeline item
@@ -260,6 +289,17 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         $null = Save-XHarnessShortcutBackup $record.Link $version
         [XHarnessInstaller.Shortcuts]::Update($record.Link, $target, $canonical)
         Move-XHarnessLegacyShortcutBackup $record.Link $target $version
+    }
+    if ($UserMigration) {
+        # /UPDATE suppresses ordinary NSIS shortcut creation. Provide a usable
+        # per-user entry even when the old shortcut exists only in all-users scope.
+        $startLink = Get-XHarnessUserStartMenuLink
+        Assert-XHarnessRecoveryPath $startLink
+        if (-not (Test-Path -LiteralPath $startLink)) {
+            [XHarnessInstaller.Shortcuts]::Update($startLink, $target, $canonical)
+        }
+        # No renames/deletions of ANY old binary/uninstaller on explicit migration.
+        return
     }
     # Deliberately retain unknown files/data and old directories. Only known
     # legacy distribution locations can be retired automatically, recoverably.

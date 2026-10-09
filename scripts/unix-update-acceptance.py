@@ -781,7 +781,9 @@ def prepare(args):
     anchor = '        .timeout(Duration::from_secs(30))'
     require(text.count(anchor) == 1, 'Updater TLS injection anchor drifted')
     text = text.replace(anchor, '        .configure_client(crate::rehearsal::tls_client)\n' + anchor, 1)
-    anchor = '    if let Err(error) = update.install(bytes.as_slice()) {'
+    # A shared boundary keeps the snapshot after Host shutdown and before
+    # both the Windows launch branch and Unix in-process installation.
+    anchor = '    transition(&app, &state, Phase::Installing, None);'
     require(text.count(anchor) == 1, 'Updater post-shutdown snapshot injection anchor drifted')
     path.write_text(text.replace(anchor, '    crate::rehearsal::snapshot_before_install();\n' + anchor, 1))
     prepare_reqwest_dependency(desktop)
