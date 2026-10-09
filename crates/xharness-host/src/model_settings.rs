@@ -104,7 +104,7 @@ fn present_json<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Value>,
 /// Fill omitted capability fields only for the same endpoint/protocol/upstream route.
 /// Array replacement must not erase capabilities, but explicit null disables reasoning.
 /// No deleted models are re-added, and user values always take precedence.
-pub(crate) fn inherit_model_capabilities(value: &mut Value, previous: &Value) {
+pub fn inherit_model_capabilities(value: &mut Value, previous: &Value) {
     let Some(providers) = value.get_mut("providers").and_then(Value::as_object_mut) else {
         return;
     };
@@ -153,6 +153,13 @@ pub fn valid_credential_reference(value: &str) -> bool {
     value.len() <= 128
         && matches!(chars.next(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
         && chars.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+}
+
+/// Automatic output floor is independent of the deployment's maximum target.
+/// A missing maximum still uses the conservative 4096-token fallback; we never
+/// infer a provider output limit from its context window or model name.
+pub fn automatic_minimum_output_tokens(maximum: u64) -> u64 {
+    maximum.min(1_024)
 }
 
 pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, String> {
@@ -244,13 +251,15 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
                 .unwrap_or(32_768);
             let output = model.max_tokens.or(profile.max_tokens).unwrap_or(4_096);
             let margin = model.token_safety_margin.unwrap_or(1_024);
-            let minimum = model.minimum_output_tokens.unwrap_or(output);
+            let minimum = model
+                .minimum_output_tokens
+                .unwrap_or_else(|| automatic_minimum_output_tokens(output));
             if minimum == 0
                 || minimum > output
                 || margin > 1_000_000_000
-                || output.saturating_add(margin) >= context
+                || minimum.saturating_add(margin) >= context
             {
-                return Err("Model output reserve and safety margin must fit its context window; minimum output must be positive and no greater than maximum output".to_owned());
+                return Err("Minimum output reserve and safety margin must fit its context window; minimum output must be positive and no greater than maximum output".to_owned());
             }
         }
     }
@@ -649,5 +658,23 @@ mod capability_inheritance_tests {
         value["providers"]["p"]["models"] = json!([]);
         inherit_model_capabilities(&mut value, &base);
         assert_eq!(value["providers"]["p"]["models"], json!([]));
+    }
+}
+
+#[cfg(test)]
+mod automatic_output_tests {
+    use super::*;
+    #[test]
+    fn maximum_target_is_not_a_mandatory_minimum_reserve() {
+        let model = serde_json::json!({"id":"m","contextWindow":8192,"maxTokens":65536});
+        let mut doc = serde_json::json!({"providers":{"p":{"baseURL":"https://example.com/v1","api":"openai-completions","models":[model]}}});
+        assert!(parse_model_settings(&doc).is_ok());
+        doc["providers"]["p"]["models"][0]["minimumOutputTokens"] = serde_json::json!(8192);
+        assert!(parse_model_settings(&doc).is_err());
+        doc["providers"]["p"]["models"][0]["minimumOutputTokens"] = serde_json::json!(1024);
+        doc["providers"]["p"]["models"][0]["maxTokens"] = serde_json::json!(512);
+        assert!(parse_model_settings(&doc).is_err());
+        assert_eq!(automatic_minimum_output_tokens(65536), 1024);
+        assert_eq!(automatic_minimum_output_tokens(512), 512);
     }
 }

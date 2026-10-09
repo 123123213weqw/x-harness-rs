@@ -140,3 +140,74 @@ fn corrupt_control_log_reports_session_restore_without_copying_its_contents() {
         .unwrap()
         .contains("secret-bait"));
 }
+
+#[tokio::test]
+async fn migration_backup_failure_reports_model_settings_without_mutating_control_state() {
+    use serde_json::json;
+    use xharness_control::{
+        mutation_fingerprint, ControlEvent, ControlRevision, ControlStore, JsonlControlStore,
+        MutationReceipt, SettingsSnapshot,
+    };
+    use xharness_host::MODEL_SETTINGS_NAMESPACE;
+
+    let root = Workspace::new();
+    let state = root.0.join("state");
+    let control = JsonlControlStore::new(state.join("control")).unwrap();
+    let settings = json!({"providers":{"test":{"models":[{"id":"test","maxTokens":4096}]}}});
+    control
+        .append(
+            ControlRevision::ZERO,
+            vec![
+                ControlEvent::SettingsSet {
+                    settings: SettingsSnapshot {
+                        namespace: MODEL_SETTINGS_NAMESPACE.to_owned(),
+                        user: settings.clone(),
+                        value: settings,
+                        revision: 1,
+                    },
+                },
+                ControlEvent::MutationCommitted {
+                    receipt: MutationReceipt {
+                        rpc_id: "seed-legacy-model-settings".to_owned(),
+                        method: "settings.replace".to_owned(),
+                        fingerprint: mutation_fingerprint("settings.replace", &json!({})),
+                        response: json!({}),
+                    },
+                },
+            ],
+        )
+        .await
+        .unwrap();
+    let before = control.load().await.unwrap();
+    // A file at the backup-directory path reliably fails on every OS, without
+    // depending on Unix permission bits or the account running the test.
+    fs::write(state.join("settings-backups"), "secret-bait").unwrap();
+    let receipt_file = root.0.join("startup-failure.json");
+    let ready_file = root.0.join("ready.address");
+    let output = Command::new(env!("CARGO_BIN_EXE_xharness-host"))
+        .args([
+            "--bind",
+            "127.0.0.1:0",
+            "--workspace",
+            root.0.join("workspace").to_str().unwrap(),
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--ready-file",
+            ready_file.to_str().unwrap(),
+        ])
+        .env("XHARNESS_STARTUP_FAILURE_FILE", &receipt_file)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!ready_file.exists());
+    assert_eq!(
+        StartupFailureReceipt::read(&receipt_file).unwrap().code,
+        StartupFailureCode::ModelSettings,
+        "settings backup failure must not be mislabeled as session restore; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(control.load().await.unwrap(), before);
+    let written = fs::read_to_string(receipt_file).unwrap();
+    assert!(!written.contains("secret-bait"));
+    assert!(!written.contains(state.to_str().unwrap()));
+}
