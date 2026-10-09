@@ -544,7 +544,7 @@ pub enum LoopControlError {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LoopEventKind {
     ExecutionNotice(xharness_session::ExecutionNotice),
-    /// The run's initial input is now durable and visible through the
+    /// Initial or boundary-injected input is now durable and visible through the
     /// authoritative Session store. Hosts use this pre-provider boundary to
     /// remove claimed input from their pending queue and publish the user
     /// message without waiting for the model's first delta.

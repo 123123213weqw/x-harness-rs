@@ -298,6 +298,7 @@
     {"id":"browser-199","suite":"browser","argv":["node","scripts/test-tool-argument-progress-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":180},
     {"id":"browser-200","suite":"browser","argv":["node","scripts/test-settings-mask-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":180},
     {"id":"browser-201","suite":"browser","argv":["node","scripts/test-tool-argument-progress-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":180},
-    {"id":"contract-088","suite":"contract","argv":["node","--test","scripts/test-typography.mjs"],"env":{},"weight":60}
+    {"id":"contract-088","suite":"contract","argv":["node","--test","scripts/test-typography.mjs"],"env":{},"weight":60},
+    {"id":"contract-089","suite":"contract","argv":["node","--test","scripts/test-question-answer-queue.mjs"],"env":{},"weight":60}
   ]
 }
