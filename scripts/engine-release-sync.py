@@ -126,8 +126,11 @@ def curl_public(url, output, limit, *, head=False):
     # curl works with the deployed XS TLS stack, including on macOS where the
     # system Python OpenSSL client currently receives TLS alert decode_error.
     # No redirects, credentials, curlrc, source URLs or downgrade to HTTP.
+    # TLS alert/EOF failures (curl 35) are not retried by --retry alone. These
+    # are bounded retries of idempotent public GET/HEAD, NEVER the SSH write.
     command = ['curl', '-q', '--proto', '=https', '--fail', '--silent', '--show-error',
         '--connect-timeout', '20', '--max-time', '300', '--retry', '2', '--retry-delay', '2',
+        '--retry-all-errors',
         '--max-filesize', str(limit), '-H', 'Accept-Encoding: identity',
         '-H', 'Cache-Control: no-cache', '--output', str(output), '--write-out', '%{http_code}']
     if head:
