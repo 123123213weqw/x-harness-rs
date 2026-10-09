@@ -1,0 +1,65 @@
+name: Desktop Release Service
+run-name: release-task ${{ inputs.orchestration_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      orchestration_id:
+        description: Durable handoff correlation ID from release.py --hosted
+        required: true
+        type: string
+      version:
+        description: New plain desktop version
+        required: true
+        type: string
+      expected_sha:
+        description: Reviewed exact master SHA; never automatically rebind
+        required: true
+        type: string
+      release_scope:
+        description: Explicit signing and platform policy
+        required: true
+        type: choice
+        options: [all-macos-preview, all-macos-selfsigned, windows-linux, all]
+        default: all-macos-preview
+      publish_after_acceptance:
+        description: Explicitly authorize publication only after all native gates pass
+        required: true
+        type: boolean
+        default: false
+
+# Separate from desktop-stable-release: holding that group while dispatching
+# Desktop Release/Promote would deadlock the child workflow.
+concurrency:
+  group: desktop-release-service
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  coordinate:
+    if: github.ref == 'refs/heads/master' && vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY == github.repository
+    runs-on: ubuntu-22.04
+    timeout-minutes: 260
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked artifact checkpoint client (no updater private keys)
+        run: npm ci --prefix .github/actions/desktop-release-service --ignore-scripts --no-audit --no-fund
+      - name: Coordinate build, native acceptance and authorized publication
+        uses: ./.github/actions/desktop-release-service
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
+          PUBLISH_AFTER_ACCEPTANCE: ${{ inputs.publish_after_acceptance }}
