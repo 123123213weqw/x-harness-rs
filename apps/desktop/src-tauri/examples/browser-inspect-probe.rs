@@ -1143,10 +1143,12 @@ async fn subframe_navigation_probe(app: &tauri::AppHandle) -> Result<(), String>
             .load(std::sync::atomic::Ordering::SeqCst);
         events.lock().unwrap().clear();
         guest.eval(format!("{{const frame=document.createElement('iframe');frame.onload=()=>document.body.dataset.frameLoaded='{}';frame.src={};document.body.append(frame)}}",index,serde_json::to_string(destination).unwrap())).map_err(|error|error.to_string())?;
+        let marker = index.to_string();
         let mut settled = false;
         for _ in 0..100 {
             if evidence(&guest, "({loaded:document.body.dataset.frameLoaded})").await?["loaded"]
-                == index.to_string()
+                .as_str()
+                == Some(marker.as_str())
             {
                 settled = true;
                 break;

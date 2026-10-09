@@ -119,6 +119,9 @@ try{
    emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://start.example/'})
  },redirected)
  await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='ready'),redirected)
+ // Native readiness is not a React paint receipt. Wait for the controlled
+ // input's commit, then keep the exact URL and origin assertions below.
+ await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://final.example/path',{},{timeout:5000})
  assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://final.example/path')
  assert.equal(await page.evaluate(id=>calls.filter(c=>c.command==='desktop_browser_delegate'&&c.args.tabId==='browser:'+id).at(-1).args.expectedOrigin,redirected),'https://final.example')
  await page.getByRole('button',{name:'关闭 final.example',exact:true}).click()
