@@ -42,5 +42,25 @@ try{
  await page.evaluate(()=>{failKeys=false});await page.getByRole('button',{name:'apply',exact:true}).click();await page.waitForFunction(()=>closes.length===1);assert.equal(await page.evaluate(()=>calls.filter(c=>c[0]==='mutate').length),1);
  await page.evaluate(()=>{mode='editor-conflict';conflict=true;render()});await page.getByText('customized',{exact:true}).click();await page.getByRole('textbox',{name:'baseUrl',exact:true}).fill('https://conflict.example');await page.getByRole('button',{name:'apply',exact:true}).click();await page.getByText('conflict',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'cancel',exact:true}).isEnabled(),true);
  await page.evaluate(()=>{mode='readonly';render()});assert.equal(await page.getByRole('button',{name:'apply',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('button',{name:'cancel',exact:true}).isEnabled(),true);
+ if(process.env.UI_TEST_IMPL !== 'legacy'){
+  // Account route cannot be forged/edited/deleted through generic API settings.
+  await page.evaluate(()=>{mode='custom';calls=[];render()});
+  await page.getByRole('textbox',{name:'customRoute',exact:true}).fill('xharness-managed');
+  await page.getByText('customRouteTaken',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'create',exact:true}).isDisabled(),true);
+  await page.evaluate(()=>{
+   const entry={provider:'xharness-managed',displayName:'XHarness',declared:true,settingsNs:'llm-pi-ai',settingsPath:['providers','xharness-managed'],active:true};
+   const managed={entry,namespace,configured:true,removable:true,apiKeyEnv:'XHARNESS_MANAGED_API_TOKEN',credential:{configured:true,writable:true}};
+   const state={status:'ready',rows:[managed],namespaces:new Map([['llm-pi-ai',namespace]]),writable:true,error:undefined};
+   const controller={load:async()=>calls.push(['load']),store:{getSnapshot:()=>state,subscribe:()=>()=>{}}};
+   const snapshot=selector=>selector(state);
+   ReactDOM.flushSync(()=>root.render(React.createElement(plugin.ModelsSection,{controller,useSnapshot:snapshot,api,schema,t:k=>k})));
+  });
+  await page.getByText('accountTag',{exact:true}).waitFor();
+  await page.getByText('accountReadOnly',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'edit',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:/editProvider|removeProvider/}).count(),0);
+  assert.equal(await page.getByRole('textbox',{name:'baseUrl',exact:true}).count(),0);
+ }
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${process.env.UI_TEST_IMPL??'source'}: discovery/reasoning/imageInput capability checkbox/read-only, capacity buffers/reindex, probe failure, custom partial retry, minimal edits, conflicts/read-only passed`);
 }finally{await browser.close()}

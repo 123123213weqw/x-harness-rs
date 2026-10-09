@@ -21,6 +21,7 @@ const locales_1 = require("./locales");
 var settings_document_store_2 = require("./settings-document-store");
 Object.defineProperty(exports, "SettingsDocumentStore", { enumerable: true, get: function () { return settings_document_store_2.SettingsDocumentStore; } });
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
+const settings_navigation_1 = require("../shared/settings-navigation");
 const NS = 'settings';
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -63,6 +64,7 @@ function apply(ctx) {
     let onboardingVersion = -1;
     let onboardingSteps = [];
     const shellInjected = () => ({
+        subscribeOpenSection: listener => ctx.on(settings_navigation_1.OPEN_SETTINGS_SECTION, listener),
         hooks: {
             sections: {
                 getSnapshot: () => {
@@ -215,6 +217,7 @@ function SettingsRoot(props) {
         setActiveId(id);
         setOpen(true);
     }, []);
+    (0, react_1.useEffect)(() => props.subscribeOpenSection?.(openSection), [props.subscribeOpenSection, openSection]);
     // The ledger tick keeps the nav rows fresh: registrants re-register with
     // freshly localized text on locale change, and the trigger/header/close
     // seats re-render through their own outlets' subscriptions.
@@ -753,9 +756,19 @@ exports.en = {
     'account.profile': 'Usage profile',
 };
 
+},
+"src/modules/shared/settings-navigation.js": function(module, exports, require) {
+// source: src/modules/shared/settings-navigation.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.OPEN_SETTINGS_SECTION = void 0;
+/** Root-context event: the settings shell owns navigation and modal state. */
+exports.OPEN_SETTINGS_SECTION = 'settings/open-section';
+
 }
 };
-const __dependencies = {"src/modules/settings-general/index.js":{"./SettingsRoot":"src/modules/settings-general/SettingsRoot.js","./AccountEntry":"src/modules/settings-general/AccountEntry.js","./chrome":"src/modules/settings-general/chrome.js","./GeneralSection":"src/modules/settings-general/GeneralSection.js","./SettingsDocumentAction":"src/modules/settings-general/SettingsDocumentAction.js","./settings-document-store":"src/modules/settings-general/settings-document-store.js","./locales":"src/modules/settings-general/locales.js"},"src/modules/settings-general/SettingsRoot.js":{"../views-types":"src/modules/views-types.js","./SettingsRoot.styles":"src/modules/settings-general/SettingsRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/settings-general/SettingsRoot.styles.js":{"./SettingsRoot.css":"src/modules/settings-general/SettingsRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsRoot.css":{},"src/modules/settings-general/AccountEntry.js":{"./AccountEntry.styles":"src/modules/settings-general/AccountEntry.styles.js"},"src/modules/settings-general/AccountEntry.styles.js":{"./AccountEntry.css":"src/modules/settings-general/AccountEntry.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/AccountEntry.css":{},"src/modules/settings-general/chrome.js":{"./chrome.styles":"src/modules/settings-general/chrome.styles.js"},"src/modules/settings-general/chrome.styles.js":{"./chrome.css":"src/modules/settings-general/chrome.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/chrome.css":{},"src/modules/settings-general/GeneralSection.js":{"./GeneralSection.styles":"src/modules/settings-general/GeneralSection.styles.js"},"src/modules/settings-general/GeneralSection.styles.js":{"./GeneralSection.css":"src/modules/settings-general/GeneralSection.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/GeneralSection.css":{},"src/modules/settings-general/SettingsDocumentAction.js":{"./SettingsDocumentAction.styles":"src/modules/settings-general/SettingsDocumentAction.styles.js"},"src/modules/settings-general/SettingsDocumentAction.styles.js":{"./SettingsDocumentAction.css":"src/modules/settings-general/SettingsDocumentAction.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsDocumentAction.css":{},"src/modules/settings-general/settings-document-store.js":{},"src/modules/settings-general/locales.js":{}};
+const __dependencies = {"src/modules/settings-general/index.js":{"./SettingsRoot":"src/modules/settings-general/SettingsRoot.js","./AccountEntry":"src/modules/settings-general/AccountEntry.js","./chrome":"src/modules/settings-general/chrome.js","./GeneralSection":"src/modules/settings-general/GeneralSection.js","./SettingsDocumentAction":"src/modules/settings-general/SettingsDocumentAction.js","./settings-document-store":"src/modules/settings-general/settings-document-store.js","./locales":"src/modules/settings-general/locales.js","../shared/settings-navigation":"src/modules/shared/settings-navigation.js"},"src/modules/settings-general/SettingsRoot.js":{"../views-types":"src/modules/views-types.js","./SettingsRoot.styles":"src/modules/settings-general/SettingsRoot.styles.js"},"src/modules/views-types.js":{},"src/modules/settings-general/SettingsRoot.styles.js":{"./SettingsRoot.css":"src/modules/settings-general/SettingsRoot.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsRoot.css":{},"src/modules/settings-general/AccountEntry.js":{"./AccountEntry.styles":"src/modules/settings-general/AccountEntry.styles.js"},"src/modules/settings-general/AccountEntry.styles.js":{"./AccountEntry.css":"src/modules/settings-general/AccountEntry.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/AccountEntry.css":{},"src/modules/settings-general/chrome.js":{"./chrome.styles":"src/modules/settings-general/chrome.styles.js"},"src/modules/settings-general/chrome.styles.js":{"./chrome.css":"src/modules/settings-general/chrome.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/chrome.css":{},"src/modules/settings-general/GeneralSection.js":{"./GeneralSection.styles":"src/modules/settings-general/GeneralSection.styles.js"},"src/modules/settings-general/GeneralSection.styles.js":{"./GeneralSection.css":"src/modules/settings-general/GeneralSection.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/GeneralSection.css":{},"src/modules/settings-general/SettingsDocumentAction.js":{"./SettingsDocumentAction.styles":"src/modules/settings-general/SettingsDocumentAction.styles.js"},"src/modules/settings-general/SettingsDocumentAction.styles.js":{"./SettingsDocumentAction.css":"src/modules/settings-general/SettingsDocumentAction.css","../views-types":"src/modules/views-types.js"},"src/modules/settings-general/SettingsDocumentAction.css":{},"src/modules/settings-general/settings-document-store.js":{},"src/modules/settings-general/locales.js":{},"src/modules/shared/settings-navigation.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
