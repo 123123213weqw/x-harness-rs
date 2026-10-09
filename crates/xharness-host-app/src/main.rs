@@ -305,7 +305,15 @@ async fn run(
         &model_settings_base,
     )
     .await
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| {
+        // Migration reads/replays Control state before the usual restore phase.
+        // Preserve that failure category by type, not by diagnostic text; a
+        // settings backup failure must still remain a ModelSettings failure.
+        if error.is::<xharness_control::ControlError>() {
+            *failure_code = Some(StartupFailureCode::SessionRestore);
+        }
+        error.to_string()
+    })?;
     if let xharness_host_app::output_budget_migration::MigrationOutcome::Applied {
         cleared_fields,
         ..
