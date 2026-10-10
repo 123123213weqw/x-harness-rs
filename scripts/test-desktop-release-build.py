@@ -720,6 +720,22 @@ class NativeCargoCache(unittest.TestCase):
 
 
 class WorkflowGuard(unittest.TestCase):
+    def test_every_release_job_pins_python_before_scripts(self):
+        text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
+        # Integrated acceptance launches children with sys.executable. Ubuntu
+        # 22.04's system Python lacks tomllib, so every coordinator/worker must
+        # select the same supported runtime before invoking release scripts.
+        jobs = text.split('\n  plan:', 1)[1].split('\n  build:', 1)
+        plan, rest = jobs
+        worker, aggregate = rest.split('\n  aggregate:', 1)
+        for name, job in [('plan', plan), ('build', worker), ('aggregate', aggregate)]:
+            with self.subTest(job=name):
+                setup = "- uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'"
+                self.assertEqual(job.count(setup), 1)
+                script = min(pos for needle in ('run: python ', 'run: python3 ', 'python3 -B scripts/')
+                             if (pos := job.find(needle)) >= 0)
+                self.assertLess(job.index(setup), script)
+
     def test_single_aggregate_writer_and_four_native_platforms(self):
         text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
         self.assertEqual(text.count('contents: write'), 2) # Tag-only plan plus draft aggregator.
