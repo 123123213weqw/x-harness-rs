@@ -5,7 +5,7 @@ use crate::WindowsComputer;
 use serde_json::{json, Value};
 use std::{
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -30,12 +30,18 @@ use xharness_computer::{ComputerDriver, ComputerRequest};
 static CLICKS: AtomicU32 = AtomicU32::new(0);
 static CONTROL_A: AtomicU32 = AtomicU32::new(0);
 static WHEELS: AtomicU32 = AtomicU32::new(0);
+static READY: AtomicBool = AtomicBool::new(false);
+const READY_MESSAGE: u32 = WM_APP + 17;
 unsafe extern "system" fn procedure(
     window: HWND,
     message: u32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
+    if message == READY_MESSAGE {
+        READY.store(true, Ordering::Release);
+        return LRESULT(0);
+    }
     if message == WM_COMMAND && wparam.0 & 0xffff == 1002 {
         CLICKS.fetch_add(1, Ordering::Relaxed);
     }
@@ -54,7 +60,10 @@ unsafe extern "system" fn procedure(
 struct Fixture {
     root: usize,
     edit: usize,
+    button: usize,
+    cover: usize,
 }
+type FixtureHandles = (usize, usize, usize, usize);
 impl Drop for Fixture {
     fn drop(&mut self) {
         unsafe {
@@ -69,9 +78,10 @@ impl Drop for Fixture {
 }
 impl Fixture {
     fn open() -> Result<Self, Box<dyn std::error::Error>> {
+        READY.store(false, Ordering::Release);
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let result = (|| -> Result<(usize, usize), Box<dyn std::error::Error>> {
+            let result = (|| -> Result<FixtureHandles, Box<dyn std::error::Error>> {
                 unsafe {
                     if SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
                         .0
@@ -118,7 +128,7 @@ impl Fixture {
                         Some(instance),
                         None,
                     ))?;
-                    let _button = api(CreateWindowExW(
+                    let button = api(CreateWindowExW(
                         WINDOW_EX_STYLE(0),
                         w!("BUTTON"),
                         w!("Confirm fixture"),
@@ -190,15 +200,52 @@ impl Fixture {
                         Some(instance),
                         None,
                     ))?;
-                    let _ = SetForegroundWindow(root);
-                    Ok((root.0 as usize, edit.0 as usize))
+                    // Hidden sibling, deliberately created after the target.
+                    // Showing it changes hit-testing without replacing the
+                    // target or moving the foreground top-level window.
+                    let cover = api(CreateWindowExW(
+                        WINDOW_EX_STYLE(0),
+                        w!("BUTTON"),
+                        w!("Covering overlay"),
+                        WS_CHILD,
+                        24,
+                        170,
+                        160,
+                        36,
+                        Some(root),
+                        Some(HMENU(1006 as *mut _)),
+                        Some(instance),
+                        None,
+                    ))?;
+                    let activated = SetForegroundWindow(root).as_bool();
+                    if !activated && GetAncestor(GetForegroundWindow(), GA_ROOT) != root {
+                        let _ = DestroyWindow(root);
+                        return Err(
+                            "fixture foreground activation denied; no input tests run".into()
+                        );
+                    }
+                    api(PostMessageW(
+                        Some(root),
+                        READY_MESSAGE,
+                        WPARAM(0),
+                        LPARAM(0),
+                    ))?;
+                    Ok((
+                        root.0 as usize,
+                        edit.0 as usize,
+                        button.0 as usize,
+                        cover.0 as usize,
+                    ))
                 }
             })();
-            let Ok(handles) = result else {
-                let _ = tx.send(None);
-                return;
+            let handles = match result {
+                Ok(handles) => handles,
+                Err(error) => {
+                    let _ = tx.send(Err(error.to_string()));
+                    return;
+                }
             };
-            let _ = tx.send(Some(handles));
+            let _ = tx.send(Ok(handles));
             let mut message = MSG::default();
             while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
                 // Observe delivered input independently; don't implement a
@@ -216,10 +263,25 @@ impl Fixture {
                 }
             }
         });
-        let (root, edit) = rx
-            .recv_timeout(Duration::from_secs(3))?
-            .ok_or("fixture creation failed")?;
-        Ok(Self { root, edit })
+        let (root, edit, button, cover) = rx.recv_timeout(Duration::from_secs(3))??;
+        Ok(Self {
+            root,
+            edit,
+            button,
+            cover,
+        })
+    }
+    async fn wait_ready(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            if READY.load(Ordering::Acquire)
+                && super::foreground().is_some_and(|s| s.handle == self.root as u64)
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Err("fixture message pump/foreground not ready; no input tests run".into())
     }
     fn text(&self) -> String {
         let mut units = [0u16; 8192];
@@ -324,9 +386,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("cannot establish fixture physical-pixel DPI context".into());
     }
     let fixture = Fixture::open()?;
+    fixture.wait_ready().await?;
     let started = Instant::now();
     verify_filtered_descendant(fixture.root)?;
-    tokio::time::sleep(Duration::from_millis(300)).await;
     let driver = Arc::new(WindowsComputer::new()?);
     let observe = json!({"action":"observe","detail":"semantic","include_screenshot":false});
     let mut output = execute(&driver, observe.clone()).await?;
@@ -608,7 +670,7 @@ pub async fn run_freshness() -> Result<(), Box<dyn std::error::Error>> {
         return Err("cannot establish fixture physical-pixel DPI context".into());
     }
     let fixture = Fixture::open()?;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    fixture.wait_ready().await?;
     let driver = WindowsComputer::new()?;
     let observe = json!({"action":"observe","detail":"semantic","include_screenshot":false});
     let output = execute(&driver, observe.clone()).await?;
@@ -693,6 +755,170 @@ pub async fn run_freshness() -> Result<(), Box<dyn std::error::Error>> {
     record(
         "native_freshness_acceptance",
         json!({"cases":4,"model_calls":0,"fixture_closed_on_return":true}),
+    );
+    Ok(())
+}
+
+/// Real same-window negative cases. A mock UIA tree cannot prove that
+/// InvokePattern respects a covering sibling. Independent WM_COMMAND counts
+/// must remain unchanged; the model never grades its own actions.
+pub async fn run_target_guards() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("XHARNESS_DISPOSABLE_COMPUTER_VM").as_deref()
+        != Ok("66b64058-bdcc-43e9-85ee-55a79fe2e875")
+    {
+        return Err("target guard acceptance requires the authorized disposable VM guard".into());
+    }
+    let prior = unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    if prior.0.is_null() {
+        return Err("cannot establish fixture DPI context".into());
+    }
+    let fixture = Fixture::open()?;
+    fixture.wait_ready().await?;
+    // Keep the covering sibling visible/in the same tree before recording
+    // target paths. Only its geometry changes in the negative case; showing a
+    // newly inserted node can merely test path replacement, not occlusion.
+    api(unsafe {
+        SetWindowPos(
+            HWND(fixture.cover as *mut _),
+            Some(HWND_TOP),
+            300,
+            220,
+            160,
+            36,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        )
+    })?;
+    let driver = WindowsComputer::new()?;
+    let observe = json!({"action":"observe","detail":"semantic","include_screenshot":false});
+    let button = HWND(fixture.button as *mut _);
+    let confirm_id =
+        |output: &xharness_computer::ComputerOutput| -> Result<String, Box<dyn std::error::Error>> {
+            Ok(output.value["accessibility"]["nodes"]
+                .as_array()
+                .ok_or("missing tree")?
+                .iter()
+                .find(|n| n["label"] == "Confirm fixture")
+                .ok_or("button missing")?["node_id"]
+                .as_str()
+                .ok_or("button id missing")?
+                .to_owned())
+        };
+    let output = execute(&driver, observe.clone()).await?;
+    execute(&driver, json!({"action":"click","frame_id":frame(&output)?,"node_id":confirm_id(&output)?,"observe_after":"never"})).await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if CLICKS.load(Ordering::Relaxed) != 1 {
+        return Err("unobscured button did not receive exactly one command".into());
+    }
+    record("native_target_guard_baseline", json!({"button_commands":1}));
+
+    let output = execute(&driver, observe.clone()).await?;
+    let action = json!({"action":"click","frame_id":frame(&output)?,"node_id":confirm_id(&output)?,"observe_after":"never"});
+    api(unsafe { SetWindowTextW(button, w!("Different operation")) })?;
+    let error = driver
+        .execute(serde_json::from_value(action)?, CancellationToken::new())
+        .await
+        .expect_err("same HWND with changed semantics must reject input");
+    if error.code != "stale_node" || CLICKS.load(Ordering::Relaxed) != 1 {
+        return Err("changed-name target was invoked".into());
+    }
+    record(
+        "native_same_node_changed_name_denied",
+        json!({"code":error.code,"button_commands":1}),
+    );
+    api(unsafe { SetWindowTextW(button, w!("Confirm fixture")) })?;
+
+    let output = execute(&driver, observe.clone()).await?;
+    let action = json!({"action":"click","frame_id":frame(&output)?,"node_id":confirm_id(&output)?,"observe_after":"never"});
+    api(unsafe {
+        SetWindowPos(
+            button,
+            None,
+            60,
+            170,
+            160,
+            36,
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+    })?;
+    let error = driver
+        .execute(serde_json::from_value(action)?, CancellationToken::new())
+        .await
+        .expect_err("same-window target relocation must reject input");
+    if error.code != "stale_node" || CLICKS.load(Ordering::Relaxed) != 1 {
+        return Err("moved target was invoked".into());
+    }
+    record(
+        "native_same_window_changed_node_bounds_denied",
+        json!({"code":error.code,"button_commands":1}),
+    );
+    api(unsafe {
+        SetWindowPos(
+            button,
+            None,
+            24,
+            170,
+            160,
+            36,
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+    })?;
+
+    let output = execute(&driver, observe.clone()).await?;
+    let action = json!({"action":"click","frame_id":frame(&output)?,"node_id":confirm_id(&output)?,"observe_after":"never"});
+    api(unsafe {
+        SetWindowPos(
+            HWND(fixture.cover as *mut _),
+            None,
+            24,
+            170,
+            160,
+            36,
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+    })?;
+    if !super::foreground().is_some_and(|s| s.handle == fixture.root as u64) {
+        return Err("overlay fixture unexpectedly changed foreground".into());
+    }
+    let error = driver
+        .execute(serde_json::from_value(action)?, CancellationToken::new())
+        .await
+        .expect_err("covering sibling must prevent InvokePattern dispatch");
+    if error.code != "target_occluded" || CLICKS.load(Ordering::Relaxed) != 1 {
+        return Err(format!(
+            "overlay did not produce verified pre-dispatch occlusion rejection: {}",
+            error.code
+        )
+        .into());
+    }
+    record(
+        "native_same_window_overlay_denied",
+        json!({"code":error.code,"foreground_unchanged":true,"button_commands":1}),
+    );
+    api(unsafe {
+        SetWindowPos(
+            HWND(fixture.cover as *mut _),
+            None,
+            300,
+            220,
+            160,
+            36,
+            SWP_NOACTIVATE | SWP_NOZORDER,
+        )
+    })?;
+
+    let output = execute(&driver, observe).await?;
+    execute(&driver, json!({"action":"click","frame_id":frame(&output)?,"node_id":confirm_id(&output)?,"observe_after":"never"})).await?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if CLICKS.load(Ordering::Relaxed) != 2 {
+        return Err("fresh observation did not restore unobscured input".into());
+    }
+    record(
+        "native_target_guard_fresh_observation",
+        json!({"button_commands":2}),
+    );
+    record(
+        "native_target_guard_acceptance",
+        json!({"cases":5,"model_calls":0,"fixture_closed_on_return":true}),
     );
     Ok(())
 }

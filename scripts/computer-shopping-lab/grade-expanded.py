@@ -47,3 +47,25 @@ def grade(case,answer,events,error=None):
   if case=='modal':checks['modal_dismissed']=seen('dismiss_modal')
   if case=='slow-layout':checks['layout_shift']=seen('layout_shift')
  return {'case':case,'pass':all(checks.values()),'checks':checks,'events':len(current),'report_field_types_ok':field_types_ok}
+
+def grade_separate(case,wire_text,events,error=None):
+ """Terminal-format failure is not an operation failure or a request to replay."""
+ from structured_report import decode_object, output_schema, validate_schema, ReportInvalid
+ schema=output_schema(case)
+ answer={};format_error=None;decoded=False
+ try:
+  answer=decode_object(wire_text)
+  decoded=True
+  validate_schema(answer,schema)
+ except ReportInvalid as exc:
+  format_error=str(exc)
+ result=grade(case,answer,events,error)
+ operation_checks={k:v for k,v in result['checks'].items() if k!='answer_exact'}
+ operation_pass=all(operation_checks.values())
+ facts_pass=result['checks']['answer_exact'] if decoded else None
+ format_pass=format_error is None
+ return {'case':case,'operation_pass':operation_pass,'facts_pass':facts_pass,
+         'facts_status':('verified' if facts_pass else 'incorrect') if decoded else 'not_evaluated',
+         'format_pass':format_pass,'overall_pass':operation_pass and facts_pass is True and format_pass,
+         'operation_checks':operation_checks,'format_error':format_error,
+         'events':result['events'],'operation_error':error}

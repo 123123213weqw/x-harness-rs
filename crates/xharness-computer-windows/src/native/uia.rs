@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     observation::{self, Metadata},
-    wire::{self, Frame, NodeTarget, Reply, Surface},
+    wire::{self, Frame, NodeSnapshot, NodeTarget, Reply, Surface},
 };
 use serde_json::json;
 use std::{
@@ -13,12 +13,16 @@ use std::{
     time::{Duration, Instant},
 };
 use windows::Win32::{
+    Foundation::POINT,
     System::{
         Com::{CoCreateInstance, CLSCTX_INPROC_SERVER, SAFEARRAY},
         Ole::{SafeArrayDestroy, SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound},
         Variant::{VARIANT, VT_BOOL},
     },
-    UI::Accessibility::*,
+    UI::{
+        Accessibility::*,
+        WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT},
+    },
 };
 use xharness_computer::ComputerRequest;
 
@@ -110,6 +114,82 @@ impl Automation {
             return Err(error("stale_node", "UIA process identity changed"));
         }
         Ok(element)
+    }
+    /// Recheck target semantics and an actual desktop hit-test. InvokePattern
+    /// is not evidence that a node is exposed: providers may invoke controls
+    /// behind same-window overlays. Unknown hit-test data is fail-closed.
+    /// This is a bounded preflight, NOT an atomic transaction with arbitrary UI.
+    pub(super) fn verify_target(
+        &self,
+        element: &IUIAutomationElement,
+        target: &NodeTarget,
+        cancel: &Cancellation,
+    ) -> Result<()> {
+        cancel.check()?;
+        verify_surface(&target.surface, true)?;
+        let live = live_snapshot(element)?;
+        target.snapshot.verify(&live)?;
+        if !api(unsafe { element.CurrentIsEnabled() })?.as_bool()
+            || api(unsafe { element.CurrentIsOffscreen() })?.as_bool()
+            || api(unsafe { element.CurrentIsPassword() })?.as_bool()
+        {
+            return Err(error(
+                "stale_node",
+                "target is disabled, invisible or protected; no input dispatched",
+            ));
+        }
+        let bounds = live.bounds;
+        wire::absolute_axis(bounds.x + bounds.width / 2.0, desktop().x, desktop().width)?;
+        wire::absolute_axis(
+            bounds.y + bounds.height / 2.0,
+            desktop().y,
+            desktop().height,
+        )?;
+        let point = POINT {
+            x: (bounds.x + bounds.width / 2.0).floor() as i32,
+            y: (bounds.y + bounds.height / 2.0).floor() as i32,
+        };
+        // Reject another top-level window, even when the foreground is intact.
+        let root = unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) };
+        if root != hwnd(target.surface.handle) {
+            return Err(error(
+                "target_occluded",
+                "target center is covered by another window; no input dispatched",
+            ));
+        }
+        let mut hit = api(unsafe { self.instance.ElementFromPoint(point) })?;
+        let walker = api(unsafe { self.instance.RawViewWalker() })?;
+        for _ in 0..=wire::MAX_TREE_DEPTH {
+            cancel.check()?;
+            if api(unsafe { self.instance.CompareElements(&hit, element) })?.as_bool() {
+                // Provider calls can take time; recheck identity/semantics after
+                // hit-testing as well. No cached COM object crosses a worker.
+                if runtime_id(element)? != target.runtime_id {
+                    return Err(error(
+                        "stale_node",
+                        "target identity changed during preflight; no input dispatched",
+                    ));
+                }
+                target.snapshot.verify(&live_snapshot(element)?)?;
+                if foreground().is_none_or(|s| {
+                    s.handle != target.surface.handle || s.pid != target.surface.pid
+                }) || api(unsafe { element.CurrentProcessId() })? as u32 != target.surface.pid
+                    || !api(unsafe { element.CurrentIsEnabled() })?.as_bool()
+                    || api(unsafe { element.CurrentIsOffscreen() })?.as_bool()
+                    || api(unsafe { element.CurrentIsPassword() })?.as_bool()
+                {
+                    return Err(error("stale_node", "target visibility, protection or foreground changed during preflight; no input dispatched"));
+                }
+                return Ok(());
+            }
+            // A hit descendant (e.g. a button's text) is acceptable; a sibling
+            // overlay or ancestor container is not. Null/error never means hit.
+            match unsafe { walker.GetParentElement(&hit) } {
+                Ok(parent) => hit = parent,
+                Err(_) => break,
+            }
+        }
+        Err(error("target_occluded", "target center does not hit the recorded node or its descendant; observe again; no input dispatched"))
     }
     pub(super) fn observe(
         &self,
@@ -231,7 +311,12 @@ impl Automation {
             traversal.metrics.runtime_id_us += runtime_started.elapsed().as_micros();
             let pattern_started = Instant::now();
             let mut actions = vec![];
-            if runtime.is_some() && candidate.enabled && in_region && !password {
+            if runtime.is_some()
+                && candidate.snapshot.is_some()
+                && candidate.enabled
+                && in_region
+                && !password
+            {
                 actions.push("focus");
                 if candidate.invoke_available.is_some() {
                     traversal.metrics.invoke_cache_hits += 1;
@@ -252,13 +337,14 @@ impl Automation {
             }
             traversal.metrics.pattern_us += pattern_started.elapsed().as_micros();
             nodes.push(json!({"node_id":id,"parent_id":candidate.metadata.parent.map(|p|node_id(&candidate.surface,p)),"surface_id":wire::surface_id(&candidate.surface),"role":candidate.role,"label":if password {"<redacted>"} else if context_only {""} else {&candidate.label},"bounds":candidate.metadata.bounds,"enabled":candidate.enabled,"visible":candidate.metadata.visible,"focused":candidate.metadata.focused,"in_region":in_region,"context_only":context_only,"value":value,"value_state":value_state,"value_truncated":value_truncated && !password,"actions":actions,"depth":candidate.metadata.depth}));
-            if let Some(runtime_id) = runtime {
+            if let (Some(runtime_id), Some(snapshot)) = (runtime, candidate.snapshot.clone()) {
                 targets.push((
                     id,
                     NodeTarget {
                         surface: candidate.surface.clone(),
                         path: candidate.path.clone(),
                         runtime_id,
+                        snapshot,
                     },
                 ));
             }
@@ -390,6 +476,7 @@ struct Candidate {
     invoke_available: Option<bool>,
     label: String,
     role: &'static str,
+    snapshot: Option<NodeSnapshot>,
 }
 fn invoke_available(cached: Option<bool>, live: impl FnOnce() -> bool) -> bool {
     cached.unwrap_or_else(live)
@@ -467,21 +554,19 @@ impl Traversal<'_> {
                 .CachedIsPassword()
                 .map(|v| v.as_bool())
                 .unwrap_or(true);
-            let role = element
-                .CachedControlType()
-                .map(|v| role_name(v.0))
-                .unwrap_or("unknown");
+            let control_type = element.CachedControlType().ok().map(|v| v.0);
+            let role = control_type.map(role_name).unwrap_or("unknown");
             let invoke_available = element
                 .GetCachedPropertyValueEx(UIA_IsInvokePatternAvailablePropertyId, true)
                 .ok()
                 .and_then(|value| decode_availability(&value));
+            let full_name = (!password)
+                .then(|| element.CachedName().ok().map(|n| n.to_string()))
+                .flatten();
             let label = if password {
                 "<redacted>".into()
             } else {
-                element
-                    .CachedName()
-                    .map(|n| clipped(&n.to_string()))
-                    .unwrap_or_default()
+                full_name.as_deref().map(clipped).unwrap_or_default()
             };
             let metadata = Metadata {
                 parent,
@@ -510,6 +595,11 @@ impl Traversal<'_> {
                             | "tabitem"
                     ),
             };
+            let snapshot = full_name
+                .as_deref()
+                .zip(control_type)
+                .zip(metadata.bounds)
+                .map(|((name, role), bounds)| NodeSnapshot::new(name, role, bounds));
             let index = self.candidates.len();
             self.pending
                 .push(Reverse(metadata.priority(self.viewport, index)));
@@ -523,6 +613,7 @@ impl Traversal<'_> {
                 invoke_available,
                 label,
                 role,
+                snapshot,
             });
             // Read enabled independently: containers' enabled state does not
             // imply anything about a child.
@@ -538,6 +629,16 @@ impl Traversal<'_> {
 }
 fn node_id(surface: &Surface, index: usize) -> String {
     format!("uia:{}:{index}", wire::surface_id(surface))
+}
+fn live_snapshot(element: &IUIAutomationElement) -> Result<NodeSnapshot> {
+    // SAFETY: live reads remain in the disposable worker's MTA.
+    unsafe {
+        Ok(NodeSnapshot::new(
+            &api(element.CurrentName())?.to_string(),
+            api(element.CurrentControlType())?.0,
+            rect(api(element.CurrentBoundingRectangle())?),
+        ))
+    }
 }
 fn resolve_child(
     value: windows::core::Result<IUIAutomationElement>,

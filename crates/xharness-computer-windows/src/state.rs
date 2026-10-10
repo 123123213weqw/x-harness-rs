@@ -92,6 +92,7 @@ mod tests {
             surface: surface.clone(),
             path: vec![0],
             runtime_id: vec![1, 2, 3],
+            snapshot: crate::wire::NodeSnapshot::new("fixture", 50000, surface.bounds),
         };
         State {
             id: Some("current".into()),
