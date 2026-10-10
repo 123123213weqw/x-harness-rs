@@ -218,9 +218,21 @@ pub enum TurnEndReason {
     LimitReached,
     Failed {
         error: String,
+        /// Only the provider boundary may classify recovery; absent in legacy logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_failure: Option<ProviderFailure>,
     },
     /// Used by recovery when a stored lifecycle ended without a closer.
     Interrupted,
+}
+
+/// Content-free provider classification, not inferred from human-readable error text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderFailure {
+    pub retryable: bool,
+    pub http_status: Option<u16>,
+    pub retry_after_ms: Option<u64>,
 }
 
 /// Classification carried beside one model-facing tool result.

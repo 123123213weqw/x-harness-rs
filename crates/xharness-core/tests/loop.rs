@@ -3807,6 +3807,7 @@ async fn malformed_question_retries_and_closed_legacy_turn_recovers() {
                             turn: 1,
                             reason: TurnEndReason::Failed {
                                 error: "legacy question journal failure".to_owned(),
+                                provider_failure: None,
                             },
                         }
                         .into(),
@@ -3904,6 +3905,7 @@ async fn restart_replays_only_the_durable_user_question_call_and_keeps_its_ident
             }],
             allow_custom: true,
             destination: AnswerDestination::Context,
+            blocks_goal: true,
         }],
     };
     let call = ToolCall {
@@ -7847,4 +7849,66 @@ async fn independent_review_rejects_old_sequence_after_identical_user_input_comm
     while run.next().await.is_some() {}
     assert_eq!(run.result().await.status, LoopStatus::Completed);
     assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn durable_provider_failure_is_typed_and_does_not_classify_by_message_text() {
+    for (index, error, partial, retryable) in [
+        (
+            0,
+            ProviderError::http(503, "temporarily unavailable"),
+            false,
+            true,
+        ),
+        (1, ProviderError::http(429, "busy"), false, true),
+        (2, ProviderError::http(401, "network timeout"), false, false),
+        (
+            3,
+            ProviderError::new("network retryable timeout"),
+            false,
+            false,
+        ),
+        (4, transport_error("body"), false, true),
+        (5, transport_error("body"), true, true),
+    ] {
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let script = if partial {
+            vec![Ok(ProviderEvent::TextDelta("preserved".into())), Err(error)]
+        } else {
+            vec![Err(error)]
+        };
+        let provider = Arc::new(ScriptProvider::new([script]));
+        let id = format!("typed-provider-failure-{index}");
+        let mut request =
+            LoopRequest::new(provider.clone(), vec![AgentMessage::user("verify failure")]);
+        request.session_id = Some(id.clone());
+        request.journal_store = Some(journal.clone());
+        request.config.provider_retries = 0;
+        request.config.network_wait_enabled = false;
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Failed);
+        let s = journal.load(&id).await.unwrap().unwrap();
+        let failure = s
+            .events()
+            .iter()
+            .find_map(|e| match e.data() {
+                SessionEventData::TurnEnd {
+                    reason:
+                        TurnEndReason::Failed {
+                            provider_failure, ..
+                        },
+                    ..
+                } => provider_failure.as_ref(),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(failure.retryable, retryable, "case {index}");
+        assert_eq!(provider.attempts(), 1);
+        if partial {
+            assert!(s
+                .derive_messages()
+                .iter()
+                .any(|m| m.interrupted && m.content == "preserved"));
+        }
+    }
 }

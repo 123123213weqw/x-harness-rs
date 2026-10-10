@@ -174,6 +174,26 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Admission-only existence and owner checks for model-supplied Goal resources.
+    /// Readiness is separate: a stopped/failed resource can be valid evidence of
+    /// a blocker. Stateless factories fail closed for resources they cannot resolve.
+    async fn validate_goal_references(
+        &self,
+        _session_id: &str,
+        references: &[xharness_session::goal::GoalEvidence],
+    ) -> Result<(), String> {
+        if references.iter().any(|reference| {
+            matches!(
+                reference,
+                xharness_session::goal::GoalEvidence::Agent { .. }
+                    | xharness_session::goal::GoalEvidence::Job { .. }
+            )
+        }) {
+            return Err("Goal resource reference validation is unavailable".into());
+        }
+        Ok(())
+    }
+
     async fn goal_dependencies(
         &self,
         _session_id: &str,

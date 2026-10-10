@@ -4498,6 +4498,7 @@ mod tests {
                 }],
                 allow_custom: true,
                 destination: AnswerDestination::Context,
+                blocks_goal: true,
             }],
         };
         let call = ToolCall {

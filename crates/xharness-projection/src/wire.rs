@@ -32,7 +32,7 @@ impl From<&TurnEndReason> for TurnEndReasonWire {
             TurnEndReason::MaxTokens => Self::MaxTokens,
             TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => Self::Cancelled,
             TurnEndReason::LimitReached => Self::MaxSteps,
-            TurnEndReason::Failed { error } => Self::Error {
+            TurnEndReason::Failed { error, .. } => Self::Error {
                 error: TurnFailure {
                     code: "LOOP_FAILED".into(),
                     message: error.clone(),
@@ -164,6 +164,7 @@ mod tests {
                 "failed",
                 TurnEndReason::Failed {
                     error: "fixture failure".into(),
+                    provider_failure: None,
                 },
                 json!({"kind":"error","error":{"code":"LOOP_FAILED","message":"fixture failure"}}),
             ),
@@ -215,7 +216,7 @@ mod tests {
                 TurnEndReason::Interrupted => None,
             };
             let driver = driver_status.map(|status| {
-                let error = if let TurnEndReason::Failed { error } = &reason {
+                let error = if let TurnEndReason::Failed { error, .. } = &reason {
                     Some(error.as_str())
                 } else {
                     None

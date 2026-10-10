@@ -5,6 +5,7 @@ export interface GoalSnapshot extends GoalRef {
   maxGoalRounds: number; roundsStarted?: number; blockedReason?: { message: string }
 }
 export interface GoalExecution {
+  verificationMode?: 'agent_report' | 'user_confirm'
   state: string; roundsStarted?: number; maxGoalRounds?: number; pauseReason?: string; pauseDetail?: string
   report?: { summary?: string; remaining?: readonly string[]; evidence?: readonly { kind: string; reference?: string; execution_id?: string }[] }
 }

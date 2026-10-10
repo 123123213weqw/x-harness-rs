@@ -18,7 +18,7 @@ fn recovered_observer_result(session: &Session, turn: u32) -> Option<LoopResult>
         TurnEndReason::MaxTokens => (LoopStatus::MaxTokens, None),
         TurnEndReason::Cancelled | TurnEndReason::UserInterrupted => (LoopStatus::Cancelled, None),
         TurnEndReason::LimitReached => (LoopStatus::LimitReached, None),
-        TurnEndReason::Failed { error } => (LoopStatus::Failed, Some(error.clone())),
+        TurnEndReason::Failed { error, .. } => (LoopStatus::Failed, Some(error.clone())),
         TurnEndReason::Interrupted => (
             LoopStatus::Failed,
             Some("turn interrupted during recovery".into()),
