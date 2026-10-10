@@ -18,6 +18,8 @@ mod browser_perform;
 mod native_api;
 #[path = "../src/native_startup.rs"]
 mod native_startup;
+#[path = "probe_support/readiness.rs"]
+mod readiness;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -138,6 +140,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     let listener = app.listen_any("xharness-browser-control-open", move |event| {
         let value: Value = serde_json::from_str(event.payload()).unwrap();
         let app = handle.clone();
+        let admitted_at = tokio::time::Instant::now();
         tauri::async_runtime::spawn(async move {
             let caller = app.get_webview("main").unwrap();
             let request_id = value["requestId"].as_str().unwrap().to_owned();
@@ -178,36 +181,66 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
                     .unwrap();
                 return;
             }
-            for _ in 0..100 {
-                let (guest, _) = app
-                    .state::<browser::BrowserState>()
-                    .inspection_target(&tab_id)
-                    .unwrap();
-                let origin = guest.url().unwrap().origin().ascii_serialization();
-                let _ = browser_delegation::desktop_browser_delegate(
-                    caller.clone(),
+            let started = tokio::time::Instant::now();
+            let ready_delay = std::env::var("XHARNESS_NATIVE_PROBE_READY_DELAY_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| matches!(value, 0 | 6000))
+                .unwrap_or(0);
+            // Poll acknowledgement, never replay navigation/input. Reserve a
+            // short interval to report failure before the production deadline.
+            let result = readiness::wait(
+                browser_lifecycle::OPEN_TIMEOUT
+                    .saturating_sub(admitted_at.elapsed() + Duration::from_millis(250)),
+                Duration::from_millis(50),
+                || async {
+                    if started.elapsed() < Duration::from_millis(ready_delay) {
+                        return Err("test-owned Ready acknowledgement delayed".into());
+                    }
+                    let (guest, _) = app
+                        .state::<browser::BrowserState>()
+                        .inspection_target(&tab_id)?;
+                    let origin = guest
+                        .url()
+                        .map_err(|_| "native URL unavailable")?
+                        .origin()
+                        .ascii_serialization();
+                    browser_delegation::desktop_browser_delegate(
+                        caller.clone(),
+                        app.state(),
+                        tab_id.clone(),
+                        Some(owner.clone()),
+                        true,
+                        Some(origin),
+                    )
+                    .await?;
+                    // Preserve the exact production readiness checks and expose
+                    // their reason rather than reducing all failures to false.
+                    app.state::<browser::BrowserState>()
+                        .loaded_receipt(&owner, &tab_id)?;
+                    browser_lifecycle::desktop_browser_control_reply(
+                        app.clone(),
+                        caller.clone(),
+                        app.state(),
+                        request_id.clone(),
+                        browser_lifecycle::ControlReply::Ready {
+                            tab_id: tab_id.clone(),
+                        },
+                    )
+                    .await
+                },
+            )
+            .await;
+            if let Err(error) = result {
+                eprintln!("Native lifecycle readiness failed: {error}");
+                let _ = browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller,
                     app.state(),
-                    tab_id.clone(),
-                    Some(owner.clone()),
-                    true,
-                    Some(origin),
+                    request_id,
+                    browser_lifecycle::ControlReply::Failed {},
                 )
                 .await;
-                if browser_lifecycle::desktop_browser_control_reply(
-                    app.clone(),
-                    caller.clone(),
-                    app.state(),
-                    request_id.clone(),
-                    browser_lifecycle::ControlReply::Ready {
-                        tab_id: tab_id.clone(),
-                    },
-                )
-                .await
-                .unwrap()
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         });
     });
@@ -219,7 +252,10 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     )
     .await?;
     if opened["result"]["state"] != "ready" {
-        return Err("native open did not reach ready".into());
+        return Err(format!(
+            "native open did not reach ready: ok={}, state={}, error={}",
+            opened["ok"], opened["result"]["state"], opened["error"]
+        ));
     }
     let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
     let fill = serde_json::to_value(action(
@@ -1234,6 +1270,12 @@ fn main() {
     let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completed = completion.clone();
     let url = fixture();
+    // The Rust adapter owns lifecycle events. Loading the production React UI
+    // here introduces a second adapter that may reject the probe's fake owner.
+    let shell = url::Url::parse(&serve_fixture(
+        "<!doctype html><title>Native probe shell</title>".into(),
+    ))
+    .expect("probe shell URL");
     let mut context = tauri::generate_context!();
     let mut nonce = [0; 8];
     getrandom::fill(&mut nonce).expect("native probe entropy");
@@ -1252,10 +1294,9 @@ fn main() {
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
-            let window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Native browser observation probe")
-                    .inner_size(800.0, 600.0);
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(shell))
+                .title("Native browser observation probe")
+                .inner_size(800.0, 600.0);
             #[cfg(target_os = "macos")]
             let window =
                 if std::env::var("XHARNESS_NATIVE_PROBE_TITLEBAR").as_deref() == Ok("overlay") {

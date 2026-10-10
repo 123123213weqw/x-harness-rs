@@ -10,6 +10,20 @@ from scripts.gui_bench.run_native_probe import command, environment, cleanup, cl
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_native_lifecycle_probe_has_one_adapter_and_a_bounded_ready_deadline(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root/'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
+        lifecycle = source.split('async fn lifecycle_probe')[1].split('async fn native_api_probe')[0]
+        self.assertNotIn('for _ in 0..100', lifecycle)
+        self.assertIn('browser_lifecycle::OPEN_TIMEOUT', lifecycle)
+        self.assertIn('loaded_receipt(&owner, &tab_id)', lifecycle)
+        self.assertIn('Native lifecycle readiness failed:', lifecycle)
+        self.assertNotIn('WebviewUrl::App("index.html"', source)
+        self.assertIn('WebviewUrl::External(shell)', source)
+        runner = (root/'scripts/gui_bench/run_native_probe.py').read_text()
+        self.assertIn('choices=[0, 6000]', runner)
+        self.assertIn('--ready-delay-ms 6000', (root/'.github/workflows/ci.yml').read_text())
+
     def test_macos_geometry_uses_webkit_public_automatic_inset_conditions(self):
         root=Path(__file__).resolve().parents[2]
         native=(root/'apps/desktop/src-tauri/examples/native_api/macos.rs').read_text()
