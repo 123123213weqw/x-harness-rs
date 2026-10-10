@@ -1,0 +1,20 @@
+{
+  "message": {
+    "role": "assistant",
+    "content": "```json\n{\n  \"code\": \"WXYFSAR\",\n  \"color\": \"blue\"\n}\n```"
+  },
+  "model": "deepseek-flash",
+  "usage": {
+    "prompt_tokens": 520,
+    "completion_tokens": 23,
+    "total_tokens": 543,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 520
+  },
+  "finish_reason": "stop",
+  "model_s": 0.5147919589653611,
+  "passed": true
+}

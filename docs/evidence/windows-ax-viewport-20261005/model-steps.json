@@ -1,0 +1,56 @@
+[
+  {
+    "turn": 0,
+    "tool": "computer",
+    "arguments": {
+      "action": "observe",
+      "detail": "auto"
+    }
+  },
+  {
+    "turn": 1,
+    "tool": "computer",
+    "arguments": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:30",
+      "frame_id": "win:8472:1791173596084635500:3"
+    }
+  },
+  {
+    "turn": 2,
+    "tool": "computer",
+    "arguments": {
+      "action": "type",
+      "frame_id": "win:8472:1791173623813718100:4",
+      "text": "https://www.newegg.com/"
+    }
+  },
+  {
+    "turn": 3,
+    "tool": "computer",
+    "arguments": {
+      "action": "keypress",
+      "frame_id": "win:8472:1791173659115681600:5",
+      "keys": [
+        "Return"
+      ]
+    }
+  },
+  {
+    "turn": 4,
+    "tool": "computer",
+    "arguments": {
+      "action": "observe",
+      "detail": "semantic"
+    }
+  },
+  {
+    "turn": 5,
+    "tool": "computer",
+    "arguments": {
+      "action": "click",
+      "frame_id": "win:8472:1791173724708631600:6",
+      "node_id": "uia:win:1272:190378:30"
+    }
+  }
+]

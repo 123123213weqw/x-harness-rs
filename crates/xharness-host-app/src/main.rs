@@ -29,8 +29,26 @@ use xharness_session_jsonl::{JsonlSessionStore, RequestAuditMode};
 use xharness_terminal::TerminalRegistry;
 use xharness_web_terminal::terminal_routes;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    if env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--computer-worker")
+    {
+        // Private, bounded stdin/stdout protocol. Runs before config, leases,
+        // providers and the server. This process never owns a Host workspace.
+        xharness_computer_windows::run_worker()?;
+        return Ok(());
+    }
+    // Same runtime configuration as #[tokio::main], but isolated Computer
+    // workers never allocate the Host executor's thread pool.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(host_main())
+}
+
+async fn host_main() -> Result<(), Box<dyn std::error::Error>> {
     // The desktop passes a unique private path for this process generation.
     // Only a closed failure code is written: never stderr, paths or secrets.
     let receipt_path = env::var_os("XHARNESS_STARTUP_FAILURE_FILE").map(PathBuf::from);

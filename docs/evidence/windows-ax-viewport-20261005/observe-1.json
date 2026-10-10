@@ -1,0 +1,2811 @@
+{
+  "elapsed_ms": 8771,
+  "failure": null,
+  "id": 1,
+  "ok": true,
+  "result": {
+    "accessibility": {
+      "eligible": 59,
+      "max_depth": 20,
+      "max_nodes": 220,
+      "max_visited": 1100,
+      "nodes": [
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 736.0,
+            "width": 1040.0,
+            "x": -8.0,
+            "y": -8.0
+          },
+          "context_only": false,
+          "depth": 0,
+          "enabled": true,
+          "focused": true,
+          "in_region": true,
+          "label": "1TB NVMe SSD | Newegg.com - 用户配置 1 - Microsoft​ Edge",
+          "node_id": "uia:win:1272:1d0346:0",
+          "parent_id": null,
+          "role": "window",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 1,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "1TB NVMe SSD | Newegg.com - Microsoft Edge",
+          "node_id": "uia:win:1272:1d0346:2",
+          "parent_id": "uia:win:1272:1d0346:0",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 2,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:3",
+          "parent_id": "uia:win:1272:1d0346:2",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 3,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:4",
+          "parent_id": "uia:win:1272:1d0346:3",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 4,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:7",
+          "parent_id": "uia:win:1272:1d0346:4",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:9",
+          "parent_id": "uia:win:1272:1d0346:7",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:11",
+          "parent_id": "uia:win:1272:1d0346:9",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:12",
+          "parent_id": "uia:win:1272:1d0346:11",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:13",
+          "parent_id": "uia:win:1272:1d0346:12",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:15",
+          "parent_id": "uia:win:1272:1d0346:13",
+          "role": "pane",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 636.0,
+            "width": 1016.0,
+            "x": 4.0,
+            "y": 80.0
+          },
+          "context_only": false,
+          "depth": 10,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "1TB NVMe SSD | Newegg.com",
+          "node_id": "uia:win:1272:1d0346:17",
+          "parent_id": "uia:win:1272:1d0346:15",
+          "role": "document",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 12413.0,
+            "width": 1001.0,
+            "x": 4.0,
+            "y": -433.0
+          },
+          "context_only": false,
+          "depth": 11,
+          "enabled": true,
+          "focused": true,
+          "in_region": true,
+          "label": "Home > Search Results: \"1TB NVMe SSD\" \" 1TB NVME SSD \"   DID YOU FIND IT?   SAVE THIS SEARCH In Stock ON OFF Sold by Newegg ON OFF AI Ready ON OFF Make an Offer ON OFF New ON OFF",
+          "node_id": "uia:win:1272:1d0346:20",
+          "parent_id": "uia:win:1272:1d0346:17",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 40.0,
+            "width": 40.0,
+            "x": 955.0,
+            "y": 546.0
+          },
+          "context_only": true,
+          "depth": 11,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:22",
+          "parent_id": "uia:win:1272:1d0346:17",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 36.0,
+            "x": 744.0,
+            "y": 80.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "View:",
+          "node_id": "uia:win:1272:1d0346:94",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 62.0,
+            "x": 785.0,
+            "y": 74.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "36 ",
+          "node_id": "uia:win:1272:1d0346:95",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "combobox",
+          "surface_id": "win:1272:1d0346",
+          "value": "36",
+          "value_state": "known",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 15.0,
+            "x": 799.0,
+            "y": 81.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "36",
+          "node_id": "uia:win:1272:1d0346:96",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 12.0,
+            "x": 823.0,
+            "y": 81.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:97",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 45.0,
+            "x": 866.0,
+            "y": 74.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:98",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 45.0,
+            "x": 910.0,
+            "y": 74.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:99",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 98.0,
+            "width": 129.0,
+            "x": 310.0,
+            "y": 164.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Kingston NV3 M.2 2280 1TB PCIe 4.0 x4 NVMe Internal Solid State Drive (SSD) SNV3S/1000G Up to 6000 MB/s QUICK VIEW ",
+          "node_id": "uia:win:1272:1d0346:100",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 21.0,
+            "width": 156.0,
+            "x": 458.0,
+            "y": 164.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.7 out of 5 (105)",
+          "node_id": "uia:win:1272:1d0346:101",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 21.0,
+            "width": 111.0,
+            "x": 307.0,
+            "y": 164.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FantasTech Deal",
+          "node_id": "uia:win:1272:1d0346:102",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 55.0,
+            "width": 246.0,
+            "x": 458.0,
+            "y": 194.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Kingston NV3 M.2 2280 1TB PCIe 4.0 x4 NVMe Internal Solid State Drive (SSD) SNV3S/1000G Up to 6000 MB/s",
+          "node_id": "uia:win:1272:1d0346:103",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 17.0,
+            "width": 231.0,
+            "x": 473.0,
+            "y": 263.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:104",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "list",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 118.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 164.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:105",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "list",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 27.0,
+            "width": 134.0,
+            "x": 820.0,
+            "y": 291.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "ADD TO CART ",
+          "node_id": "uia:win:1272:1d0346:106",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 56.0,
+            "x": 890.0,
+            "y": 337.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Compare",
+          "node_id": "uia:win:1272:1d0346:108",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 98.0,
+            "width": 129.0,
+            "x": 310.0,
+            "y": 437.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG SSD 9100 PRO 1TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,800MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ- VAP1T0B/AM) QUICK VIEW ",
+          "node_id": "uia:win:1272:1d0346:109",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 90.0,
+            "x": 614.0,
+            "y": 437.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG 󩃂",
+          "node_id": "uia:win:1272:1d0346:110",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 26.0,
+            "width": 156.0,
+            "x": 458.0,
+            "y": 442.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.9 out of 5 (1,182)",
+          "node_id": "uia:win:1272:1d0346:111",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 21.0,
+            "width": 111.0,
+            "x": 307.0,
+            "y": 437.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FantasTech Deal",
+          "node_id": "uia:win:1272:1d0346:112",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 55.0,
+            "width": 246.0,
+            "x": 458.0,
+            "y": 477.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG SSD 9100 PRO 1TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,800MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ- VAP1T0B/AM)",
+          "node_id": "uia:win:1272:1d0346:113",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 18.0,
+            "width": 231.0,
+            "x": 473.0,
+            "y": 546.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:114",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "list",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 118.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 437.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:115",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "list",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 27.0,
+            "width": 134.0,
+            "x": 820.0,
+            "y": 564.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "ADD TO CART ",
+          "node_id": "uia:win:1272:1d0346:116",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 56.0,
+            "x": 890.0,
+            "y": 610.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Compare",
+          "node_id": "uia:win:1272:1d0346:118",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 98.0,
+            "width": 129.0,
+            "x": 310.0,
+            "y": 710.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "KingSpec XG 7000 1TB M.2 2280 PCIe Gen 4.0x4 NVME 1.4 Speed up to 7400MB/s Write Speed Up to 6600MB/s Internal Solid State Drive for PS5 PC Desktop Laptop Game-Player QUICK VIEW ",
+          "node_id": "uia:win:1272:1d0346:119",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 73.0,
+            "x": 465.0,
+            "y": 712.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "LOWEST PRICE",
+          "node_id": "uia:win:1272:1d0346:121",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 15.0,
+            "x": 557.0,
+            "y": 709.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "in ",
+          "node_id": "uia:win:1272:1d0346:123",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 49.0,
+            "x": 571.0,
+            "y": 709.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "30 days",
+          "node_id": "uia:win:1272:1d0346:124",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 21.0,
+            "width": 111.0,
+            "x": 307.0,
+            "y": 710.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FantasTech Deal",
+          "node_id": "uia:win:1272:1d0346:127",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 118.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 710.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:130",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "list",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 145.0,
+            "width": 101.0,
+            "x": 454.0,
+            "y": 325.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:603",
+          "parent_id": "uia:win:1272:1d0346:20",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 19.0,
+            "width": 39.0,
+            "x": 898.0,
+            "y": 556.0
+          },
+          "context_only": false,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Ask AI",
+          "node_id": "uia:win:1272:1d0346:604",
+          "parent_id": "uia:win:1272:1d0346:22",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 37.0,
+            "width": 129.0,
+            "x": 310.0,
+            "y": 195.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Kingston NV3 M.2 2280 1TB PCIe 4.0 x4 NVMe Internal Solid State Drive (SSD) SNV3S/1000G Up to 6000 MB/s",
+          "node_id": "uia:win:1272:1d0346:605",
+          "parent_id": "uia:win:1272:1d0346:100",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 31.0,
+            "x": 408.0,
+            "y": 164.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:606",
+          "parent_id": "uia:win:1272:1d0346:100",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 13.0,
+            "width": 61.0,
+            "x": 458.0,
+            "y": 169.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.7 out of 5",
+          "node_id": "uia:win:1272:1d0346:607",
+          "parent_id": "uia:win:1272:1d0346:101",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 17.0,
+            "width": 231.0,
+            "x": 473.0,
+            "y": 263.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Model #: SNV3S/1000G",
+          "node_id": "uia:win:1272:1d0346:608",
+          "parent_id": "uia:win:1272:1d0346:104",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 164.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$215.99",
+          "node_id": "uia:win:1272:1d0346:609",
+          "parent_id": "uia:win:1272:1d0346:105",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 184.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$156.99 ",
+          "node_id": "uia:win:1272:1d0346:610",
+          "parent_id": "uia:win:1272:1d0346:105",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 222.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Save: $59.00 (27%)",
+          "node_id": "uia:win:1272:1d0346:611",
+          "parent_id": "uia:win:1272:1d0346:105",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 19.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 242.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $79.70 - $302.00",
+          "node_id": "uia:win:1272:1d0346:612",
+          "parent_id": "uia:win:1272:1d0346:105",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 17.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 265.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Free Shipping",
+          "node_id": "uia:win:1272:1d0346:613",
+          "parent_id": "uia:win:1272:1d0346:105",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 74.0,
+            "width": 129.0,
+            "x": 310.0,
+            "y": 449.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG SSD 9100 PRO 1TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,800MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ- VAP1T0B/AM)",
+          "node_id": "uia:win:1272:1d0346:614",
+          "parent_id": "uia:win:1272:1d0346:109",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 31.0,
+            "x": 408.0,
+            "y": 437.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:615",
+          "parent_id": "uia:win:1272:1d0346:109",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 29.0,
+            "width": 70.0,
+            "x": 615.0,
+            "y": 438.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG",
+          "node_id": "uia:win:1272:1d0346:616",
+          "parent_id": "uia:win:1272:1d0346:110",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 13.0,
+            "width": 61.0,
+            "x": 458.0,
+            "y": 447.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.9 out of 5",
+          "node_id": "uia:win:1272:1d0346:617",
+          "parent_id": "uia:win:1272:1d0346:111",
+          "role": "control",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 231.0,
+            "x": 473.0,
+            "y": 546.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Model #: MZ-VAP1T0B/AM",
+          "node_id": "uia:win:1272:1d0346:618",
+          "parent_id": "uia:win:1272:1d0346:114",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 437.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$339.99",
+          "node_id": "uia:win:1272:1d0346:619",
+          "parent_id": "uia:win:1272:1d0346:115",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 457.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$249.99 ",
+          "node_id": "uia:win:1272:1d0346:620",
+          "parent_id": "uia:win:1272:1d0346:115",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 495.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Save: $90.00 (26%)",
+          "node_id": "uia:win:1272:1d0346:621",
+          "parent_id": "uia:win:1272:1d0346:115",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 515.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $245.00 - $388.65",
+          "node_id": "uia:win:1272:1d0346:622",
+          "parent_id": "uia:win:1272:1d0346:115",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 537.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Free Shipping",
+          "node_id": "uia:win:1272:1d0346:623",
+          "parent_id": "uia:win:1272:1d0346:115",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 31.0,
+            "x": 408.0,
+            "y": 710.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:1d0346:625",
+          "parent_id": "uia:win:1272:1d0346:119",
+          "role": "button",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 230.0,
+            "x": 724.0,
+            "y": 710.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$169.99",
+          "node_id": "uia:win:1272:1d0346:626",
+          "parent_id": "uia:win:1272:1d0346:130",
+          "role": "listitem",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 51.0,
+            "x": 473.0,
+            "y": 262.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Model #: ",
+          "node_id": "uia:win:1272:1d0346:631",
+          "parent_id": "uia:win:1272:1d0346:608",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 36.0,
+            "width": 43.0,
+            "x": 888.0,
+            "y": 182.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "156",
+          "node_id": "uia:win:1272:1d0346:632",
+          "parent_id": "uia:win:1272:1d0346:610",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 19.0,
+            "x": 930.0,
+            "y": 186.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": ".99",
+          "node_id": "uia:win:1272:1d0346:633",
+          "parent_id": "uia:win:1272:1d0346:610",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 212.0,
+            "x": 742.0,
+            "y": 241.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $79.70 - $302.00",
+          "node_id": "uia:win:1272:1d0346:634",
+          "parent_id": "uia:win:1272:1d0346:612",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 51.0,
+            "x": 473.0,
+            "y": 545.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Model #: ",
+          "node_id": "uia:win:1272:1d0346:635",
+          "parent_id": "uia:win:1272:1d0346:618",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 36.0,
+            "width": 43.0,
+            "x": 888.0,
+            "y": 455.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "249",
+          "node_id": "uia:win:1272:1d0346:636",
+          "parent_id": "uia:win:1272:1d0346:620",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 19.0,
+            "x": 930.0,
+            "y": 459.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": ".99",
+          "node_id": "uia:win:1272:1d0346:637",
+          "parent_id": "uia:win:1272:1d0346:620",
+          "role": "text",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 219.0,
+            "x": 735.0,
+            "y": 514.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $245.00 - $388.65",
+          "node_id": "uia:win:1272:1d0346:638",
+          "parent_id": "uia:win:1272:1d0346:622",
+          "role": "hyperlink",
+          "surface_id": "win:1272:1d0346",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        }
+      ],
+      "omitted": 0,
+      "region": {
+        "height": 640.0,
+        "width": 760.0,
+        "x": 260.0,
+        "y": 80.0
+      },
+      "returned": 73,
+      "scope": "foreground_window",
+      "selected": 73,
+      "selection_policy": "visible_breadth_first",
+      "truncated": true,
+      "truncation_reasons": [
+        "time_limit"
+      ],
+      "viewport": {
+        "height": 640.0,
+        "width": 760.0,
+        "x": 260.0,
+        "y": 80.0
+      },
+      "visited": 737
+    },
+    "action": "observe",
+    "coordinate_space": "physical_desktop_pixels",
+    "displays": [
+      {
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "id": "win-monitor:10001",
+        "physical_pixels": {
+          "height": 768.0,
+          "width": 1024.0
+        },
+        "primary": true,
+        "scale": 1.0,
+        "scale_source": "GetScaleFactorForMonitor"
+      }
+    ],
+    "frame_id": "win:8472:1791173528847220800:2",
+    "performed": false,
+    "permissions": {
+      "elevation": "unchanged",
+      "interactive_desktop": true,
+      "secure_desktop": false
+    },
+    "platform": "windows",
+    "screenshot_bounds": {
+      "height": 640.0,
+      "width": 760.0,
+      "x": 260.0,
+      "y": 80.0
+    },
+    "screenshot_included": false,
+    "surfaces": [
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": true,
+        "frontmost": true,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:1d0346",
+        "title": "1TB NVMe SSD | Newegg.com - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "ThumbnailDeviceHelperWnd",
+        "bounds": {
+          "height": 1.0,
+          "width": 1.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:103a4",
+        "title": ""
+      },
+      {
+        "app": "Shell_TrayWnd",
+        "bounds": {
+          "height": 48.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 720.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:100d8",
+        "title": ""
+      },
+      {
+        "app": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "bounds": {
+          "height": 635.0,
+          "width": 1044.0,
+          "x": 122.0,
+          "y": 130.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8792,
+        "surface_id": "win:8792:c03b4",
+        "title": "C:\\Users\\xharness\\AppData\\Local\\Temp\\XHarness-Shopping-Lab-20261005121018\\computer-probe.exe"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 206.0,
+          "width": 344.0,
+          "x": 484.0,
+          "y": 72.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:190348",
+        "title": "翻译 英语 页面?"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:190378",
+        "title": "XHarness Shopping Load Lab - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "bounds": {
+          "height": 635.0,
+          "width": 1044.0,
+          "x": 96.0,
+          "y": 104.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8792,
+        "surface_id": "win:8792:c0194",
+        "title": "Windows PowerShell"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:e037e",
+        "title": "XHarness Shopping Load Lab - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:1e0372",
+        "title": "自定义浏览器 和另外 2 个页面 - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Windows.UI.Core.CoreWindow",
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8124,
+        "surface_id": "win:8124:30192",
+        "title": "Windows 输入体验"
+      },
+      {
+        "app": "EdgeUiInputTopWndClass",
+        "bounds": {
+          "height": 4.0,
+          "width": 1009.0,
+          "x": 15.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:10160",
+        "title": ""
+      },
+      {
+        "app": "Progman",
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:100fe",
+        "title": "Program Manager"
+      }
+    ]
+  },
+  "resource_samples": [
+    {
+      "native_private_bytes": 1892352,
+      "native_rss_bytes": 10997760,
+      "native_processes": 1,
+      "edge_rss_bytes": 924663808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.0214330+08:00",
+      "edge_private_bytes": 649601024
+    },
+    {
+      "native_private_bytes": 1892352,
+      "native_rss_bytes": 10997760,
+      "native_processes": 1,
+      "edge_rss_bytes": 924663808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.0826201+08:00",
+      "edge_private_bytes": 649601024
+    },
+    {
+      "native_private_bytes": 2658304,
+      "native_rss_bytes": 17801216,
+      "native_processes": 2,
+      "edge_rss_bytes": 924663808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.2025982+08:00",
+      "edge_private_bytes": 649601024
+    },
+    {
+      "native_private_bytes": 4362240,
+      "native_rss_bytes": 28889088,
+      "native_processes": 2,
+      "edge_rss_bytes": 924663808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.3334732+08:00",
+      "edge_private_bytes": 649601024
+    },
+    {
+      "native_private_bytes": 4845568,
+      "native_rss_bytes": 31739904,
+      "native_processes": 2,
+      "edge_rss_bytes": 924684288,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.4606863+08:00",
+      "edge_private_bytes": 649621504
+    },
+    {
+      "native_private_bytes": 4845568,
+      "native_rss_bytes": 31789056,
+      "native_processes": 2,
+      "edge_rss_bytes": 924684288,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.5914534+08:00",
+      "edge_private_bytes": 649621504
+    },
+    {
+      "native_private_bytes": 4866048,
+      "native_rss_bytes": 31813632,
+      "native_processes": 2,
+      "edge_rss_bytes": 924708864,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.7250182+08:00",
+      "edge_private_bytes": 649646080
+    },
+    {
+      "native_private_bytes": 4902912,
+      "native_rss_bytes": 31850496,
+      "native_processes": 2,
+      "edge_rss_bytes": 924717056,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.8463347+08:00",
+      "edge_private_bytes": 649654272
+    },
+    {
+      "native_private_bytes": 4931584,
+      "native_rss_bytes": 31879168,
+      "native_processes": 2,
+      "edge_rss_bytes": 924864512,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:00.9743158+08:00",
+      "edge_private_bytes": 649830400
+    },
+    {
+      "native_private_bytes": 5013504,
+      "native_rss_bytes": 31956992,
+      "native_processes": 2,
+      "edge_rss_bytes": 924864512,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.0987830+08:00",
+      "edge_private_bytes": 649838592
+    },
+    {
+      "native_private_bytes": 5025792,
+      "native_rss_bytes": 31973376,
+      "native_processes": 2,
+      "edge_rss_bytes": 924876800,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.2369743+08:00",
+      "edge_private_bytes": 649850880
+    },
+    {
+      "native_private_bytes": 5136384,
+      "native_rss_bytes": 32059392,
+      "native_processes": 2,
+      "edge_rss_bytes": 924884992,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.3577500+08:00",
+      "edge_private_bytes": 649859072
+    },
+    {
+      "native_private_bytes": 5156864,
+      "native_rss_bytes": 32096256,
+      "native_processes": 2,
+      "edge_rss_bytes": 925011968,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.4903057+08:00",
+      "edge_private_bytes": 649990144
+    },
+    {
+      "native_private_bytes": 5214208,
+      "native_rss_bytes": 32157696,
+      "native_processes": 2,
+      "edge_rss_bytes": 925028352,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.6201269+08:00",
+      "edge_private_bytes": 650006528
+    },
+    {
+      "native_private_bytes": 5226496,
+      "native_rss_bytes": 32165888,
+      "native_processes": 2,
+      "edge_rss_bytes": 925073408,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.7874674+08:00",
+      "edge_private_bytes": 650076160
+    },
+    {
+      "native_private_bytes": 5337088,
+      "native_rss_bytes": 32256000,
+      "native_processes": 2,
+      "edge_rss_bytes": 925081600,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:01.9027371+08:00",
+      "edge_private_bytes": 650084352
+    },
+    {
+      "native_private_bytes": 5357568,
+      "native_rss_bytes": 32280576,
+      "native_processes": 2,
+      "edge_rss_bytes": 924524544,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.0286617+08:00",
+      "edge_private_bytes": 649752576
+    },
+    {
+      "native_private_bytes": 5414912,
+      "native_rss_bytes": 32342016,
+      "native_processes": 2,
+      "edge_rss_bytes": 924696576,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.1713934+08:00",
+      "edge_private_bytes": 649940992
+    },
+    {
+      "native_private_bytes": 5476352,
+      "native_rss_bytes": 32403456,
+      "native_processes": 2,
+      "edge_rss_bytes": 924758016,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.3086903+08:00",
+      "edge_private_bytes": 650002432
+    },
+    {
+      "native_private_bytes": 5509120,
+      "native_rss_bytes": 32444416,
+      "native_processes": 2,
+      "edge_rss_bytes": 924778496,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.4269959+08:00",
+      "edge_private_bytes": 650022912
+    },
+    {
+      "native_private_bytes": 5550080,
+      "native_rss_bytes": 32485376,
+      "native_processes": 2,
+      "edge_rss_bytes": 924798976,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.5462364+08:00",
+      "edge_private_bytes": 650043392
+    },
+    {
+      "native_private_bytes": 5586944,
+      "native_rss_bytes": 32518144,
+      "native_processes": 2,
+      "edge_rss_bytes": 924839936,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.6702348+08:00",
+      "edge_private_bytes": 650084352
+    },
+    {
+      "native_private_bytes": 5599232,
+      "native_rss_bytes": 32538624,
+      "native_processes": 2,
+      "edge_rss_bytes": 925003776,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.7957182+08:00",
+      "edge_private_bytes": 650256384
+    },
+    {
+      "native_private_bytes": 5754880,
+      "native_rss_bytes": 32681984,
+      "native_processes": 2,
+      "edge_rss_bytes": 925011968,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:02.9240902+08:00",
+      "edge_private_bytes": 650264576
+    },
+    {
+      "native_private_bytes": 5754880,
+      "native_rss_bytes": 32686080,
+      "native_processes": 2,
+      "edge_rss_bytes": 924086272,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.0512566+08:00",
+      "edge_private_bytes": 650264576
+    },
+    {
+      "native_private_bytes": 5824512,
+      "native_rss_bytes": 32751616,
+      "native_processes": 2,
+      "edge_rss_bytes": 924086272,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.1847897+08:00",
+      "edge_private_bytes": 650264576
+    },
+    {
+      "native_private_bytes": 5849088,
+      "native_rss_bytes": 32780288,
+      "native_processes": 2,
+      "edge_rss_bytes": 924086272,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.3946025+08:00",
+      "edge_private_bytes": 650264576
+    },
+    {
+      "native_private_bytes": 5881856,
+      "native_rss_bytes": 32808960,
+      "native_processes": 2,
+      "edge_rss_bytes": 924110848,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.5185957+08:00",
+      "edge_private_bytes": 650289152
+    },
+    {
+      "native_private_bytes": 5922816,
+      "native_rss_bytes": 32841728,
+      "native_processes": 2,
+      "edge_rss_bytes": 924135424,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.6445703+08:00",
+      "edge_private_bytes": 650313728
+    },
+    {
+      "native_private_bytes": 5922816,
+      "native_rss_bytes": 32854016,
+      "native_processes": 2,
+      "edge_rss_bytes": 924151808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.7595335+08:00",
+      "edge_private_bytes": 650330112
+    },
+    {
+      "native_private_bytes": 6021120,
+      "native_rss_bytes": 32952320,
+      "native_processes": 2,
+      "edge_rss_bytes": 924151808,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:03.8861868+08:00",
+      "edge_private_bytes": 650330112
+    },
+    {
+      "native_private_bytes": 6021120,
+      "native_rss_bytes": 32952320,
+      "native_processes": 2,
+      "edge_rss_bytes": 923279360,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.0259485+08:00",
+      "edge_private_bytes": 650330112
+    },
+    {
+      "native_private_bytes": 6021120,
+      "native_rss_bytes": 32952320,
+      "native_processes": 2,
+      "edge_rss_bytes": 923287552,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.1537928+08:00",
+      "edge_private_bytes": 650334208
+    },
+    {
+      "native_private_bytes": 6090752,
+      "native_rss_bytes": 33017856,
+      "native_processes": 2,
+      "edge_rss_bytes": 923295744,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.2952967+08:00",
+      "edge_private_bytes": 650342400
+    },
+    {
+      "native_private_bytes": 6111232,
+      "native_rss_bytes": 33038336,
+      "native_processes": 2,
+      "edge_rss_bytes": 923275264,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.4195479+08:00",
+      "edge_private_bytes": 650321920
+    },
+    {
+      "native_private_bytes": 6152192,
+      "native_rss_bytes": 33083392,
+      "native_processes": 2,
+      "edge_rss_bytes": 923295744,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.5471082+08:00",
+      "edge_private_bytes": 650342400
+    },
+    {
+      "native_private_bytes": 6262784,
+      "native_rss_bytes": 33177600,
+      "native_processes": 2,
+      "edge_rss_bytes": 923316224,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.6769650+08:00",
+      "edge_private_bytes": 650362880
+    },
+    {
+      "native_private_bytes": 6262784,
+      "native_rss_bytes": 33193984,
+      "native_processes": 2,
+      "edge_rss_bytes": 923328512,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.7976709+08:00",
+      "edge_private_bytes": 650375168
+    },
+    {
+      "native_private_bytes": 6262784,
+      "native_rss_bytes": 33193984,
+      "native_processes": 2,
+      "edge_rss_bytes": 923361280,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:04.9489842+08:00",
+      "edge_private_bytes": 650407936
+    },
+    {
+      "native_private_bytes": 6303744,
+      "native_rss_bytes": 33230848,
+      "native_processes": 2,
+      "edge_rss_bytes": 923353088,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.0686343+08:00",
+      "edge_private_bytes": 650412032
+    },
+    {
+      "native_private_bytes": 6303744,
+      "native_rss_bytes": 33234944,
+      "native_processes": 2,
+      "edge_rss_bytes": 923365376,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.2060773+08:00",
+      "edge_private_bytes": 650424320
+    },
+    {
+      "native_private_bytes": 6393856,
+      "native_rss_bytes": 33316864,
+      "native_processes": 2,
+      "edge_rss_bytes": 923365376,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.3278759+08:00",
+      "edge_private_bytes": 650424320
+    },
+    {
+      "native_private_bytes": 6393856,
+      "native_rss_bytes": 33337344,
+      "native_processes": 2,
+      "edge_rss_bytes": 923361280,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.4587175+08:00",
+      "edge_private_bytes": 650420224
+    },
+    {
+      "native_private_bytes": 6430720,
+      "native_rss_bytes": 33370112,
+      "native_processes": 2,
+      "edge_rss_bytes": 923377664,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.5834559+08:00",
+      "edge_private_bytes": 650436608
+    },
+    {
+      "native_private_bytes": 6471680,
+      "native_rss_bytes": 33411072,
+      "native_processes": 2,
+      "edge_rss_bytes": 923394048,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.7188479+08:00",
+      "edge_private_bytes": 650452992
+    },
+    {
+      "native_private_bytes": 6705152,
+      "native_rss_bytes": 33533952,
+      "native_processes": 2,
+      "edge_rss_bytes": 923443200,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:05.8797086+08:00",
+      "edge_private_bytes": 650502144
+    },
+    {
+      "native_private_bytes": 6840320,
+      "native_rss_bytes": 33665024,
+      "native_processes": 2,
+      "edge_rss_bytes": 923455488,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.0114659+08:00",
+      "edge_private_bytes": 650514432
+    },
+    {
+      "native_private_bytes": 6840320,
+      "native_rss_bytes": 33730560,
+      "native_processes": 2,
+      "edge_rss_bytes": 923279360,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.1472884+08:00",
+      "edge_private_bytes": 650317824
+    },
+    {
+      "native_private_bytes": 6840320,
+      "native_rss_bytes": 33730560,
+      "native_processes": 2,
+      "edge_rss_bytes": 923312128,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.2642284+08:00",
+      "edge_private_bytes": 650350592
+    },
+    {
+      "native_private_bytes": 6840320,
+      "native_rss_bytes": 33734656,
+      "native_processes": 2,
+      "edge_rss_bytes": 923353088,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.3872294+08:00",
+      "edge_private_bytes": 650391552
+    },
+    {
+      "native_private_bytes": 6840320,
+      "native_rss_bytes": 33734656,
+      "native_processes": 2,
+      "edge_rss_bytes": 923521024,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.5160186+08:00",
+      "edge_private_bytes": 650555392
+    },
+    {
+      "native_private_bytes": 6877184,
+      "native_rss_bytes": 33775616,
+      "native_processes": 2,
+      "edge_rss_bytes": 923607040,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.6593717+08:00",
+      "edge_private_bytes": 650657792
+    },
+    {
+      "native_private_bytes": 6877184,
+      "native_rss_bytes": 33775616,
+      "native_processes": 2,
+      "edge_rss_bytes": 923668480,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.8028922+08:00",
+      "edge_private_bytes": 650727424
+    },
+    {
+      "native_private_bytes": 6897664,
+      "native_rss_bytes": 33792000,
+      "native_processes": 2,
+      "edge_rss_bytes": 923680768,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:06.9219487+08:00",
+      "edge_private_bytes": 650739712
+    },
+    {
+      "native_private_bytes": 6897664,
+      "native_rss_bytes": 33792000,
+      "native_processes": 2,
+      "edge_rss_bytes": 923688960,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.0463477+08:00",
+      "edge_private_bytes": 650747904
+    },
+    {
+      "native_private_bytes": 6934528,
+      "native_rss_bytes": 33824768,
+      "native_processes": 2,
+      "edge_rss_bytes": 923701248,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.1806863+08:00",
+      "edge_private_bytes": 650760192
+    },
+    {
+      "native_private_bytes": 6971392,
+      "native_rss_bytes": 33873920,
+      "native_processes": 2,
+      "edge_rss_bytes": 923705344,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.3171965+08:00",
+      "edge_private_bytes": 650764288
+    },
+    {
+      "native_private_bytes": 6971392,
+      "native_rss_bytes": 33873920,
+      "native_processes": 2,
+      "edge_rss_bytes": 923688960,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.4446288+08:00",
+      "edge_private_bytes": 650747904
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923705344,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.5815653+08:00",
+      "edge_private_bytes": 650764288
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923717632,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.7076257+08:00",
+      "edge_private_bytes": 650776576
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923750400,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.8404685+08:00",
+      "edge_private_bytes": 650809344
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923471872,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:07.9845870+08:00",
+      "edge_private_bytes": 650792960
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923471872,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.1108062+08:00",
+      "edge_private_bytes": 650792960
+    },
+    {
+      "native_private_bytes": 7147520,
+      "native_rss_bytes": 34054144,
+      "native_processes": 2,
+      "edge_rss_bytes": 923471872,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.2313815+08:00",
+      "edge_private_bytes": 650792960
+    },
+    {
+      "native_private_bytes": 7221248,
+      "native_rss_bytes": 34140160,
+      "native_processes": 2,
+      "edge_rss_bytes": 923471872,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.3842739+08:00",
+      "edge_private_bytes": 650792960
+    },
+    {
+      "native_private_bytes": 7340032,
+      "native_rss_bytes": 34308096,
+      "native_processes": 2,
+      "edge_rss_bytes": 923467776,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.5087990+08:00",
+      "edge_private_bytes": 650788864
+    },
+    {
+      "native_private_bytes": 7393280,
+      "native_rss_bytes": 34361344,
+      "native_processes": 2,
+      "edge_rss_bytes": 923467776,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.6415639+08:00",
+      "edge_private_bytes": 650788864
+    },
+    {
+      "native_private_bytes": 7471104,
+      "native_rss_bytes": 34426880,
+      "native_processes": 2,
+      "edge_rss_bytes": 923471872,
+      "edge_processes": 14,
+      "utc": "2026-10-05T12:12:08.7697720+08:00",
+      "edge_private_bytes": 650792960
+    }
+  ],
+  "resources": [
+    {
+      "Id": 8472,
+      "ProcessName": "computer-probe",
+      "WorkingSet64": 11124736,
+      "PrivateMemorySize64": 2019328,
+      "CPU": 0.875,
+      "HandleCount": 124
+    },
+    {
+      "Id": 304,
+      "ProcessName": "msedge",
+      "WorkingSet64": 4161536,
+      "PrivateMemorySize64": 87674880,
+      "CPU": 62.1875,
+      "HandleCount": 309
+    },
+    {
+      "Id": 1272,
+      "ProcessName": "msedge",
+      "WorkingSet64": 296558592,
+      "PrivateMemorySize64": 151719936,
+      "CPU": 230.5625,
+      "HandleCount": 2111
+    },
+    {
+      "Id": 1784,
+      "ProcessName": "msedge",
+      "WorkingSet64": 81629184,
+      "PrivateMemorySize64": 35504128,
+      "CPU": 2,
+      "HandleCount": 263
+    },
+    {
+      "Id": 3896,
+      "ProcessName": "msedge",
+      "WorkingSet64": 6610944,
+      "PrivateMemorySize64": 66117632,
+      "CPU": 10.828125,
+      "HandleCount": 265
+    },
+    {
+      "Id": 4944,
+      "ProcessName": "msedge",
+      "WorkingSet64": 14106624,
+      "PrivateMemorySize64": 2904064,
+      "CPU": 0.296875,
+      "HandleCount": 231
+    },
+    {
+      "Id": 5392,
+      "ProcessName": "msedge",
+      "WorkingSet64": 48455680,
+      "PrivateMemorySize64": 15482880,
+      "CPU": 13.5625,
+      "HandleCount": 372
+    },
+    {
+      "Id": 5440,
+      "ProcessName": "msedge",
+      "WorkingSet64": 21815296,
+      "PrivateMemorySize64": 9154560,
+      "CPU": 0.484375,
+      "HandleCount": 196
+    },
+    {
+      "Id": 6016,
+      "ProcessName": "msedge",
+      "WorkingSet64": 169914368,
+      "PrivateMemorySize64": 115949568,
+      "CPU": 40.4375,
+      "HandleCount": 343
+    },
+    {
+      "Id": 6036,
+      "ProcessName": "msedge",
+      "WorkingSet64": 97075200,
+      "PrivateMemorySize64": 56360960,
+      "CPU": 2.28125,
+      "HandleCount": 260
+    },
+    {
+      "Id": 6056,
+      "ProcessName": "msedge",
+      "WorkingSet64": 3297280,
+      "PrivateMemorySize64": 53329920,
+      "CPU": 2.625,
+      "HandleCount": 258
+    },
+    {
+      "Id": 6696,
+      "ProcessName": "msedge",
+      "WorkingSet64": 31309824,
+      "PrivateMemorySize64": 8806400,
+      "CPU": 1.015625,
+      "HandleCount": 268
+    },
+    {
+      "Id": 6780,
+      "ProcessName": "msedge",
+      "WorkingSet64": 92651520,
+      "PrivateMemorySize64": 22417408,
+      "CPU": 317.53125,
+      "HandleCount": 503
+    },
+    {
+      "Id": 8576,
+      "ProcessName": "msedge",
+      "WorkingSet64": 35254272,
+      "PrivateMemorySize64": 17813504,
+      "CPU": 0.203125,
+      "HandleCount": 213
+    },
+    {
+      "Id": 10160,
+      "ProcessName": "msedge",
+      "WorkingSet64": 20799488,
+      "PrivateMemorySize64": 7725056,
+      "CPU": 0.4375,
+      "HandleCount": 198
+    }
+  ],
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "host_received_utc": "2026-10-05T12:12:10.462532+00:00"
+}

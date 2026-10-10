@@ -1,0 +1,167 @@
+{
+  "type": "function",
+  "function": {
+    "name": "computer",
+    "description": "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+    "parameters": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "observe",
+            "move",
+            "click",
+            "drag",
+            "scroll",
+            "type",
+            "keypress",
+            "wait",
+            "window"
+          ],
+          "type": "string"
+        },
+        "button": {
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "delta_x": {
+          "type": "integer"
+        },
+        "delta_y": {
+          "type": "integer"
+        },
+        "detail": {
+          "enum": [
+            "auto",
+            "low",
+            "high",
+            "semantic"
+          ],
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "frame_id": {
+          "description": "Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action.",
+          "type": "string"
+        },
+        "height": {
+          "type": "number"
+        },
+        "include_accessibility": {
+          "type": "boolean"
+        },
+        "include_screenshot": {
+          "type": "boolean"
+        },
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modifiers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "observe_after": {
+          "enum": [
+            "never",
+            "auto",
+            "always"
+          ],
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "list",
+            "focus",
+            "move",
+            "resize",
+            "minimize",
+            "maximize",
+            "fullscreen",
+            "close"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "region": {
+          "additionalProperties": false,
+          "description": "Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.",
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "surface_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "width": {
+          "type": "number"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  }
+}

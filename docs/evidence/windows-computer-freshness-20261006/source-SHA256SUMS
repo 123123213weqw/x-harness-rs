@@ -1,0 +1,6 @@
+4e3b88fb8bd2799629be297e0d0cd830dc6d3fa0e6b7b5ace8920b9117c73354  crates/xharness-computer-windows/src/adapter.rs
+83c5b712ecb69bce71b735744a8ef6ff9d9d4e13e1f5bf9e655dfa30d129b1aa  crates/xharness-computer-windows/src/state.rs
+59588e1b04ea80cbdad4da5046806d2741932aff57f4b15b4782d6afc24c7949  crates/xharness-computer-windows/src/lib.rs
+d26f48111f136508a57ec8e51e66531b8927e7300ef1a044e6cb6e9843f34e40  crates/xharness-computer-windows/src/native/acceptance.rs
+08db109bf97ed557e532589095013c61a03a7556a7b6cfee539cd72260f70246  crates/xharness-computer-windows/examples/computer-probe.rs
+c53fbe84f5b9b9a69d2d9826e90fd590737f01f0ea19feb7cfad431d027a8495  crates/xharness-computer/src/lib.rs

@@ -1,0 +1,81 @@
+{
+  "case": "filter",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "filtered_sorted": false,
+    "comparison": false,
+    "answer_exact": false
+  },
+  "events": 0,
+  "report_field_types_ok": false,
+  "model": "qwen3.8-27b-uncensored",
+  "variant": "B",
+  "tool_calls": 12,
+  "tool_failures": 6,
+  "elapsed_s": 362.73,
+  "termination_class": "experimental_response_bound",
+  "final_answer_present": false,
+  "failures": [
+    {
+      "id": 6,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 8,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 10,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 12,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 14,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 16,
+      "action": "click",
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    }
+  ],
+  "model_latency_range_s": [
+    5.489,
+    35.741
+  ]
+}

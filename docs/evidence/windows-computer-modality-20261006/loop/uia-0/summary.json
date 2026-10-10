@@ -1,0 +1,44 @@
+{
+  "mode": "uia",
+  "label": "uia-0",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0
+  },
+  "error": "Modality contract violated; not rewritten or dispatched",
+  "calls": [
+    {
+      "id": 8,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8869,
+      "wall_s": 27.789158249739558
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1160,
+      "completion_tokens": 103,
+      "total_tokens": 1263,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1160
+    },
+    {
+      "prompt_tokens": 14190,
+      "completion_tokens": 167,
+      "total_tokens": 14357,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 13038
+    }
+  ],
+  "elapsed_s": 32.60607179114595,
+  "actual_cost_not_reported": true
+}

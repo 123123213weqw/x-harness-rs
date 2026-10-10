@@ -1,0 +1,9 @@
+{
+  "frame_id": "win:1648:1791227347198835500:2",
+  "observe_after": "never",
+  "include_screenshot": false,
+  "include_accessibility": false,
+  "detail": "auto",
+  "action": "type",
+  "text": "http://10.0.2.2:18096/shop.html"
+}

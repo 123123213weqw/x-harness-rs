@@ -1,0 +1,232 @@
+{
+  "model": "deepseek-flash",
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "model_turns": 16,
+  "native_calls": 15,
+  "successful_calls": 11,
+  "failed_calls": 4,
+  "successful_native_median_ms": 8932,
+  "prompt_tokens_sum": 1127015,
+  "completion_tokens_sum": 7937,
+  "cache_hit_tokens_sum": 995072,
+  "last_prompt_tokens": 157067,
+  "usage": [
+    {
+      "prompt_tokens": 1113,
+      "completion_tokens": 78,
+      "total_tokens": 1191,
+      "prompt_tokens_details": {
+        "cached_tokens": 896
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 12
+      },
+      "prompt_cache_hit_tokens": 896,
+      "prompt_cache_miss_tokens": 217
+    },
+    {
+      "prompt_tokens": 11187,
+      "completion_tokens": 333,
+      "total_tokens": 11520,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 213
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 10035
+    },
+    {
+      "prompt_tokens": 21515,
+      "completion_tokens": 119,
+      "total_tokens": 21634,
+      "prompt_tokens_details": {
+        "cached_tokens": 11520
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 15
+      },
+      "prompt_cache_hit_tokens": 11520,
+      "prompt_cache_miss_tokens": 9995
+    },
+    {
+      "prompt_tokens": 21694,
+      "completion_tokens": 65,
+      "total_tokens": 21759,
+      "prompt_tokens_details": {
+        "cached_tokens": 21504
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 10
+      },
+      "prompt_cache_hit_tokens": 21504,
+      "prompt_cache_miss_tokens": 190
+    },
+    {
+      "prompt_tokens": 31755,
+      "completion_tokens": 133,
+      "total_tokens": 31888,
+      "prompt_tokens_details": {
+        "cached_tokens": 21632
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 28
+      },
+      "prompt_cache_hit_tokens": 21632,
+      "prompt_cache_miss_tokens": 10123
+    },
+    {
+      "prompt_tokens": 45005,
+      "completion_tokens": 782,
+      "total_tokens": 45787,
+      "prompt_tokens_details": {
+        "cached_tokens": 31872
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 661
+      },
+      "prompt_cache_hit_tokens": 31872,
+      "prompt_cache_miss_tokens": 13133
+    },
+    {
+      "prompt_tokens": 58576,
+      "completion_tokens": 126,
+      "total_tokens": 58702,
+      "prompt_tokens_details": {
+        "cached_tokens": 45696
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 22
+      },
+      "prompt_cache_hit_tokens": 45696,
+      "prompt_cache_miss_tokens": 12880
+    },
+    {
+      "prompt_tokens": 71819,
+      "completion_tokens": 1028,
+      "total_tokens": 72847,
+      "prompt_tokens_details": {
+        "cached_tokens": 58624
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 925
+      },
+      "prompt_cache_hit_tokens": 58624,
+      "prompt_cache_miss_tokens": 13195
+    },
+    {
+      "prompt_tokens": 72907,
+      "completion_tokens": 76,
+      "total_tokens": 72983,
+      "prompt_tokens_details": {
+        "cached_tokens": 72704
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 21
+      },
+      "prompt_cache_hit_tokens": 72704,
+      "prompt_cache_miss_tokens": 203
+    },
+    {
+      "prompt_tokens": 86101,
+      "completion_tokens": 1304,
+      "total_tokens": 87405,
+      "prompt_tokens_details": {
+        "cached_tokens": 72960
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 1192
+      },
+      "prompt_cache_hit_tokens": 72960,
+      "prompt_cache_miss_tokens": 13141
+    },
+    {
+      "prompt_tokens": 87465,
+      "completion_tokens": 208,
+      "total_tokens": 87673,
+      "prompt_tokens_details": {
+        "cached_tokens": 87296
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 153
+      },
+      "prompt_cache_hit_tokens": 87296,
+      "prompt_cache_miss_tokens": 169
+    },
+    {
+      "prompt_tokens": 100791,
+      "completion_tokens": 646,
+      "total_tokens": 101437,
+      "prompt_tokens_details": {
+        "cached_tokens": 87552
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 536
+      },
+      "prompt_cache_hit_tokens": 87552,
+      "prompt_cache_miss_tokens": 13239
+    },
+    {
+      "prompt_tokens": 111256,
+      "completion_tokens": 353,
+      "total_tokens": 111609,
+      "prompt_tokens_details": {
+        "cached_tokens": 101376
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 252
+      },
+      "prompt_cache_hit_tokens": 101376,
+      "prompt_cache_miss_tokens": 9880
+    },
+    {
+      "prompt_tokens": 111673,
+      "completion_tokens": 224,
+      "total_tokens": 111897,
+      "prompt_tokens_details": {
+        "cached_tokens": 111488
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 169
+      },
+      "prompt_cache_hit_tokens": 111488,
+      "prompt_cache_miss_tokens": 185
+    },
+    {
+      "prompt_tokens": 137091,
+      "completion_tokens": 1108,
+      "total_tokens": 138199,
+      "prompt_tokens_details": {
+        "cached_tokens": 111872
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 955
+      },
+      "prompt_cache_hit_tokens": 111872,
+      "prompt_cache_miss_tokens": 25219
+    },
+    {
+      "prompt_tokens": 157067,
+      "completion_tokens": 1354,
+      "total_tokens": 158421,
+      "prompt_tokens_details": {
+        "cached_tokens": 156928
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 729
+      },
+      "prompt_cache_hit_tokens": 156928,
+      "prompt_cache_miss_tokens": 139
+    }
+  ],
+  "actual_currency_cost_not_reported": true,
+  "peak_sampled_working_set_mib": {
+    "edge_rss_bytes": 1133.07,
+    "native_rss_bytes": 34.08
+  },
+  "all_retained_edge_windows_included": true,
+  "not_unique_pss_or_installed_xharness_memory": true,
+  "full_local_receipts_sha256": "5e05c02bca67c863dfed9bea32777fed3d23faa190444109826b3d0b9f352385",
+  "private_reasoning_not_published": true
+}

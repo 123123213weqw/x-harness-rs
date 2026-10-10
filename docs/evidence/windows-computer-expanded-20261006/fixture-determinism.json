@@ -1,0 +1,8 @@
+{
+  "matches_actual_test_fixture": true,
+  "sha256": {
+    "expanded.html": "d4ba596c174e019c8abcb7cc6a20087fc94e668093e262524f86083d19702c2b",
+    "shop.html": "45fcf6a8fdbc1916ba4fd5b326a82add6bfd93903ad16daaf19699d9b0abc3db",
+    "catalog.json": "628fe8ef4055a8641f79d890cea0b8531d10dd539f12067a2e4fc18f7178ddec"
+  }
+}

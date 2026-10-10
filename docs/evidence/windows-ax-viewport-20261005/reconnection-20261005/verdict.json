@@ -1,0 +1,25 @@
+{
+  "prior_pending_7_reconciled_success": true,
+  "no_pending_input_replayed": true,
+  "prior_probe_confirmed_stopped": true,
+  "fresh_bridge_operations": 28,
+  "new_probe_confirmed_stopped": true,
+  "first_run_homepage_and_site_search_requirement_passed": false,
+  "first_run_note": "Address-bar history autocomplete opened the old results. Cookie banner obscured the prices in independent screenshot. Model broad interactability claim is not certified.",
+  "second_run_site_search_passed": true,
+  "second_run_query": "2TB NVMe SSD",
+  "second_run_independent_screenshot_prices": {
+    "Samsung 9100 PRO 2TB": "399.99 USD",
+    "WD_BLACK SN850X 2TB": "352.00 USD"
+  },
+  "second_run_report_price_accuracy_passed": true,
+  "second_run_stale_node_recovery_passed": true,
+  "second_run_stale_node_errors": 1,
+  "second_run_stale_frame_errors": 0,
+  "performance_optimization_passed": false,
+  "fully_installed_host_runtime_tested": false,
+  "vision_model_tested": false,
+  "synthetic_cart_retested_on_this_build": false,
+  "no_real_cart_login_purchase": true,
+  "no_user_software_restart_or_release": true
+}

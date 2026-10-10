@@ -1,0 +1,26 @@
+{"mode": "expanded", "turn": 0, "model_s": 0.93, "calls": 1, "usage": {"prompt_tokens": 1076, "completion_tokens": 65, "total_tokens": 1141, "prompt_tokens_details": {"cached_tokens": 896}, "prompt_cache_hit_tokens": 896, "prompt_cache_miss_tokens": 180}}
+{"id": 6, "action": "observe", "ok": true, "native_ms": 8710, "wall_s": 12.4, "image": true}
+{"mode": "expanded", "turn": 1, "model_s": 2.34, "calls": 1, "usage": {"prompt_tokens": 12526, "completion_tokens": 146, "total_tokens": 12672, "prompt_tokens_details": {"cached_tokens": 1024}, "prompt_cache_hit_tokens": 1024, "prompt_cache_miss_tokens": 11502}}
+{"id": 7, "action": "scroll", "ok": true, "native_ms": 9331, "wall_s": 10.94, "image": true}
+{"mode": "expanded", "turn": 2, "model_s": 1.73, "calls": 1, "usage": {"prompt_tokens": 31146, "completion_tokens": 165, "total_tokens": 31311, "prompt_tokens_details": {"cached_tokens": 12672}, "prompt_cache_hit_tokens": 12672, "prompt_cache_miss_tokens": 18474}}
+{"id": 8, "action": "scroll", "ok": true, "native_ms": 8758, "wall_s": 11.03, "image": true}
+{"mode": "expanded", "turn": 3, "model_s": 1.77, "calls": 1, "usage": {"prompt_tokens": 42695, "completion_tokens": 158, "total_tokens": 42853, "prompt_tokens_details": {"cached_tokens": 31232}, "prompt_cache_hit_tokens": 31232, "prompt_cache_miss_tokens": 11463}}
+{"id": 9, "action": "click", "ok": true, "native_ms": 8951, "wall_s": 10.81, "image": true}
+{"mode": "expanded", "turn": 4, "model_s": 1.77, "calls": 1, "usage": {"prompt_tokens": 54237, "completion_tokens": 136, "total_tokens": 54373, "prompt_tokens_details": {"cached_tokens": 42752}, "prompt_cache_hit_tokens": 42752, "prompt_cache_miss_tokens": 11485}}
+{"id": 10, "action": "keypress", "ok": false, "native_ms": 440, "wall_s": 3.17, "image": false}
+{"mode": "expanded", "turn": 5, "model_s": 1.09, "calls": 1, "usage": {"prompt_tokens": 54434, "completion_tokens": 87, "total_tokens": 54521, "prompt_tokens_details": {"cached_tokens": 54272}, "prompt_cache_hit_tokens": 54272, "prompt_cache_miss_tokens": 162}}
+{"id": 11, "action": "keypress", "ok": false, "native_ms": 0, "wall_s": 1.75, "image": false}
+{"mode": "expanded", "turn": 6, "model_s": 1.01, "calls": 1, "usage": {"prompt_tokens": 54581, "completion_tokens": 53, "total_tokens": 54634, "prompt_tokens_details": {"cached_tokens": 54400}, "prompt_cache_hit_tokens": 54400, "prompt_cache_miss_tokens": 181}}
+{"id": 12, "action": "observe", "ok": true, "native_ms": 2467, "wall_s": 4.76, "image": true}
+{"mode": "expanded", "turn": 7, "model_s": 1.64, "calls": 1, "usage": {"prompt_tokens": 65181, "completion_tokens": 160, "total_tokens": 65341, "prompt_tokens_details": {"cached_tokens": 54528}, "prompt_cache_hit_tokens": 54528, "prompt_cache_miss_tokens": 10653}}
+{"id": 13, "action": "drag", "ok": true, "native_ms": 9480, "wall_s": 11.5, "image": true}
+{"mode": "expanded", "turn": 8, "model_s": 2.16, "calls": 1, "usage": {"prompt_tokens": 75890, "completion_tokens": 181, "total_tokens": 76071, "prompt_tokens_details": {"cached_tokens": 65280}, "prompt_cache_hit_tokens": 65280, "prompt_cache_miss_tokens": 10610}}
+{"id": 14, "action": "drag", "ok": true, "native_ms": 9307, "wall_s": 12.49, "image": true}
+{"mode": "expanded", "turn": 9, "model_s": 2.28, "calls": 1, "usage": {"prompt_tokens": 94709, "completion_tokens": 185, "total_tokens": 94894, "prompt_tokens_details": {"cached_tokens": 76032}, "prompt_cache_hit_tokens": 76032, "prompt_cache_miss_tokens": 18677}}
+{"id": 15, "action": "drag", "ok": true, "native_ms": 9533, "wall_s": 12.36, "image": true}
+{"mode": "expanded", "turn": 10, "model_s": 1.66, "calls": 1, "usage": {"prompt_tokens": 105443, "completion_tokens": 139, "total_tokens": 105582, "prompt_tokens_details": {"cached_tokens": 94848}, "prompt_cache_hit_tokens": 94848, "prompt_cache_miss_tokens": 10595}}
+{"id": 16, "action": "drag", "ok": true, "native_ms": 9570, "wall_s": 30.31, "image": true}
+{"mode": "expanded", "turn": 11, "model_s": 2.04, "calls": 1, "usage": {"prompt_tokens": 116131, "completion_tokens": 141, "total_tokens": 116272, "prompt_tokens_details": {"cached_tokens": 105472}, "prompt_cache_hit_tokens": 105472, "prompt_cache_miss_tokens": 10659}}
+{"id": 17, "action": "drag", "ok": false, "native_ms": 1, "wall_s": 1.66, "image": false}
+STOP: Turn limit reached, not completion
+{"mode": "expanded", "error": "Turn limit reached, not completion", "native_calls": 12, "elapsed_s": 280.4}

@@ -1,0 +1,344 @@
+[
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115.5}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19489,
+      "completion_tokens": 150,
+      "total_tokens": 19639,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 19489
+    },
+    "finish_reason": "stop",
+    "model_s": 1.563821000047028,
+    "mode": "uia",
+    "repetition": 0,
+    "input_png_sha256": null,
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115.5
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...\",\"price\":352.00}],\"search_center\":{\"x\":312,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 2189,
+      "completion_tokens": 111,
+      "total_tokens": 2300,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 2189
+    },
+    "finish_reason": "stop",
+    "model_s": 1.1738307499326766,
+    "mode": "vision",
+    "repetition": 0,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 312,
+        "y": 115
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19985,
+      "completion_tokens": 148,
+      "total_tokens": 20133,
+      "prompt_tokens_details": {
+        "cached_tokens": 19456
+      },
+      "prompt_cache_hit_tokens": 19456,
+      "prompt_cache_miss_tokens": 529
+    },
+    "finish_reason": "stop",
+    "model_s": 1.296632958110422,
+    "mode": "hybrid",
+    "repetition": 0,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...\",\"price\":352.00}],\"search_center\":{\"x\":312,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 2189,
+      "completion_tokens": 111,
+      "total_tokens": 2300,
+      "prompt_tokens_details": {
+        "cached_tokens": 2048
+      },
+      "prompt_cache_hit_tokens": 2048,
+      "prompt_cache_miss_tokens": 141
+    },
+    "finish_reason": "stop",
+    "model_s": 1.0626664590090513,
+    "mode": "vision",
+    "repetition": 1,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 312,
+        "y": 115
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19985,
+      "completion_tokens": 148,
+      "total_tokens": 20133,
+      "prompt_tokens_details": {
+        "cached_tokens": 19840
+      },
+      "prompt_cache_hit_tokens": 19840,
+      "prompt_cache_miss_tokens": 145
+    },
+    "finish_reason": "stop",
+    "model_s": 1.2935508750379086,
+    "mode": "hybrid",
+    "repetition": 1,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115.5}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19489,
+      "completion_tokens": 150,
+      "total_tokens": 19639,
+      "prompt_tokens_details": {
+        "cached_tokens": 19328
+      },
+      "prompt_cache_hit_tokens": 19328,
+      "prompt_cache_miss_tokens": 161
+    },
+    "finish_reason": "stop",
+    "model_s": 1.357051583006978,
+    "mode": "uia",
+    "repetition": 1,
+    "input_png_sha256": null,
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115.5
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19985,
+      "completion_tokens": 148,
+      "total_tokens": 20133,
+      "prompt_tokens_details": {
+        "cached_tokens": 19840
+      },
+      "prompt_cache_hit_tokens": 19840,
+      "prompt_cache_miss_tokens": 145
+    },
+    "finish_reason": "stop",
+    "model_s": 1.274386334232986,
+    "mode": "hybrid",
+    "repetition": 2,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E\",\"price\":352.00}],\"search_center\":{\"x\":326,\"y\":115.5}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 19489,
+      "completion_tokens": 150,
+      "total_tokens": 19639,
+      "prompt_tokens_details": {
+        "cached_tokens": 19328
+      },
+      "prompt_cache_hit_tokens": 19328,
+      "prompt_cache_miss_tokens": 161
+    },
+    "finish_reason": "stop",
+    "model_s": 0.9842686667107046,
+    "mode": "uia",
+    "repetition": 2,
+    "input_png_sha256": null,
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 326,
+        "y": 115.5
+      }
+    }
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "{\"products\":[{\"name\":\"SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...\",\"price\":399.99},{\"name\":\"WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...\",\"price\":352.00}],\"search_center\":{\"x\":312,\"y\":115}}"
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 2189,
+      "completion_tokens": 111,
+      "total_tokens": 2300,
+      "prompt_tokens_details": {
+        "cached_tokens": 2048
+      },
+      "prompt_cache_hit_tokens": 2048,
+      "prompt_cache_miss_tokens": 141
+    },
+    "finish_reason": "stop",
+    "model_s": 1.2709343750029802,
+    "mode": "vision",
+    "repetition": 2,
+    "input_png_sha256": "45144197da12dae0574143f07bae428dbe383948c8c0c7b076b1f29e590866ec",
+    "answer": {
+      "products": [
+        {
+          "name": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Bes...",
+          "price": 399.99
+        },
+        {
+          "name": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, U...",
+          "price": 352.0
+        }
+      ],
+      "search_center": {
+        "x": 312,
+        "y": 115
+      }
+    }
+  }
+]

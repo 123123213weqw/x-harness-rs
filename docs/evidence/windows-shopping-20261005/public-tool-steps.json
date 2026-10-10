@@ -1,0 +1,376 @@
+[
+  {
+    "id": 16,
+    "request": {
+      "action": "observe",
+      "detail": "semantic"
+    },
+    "ok": true,
+    "elapsed_ms": 2740,
+    "failure": null
+  },
+  {
+    "id": 17,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:16"
+    },
+    "ok": false,
+    "elapsed_ms": 0,
+    "failure": {
+      "kind": "handler",
+      "message": "invalid_request: node_id requires the frame_id returned by observe",
+      "retryable": false
+    }
+  },
+  {
+    "id": 18,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:16",
+      "frame_id": "win:10152:1791169656644725600:14"
+    },
+    "ok": true,
+    "elapsed_ms": 3101,
+    "failure": null
+  },
+  {
+    "id": 19,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169666301395900:15",
+      "text": "https://www.newegg.com/"
+    },
+    "ok": true,
+    "elapsed_ms": 2930,
+    "failure": null
+  },
+  {
+    "id": 20,
+    "request": {
+      "action": "keypress",
+      "frame_id": "win:10152:1791169675480031100:16",
+      "keys": [
+        "Return"
+      ]
+    },
+    "ok": true,
+    "elapsed_ms": 1906,
+    "failure": null
+  },
+  {
+    "id": 21,
+    "request": {
+      "action": "observe",
+      "detail": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 1665,
+    "failure": null
+  },
+  {
+    "id": 22,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:16",
+      "frame_id": "win:10152:1791169687355369400:18"
+    },
+    "ok": true,
+    "elapsed_ms": 3383,
+    "failure": null
+  },
+  {
+    "id": 23,
+    "request": {
+      "action": "keypress",
+      "frame_id": "win:10152:1791169695812563000:19",
+      "keys": [
+        "ctrl",
+        "a"
+      ]
+    },
+    "ok": true,
+    "elapsed_ms": 1342,
+    "failure": null
+  },
+  {
+    "id": 24,
+    "request": {
+      "action": "wait",
+      "duration_ms": 3000
+    },
+    "ok": true,
+    "elapsed_ms": 3284,
+    "failure": null
+  },
+  {
+    "id": 25,
+    "request": {
+      "action": "observe",
+      "detail": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 1808,
+    "failure": null
+  },
+  {
+    "id": 26,
+    "request": {
+      "action": "observe",
+      "detail": "semantic"
+    },
+    "ok": true,
+    "elapsed_ms": 1533,
+    "failure": null
+  },
+  {
+    "id": 27,
+    "request": {
+      "action": "keypress",
+      "frame_id": "win:10152:1791169729215543300:22",
+      "keys": [
+        "Tab"
+      ]
+    },
+    "ok": true,
+    "elapsed_ms": 4302,
+    "failure": null
+  },
+  {
+    "id": 28,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:38",
+      "frame_id": "win:10152:1791169740387622600:23"
+    },
+    "ok": true,
+    "elapsed_ms": 6482,
+    "failure": null
+  },
+  {
+    "id": 29,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169775167830200:24",
+      "text": "1TB NVMe SSD"
+    },
+    "ok": true,
+    "elapsed_ms": 5771,
+    "failure": null
+  },
+  {
+    "id": 30,
+    "request": {
+      "action": "keypress",
+      "frame_id": "win:10152:1791169788509658600:25",
+      "keys": [
+        "Return"
+      ]
+    },
+    "ok": true,
+    "elapsed_ms": 3848,
+    "failure": null
+  },
+  {
+    "id": 31,
+    "request": {
+      "action": "wait",
+      "duration_ms": 3000
+    },
+    "ok": true,
+    "elapsed_ms": 3290,
+    "failure": null
+  },
+  {
+    "id": 32,
+    "request": {
+      "action": "observe",
+      "detail": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 3628,
+    "failure": null
+  },
+  {
+    "id": 33,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:40",
+      "frame_id": "win:10152:1791169827699478800:27"
+    },
+    "ok": true,
+    "elapsed_ms": 4274,
+    "failure": null
+  },
+  {
+    "id": 34,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169840190537800:28",
+      "text": "1TB NVMe SSD"
+    },
+    "ok": true,
+    "elapsed_ms": 3648,
+    "failure": null
+  },
+  {
+    "id": 35,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:41",
+      "frame_id": "win:10152:1791169857283061700:29"
+    },
+    "ok": true,
+    "elapsed_ms": 4089,
+    "failure": null
+  },
+  {
+    "id": 36,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:16",
+      "frame_id": "win:10152:1791169872551751500:30"
+    },
+    "ok": true,
+    "elapsed_ms": 3541,
+    "failure": null
+  },
+  {
+    "id": 37,
+    "request": {
+      "action": "type",
+      "frame_id": "win:10152:1791169885393591100:31",
+      "text": "https://www.newegg.com/p/pl?d=1TB+NVMe+SSD"
+    },
+    "ok": true,
+    "elapsed_ms": 5113,
+    "failure": null
+  },
+  {
+    "id": 38,
+    "request": {
+      "action": "keypress",
+      "frame_id": "win:10152:1791169897423884200:32",
+      "keys": [
+        "Return"
+      ]
+    },
+    "ok": true,
+    "elapsed_ms": 2675,
+    "failure": null
+  },
+  {
+    "id": 39,
+    "request": {
+      "action": "observe",
+      "detail": "semantic"
+    },
+    "ok": true,
+    "elapsed_ms": 2973,
+    "failure": null
+  },
+  {
+    "id": 40,
+    "request": {
+      "action": "scroll",
+      "delta_y": 700,
+      "frame_id": "win:10152:1791169918329347200:34",
+      "x": 700,
+      "y": 500
+    },
+    "ok": false,
+    "elapsed_ms": 3,
+    "failure": {
+      "kind": "handler",
+      "message": "stale_frame: observe again before operating the desktop",
+      "retryable": true
+    }
+  },
+  {
+    "id": 41,
+    "request": {
+      "action": "observe",
+      "detail": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 3502,
+    "failure": null
+  },
+  {
+    "id": 42,
+    "request": {
+      "action": "scroll",
+      "delta_y": 900,
+      "frame_id": "win:10152:1791169980201808000:35",
+      "x": 700,
+      "y": 500
+    },
+    "ok": true,
+    "elapsed_ms": 4255,
+    "failure": null
+  },
+  {
+    "id": 43,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:154",
+      "frame_id": "win:10152:1791169993876543700:36"
+    },
+    "ok": false,
+    "elapsed_ms": 595,
+    "failure": {
+      "kind": "handler",
+      "message": "native_api_failed: Windows API failed: 0x00000000",
+      "retryable": false
+    }
+  },
+  {
+    "id": 44,
+    "request": {
+      "action": "observe",
+      "detail": "auto"
+    },
+    "ok": true,
+    "elapsed_ms": 5103,
+    "failure": null
+  },
+  {
+    "id": 45,
+    "request": {
+      "action": "click",
+      "node_id": "uia:win:1272:1d0346:157",
+      "frame_id": "win:10152:1791170019547844200:37"
+    },
+    "ok": true,
+    "elapsed_ms": 4067,
+    "failure": null
+  },
+  {
+    "id": 46,
+    "request": {
+      "action": "observe",
+      "detail": "semantic",
+      "region": {
+        "x": 260,
+        "y": 80,
+        "width": 760,
+        "height": 640
+      }
+    },
+    "ok": true,
+    "elapsed_ms": 4345,
+    "failure": null
+  },
+  {
+    "id": 47,
+    "request": {
+      "action": "click",
+      "frame_id": "win:10152:1791170047228327500:39",
+      "x": 230,
+      "y": 272
+    },
+    "ok": true,
+    "elapsed_ms": 2821,
+    "failure": null
+  }
+]

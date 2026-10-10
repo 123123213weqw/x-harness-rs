@@ -1,0 +1,80 @@
+{
+  "case": "scroll-detail",
+  "mode": "expanded",
+  "label": "scroll-detail",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0,
+    "observation_policy": "model selected; schema defaults unchanged"
+  },
+  "error": "Non-whitelisted action; not dispatched",
+  "calls": [
+    {
+      "id": 24,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8562,
+      "wall_s": 12.299413790926337
+    },
+    {
+      "id": 25,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 9006,
+      "wall_s": 13.035475250333548
+    },
+    {
+      "id": 26,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 8914,
+      "wall_s": 12.639888667035848
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1072,
+      "completion_tokens": 63,
+      "total_tokens": 1135,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1072
+    },
+    {
+      "prompt_tokens": 11801,
+      "completion_tokens": 143,
+      "total_tokens": 11944,
+      "prompt_tokens_details": {
+        "cached_tokens": 1024
+      },
+      "prompt_cache_hit_tokens": 1024,
+      "prompt_cache_miss_tokens": 10777
+    },
+    {
+      "prompt_tokens": 23106,
+      "completion_tokens": 153,
+      "total_tokens": 23259,
+      "prompt_tokens_details": {
+        "cached_tokens": 11904
+      },
+      "prompt_cache_hit_tokens": 11904,
+      "prompt_cache_miss_tokens": 11202
+    },
+    {
+      "prompt_tokens": 34421,
+      "completion_tokens": 165,
+      "total_tokens": 34586,
+      "prompt_tokens_details": {
+        "cached_tokens": 23168
+      },
+      "prompt_cache_hit_tokens": 23168,
+      "prompt_cache_miss_tokens": 11253
+    }
+  ],
+  "elapsed_s": 76.6999909998849,
+  "actual_cost_not_reported": true
+}

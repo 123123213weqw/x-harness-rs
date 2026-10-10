@@ -5,7 +5,7 @@
 //! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows, test))]
 mod computer_media;
 mod github_http;
 pub mod github_service;
@@ -356,18 +356,31 @@ impl SessionToolFactory for NativeToolFactory {
         // sandbox. It is registered as one provider-neutral tool only after
         // the user selected the existing full-access preset. macOS permission
         // probes still fail closed inside the adapter.
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if permission == PermissionPreset::DangerFullAccess {
-            let mut tool = xharness_computer::ComputerTool::new(Arc::new(
-                xharness_computer_macos::MacComputer::new(),
-            ));
+            #[cfg(target_os = "macos")]
+            let driver: Arc<dyn xharness_computer::ComputerDriver> =
+                Arc::new(xharness_computer_macos::MacComputer::new());
+            #[cfg(windows)]
+            let driver: Arc<dyn xharness_computer::ComputerDriver> = Arc::new(
+                xharness_computer_windows::WindowsComputer::new()
+                    .map_err(|error| error.to_string())?,
+            );
+            let mut tool = xharness_computer::ComputerTool::new(driver);
             if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
                 tool = tool.with_media_sink(Arc::new(computer_media::Sink {
                     host: Arc::downgrade(&host),
                     session: session_id.into(),
                 }));
             }
-            specs.push(tool.spec());
+            let spec = tool.spec();
+            #[cfg(windows)]
+            let spec = {
+                let mut spec = spec;
+                spec.definition.description.push_str(" Windows: coordinates and screenshot bounds are physical virtual-desktop pixels. Each dispatched action consumes its frame; observe again unless the result returns a new frame_id. UIA snapshots cover the foreground window. Scroll deltas use wheel units (120 per detent), positive y scrolls down and positive x scrolls right. Fullscreen is application-specific; use its observed controls. No automatic elevation or secure-desktop control.");
+                spec
+            };
+            specs.push(spec);
         }
         if let Some(schedules) = &self.schedules {
             specs.extend(schedules.specs(session_id));
@@ -931,11 +944,11 @@ mod tests {
         assert!(guarded_names
             .iter()
             .all(|definition| definition.name != "computer"));
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         assert!(full_definitions
             .iter()
             .any(|definition| definition.name == "computer"));
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         assert!(full_definitions
             .iter()
             .all(|definition| definition.name != "computer"));

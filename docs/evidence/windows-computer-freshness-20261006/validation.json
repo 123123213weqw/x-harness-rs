@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "source_base": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "uncommitted_sources_included": true,
+  "compiler_host": "WZU_Server",
+  "local_rust_compilation": false,
+  "linux_unit_tests": {
+    "passed": 26,
+    "failed": 0,
+    "new_state_cases": 5
+  },
+  "linux_clippy": {
+    "passed": true,
+    "deny_warnings": true
+  },
+  "windows_target_check": {
+    "target": "x86_64-pc-windows-msvc",
+    "all_targets": true,
+    "native_acceptance_feature": true,
+    "passed": true
+  },
+  "windows_target_clippy": {
+    "passed": true,
+    "deny_warnings": true
+  },
+  "windows_unit_tests_executed": false,
+  "windows_native_freshness_fixture_executed": true,
+  "revised_runtime_qwen_comparison_executed": false,
+  "installed_application_changed": false,
+  "automatic_retry_added": false,
+  "public_tool_schema_changed_by_this_fix": false,
+  "remaining_gap": "Existing native checks do not detect all content or occlusion changes inside an unchanged foreground window.",
+  "tested_commit": "9837341741632e5a6ebd83e3169573abb9f40698",
+  "windows_ci": {
+    "run_id": 37461478729,
+    "conclusion": "success",
+    "native_job_duration": "5m41s",
+    "artifact_sha256": "95e09749e205b788954e11f2c6d058aa98f8726b87af5fa903880b2a9f5abd19",
+    "pe_import_audit": "no external MSVC runtime imports"
+  },
+  "real_runtime_test_status": "native suites passed; Qwen rerun in progress after fixture console focus failure",
+  "qwen_inference_calls_this_attempt": 0,
+  "deepseek_cost_this_attempt_cny": 0,
+  "merged": false,
+  "released": false,
+  "windows_native_acceptance": {
+    "original_cases_passed": 16,
+    "freshness_cases_passed": 4,
+    "observed_wait_ms": 65004,
+    "failed": 0,
+    "source_sha": "9837341741632e5a6ebd83e3169573abb9f40698",
+    "vm_uuid": "66b64058-bdcc-43e9-85ee-55a79fe2e875",
+    "vc_runtime_installed": false
+  },
+  "qwen_execution_completed": true,
+  "qwen_controlled_acceptance_passed": false,
+  "qwen_quality_report": "qwen-quality-report.json",
+  "native_repeat_intermittent_failure": "controlled-attempt-native-receipts.json",
+  "local_lab_scope_guard_tests": 9
+}

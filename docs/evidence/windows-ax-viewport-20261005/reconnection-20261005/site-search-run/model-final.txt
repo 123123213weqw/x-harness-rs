@@ -1,0 +1,16 @@
+The search completed successfully. I used the site's own search box (not the address bar) to submit "2TB NVMe SSD", which loaded the Newegg search results at `https://www.newegg.com/p/pl?d=2TB+NVMe+SSD`.
+
+**Two actual products found with current displayed prices:**
+
+| # | Product name | Current price |
+|---|---|---|
+| 1 | SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM) | **$399.99** (list $679.99, "Save $280.00 (41%)") |
+| 2 | WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive – Gen4 PCIe, M.2 2280, Up to 7,300 MB/s (WDS200T2X0E) | **$352.00** (list $378.90, "Save $26.90 (7%)") |
+
+**Steps taken (read-only):**
+1. Observed the Newegg page (was showing a "1TB NVMe SSD" result with a Cookie consent banner).
+2. Dismissed the banner via "全部拒绝" (Reject All – non-essential cookies only).
+3. Clicked into the page's **Site search** box, selected the old text, typed "2TB NVMe SSD", and pressed Enter to submit — the URL changed to `?d=2TB+NVMe+SSD`, confirming in-site search rather than address-bar/history.
+4. Scrolled to the results grid to read the product names and prices.
+
+**Notes / compliance:** No login, no cart, no checkout, no CAPTCHA encountered, no security warnings bypassed. Prices are as displayed on the search results page (USD, sold via Newegg). The result noted the Samsung item is marked "Best Seller"; a "Sponsored" SanDisk carousel also appeared above the organic results and was not used.

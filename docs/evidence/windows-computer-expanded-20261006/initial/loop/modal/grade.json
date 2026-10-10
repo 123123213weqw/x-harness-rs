@@ -1,0 +1,23 @@
+{
+  "case": "modal",
+  "pass": true,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": true,
+    "no_cart": true,
+    "search": true,
+    "answer_exact": true,
+    "modal_dismissed": true
+  },
+  "events": 3,
+  "report_field_types_ok": false,
+  "run": "initial",
+  "label": "modal",
+  "strict_final_json": false,
+  "format_error": null,
+  "tool_calls": 7,
+  "tool_failures": 1,
+  "elapsed_s": 219.3,
+  "controller_error": null,
+  "valid_model_trial": true
+}

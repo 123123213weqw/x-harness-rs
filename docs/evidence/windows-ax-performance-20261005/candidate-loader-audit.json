@@ -1,0 +1,21 @@
+{
+  "source_sha": "23dd8629d409a901022176fc8d4cb4c082aa3ebd",
+  "sha256": "00540ad6b4d32cca94be0d4a6ef8005e762c7e52e0badebe257f8cbd36fd14b0",
+  "bytes": 2747904,
+  "machine": 34404,
+  "imports": [
+    "api-ms-win-core-synch-l1-2-0.dll",
+    "api-ms-win-shcore-scaling-l1-1-1.dll",
+    "bcryptprimitives.dll",
+    "gdi32.dll",
+    "kernel32.dll",
+    "ntdll.dll",
+    "ole32.dll",
+    "oleaut32.dll",
+    "propsys.dll",
+    "user32.dll"
+  ],
+  "unreviewed_imports": [],
+  "loader_import_gate_passed": true,
+  "native_desktop_accepted": false
+}

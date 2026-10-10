@@ -1,0 +1,25 @@
+{
+  "case": "scroll-detail",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": false,
+    "scrolled": true,
+    "detail_opened": false,
+    "returned": false,
+    "no_search": true,
+    "answer_exact": false
+  },
+  "events": 30,
+  "report_field_types_ok": false,
+  "run": "retry",
+  "label": "scroll-detail-final",
+  "strict_final_json": null,
+  "format_error": "No final answer",
+  "tool_calls": 20,
+  "tool_failures": 1,
+  "elapsed_s": 513.74,
+  "controller_error": "Turn limit reached, not completion",
+  "valid_model_trial": true
+}

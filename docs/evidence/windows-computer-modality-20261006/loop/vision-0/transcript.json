@@ -1,0 +1,64 @@
+[
+  {
+    "message": {
+      "role": "assistant",
+      "content": "I'll start by observing the current page to find the search form.",
+      "tool_calls": [
+        {
+          "index": 0,
+          "id": "call_00_CIIuuy9tonc6KGm2Lrxu8458",
+          "type": "function",
+          "function": {
+            "name": "computer",
+            "arguments": "{\"action\": \"observe\", \"include_accessibility\": false, \"include_screenshot\": true, \"detail\": \"auto\"}"
+          }
+        }
+      ]
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 1158,
+      "completion_tokens": 102,
+      "total_tokens": 1260,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1158
+    },
+    "finish_reason": "tool_calls",
+    "model_s": 0.7719732499681413,
+    "turn": 0
+  },
+  {
+    "message": {
+      "role": "assistant",
+      "content": "I can see the page search form. Let me click on the search input field.",
+      "tool_calls": [
+        {
+          "index": 0,
+          "id": "call_00_hQcjeothwMon436LZRkE7401",
+          "type": "function",
+          "function": {
+            "name": "computer",
+            "arguments": "{\"action\": \"click\", \"x\": 256, \"y\": 152, \"frame_id\": \"win:1648:1791227723782662000:10\", \"observe_after\": \"never\"}"
+          }
+        }
+      ]
+    },
+    "model": "deepseek-flash",
+    "usage": {
+      "prompt_tokens": 3875,
+      "completion_tokens": 133,
+      "total_tokens": 4008,
+      "prompt_tokens_details": {
+        "cached_tokens": 1152
+      },
+      "prompt_cache_hit_tokens": 1152,
+      "prompt_cache_miss_tokens": 2723
+    },
+    "finish_reason": "tool_calls",
+    "model_s": 1.1482546660117805,
+    "turn": 1
+  }
+]

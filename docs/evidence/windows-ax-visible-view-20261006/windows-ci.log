@@ -1,0 +1,892 @@
+native	Set up job	﻿2026-10-06T00:28:33.6433321Z Current runner version: '2.337.0'
+native	Set up job	2026-10-06T00:28:33.6475763Z ##[group]Runner Image Provisioner
+native	Set up job	2026-10-06T00:28:33.6476677Z Hosted Compute Agent
+native	Set up job	2026-10-06T00:28:33.6477210Z Version: 20260901.588
+native	Set up job	2026-10-06T00:28:33.6478165Z Commit: f88ec8081b781fac6c440065ac7ff9e710ce3d0b
+native	Set up job	2026-10-06T00:28:33.6478867Z Build Date: 2026-09-01T19:56:44Z
+native	Set up job	2026-10-06T00:28:33.6479522Z Worker ID: {a91767c3-116a-400f-9368-bde48d37ca57}
+native	Set up job	2026-10-06T00:28:33.6480228Z Azure Region: westus3
+native	Set up job	2026-10-06T00:28:33.6480742Z ##[endgroup]
+native	Set up job	2026-10-06T00:28:33.6482413Z ##[group]Operating System
+native	Set up job	2026-10-06T00:28:33.6483120Z Microsoft Windows Server 2025
+native	Set up job	2026-10-06T00:28:33.6483699Z 10.0.26100
+native	Set up job	2026-10-06T00:28:33.6484200Z Datacenter
+native	Set up job	2026-10-06T00:28:33.6484667Z ##[endgroup]
+native	Set up job	2026-10-06T00:28:33.6485197Z ##[group]Runner Image
+native	Set up job	2026-10-06T00:28:33.6485744Z Image: windows-2025-vs2026
+native	Set up job	2026-10-06T00:28:33.6486310Z Version: 20260925.250.1
+native	Set up job	2026-10-06T00:28:33.6487394Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260925.250/images/windows/Windows2025-VS2026-Readme.md
+native	Set up job	2026-10-06T00:28:33.6489291Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260925.250
+native	Set up job	2026-10-06T00:28:33.6490242Z ##[endgroup]
+native	Set up job	2026-10-06T00:28:33.6491232Z ##[group]GITHUB_TOKEN Permissions
+native	Set up job	2026-10-06T00:28:33.6493209Z Contents: read
+native	Set up job	2026-10-06T00:28:33.6493779Z Metadata: read
+native	Set up job	2026-10-06T00:28:33.6494289Z ##[endgroup]
+native	Set up job	2026-10-06T00:28:33.6496302Z Secret source: Actions
+native	Set up job	2026-10-06T00:28:33.6497149Z Cache mode: write
+native	Set up job	2026-10-06T00:28:33.6498255Z Prepare workflow directory
+native	Set up job	2026-10-06T00:28:33.6944092Z Prepare all required actions
+native	Set up job	2026-10-06T00:28:33.6991852Z Getting action download info
+native	Set up job	2026-10-06T00:28:33.9902800Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+native	Set up job	2026-10-06T00:28:34.1354518Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:89b12181fb390509a0842a86cc55eeb8eb928c1d)
+native	Set up job	2026-10-06T00:28:34.3708052Z Download action repository 'Swatinem/rust-cache@v2' (SHA:6323deb102c322ba6fcbdcafc7e3dddab59af2b6)
+native	Set up job	2026-10-06T00:28:35.0080948Z Download action repository 'actions/upload-artifact@v7' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+native	Set up job	2026-10-06T00:28:35.3168315Z Complete job name: native
+native	Run actions/checkout@v6	﻿2026-10-06T00:28:35.5035284Z ##[group]Run actions/checkout@v6
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5036682Z with:
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5037399Z   repository: 123123213weqw/x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5044886Z   token: ***
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5045606Z   ssh-strict: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5046319Z   ssh-user: git
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5047049Z   persist-credentials: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5047836Z   clean: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5048560Z   sparse-checkout-cone-mode: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5049411Z   fetch-depth: 1
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5050117Z   fetch-tags: false
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5050827Z   show-progress: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5051549Z   lfs: false
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5052442Z   submodules: false
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5053167Z   set-safe-directory: true
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5054030Z   allow-unsafe-pr-checkout: false
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5055142Z env:
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5055869Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run actions/checkout@v6	2026-10-06T00:28:35.5056785Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:35.6588769Z Syncing repository: 123123213weqw/x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:35.6592890Z ##[group]Getting Git version info
+native	Run actions/checkout@v6	2026-10-06T00:28:35.6594822Z Working directory is 'D:\a\x-harness-rs\x-harness-rs'
+native	Run actions/checkout@v6	2026-10-06T00:28:35.7703370Z [command]"C:\Program Files\Git\bin\git.exe" version
+native	Run actions/checkout@v6	2026-10-06T00:28:36.1487283Z git version 2.55.0.windows.5
+native	Run actions/checkout@v6	2026-10-06T00:28:36.1550227Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:36.1574481Z Temporarily overriding HOME='D:\a\_temp\d74527f8-248d-4570-9df6-b68e243c9b90' before making global git config changes
+native	Run actions/checkout@v6	2026-10-06T00:28:36.1577116Z Adding repository directory to the temporary git global config as a safe directory
+native	Run actions/checkout@v6	2026-10-06T00:28:36.1587214Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\x-harness-rs\x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:36.2220807Z Deleting the contents of 'D:\a\x-harness-rs\x-harness-rs'
+native	Run actions/checkout@v6	2026-10-06T00:28:36.2227402Z ##[group]Determining repository object format
+native	Run actions/checkout@v6	2026-10-06T00:28:36.2230326Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:36.2231594Z ##[group]Initializing the repository
+native	Run actions/checkout@v6	2026-10-06T00:28:36.2239362Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\x-harness-rs\x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:36.3189561Z Initialized empty Git repository in D:/a/x-harness-rs/x-harness-rs/.git/
+native	Run actions/checkout@v6	2026-10-06T00:28:36.3237429Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/123123213weqw/x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:36.3887566Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:36.3888191Z ##[group]Disabling automatic garbage collection
+native	Run actions/checkout@v6	2026-10-06T00:28:36.3897215Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+native	Run actions/checkout@v6	2026-10-06T00:28:36.4202053Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:36.4202600Z ##[group]Setting up auth
+native	Run actions/checkout@v6	2026-10-06T00:28:36.4203609Z Removing SSH command configuration
+native	Run actions/checkout@v6	2026-10-06T00:28:36.4215081Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+native	Run actions/checkout@v6	2026-10-06T00:28:36.4518453Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+native	Run actions/checkout@v6	2026-10-06T00:28:37.9550529Z Removing HTTP extra header
+native	Run actions/checkout@v6	2026-10-06T00:28:37.9561588Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+native	Run actions/checkout@v6	2026-10-06T00:28:37.9866062Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+native	Run actions/checkout@v6	2026-10-06T00:28:38.5364152Z Removing includeIf entries pointing to credentials config files
+native	Run actions/checkout@v6	2026-10-06T00:28:38.5376162Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+native	Run actions/checkout@v6	2026-10-06T00:28:38.5683508Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+native	Run actions/checkout@v6	2026-10-06T00:28:39.1105656Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+native	Run actions/checkout@v6	2026-10-06T00:28:39.1426905Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/x-harness-rs/x-harness-rs/.git.path D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Run actions/checkout@v6	2026-10-06T00:28:39.1727400Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/x-harness-rs/x-harness-rs/.git/worktrees/*.path D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Run actions/checkout@v6	2026-10-06T00:28:39.2102610Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Run actions/checkout@v6	2026-10-06T00:28:39.2409069Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Run actions/checkout@v6	2026-10-06T00:28:39.2789597Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:39.2790332Z ##[group]Fetching the repository
+native	Run actions/checkout@v6	2026-10-06T00:28:39.2804712Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +70231439b85a8d45c191ec69097ea4d677bb53c1:refs/remotes/origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:42.1546054Z From https://github.com/123123213weqw/x-harness-rs
+native	Run actions/checkout@v6	2026-10-06T00:28:42.1549212Z  * [new ref]         70231439b85a8d45c191ec69097ea4d677bb53c1 -> origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:42.1619192Z [command]"C:\Program Files\Git\bin\git.exe" branch --list --remote origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2143060Z   origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2190816Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse refs/remotes/origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2471145Z 70231439b85a8d45c191ec69097ea4d677bb53c1
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2506004Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2506688Z ##[group]Determining the checkout info
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2507562Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:42.2519536Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+native	Run actions/checkout@v6	2026-10-06T00:28:42.3025147Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+native	Run actions/checkout@v6	2026-10-06T00:28:42.3403120Z ##[group]Checking out the ref
+native	Run actions/checkout@v6	2026-10-06T00:28:42.3418139Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B feat/windows-computer-use-20261005 refs/remotes/origin/feat/windows-computer-use-20261005
+native	Run actions/checkout@v6	2026-10-06T00:28:43.3756626Z Switched to a new branch 'feat/windows-computer-use-20261005'
+native	Run actions/checkout@v6	2026-10-06T00:28:43.3822628Z branch 'feat/windows-computer-use-20261005' set up to track 'origin/feat/windows-computer-use-20261005'.
+native	Run actions/checkout@v6	2026-10-06T00:28:43.3901083Z ##[endgroup]
+native	Run actions/checkout@v6	2026-10-06T00:28:43.4337630Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+native	Run actions/checkout@v6	2026-10-06T00:28:43.4625557Z 70231439b85a8d45c191ec69097ea4d677bb53c1
+native	Run dtolnay/rust-toolchain@stable	﻿2026-10-06T00:28:43.5252185Z ##[group]Run dtolnay/rust-toolchain@stable
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5252558Z with:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5252744Z   toolchain: stable
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5252932Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5253131Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5253399Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5320116Z ##[start-action display=Parse toolchain version;id=__dtolnay_rust-toolchain.parse]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5494904Z ##[group]Run if [[ -z $toolchain ]]; then
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5495263Z ^[[36;1mif [[ -z $toolchain ]]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5495802Z ^[[36;1m  # GitHub does not enforce `required: true` inputs itself. https://github.com/actions/runner/issues/1070^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5496358Z ^[[36;1m  echo "'toolchain' is a required input" >&2^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5496626Z ^[[36;1m  exit 1^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5496946Z ^[[36;1melif [[ $toolchain =~ ^stable' '[0-9]+' '(year|month|week|day)s?' 'ago$ ]]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5497348Z ^[[36;1m  if [[ Windows == macOS ]]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5497903Z ^[[36;1m    echo "toolchain=1.$((($(date -v-$(sed 's/stable \([0-9]*\) \(.\).*/\1\2/' <<< $toolchain) +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5498405Z ^[[36;1m  else^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5498791Z ^[[36;1m    echo "toolchain=1.$((($(date --date "${toolchain#stable }" +%s)/60/60/24-16569)/7/6))" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5499227Z ^[[36;1m  fi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5499497Z ^[[36;1melif [[ $toolchain =~ ^stable' 'minus' '[0-9]+' 'releases?$ ]]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5500475Z ^[[36;1m  echo "toolchain=1.$((($(date +%s)/60/60/24-16569)/7/6-${toolchain//[^0-9]/}))" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5500946Z ^[[36;1melif [[ $toolchain =~ ^1\.[0-9]+$ ]]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5501444Z ^[[36;1m  echo "toolchain=1.$((i=${toolchain#1.}, c=($(date +%s)/60/60/24-16569)/7/6, i+9*i*(10*i<=c)+90*i*(100*i<=c)))" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5501915Z ^[[36;1melse^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5502133Z ^[[36;1m  echo "toolchain=$toolchain" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5502406Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5525106Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5525514Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5525719Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5525995Z   toolchain: stable
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.5526179Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.7529202Z ##[end-action id=__dtolnay_rust-toolchain.parse;outcome=success;conclusion=success;duration_ms=220]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.7548445Z ##[start-action display=Construct rustup command line;id=__dtolnay_rust-toolchain.flags]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8100159Z ##[group]Run echo "targets=$(for t in ${targets//,/ }; do echo -n ' --target' $t; done)" >> $GITHUB_OUTPUT
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8100817Z ^[[36;1mecho "targets=$(for t in ${targets//,/ }; do echo -n ' --target' $t; done)" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8101430Z ^[[36;1mecho "components=$(for c in ${components//,/ }; do echo -n ' --component' $c; done)" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8101911Z ^[[36;1mecho "downgrade=" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8118557Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8118944Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8119151Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8119411Z   targets: 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8119577Z   components: 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8119751Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8779235Z ##[end-action id=__dtolnay_rust-toolchain.flags;outcome=success;conclusion=success;duration_ms=122]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8781726Z ##[start-action display=Set $CARGO_HOME;id=__dtolnay_rust-toolchain.__run]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8930341Z ##[group]Run echo CARGO_HOME=${CARGO_HOME:-"$USERPROFILE\.cargo"} >> $GITHUB_ENV
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8931202Z ^[[36;1mecho CARGO_HOME=${CARGO_HOME:-"$USERPROFILE\.cargo"} >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8951888Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8954749Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8955071Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.8955508Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9374247Z ##[end-action id=__dtolnay_rust-toolchain.__run;outcome=success;conclusion=success;duration_ms=59]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9376769Z ##[start-action display=Install rustup if needed;id=__dtolnay_rust-toolchain.__run_2]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9388080Z ##[end-action id=__dtolnay_rust-toolchain.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9390317Z ##[start-action display=Install rustup if needed on windows;id=__dtolnay_rust-toolchain.__run_3]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9527046Z ##[group]Run if ! command -v rustup &>/dev/null; then
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9527414Z ^[[36;1mif ! command -v rustup &>/dev/null; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9528194Z ^[[36;1m  curl --proto '=https' --tlsv1.2 --retry 10 --retry-connrefused --location --silent --show-error --fail https://win.rustup.rs/x86_64 --output 'D:\a\_temp\rustup-init.exe'^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9529062Z ^[[36;1m  'D:\a\_temp\rustup-init.exe' --default-toolchain none --no-modify-path -y^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9529480Z ^[[36;1m  echo "$CARGO_HOME\bin" >> $GITHUB_PATH^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9529736Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9545623Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9546011Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9546215Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9546584Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:43.9546868Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0081842Z ##[end-action id=__dtolnay_rust-toolchain.__run_3;outcome=success;conclusion=success;duration_ms=69]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0094792Z ##[start-action display=rustup toolchain install stable;id=__dtolnay_rust-toolchain.__run_4]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0238755Z ##[group]Run log=$(mktemp)
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0239017Z ^[[36;1mlog=$(mktemp)^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0239228Z ^[[36;1mtrap 'rm -f "$log"' EXIT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0239484Z ^[[36;1mfor attempt in 1 2 3 4 5; do^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0239988Z ^[[36;1m  if rustup toolchain install stable --profile minimal --no-self-update --force-non-host 2>&1 | tee "$log"; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0240490Z ^[[36;1m    break^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0240669Z ^[[36;1m  else^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0240847Z ^[[36;1m    status=$?^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0241036Z ^[[36;1m  fi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0241300Z ^[[36;1m  if [[ $attempt == 5 ]] || ! grep -Fq 'checksum failed for ' "$log" \^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0241833Z ^[[36;1m      || ! grep -Fq 'this is likely due to an ongoing update of the official release server' "$log"; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0242435Z ^[[36;1m    exit "$status"^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0242643Z ^[[36;1m  fi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0242973Z ^[[36;1m  echo "Retrying rustup toolchain install in 30 seconds (retry $attempt of 4)" >&2^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0243368Z ^[[36;1m  sleep 30^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0243545Z ^[[36;1mdone^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0260629Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0261021Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0261222Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0261510Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0261768Z   RUSTUP_PERMIT_COPY_RENAME: 1
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:44.0261980Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:47.8286421Z info: syncing channel updates for stable-x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.4613945Z info: latest update on 2026-10-01 for version 1.99.0 (b940084d7 2026-09-28)
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.4930291Z info: removing previous version of component rustfmt
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.5268605Z info: removing previous version of component clippy
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.5405163Z info: removing previous version of component rust-std for target x86_64-pc-windows-gnu
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.6673266Z info: removing previous version of component rust-std for target i686-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.7467166Z info: removing previous version of component cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.8418452Z info: removing previous version of component rust-std
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:48.9681871Z info: removing previous version of component rustc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:28:49.0793698Z info: downloading 7 components
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:01.9264970Z 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:01.9584197Z   stable-x86_64-pc-windows-msvc updated - rustc 1.99.0 (b940084d7 2026-09-28) (from rustc 1.98.1 (48a229cea 2026-09-01))
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:01.9584872Z 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:01.9936445Z ##[end-action id=__dtolnay_rust-toolchain.__run_4;outcome=success;conclusion=success;duration_ms=17983]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:01.9942914Z ##[start-action display=rustup default stable;id=__dtolnay_rust-toolchain.__run_5]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0074445Z ##[group]Run rustup default stable --force-non-host
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0074791Z ^[[36;1mrustup default stable --force-non-host^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0089783Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0090176Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0090401Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0090684Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0090929Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0809140Z info: using existing install for stable-x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0859443Z info: default toolchain set to stable-x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.0859935Z 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1066612Z   stable-x86_64-pc-windows-msvc unchanged - rustc 1.99.0 (b940084d7 2026-09-28)
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1067040Z 
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1071656Z info: note that the toolchain 'stable-x86_64-pc-windows-msvc' is currently in use (overridden by 'D:\a\x-harness-rs\x-harness-rs\rust-toolchain.toml')
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1154421Z ##[end-action id=__dtolnay_rust-toolchain.__run_5;outcome=success;conclusion=success;duration_ms=121]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1156921Z ##[start-action display=Create cachekey;id=__dtolnay_rust-toolchain.rustc-version]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1307319Z ##[group]Run DATE=$(rustc +stable --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1308804Z ^[[36;1mDATE=$(rustc +stable --version --verbose | sed -ne 's/^commit-date: \(20[0-9][0-9]\)-\([01][0-9]\)-\([0-3][0-9]\)$/\1\2\3/p')^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1309528Z ^[[36;1mHASH=$(rustc +stable --version --verbose | sed -ne 's/^commit-hash: //p')^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1311350Z ^[[36;1mecho "cachekey=$(echo $DATE$HASH | head -c12)" >> $GITHUB_OUTPUT^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1331567Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1332828Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1333542Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1334471Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:02.1334761Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0428276Z ##[end-action id=__dtolnay_rust-toolchain.rustc-version;outcome=success;conclusion=success;duration_ms=927]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0430815Z ##[start-action display=Disable incremental compilation;id=__dtolnay_rust-toolchain.__run_6]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0573514Z ##[group]Run if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0574120Z ^[[36;1mif [ -z "${CARGO_INCREMENTAL+set}" ]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0574644Z ^[[36;1m  echo CARGO_INCREMENTAL=0 >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0575096Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0596897Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0597631Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0597990Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0598506Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.0598972Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1028963Z ##[end-action id=__dtolnay_rust-toolchain.__run_6;outcome=success;conclusion=success;duration_ms=59]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1033217Z ##[start-action display=Enable colors in Cargo output;id=__dtolnay_rust-toolchain.__run_7]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1179778Z ##[group]Run if [ -z "${CARGO_TERM_COLOR+set}" ]; then
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1180621Z ^[[36;1mif [ -z "${CARGO_TERM_COLOR+set}" ]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1181231Z ^[[36;1m  echo CARGO_TERM_COLOR=always >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1181718Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1203714Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1204104Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1204303Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1204590Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1204838Z   CARGO_INCREMENTAL: 0
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1205025Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1616289Z ##[end-action id=__dtolnay_rust-toolchain.__run_7;outcome=success;conclusion=success;duration_ms=58]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1619131Z ##[start-action display=Enable Cargo sparse registry;id=__dtolnay_rust-toolchain.__run_8]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1756912Z ##[group]Run # implemented in 1.66, stabilized in 1.68, made default in 1.70
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1757422Z ^[[36;1m# implemented in 1.66, stabilized in 1.68, made default in 1.70^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1758079Z ^[[36;1mif [ -z "${CARGO_REGISTRIES_CRATES_IO_PROTOCOL+set}" -o -f "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol ]; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1758752Z ^[[36;1m  if rustc +stable --version --verbose | grep -q '^release: 1\.6[89]\.'; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1759247Z ^[[36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1759711Z ^[[36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1760185Z ^[[36;1m  elif rustc +stable --version --verbose | grep -q '^release: 1\.6[67]\.'; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1760987Z ^[[36;1m    touch "D:\a\_temp"/.implicit_cargo_registries_crates_io_protocol || true^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1761455Z ^[[36;1m    echo CARGO_REGISTRIES_CRATES_IO_PROTOCOL=git >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1761775Z ^[[36;1m  fi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1761937Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1777026Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1777412Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1777617Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1777919Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1778230Z   CARGO_INCREMENTAL: 0
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1778602Z   CARGO_TERM_COLOR: always
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.1779103Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.3898131Z ##[end-action id=__dtolnay_rust-toolchain.__run_8;outcome=success;conclusion=success;duration_ms=227]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.3900631Z ##[start-action display=Work around spurious network errors in curl 8.0;id=__dtolnay_rust-toolchain.__run_9]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4025809Z ##[group]Run # https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4026546Z ^[[36;1m# https://rust-lang.zulipchat.com/#narrow/stream/246057-t-cargo/topic/timeout.20investigation^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4027156Z ^[[36;1mif rustc +stable --version --verbose | grep -q '^release: 1\.7[01]\.'; then^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4027608Z ^[[36;1m  echo CARGO_HTTP_MULTIPLEXING=false >> $GITHUB_ENV^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4027897Z ^[[36;1mfi^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4041684Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4042071Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4042273Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4042568Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4042822Z   CARGO_INCREMENTAL: 0
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4043019Z   CARGO_TERM_COLOR: always
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.4043222Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5034272Z ##[end-action id=__dtolnay_rust-toolchain.__run_9;outcome=success;conclusion=success;duration_ms=113]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5037974Z ##[start-action display=rustc +stable --version --verbose;id=__dtolnay_rust-toolchain.__run_10]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5173978Z ##[group]Run rustc +stable --version --verbose
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5174308Z ^[[36;1mrustc +stable --version --verbose^[[0m
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5190220Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5190613Z env:
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5190812Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5191098Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5191346Z   CARGO_INCREMENTAL: 0
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5191542Z   CARGO_TERM_COLOR: always
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.5191742Z ##[endgroup]
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6011758Z rustc 1.99.0 (b940084d7 2026-09-28)
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6012635Z binary: rustc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6013158Z commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6013636Z commit-date: 2026-09-28
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6013977Z host: x86_64-pc-windows-msvc
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6014303Z release: 1.99.0
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6015125Z LLVM version: 23.1.1
+native	Run dtolnay/rust-toolchain@stable	2026-10-06T00:29:03.6186236Z ##[end-action id=__dtolnay_rust-toolchain.__run_10;outcome=success;conclusion=success;duration_ms=114]
+native	Run Swatinem/rust-cache@v2	﻿2026-10-06T00:29:03.6404386Z ##[group]Run Swatinem/rust-cache@v2
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6404717Z with:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6404909Z   key: windows-computer-v1
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6405140Z   cache-on-failure: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6405353Z   prefix-key: v0-rust
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6405544Z   add-job-id-key: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6405752Z   add-rust-environment-hash-key: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6405993Z   cache-targets: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6406181Z   cache-all-crates: false
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6406398Z   cache-workspace-crates: false
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6406617Z   save-if: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6406793Z   cache-provider: github
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407000Z   cache-bin: true
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407171Z   lookup-only: false
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407353Z   cmd-format: {0}
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407516Z env:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407700Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6407970Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6408212Z   CARGO_INCREMENTAL: 0
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6408437Z   CARGO_TERM_COLOR: always
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:03.6408635Z ##[endgroup]
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4685926Z ##[group]Cache Configuration
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4686409Z Cache Provider:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4686711Z     github
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4687194Z Workspaces:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4687516Z     D:\a\x-harness-rs\x-harness-rs
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4687909Z Cache Paths:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4688230Z     C:\Users\runneradmin\.cargo\bin
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4688671Z     C:\Users\runneradmin\.cargo\.crates.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4689165Z     C:\Users\runneradmin\.cargo\.crates2.json
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4689999Z     C:\Users\runneradmin\.cargo\registry
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4690440Z     C:\Users\runneradmin\.cargo\git
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4690863Z     D:\a\x-harness-rs\x-harness-rs\target
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4691360Z Restore Key:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4697668Z     v0-rust-windows-computer-v1-native-Windows_NT-x64-6ef3e5b9
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4698748Z Cache Key:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4699649Z     v0-rust-windows-computer-v1-native-Windows_NT-x64-6ef3e5b9-5493923e
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4700644Z .. Prefix:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4701349Z   - v0-rust-windows-computer-v1-native-Windows_NT-x64
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4702210Z .. Environment considered:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4702851Z   - Rust Versions:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4703637Z     - 1.99.0 x86_64-pc-windows-msvc b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4704504Z   - CARGO_BUILD_TARGET
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4705019Z   - CARGO_HOME
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4705509Z   - CARGO_INCREMENTAL
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4706050Z   - CARGO_TERM_COLOR
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4706685Z .. Lockfiles considered:
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4707412Z   - D:\a\x-harness-rs\x-harness-rs\.cargo\config.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4708287Z   - D:\a\x-harness-rs\x-harness-rs\Cargo.lock
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4709227Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-agent\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4710243Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-api\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4711001Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-attachments\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4712718Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-cloud-app\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4713931Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-cloud\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4715510Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-coding-tools\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4716421Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-compaction\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4717285Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-macos\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4718171Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4719003Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4719759Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-context\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4720512Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-control\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4723781Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-core\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4724529Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4725298Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4726050Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-fs\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4726729Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-goal\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4727457Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-host-app\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4728162Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-host\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4728920Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-interaction\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4729664Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-jobs\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4730358Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-mcp\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4731090Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-platform\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4731860Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-plugins\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4732605Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-process\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4733379Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-projection\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4734148Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-prompt\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4734958Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-provider-openai\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4736105Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-sandbox\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4737154Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-schedule\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4737913Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-server\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4738671Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-session-jsonl\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4739420Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-session\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4740143Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-terminal\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4740827Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-token\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4741517Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4742243Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-web-terminal\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4743008Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-web\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4743665Z   - D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32\Cargo.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4744317Z   - D:\a\x-harness-rs\x-harness-rs\rust-toolchain.toml
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4745860Z ##[endgroup]
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4746049Z 
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.4746175Z ... Restoring cache ...
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:05.8280376Z Cache hit for: v0-rust-windows-computer-v1-native-Windows_NT-x64-6ef3e5b9-5493923e
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:07.0500803Z Received 58720256 of 260372162 (22.6%), 55.9 MBs/sec
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:08.0524682Z Received 159383552 of 260372162 (61.2%), 75.9 MBs/sec
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:08.7331132Z Received 260372162 of 260372162 (100.0%), 92.5 MBs/sec
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:08.7334772Z Cache Size: ~248 MB (260372162 B)
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:08.7370925Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/8f1f489e-8b22-4e46-82b8-3f89458161f0/cache.tzst -P -C D:/a/x-harness-rs/x-harness-rs --force-local --use-compress-program "zstd -d"
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:20.0107456Z Cache restored successfully
+native	Run Swatinem/rust-cache@v2	2026-10-06T00:29:20.0266399Z Restored from cache key "v0-rust-windows-computer-v1-native-Windows_NT-x64-6ef3e5b9-5493923e" full match: true.
+native	Offline performance evidence oracle	﻿2026-10-06T00:29:20.0562486Z ##[group]Run python -B scripts/computer-shopping-lab/test-grade-ax-performance.py
+native	Offline performance evidence oracle	2026-10-06T00:29:20.0563814Z ^[[36;1mpython -B scripts/computer-shopping-lab/test-grade-ax-performance.py^[[0m
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1178648Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1179381Z env:
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1179930Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1180594Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1181173Z   CARGO_INCREMENTAL: 0
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1181697Z   CARGO_TERM_COLOR: always
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1182228Z   CACHE_ON_FAILURE: true
+native	Offline performance evidence oracle	2026-10-06T00:29:20.1182719Z ##[endgroup]
+native	Offline performance evidence oracle	2026-10-06T00:29:21.8640013Z ........
+native	Offline performance evidence oracle	2026-10-06T00:29:21.8640796Z ----------------------------------------------------------------------
+native	Offline performance evidence oracle	2026-10-06T00:29:21.8641323Z Ran 8 tests in 0.041s
+native	Offline performance evidence oracle	2026-10-06T00:29:21.8641533Z 
+native	Offline performance evidence oracle	2026-10-06T00:29:21.8641666Z OK
+native	Non-interactive native contracts	﻿2026-10-06T00:29:22.0191124Z ##[group]Run cargo test --locked -p xharness-computer -p xharness-computer-windows --features xharness-computer-windows/native-acceptance
+native	Non-interactive native contracts	2026-10-06T00:29:22.0192460Z ^[[36;1mcargo test --locked -p xharness-computer -p xharness-computer-windows --features xharness-computer-windows/native-acceptance^[[0m
+native	Non-interactive native contracts	2026-10-06T00:29:22.0193236Z ^[[36;1mif ($LASTEXITCODE) { throw 'Computer contracts failed' }^[[0m
+native	Non-interactive native contracts	2026-10-06T00:29:22.0193963Z ^[[36;1mcargo clippy --locked -p xharness-computer-windows --all-targets --features native-acceptance -- -D warnings^[[0m
+native	Non-interactive native contracts	2026-10-06T00:29:22.0194671Z ^[[36;1mif ($LASTEXITCODE) { throw 'Computer clippy failed' }^[[0m
+native	Non-interactive native contracts	2026-10-06T00:29:22.0267995Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+native	Non-interactive native contracts	2026-10-06T00:29:22.0268401Z env:
+native	Non-interactive native contracts	2026-10-06T00:29:22.0268635Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Non-interactive native contracts	2026-10-06T00:29:22.0268949Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Non-interactive native contracts	2026-10-06T00:29:22.0269220Z   CARGO_INCREMENTAL: 0
+native	Non-interactive native contracts	2026-10-06T00:29:22.0270185Z   CARGO_TERM_COLOR: always
+native	Non-interactive native contracts	2026-10-06T00:29:22.0270451Z   CACHE_ON_FAILURE: true
+native	Non-interactive native contracts	2026-10-06T00:29:22.0270662Z ##[endgroup]
+native	Non-interactive native contracts	2026-10-06T00:29:22.4426356Z ^[[1m^[[92m    Updating^[[0m crates.io index
+native	Non-interactive native contracts	2026-10-06T00:29:27.5258946Z ^[[1m^[[92m   Compiling^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Non-interactive native contracts	2026-10-06T00:29:27.5260550Z ^[[1m^[[92m   Compiling^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Non-interactive native contracts	2026-10-06T00:29:27.9799873Z ^[[1m^[[92m   Compiling^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Non-interactive native contracts	2026-10-06T00:29:28.5098939Z ^[[1m^[[92m   Compiling^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Non-interactive native contracts	2026-10-06T00:29:29.3123536Z ^[[1m^[[92m   Compiling^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Non-interactive native contracts	2026-10-06T00:29:29.8772471Z ^[[1m^[[92m   Compiling^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Non-interactive native contracts	2026-10-06T00:29:36.3159595Z ^[[1m^[[92m    Finished^[[0m `test` profile [unoptimized + debuginfo] target(s) in 13.97s
+native	Non-interactive native contracts	2026-10-06T00:29:36.3274122Z ^[[1m^[[92m     Running^[[0m unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\xharness_computer-0061ee20d66fd9c2.exe)
+native	Non-interactive native contracts	2026-10-06T00:29:36.3401083Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3401455Z running 7 tests
+native	Non-interactive native contracts	2026-10-06T00:29:36.3456929Z test tests::fields_from_another_action_fail_before_side_effects ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3458079Z test tests::keypress_accepts_observed_frame_through_tool_registry ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3458882Z test tests::action_specific_validation_fails_before_driver ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3459610Z test tests::one_tool_covers_the_complete_action_surface ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3466753Z test tests::semantic_observe_works_without_vision_sink ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3470521Z test tests::semantic_type_still_requires_the_observation_frame ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3491668Z test tests::every_action_has_a_valid_minimal_request ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3492247Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3492708Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+native	Non-interactive native contracts	2026-10-06T00:29:36.3493339Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3513880Z ^[[1m^[[92m     Running^[[0m unittests src\lib.rs (target\x86_64-pc-windows-msvc\debug\deps\xharness_computer_windows-dcc1ed25fe3891d2.exe)
+native	Non-interactive native contracts	2026-10-06T00:29:36.3670334Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3670849Z running 23 tests
+native	Non-interactive native contracts	2026-10-06T00:29:36.3679799Z test adapter::tests::lost_input_is_never_automatically_replayed ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3683362Z test adapter::tests::read_only_loss_is_not_a_side_effect_uncertainty ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3688865Z test native::input::tests::key_names_are_explicit ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3693229Z test adapter::tests::old_and_foreign_frames_fail_before_spawn ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3694919Z test adapter::tests::no_input_before_observation ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3697645Z test adapter::tests::cancelled_wait_never_starts_a_worker ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3701693Z test native::input::tests::modifiers_are_not_arbitrary_keys ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3704093Z test native::uia::tests::known_availability_does_not_contact_provider_again ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3705175Z test native::uia::tests::only_boolean_cache_values_are_authoritative ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3706523Z test native::uia::tests::unknown_availability_retains_live_query_semantics ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3707718Z test observation::tests::focused_node_wins_and_all_limits_preserve_parent_closure ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3711413Z test observation::tests::bounded_values_distinguish_empty_and_preserve_input_whitespace ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3713224Z test observation::tests::fractional_regions_are_valid_without_roundtrip_equality ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3716099Z test observation::tests::geometry_handles_negative_origins_and_rejects_invalid_rectangles ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3718688Z test observation::tests::invisible_wrapper_is_not_a_pruning_signal ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3720365Z test observation::tests::out_of_scope_focus_and_invalid_ancestry_cannot_leak ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3721766Z test observation::tests::long_offscreen_sidebar_cannot_spend_output_budget ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3723513Z test observation::tests::region_filters_visible_controls_but_preserves_ancestors ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3724602Z test observation::tests::traversal_priority_is_breadth_first_not_sidebar_depth_first ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3725420Z test wire::tests::budgets_are_finite ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3726110Z test wire::tests::coordinates_handle_negative_origin_and_endpoints ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3726917Z test wire::tests::packet_is_bounded_before_allocation ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3727763Z test wire::tests::visible_view_requires_explicit_flag_and_exact_disposable_vm ... ok
+native	Non-interactive native contracts	2026-10-06T00:29:36.3728370Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3728821Z test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+native	Non-interactive native contracts	2026-10-06T00:29:36.3729467Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.3743895Z ^[[1m^[[92m   Doc-tests^[[0m xharness_computer
+native	Non-interactive native contracts	2026-10-06T00:29:36.5116277Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.5117102Z running 0 tests
+native	Non-interactive native contracts	2026-10-06T00:29:36.5117388Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.5117864Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native	Non-interactive native contracts	2026-10-06T00:29:36.5118484Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.5205839Z ^[[1m^[[92m   Doc-tests^[[0m xharness_computer_windows
+native	Non-interactive native contracts	2026-10-06T00:29:36.7065126Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.7065751Z running 0 tests
+native	Non-interactive native contracts	2026-10-06T00:29:36.7066032Z 
+native	Non-interactive native contracts	2026-10-06T00:29:36.7066484Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+native	Non-interactive native contracts	2026-10-06T00:29:36.7066977Z 
+native	Non-interactive native contracts	2026-10-06T00:29:37.7001728Z ^[[1m^[[92m    Checking^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Non-interactive native contracts	2026-10-06T00:29:37.7003564Z ^[[1m^[[92m    Checking^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Non-interactive native contracts	2026-10-06T00:29:38.0096666Z ^[[1m^[[92m    Checking^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Non-interactive native contracts	2026-10-06T00:29:38.4036965Z ^[[1m^[[92m    Checking^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Non-interactive native contracts	2026-10-06T00:29:39.0435198Z ^[[1m^[[92m    Checking^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Non-interactive native contracts	2026-10-06T00:29:39.3335776Z ^[[1m^[[92m    Checking^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Non-interactive native contracts	2026-10-06T00:29:40.3787264Z ^[[1m^[[92m    Finished^[[0m `dev` profile [unoptimized + debuginfo] target(s) in 2.93s
+native	Host composition and portable acceptance executable	﻿2026-10-06T00:29:40.5272349Z ##[group]Run cargo check --locked -p xharness-host-app --bin xharness-host
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5273007Z ^[[36;1mcargo check --locked -p xharness-host-app --bin xharness-host^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5273477Z ^[[36;1mif ($LASTEXITCODE) { throw 'Host composition failed' }^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5274117Z ^[[36;1mcargo build --locked --release -p xharness-computer-windows --features native-acceptance --example computer-probe^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5274765Z ^[[36;1mif ($LASTEXITCODE) { throw 'Native fixture build failed' }^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5275236Z ^[[36;1mNew-Item -ItemType Directory -Force dist/windows-computer | Out-Null^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5275867Z ^[[36;1mCopy-Item target/x86_64-pc-windows-msvc/release/examples/computer-probe.exe dist/windows-computer/^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5276583Z ^[[36;1m$hash = (Get-FileHash dist/windows-computer/computer-probe.exe -Algorithm SHA256).Hash.ToLower()^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5277994Z ^[[36;1m@{schema=1; source_sha='70231439b85a8d45c191ec69097ea4d677bb53c1'; executable_sha256=$hash; native_desktop_accepted=$false} | ConvertTo-Json | Set-Content -Encoding utf8 dist/windows-computer/provenance.json^[[0m
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5346930Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5347295Z env:
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5347504Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5347987Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5348249Z   CARGO_INCREMENTAL: 0
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5348470Z   CARGO_TERM_COLOR: always
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5348690Z   CACHE_ON_FAILURE: true
+native	Host composition and portable acceptance executable	2026-10-06T00:29:40.5348894Z ##[endgroup]
+native	Host composition and portable acceptance executable	2026-10-06T00:29:50.9999824Z ^[[1m^[[92m   Compiling^[[0m serde_core v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:29:51.0001729Z ^[[1m^[[92m   Compiling^[[0m syn v3.0.3
+native	Host composition and portable acceptance executable	2026-10-06T00:29:51.0003409Z ^[[1m^[[92m   Compiling^[[0m syn v2.0.119
+native	Host composition and portable acceptance executable	2026-10-06T00:29:51.0005760Z ^[[1m^[[92m   Compiling^[[0m serde v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:29:51.8366477Z ^[[1m^[[92m   Compiling^[[0m serde_json v1.0.151
+native	Host composition and portable acceptance executable	2026-10-06T00:29:52.1257159Z ^[[1m^[[92m    Checking^[[0m slab v0.4.12
+native	Host composition and portable acceptance executable	2026-10-06T00:29:52.2840960Z ^[[1m^[[92m    Checking^[[0m futures-channel v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:29:52.5099178Z ^[[1m^[[92m    Checking^[[0m log v0.4.33
+native	Host composition and portable acceptance executable	2026-10-06T00:29:52.6768312Z ^[[1m^[[92m    Checking^[[0m smallvec v1.15.2
+native	Host composition and portable acceptance executable	2026-10-06T00:29:52.9142126Z ^[[1m^[[92m    Checking^[[0m once_cell v1.21.4
+native	Host composition and portable acceptance executable	2026-10-06T00:29:53.1285875Z ^[[1m^[[92m    Checking^[[0m stable_deref_trait v1.2.1
+native	Host composition and portable acceptance executable	2026-10-06T00:29:53.1852206Z ^[[1m^[[92m    Checking^[[0m tracing-core v0.1.36
+native	Host composition and portable acceptance executable	2026-10-06T00:29:53.5962911Z ^[[1m^[[92m   Compiling^[[0m shlex v2.0.1
+native	Host composition and portable acceptance executable	2026-10-06T00:29:53.8964881Z ^[[1m^[[92m   Compiling^[[0m find-msvc-tools v0.1.11
+native	Host composition and portable acceptance executable	2026-10-06T00:29:55.7541607Z ^[[1m^[[92m   Compiling^[[0m cc v1.4.3
+native	Host composition and portable acceptance executable	2026-10-06T00:29:55.9439106Z ^[[1m^[[92m    Checking^[[0m http v1.5.0
+native	Host composition and portable acceptance executable	2026-10-06T00:29:56.8220919Z ^[[1m^[[92m   Compiling^[[0m synstructure v0.13.2
+native	Host composition and portable acceptance executable	2026-10-06T00:29:58.5330545Z ^[[1m^[[92m    Checking^[[0m equivalent v1.0.2
+native	Host composition and portable acceptance executable	2026-10-06T00:29:58.6120999Z ^[[1m^[[92m    Checking^[[0m hashbrown v0.17.1
+native	Host composition and portable acceptance executable	2026-10-06T00:29:58.8312350Z ^[[1m^[[92m    Checking^[[0m percent-encoding v2.3.2
+native	Host composition and portable acceptance executable	2026-10-06T00:29:58.9599820Z ^[[1m^[[92m   Compiling^[[0m httparse v1.10.1
+native	Host composition and portable acceptance executable	2026-10-06T00:29:59.3126621Z ^[[1m^[[92m    Checking^[[0m indexmap v2.14.0
+native	Host composition and portable acceptance executable	2026-10-06T00:29:59.5541142Z ^[[1m^[[92m    Checking^[[0m siphasher v1.0.3
+native	Host composition and portable acceptance executable	2026-10-06T00:29:59.7532724Z ^[[1m^[[92m    Checking^[[0m litemap v0.8.3
+native	Host composition and portable acceptance executable	2026-10-06T00:29:59.9615097Z ^[[1m^[[92m    Checking^[[0m writeable v0.6.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.2042836Z ^[[1m^[[92m    Checking^[[0m http-body v1.1.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.2625691Z ^[[1m^[[92m    Checking^[[0m utf8_iter v1.0.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.3176960Z ^[[1m^[[92m   Compiling^[[0m icu_properties_data v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.3881352Z ^[[1m^[[92m   Compiling^[[0m icu_normalizer_data v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.6556179Z ^[[1m^[[92m    Checking^[[0m tower-service v0.3.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.7292988Z ^[[1m^[[92m    Checking^[[0m base64 v0.22.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:00.8452655Z ^[[1m^[[92m   Compiling^[[0m rand_core v0.6.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:01.0354602Z ^[[1m^[[92m   Compiling^[[0m rand v0.8.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:01.3098174Z ^[[1m^[[92m   Compiling^[[0m phf_shared v0.11.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:01.8196752Z ^[[1m^[[92m    Checking^[[0m form_urlencoded v1.2.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:01.8288652Z ^[[1m^[[92m   Compiling^[[0m ring v0.17.14
+native	Host composition and portable acceptance executable	2026-10-06T00:30:01.9549539Z ^[[1m^[[92m    Checking^[[0m try-lock v0.2.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.0354711Z ^[[1m^[[92m    Checking^[[0m fnv v1.0.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.1034639Z ^[[1m^[[92m    Checking^[[0m httpdate v1.0.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.1096027Z ^[[1m^[[92m   Compiling^[[0m serde_derive v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.2397695Z ^[[1m^[[92m   Compiling^[[0m tokio-macros v2.7.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.6822756Z ^[[1m^[[92m   Compiling^[[0m thiserror-impl v2.0.20
+native	Host composition and portable acceptance executable	2026-10-06T00:30:02.8170467Z ^[[1m^[[92m   Compiling^[[0m futures-macro v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:30:03.9167988Z ^[[1m^[[92m    Checking^[[0m tokio v1.53.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:04.5959678Z ^[[1m^[[92m    Checking^[[0m futures-util v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:30:06.2491568Z ^[[1m^[[92m    Checking^[[0m thiserror v2.0.20
+native	Host composition and portable acceptance executable	2026-10-06T00:30:06.3430549Z ^[[1m^[[92m   Compiling^[[0m async-trait v0.1.92
+native	Host composition and portable acceptance executable	2026-10-06T00:30:08.0282265Z ^[[1m^[[92m    Checking^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:08.2982144Z ^[[1m^[[92m    Checking^[[0m futures-executor v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:30:08.4338491Z ^[[1m^[[92m    Checking^[[0m futures v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:30:08.4956668Z ^[[1m^[[92m   Compiling^[[0m zerofrom-derive v0.1.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:08.7646932Z ^[[1m^[[92m    Checking^[[0m tokio-util v0.7.19
+native	Host composition and portable acceptance executable	2026-10-06T00:30:09.2540908Z ^[[1m^[[92m   Compiling^[[0m yoke-derive v0.8.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:09.4630125Z ^[[1m^[[92m   Compiling^[[0m tracing-attributes v0.1.31
+native	Host composition and portable acceptance executable	2026-10-06T00:30:10.5051054Z ^[[1m^[[92m    Checking^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:10.9494698Z ^[[1m^[[92m    Checking^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:11.5305277Z ^[[1m^[[92m   Compiling^[[0m zerovec-derive v0.11.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:12.7260018Z ^[[1m^[[92m    Checking^[[0m zerofrom v0.1.8
+native	Host composition and portable acceptance executable	2026-10-06T00:30:12.7852069Z ^[[1m^[[92m   Compiling^[[0m displaydoc v0.2.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:12.8402320Z ^[[1m^[[92m    Checking^[[0m yoke v0.8.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:13.1031079Z ^[[1m^[[92m    Checking^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:13.3715614Z ^[[1m^[[92m    Checking^[[0m tracing v0.1.44
+native	Host composition and portable acceptance executable	2026-10-06T00:30:13.6055956Z ^[[1m^[[92m    Checking^[[0m atomic-waker v1.1.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:13.6826009Z ^[[1m^[[92m   Compiling^[[0m libc v0.2.189
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.1855724Z ^[[1m^[[92m    Checking^[[0m xharness-interaction v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-interaction)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.2067688Z ^[[1m^[[92m    Checking^[[0m zerovec v0.11.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.4107548Z ^[[1m^[[92m    Checking^[[0m zeroize v1.9.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.7350620Z ^[[1m^[[92m    Checking^[[0m h2 v0.4.16
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.8180051Z ^[[1m^[[92m    Checking^[[0m zerotrie v0.2.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.8980254Z ^[[1m^[[92m    Checking^[[0m xharness-session v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-session)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:14.9920545Z ^[[1m^[[92m    Checking^[[0m tinystr v0.8.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:15.1204794Z ^[[1m^[[92m    Checking^[[0m potential_utf v0.1.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:15.1905290Z ^[[1m^[[92m    Checking^[[0m icu_locale_core v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:15.2709443Z ^[[1m^[[92m    Checking^[[0m icu_collections v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:16.1073052Z ^[[1m^[[92m    Checking^[[0m icu_provider v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:16.3876885Z ^[[1m^[[92m    Checking^[[0m icu_normalizer v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:16.7212628Z ^[[1m^[[92m    Checking^[[0m icu_properties v2.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.1221640Z ^[[1m^[[92m    Checking^[[0m want v0.3.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.2209036Z ^[[1m^[[92m   Compiling^[[0m phf_generator v0.11.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.6014896Z ^[[1m^[[92m    Checking^[[0m sync_wrapper v1.0.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.6796128Z ^[[1m^[[92m    Checking^[[0m mime v0.3.17
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.8580417Z ^[[1m^[[92m   Compiling^[[0m parking_lot_core v0.9.12
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.9514591Z ^[[1m^[[92m    Checking^[[0m tower-layer v0.3.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:18.9736730Z ^[[1m^[[92m    Checking^[[0m hyper v1.11.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.1355913Z ^[[1m^[[92m    Checking^[[0m idna_adapter v1.2.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.2317421Z ^[[1m^[[92m    Checking^[[0m rustls-pki-types v1.15.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.3607218Z ^[[1m^[[92m    Checking^[[0m http-body-util v0.1.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.6003990Z ^[[1m^[[92m    Checking^[[0m windows-registry v0.6.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.6567223Z ^[[1m^[[92m    Checking^[[0m getrandom v0.2.17
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.6612835Z ^[[1m^[[92m    Checking^[[0m new_debug_unreachable v1.0.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.7093598Z ^[[1m^[[92m    Checking^[[0m ipnet v2.12.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.7577985Z ^[[1m^[[92m   Compiling^[[0m zerocopy v0.8.56
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.7932614Z ^[[1m^[[92m    Checking^[[0m untrusted v0.9.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.8835491Z ^[[1m^[[92m   Compiling^[[0m unicase v2.9.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:19.9879801Z ^[[1m^[[92m    Checking^[[0m scopeguard v1.2.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.0615040Z ^[[1m^[[92m   Compiling^[[0m getrandom v0.3.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.1532534Z ^[[1m^[[92m   Compiling^[[0m mime_guess v2.0.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.5025327Z ^[[1m^[[92m    Checking^[[0m lock_api v0.4.14
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.5424410Z ^[[1m^[[92m    Checking^[[0m hyper-util v0.1.20
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.6253235Z ^[[1m^[[92m    Checking^[[0m idna v1.1.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.9448549Z ^[[1m^[[92m    Checking^[[0m tower v0.5.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:20.9987355Z ^[[1m^[[92m   Compiling^[[0m phf_codegen v0.11.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:21.1279220Z ^[[1m^[[92m   Compiling^[[0m string_cache_codegen v0.5.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:21.5578557Z ^[[1m^[[92m   Compiling^[[0m windows-implement v0.60.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.1018669Z ^[[1m^[[92m   Compiling^[[0m windows-interface v0.59.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.3046992Z ^[[1m^[[92m   Compiling^[[0m rustls v0.23.43
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.3434601Z ^[[1m^[[92m    Checking^[[0m mac v0.1.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.4008667Z ^[[1m^[[92m   Compiling^[[0m winapi v0.3.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.5290838Z ^[[1m^[[92m    Checking^[[0m ryu v1.0.23
+native	Host composition and portable acceptance executable	2026-10-06T00:30:22.6673432Z ^[[1m^[[92m    Checking^[[0m serde_urlencoded v0.7.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.0074916Z ^[[1m^[[92m    Checking^[[0m futf v0.1.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.0128684Z ^[[1m^[[92m    Checking^[[0m rustls-webpki v0.103.14
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.1120413Z ^[[1m^[[92m   Compiling^[[0m markup5ever v0.12.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.3272523Z ^[[1m^[[92m    Checking^[[0m parking_lot v0.12.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.6034032Z ^[[1m^[[92m    Checking^[[0m url v2.5.8
+native	Host composition and portable acceptance executable	2026-10-06T00:30:23.7675506Z ^[[1m^[[92m    Checking^[[0m windows-core v0.62.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.1472508Z ^[[1m^[[92m    Checking^[[0m tokio-stream v0.1.19
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.2026183Z ^[[1m^[[92m    Checking^[[0m utf-8 v0.7.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.2335347Z ^[[1m^[[92m    Checking^[[0m precomputed-hash v0.1.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.3169159Z ^[[1m^[[92m    Checking^[[0m subtle v2.6.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.6803149Z ^[[1m^[[92m    Checking^[[0m tendril v0.4.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.6858684Z ^[[1m^[[92m    Checking^[[0m string_cache v0.8.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:24.9348847Z ^[[1m^[[92m    Checking^[[0m rand_core v0.9.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:25.3917106Z ^[[1m^[[92m    Checking^[[0m phf v0.11.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:25.5527763Z ^[[1m^[[92m    Checking^[[0m xharness-compaction v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-compaction)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:26.4246340Z ^[[1m^[[92m    Checking^[[0m http-range-header v0.4.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:26.5388073Z ^[[1m^[[92m    Checking^[[0m tower-http v0.6.11
+native	Host composition and portable acceptance executable	2026-10-06T00:30:27.0054328Z ^[[1m^[[92m    Checking^[[0m fs2 v0.4.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:27.1181917Z ^[[1m^[[92m    Checking^[[0m xharness-context v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-context)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:27.5140614Z ^[[1m^[[92m    Checking^[[0m webpki-roots v1.0.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:27.6248310Z ^[[1m^[[92m    Checking^[[0m xharness-token v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-token)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:27.9447387Z ^[[1m^[[92m    Checking^[[0m tokio-rustls v0.26.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.1132382Z ^[[1m^[[92m    Checking^[[0m xharness-prompt v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-prompt)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.1992746Z ^[[1m^[[92m   Compiling^[[0m html5ever v0.27.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.2832065Z ^[[1m^[[92m    Checking^[[0m quick-error v2.0.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.3079412Z ^[[1m^[[92m    Checking^[[0m zune-core v0.5.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.5106549Z ^[[1m^[[92m    Checking^[[0m color_quant v1.1.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.7239605Z ^[[1m^[[92m    Checking^[[0m weezl v0.1.12
+native	Host composition and portable acceptance executable	2026-10-06T00:30:28.7286270Z ^[[1m^[[92m    Checking^[[0m zune-jpeg v0.5.15
+native	Host composition and portable acceptance executable	2026-10-06T00:30:29.1911025Z ^[[1m^[[92m    Checking^[[0m gif v0.14.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:29.2867821Z ^[[1m^[[92m    Checking^[[0m ppv-lite86 v0.2.21
+native	Host composition and portable acceptance executable	2026-10-06T00:30:29.7462874Z ^[[1m^[[92m    Checking^[[0m image-webp v0.2.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:29.8557064Z ^[[1m^[[92m    Checking^[[0m rand_chacha v0.9.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:29.8589165Z ^[[1m^[[92m    Checking^[[0m xharness-core v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-core)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:30.0684374Z ^[[1m^[[92m    Checking^[[0m rand v0.9.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:30.7610348Z ^[[1m^[[92m    Checking^[[0m windows-future v0.3.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:30.9361250Z ^[[1m^[[92m    Checking^[[0m hyper-rustls v0.27.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:31.1697898Z ^[[1m^[[92m    Checking^[[0m windows-numerics v0.3.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:31.3377081Z ^[[1m^[[92m    Checking^[[0m windows-collections v0.3.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:31.4725879Z ^[[1m^[[92m    Checking^[[0m chrono v0.4.45
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.1005966Z ^[[1m^[[92m    Checking^[[0m xharness-process v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-process)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.3632985Z ^[[1m^[[92m    Checking^[[0m sha1 v0.10.7
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.5303705Z ^[[1m^[[92m    Checking^[[0m aho-corasick v1.1.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.5982574Z ^[[1m^[[92m    Checking^[[0m regex-syntax v0.8.11
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.8591008Z ^[[1m^[[92m   Compiling^[[0m windows_x86_64_msvc v0.53.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:32.9530798Z ^[[1m^[[92m   Compiling^[[0m vcpkg v0.2.15
+native	Host composition and portable acceptance executable	2026-10-06T00:30:33.2109072Z ^[[1m^[[92m   Compiling^[[0m pkg-config v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:30:33.8809599Z ^[[1m^[[92m    Checking^[[0m data-encoding v2.11.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:34.2646286Z ^[[1m^[[92m    Checking^[[0m image v0.25.10
+native	Host composition and portable acceptance executable	2026-10-06T00:30:34.6782017Z ^[[1m^[[92m    Checking^[[0m tungstenite v0.29.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:35.1094046Z ^[[1m^[[92m    Checking^[[0m regex-automata v0.4.18
+native	Host composition and portable acceptance executable	2026-10-06T00:30:35.1476721Z ^[[1m^[[92m   Compiling^[[0m libsqlite3-sys v0.35.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:35.7933740Z ^[[1m^[[92m    Checking^[[0m windows v0.62.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:36.2811793Z ^[[1m^[[92m    Checking^[[0m reqwest v0.12.28
+native	Host composition and portable acceptance executable	2026-10-06T00:30:36.6602988Z ^[[1m^[[92m    Checking^[[0m xml5ever v0.18.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.0877217Z ^[[1m^[[92m    Checking^[[0m phf_shared v0.12.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.2829833Z ^[[1m^[[92m    Checking^[[0m foldhash v0.1.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.3672047Z ^[[1m^[[92m   Compiling^[[0m chrono-tz v0.10.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.4484675Z ^[[1m^[[92m    Checking^[[0m hashbrown v0.15.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.5917899Z ^[[1m^[[92m    Checking^[[0m regex v1.13.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.6113795Z ^[[1m^[[92m    Checking^[[0m phf v0.12.1
+native	Host composition and portable acceptance executable	2026-10-06T00:30:37.8040958Z ^[[1m^[[92m    Checking^[[0m markup5ever_rcdom v0.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:38.1633085Z ^[[1m^[[92m    Checking^[[0m tokio-tungstenite v0.29.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:38.2484519Z ^[[1m^[[92m    Checking^[[0m axum-core v0.5.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:38.4603385Z ^[[1m^[[92m    Checking^[[0m xharness-goal v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-goal)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:38.5742285Z ^[[1m^[[92m   Compiling^[[0m async-stream-impl v0.3.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:39.7476598Z ^[[1m^[[92m    Checking^[[0m serde_path_to_error v0.1.20
+native	Host composition and portable acceptance executable	2026-10-06T00:30:39.8722418Z ^[[1m^[[92m   Compiling^[[0m rmcp v3.5.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.0782813Z ^[[1m^[[92m    Checking^[[0m matchit v0.8.4
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.1734348Z ^[[1m^[[92m   Compiling^[[0m zip v2.4.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.2901914Z ^[[1m^[[92m    Checking^[[0m lazy_static v1.5.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.3629028Z ^[[1m^[[92m    Checking^[[0m bumpalo v3.20.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.3823672Z ^[[1m^[[92m    Checking^[[0m html2md v0.2.15
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.6057710Z ^[[1m^[[92m    Checking^[[0m zopfli v0.8.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:40.6778371Z ^[[1m^[[92m    Checking^[[0m axum v0.8.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:41.0565825Z ^[[1m^[[92m    Checking^[[0m async-stream v0.3.6
+native	Host composition and portable acceptance executable	2026-10-06T00:30:41.1666574Z ^[[1m^[[92m    Checking^[[0m xharness-agent v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-agent)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:42.6006379Z ^[[1m^[[92m    Checking^[[0m hashlink v0.10.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:42.9740247Z ^[[1m^[[92m    Checking^[[0m windows-targets v0.53.5
+native	Host composition and portable acceptance executable	2026-10-06T00:30:44.0216156Z ^[[1m^[[92m    Checking^[[0m xharness-attachments v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-attachments)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:44.4208924Z ^[[1m^[[92m    Checking^[[0m xharness-sandbox v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-sandbox)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:44.6835415Z ^[[1m^[[92m    Checking^[[0m xharness-api v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-api)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:45.6285635Z ^[[1m^[[92m    Checking^[[0m xharness-fs v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-fs)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:46.2287882Z ^[[1m^[[92m    Checking^[[0m fallible-iterator v0.3.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:46.6363009Z ^[[1m^[[92m    Checking^[[0m fallible-streaming-iterator v0.1.9
+native	Host composition and portable acceptance executable	2026-10-06T00:30:46.7710931Z ^[[1m^[[92m    Checking^[[0m rusqlite v0.37.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:47.9526840Z ^[[1m^[[92m    Checking^[[0m xharness-platform v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-platform)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:48.1700829Z ^[[1m^[[92m    Checking^[[0m windows-sys v0.60.2
+native	Host composition and portable acceptance executable	2026-10-06T00:30:49.3598339Z ^[[1m^[[92m    Checking^[[0m xharness-web v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-web)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:50.1638128Z ^[[1m^[[92m    Checking^[[0m xharness-projection v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-projection)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:50.4454409Z ^[[1m^[[92m    Checking^[[0m xharness-terminal v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-terminal)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:51.0584410Z ^[[1m^[[92m    Checking^[[0m xharness-control v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-control)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:51.1941528Z ^[[1m^[[92m    Checking^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:51.7967529Z ^[[1m^[[92m    Checking^[[0m xharness-cloud v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-cloud)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:51.9979027Z ^[[1m^[[92m    Checking^[[0m xharness-jobs v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-jobs)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:52.0417588Z ^[[1m^[[92m    Checking^[[0m xharness-schedule v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-schedule)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:52.5819922Z ^[[1m^[[92m    Checking^[[0m byteorder v1.5.0
+native	Host composition and portable acceptance executable	2026-10-06T00:30:53.0180859Z ^[[1m^[[92m    Checking^[[0m keyring v3.6.3
+native	Host composition and portable acceptance executable	2026-10-06T00:30:53.2852921Z ^[[1m^[[92m    Checking^[[0m xharness-host v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-host)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:53.3793672Z ^[[1m^[[92m    Checking^[[0m xharness-coding-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-coding-tools)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:54.2963108Z ^[[1m^[[92m    Checking^[[0m xharness-cloud-app v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-cloud-app)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:54.3541446Z ^[[1m^[[92m    Checking^[[0m xharness-web-terminal v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-web-terminal)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:54.9601647Z ^[[1m^[[92m    Checking^[[0m xharness-plugins v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-plugins)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:55.6256647Z ^[[1m^[[92m    Checking^[[0m xharness-server v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-server)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:56.5035466Z ^[[1m^[[92m    Checking^[[0m xharness-provider-openai v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-provider-openai)
+native	Host composition and portable acceptance executable	2026-10-06T00:30:56.5620244Z ^[[1m^[[92m    Checking^[[0m xharness-session-jsonl v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-session-jsonl)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:01.2508586Z ^[[1m^[[92m    Checking^[[0m process-wrap v10.0.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:01.2509938Z ^[[1m^[[92m    Checking^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:06.7490586Z ^[[1m^[[92m    Checking^[[0m xharness-mcp v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-mcp)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:07.0342544Z ^[[1m^[[92m    Checking^[[0m xharness-host-app v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-host-app)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.5928457Z ^[[1m^[[92m    Finished^[[0m `dev` profile [unoptimized + debuginfo] target(s) in 1m 30s
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.8585036Z ^[[1m^[[92m   Compiling^[[0m proc-macro2 v1.0.107
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.8586271Z ^[[1m^[[92m   Compiling^[[0m quote v1.0.47
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.8587069Z ^[[1m^[[92m   Compiling^[[0m unicode-ident v1.0.24
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.8589466Z ^[[1m^[[92m   Compiling^[[0m windows-link v0.2.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.9463888Z ^[[1m^[[92m   Compiling^[[0m version_check v0.9.5
+native	Host composition and portable acceptance executable	2026-10-06T00:31:11.9723867Z ^[[1m^[[92m   Compiling^[[0m typenum v1.20.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.2062391Z ^[[1m^[[92m   Compiling^[[0m cfg-if v1.0.4
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.2874387Z ^[[1m^[[92m   Compiling^[[0m pin-project-lite v0.2.17
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.3432979Z ^[[1m^[[92m   Compiling^[[0m generic-array v0.14.7
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.3690643Z ^[[1m^[[92m   Compiling^[[0m windows_x86_64_msvc v0.52.6
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.6250077Z ^[[1m^[[92m   Compiling^[[0m memchr v2.8.3
+native	Host composition and portable acceptance executable	2026-10-06T00:31:12.6373144Z ^[[1m^[[92m   Compiling^[[0m serde_core v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:31:13.4624538Z ^[[1m^[[92m   Compiling^[[0m syn v3.0.3
+native	Host composition and portable acceptance executable	2026-10-06T00:31:13.4686791Z ^[[1m^[[92m   Compiling^[[0m syn v2.0.119
+native	Host composition and portable acceptance executable	2026-10-06T00:31:14.3092471Z ^[[1m^[[92m   Compiling^[[0m windows-sys v0.61.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:14.9350348Z ^[[1m^[[92m   Compiling^[[0m futures-core v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:15.0941780Z ^[[1m^[[92m   Compiling^[[0m futures-sink v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:15.1948268Z ^[[1m^[[92m   Compiling^[[0m zmij v1.0.23
+native	Host composition and portable acceptance executable	2026-10-06T00:31:18.5739187Z ^[[1m^[[92m   Compiling^[[0m simd-adler32 v0.3.10
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.0462663Z ^[[1m^[[92m   Compiling^[[0m thiserror v2.0.20
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.5023774Z ^[[1m^[[92m   Compiling^[[0m serde v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.5104327Z ^[[1m^[[92m   Compiling^[[0m serde_json v1.0.151
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.5802053Z ^[[1m^[[92m   Compiling^[[0m windows-implement v0.60.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.7773354Z ^[[1m^[[92m   Compiling^[[0m windows-interface v0.59.3
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.8200694Z ^[[1m^[[92m   Compiling^[[0m futures-macro v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:19.8801433Z ^[[1m^[[92m   Compiling^[[0m tokio-macros v2.7.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:20.5840332Z ^[[1m^[[92m   Compiling^[[0m serde_derive v1.0.229
+native	Host composition and portable acceptance executable	2026-10-06T00:31:20.7950633Z ^[[1m^[[92m   Compiling^[[0m thiserror-impl v2.0.20
+native	Host composition and portable acceptance executable	2026-10-06T00:31:20.9445430Z ^[[1m^[[92m   Compiling^[[0m mio v1.2.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:20.9476292Z ^[[1m^[[92m   Compiling^[[0m socket2 v0.6.5
+native	Host composition and portable acceptance executable	2026-10-06T00:31:22.4305205Z ^[[1m^[[92m   Compiling^[[0m windows-targets v0.52.6
+native	Host composition and portable acceptance executable	2026-10-06T00:31:22.7370600Z ^[[1m^[[92m   Compiling^[[0m futures-channel v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.0510622Z ^[[1m^[[92m   Compiling^[[0m block-buffer v0.10.4
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.0553357Z ^[[1m^[[92m   Compiling^[[0m crypto-common v0.1.7
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.1666663Z ^[[1m^[[92m   Compiling^[[0m windows-result v0.4.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.1966531Z ^[[1m^[[92m   Compiling^[[0m windows-strings v0.5.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.6772423Z ^[[1m^[[92m   Compiling^[[0m autocfg v1.5.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:23.9434954Z ^[[1m^[[92m   Compiling^[[0m futures-task v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.1317051Z ^[[1m^[[92m   Compiling^[[0m crc32fast v1.5.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.1746430Z ^[[1m^[[92m   Compiling^[[0m bytes v1.12.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.2273819Z ^[[1m^[[92m   Compiling^[[0m slab v0.4.12
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.4607765Z ^[[1m^[[92m   Compiling^[[0m itoa v1.0.18
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.4689204Z ^[[1m^[[92m   Compiling^[[0m adler2 v2.0.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.6465889Z ^[[1m^[[92m   Compiling^[[0m futures-io v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:24.8240648Z ^[[1m^[[92m   Compiling^[[0m futures-util v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:25.7060451Z ^[[1m^[[92m   Compiling^[[0m tokio v1.53.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:26.6566481Z ^[[1m^[[92m   Compiling^[[0m num-traits v0.2.19
+native	Host composition and portable acceptance executable	2026-10-06T00:31:26.8854542Z ^[[1m^[[92m   Compiling^[[0m windows-core v0.62.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:28.3319382Z ^[[1m^[[92m   Compiling^[[0m digest v0.10.7
+native	Host composition and portable acceptance executable	2026-10-06T00:31:28.6973008Z ^[[1m^[[92m   Compiling^[[0m windows-sys v0.52.0
+native	Host composition and portable acceptance executable	2026-10-06T00:31:29.4926158Z ^[[1m^[[92m   Compiling^[[0m cpufeatures v0.2.17
+native	Host composition and portable acceptance executable	2026-10-06T00:31:29.5589567Z ^[[1m^[[92m   Compiling^[[0m sha2 v0.10.9
+native	Host composition and portable acceptance executable	2026-10-06T00:31:29.9871383Z ^[[1m^[[92m   Compiling^[[0m futures-executor v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:30.9935427Z ^[[1m^[[92m   Compiling^[[0m xharness-win32 v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-win32)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:31.5153307Z ^[[1m^[[92m   Compiling^[[0m xharness-diagnostics v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-diagnostics)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:33.1171080Z ^[[1m^[[92m   Compiling^[[0m miniz_oxide v0.9.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:33.4554037Z ^[[1m^[[92m   Compiling^[[0m async-trait v0.1.92
+native	Host composition and portable acceptance executable	2026-10-06T00:31:35.0314958Z ^[[1m^[[92m   Compiling^[[0m xharness-debug v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-debug)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:35.1585194Z ^[[1m^[[92m   Compiling^[[0m flate2 v1.1.10
+native	Host composition and portable acceptance executable	2026-10-06T00:31:36.0975839Z ^[[1m^[[92m   Compiling^[[0m tokio-util v0.7.19
+native	Host composition and portable acceptance executable	2026-10-06T00:31:37.0181787Z ^[[1m^[[92m   Compiling^[[0m futures v0.3.34
+native	Host composition and portable acceptance executable	2026-10-06T00:31:37.0980268Z ^[[1m^[[92m   Compiling^[[0m miniz_oxide v0.8.9
+native	Host composition and portable acceptance executable	2026-10-06T00:31:37.8309955Z ^[[1m^[[92m   Compiling^[[0m fdeflate v0.3.7
+native	Host composition and portable acceptance executable	2026-10-06T00:31:39.5799290Z ^[[1m^[[92m   Compiling^[[0m windows-threading v0.2.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:39.6106923Z ^[[1m^[[92m   Compiling^[[0m bitflags v2.13.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:39.7416818Z ^[[1m^[[92m   Compiling^[[0m pxfm v0.1.30
+native	Host composition and portable acceptance executable	2026-10-06T00:31:40.1122620Z ^[[1m^[[92m   Compiling^[[0m png v0.18.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:40.1920564Z ^[[1m^[[92m   Compiling^[[0m windows-future v0.3.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:41.5074195Z ^[[1m^[[92m   Compiling^[[0m xharness-tools v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-tools)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:45.4902670Z ^[[1m^[[92m   Compiling^[[0m moxcms v0.8.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:48.0261396Z ^[[1m^[[92m   Compiling^[[0m windows-collections v0.3.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:48.8024579Z ^[[1m^[[92m   Compiling^[[0m windows-numerics v0.3.1
+native	Host composition and portable acceptance executable	2026-10-06T00:31:49.1533278Z ^[[1m^[[92m   Compiling^[[0m byteorder-lite v0.1.0
+native	Host composition and portable acceptance executable	2026-10-06T00:31:49.5445008Z ^[[1m^[[92m   Compiling^[[0m bytemuck v1.25.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:49.9289588Z ^[[1m^[[92m   Compiling^[[0m windows v0.62.2
+native	Host composition and portable acceptance executable	2026-10-06T00:31:50.1066458Z ^[[1m^[[92m   Compiling^[[0m xharness-computer v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer)
+native	Host composition and portable acceptance executable	2026-10-06T00:31:54.7485483Z ^[[1m^[[92m   Compiling^[[0m image v0.25.10
+native	Host composition and portable acceptance executable	2026-10-06T00:32:24.0535219Z ^[[1m^[[92m   Compiling^[[0m xharness-computer-windows v0.1.0 (D:\a\x-harness-rs\x-harness-rs\crates\xharness-computer-windows)
+native	Host composition and portable acceptance executable	2026-10-06T00:32:41.6636030Z ^[[1m^[[92m    Finished^[[0m `release` profile [optimized] target(s) in 1m 29s
+native	Run actions/upload-artifact@v7	﻿2026-10-06T00:32:41.8826083Z ##[group]Run actions/upload-artifact@v7
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8826479Z with:
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8826692Z   name: windows-computer-acceptance
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8826969Z   path: dist/windows-computer/
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8827216Z   retention-days: 7
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8827427Z   if-no-files-found: warn
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8827660Z   compression-level: 6
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8827861Z   overwrite: false
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8828093Z   include-hidden-files: false
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8828319Z   archive: true
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8828506Z env:
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8828703Z   CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8829062Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8829389Z   CARGO_INCREMENTAL: 0
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8829659Z   CARGO_TERM_COLOR: always
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8829965Z   CACHE_ON_FAILURE: true
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:41.8830210Z ##[endgroup]
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:42.0622274Z With the provided path, there will be 2 files uploaded
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:42.0628329Z Artifact name is valid!
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:42.0630269Z Root directory input is valid!
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:42.4184152Z Uploading artifact: windows-computer-acceptance.zip
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:42.4230367Z Beginning upload of artifact content to blob storage
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.1460495Z Uploaded bytes 1094407
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.2067976Z Finished uploading artifact content to blob storage!
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.2070880Z SHA256 digest of uploaded artifact is 13fe5472bf62004c281dad0304bc7702dd2f005e40b81d97822b8bb8907c5156
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.2072060Z Finalizing artifact upload
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.5954125Z Artifact windows-computer-acceptance successfully finalized. Artifact ID 11382681381
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.5955268Z Artifact windows-computer-acceptance has been successfully uploaded! Final size is 1094407 bytes. Artifact ID is 11382681381
+native	Run actions/upload-artifact@v7	2026-10-06T00:32:43.5964293Z Artifact download URL: https://github.com/123123213weqw/x-harness-rs/actions/runs/37394193584/artifacts/11382681381
+native	Post Run Swatinem/rust-cache@v2	﻿2026-10-06T00:32:43.6300971Z Post job cleanup.
+native	Post Run Swatinem/rust-cache@v2	2026-10-06T00:32:43.7902253Z Cache up-to-date.
+native	Post Run actions/checkout@v6	﻿2026-10-06T00:32:43.8252540Z Post job cleanup.
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.0627155Z [command]"C:\Program Files\Git\bin\git.exe" version
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1035240Z git version 2.55.0.windows.5
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1124120Z Temporarily overriding HOME='D:\a\_temp\8000d421-67a1-40bf-8e3c-ce590385fc76' before making global git config changes
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1125588Z Adding repository directory to the temporary git global config as a safe directory
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1135593Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\x-harness-rs\x-harness-rs
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1461843Z Removing SSH command configuration
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1477494Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.1849659Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.7758205Z Removing HTTP extra header
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.7768437Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+native	Post Run actions/checkout@v6	2026-10-06T00:32:44.8097411Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3675272Z Removing includeIf entries pointing to credentials config files
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3691589Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3993904Z includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3994901Z includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git/worktrees/*.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3995685Z includeif.gitdir:/github/workspace/.git.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.3996226Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.4041710Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.4352788Z D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.4395163Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git.path D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.4708357Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git/worktrees/*.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.5019542Z D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.5073440Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/x-harness-rs/x-harness-rs/.git/worktrees/*.path D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.5452160Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.5728444Z /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.5769064Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.6094816Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.6400473Z /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.6449312Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config
+native	Post Run actions/checkout@v6	2026-10-06T00:32:45.6792482Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+native	Post Run actions/checkout@v6	2026-10-06T00:32:46.2541860Z Removing credentials config 'D:\a\_temp\git-credentials-52f92bda-2eb2-4f0f-88b7-807ebc9be2a8.config'
+native	Complete job	﻿2026-10-06T00:32:46.2777532Z Cleaning up orphan processes
+native	Complete job	2026-10-06T00:32:46.2983024Z Terminate orphan process: pid (9168) (vctip)

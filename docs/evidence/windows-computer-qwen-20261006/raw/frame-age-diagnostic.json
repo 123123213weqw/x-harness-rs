@@ -1,0 +1,183 @@
+{
+  "configured_frame_ttl_seconds": 30,
+  "source": "crates/xharness-computer-windows/src/adapter.rs",
+  "time_basis": "Same guest clock; sample precedes native dispatch. Approximation, not exact internal monotonic duration.",
+  "input_rows": [
+    {
+      "case": "filter",
+      "id": 6,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:27:55.2995771+08:00",
+      "frame_created_utc": "2026-10-06T01:27:23.460909+00:00",
+      "sample_frame_age_seconds": 31.839
+    },
+    {
+      "case": "filter",
+      "id": 8,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:28:50.5465452+08:00",
+      "frame_created_utc": "2026-10-06T01:28:15.203511+00:00",
+      "sample_frame_age_seconds": 35.343
+    },
+    {
+      "case": "filter",
+      "id": 10,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:29:50.2676605+08:00",
+      "frame_created_utc": "2026-10-06T01:29:10.592475+00:00",
+      "sample_frame_age_seconds": 39.675
+    },
+    {
+      "case": "filter",
+      "id": 12,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:30:52.5653379+08:00",
+      "frame_created_utc": "2026-10-06T01:30:11.893469+00:00",
+      "sample_frame_age_seconds": 40.672
+    },
+    {
+      "case": "filter",
+      "id": 14,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:31:48.6324251+08:00",
+      "frame_created_utc": "2026-10-06T01:31:13.169699+00:00",
+      "sample_frame_age_seconds": 35.463
+    },
+    {
+      "case": "filter",
+      "id": 16,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:33:02.6938067+08:00",
+      "frame_created_utc": "2026-10-06T01:32:11.233039+00:00",
+      "sample_frame_age_seconds": 51.461
+    },
+    {
+      "case": "scroll-detail",
+      "id": 23,
+      "action": "scroll",
+      "delta_y": 3000,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:36:22.5320247+08:00",
+      "frame_created_utc": "2026-10-06T01:35:46.073807+00:00",
+      "sample_frame_age_seconds": 36.458
+    },
+    {
+      "case": "scroll-detail",
+      "id": 25,
+      "action": "scroll",
+      "delta_y": 5000,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:37:20.0145620+08:00",
+      "frame_created_utc": "2026-10-06T01:36:35.325338+00:00",
+      "sample_frame_age_seconds": 44.689
+    },
+    {
+      "case": "scroll-detail",
+      "id": 27,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:38:31.5416767+08:00",
+      "frame_created_utc": "2026-10-06T01:37:34.837915+00:00",
+      "sample_frame_age_seconds": 56.704
+    },
+    {
+      "case": "scroll-detail",
+      "id": 29,
+      "action": "scroll",
+      "delta_y": 5000,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:39:35.2757772+08:00",
+      "frame_created_utc": "2026-10-06T01:38:51.592000+00:00",
+      "sample_frame_age_seconds": 43.684
+    },
+    {
+      "case": "scroll-detail",
+      "id": 31,
+      "action": "click",
+      "delta_y": null,
+      "ok": false,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      },
+      "uses_latest_returned_frame": true,
+      "first_guest_resource_sample": "2026-10-06T09:41:01.4370885+08:00",
+      "frame_created_utc": "2026-10-06T01:39:56.828686+00:00",
+      "sample_frame_age_seconds": 64.608
+    }
+  ]
+}

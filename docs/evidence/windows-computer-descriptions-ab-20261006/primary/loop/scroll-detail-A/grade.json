@@ -1,0 +1,59 @@
+{
+  "case": "scroll-detail",
+  "pass": false,
+  "checks": {
+    "fresh_reset": true,
+    "no_controller_error": false,
+    "no_cart": true,
+    "scrolled": true,
+    "detail_opened": false,
+    "returned": false,
+    "no_search": true,
+    "answer_exact": false
+  },
+  "events": 7,
+  "report_field_types_ok": false,
+  "variant": "A",
+  "run": "primary",
+  "label": "scroll-detail-A",
+  "response_bound": 12,
+  "strict_final_json": null,
+  "format_error": "No final answer",
+  "error": "Turn limit reached, not completion",
+  "tool_calls": 12,
+  "tool_failures": 3,
+  "elapsed_s": 280.4,
+  "failures": [
+    {
+      "id": 10,
+      "failure": {
+        "kind": "handler",
+        "message": "invalid_request: unsupported Windows key: Page_Down",
+        "retryable": false
+      }
+    },
+    {
+      "id": 11,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    },
+    {
+      "id": 17,
+      "failure": {
+        "kind": "handler",
+        "message": "stale_frame: observe again before operating the desktop",
+        "retryable": true
+      }
+    }
+  ],
+  "first_scroll": {
+    "action": "scroll",
+    "frame_id": "win:6548:1791244268107847700:7",
+    "x": 512,
+    "y": 500,
+    "delta_y": -1000
+  }
+}

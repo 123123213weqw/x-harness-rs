@@ -1,0 +1,38 @@
+[package]
+name = "xharness-computer-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Isolated Windows UI Automation and input adapter for XHarness"
+
+[features]
+native-acceptance = []
+
+[dev-dependencies]
+xharness-tools = { path = "../xharness-tools" }
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+xharness-computer = { path = "../xharness-computer" }
+
+[target.'cfg(windows)'.dependencies]
+tokio = { workspace = true, features = ["process"] }
+xharness-win32 = { path = "../xharness-win32" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation", "Win32_Security", "Win32_System_Com",
+    "Win32_System_Ole", "Win32_System_LibraryLoader", "Win32_System_Variant", "Win32_System_StationsAndDesktops", "Win32_System_Threading", "Win32_UI_Accessibility",
+    "Win32_UI_HiDpi", "Win32_System_SystemServices", "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi",
+    "Win32_UI_Shell", "Win32_UI_Shell_Common",
+] }
+
+[[example]]
+name = "computer-probe"
+path = "examples/computer-probe.rs"

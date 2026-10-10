@@ -1,0 +1,189 @@
+[
+  {
+    "kind": "same_snapshot",
+    "mode": "uia",
+    "passed": 3,
+    "samples": 3,
+    "input_tokens_per_request": [
+      19489,
+      19489,
+      19489
+    ],
+    "median_model_s": 1.357051583006978
+  },
+  {
+    "kind": "same_snapshot",
+    "mode": "vision",
+    "passed": 3,
+    "samples": 3,
+    "input_tokens_per_request": [
+      2189,
+      2189,
+      2189
+    ],
+    "median_model_s": 1.1738307499326766
+  },
+  {
+    "kind": "same_snapshot",
+    "mode": "hybrid",
+    "passed": 3,
+    "samples": 3,
+    "input_tokens_per_request": [
+      19985,
+      19985,
+      19985
+    ],
+    "median_model_s": 1.2935508750379086
+  },
+  {
+    "kind": "loop",
+    "label": "hybrid-0",
+    "mode": "hybrid",
+    "grade": {
+      "pass": true,
+      "native_all_success": false,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false
+    },
+    "error": null,
+    "native_calls": 9,
+    "native_observation_median_ms": 8858.5,
+    "native_observations": 4,
+    "model_s": 13.089555707760155,
+    "controller_total_s": 98.57294187508523,
+    "native_peak_working_set_bytes": 34140160,
+    "failures": [
+      {
+        "id": 35,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      },
+      {
+        "id": 32,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      }
+    ],
+    "reported_prompt_tokens": 386276
+  },
+  {
+    "kind": "loop",
+    "label": "uia-0",
+    "mode": "uia",
+    "grade": null,
+    "error": "Modality contract violated; not rewritten or dispatched",
+    "native_calls": 1,
+    "native_observation_median_ms": 8869,
+    "native_observations": 1,
+    "model_s": 1.8276417921297252,
+    "controller_total_s": 32.60607179114595,
+    "native_peak_working_set_bytes": 31064064,
+    "failures": [],
+    "reported_prompt_tokens": 15350
+  },
+  {
+    "kind": "loop",
+    "label": "uia-1",
+    "mode": "uia",
+    "grade": {
+      "pass": true,
+      "native_all_success": false,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false
+    },
+    "error": null,
+    "native_calls": 9,
+    "native_observation_median_ms": 8764.0,
+    "native_observations": 4,
+    "model_s": 12.537044001277536,
+    "controller_total_s": 85.56708104209974,
+    "native_peak_working_set_bytes": 31870976,
+    "failures": [
+      {
+        "id": 14,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      },
+      {
+        "id": 11,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      }
+    ],
+    "reported_prompt_tokens": 258405
+  },
+  {
+    "kind": "loop",
+    "label": "vision-0",
+    "mode": "vision",
+    "grade": null,
+    "error": "'NoneType' object has no attribute 'get'",
+    "native_calls": 2,
+    "native_observation_median_ms": 470,
+    "native_observations": 1,
+    "model_s": 1.9202279159799218,
+    "controller_total_s": 48.69159666728228,
+    "native_peak_working_set_bytes": 28200960,
+    "failures": [
+      {
+        "id": 19,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      }
+    ],
+    "reported_prompt_tokens": 5033
+  },
+  {
+    "kind": "loop",
+    "label": "vision-1",
+    "mode": "vision",
+    "grade": {
+      "pass": true,
+      "native_all_success": false,
+      "search_submitted": true,
+      "final_exact": true,
+      "forbidden_events": [],
+      "reset_found": true,
+      "strict_final_json": false
+    },
+    "error": null,
+    "native_calls": 10,
+    "native_observation_median_ms": 478,
+    "native_observations": 5,
+    "model_s": 13.185260458999982,
+    "controller_total_s": 71.156153833,
+    "native_peak_working_set_bytes": 31064064,
+    "failures": [
+      {
+        "id": 24,
+        "failure": {
+          "kind": "handler",
+          "message": "stale_frame: observe again before operating the desktop",
+          "retryable": true
+        }
+      }
+    ],
+    "reported_prompt_tokens": 87987
+  }
+]

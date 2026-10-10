@@ -1,0 +1,7 @@
+{
+  "action": "type",
+  "text": "http://10.0.2.2:18101/expanded.html?case=filter",
+  "frame_id": "win:4800:1791249237387712900:3",
+  "include_accessibility": false,
+  "include_screenshot": false
+}
