@@ -510,6 +510,10 @@ jobs:
             Get-ChildItem apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug -Filter '*.dll' -Recurse | Select-Object FullName,Length | ConvertTo-Json > dist/native-browser-evidence/windows/build-dlls.json
             throw 'Windows native DOM probe failed'
           }
+          # A genuine loaded/bound native page must still acknowledge Ready
+          # after the old five-second polling window, without replaying open.
+          python scripts/gui_bench/run_native_probe.py apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe --ready-delay-ms 6000 --evidence-dir dist/native-browser-evidence/windows/delayed-ready
+          if ($LASTEXITCODE) { throw 'Windows delayed native Ready regression failed' }
       - name: Upload Windows native DOM evidence
         if: always()
         uses: actions/upload-artifact@v7
