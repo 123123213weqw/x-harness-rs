@@ -24,10 +24,10 @@ use xharness_compaction::{
 };
 use xharness_debug::{DebugEvent, DebugScope};
 use xharness_session::{
-    ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionProgress, CompactionStage,
-    EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval, RequestHeader,
-    Revision, SequenceRange, SessionEvent, SessionHeader, Store as EventSessionStore,
-    SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
+    ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionEndOutcome, CompactionProgress,
+    CompactionStage, EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval,
+    RequestHeader, Revision, SequenceRange, SessionEvent, SessionHeader,
+    Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
 /// Bound both crash-loss and memory growth without returning to one JSONL
@@ -77,6 +77,7 @@ enum TokenBudgetCheck {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CompactionOutcome {
     NotApplied,
+    Skipped(CompactionEndOutcome),
     Applied,
     Interrupted,
 }
@@ -410,6 +411,8 @@ impl LoopEngine {
             last_input_tokens: None,
             recent_input_growth: VecDeque::new(),
             failed_compactions: HashMap::new(),
+            workset_pressure: false,
+            workset_input_sample: None,
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -505,7 +508,7 @@ fn surface_node(seq: u64, message: &AgentMessage) -> Result<SurfaceNode, RunFail
                 call_ids: message
                     .tool_calls
                     .iter()
-                    .map(|call| call.provider_id().to_owned())
+                    .map(|call| call.id.clone())
                     .collect(),
             },
         });
@@ -562,6 +565,10 @@ struct Runner {
     last_input_tokens: Option<u64>,
     recent_input_growth: VecDeque<u64>,
     failed_compactions: HashMap<String, String>,
+    workset_pressure: bool,
+    /// Complete request price before the first disposable projection. Local
+    /// byte heuristics select candidates only, and must use comparable units.
+    workset_input_sample: Option<(u64, u64)>,
 }
 
 struct JournalState {
@@ -823,6 +830,22 @@ impl Runner {
                 {
                     TokenBudgetCheck::Ready(report) => {
                         if let Some(report) = &report {
+                            if context_tools
+                                .iter()
+                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                                && self
+                                    .activate_working_set(
+                                        report.estimate.total_input_tokens,
+                                        report.context_window_tokens,
+                                        &prepared,
+                                        &context_tools,
+                                    )
+                                    .await?
+                            {
+                                continue;
+                            }
+                        }
+                        if let Some(report) = &report {
                             let input = report.estimate.total_input_tokens;
                             if let Some(previous) = self.last_input_tokens {
                                 if input >= previous {
@@ -855,6 +878,7 @@ impl Runner {
                                         self.settle_control_at_boundary().await?;
                                         continue 'steps;
                                     }
+                                    Ok(CompactionOutcome::Skipped(_)) => continue,
                                     Ok(CompactionOutcome::NotApplied) => {}
                                     Err(error) => {
                                         self.debug(
@@ -888,6 +912,20 @@ impl Runner {
                         context_window_tokens,
                         error,
                     } => {
+                        if context_tools
+                            .iter()
+                            .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                            && self
+                                .activate_working_set(
+                                    current_input_tokens,
+                                    context_window_tokens,
+                                    &prepared,
+                                    &context_tools,
+                                )
+                                .await?
+                        {
+                            continue;
+                        }
                         let maximum = self
                             .request
                             .compaction
@@ -912,7 +950,9 @@ impl Runner {
                                     self.settle_control_at_boundary().await?;
                                     continue 'steps;
                                 }
-                                Ok(CompactionOutcome::NotApplied) => {}
+                                Ok(
+                                    CompactionOutcome::NotApplied | CompactionOutcome::Skipped(_),
+                                ) => {}
                                 Err(error @ RunFailure::Stopped(_)) => return Err(error),
                                 Err(compaction_error) => {
                                     let message = format!("token budget rejected request: {error}; overflow compaction failed: {compaction_error}");
@@ -983,7 +1023,7 @@ impl Runner {
                             self.settle_control_at_boundary().await?;
                             continue 'steps;
                         }
-                        Ok(CompactionOutcome::NotApplied) => {
+                        Ok(CompactionOutcome::NotApplied | CompactionOutcome::Skipped(_)) => {
                             return Err(RunFailure::ContextOverflow(message));
                         }
                         Err(error @ RunFailure::Stopped(_)) => return Err(error),
@@ -1264,19 +1304,82 @@ impl Runner {
     // a candidate that would grow again immediately after its replacement.
     async fn prepare_context(
         &self,
-        mut context_messages: Vec<AgentMessage>,
+        context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
     ) -> Result<ContextSurface, RunFailure> {
-        if let Some(continuation) = self.pending_continuation.clone() {
-            context_messages.push(continuation);
+        let mut origins = Vec::new();
+        {
+            if let Some(journal) = &self.journal {
+                let session = journal
+                    .store
+                    .load(&journal.session_id)
+                    .await
+                    .map_err(|error| {
+                        RunFailure::Failed(format!("working set journal load failed: {error}"))
+                    })?
+                    .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
+                let surface = session.derive_surface_messages();
+                let sources = crate::context_working_set::sources(&session, &surface);
+                origins =
+                    crate::context_working_set::aligned(&context_messages, &surface, &sources);
+            }
         }
-        let context_request = ContextRequest::new(context_messages)
+        self.prepare_context_with_sources(context_messages, context_tools, &origins)
+            .await
+    }
+
+    async fn prepare_context_with_sources(
+        &self,
+        mut context_messages: Vec<AgentMessage>,
+        context_tools: &[Value],
+        origins: &[Option<xharness_context::WorkingSetSource>],
+    ) -> Result<ContextSurface, RunFailure> {
+        // Retirement is allowed only with a real session-bound recovery tool.
+        // A custom executor without history must remain lossless/fail closed.
+        let history_available = context_tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
+        let working = if history_available && !origins.is_empty() {
+            self.project_working_set(context_messages, origins, context_tools)?
+        } else {
+            ContextSurface::identity(context_messages)
+        };
+        context_messages = working.messages.clone();
+        let mut context_request = ContextRequest::new(context_messages)
             .with_target(
                 self.request.provider.provider_name(),
                 self.request.provider.model_name(),
             )
             .with_step(self.step)
             .with_tools(context_tools.to_vec());
+        if origins.len() == working.source_message_count {
+            let mut genuine = Vec::new();
+            let mut source = 0usize;
+            let mut output = 0usize;
+            for edit in &working.edits {
+                while source < edit.source_start {
+                    if origins[source]
+                        .is_some_and(|s| s.kind == xharness_context::WorkingSetSourceKind::RawUser)
+                    {
+                        genuine.push(output);
+                    }
+                    source += 1;
+                    output += 1;
+                }
+                source = edit.source_end;
+                output += edit.replacement_messages;
+            }
+            while source < origins.len() {
+                if origins[source]
+                    .is_some_and(|s| s.kind == xharness_context::WorkingSetSourceKind::RawUser)
+                {
+                    genuine.push(output);
+                }
+                source += 1;
+                output += 1;
+            }
+            context_request = context_request.with_genuine_user_indices(genuine);
+        }
         let mut prepared = self
             .request
             .context_policy
@@ -1287,10 +1390,31 @@ impl Runner {
             .validate()
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         self.validate_prompt_surface(&prepared)?;
+        if !working.edits.is_empty() {
+            // Keep source-coordinate retirement evidence in a separate audited
+            // surface, rather than mixing two policies' incompatible indexes.
+            // Final wire content remains policy output; identity edit is a
+            // single valid composite mapping to the original source.
+            prepared.edits = vec![xharness_context::SurfaceEdit::new(
+                0,
+                working.source_message_count,
+                prepared.messages.len(),
+                xharness_context::SurfaceEditKind::Custom("working_set_and_context_policy".into()),
+            )];
+            prepared.source_message_count = working.source_message_count;
+            prepared.policy =
+                xharness_context::ContextPolicyId::new("working-set-and-context-policy", 1);
+            prepared
+                .validate()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+        }
         // Account for exactly the image references that will be sent on the
         // wire. In particular, a long conversation must not fail forever once
         // its accumulated attachments exceed one request's resource budget.
         prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
+        if let Some(continuation) = self.pending_continuation.clone() {
+            prepared.messages.push(continuation);
+        }
         // Runtime controls are transient, not new user history. Add AFTER
         // policy projection so compaction/custom policies cannot remove
         // an unconsumed notice, and BEFORE admission/counting/audit.
@@ -1303,6 +1427,101 @@ impl Runner {
             );
         }
         Ok(prepared)
+    }
+
+    fn project_working_set(
+        &self,
+        messages: Vec<AgentMessage>,
+        sources: &[Option<xharness_context::WorkingSetSource>],
+        tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        let available = self
+            .request
+            .token_guard
+            .as_ref()
+            .map_or(0, |g| g.budget().available_input_tokens());
+        let recent = self
+            .request
+            .compaction
+            .as_ref()
+            .and_then(|config| {
+                config
+                    .resolve(
+                        ModelTarget::new(
+                            self.request.provider.provider_name(),
+                            self.request.provider.model_name().unwrap_or("unknown"),
+                        ),
+                        self.request
+                            .token_guard
+                            .as_ref()?
+                            .budget()
+                            .context_window_tokens,
+                    )
+                    .ok()
+            })
+            .map_or(available / 5, |spec| spec.retain_tokens);
+        let (local, measured) = self.workset_input_sample.unwrap_or((0, 0));
+        let calibrated =
+            |tokens| xharness_context::calibrate_working_set_tokens(tokens, local, measured);
+        let tool_cost = local_tool_cost(tools)?;
+        xharness_context::project_working_set(
+            messages,
+            sources,
+            &xharness_context::WorkingSetConfig {
+                pressure: self.workset_pressure,
+                available_input_tokens: calibrated(available.saturating_mul(3) / 5)
+                    .saturating_sub(tool_cost),
+                recent_tokens: calibrated(recent.min(available / 2)),
+                hot_input_budget: Some(calibrated(available).saturating_sub(tool_cost)),
+                retain_checkpoints: 2,
+            },
+        )
+        .map_err(|error| RunFailure::Failed(error.to_string()))
+    }
+
+    async fn activate_working_set(
+        &mut self,
+        input: u64,
+        context: u64,
+        prepared: &ContextSurface,
+        tools: &[Value],
+    ) -> Result<bool, RunFailure> {
+        if self.workset_pressure || self.journal.is_none() {
+            return Ok(false);
+        }
+        let Some(config) = &self.request.compaction else {
+            return Ok(false);
+        };
+        if !config.auto {
+            return Ok(false);
+        }
+        let available = self
+            .request
+            .token_guard
+            .as_ref()
+            .map_or(context, |g| g.budget().available_input_tokens());
+        let threshold = config
+            .resolve(
+                ModelTarget::new(
+                    self.request.provider.provider_name(),
+                    self.request.provider.model_name().unwrap_or("unknown"),
+                ),
+                context,
+            )
+            .map_or(available.saturating_mul(4) / 5, |spec| {
+                spec.threshold_tokens.min(available.saturating_mul(4) / 5)
+            });
+        if input >= threshold {
+            // Paired prices cover the SAME COMPLETE request, including schemas
+            // and the exact policy output/transient notes counted by the guard.
+            let local = xharness_context::approximate_working_set_tokens(&prepared.messages)
+                .map_err(|error| RunFailure::Failed(error.to_string()))?
+                .saturating_add(local_tool_cost(tools)?);
+            self.workset_pressure = true;
+            self.workset_input_sample = Some((local, input));
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn validate_prompt_surface(&self, surface: &ContextSurface) -> Result<(), RunFailure> {
@@ -1361,6 +1580,17 @@ impl Runner {
             match progress {
                 CountProgress::Ready(count) => match count {
                     Ok(value) => break value,
+                    Err(error) if error.is_context_overflow() => {
+                        // A native counter may reject an oversized request before
+                        // returning a number. This is a hard overflow signal,
+                        // never an auth/general-400 fallback or permission to send.
+                        provider_cancellation.cancel();
+                        return Ok(TokenBudgetCheck::Exceeded {
+                            current_input_tokens: guard.budget().context_window_tokens,
+                            context_window_tokens: guard.budget().context_window_tokens,
+                            error: format!("provider counter rejected context: {error}"),
+                        });
+                    }
                     Err(error) if error.retryable && guard.allows_counter_fallback() => {
                         fallback_reason = Some("transient_counter_failure".to_owned());
                         provider.input_counter_failed();
@@ -1453,6 +1683,7 @@ impl Runner {
     }
 
     async fn run_manual_compaction(&mut self, command_id: &str) -> Result<LoopStatus, RunFailure> {
+        self.workset_pressure = true;
         let outcome = async {
             let tool_definitions = self.tool_definitions().await;
             let context_tools = tool_definitions
@@ -1524,12 +1755,12 @@ impl Runner {
                 .await?;
                 Ok(LoopStatus::Completed)
             }
-            Ok(CompactionOutcome::NotApplied) => {
+            Ok(CompactionOutcome::NotApplied | CompactionOutcome::Skipped(_)) => {
                 self.journal_append(
                     vec![SessionEventData::CommandDone {
                         command_id: command_id.to_owned(),
                         kind: CommandResultKind::Success,
-                        text: Some("No eligible history to compact".to_owned()),
+                        text: Some("Compaction not applied; original history retained".to_owned()),
                         source_event_seq: None,
                     }],
                     true,
@@ -1595,10 +1826,45 @@ impl Runner {
                 RunFailure::Failed("compaction session disappeared before planning".to_owned())
             })?;
         let surface = session.derive_surface_messages();
-        let nodes = surface
+        let origins = crate::context_working_set::sources(&session, &surface);
+        let mut protected = crate::context_working_set::protected(&surface, &origins);
+        let mut nodes = surface
             .iter()
-            .map(|node| surface_node(node.seq, &node.message))
+            .map(|node| {
+                if let Some(SessionEventData::ToolResult { result, .. }) =
+                    session.events().get(node.seq as usize).map(|e| e.data())
+                {
+                    return Ok(SurfaceNode::tool_result(
+                        node.seq,
+                        estimate_message_tokens(&node.message)?,
+                        result.call_id.clone(),
+                    ));
+                }
+                surface_node(node.seq, &node.message)
+            })
             .collect::<Result<Vec<_>, _>>()?;
+        if context_tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"))
+        {
+            let working = self.project_working_set(
+                surface.iter().map(|node| node.message.clone()).collect(),
+                &origins,
+                context_tools,
+            )?;
+            for edit in &working.edits {
+                for index in edit.source_start..edit.source_end {
+                    if let Some(node) = nodes.get_mut(index) {
+                        protected.insert(node.seq);
+                        node.tokens = 0;
+                    }
+                }
+            }
+        }
+        let minimum_gain = estimate_message_tokens(&AgentMessage::user(
+            frame_summary("Technical evidence retained; originals remain readable with history.")
+                .map_err(|e| RunFailure::Failed(e.to_string()))?,
+        ))?;
         let target = ModelTarget::new(
             self.request.provider.provider_name(),
             self.request.provider.model_name().unwrap_or("unknown"),
@@ -1606,7 +1872,7 @@ impl Runner {
         let planner = BasicCompactionPlanner::new(config)
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         let plan = match planner
-            .plan_with_input_budget(
+            .plan_incremental_with_input_budget(
                 &CompactionRequest {
                     trigger,
                     target,
@@ -1620,13 +1886,18 @@ impl Runner {
                     .as_ref()
                     .map(|guard| guard.budget().available_input_tokens()),
                 self.recent_input_growth.iter().copied().max().unwrap_or(0),
+                &protected,
+                minimum_gain,
             )
             .map_err(|error| RunFailure::Failed(error.to_string()))?
         {
             CompactionDecision::Planned { plan } => *plan,
-            CompactionDecision::Disabled
-            | CompactionDecision::NotNeeded { .. }
-            | CompactionDecision::NoBalancedRange { .. } => {
+            CompactionDecision::NoBalancedRange { .. } => {
+                return self
+                    .end_ineligible_compaction(trigger, source_command_id)
+                    .await;
+            }
+            CompactionDecision::Disabled | CompactionDecision::NotNeeded { .. } => {
                 return Ok(CompactionOutcome::NotApplied)
             }
             _ => return Ok(CompactionOutcome::NotApplied),
@@ -1698,13 +1969,20 @@ impl Runner {
         // Cache deterministic failure for this exact source within the run;
         // a later step must not repeatedly pay to summarize the same span.
         let fingerprint = sha256_json(&json!({
-            "selected": &selected,
+            "selected": &selected, "sourceSeqs": &plan.range.shadowed_seqs,
             "system": self.messages.iter().find(|m| m.role == Role::System),
             "target": &plan.spec.target, "context": context_window_tokens,
             "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
+            "pipelineVersion":7, "retryConfig":self.request.config.provider_retry_budget_ms,
+            "workingSetInputSample":self.workset_input_sample,
+            "tools":context_tools, "mainBudget":self.request.token_guard.as_ref().map(|g|g.budget()),
         }))?;
-        let summarized = if let Some(error) = self.failed_compactions.get(&fingerprint) {
-            Err(crate::compaction::SummaryError::Invalid(error.clone()))
+        let summarized = if let Some(error) = self
+            .failed_compactions
+            .get(&fingerprint)
+            .filter(|_| trigger != CompactionTrigger::Manual)
+        {
+            Err(crate::compaction::SummaryError::NoBenefit(error.clone()))
         } else {
             self.run_compaction_summary(
                 &plan,
@@ -1719,17 +1997,22 @@ impl Runner {
         let summary = match summarized {
             Ok(summary) => summary,
             Err(error) => {
-                if !matches!(
+                if matches!(
                     &error,
-                    crate::compaction::SummaryError::Cancelled
-                        | crate::compaction::SummaryError::Interrupted
-                ) && !matches!(&error, crate::compaction::SummaryError::Provider(error) if error.retryable)
-                {
-                    if self.failed_compactions.len() >= 32 {
-                        self.failed_compactions.clear();
-                    }
-                    self.failed_compactions
-                        .insert(fingerprint, error.to_string());
+                    crate::compaction::SummaryError::NoBenefit(_)
+                        | crate::compaction::SummaryError::Input(_)
+                        | crate::compaction::SummaryError::Output
+                ) {
+                    return self
+                        .end_no_benefit(
+                            &compaction_id,
+                            source_command_id,
+                            turn,
+                            trigger,
+                            fingerprint,
+                            error.to_string(),
+                        )
+                        .await;
                 }
                 let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
                 let failure_message = error.to_string();
@@ -1742,6 +2025,12 @@ impl Runner {
                 };
                 self.journal_append(
                     vec![SessionEventData::CompactionEnd {
+                        outcome: Some(if interrupted || matches!(&error, RunFailure::Stopped(_)) {
+                            CompactionEndOutcome::Interrupted
+                        } else {
+                            CompactionEndOutcome::Failed
+                        }),
+                        fingerprint: None,
                         compaction_id: compaction_id.clone(),
                         source_command_id: source_command_id.map(str::to_owned),
                         turn: Some(turn),
@@ -1762,26 +2051,25 @@ impl Runner {
         progress.delay_ms = None;
         self.journal_compaction_progress(&compaction_id, source_command_id, turn, progress.clone())
             .await?;
+        let first_source_seq = plan
+            .range
+            .shadowed_seqs
+            .iter()
+            .copied()
+            .min()
+            .unwrap_or(plan.range.start_seq);
+        let last_source_seq = plan
+            .range
+            .shadowed_seqs
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(plan.range.end_seq);
+        let evidence = format!("Original event span {}..{}; use history search starting at seq {} to locate original evidence, then history read with the returned seq/offset.\n\n{}",
+            first_source_seq,last_source_seq,first_source_seq,summary.text);
         let checkpoint =
-            frame_summary(&summary.text).map_err(|error| RunFailure::Failed(error.to_string()))?;
+            frame_summary(&evidence).map_err(|error| RunFailure::Failed(error.to_string()))?;
         let checkpoint_tokens = estimate_message_tokens(&AgentMessage::user(&checkpoint))?;
-        if checkpoint_tokens >= plan.range.shadowed_token_count {
-            let error = format!(
-                "compaction summary was not smaller than its source range: checkpoint={} source={}",
-                checkpoint_tokens, plan.range.shadowed_token_count
-            );
-            self.journal_append(
-                vec![SessionEventData::CompactionEnd {
-                    compaction_id: compaction_id.clone(),
-                    source_command_id: source_command_id.map(str::to_owned),
-                    turn: Some(turn),
-                    error: Some(error.clone()),
-                }],
-                true,
-            )
-            .await?;
-            return Err(RunFailure::Failed(error));
-        }
 
         let shadowed_range = SequenceRange {
             start: plan.range.start_seq,
@@ -1800,7 +2088,15 @@ impl Runner {
         // Build exactly the surface that Session::surface_replace will publish,
         // then include the same prompt/policy/tools/control notes as a real call.
         // No candidate summary becomes durable before this admission succeeds.
-        let validation: Result<bool, RunFailure> = async {
+        let commit_next_seq = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| RunFailure::Failed("compaction lost commit cursor".into()))?
+            .next_seq;
+        let checkpoint_seq = commit_next_seq
+            .checked_add(2)
+            .ok_or_else(|| RunFailure::Failed("compaction sequence overflow".into()))?;
+        let validation: Result<Option<bool>, RunFailure> = async {
             let mut candidate = surface
                 .iter()
                 .map(|node| node.message.clone())
@@ -1815,8 +2111,27 @@ impl Runner {
                 .map(serde_json::to_value)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| RunFailure::Failed(error.to_string()))?;
+            let mut candidate_origins = origins.clone();
+            for source in candidate_origins.iter_mut().flatten() {
+                if source.kind == xharness_context::WorkingSetSourceKind::CurrentCheckpoint {
+                    source.kind = xharness_context::WorkingSetSourceKind::Checkpoint;
+                }
+            }
+            candidate_origins.splice(
+                plan.range.start_index..=plan.range.end_index,
+                [Some(xharness_context::WorkingSetSource {
+                    seq: checkpoint_seq,
+                    kind: xharness_context::WorkingSetSourceKind::Checkpoint,
+                    outcome_unknown: false,
+                })],
+            );
+            let prefixed_candidate = self.compaction_prefixed_history(candidate);
+            let prefix_len = prefixed_candidate
+                .len()
+                .saturating_sub(candidate_origins.len());
+            candidate_origins.splice(0..0, std::iter::repeat_n(None, prefix_len));
             let prepared = self
-                .prepare_context(self.prompt_prefixed(candidate), &tools)
+                .prepare_context_with_sources(prefixed_candidate, &tools, &candidate_origins)
                 .await?;
             let request = ProviderRequest {
                 messages: prepared.messages.clone(),
@@ -1836,13 +2151,17 @@ impl Runner {
                         report.as_ref().map(|r| r.estimate.total_input_tokens);
                     self.debug("compaction.candidate_budget", json!({"budget":report}))
                         .await;
+                    if progress
+                        .input_tokens_after
+                        .is_some_and(|after| after >= current_input_tokens)
+                        || (progress.input_tokens_after.is_none()
+                            && checkpoint_tokens >= plan.range.shadowed_token_count)
+                    {
+                        return Ok(Some(false));
+                    }
                 }
-                TokenBudgetCheck::Exceeded { error, .. } => {
-                    return Err(RunFailure::Failed(format!(
-                        "compaction candidate still exceeds the main request budget: {error}"
-                    )))
-                }
-                TokenBudgetCheck::Interrupted => return Ok(false),
+                TokenBudgetCheck::Exceeded { .. } => return Ok(Some(false)),
+                TokenBudgetCheck::Interrupted => return Ok(None),
             }
             self.ensure_running()?;
             let latest = store
@@ -1852,25 +2171,38 @@ impl Runner {
                 .ok_or_else(|| {
                     RunFailure::Failed("compaction session disappeared during validation".into())
                 })?;
-            if latest.derive_surface_messages() != surface {
-                return Err(RunFailure::Failed(
-                    "compaction source changed during validation; original history is unchanged"
-                        .into(),
-                ));
+            if latest.derive_surface_messages() != surface
+                || latest.next_seq() != commit_next_seq
+                || self
+                    .journal
+                    .as_ref()
+                    .is_none_or(|journal| journal.next_seq != commit_next_seq)
+            {
+                return Ok(None);
             }
-            Ok(true)
+            Ok(Some(true))
         }
         .await;
-        if !matches!(validation, Ok(true)) {
+        if matches!(validation, Ok(Some(false))) {
+            return self.end_no_benefit(&compaction_id,source_command_id,turn,trigger,fingerprint,
+                "candidate does not reduce the complete request enough to pass admission; original history is unchanged".into()).await;
+        }
+        if !matches!(validation, Ok(Some(true))) {
             let message = match &validation {
-                Ok(false) => {
-                    "compaction candidate validation interrupted by runtime control".to_owned()
+                Ok(None) => {
+                    "compaction candidate validation interrupted or source changed; original history is unchanged".to_owned()
                 }
                 Err(error) => error.to_string(),
-                Ok(true) => unreachable!(),
+                Ok(Some(_)) => unreachable!(),
             };
             self.journal_append(
                 vec![SessionEventData::CompactionEnd {
+                    outcome: Some(if validation.is_ok() {
+                        CompactionEndOutcome::Interrupted
+                    } else {
+                        CompactionEndOutcome::Failed
+                    }),
+                    fingerprint: None,
                     compaction_id: compaction_id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
@@ -1885,11 +2217,16 @@ impl Runner {
             };
         }
         self.failed_compactions.clear();
+        self.ensure_running()?;
         progress.stage = CompactionStage::Committing;
-        self.journal_compaction_progress(&compaction_id, source_command_id, turn, progress)
-            .await?;
-        self.journal_append(
-            vec![
+        let committed = self
+            .commit_compaction_events(vec![
+                SessionEventData::CompactionProgress {
+                    compaction_id: compaction_id.clone(),
+                    source_command_id: source_command_id.map(str::to_owned),
+                    turn: Some(turn),
+                    progress,
+                },
                 SessionEventData::CompactionSummary {
                     compaction_id: compaction_id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
@@ -1911,15 +2248,23 @@ impl Runner {
                     }),
                 },
                 SessionEventData::CompactionEnd {
+                    outcome: Some(CompactionEndOutcome::Applied),
+                    fingerprint: None,
                     compaction_id: compaction_id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
                     error: None,
                 },
-            ],
-            true,
-        )
-        .await?;
+            ])
+            .await?;
+        if !committed {
+            self.journal_append(vec![SessionEventData::CompactionEnd {
+                compaction_id:compaction_id.clone(),source_command_id:source_command_id.map(str::to_owned),turn:Some(turn),
+                outcome:Some(CompactionEndOutcome::Interrupted),fingerprint:None,
+                error:Some("compaction commit cursor changed; candidate discarded and original history retained".into()),
+            }],true).await?;
+            return Ok(CompactionOutcome::Interrupted);
+        }
         self.reload_journal_messages().await?;
         self.debug(
             "compaction.end",
@@ -1933,6 +2278,132 @@ impl Runner {
         )
         .await;
         Ok(CompactionOutcome::Applied)
+    }
+
+    /// Strict CAS, unlike ordinary journal writes which may adopt external
+    /// inbox metadata. Candidate history handles refer to the exact next seq;
+    /// any concurrent append invalidates that reservation, even if it does not
+    /// change messages. No partial note, replacement or coverage is committed.
+    async fn commit_compaction_events(
+        &mut self,
+        events: Vec<SessionEventData>,
+    ) -> Result<bool, RunFailure> {
+        let journal = self
+            .journal
+            .as_ref()
+            .ok_or_else(|| RunFailure::Failed("compaction lost journal".into()))?;
+        if !journal.pending_stream_events.is_empty() {
+            return Err(RunFailure::Failed(
+                "compaction commit found undrained stream events".into(),
+            ));
+        }
+        let store = journal.store.clone();
+        let id = journal.session_id.clone();
+        let revision = journal.revision;
+        let receipt = match store
+            .append(&id, revision, events.into_iter().map(Into::into).collect())
+            .await
+        {
+            Ok(receipt) => receipt,
+            Err(xharness_session::StoreError::RevisionConflict { .. }) => {
+                self.reload_journal_messages().await?;
+                return Ok(false);
+            }
+            Err(error) => {
+                return Err(RunFailure::Failed(format!(
+                    "compaction atomic commit failed: {error}"
+                )))
+            }
+        };
+        if let Some(journal) = self.journal.as_mut() {
+            journal.revision = receipt.revision;
+            journal.next_seq = receipt
+                .last_seq
+                .map_or(journal.next_seq, |seq| seq.saturating_add(1));
+        }
+        store.flush(&id).await.map_err(|error| {
+            RunFailure::Failed(format!("compaction commit flush failed: {error}"))
+        })?;
+        Ok(true)
+    }
+
+    async fn end_ineligible_compaction(
+        &mut self,
+        trigger: CompactionTrigger,
+        command: Option<&str>,
+    ) -> Result<CompactionOutcome, RunFailure> {
+        let Some(journal) = &self.journal else {
+            return Ok(CompactionOutcome::NotApplied);
+        };
+        if trigger == CompactionTrigger::ContextOverflow {
+            return Err(RunFailure::Failed("no eligible raw span: protected user inputs, open/unknown tools, provider replay state or fixed system/schema overhead cannot be compacted; choose a larger context or reduce the explicit request".into()));
+        }
+        let turn = journal.turn;
+        let id = format!(
+            "compact-{}-{}-{}-{}",
+            self.run_id, turn, self.step, journal.next_seq
+        );
+        self.journal_append(
+            vec![
+                SessionEventData::CompactionStart {
+                    compaction_id: id.clone(),
+                    source_command_id: command.map(str::to_owned),
+                    turn: Some(turn),
+                },
+                SessionEventData::CompactionEnd {
+                    compaction_id: id,
+                    source_command_id: command.map(str::to_owned),
+                    turn: Some(turn),
+                    error: None,
+                    outcome: Some(CompactionEndOutcome::NoEligibleSource),
+                    fingerprint: None,
+                },
+            ],
+            true,
+        )
+        .await?;
+        Ok(CompactionOutcome::Skipped(
+            CompactionEndOutcome::NoEligibleSource,
+        ))
+    }
+
+    async fn end_no_benefit(
+        &mut self,
+        id: &str,
+        command: Option<&str>,
+        turn: u32,
+        trigger: CompactionTrigger,
+        fingerprint: String,
+        reason: String,
+    ) -> Result<CompactionOutcome, RunFailure> {
+        if self.failed_compactions.len() >= 32 {
+            self.failed_compactions.clear();
+        }
+        self.failed_compactions
+            .insert(fingerprint.clone(), reason.clone());
+        self.journal_append(
+            vec![SessionEventData::CompactionEnd {
+                compaction_id: id.to_owned(),
+                source_command_id: command.map(str::to_owned),
+                turn: Some(turn),
+                outcome: Some(CompactionEndOutcome::NoBenefit),
+                fingerprint: Some(fingerprint),
+                error: None,
+            }],
+            true,
+        )
+        .await?;
+        self.debug(
+            "compaction.skipped",
+            json!({"reason":reason,"trigger":trigger}),
+        )
+        .await;
+        if trigger == CompactionTrigger::ContextOverflow {
+            return Err(RunFailure::Failed(format!(
+                "required compaction produced no safe gain: {reason}"
+            )));
+        }
+        Ok(CompactionOutcome::Skipped(CompactionEndOutcome::NoBenefit))
     }
 
     async fn run_compaction_summary(
@@ -2095,6 +2566,21 @@ impl Runner {
                     })?,
             };
 
+        for event in session.events().iter().rev() {
+            if self.failed_compactions.len() >= 32 {
+                break;
+            }
+            if let SessionEventData::CompactionEnd {
+                outcome: Some(CompactionEndOutcome::NoBenefit),
+                fingerprint: Some(fingerprint),
+                ..
+            } = event.data()
+            {
+                self.failed_compactions
+                    .entry(fingerprint.clone())
+                    .or_insert_with(|| "same source/budget previously produced no benefit".into());
+            }
+        }
         self.user_request_scope = session
             .latest_user_request()
             .map(|(seq, message)| UserRequestScope::new(Some(seq), message));
@@ -2313,7 +2799,7 @@ impl Runner {
         self.user_request_scope = session
             .latest_user_request()
             .map(|(seq, message)| UserRequestScope::new(Some(seq), message));
-        self.messages = self.prompt_prefixed(session.derive_messages());
+        self.messages = self.compaction_prefixed_history(session.derive_messages());
         if let Some(journal) = self.journal.as_mut() {
             journal.revision = session.revision();
             journal.next_seq = session.next_seq();
@@ -2406,6 +2892,7 @@ impl Runner {
                             !matches!(
                                 event.data(),
                                 SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::JobContinuation { .. }
                                     | SessionEventData::AgentDispatchPaused { .. }
                                     | SessionEventData::AgentSettlementDelivered { .. }
                                     | SessionEventData::AgentFailureDelivered { .. }
@@ -2524,25 +3011,26 @@ impl Runner {
                 "source":"request_admission","phase":"prepared",
             }),
         );
+        // Harness inspection is a separate lightweight snapshot; only the
+        // conversation input body is gated by full diagnostic capture.
+        let system = surface
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        header.system = (!system.is_empty()).then_some(system);
+        header.tools = tools.to_vec();
+        header.options.insert(
+            "inputMessageCount".into(),
+            Value::from(surface.messages.len() as u64),
+        );
+        header
+            .options
+            .insert("toolCount".into(), Value::from(tools.len() as u64));
         if capture_full_audit {
-            let system = surface
-                .messages
-                .iter()
-                .filter(|message| message.role == Role::System)
-                .map(|message| message.content.as_str())
-                .collect::<Vec<_>>()
-                .join("\n\n");
-            header.system = (!system.is_empty()).then_some(system);
-            header.tools = tools.to_vec();
             header.input = surface.messages.clone();
-        } else {
-            header.options.insert(
-                "inputMessageCount".into(),
-                Value::from(surface.messages.len() as u64),
-            );
-            header
-                .options
-                .insert("toolCount".into(), Value::from(tools.len() as u64));
         }
         header.options.insert(
             "toolDefinitionsSha256".to_owned(),
@@ -2610,6 +3098,25 @@ impl Runner {
             .journal
             .as_ref()
             .is_some_and(|journal| journal.last_request_context.as_ref() != Some(&request_context));
+        let journal = self.journal.as_ref().unwrap();
+        match journal
+            .store
+            .archive_harness_snapshot(&journal.session_id, &header)
+            .await
+        {
+            Ok(Some(reference)) => {
+                header.options.insert("harnessSnapshot".into(), reference);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                // Optional inspection must not fail or alter the provider call.
+                eprintln!("xharness Harness snapshot capture failed: {error}");
+                header.options.insert(
+                    "harnessSnapshot".into(),
+                    json!({"kind":"omitted","reason":"archive_failed"}),
+                );
+            }
+        }
         let missing_audit = header.metadata_only(json!({
             "kind": "omitted", "reason": "archive_failed",
         }));
@@ -3446,6 +3953,25 @@ impl Runner {
         visible
     }
 
+    /// A journal surface does not persist explicit System messages supplied by
+    /// a caller without PromptAssembly. Preserve that live prefix when checking
+    /// a compaction candidate and when reloading its committed history. This is
+    /// deliberately separate from initial admission, which still extends the
+    /// caller's messages once after loading the journal.
+    fn compaction_prefixed_history(&self, messages: Vec<AgentMessage>) -> Vec<AgentMessage> {
+        if self.request.prompt.is_some() {
+            return self.prompt_prefixed(messages);
+        }
+        let mut visible = self
+            .messages
+            .iter()
+            .filter(|message| message.role == Role::System)
+            .cloned()
+            .collect::<Vec<_>>();
+        visible.extend(messages);
+        visible
+    }
+
     fn retry_entropy(&self) -> u64 {
         let digest = Sha256::digest(format!("{}:{}:{}", self.run_id, self.step, self.seq));
         u64::from_le_bytes(digest[..8].try_into().expect("hash prefix"))
@@ -3531,9 +4057,12 @@ impl Runner {
         let mut round = ModelRound::default();
         let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
         let mut last_provider_error: Option<ProviderError> = None;
+        let mut reception_attempt = 0u32;
 
         loop {
             self.ensure_running()?;
+            let mut reception = crate::reception::ReceptionRecorder::new(reception_attempt);
+            reception_attempt = reception_attempt.saturating_add(1);
             let provider_cancellation = self.cancellation.child_token();
             let provider = self.request.provider.clone();
             let mut stream_future =
@@ -3654,6 +4183,10 @@ impl Runner {
                         if delta.is_empty() {
                             continue;
                         }
+                        if reception.observe("text", &delta) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
+                        }
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
                         round.saw_delta = true;
@@ -3669,6 +4202,10 @@ impl Runner {
                     ModelInput::Provider(Some(Ok(ProviderEvent::ReasoningDelta(delta)))) => {
                         if delta.is_empty() {
                             continue;
+                        }
+                        if reception.observe("reasoning", &delta) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
                         }
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
@@ -3688,6 +4225,15 @@ impl Runner {
                         name,
                         arguments_delta,
                     }))) => {
+                        let observed = if arguments_delta.is_empty() {
+                            &name
+                        } else {
+                            &arguments_delta
+                        };
+                        if reception.observe("arguments", observed) {
+                            self.journal_reception(reception.checkpoint(false, None))
+                                .await?;
+                        }
                         pending_tool_bytes = pending_tool_bytes
                             .saturating_add(id.len())
                             .saturating_add(name.len())
@@ -3713,6 +4259,9 @@ impl Runner {
                         usage,
                         provider_items,
                     }))) => {
+                        // Snapshot the transport clock BEFORE releasing the private prefix.
+                        self.journal_reception(reception.checkpoint(true, usage.as_ref()))
+                            .await?;
                         self.commit_tool_prefix(&mut round, &mut pending_tool_deltas)
                             .await?;
                         let effective_finish_reason = finish_reason.clone().unwrap_or({
@@ -3775,6 +4324,8 @@ impl Runner {
                 return Ok(round);
             }
             let error = failure.expect("an incomplete provider attempt has an error");
+            self.journal_reception(reception.checkpoint(true, None))
+                .await?;
             if error.is_context_overflow() && !round.saw_delta {
                 return Err(RunFailure::ContextOverflow(error.message));
             }
@@ -3897,6 +4448,45 @@ impl Runner {
             call.arguments_json.push_str(&delta.arguments_delta);
         }
         Ok(())
+    }
+
+    async fn journal_reception(
+        &mut self,
+        reception: xharness_session::ModelReception,
+    ) -> Result<(), RunFailure> {
+        let Some(journal) = self.journal.as_ref() else {
+            return Ok(());
+        };
+        let turn = journal.turn;
+        let step = u32::try_from(self.step)
+            .map_err(|_| RunFailure::Failed("session step counter overflow".into()))?;
+        if reception.finished {
+            // Capture now, persist with the existing completion/retry batch.
+            // Telemetry must not add a synchronous write to every short reply.
+            self.journal
+                .as_mut()
+                .expect("journal checked above")
+                .pending_stream_events
+                .push(
+                    SessionEventData::ModelReception {
+                        turn,
+                        step,
+                        reception,
+                    }
+                    .into(),
+                );
+            return Ok(());
+        }
+        self.journal_append(
+            vec![SessionEventData::ModelReception {
+                turn,
+                step,
+                reception,
+            }],
+            false,
+        )
+        .await?;
+        self.emit(LoopEventKind::StreamCheckpoint).await
     }
 
     async fn tool_definitions(&self) -> Vec<crate::ToolDefinition> {
@@ -4500,6 +5090,15 @@ impl Runner {
         }
         Ok(())
     }
+}
+
+fn local_tool_cost(tools: &[Value]) -> Result<u64, RunFailure> {
+    let bytes = serde_json::to_vec(tools)
+        .map_err(|error| RunFailure::Failed(error.to_string()))?
+        .len() as u64;
+    Ok(bytes
+        .div_ceil(3)
+        .saturating_add((tools.len() as u64).saturating_mul(8)))
 }
 
 fn sha256_json(value: &impl Serialize) -> Result<String, RunFailure> {

@@ -1,0 +1,28 @@
+5d19a4c11b24bb07e5d328a274b5e16d56e4708892ca3266ea97bb46d986bc01  /home/data/wzu/windows-browser-bounds-20261012/linux-bounds-probe
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=503995 comm="/home/data/wzu/windows-browser-bounds-20261012/lin" label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.portal.Desktop' requested by ':1.2' (uid=1000 pid=503995 comm="/home/data/wzu/windows-browser-bounds-20261012/lin" label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.portal.Documents' requested by ':1.3' (uid=1000 pid=504016 comm="/usr/libexec/xdg-desktop-portal " label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.impl.portal.PermissionStore' requested by ':1.4' (uid=1000 pid=504021 comm="/usr/libexec/xdg-document-portal " label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.freedesktop.impl.portal.PermissionStore'
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.freedesktop.portal.Documents'
+fusermount3: failed to access mountpoint /run/user/1000/doc: Permission denied
+error: fuse init failed: Can't mount path /run/user/1000/doc
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.impl.portal.desktop.gnome' requested by ':1.3' (uid=1000 pid=504016 comm="/usr/libexec/xdg-desktop-portal " label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.gtk.vfs.Daemon' requested by ':1.7' (uid=1000 pid=504034 comm="/usr/libexec/xdg-desktop-portal-gnome " label="unconfined")
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.gtk.vfs.Daemon'
+fusermount3: failed to access mountpoint /run/user/1000/gvfs: Permission denied
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.freedesktop.impl.portal.desktop.gnome'
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.impl.portal.desktop.gtk' requested by ':1.3' (uid=1000 pid=504016 comm="/usr/libexec/xdg-desktop-portal " label="unconfined")
+dbus-daemon[504012]: Activating service name='org.a11y.atspi.Registry' requested by ':1.1' (uid=1000 pid=504124 comm="/usr/libexec/xdg-desktop-portal-gtk " label="unconfined")
+dbus-daemon[504012]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.freedesktop.impl.portal.desktop.gtk'
+dbus-daemon[503994]: [session uid=1000 pid=503994] Activating service name='org.freedesktop.secrets' requested by ':1.3' (uid=1000 pid=504016 comm="/usr/libexec/xdg-desktop-portal " label="unconfined")
+
+** (/usr/libexec/xdg-desktop-portal:504016): WARNING **: 12:17:22.407: Failed to create secret proxy: 为 org.freedesktop.secrets 调用 StartServiceByName 时出错： 已到超时限制
+
+** (/usr/libexec/xdg-desktop-portal:504016): WARNING **: 12:17:22.407: No skeleton to export
+dbus-daemon[503994]: [session uid=1000 pid=503994] Successfully activated service 'org.freedesktop.portal.Desktop'
+Native observation probe failed: Ok(Err("native callback unavailable"))
+A connection to the bus can't be made

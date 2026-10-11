@@ -21,6 +21,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-server` | [Web 服务承载层](server.md) | 已实现 HTTP/WS/静态资源承载 |
 | `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md)、[模型性能与 Token 投影](metrics-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn；完整性能投影计划中 |
 | `xharness-agent` | [长生命周期 Agent](agent.md) | Inbox、Supervisor、多 Turn/Steer、Registry、本机 Lease 与恢复 Wake 已实现 |
+| `xharness-host` / `xharness-fs` / `xharness-prompt` | [工作区 AGENTS.md](workspace-instructions.md) | 根规则锁外有界读取、实际轮次刷新、内容寻址快照；子目录为现有工具按需读取，不新增自动记忆 |
 | Host/Agent 交互检查 | [轮次交互状态检查](turn-statecheck.md) | #152 阶段 0–2：测试期有限状态枚举与真实行为对照；不接管生产调度 |
 | `xharness-core` | [核心 Agent Loop](core-loop.md) | 已实现，已在 Linux 测试 |
 | `xharness-provider-openai` | [OpenAI-compatible Provider](provider-openai.md) | 已实现，协议和真实 Chat 已测试 |
@@ -41,7 +42,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-terminal` | [持久 PTY](terminal.md) | Unix PTY / Windows ConPTY 已实现；不在默认模型工具面 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
 | `xharness-coding-tools` | [标准 11 工具包](coding-tools.md) | Unix Bash / Windows PowerShell 7 与后台 Job 已实现 |
-| `xharness-interaction` | [用户提问与等待交互](user-questions.md) | 类型/状态机、Registry、Session/Host/Web 持久恢复和 AGENTS.md Sink 已实现 |
+| `xharness-interaction` | [用户提问与等待交互](user-questions.md) | 类型/状态机、Registry、Session/Host/Web 持久恢复；问答已与 AGENTS.md 写入解耦 |
 | `xharness-context` | [上下文预算](context.md) | Surface 抽象、原生/后备 Token Guard 与 Durable Compact 接线已实现 |
 | Web Context Inspector | [上下文检查器](context-inspector.md) | RequestHeader 完整输入投影、第三个 Context Tab、颜色分类与压缩前后视图已实现 |
 | `xharness-compaction` | [上下文压缩](compaction.md) | 自动 Pressure/Overflow、摘要重计量、Session Replace 与 Web 投影已接线；手动命令/生产 Pruner 待完成 |

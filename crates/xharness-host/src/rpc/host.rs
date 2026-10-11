@@ -221,11 +221,14 @@ pub(super) async fn request_snapshot(host: &BasicHost, payload: &Value) -> Resul
     if !host.state.read().await.sessions.contains_key(&id) {
         return Err(session_not_found(&id));
     }
-    let header = host
-        .agent_runtime
-        .request_header(&id, seq)
-        .await
-        .map_err(agent_runtime_error)?
-        .ok_or_else(|| bad_request("request snapshot not found at this sequence"))?;
+    let header = match payload.get("scope") {
+        None => host.agent_runtime.request_header(&id, seq).await,
+        Some(Value::String(scope)) if scope == "harness" => {
+            host.agent_runtime.harness_header(&id, seq).await
+        }
+        _ => return Err(bad_request("scope must be harness when specified")),
+    }
+    .map_err(agent_runtime_error)?
+    .ok_or_else(|| bad_request("request snapshot not found at this sequence"))?;
     Ok(json!({"sessionId":id,"seq":seq,"header":header}))
 }

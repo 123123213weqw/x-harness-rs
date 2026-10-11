@@ -1,5 +1,6 @@
 /** Compatibility boundary for untyped view publishers; readers validate every returned value. */
 import { z } from 'zod'
+import { CompactionEndOutcomeSchema } from '../../shared/compaction-outcome'
 import { imageAttachmentRefSchema } from '../../client-connection/contracts/host/apiproxy/api/sessions.schema'
 import { isRecord, isUnknownArray } from '../value-guards'
 import type { ConversationLocationDataStore, ConversationStepDataMap, ConversationTurnDataMap, TurnLocation, ConversationTimelineSnapshot, ChatConversationViewNode } from '../contract/conversation'
@@ -38,14 +39,14 @@ const legacyNode: z.ZodType<ConversationNode>=z.union([
   z.looseObject({...base,kind:z.literal('user'),content:z.array(z.unknown()),source:z.unknown()}),
   z.looseObject({...base,kind:z.literal('steering'),messageId:s,content:z.array(z.unknown()),source:z.unknown()}),
   z.looseObject({...base,kind:z.literal('context'),content:z.array(z.unknown()),source:z.unknown(),provenance:z.object({role:z.enum(['inject','recall']),label:s.nullable()}),form:z.enum(['instructions','catalog','snapshot','notice','relay','recall']).nullable()}),
-  z.looseObject({...base,kind:z.literal('assistant'),messageId:maybeString,turn:n,step:n,blocks,usage:z.unknown().optional(),provenance:z.object({provider:s,model:s}).optional(),requestConfig:z.looseObject({provider:s,model:s,purpose:maybeString,thinking:maybeString,reasoningEffort:maybeString,temperature:maybeNumber,maxTokens:maybeNumber,stop:z.array(s).optional()}).optional(),timing:z.object({stepStartTime:n.nullable(),firstTokenTime:n.nullable(),completedTime:n}).optional(),interrupted:z.literal(true).optional()}),
+  z.looseObject({...base,kind:z.literal('assistant'),messageId:maybeString,turn:n,step:n,blocks,usage:z.unknown().optional(),provenance:z.object({provider:s,model:s}).optional(),requestConfig:z.looseObject({provider:s,model:s,purpose:maybeString,thinking:maybeString,reasoningEffort:maybeString,temperature:maybeNumber,maxTokens:maybeNumber,stop:z.array(s).optional()}).optional(),timing:z.object({stepStartTime:n.nullable(),firstTokenTime:n.nullable(),completedTime:n,receptionMs:n.optional()}).optional(),interrupted:z.literal(true).optional()}),
   z.looseObject({...base,kind:z.literal('tool-result'),callId:s,call:z.object({name:s,argsRaw:s}).nullable(),callTime:n.nullable(),content:z.array(z.unknown()),isError:z.boolean(),error:z.object({name:s,code:s}).optional(),meta:z.unknown().optional(),callView:card,resultView:card,subCalls:z.array(tool)}),
   z.looseObject({...base,kind:z.literal('command'),commandId:s,name:s.nullable(),args:s.nullable(),outcome:z.object({kind:z.enum(['success','error']),text:maybeString,sourceEventSeq:maybeNumber}).nullable()}),
   z.looseObject({...base,kind:z.literal('turn-error'),turn:n,step:n,message:s,code:maybeString}),
   z.looseObject({...base,kind:z.literal('turn-max-tokens'),turn:n,step:n}),
   z.looseObject({...base,kind:z.literal('unknown'),type:s,data:z.unknown()}),
   z.looseObject({...base,kind:z.literal('compaction'),summary:s.nullable(),summaryEventSeq:n.nullable(),shadowedItemCount:n.nullable(),shadowedTokenCount:n.nullable(),progress:progress.optional(),startedAt:maybeNumber,endedAt:maybeNumber}),
-  z.looseObject({...base,kind:z.literal('compaction'),status:z.enum(['running','failed']),progress:progress.optional(),progressTime:maybeNumber,error:s.nullable(),endedAt:maybeNumber}),
+  z.looseObject({...base,kind:z.literal('compaction'),status:z.enum(['running','failed','skipped','cancelled']),outcome:CompactionEndOutcomeSchema.optional(),progress:progress.optional(),progressTime:maybeNumber,error:s.nullable(),endedAt:maybeNumber}),
   z.looseObject({...retryBase,...retryFacts,mode:z.literal('normal'),maxRetries:n}),
   z.looseObject({...retryBase,...retryFacts,mode:z.literal('always')}),
   z.looseObject({...retryBase,partial:z.literal(true),delayMs:z.undefined().optional(),mode:z.undefined().optional(),policyKey:z.undefined().optional(),failure:z.undefined().optional(),maxRetries:z.undefined().optional()}),

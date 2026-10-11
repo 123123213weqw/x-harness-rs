@@ -207,6 +207,15 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-runtime",
+      "kind": "source-module",
+      "source": "src/modules/runtime-environment/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-brand-official",
       "kind": "source-module",
       "source": "src/modules/brand-official/index.ts",
@@ -470,6 +479,16 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-performance",
+      "kind": "source-module",
+      "source": "src/modules/performance/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-ui-schedule",
       "kind": "source-module",
       "source": "src/modules/schedule/index.tsx",
@@ -519,6 +538,16 @@
       "id": "@xlang/xharness-client-ui-profile",
       "kind": "source-module",
       "source": "src/modules/profile/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings-general"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-memory",
+      "kind": "source-module",
+      "source": "src/modules/memory/index.tsx",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
@@ -587,6 +616,17 @@
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
         "@xlang/xharness-client-ui-assistant"
+      ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-session-import",
+      "kind": "source-module",
+      "source": "src/modules/session-import/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-settings-general",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale"
       ]
     }
   ],
@@ -659,7 +699,7 @@
     {
       "path": "desktop-titlebar.css",
       "source": "desktop/titlebar.css",
-      "sha256": "d324983ae42c5f241c497124d8e0dbaa05b502843aef5b26dec26c4c76da615c"
+      "sha256": "3e4eb6234fc9112df7a24d095952615da86baf2f016ece2642e3500529faacf3"
     },
     {
       "path": "plugin-icons/browser.svg",

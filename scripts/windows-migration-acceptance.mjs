@@ -10,7 +10,7 @@ import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, re
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkStaged } from './windows-cache-rehearsal.mjs'
-import { attachmentState } from './native-desktop-attachment.mjs'
+import { attachmentState, preparationAction, UpdatePreparationError } from './native-desktop-attachment.mjs'
 import { verifyPackage } from './verify-updater-package.mjs'
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'CI only')
@@ -134,7 +134,10 @@ async function run() {
   writeFileSync(join(data, 'workspace', '保留-fixture.txt'), 'Preserve workspace content across both updates.\n')
   const retained = ['providers.json', 'secrets/migration_fixture_key', 'workspace/保留-fixture.txt'].map(name => ({ name, sha256: hash(join(data, name)) }))
   const requests = [], checkpoints = []
-  let rejectPackage = false
+  // Arm before launching the base app: its background updater may download
+  // before the acceptance controller issues its first manual check.
+  let rejectPackage = !probeOnly
+  let corruptPackageRejected = false
   const mappings = new Map(probeOnly ? [] : [
     [`/${oldRepo}/releases/latest/download/latest.json`, join(root, 'bridge', 'latest.json')],
     [`/${upstream}/releases/latest/download/latest.json`, join(root, 'next', 'latest.json')],
@@ -168,7 +171,7 @@ async function run() {
   let connection
   // Retain bounded evidence across native/CDP process replacement. A screenshot
   // alone cannot distinguish an old stopped Host from a broken new installation.
-  const observedPages = new WeakSet(), attachSamples = [], pageEvents = []
+  const observedPages = new WeakSet(), attachSamples = [], pageEvents = [], updateSamples = []
   function recordPageEvent(event) {
     if (pageEvents.length < 200) pageEvents.push({ time: new Date().toISOString(), ...event })
   }
@@ -184,12 +187,40 @@ async function run() {
   async function until(fn, label, timeout = 90000) {
     const start = Date.now(); let last
     while (Date.now() - start < timeout) {
-      try { const result = await fn(); if (result) return result } catch (error) { last = error.message }
+      try { const result = await fn(); if (result) return result } catch (error) {
+        if (error instanceof UpdatePreparationError) throw error
+        last = error.message
+      }
       await wait(1000)
     }
     throw new Error(`${label} timed out: ${last ?? 'no result'}`)
   }
   const invoke = (page, command, args) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args })
+  async function prepareUpdate(page, version, corrupt, retryRejected = false) {
+    let retriedRejection = false
+    let downloadObserved = false
+    const discoveryDeadline = Date.now() + 90000
+    return until(async () => {
+      const state = await invoke(page, 'desktop_update_status')
+      if (updateSamples.length >= 200) updateSamples.shift()
+      updateSamples.push({ time: new Date().toISOString(), version, corrupt, state })
+      const corruptRequestSeen = requests.some(request => request.tampered && request.pathname === new URL(manifest('bridge').platforms['windows-x86_64'].url).pathname)
+      const action = preparationAction(version, state, { corrupt, corruptRequestSeen, retryRejected: retryRejected && !retriedRejection })
+      downloadObserved ||= ['downloading', 'downloaded'].includes(state.phase)
+        || (state.phase === 'error' && state.retryAction === 'download')
+      if (!downloadObserved && Date.now() >= discoveryDeadline) throw new UpdatePreparationError(`Discover ${version} exceeded 90 seconds`)
+      if (action === 'ready' || action === 'rejected') return state
+      if (action === 'check') await invoke(page, 'desktop_check_update')
+      if (action === 'download') {
+        downloadObserved = true
+        if (state.phase === 'error') retriedRejection = true
+        await invoke(page, 'desktop_download_update')
+      }
+      return null
+      // Production downloads already have a 30-minute timeout. Do not apply the
+      // 90-second discovery bound to an existing background download operation.
+    }, `${corrupt ? 'Reject corrupt package' : 'Prepare verified package'} ${version}`, 30 * 60 * 1000)
+  }
   async function attached(version) {
     return until(async () => {
       if (!connection?.isConnected()) connection = await chromium.connectOverCDP('http://127.0.0.1:9222', { timeout: 4000 })
@@ -217,7 +248,7 @@ async function run() {
         await connection.close(); connection = null
       }
       return null
-    }, `App ${version} with running Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
+    }, `App ${version} with product-ready Host${cacheRehearsal ? ' and committed native frontend' : ''}`)
   }
   async function rpc(page, method, payload) {
     const result = await page.evaluate(async ({ method, payload, rpcId }) => {
@@ -275,21 +306,17 @@ async function run() {
       return
     }
     for (const version of (directLatest ? [e.UPSTREAM_VERSION] : [e.BRIDGE_VERSION, e.UPSTREAM_VERSION])) {
-      const check = await until(async () => {
-        const state = await invoke(page, 'desktop_check_update')
-        if (state.phase === 'error') throw new Error(state.message)
-        return state.phase === 'available' && state.version === version ? state : null
-      }, `Discover ${version}`)
-      assert.equal(check.version, version)
       if (version === e.BRIDGE_VERSION) {
-        rejectPackage = true
-        await invoke(page, 'desktop_download_update').catch(() => {})
-        assert.equal((await invoke(page, 'desktop_update_status')).phase, 'error', 'Corrupted package was accepted')
+        const rejected = await prepareUpdate(page, version, true)
+        assert.equal(rejected.phase, 'error', 'Corrupted package was accepted')
+        assert.equal(rejected.version, version)
         assert.equal((await invoke(page, 'desktop_status')).version, e.BASE_VERSION)
+        corruptPackageRejected = true
         rejectPackage = false
       }
-      const downloaded = await invoke(page, 'desktop_download_update')
+      const downloaded = await prepareUpdate(page, version, false, corruptPackageRejected)
       assert.equal(downloaded.phase, 'downloaded')
+      assert.equal(downloaded.version, version)
       if (cacheRehearsal) {
         const cache = join(e.LOCALAPPDATA, 'com.xlang.xharness', 'updater-v1', 'current', 'package.bin')
         assert.equal(hash(cache), hash(location('next', e.UPSTREAM_VERSION)), 'Signed payload not durably cached')
@@ -338,8 +365,9 @@ async function run() {
     const secondHopIntercepted = requests.some(r => r.pathname === `/${upstream}/releases/latest/download/latest.json`)
     assert.equal(checkpoints.length, directLatest ? 2 : 3)
     for (const checkpoint of checkpoints.slice(1)) assert.equal(checkpoints[0].journalSha256, checkpoint.journalSha256, 'Update rewrote the fixture journal')
+    assert.ok(corruptPackageRejected, 'Missing real corrupted-package rejection')
     writeFileSync(join(evidence, 'PASS.json'), JSON.stringify({ nativeTwoHop: !directLatest, nativeDirectLatest: cacheRehearsal ? false : directLatest, rehearsalOnly: cacheRehearsal,
-      installCount: checkpoints.length - 1, confirmedInstall: true, corruptPackageRejected: true,
+      installCount: checkpoints.length - 1, confirmedInstall: true, corruptPackageRejected,
       secondHopIntercepted, upstreamEndpointAndKeyVerified: true, checkpoints }, null, 2))
   } finally {
     if (connection?.isConnected()) {
@@ -353,6 +381,7 @@ async function run() {
     writeFileSync(join(evidence, 'requests.json'), JSON.stringify(requests, null, 2))
     writeFileSync(join(evidence, 'attach-samples.json'), JSON.stringify(attachSamples, null, 2))
     writeFileSync(join(evidence, 'page-events.json'), JSON.stringify(pageEvents, null, 2))
+    writeFileSync(join(evidence, 'update-samples.json'), JSON.stringify(updateSamples, null, 2))
     try {
       const inventory = execFileSync('powershell', ['-NoLogo','-NoProfile','-NonInteractive','-Command',
         "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('xharness-desktop.exe','xharness-host.exe') } | Select-Object Name,ProcessId,ParentProcessId,ExecutablePath | ConvertTo-Json -Compress"], { encoding: 'utf8', timeout: 10000 })

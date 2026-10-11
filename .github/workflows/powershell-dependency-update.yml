@@ -1,0 +1,37 @@
+name: Pinned PowerShell LTS dependency updates
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Monday 08:00 Asia/Shanghai
+  workflow_dispatch:
+
+# Only this trusted default-branch schedule can propose the one lock file.
+# It never signs, releases, approves reviews, or merges a pull request.
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write # Explicit CI dispatch: GITHUB_TOKEN PR events need approval.
+concurrency:
+  group: powershell-dependency-update
+  cancel-in-progress: false
+jobs:
+  propose:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Runtime pin, extraction and upgrade bot regression
+        run: python3 -B scripts/test-powershell-runtime.py
+      - name: Check official same-series stable release and verify full archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -B scripts/powershell-runtime.py check-updates --output /tmp/powershell-proposal.json
+      - name: Propose lock-only PR and explicitly request normal regression CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 -B scripts/publish-powershell-upgrade.py /tmp/powershell-proposal.json

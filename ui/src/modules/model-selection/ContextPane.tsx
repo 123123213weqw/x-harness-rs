@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefCallback } from 'react'
 import { IconChevronRightOutline14 } from '@xharness/dsh-client-ui-primitives'
+import type { Translation } from '../shared/runtime-types'
 import { errorText } from '../shared/runtime-types'
 import type { ModelDirectoryState, ModelSelection, ModelSelectInjected } from './contracts'
 import { css } from './styles'
@@ -13,11 +14,12 @@ export function xhModelInfo(state: ModelDirectoryState) {
   return { current, model, maximum, effort: current?.reasoningEffort ?? model?.reasoning?.defaultEffort }
 }
 export function xhContextSelection(state: ModelDirectoryState, raw: string): ModelSelection {
-  const { current, maximum } = xhModelInfo(state)
-  if (!current || !maximum) throw new Error('当前模型未提供上下文上限，无法调整。')
+  const { current, model, maximum } = xhModelInfo(state)
+  if (!current || !model) throw new Error('请先选择模型。')
   if (!/^\d+$/.test(raw.trim())) throw new Error('请输入正整数 Token 数量。')
   const tokens = Number(raw)
-  if (!Number.isSafeInteger(tokens) || tokens < 1 || tokens > maximum) throw new Error(`请输入 1–${maximum.toLocaleString()} 之间的 Token 数量。`)
+  if (!Number.isSafeInteger(tokens) || tokens < 1) throw new Error('请输入正整数 Token 数量。')
+  if (maximum !== undefined && tokens > maximum) throw new Error(`请输入 1–${maximum.toLocaleString()} 之间的 Token 数量。`)
   return { ...current, contextWindowTokens: tokens }
 }
 function tokenLabel(value: number | undefined): string {
@@ -33,12 +35,15 @@ export function xhReasoningStatus(state: ModelDirectoryState): string {
   const sources: Record<string, string> = { configured: '已配置', documented: '厂商文档', provider_reported: '服务端提供', last_known_good: '上次有效能力' }
   return sources[capability?.source ?? ''] ?? '已配置'
 }
-export function ReasoningStatus({ state, load, itemRef }: { state: ModelDirectoryState; load: ModelSelectInjected['load']; itemRef: RefCallback<HTMLButtonElement> }) {
+export function ReasoningStatus({ state, load, itemRef, t }: { state: ModelDirectoryState; load: ModelSelectInjected['load']; itemRef: RefCallback<HTMLButtonElement>; t: Translation }) {
   const busy = state.status === 'loading' || state.status === 'selecting'
+  const { model } = xhModelInfo(state)
+  const capability = model?.reasoningCapability
+  const statusKey = capability?.state === 'disabled' ? 'capability.disabled' : !model?.reasoning ? 'capability.unknown' : capability?.stale ? 'capability.stale' : capability?.source === 'provider_reported' ? 'capability.reported' : capability?.source === 'documented' ? 'capability.documented' : 'capability.configured'
   return <button type="button" role="menuitem" disabled={busy}
-    style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', width: '100%', fontSize: 12 }}
-    ref={itemRef} aria-label="刷新模型能力" onClick={() => { void Promise.resolve(load(true)).catch(() => {}) }}>
-    <span>思考能力：{xhReasoningStatus(state)}</span><span>{busy ? '获取中…' : '刷新'}</span>
+    className={css.cell} ref={itemRef} aria-label={t('capability.check')}
+    onClick={() => { void Promise.resolve(load(true)).catch(() => {}) }}>
+    <span className={css.description}>{t(statusKey)}</span><span className={css.cellValue}>{t(busy ? 'capability.checking' : 'capability.check')}</span>
   </button>
 }
 export function ContextRow({ state, itemRef, open }: { state: ModelDirectoryState; itemRef: RefCallback<HTMLButtonElement>; open(): void }) {
@@ -64,7 +69,7 @@ export function ContextPane({ locked, directory, load, select, back, saved }: Co
   useEffect(() => () => { ++version.current }, [])
   async function submit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (locked || busy || !maximum) return
+    if (locked || busy) return
     let selection: ModelSelection
     try { selection = xhContextSelection(directory.getSnapshot(), draft) }
     catch (cause: unknown) { setError(errorText(cause)); return }
@@ -87,12 +92,19 @@ export function ContextPane({ locked, directory, load, select, back, saved }: Co
     <h3>上下文容量</h3><p>仅影响后续请求，不改变正在运行的请求。</p>
     <label>Token 数量<input autoFocus type="text" inputMode="numeric" aria-label="上下文 Token 数量" value={draft} readOnly={busy} disabled={locked} onChange={event => { setDraft(event.target.value); setError(null) }} /></label>
     <p>当前模型有效上限：{maximum?.toLocaleString() ?? '未知'} tokens（{model?.contextWindowSource ?? '来源未标注'}）</p>
-    {!maximum && <p>当前模型未提供上限，暂时无法调整。</p>}
+    {!maximum && <p>服务端容量未知；可手动设置请求预算，这不代表模型支持该容量。</p>}
     {(error || state.error) && <p role="alert">{error || state.error}</p>}
     {state.status === 'error' && <button type="button" onClick={() => { load() }}>重新获取</button>}
     <div className="xh-context-actions">
+      <button type="button" disabled={busy || locked} onClick={() => {
+        const generation = version.current
+        void Promise.resolve(load(true)).catch((cause: unknown) => {
+          const next = directory.getSnapshot()
+          if (generation === version.current && identity === JSON.stringify([next.current, xhModelInfo(next).maximum])) setError(errorText(cause))
+        })
+      }}>刷新容量</button>
       <button type="button" disabled={busy || locked || !maximum} onClick={() => { setDraft(String(maximum)); setError(null) }}>填入上限</button>
-      <button type="submit" disabled={busy || locked || !maximum}>{saving ? '保存中…' : '保存'}</button>
+      <button type="submit" disabled={busy || locked}>{saving ? '保存中…' : '保存'}</button>
     </div>
   </form>
 }

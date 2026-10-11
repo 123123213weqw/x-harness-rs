@@ -32,7 +32,7 @@ try {
     const runtime=id=>{if(id==='@xharness/dsh-client-runtime/client')return engine;if(id in staticModules)return staticModules[id];throw Error(id)}
     const layout = registrations['@xharness/dsh-client-ui-layout'].factory(runtime)
     const browser = registrations['@xlang/xharness-client-ui-browser'].factory(runtime)
-    browser.apply({ effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
+    browser.apply({ get:()=>undefined,remote:{$on:()=>()=>{}},effect: fn => fn(), slots: { inject: (_, fn) => fn(), register: () => {} } })
     let SessionLogHeader
     if (includeSessionLog) {
       const sessionLog = registrations['@xharness/dsh-session-log-export'].factory(runtime)

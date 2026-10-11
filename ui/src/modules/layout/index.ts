@@ -74,6 +74,7 @@ export function apply(ctx: ClientContext): void {
         'assistant.center': { kind: 'single', scope: 'root' },
         'work.center.tasks': { kind: 'single', scope: 'root' },
         'work.center.automations': { kind: 'single', scope: 'root' },
+        'work.center.executions': { kind: 'single', scope: 'root' },
         'details': { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
         'workspace.item': { kind: 'list', scope: 'root' },

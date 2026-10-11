@@ -1,0 +1,1 @@
+{"engine":"chromium","passed":true,"scenarios":["process/agent shared panel","owner API controls","cancel is not completion","cancel future does not stop run","escaped output","light/dark tokens","retired ID","targeted-card scoping","keyboard navigation","mobile width","unmount"],"requests":9}

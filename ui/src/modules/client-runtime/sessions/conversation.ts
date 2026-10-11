@@ -1,3 +1,4 @@
+import type { CompactionEndOutcome } from '../../shared/compaction-outcome'
 import { isRecord } from '../value-guards'
 import { imageAttachmentRefSchema } from '../../client-connection/contracts/host/apiproxy/api/sessions.schema'
 // ConversationSnapshot / ConversationNode: the only data shape the logic layer feeds the UI.
@@ -103,6 +104,8 @@ export interface AssistantTiming {
   firstTokenTime: number | null
   /** Final assistant/message timestamp. */
   completedTime: number
+  /** Transport observation, independent of journal submission. */
+  receptionMs?: number | undefined
 }
 
 /** A finalized assistant message or an interruption-frozen streaming prefix. */
@@ -236,7 +239,8 @@ export interface CompactionProgress {
   delayMs?: number | null | undefined; inputTokensBefore?: number | null | undefined; inputTokensAfter?: number | null | undefined
 }
 export interface CompactionPendingNode {
-  kind: 'compaction'; status: 'running' | 'failed'; seq: number; time: number
+  kind: 'compaction'; status: 'running' | 'failed' | 'skipped' | 'cancelled'; seq: number; time: number
+  outcome?: CompactionEndOutcome | undefined
   progress?: CompactionProgress | undefined; progressTime?: number | undefined; error: string | null; endedAt?: number | undefined
 }
 export interface CompactionSummaryNode {

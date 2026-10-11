@@ -1,4 +1,5 @@
 import {z} from 'zod'
+import { CompactionEndOutcomeSchema, validCompactionTerminalData } from '../shared/compaction-outcome'
 import { TurnEndDataInputSchema } from '../shared/generated/session-terminal'
 import type {SessionWireEvent} from '../client-connection/contracts/host/apiproxy/api/sessions'
 
@@ -28,7 +29,7 @@ const schemas={
  'tool/code-dispatch':z.looseObject({...dispatch,content:content.optional(),isError:z.boolean().optional()}),
  'compaction/start':z.looseObject({compactionId:s,turn:n.nullable()}),
  'compaction/summary':z.looseObject({compactionId:s,provider:s,model:s,summary:content,rawOutput:content.optional(),maxTokens:n.optional(),usage:z.unknown().optional()}),
- 'compaction/end':z.looseObject({compactionId:s,error:s.optional()}),
+ 'compaction/end':z.looseObject({compactionId:s,error:s.optional(),outcome:CompactionEndOutcomeSchema.optional()}).refine(validCompactionTerminalData),
  'agent/inbox/spliced':z.looseObject({target:s,start:n,removedCount:n.optional(),inserted:z.array(z.looseObject({id:s})),outcome:z.literal('canceled').optional()}),
  'llm/retry':z.union([z.looseObject({...coords,mode:z.literal('normal'),retry:n,maxRetries:n,delayMs:n,failure:z.unknown()}),z.looseObject({...coords,mode:z.literal('always'),retry:n,delayMs:n,failure:z.unknown()})]),
  'turn/end':TurnEndDataInputSchema,

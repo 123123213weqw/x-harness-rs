@@ -28,6 +28,8 @@ try {
     const settings = page.getByRole('menuitem', { name: zh ? '设置' : 'Settings', exact: true })
     const profile = page.getByRole('menuitem', { name: zh ? '使用档案' : 'Usage profile', exact: true })
     const dialog = page.getByRole('dialog', { name: zh ? '设置' : 'Settings', exact: true })
+    assert.equal(await trigger.innerText(), 'XHarness', 'wide entry has no redundant account/settings caption')
+    assert.equal(await trigger.locator('.xhAccount_caption').count(), 0)
     await trigger.click()
     await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'menuitem')
     assert.equal(await account.evaluate(el => el === document.activeElement), true)
@@ -61,6 +63,7 @@ try {
     await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'menuitem')
     await page.getByRole('button', { name: zh ? '收起侧边栏' : 'Collapse sidebar', exact: true }).evaluate(el => el.click())
     await page.waitForFunction(() => document.querySelector('[data-xh-account-trigger]')?.classList.contains('xhAccount_rail'))
+    assert.equal(await trigger.innerText(), '', 'rail stays icon-only with an accessible label')
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true', 'layout settle does not dismiss live menu')
     assert.equal(await account.evaluate(el => el === document.activeElement), true, 'focus survives rail commit')
     const anchor = await trigger.boundingBox()
@@ -75,6 +78,26 @@ try {
     await page.getByRole('button', { name: zh ? '收起侧边栏' : 'Collapse sidebar', exact: true }).click()
     assert.equal(await page.getByRole('menu').count(), 0)
     await page.setViewportSize({ width: 426, height: 664 })
+    // This assertion covers the resting narrow rail, not another collapse
+    // race (the live-menu/focus race above intentionally remains unwaited).
+    // A visible/stable button may still be the fading wide entry: opacity
+    // does not make it non-actionable, and viewport resize is asynchronous.
+    // Await the shell's actual rail/fade lifecycle, never a fixed delay or a
+    // retry that could conceal a menu dismissed after the following click.
+    await page.waitForFunction(() => {
+      const entry = document.querySelector('[data-xh-account-trigger]')
+      const sidebar = entry?.closest('.U910La_root')
+      const foot = entry?.closest('.U910La_footArea')
+      const frame = document.querySelector('._84hhiq_frame')
+      return innerWidth === 426 && innerHeight === 664
+        && entry?.classList.contains('xhAccount_rail')
+        && sidebar?.classList.contains('U910La_collapsed')
+        && !sidebar.classList.contains('U910La_fading')
+        && foot && getComputedStyle(foot).opacity === '1'
+        && frame?.getBoundingClientRect().width === 426
+        && [foot, frame].every(element => element.getAnimations().every(animation =>
+          !animation.pending && animation.playState !== 'running'))
+    })
     await trigger.click()
     const box = await page.getByRole('menu').boundingBox()
     assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 426 && box.y + box.height <= 664, 'rail menu fits viewport')

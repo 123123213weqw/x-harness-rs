@@ -108,6 +108,9 @@ def main():
         {"provider": "configured", "model": "small", "reasoning_efforts": ["off", "standard", "deep"], "default_reasoning_effort": "off"},
         {"provider": "other", "model": "review", "reasoning_efforts": ["low", "high"], "default_reasoning_effort": "low"},
     ]
+    # Match Host inspect's copyable selector shape, not a guessed route format.
+    for candidate in catalog:
+        candidate["start_selectors"] = {"provider": candidate["provider"], "model": candidate["model"]}
     cases = [
         {"name": "explicit_user_route_and_effort", "parent": {"provider": "configured", "model": "main", "reasoning_effort": "high"},
          "prompt": "请派一个子 Agent 独立只读审查 parser.py，使用 other/review 模型，高思考强度。按原有确认机制让我确认，不要把我的这句话当作跳过确认。", "expected": ("other", "review", "high")},
@@ -117,6 +120,8 @@ def main():
          "prompt": "非常简单，只需要子 Agent 看一下 parser.py 的文件名和类型，省点成本。不要修改。", "expected": ("configured", "main", "high")},
         {"name": "explicit_user_custom_effort", "parent": {"provider": "configured", "model": "main", "reasoning_effort": "high"},
          "prompt": "请派一个子 Agent 独立只读审查 parser.py，换到当前 provider 下配置的 small 模型，使用它支持的最高思考档位。先确认合法档位，不要猜 high。之后由我在确认卡片确认。", "expected": ("configured", "small", "deep")},
+        {"name": "model_name_only_discovers_complete_cross_provider_route", "parent": {"provider": "configured", "model": "main", "reasoning_effort": "high"},
+         "prompt": "请派一个子 Agent 用已配置的 review 模型只读检查 parser.py。我不知道它的 Provider，请先查询配置，不要把父级 Provider 当成它的 Provider。用目标模型默认档位，仍由我在确认卡片确认换模型。", "expected": ("other", "review", "low")},
     ]
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False, mode=0o700)

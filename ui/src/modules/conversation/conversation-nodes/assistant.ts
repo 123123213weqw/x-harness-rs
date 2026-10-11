@@ -1,3 +1,4 @@
+import { receptionReading, messageProvenance, type ReceptionReading } from '../../shared/reception-metrics'
 import { isSessionEvent } from '../contract/wire-event-codec'
 import { preparingCall } from '../chat/preparing-call'
 import type { Context } from "../types/runtime"
@@ -26,6 +27,7 @@ declare module "../types/runtime" {
 }
 
 interface AssistantState {
+  readonly reception?: ReceptionReading | undefined
   readonly turn: number
   readonly step: number
   readonly blocks: readonly (AssistantBlock | undefined)[]
@@ -162,10 +164,12 @@ function finalNode(
       step: state.step,
       blocks: toAssistantBlocks(event.data.message.content),
       usage: event.data.usage,
+      ...(messageProvenance(event.data.message) === undefined ? {} : { provenance:messageProvenance(event.data.message) }),
       timing: {
-        stepStartTime: context.start?.event.time ?? null,
-        firstTokenTime: state.firstTokenTime ?? null,
-        completedTime: event.time,
+        stepStartTime: state.reception?.startMs ?? context.start?.event.time ?? null,
+        firstTokenTime: state.reception?.firstDeltaMs ?? state.firstTokenTime ?? null,
+        completedTime: state.reception?.finished ? state.reception.startMs + state.reception.elapsedMs : event.time,
+        ...(state.reception === undefined ? {} : { receptionMs:state.reception.receptionMs }),
       },
       ...event.data.interrupted === true ? { interrupted: true } : {},
     }
@@ -188,6 +192,12 @@ function finalNode(
 function fallbackState(context: ConversationNodeContext<AssistantState>): AssistantState | undefined {
   let state: AssistantState | undefined
   for (const match of context.matches) {
+    const r = receptionReading(match.event)
+    if (r !== null) {
+      state ??= initialState(r.turn,r.step)
+      state = { ...state, reception:r }
+      continue
+    }
     if (isSessionEvent(match.event, 'assistant/chunk')) {
       state ??= initialState(match.event.data.turn, match.event.data.step)
       state = updateChunk(state, match)
@@ -251,6 +261,8 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
   kind: 'assistant-step',
   target: 'chat',
   match: (event) => {
+    const r = receptionReading(event)
+    if (r !== null) return { id:`${r.turn}:${r.step}`,role:'update' }
     if (isSessionEvent(event, 'step/start')) return { id: `${event.data.turn}:${event.data.step}`, role: 'start' }
     if (isSessionEvent(event, 'assistant/chunk')
       || (isSessionEvent(event, 'assistant/message') && isAppendSurfaceEvent(event))) {
@@ -266,6 +278,8 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
     return initialState(match.event.data.turn, match.event.data.step)
   },
   update: (context, match) => {
+    const r = receptionReading(match.event)
+    if (r !== null) return { ...context.state, reception:r }
     if (isSessionEvent(match.event, 'assistant/chunk')) return updateChunk(context.state, match)
     if (isSessionEvent(match.event, 'assistant/message')) {
       return {

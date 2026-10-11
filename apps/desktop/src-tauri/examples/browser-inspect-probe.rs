@@ -40,9 +40,31 @@ fn serve_fixture(html: String) -> String {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { break };
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-            let mut headers = [0; 4096];
-            let _ = stream.read(&mut headers);
-            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", html.len(), html);
+            let mut headers = Vec::new();
+            let mut chunk = [0; 1024];
+            while headers.len() < 8192 && !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(length) => headers.extend_from_slice(&chunk[..length]),
+                }
+            }
+            if !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                continue;
+            }
+            let headers = String::from_utf8_lossy(&headers);
+            let identity = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("user-agent")
+                        .then(|| value.trim())
+                })
+                .unwrap_or_default();
+            let identity = serde_json::to_string(identity)
+                .unwrap()
+                .replace('<', "\\u003c");
+            let response = format!("{html}<script>window.probeHttpUserAgent={identity}</script>");
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response);
         }
     });
     format!("http://{address}/")
@@ -716,7 +738,145 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     Ok(())
 }
 
+/// Native geometry regression: use production pane commands, not a browser
+/// mock. Hidden tabs retain old native rectangles until activation refreshes
+/// them. The callback also checks the real document viewport after rendering.
+#[cfg(windows)]
+async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let main = app.get_webview("main").ok_or("missing main view")?;
+    let window = app.get_window("main").ok_or("missing main window")?;
+    let mut cases = Vec::new();
+    for (name, tab, rect, create) in [
+        ("initial-a", "bounds-a", [16.0, 24.0, 320.0, 240.0], true),
+        ("initial-b", "bounds-b", [280.0, 84.0, 400.0, 320.0], true),
+        (
+            "resize-active-b",
+            "bounds-b",
+            [210.0, 72.0, 540.0, 410.0],
+            false,
+        ),
+        (
+            "reselect-hidden-a",
+            "bounds-a",
+            [210.0, 72.0, 540.0, 410.0],
+            false,
+        ),
+        (
+            "reopen-after-hidden-layout",
+            "bounds-a",
+            [360.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+        (
+            "reselect-hidden-b",
+            "bounds-b",
+            [360.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+        (
+            "position-only-sidebar-shift",
+            "bounds-a",
+            [220.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+    ] {
+        if name == "reopen-after-hidden-layout" {
+            browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+        }
+        browser::desktop_browser_bounds(
+            main.clone(),
+            app.state(),
+            serde_json::from_value(
+                json!({"x":rect[0],"y":rect[1],"width":rect[2],"height":rect[3]}),
+            )
+            .unwrap(),
+        )
+        .await?;
+        browser::desktop_browser_activate(main.clone(), app.state(), Some(tab.into())).await?;
+        if create {
+            browser::desktop_browser_navigate(
+                app.clone(),
+                main.clone(),
+                app.state(),
+                tab.into(),
+                url.into(),
+            )
+            .await?;
+        }
+        let (guest, _) = app
+            .state::<browser::BrowserState>()
+            .inspection_target(tab)?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let mut sample = Value::Null;
+        let mut matched = false;
+        for _ in 0..60 {
+            let position = guest.position().map_err(|error| error.to_string())?;
+            let size = guest.size().map_err(|error| error.to_string())?;
+            let logical_position = position.to_logical::<f64>(scale);
+            let logical_size = size.to_logical::<f64>(scale);
+            let viewport = match evidence(
+                &guest,
+                "({width:innerWidth,height:innerHeight,ratio:devicePixelRatio})",
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    // Initial navigation can abandon an evaluation callback.
+                    // Retry read-only sampling, never the navigation/action.
+                    sample = json!({"case":name,"passed":false,"callback_error":error});
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            };
+            // Windows positions are relative to the parent client area. Other
+            // native backends can report screen-relative positions; the size
+            // and viewport assertions apply everywhere, but do not fake those
+            // different origin contracts into a cross-platform position pass.
+            let position_matches = !cfg!(windows)
+                || ((logical_position.x - rect[0]).abs() <= 1.0
+                    && (logical_position.y - rect[1]).abs() <= 1.0);
+            matched = position_matches
+                && (logical_size.width - rect[2]).abs() <= 1.0
+                && (logical_size.height - rect[3]).abs() <= 1.0
+                && viewport["width"]
+                    .as_f64()
+                    .is_some_and(|v| (v - rect[2]).abs() <= 2.0)
+                && viewport["height"]
+                    .as_f64()
+                    .is_some_and(|v| (v - rect[3]).abs() <= 2.0);
+            sample = json!({"case":name,"tab":tab,"expected_logical":rect,"scale_factor":scale,
+                "native_physical":[position.x,position.y,size.width,size.height],"viewport":viewport,
+                "position_asserted":cfg!(windows),"passed":matched});
+            if matched {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        println!("BROWSER_BOUNDS_CASE {sample}");
+        if !matched {
+            return Err(format!("native browser bounds mismatch: {sample}"));
+        }
+        cases.push(sample);
+    }
+    browser::desktop_browser_close(main.clone(), app.state(), "bounds-a".into()).await?;
+    browser::desktop_browser_close(main, app.state(), "bounds-b".into()).await?;
+    println!(
+        "BROWSER_BOUNDS_EVIDENCE {}",
+        json!({"passed":true,"cases":cases,"test_only":true,"host_or_model_started":false})
+    );
+    Ok(())
+}
+
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    #[cfg(windows)]
+    bounds_probe(app, &url).await?;
+    if std::env::var("XHARNESS_NATIVE_PROBE_BOUNDS_ONLY").as_deref() == Ok("1") {
+        #[cfg(windows)]
+        return Ok(());
+        #[cfg(not(windows))]
+        return Err("Windows bounds fixture cannot certify another native backend".into());
+    }
     lifecycle_probe(app, &url).await?;
     subframe_navigation_probe(app).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
@@ -752,6 +912,42 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     }
     if observation.is_null() {
         return Err("native callback did not produce fixture evidence".into());
+    }
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let identity = evidence(
+        &guest,
+        "({http:window.probeHttpUserAgent,js:navigator.userAgent})",
+    )
+    .await?;
+    let native = evidence(&main, "navigator.userAgent").await?;
+    println!(
+        "USER_AGENT_EVIDENCE {}",
+        json!({"main":native,"guest":identity,"first_request_matches_js":identity["http"].is_string() && identity["http"] == identity["js"],"test_only":true})
+    );
+    if !identity["http"].is_string() || identity["http"] != identity["js"] {
+        return Err("guest HTTP and JavaScript browser identities differ".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let guest_ua = identity["js"].as_str().ok_or("missing guest identity")?;
+        if !guest_ua.starts_with(native.as_str().ok_or("missing main identity")?)
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Version/"))
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Safari/"))
+        {
+            return Err(
+                "macOS guest identity did not preserve WebKit and include Safari version".into(),
+            );
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    if identity["js"] != native {
+        return Err("non-macOS browser identity was unexpectedly changed".into());
     }
     delegation_probe(app, &main).await?;
     observation = observe(app, &main).await?;

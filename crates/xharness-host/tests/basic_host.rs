@@ -851,7 +851,7 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     std::fs::write(
         root.join("AGENTS.md"),
         concat!(
-            "# Repository instructions\n\nDo not promote this whole file.\n\n",
+            "# Repository instructions\n\nRun the project tests before submitting.\n\n",
             "<!-- XHARNESS:USER-MEMORY:BEGIN -->\n",
             "## XHarness 持久目标\n\n- 发布到东京\n",
             "<!-- XHARNESS:USER-MEMORY:END -->\n",
@@ -926,9 +926,10 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     );
     assert!(!system.contains("Do not emulate managed jobs with shell &"));
     assert!(system.contains("Plan mode is active."));
-    assert!(system.contains("User-approved persistent goals for this workspace:"));
-    assert!(system.contains("发布到东京"));
-    assert!(!system.contains("Do not promote this whole file."));
+    assert!(system.contains("Project instructions from AGENTS.md"));
+    assert!(system.contains("Run the project tests before submitting."));
+    assert!(!system.contains("User-approved persistent goals for this workspace:"));
+    assert!(!system.contains("发布到东京"));
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");
     drop(requests);
     let _ = std::fs::remove_dir_all(root);
@@ -1073,7 +1074,10 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         other => panic!("default model effort selection failed: {other:?}"),
     };
     assert_eq!(selected_default["selected"]["reasoningEffort"], "high");
-    assert_eq!(selected_default["selected"]["contextWindowTokens"], 53_248);
+    assert!(
+        selected_default["selected"]["contextWindowTokens"].is_null(),
+        "automatic selection must resolve the live model guard, not persist a numeric maximum"
+    );
     let selected = host
         .call(
             RpcId::new("catalog-select-max"),
@@ -1145,9 +1149,9 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching to the larger model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_larger_model["selected"]["contextWindowTokens"], 131_072,
-        "a model switch must materialize the destination maximum instead of inheriting 32K"
+    assert!(
+        switched_to_larger_model["selected"]["contextWindowTokens"].is_null(),
+        "a model switch must use the destination's live automatic capacity, not inherit 32K"
     );
 
     let switched_to_smaller_model = host
@@ -1166,8 +1170,8 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching back to the smaller model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_smaller_model["selected"]["contextWindowTokens"], 53_248,
+    assert!(
+        switched_to_smaller_model["selected"]["contextWindowTokens"].is_null(),
         "a model switch must never carry the previous model's 131K window into a 53K route"
     );
     assert_eq!(
@@ -1468,6 +1472,19 @@ async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_upstream_rpc_has_baseline_behavior() {
     let mut fx = Fixture::new();
+
+    let preview = fx
+        .value(
+            RpcMethod::SessionImport,
+            json!({
+                "source": "claude-code",
+                "jsonl": format!("{}\n", json!({"type":"user","message":{"content":"baseline transcript"}})),
+                "preview": true,
+            }),
+        )
+        .await;
+    assert_eq!(preview["messages"], 1);
+    assert!(preview.get("sessionId").is_none());
 
     fx.value(RpcMethod::HostDescribe, json!({})).await;
     fx.value(RpcMethod::HostPickDirectory, json!({})).await;

@@ -64,11 +64,14 @@
     "xharness-control",
     "xharness-core",
     "xharness-debug",
+    "xharness-fs",
     "xharness-interaction",
+    "xharness-jobs",
     "xharness-projection",
     "xharness-prompt",
     "xharness-schedule",
     "xharness-session",
+    "xharness-session-import",
     "xharness-token",
     "xharness-tools",
     "xharness-win32"
@@ -89,15 +92,19 @@
     "xharness-core",
     "xharness-debug",
     "xharness-diagnostics",
+    "xharness-fs",
     "xharness-host",
     "xharness-interaction",
     "xharness-jobs",
     "xharness-mcp",
     "xharness-mobile",
+    "xharness-model-catalog",
     "xharness-platform",
     "xharness-plugins",
+    "xharness-process",
     "xharness-provider-openai",
     "xharness-remote",
+    "xharness-sandbox",
     "xharness-schedule",
     "xharness-server",
     "xharness-session",
@@ -177,6 +184,9 @@
   "xharness-win32": [],
   "xharness-cloud-app": [
     "xharness-cloud"
+  ],
+  "xharness-session-import": [
+    "xharness-session"
   ],
   "xharness-remote": [
     "xharness-api"

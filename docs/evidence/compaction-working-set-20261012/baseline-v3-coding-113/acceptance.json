@@ -1,0 +1,19 @@
+{
+  "passed": false,
+  "criteria": {
+    "real_failures_observed": true,
+    "all_work_turns_completed": true,
+    "three_committed_compactions": true,
+    "external_contract_was_red": true,
+    "current_public_tests_pass": true,
+    "hidden_code_acceptance": true,
+    "scope_boundaries_respected": true,
+    "current_readonly_facts": false,
+    "credential_and_reasoning_audit_clean": true,
+    "fixed_system_prefix_in_every_main_request": true,
+    "original_journal_prefixes_unchanged": true,
+    "model_recovered_original_archived_record": false
+  },
+  "scope_violations": [],
+  "scope": "production LoopEngine/history/compaction, bounded real Python tools; not native desktop/bash E2E"
+}

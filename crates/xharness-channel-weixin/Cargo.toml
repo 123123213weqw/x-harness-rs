@@ -21,4 +21,3 @@ getrandom = "0.2"
 
 [dev-dependencies]
 axum.workspace = true
-

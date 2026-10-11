@@ -13,19 +13,7 @@ pub const CHECKPOINT_PREAMBLE: &str = "This is an automatically generated checkp
 /// Default final user instruction for a cache-friendly summary request. A
 /// backend replays the original system/tools/messages before appending this
 /// instruction, so the expensive prefix remains cacheable.
-pub const DEFAULT_COMPACTION_INSTRUCTION: &str = r#"Act as the compaction engine for this coding agent. Condense only the supplied earlier conversation span into one terse Markdown checkpoint. Later messages may exist outside this span and determine the current task; do not infer that work unfinished here should be resumed automatically.
-
-Keep these sections, in order; write "(none)" for an empty section:
-## User Requests and Decisions
-## Key Technical Concepts
-## Files and Code
-## Errors and Fixes
-## Running Jobs and External State at Boundary
-## Work State at End of Summarized Span
-## Unresolved Items
-## Critical Context
-
-Preserve exact paths, commands, errors, identifiers, numeric values, explicit user corrections, and genuinely durable user constraints. Preserve the latest explicit user request and its scope if it occurs inside this span, labeled as the latest request within this span, not the current or active task: unseen later messages may supersede it. List only actually running or scheduled jobs under Running Jobs; a proposed action is not a job. Attribute unfinished requests and proposed actions to the user or assistant when known. Record their last-known status as historical facts, not first-person commitments or imperative next steps. An assistant plan is not a standing user instruction. If the user explicitly requested an ongoing goal, preserve that fact without treating every proposed subtask as currently authorized. Merge still-valid facts from any prior compacted summary, but convert its old "next steps" into historical status instead of copying their directive wording. Output only checkpoint text; do not call tools and do not mention compaction."#;
+pub const DEFAULT_COMPACTION_INSTRUCTION: &str = "Act as the compaction engine. Write compact technical evidence notes for ONLY the supplied raw historical fragment. Later messages may exist outside this span and determine the current task. Preserve any stated task scope and explicit restrictions, including ones at the beginning of a long fragment. Preserve exact paths, identifiers, commands, tested changes, failures, numeric values and explicit user corrections. Distinguish observations, proposals and unknown outcomes. Attribute uncorroborated assistant assertions as claims; passing tests establish only the cases actually tested. An assistant plan is not a standing user instruction. Existing checkpoints are not summary sources: do not re-summarize or merge prior compacted notes. Omit empty sections and boilerplate; target substantially less text than the source. Output only notes; do not call tools.";
 
 /// Cache-aligned replay input for the summary backend.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -116,16 +104,15 @@ mod tests {
     }
 
     #[test]
-    fn compaction_instruction_marks_unfinished_work_as_historical() {
-        let instruction = DEFAULT_COMPACTION_INSTRUCTION;
-        assert!(instruction.contains("Later messages may exist outside this span"));
-        assert!(instruction.contains("An assistant plan is not a standing user instruction"));
-        assert!(instruction.contains("Preserve the latest explicit user request and its scope"));
-        assert!(instruction.contains("not the current or active task"));
-        assert!(instruction.contains("a proposed action is not a job"));
-        assert!(instruction.contains("genuinely durable user constraints"));
-        assert!(instruction.contains("## Unresolved Items"));
-        assert!(!instruction.contains("## Next Step\n"));
+    fn compaction_instruction_limits_input_to_new_raw_evidence() {
+        assert!(
+            DEFAULT_COMPACTION_INSTRUCTION.contains("ONLY the supplied raw historical fragment")
+        );
+        assert!(DEFAULT_COMPACTION_INSTRUCTION
+            .contains("An assistant plan is not a standing user instruction"));
+        assert!(DEFAULT_COMPACTION_INSTRUCTION
+            .contains("do not re-summarize or merge prior compacted notes"));
+        assert!(!DEFAULT_COMPACTION_INSTRUCTION.contains("## Next Step"));
     }
 
     #[test]

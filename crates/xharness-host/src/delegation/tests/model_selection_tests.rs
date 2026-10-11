@@ -332,6 +332,18 @@ async fn inspect_shows_configured_capabilities_and_user_settings_without_grantin
     let executor = executor(&host).await;
     let listed = receipt(tool(&executor, "catalog", json!({"action":"inspect"})).await);
     assert_eq!(listed["models"].as_array().unwrap().len(), 3);
+    for candidate in listed["models"].as_array().unwrap() {
+        assert_eq!(
+            candidate["start_selectors"]["provider"],
+            candidate["provider"]
+        );
+        assert_eq!(candidate["start_selectors"]["model"], candidate["model"]);
+        let mut arguments = candidate["start_selectors"].clone();
+        arguments["action"] = json!("start");
+        arguments["task"] = json!("inspect only");
+        let operation: AgentOperation = serde_json::from_value(arguments).unwrap();
+        operation.validate().unwrap();
+    }
     assert_eq!(listed["parent_model"]["model"], "small");
     assert_eq!(listed["parent_model"]["reasoningEffort"], "vendor-level-3");
     let started = receipt(

@@ -16,6 +16,7 @@ import { terminalCardModel, terminalFailed } from '../models/terminal-card-model
 import { webCardModel } from '../models/web-card-model'
 import { toolRowModel, type ToolRowVariant } from '../models/tool-call-model'
 import { ToolRow } from '../components/ToolRow'
+import { agentCommunicationModel, agentCommunicationCopy } from '../models/agent-communication-model'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
@@ -34,6 +35,9 @@ export interface GenericToolCardProps extends ToolCallOwnerProps {
 }
 
 export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, t }: GenericToolCardProps) {
+  const communication = agentCommunicationModel(toolName, block)
+  const communicationCopy = communication === null ? null
+    : agentCommunicationCopy(communication, document.documentElement.lang.toLowerCase().startsWith('zh'))
   const model = toolRowModel(toolName, block, cwd, home)
   const terminal = terminalCardModel(block, cwd)
   const read = readCardModel(block, cwd, home)
@@ -53,23 +57,24 @@ export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect,
       variant={model.variant}
       toolName={toolName}
       icon={VARIANT_ICONS[model.variant]}
-      title={model.title}
+      title={communicationCopy?.title ?? model.title}
       // A terminal presenter's description is the contract's above-card text, so
       // it outranks the args-derived summary here exactly as it does in BashRow;
       // a search result view's replacement title outranks it the same way.
-      summary={terminal?.description ?? search?.title ?? model.summary}
+      summary={communicationCopy?.summary ?? terminal?.description ?? search?.title ?? model.summary}
+      summarySuffix={communicationCopy?.status}
       // Single-file tools never expose an args body — the path link is the only
       // args interaction. A card is not an args body: a read/write/edit row is
       // single-file AND carries a card, so the card expands under the path link.
-      body={singleFile ? null : model.body}
-      output={model.output}
-      errorSummary={model.errorSummary}
+      body={communicationCopy?.body ?? (singleFile ? null : model.body)}
+      output={communication?.output ?? model.output}
+      errorSummary={communication === null ? model.errorSummary : null}
       terminal={terminal}
       diff={diff}
       read={read}
       search={search}
       web={web}
-      state={state}
+      state={communication?.state ?? state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
       inspect={inspect}

@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use serde_json::Value;
 use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use xharness_agent::{
     AgentCommandError, AgentEvent, AgentRegistry, AgentShutdownReport, AgentSupervisor,
     DurableAgentHandle, InboxMessage, LeaseManager, RegistryError, TurnRequestFactory,
@@ -161,7 +162,7 @@ impl ModelDescriptor {
             Some(selected) => self
                 .context_window
                 .effective_hard_max()
-                .is_some_and(|maximum| selected <= maximum),
+                .is_none_or(|maximum| selected <= maximum),
         }
     }
 
@@ -175,6 +176,7 @@ impl ModelDescriptor {
 pub struct RegisteredModel {
     descriptor: ModelDescriptor,
     provider: Arc<dyn ModelProvider>,
+    inner_provider: Arc<dyn ModelProvider>,
     token_guard: Option<TokenGuard>,
 }
 
@@ -182,7 +184,8 @@ impl RegisteredModel {
     pub fn new(descriptor: ModelDescriptor, provider: Arc<dyn ModelProvider>) -> Self {
         Self {
             descriptor,
-            provider,
+            provider: Arc::clone(&provider),
+            inner_provider: provider,
             token_guard: None,
         }
     }
@@ -288,7 +291,8 @@ impl ModelRegistry {
         model.provider = Arc::new(RouteBoundProvider {
             provider_id: descriptor.provider.clone(),
             model_id: descriptor.model.clone(),
-            inner: model.provider,
+            inner: Arc::clone(&model.inner_provider),
+            context_override: None,
         });
         self.order.push(key.clone());
         self.entries.insert(key, model);
@@ -320,6 +324,36 @@ impl ModelRegistry {
             .filter_map(|key| self.entries.get(key))
             .map(|model| model.descriptor.clone())
             .collect()
+    }
+
+    /// Replace deployment evidence and its request guard atomically. An unknown
+    /// capacity may have a temporary guard, but must not advertise that guard
+    /// as a model maximum. Existing automatic routes (None) use the new guard.
+    pub fn replace_context_capability(
+        &mut self,
+        route: &ModelRoute,
+        capability: ContextWindowCapability,
+    ) -> Result<(), xharness_token::TokenBudgetError> {
+        if let Some(model) = self
+            .entries
+            .get_mut(&(route.provider.clone(), route.model.clone()))
+        {
+            if let (Some(maximum), Some(guard)) =
+                (capability.effective_hard_max(), model.token_guard.as_ref())
+            {
+                model.token_guard = Some(guard.with_context_window(maximum)?);
+            }
+            // Replace the immutable route binding rather than mutating the
+            // adapter held by an in-flight turn or an older registry snapshot.
+            model.provider = Arc::new(RouteBoundProvider {
+                provider_id: model.descriptor.provider.clone(),
+                model_id: model.descriptor.model.clone(),
+                inner: Arc::clone(&model.inner_provider),
+                context_override: Some(capability.clone()),
+            });
+            model.descriptor.context_window = capability;
+        }
+        Ok(())
     }
 
     pub fn token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
@@ -360,6 +394,7 @@ struct RouteBoundProvider {
     provider_id: String,
     model_id: String,
     inner: Arc<dyn ModelProvider>,
+    context_override: Option<ContextWindowCapability>,
 }
 
 #[async_trait]
@@ -393,6 +428,11 @@ impl ModelProvider for RouteBoundProvider {
         &self,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<xharness_core::ModelCapabilities, xharness_core::ProviderError> {
+        if let Some(context) = &self.context_override {
+            return Ok(xharness_core::ModelCapabilities {
+                context_window: context.clone(),
+            });
+        }
         self.inner.capabilities(cancellation).await
     }
 
@@ -527,6 +567,46 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    async fn process_runs(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(Vec::new())
+    }
+    async fn process_output(
+        &self,
+        _session_id: &str,
+        _id: &str,
+        _cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        Err("process output unavailable".into())
+    }
+    async fn cancel_process_run(&self, _session_id: &str, _id: &str) -> Result<(), String> {
+        Err("process cancellation unavailable".into())
+    }
+    /// Fixed read-only Git operation; no shell or model-selected argv.
+    async fn read_display_diff(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _path: &std::path::Path,
+        _scope: xharness_api::display::GitDiffScope,
+        _cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("Git diff display is unavailable on this deployment".into())
+    }
+
+    /// Deployment-owned read-only file display; independent of executing a turn.
+    async fn read_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("file display is unavailable on this runtime".into())
+    }
+
     /// Bind host-owned tools without a strong runtime/Host reference cycle.
     fn bind_host(&self, _host: std::sync::Weak<crate::BasicHost>) {}
 
@@ -628,6 +708,18 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Err(AgentRuntimeError::Preparation {
             message: "session durability certification unavailable".into(),
         })
+    }
+
+    /// Read the inspector surface without exposing full request inputs.
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        Ok(self
+            .request_header(session_id, seq)
+            .await?
+            .map(|h| h.harness_view()))
     }
 
     async fn request_header(
@@ -798,6 +890,31 @@ impl LoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for LoopAgentRuntime {
+    async fn read_display_diff(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        path: &std::path::Path,
+        scope: xharness_api::display::GitDiffScope,
+        cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn read_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_file(session_id, cwd, permission, path)
+            .await
+    }
+
     fn has_available_route(&self) -> bool {
         self.provider.is_some()
     }
@@ -962,6 +1079,14 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .map_err(|e| e.message)?;
             config.permission = permission;
             config.prompt = Some(prompt);
+            if let Some(session) = host.state.read().await.sessions.get(agent_id) {
+                config.route = ModelRoute {
+                    provider: session.model.provider.clone(),
+                    model: session.model.model.clone(),
+                    reasoning_effort: session.model.reasoning_effort.clone(),
+                    context_window_tokens: session.model.context_window_tokens,
+                };
+            }
         }
         let (provider, token_guard, compaction_reasoning_effort) = {
             let models = self.models.read().expect("model registry lock poisoned");
@@ -1391,6 +1516,31 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn read_display_diff(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        path: &std::path::Path,
+        scope: xharness_api::display::GitDiffScope,
+        cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn read_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_file(session_id, cwd, permission, path)
+            .await
+    }
+
     async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
         self.store
             .delete_session_data(session_id)
@@ -1463,6 +1613,26 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
             .saved_read(session, command, after)
             .await
+    }
+
+    async fn process_runs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        self.tool_factory.process_runs(session_id).await
+    }
+    async fn process_output(
+        &self,
+        session_id: &str,
+        id: &str,
+        cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        self.tool_factory
+            .process_output(session_id, id, cursor)
+            .await
+    }
+    async fn cancel_process_run(&self, session_id: &str, id: &str) -> Result<(), String> {
+        self.tool_factory.cancel_process_run(session_id, id).await
     }
 
     async fn prepare_automation_worker(
@@ -1546,7 +1716,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         if self.execution.check().is_err() {
             return Ok(false);
         }
-        if pending_manual_compaction(session).is_some() {
+        if pending_manual_compaction(session).is_some()
+            || crate::job_continuation::has_pending(session)
+        {
             return Ok(true);
         }
         if xharness_session::goal::execution_state(session).is_some_and(|s| {
@@ -1620,6 +1792,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             });
         }
         Ok(())
+    }
+
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        self.store
+            .harness_header(session_id, seq)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: format!("Harness snapshot unavailable: {e}"),
+            })
     }
 
     async fn request_header(
@@ -2144,6 +2329,120 @@ mod tests {
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,
+    }
+
+    #[test]
+    fn automatic_budget_refreshes_but_explicit_small_windows_are_preserved() {
+        let mut models = ModelRegistry::new();
+        let provider = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::new()),
+        });
+        let guard = TokenGuard::conservative(TokenBudget::new(34_816, 4_096)).unwrap();
+        models
+            .register(
+                RegisteredModel::new(
+                    ModelDescriptor::new("p", "Provider", "m", "Model"),
+                    provider,
+                )
+                .with_token_guard(Some(guard)),
+            )
+            .unwrap();
+        let auto = ModelRoute::new("p", "m");
+        let mut manual = auto.clone();
+        manual.context_window_tokens = Some(8_192);
+        let mut large = auto.clone();
+        large.context_window_tokens = Some(262_144);
+        assert!(
+            models.can_route(&large),
+            "unknown capacity must not treat the temporary guard as a maximum"
+        );
+        assert_eq!(models.models()[0].context_window.effective_hard_max(), None);
+        models
+            .replace_context_capability(
+                &auto,
+                ContextWindowCapability::deployment_reported(262_144),
+            )
+            .unwrap();
+        assert_eq!(
+            models
+                .token_guard(&auto)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            262_144
+        );
+        assert_eq!(
+            models
+                .token_guard(&manual)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            8_192
+        );
+        models
+            .replace_context_capability(&auto, ContextWindowCapability::deployment_reported(65_536))
+            .unwrap();
+        assert_eq!(
+            models
+                .token_guard(&auto)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            65_536
+        );
+        assert!(models.can_route(&manual));
+        assert!(!models.can_route(&large));
+    }
+
+    #[tokio::test]
+    async fn discovered_capabilities_match_the_guard_without_mutating_older_bindings() {
+        let mut models = ModelRegistry::new();
+        let provider = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::new()),
+        });
+        models
+            .register(
+                RegisteredModel::new(
+                    ModelDescriptor::new("p", "Provider", "m", "Model"),
+                    provider,
+                )
+                .with_token_guard(Some(
+                    TokenGuard::conservative(TokenBudget::new(34_816, 4_096)).unwrap(),
+                )),
+            )
+            .unwrap();
+        let route = ModelRoute::new("p", "m");
+        let previous = models.clone();
+        models
+            .replace_context_capability(
+                &route,
+                ContextWindowCapability::deployment_reported(262_144),
+            )
+            .unwrap();
+        let live = models
+            .resolve(&route)
+            .unwrap()
+            .provider
+            .capabilities(CancellationToken::new())
+            .await
+            .unwrap();
+        let old = previous
+            .resolve(&route)
+            .unwrap()
+            .provider
+            .capabilities(CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(live.context_window.effective_hard_max(), Some(262_144));
+        assert_eq!(old.context_window.effective_hard_max(), None);
+        assert_eq!(
+            previous
+                .token_guard(&route)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            34_816
+        );
     }
 
     struct BlockingFirstProvider {

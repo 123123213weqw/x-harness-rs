@@ -16,6 +16,8 @@ getrandom = "0.3"
 qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 xharness-channel-telegram = { path = "../xharness-channel-telegram" }
 xharness-mobile = { path = "../xharness-mobile" }
+# v0.1.1, pinned to its immutable release commit (not a movable tag).
+xharness-model-catalog = { git = "https://github.com/123123213weqw/xharness-model-catalog", rev = "b76585abb9102690d2dd85e385550e0d2f688601", version = "=0.1.1" }
 fs2 = "0.4.3"
 xharness-attachments = { path = "../xharness-attachments" }
 xharness-cloud = { path = "../xharness-cloud" }
@@ -35,10 +37,13 @@ xharness-core = { path = "../xharness-core" }
 xharness-control = { path = "../xharness-control" }
 xharness-debug = { path = "../xharness-debug" }
 xharness-diagnostics = { path = "../xharness-diagnostics" }
+xharness-fs = { path = "../xharness-fs" }
 xharness-host = { path = "../xharness-host" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-jobs = { path = "../xharness-jobs" }
 xharness-agent = { path = "../xharness-agent" }
+xharness-process = { path = "../xharness-process" }
+xharness-sandbox = { path = "../xharness-sandbox" }
 xharness-platform = { path = "../xharness-platform" }
 xharness-plugins = { path = "../xharness-plugins" }
 xharness-mcp = { path = "../xharness-mcp" }
@@ -57,10 +62,12 @@ xharness-tools = { path = "../xharness-tools" }
 [dev-dependencies]
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 tower.workspace = true
+xharness-prompt = { path = "../xharness-prompt" }
+thiserror.workspace = true
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 futures.workspace = true
 reqwest.workspace = true
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true, features = ["process", "test-util"] }
 tokio-tungstenite.workspace = true
 
 [target.'cfg(windows)'.dependencies]

@@ -1,0 +1,33 @@
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+error[E0277]: the trait bound `xharness_session::SessionEvent: From<Vec<_>>` is not satisfied
+    --> crates/xharness-host-app/tests/job_continuation.rs:1226:9
+     |
+1224 |       fork.append(
+     |            ------ required by a bound introduced by this call
+1225 |           fork.revision(),
+1226 | /         vec![EventData::SessionForkOrigin {
+1227 | |             parent_session_id: SESSION.into(),
+1228 | |             before_user_seq: None,
+1229 | |         }
+1230 | |         .into()],
+     | |________________^ the trait `From<Vec<_>>` is not implemented for `xharness_session::SessionEvent`
+     |
+help: the trait `From<Vec<_>>` is not implemented for `xharness_session::SessionEvent`
+      but trait `From<EventData>` is implemented for it
+    --> crates/xharness-session/src/event.rs:1128:1
+     |
+1128 | impl From<EventData> for SessionEvent {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for that trait implementation, expected `EventData`, found `Vec<_>`
+     = note: required for `Vec<_>` to implement `Into<xharness_session::SessionEvent>`
+note: required by a bound in `Session::append`
+    --> crates/xharness-session/src/session.rs:192:21
+     |
+ 189 |     pub fn append(
+     |            ------ required by a bound in this associated function
+...
+ 192 |         event: impl Into<SessionEvent>,
+     |                     ^^^^^^^^^^^^^^^^^^ required by this bound in `Session::append`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `xharness-host-app` (test "job_continuation") due to 1 previous error

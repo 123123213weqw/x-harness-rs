@@ -35,6 +35,34 @@ def assert_step_guarded(test: unittest.TestCase, body: str, step: str) -> None:
 
 
 class CiTieringContract(unittest.TestCase):
+    def test_stabilization_freeze_is_unconditional_and_does_not_skip_windows(self) -> None:
+        source = workflow_source()
+        body = job(source, "architecture-freeze")
+        self.assertNotIn("\n    if:", body)
+        self.assertIn("fetch-depth: 0", body)
+        self.assertIn("github.event.pull_request.base.sha || github.event.before", body)
+        self.assertIn('check-architecture.py --base "$base"', body)
+        self.assertIn("test_architecture_freeze.py", body)
+        self.assertIn("set -euo pipefail", body)
+        self.assertNotIn("continue-on-error", body)
+        windows = job(source, "rust-windows")
+        self.assertNotIn("\n    if:", windows)
+        self.assertIn("runs-on: windows-2025", windows)
+        self.assertIn("test_architecture_freeze.py", windows)
+        self.assertIn("test-bundled-powershell.ps1", windows)
+        self.assertIn("cargo test --locked --workspace --all-targets", windows)
+        self.assertIn("cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets\n", windows)
+        self.assertIn("test-desktop-updater.mjs", windows)
+        self.assertNotIn("continue-on-error", windows)
+        for name in ("Stabilization policy mutations on native Windows (no Rust build)",
+                     "Stage and execute pinned portable PowerShell without system PATH",
+                     "Run workspace tests and export native wire fixtures once",
+                     "Check native Tauri desktop shell"):
+            step = re.search(rf"(?ms)^      - name: {re.escape(name)}\n(.*?)(?=^      - |\Z)", windows)
+            self.assertIsNotNone(step)
+            header = step.group(1).split("run:", 1)[0]
+            self.assertNotIn("if:", header, f"Windows regression may not be conditional: {name}")
+
     def test_superseded_runs_are_cancelled(self) -> None:
         source = workflow_source()
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
@@ -54,69 +82,16 @@ class CiTieringContract(unittest.TestCase):
                 for call in script_calls:
                     self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
 
-    def test_remote_control_gates_run_on_every_native_pull_request_runner(self) -> None:
-        source = workflow_source()
-        commands = (
-            "cargo test --locked -p xharness-remote -p xharness-channel-telegram",
-            "cargo test --locked -p xharness-host scoped_stream_tests",
-            "cargo test --locked -p xharness-host-app --test remote_control",
-            "cargo test --locked -p xharness-host-app --test remote_admin",
-        )
-        for name in ("rust-linux", "rust-windows", "rust-macos-arm64"):
-            with self.subTest(job=name):
-                body = job(source, name)
-                for command in commands:
-                    self.assertEqual(body.count("        run: " + command + "\n"), 1)
-                native_account_block = (
-                    "      - name: Native channel account lifecycle and separate credential namespace fixtures\n"
-                    "        run: |\n"
-                    "          cargo test --locked -p xharness-host-app --lib channel_accounts::tests\n"
-                    "          cargo test --locked -p xharness-host-app --lib channel_namespace_tests\n"
-                )
-                self.assertEqual(body.count(native_account_block), 1)
-                inbox_recovery_block = (
-                    "      - name: Desktop inbox recovery identity audit and sealed interaction fixtures\n"
-                    "        run: |\n"
-                    "          cargo test --locked -p xharness-remote --test inbox_recovery\n"
-                    "          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin\n"
-                )
-                self.assertEqual(body.count(inbox_recovery_block), 1)
-                native_automation_block = (
-                    "      - name: Scoped native automation original receipts and owned drain fixtures\n"
-                    "        run: |\n"
-                    "          cargo test --locked -p xharness-api --test contract saved_automation\n"
-                    "          cargo test --locked -p xharness-schedule\n"
-                    "          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests\n"
-                    "          cargo test --locked -p xharness-remote --test automation_commands\n"
-                    "          cargo test --locked -p xharness-host-app --test remote_creation native_automation\n"
-                )
-                self.assertEqual(body.count(native_automation_block), 1)
-                native_ticket_block = (
-                    "      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures\n"
-                    "        run: |\n"
-                    "          cargo test --locked -p xharness-remote --test tickets\n"
-                    "          cargo test --locked -p xharness-host scoped_interaction\n"
-                    "          cargo test --locked -p xharness-host scoped_question\n"
-                    "          cargo test --locked -p xharness-host scoped_catalogue\n"
-                    "          cargo test --locked -p xharness-remote --test catalogue\n"
-                    "          cargo test --locked -p xharness-remote --test catalogue_commands\n"
-                    "          cargo test --locked -p xharness-remote --test selection_commands\n"
-                    "          cargo test --locked -p xharness-remote --test creation_commands\n"
-                    "          cargo test --locked -p xharness-host scoped_durable_events\n"
-                    "          cargo test --locked -p xharness-remote --test projection\n"
-                    "          cargo test --locked -p xharness-remote --test command_replies\n"
-                    "          cargo test --locked -p xharness-remote --test media\n"
-                    "          cargo test --locked -p xharness-channel-telegram --test media\n"
-                    "          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages\n"
-                    "          cargo test --locked -p xharness-remote --test creation\n"
-                    "          cargo test --locked -p xharness-host-app --test remote_creation\n"
-                    "          cargo test --locked -p xharness-host-app --test remote_output\n"
-                )
-                self.assertEqual(body.count(native_ticket_block), 1)
-                # These must not acquire the release-only guard or suppress errors.
-                for step in re.findall(r"(?m)^      - name: (Remote control .*)$", body):
-                    self.assertIn("      - name: " + step + "\n        run: cargo test --locked", body)
-                self.assertNotIn("continue-on-error:", body)
+    def test_linux_native_sandbox_is_installed_and_probed_before_tests(self) -> None:
+        body = job(workflow_source(), "rust-linux")
+        self.assertIn("runs-on: ubuntu-22.04", body)
+        self.assertIn("prefix-key: native-ubuntu-22.04-v1", body)
+        install = body.index("sudo apt-get install -y ripgrep bubblewrap")
+        probe = body.index("bwrap --unshare-user --unshare-pid --unshare-net")
+        tests = body.index("cargo test --locked --workspace --all-targets")
+        self.assertLess(install, probe)
+        self.assertLess(probe, tests)
+        self.assertNotIn("/bin/true ||", body)
 
     def test_mobile_contracts_run_in_the_required_ui_build(self) -> None:
         body = job(workflow_source(), "ui-build")

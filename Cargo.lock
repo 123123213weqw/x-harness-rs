@@ -3715,6 +3715,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -3998,12 +3999,15 @@ dependencies = [
  "xharness-control",
  "xharness-core",
  "xharness-debug",
+ "xharness-fs",
  "xharness-interaction",
+ "xharness-jobs",
  "xharness-process",
  "xharness-projection",
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",
+ "xharness-session-import",
  "xharness-session-jsonl",
  "xharness-token",
  "xharness-tools",
@@ -4026,6 +4030,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
@@ -4045,15 +4050,20 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-diagnostics",
+ "xharness-fs",
  "xharness-host",
  "xharness-interaction",
  "xharness-jobs",
  "xharness-mcp",
  "xharness-mobile",
+ "xharness-model-catalog",
  "xharness-platform",
  "xharness-plugins",
+ "xharness-process",
+ "xharness-prompt",
  "xharness-provider-openai",
  "xharness-remote",
+ "xharness-sandbox",
  "xharness-schedule",
  "xharness-server",
  "xharness-session",
@@ -4096,9 +4106,12 @@ dependencies = [
 name = "xharness-jobs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4134,6 +4147,16 @@ dependencies = [
  "url",
  "xharness-api",
  "xharness-remote",
+]
+
+[[package]]
+name = "xharness-model-catalog"
+version = "0.1.1"
+source = "git+https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]
@@ -4290,7 +4313,9 @@ dependencies = [
  "tokio-util",
  "xharness-agent",
  "xharness-core",
+ "xharness-jobs",
  "xharness-session",
+ "xharness-session-jsonl",
  "xharness-tools",
 ]
 
@@ -4324,6 +4349,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "xharness-interaction",
+]
+
+[[package]]
+name = "xharness-session-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "xharness-session",
 ]
 
 [[package]]

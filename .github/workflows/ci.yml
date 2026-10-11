@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +17,44 @@ env:
   PYTHONUTF8: '1'
 
 jobs:
+  architecture-freeze:
+    name: Architecture / stabilization freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check changed foundations against the exact base policy
+        env:
+          ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/architecture
+          base="$ARCHITECTURE_BASE"
+          if [[ ! "$base" =~ ^[0-9a-f]{40}$ || "$base" == 0000000000000000000000000000000000000000 ]]; then
+            base="$(git merge-base HEAD origin/master)"
+          fi
+          python3 -B scripts/regression/check-architecture.py --base "$base" | tee dist/architecture/freeze.log
+      - name: Mutation-test the policy and preserve Windows regression enrollment
+        run: |
+          python3 -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
+          python3 -B scripts/test-ci-tiering.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: architecture-freeze
+          path: dist/architecture/
+          if-no-files-found: warn
+          retention-days: 14
+
   release-checkpoints:
     name: Durable release checkpoint rehearsal (no signing keys)
     runs-on: ubuntu-22.04
@@ -75,6 +114,8 @@ jobs:
       - run: node scripts/test-desktop-bootstrap.mjs
       - run: node scripts/test-desktop-startup.mjs
       - run: node scripts/test-desktop-titlebar.mjs
+      - name: macOS AX snapshot budgets and window-only regression
+        run: node --test scripts/test-macos-accessibility-snapshot.mjs
       - run: python -B scripts/test-linux-appimage-compat.py
       - run: node scripts/test-runtime-diagnostics.mjs
       - run: python -B scripts/test-desktop-symbols.py
@@ -84,10 +125,12 @@ jobs:
       - run: python -B scripts/test-desktop-release-build.py
       - run: python -B scripts/test-release-orchestrator.py
       - run: python -B scripts/test-release-service.py
+      - run: python -B scripts/test-desktop-candidates.py
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-macos-stable-signing.py
       - run: python -B scripts/test-windows-desktop-bundle.py
+      - run: python -B scripts/test-powershell-runtime.py
       - run: python -B scripts/test-windows-runtime-audit.py
       - run: python -B scripts/test-browser-windows-manifest.py
       - name: Unix updater isolation and candidate contracts
@@ -107,6 +150,19 @@ jobs:
         run: |
           & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-install-ownership-fixture.ps1
           if ($LASTEXITCODE) { throw 'Windows Shell reconciliation regression failed' }
+
+  compaction-evaluator-contract:
+    name: Compaction evaluator / offline acceptance guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Offline only: no Keychain, SSH, live model requests or deployment.
+      - run: python3 -B scripts/experiments/test-compaction-coding.py
+      - run: python3 -B scripts/experiments/test-compaction-multiround.py
 
   cloud-offline-guards:
     name: Cloud lifecycle offline guards
@@ -158,6 +214,8 @@ jobs:
         run: |
           node --test scripts/test-ci-ui-suite.mjs
           python3 -B scripts/test-ci-tiering.py
+          python3 -B scripts/test-ci-latency.py
+          node --test scripts/test-ci-ui-timing.mjs
       - name: Mobile UI and isolated deployment contracts (no live account or service)
         run: |
           node scripts/test-mobile-ui-contract.mjs
@@ -325,7 +383,9 @@ jobs:
 
   rust-linux:
     name: Rust / Linux x86_64
-    runs-on: ubuntu-latest
+    # Match the supported native packaging baseline. Floating latest images
+    # can deny bubblewrap's network-namespace setup through AppArmor policy.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -349,86 +409,61 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          # Never restore vendored C archives compiled against newer glibc.
+          prefix-key: native-ubuntu-22.04-v1
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
       - name: Install search integration test dependency
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep bubblewrap
+          # Native Git previews must actually run the confined adapter, not
+          # skip or fall back to an unconfined child on a bare hosted runner.
+          bwrap --unshare-user --unshare-pid --unshare-net --die-with-parent --ro-bind / / /bin/true
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
-      - name: Native channel account lifecycle and separate credential namespace fixtures
-        run: |
-          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
-          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
-      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
-        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
-      - name: Remote control genuine Host scoped stream contract
-        run: cargo test --locked -p xharness-host scoped_stream_tests
-      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test tickets
-          cargo test --locked -p xharness-host scoped_interaction
-          cargo test --locked -p xharness-host scoped_question
-          cargo test --locked -p xharness-host scoped_catalogue
-          cargo test --locked -p xharness-remote --test catalogue
-          cargo test --locked -p xharness-remote --test catalogue_commands
-          cargo test --locked -p xharness-remote --test selection_commands
-          cargo test --locked -p xharness-remote --test creation_commands
-          cargo test --locked -p xharness-host scoped_durable_events
-          cargo test --locked -p xharness-remote --test projection
-          cargo test --locked -p xharness-remote --test command_replies
-          cargo test --locked -p xharness-remote --test media
-          cargo test --locked -p xharness-channel-telegram --test media
-          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
-          cargo test --locked -p xharness-remote --test creation
-          cargo test --locked -p xharness-host-app --test remote_creation
-          cargo test --locked -p xharness-host-app --test remote_output
-      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test inbox_recovery
-          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
-      - name: Scoped native automation original receipts and owned drain fixtures
-        run: |
-          cargo test --locked -p xharness-api --test contract saved_automation
-          cargo test --locked -p xharness-schedule
-          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
-          cargo test --locked -p xharness-remote --test automation_commands
-          cargo test --locked -p xharness-host-app --test remote_creation native_automation
-      - name: Remote control desktop auth, same-origin and private setup fixtures
-        run: cargo test --locked -p xharness-host-app --test remote_admin
-      - name: Remote control disposable executable lifecycle
-        run: cargo test --locked -p xharness-host-app --test remote_control
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
+          XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
+          XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
+          XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
+          XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
           XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
         run: |
-          cargo test --locked -p xharness-projection export_session_terminal_contract
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
+      - name: File display wire is generated from actual Rust DTOs
+        env:
+          XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
+        run: |
+          node scripts/generate-file-display-contract.mjs --from "$XHARNESS_FILE_DISPLAY_EXPORT" --check
+          node --test scripts/test-file-display-source.mjs
       - name: Real Rust fork announcements and lists cross the production WebSocket and HTTP decoders
         env:
           XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json
         run: |
-          cargo test --locked -p xharness-host export_fork_wire_contract
           node --test scripts/test-fork-wire-contract.mjs
       - name: Goal remote HTTP replies match shipped client schemas
         env:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
         run: |
-          cargo test -p xharness-host-app --test goal_remotes
           node scripts/test-goal-remote-contract.mjs "$XHARNESS_GOAL_REMOTE_FIXTURE"
       - name: Native plugin replies match checked TypeScript DTOs
         env:
           XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
         run: |
-          cargo test --locked -p xharness-host-app --test plugin_wire_contract
           node scripts/test-plugin-wire-contract.mjs "$XHARNESS_PLUGIN_WIRE_FIXTURE"
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
@@ -445,9 +480,26 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+      # PR portable contracts run on Linux only. Exercise both Windows shells
+      # here before any expensive Rust build, not only after master merge.
+      - name: Owned Windows profile isolation regression (no installer or Rust build)
+        run: |
+          ./scripts/test-windows-install-ownership-isolation.ps1
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-windows-install-ownership-isolation.ps1
+          if ($LASTEXITCODE) { throw 'Windows fixture isolation regression failed' }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Stabilization policy mutations on native Windows (no Rust build)
+        run: |
+          python -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
+          if ($LASTEXITCODE) { throw 'Architecture stabilization regression failed' }
+      - name: Stage and execute pinned portable PowerShell without system PATH
+        run: |
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Pinned PowerShell staging failed' }
+          ./scripts/test-bundled-powershell.ps1
+          "XHARNESS_BUNDLED_POWERSHELL_ROOT=$((Resolve-Path apps/desktop/src-tauri/resources/powershell).Path)" >> $env:GITHUB_ENV
       - name: Portable Mac signing policy on Windows (no credentials or native signing)
         run: python -B scripts/test-macos-stable-signing.py
       - uses: actions/setup-node@v6
@@ -460,6 +512,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
@@ -483,54 +536,14 @@ jobs:
           (Split-Path -Parent $rg) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
-      - name: Native channel account lifecycle and separate credential namespace fixtures
-        run: |
-          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
-          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
-      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
-        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
-      - name: Remote control genuine Host scoped stream contract
-        run: cargo test --locked -p xharness-host scoped_stream_tests
-      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test tickets
-          cargo test --locked -p xharness-host scoped_interaction
-          cargo test --locked -p xharness-host scoped_question
-          cargo test --locked -p xharness-host scoped_catalogue
-          cargo test --locked -p xharness-remote --test catalogue
-          cargo test --locked -p xharness-remote --test catalogue_commands
-          cargo test --locked -p xharness-remote --test selection_commands
-          cargo test --locked -p xharness-remote --test creation_commands
-          cargo test --locked -p xharness-host scoped_durable_events
-          cargo test --locked -p xharness-remote --test projection
-          cargo test --locked -p xharness-remote --test command_replies
-          cargo test --locked -p xharness-remote --test media
-          cargo test --locked -p xharness-channel-telegram --test media
-          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
-          cargo test --locked -p xharness-remote --test creation
-          cargo test --locked -p xharness-host-app --test remote_creation
-          cargo test --locked -p xharness-host-app --test remote_output
-      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test inbox_recovery
-          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
-      - name: Scoped native automation original receipts and owned drain fixtures
-        run: |
-          cargo test --locked -p xharness-api --test contract saved_automation
-          cargo test --locked -p xharness-schedule
-          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
-          cargo test --locked -p xharness-remote --test automation_commands
-          cargo test --locked -p xharness-host-app --test remote_creation native_automation
-      - name: Remote control desktop auth, same-origin and private setup fixtures
-        run: cargo test --locked -p xharness-host-app --test remote_admin
-      - name: Remote control disposable executable lifecycle
-        run: cargo test --locked -p xharness-host-app --test remote_control
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
@@ -551,6 +564,10 @@ jobs:
           Copy-Item -LiteralPath "config/providers.remote.example.json" -Destination "$package/config"
           Copy-Item -LiteralPath "scripts/start-windows.ps1" -Destination $package
           Copy-Item -LiteralPath "ui/dist" -Destination "$package/ui" -Recurse
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Portable shell staging failed' }
+          New-Item -ItemType Directory -Force -Path "$package/runtime" | Out-Null
+          Copy-Item -LiteralPath "apps/desktop/src-tauri/resources/powershell" -Destination "$package/runtime/powershell" -Recurse
           $archive = "dist/xharness-host-windows-x86_64.zip"
           python -B scripts/audit-windows-runtime.py --directory $package --portable-host --output dist/windows-runtime-audit/portable.json
           if ($LASTEXITCODE) { throw 'Portable Windows runtime dependency audit failed' }
@@ -572,18 +589,22 @@ jobs:
           $target = 'x86_64-pc-windows-msvc'
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
       - name: Stage debug Windows sidecars for PR smoke
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           $target = 'x86_64-pc-windows-msvc'
           cargo build --locked -p xharness-host-app -p xharness-sandbox --bins
           if ($LASTEXITCODE) { throw 'Windows PR sidecar build failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-host.exe $target
           if ($LASTEXITCODE) { throw 'Windows PR host staging failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG $target --name rg
           if ($LASTEXITCODE) { throw 'Windows PR search staging failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/debug/xharness-windows-sandbox-runner.exe $target --name xharness-windows-sandbox-runner
@@ -719,67 +740,28 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
       - name: Install portable search before integration tests
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
-      - run: cargo test --workspace --all-targets
-      - name: Native channel account lifecycle and separate credential namespace fixtures
-        run: |
-          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
-          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
-      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
-        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
-      - name: Remote control genuine Host scoped stream contract
-        run: cargo test --locked -p xharness-host scoped_stream_tests
-      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test tickets
-          cargo test --locked -p xharness-host scoped_interaction
-          cargo test --locked -p xharness-host scoped_question
-          cargo test --locked -p xharness-host scoped_catalogue
-          cargo test --locked -p xharness-remote --test catalogue
-          cargo test --locked -p xharness-remote --test catalogue_commands
-          cargo test --locked -p xharness-remote --test selection_commands
-          cargo test --locked -p xharness-remote --test creation_commands
-          cargo test --locked -p xharness-host scoped_durable_events
-          cargo test --locked -p xharness-remote --test projection
-          cargo test --locked -p xharness-remote --test command_replies
-          cargo test --locked -p xharness-remote --test media
-          cargo test --locked -p xharness-channel-telegram --test media
-          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
-          cargo test --locked -p xharness-remote --test creation
-          cargo test --locked -p xharness-host-app --test remote_creation
-          cargo test --locked -p xharness-host-app --test remote_output
-      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
-        run: |
-          cargo test --locked -p xharness-remote --test inbox_recovery
-          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
-      - name: Scoped native automation original receipts and owned drain fixtures
-        run: |
-          cargo test --locked -p xharness-api --test contract saved_automation
-          cargo test --locked -p xharness-schedule
-          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
-          cargo test --locked -p xharness-remote --test automation_commands
-          cargo test --locked -p xharness-host-app --test remote_creation native_automation
-      - name: Remote control desktop auth, same-origin and private setup fixtures
-        run: cargo test --locked -p xharness-host-app --test remote_admin
-      - name: Remote control disposable executable lifecycle
-        run: cargo test --locked -p xharness-host-app --test remote_control
+      - name: Run workspace tests and export native wire fixtures once
+        env:
+          XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+        run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
-          cargo test --locked -p xharness-host-app --lib github_service
           node --test scripts/test-github-review.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Stage debug macOS sidecars for PR smoke
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           cargo build --locked -p xharness-host-app
           export PATH="$RUNNER_TEMP/xharness-portable-rg/bin:$PATH"
@@ -888,6 +870,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target

@@ -237,6 +237,10 @@ async fn restored_settings_activate_before_queued_input_reaches_real_http_adapte
                 }
             }
             let request = String::from_utf8(bytes).unwrap();
+            if request.starts_with("GET /v1/models ") || request.starts_with("GET /props ") {
+                socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+                continue;
+            }
             assert!(request.starts_with("POST /v1/chat/completions"));
             assert!(request
                 .to_ascii_lowercase()
@@ -637,10 +641,18 @@ async fn capability_refresh_rpc_updates_native_levels_and_keeps_last_good_on_fai
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
         for level in [Some("brief"), Some("deep"), None] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = vec![0; 8192];
-            let n = socket.read(&mut request).await.unwrap();
-            assert!(String::from_utf8_lossy(&request[..n]).starts_with("GET /capabilities "));
+            let mut socket = loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![0; 8192];
+                let n = socket.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.starts_with("GET /models ") {
+                    socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+                    continue;
+                }
+                assert!(request.starts_with("GET /capabilities "));
+                break socket;
+            };
             let (status, body) = match level {
                 Some(level) => (
                     "200 OK",
@@ -1177,4 +1189,275 @@ async fn legacy_output_migration_restores_native_budget_and_preserves_later_rpc_
     let budget = restored_guard.budget();
     assert_eq!(budget.reserved_output_tokens, 32000);
     assert_eq!(budget.minimum_output_tokens, 8192);
+}
+
+#[tokio::test]
+async fn official_reasoning_catalog_is_automatic_read_only_and_rpc_selectable() {
+    for (base, model, levels, default) in [
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            vec!["off", "low", "high", "max"],
+            "high",
+        ),
+        (
+            "https://api.deepseek.com/v1",
+            "deepseek-v4-pro",
+            vec!["off", "low", "high", "max"],
+            "high",
+        ),
+        (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-4.7",
+            vec!["off", "on"],
+            "on",
+        ),
+        (
+            "https://api.z.ai/api/coding/paas/v4",
+            "glm-5.2",
+            vec!["off", "high", "max"],
+            "max",
+        ),
+        (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-5.3",
+            vec!["low", "high", "max"],
+            "max",
+        ),
+        (
+            "https://api.z.ai/api/paas/v4",
+            "glm-5.3-flash",
+            vec!["low", "high", "max"],
+            "max",
+        ),
+    ] {
+        let dir = TempDir::new();
+        // Provider ID/name are user labels, not capability identifiers.
+        let document = json!({"providers":{"my-service":{"baseURL":base,"api":"openai-completions","models":[{"id":"friendly-alias","upstreamModel":model,"contextWindow":32768,"maxTokens":4096}]}}});
+        let (host, runtime) = fixture_with_base(
+            &dir,
+            Arc::new(TestCredentials::default()),
+            Arc::new(MemorySessionStore::default()),
+            document.clone(),
+        )
+        .await;
+        let models = runtime.model_catalog();
+        let reasoning = models[0].reasoning.as_ref().unwrap();
+        assert_eq!(reasoning.default_effort.as_deref(), Some(default));
+        assert_eq!(
+            reasoning
+                .efforts
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
+            levels
+        );
+        assert_eq!(models[0].reasoning_capability["source"], "documented");
+        let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+        let session = created["sessionId"].as_str().unwrap();
+        let public = rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":session}),
+        )
+        .await;
+        assert_eq!(
+            public["groups"][0]["models"][0]["reasoning"]["defaultEffort"],
+            default
+        );
+        for effort in &levels {
+            rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":session,"provider":"my-service","model":"friendly-alias","reasoningEffort":effort})).await;
+        }
+        let saved = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+        assert_eq!(
+            saved["namespaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|ns| ns["ns"] == MODEL_SETTINGS_NAMESPACE)
+                .unwrap()["value"],
+            document,
+            "derived capability must not become a sticky user override"
+        );
+        rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":session,"refreshCapabilities":true}),
+        )
+        .await;
+        assert_eq!(
+            runtime.model_catalog()[0].reasoning_capability["source"],
+            "documented"
+        );
+    }
+}
+
+#[tokio::test]
+async fn official_reasoning_catalog_never_overwrites_explicit_disable_custom_profile_or_proxy() {
+    for (base, model, explicit, expected) in [
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            Some(Value::Null),
+            None,
+        ),
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            Some(
+                json!({"efforts":[{"id":"custom","name":"我的档位","request_patch":{"reasoning_effort":"high"}}]}),
+            ),
+            Some("custom"),
+        ),
+        ("http://127.0.0.1:12345/v1", "deepseek-flash", None, None),
+        ("https://api.deepseek.com", "unknown-new-model", None, None),
+    ] {
+        let dir = TempDir::new();
+        let mut entry = json!({"id":model,"contextWindow":32768,"maxTokens":4096});
+        if let Some(explicit) = explicit {
+            entry["reasoning"] = explicit;
+        }
+        let document = json!({"providers":{"user":{"baseURL":base,"api":"openai-completions","models":[entry]}}});
+        let (host, runtime) = fixture_with_base(
+            &dir,
+            Arc::new(TestCredentials::default()),
+            Arc::new(MemorySessionStore::default()),
+            document.clone(),
+        )
+        .await;
+        let models = runtime.model_catalog();
+        assert_eq!(
+            models[0]
+                .reasoning
+                .as_ref()
+                .map(|r| r.efforts[0].id.as_str()),
+            expected
+        );
+        assert_ne!(models[0].reasoning_capability["source"], "documented");
+        let saved = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+        assert_eq!(
+            saved["namespaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|ns| ns["ns"] == MODEL_SETTINGS_NAMESPACE)
+                .unwrap()["value"],
+            document
+        );
+    }
+}
+
+/// Read-only metadata server: it never receives a generation request.
+async fn context_metadata_fixture() -> (
+    String,
+    Arc<AtomicU64>,
+    Arc<AtomicU64>,
+    tokio::task::JoinHandle<()>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let window = Arc::new(AtomicU64::new(0));
+    let requests = Arc::new(AtomicU64::new(0));
+    let w = window.clone();
+    let r = requests.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                if socket.read(&mut byte).await.unwrap() == 0 {
+                    break;
+                }
+                bytes.push(byte[0]);
+            }
+            let request = String::from_utf8(bytes).unwrap();
+            assert!(
+                request.starts_with("GET "),
+                "discovery must not generate tokens"
+            );
+            r.fetch_add(1, Ordering::SeqCst);
+            let body = if request.starts_with("GET /v1/models ") {
+                json!({"data":[{"id":"coder","meta":{"n_ctx":w.load(Ordering::SeqCst),"n_ctx_train":1000000}}]})
+            } else {
+                assert!(request.starts_with("GET /props "));
+                json!({})
+            }.to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
+        }
+    });
+    (endpoint, window, requests, task)
+}
+
+#[tokio::test]
+async fn unknown_context_is_not_a_32k_ceiling_and_refresh_preserves_explicit_selection() {
+    let (endpoint, window, _, server) = context_metadata_fixture().await;
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    add(
+        &host,
+        json!({"baseURL":endpoint,"api":"openai-completions","models":[{"id":"coder"}]}),
+    )
+    .await;
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        None
+    );
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap();
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"coder"}),
+    )
+    .await;
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert!(
+        catalog["current"]["contextWindowTokens"].is_null(),
+        "automatic selection must not freeze a temporary guard"
+    );
+    rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":65536})).await;
+    window.store(262144, Ordering::SeqCst);
+    host.refresh_model_settings().await.unwrap();
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(262144)
+    );
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(catalog["current"]["contextWindowTokens"], 65536);
+    // An explicit 32K preference must never be mistaken for the old default.
+    rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":32768})).await;
+    host.refresh_model_settings().await.unwrap();
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(catalog["current"]["contextWindowTokens"], 32768);
+    server.abort();
+}
+
+#[tokio::test]
+async fn explicit_capacity_refresh_can_replace_a_configured_fallback_without_startup_probes() {
+    let (endpoint, window, requests, server) = context_metadata_fixture().await;
+    window.store(262144, Ordering::SeqCst);
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    add(&host, json!({"baseURL":endpoint,"api":"openai-completions","models":[{"id":"coder","contextWindow":32768}]})).await;
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(32768)
+    );
+    host.refresh_model_settings().await.unwrap();
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(262144)
+    );
+    server.abort();
 }

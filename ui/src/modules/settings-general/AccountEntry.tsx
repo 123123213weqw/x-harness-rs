@@ -119,8 +119,7 @@ export function AccountEntry({ wide, rows, openSection, t }: AccountEntryProps) 
           setOpen(value => !value)
         }}>
         <span className={css.avatar} aria-hidden="true"><IconUserOutline16 size={18} /></span>
-        {wide && <><span className={css.identity}><span className={css.name}>{t('account.name')}</span>
-          <span className={css.caption}>{t('account.caption')}</span></span>
+        {wide && <><span className={css.identity}><span className={css.name}>{t('account.name')}</span></span>
           <IconChevronDownOutline14 size={14} className={css.chevron} /></>}
       </button>} />
   </span>

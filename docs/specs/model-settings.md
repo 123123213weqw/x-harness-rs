@@ -42,9 +42,12 @@ never allowed to hide providers newly added by a deployment update. The same
 rebase is used by `settings.update`, `replace`, and `mutate`.
 Preserved metadata includes exact-model reasoning, upstream model aliases,
 capability probes and token budgets. Explicit context limits are recommended.
-When no limit is given for a new model, 32768 is an explicitly non-authoritative
-fallback; default output reserve is 4096 and safety margin 1024 tokens. These are
-budget assumptions, not claims about an endpoint's actual accepted limits.
+When no limit is given, same-origin read-only model metadata is checked (exact
+model ID; llama-server per-slot `/props` when available). Missing metadata stays
+unknown. A temporary 32768-token input working allowance plus output floor and
+safety margin keeps requests bounded; it is **not** registered as a model maximum
+or persisted as a user choice. Default output target is 4096 and safety margin
+1024 tokens. Optional metadata timeouts do not discard already read limits.
 
 Only key references (`apiKeyEnv`) enter settings and control receipts. The
 production credential store is Windows Credential Manager, macOS Keychain or
@@ -88,7 +91,8 @@ Web 和 Tauri 共用 `ui/dist`，输入区只保留模型选择按钮。点击�
 
 - 思考档位仅来自当前 Provider 的精确模型声明；没有声明就不提供思考菜单，不伪造通用档位。
 - 上下文输入是 **Token 整数**。使用后端返回的 `contextWindow` 作为有效上限，展示
-  `contextWindowSource`，绝不在前端写死 32K/128K/1M。上限未知时说明原因并禁用保存。
+  `contextWindowSource`，绝不在前端写死 32K/128K/1M。上限未知时明确标注；允许用户手动
+  设定请求预算，但不保证服务端接受该容量，且禁用「填入上限」。
 - 保存完整当前选择；修改上下文不改变思考档位，修改思考不改变已选择的上下文。
 - 切换模型清除旧表单，使用目标模型的上限和默认思考档位；不把旧模型的软预算带过去。
 - 主机持久化后才更新显示；刷新、Host 重连后从主机回读。运行中的请求沿用创建时的配置，

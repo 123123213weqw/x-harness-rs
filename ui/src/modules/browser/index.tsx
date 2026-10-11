@@ -5,11 +5,21 @@ import type { EffectContext, SlotsService } from '../shared/runtime-types'
 import { objectValue } from '../shared/runtime-types'
 import { workspaceDockEvents, workspaceDockVisibility } from '../shared/workspace-dock'
 import CSS from './Browser.css'
+import FILE_CSS from './file-display/FilePane.css'
+import {FilePane,openDisplayFile} from './file-display/FilePane'
+import {FileDisplayClient} from './file-display/client'
+import {DisplayOpenSchema} from '../shared/generated/file-display'
+import type {ConnectionHandle} from '../client-connection/index'
+import type {WorkspaceItemOwner} from '../layout/workspace-pane'
 const { createElement: h, useEffect, useRef, useState } = React
 export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number; modelRequestId?: string | undefined }
 export interface BrowserPatch { title?: string; entries?: string[]; position?: number; modelRequestId?: string | undefined }
 export interface BrowserPaneProps { item: BrowserItem; sessionId?: string | null; open?: boolean; onUpdate(patch: BrowserPatch): void; onClose(): void; onNewBrowser(): void }
-interface BrowserContext extends EffectContext { slots: SlotsService }
+interface BrowserContext extends EffectContext {
+  slots: SlotsService
+  get(name:'connection'):ConnectionHandle|undefined
+  remote:{$on(name:'display/open',listener:(payload:unknown)=>void):()=>void}
+}
 type AddressResult = {url: string} | {error: string}
 interface RecentAddress {url: string; host: string; path: string}
 interface DownloadEntry {kind: string; name: string}
@@ -160,7 +170,9 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
   }
   const schedule = () => { frame ??= requestAnimationFrame(refresh) }
   const relevant = (node: Node | EventTarget | null) => node instanceof Element && (
-    node.closest(`${OVERLAY_SURFACE}, [data-shell-overlay]`) || node.querySelector(OVERLAY_SURFACE)
+    // An ancestor can move the pane without changing its size (sidebar,
+    // translated dock, layout transition). ResizeObserver alone misses that.
+    node.contains(content) || node.closest(`${OVERLAY_SURFACE}, [data-shell-overlay]`) || node.querySelector(OVERLAY_SURFACE)
     || surfaces.some(surface => node.contains(surface))
     || [...document.body.children].some(root => !root.contains(content) && root.contains(node)))
   const observer = new MutationObserver(records => {
@@ -183,6 +195,7 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
   }
 }
 export function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }: BrowserPaneProps) {
+  const [filePath,setFilePath]=useState('')
   const [draft, setDraft] = useState(() => currentAddress(item))
   const [error, setError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -461,6 +474,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       !address ? h('div', { className: 'xhbrowser-home' },
         h('section', { className: 'xhbrowser-home-section' },
           h('h2', null, '工具'),
+          sessionId && h('form',{className:'xhbrowser-file-form',onSubmit:(event:React.FormEvent)=>{event.preventDefault();if(filePath.trim())openDisplayFile(filePath.trim(),sessionId)}},h('input',{value:filePath,onChange:(event:React.ChangeEvent<HTMLInputElement>)=>setFilePath(event.currentTarget.value),placeholder:'输入文件路径', 'aria-label':'文件路径'}),h('button',{type:'submit',disabled:!filePath.trim()},'预览文件'),h('button',{type:'button',onClick:()=>openDisplayFile(filePath.trim()||'.',sessionId,undefined,'working')},'Git Diff')),
           h('div', { className: 'xhbrowser-tools' },
             h('button', { type: 'button', onClick: focusChat }, '回到聊天'),
             h('button', { type: 'button', onClick: openTerminal }, '打开终端'))),
@@ -478,8 +492,11 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
           h('a', { className: 'xhbrowser-open-link', href: address, target: '_blank', rel: 'noopener noreferrer' },
             '在系统浏览器打开', glyph('external', 15)))))
 }
-export const inject = ['slots']
+export const inject = ['slots','connection','remote']
 export function apply(ctx: BrowserContext) {
+  const connection=ctx.get('connection')
+  const client=connection?new FileDisplayClient(connection.rpc,{available:()=>connection.hostDescription.getSnapshot()?.canOpenPath===true,open:async path=>{const reply=await connection.api.host.openPath({path});if(!reply.result.ok)throw new Error(reply.result.error.message)}}):undefined
+  ctx.effect(()=>ctx.remote.$on('display/open',payload=>{const parsed=DisplayOpenSchema.safeParse(payload);if(parsed.success)openDisplayFile(parsed.data.path,parsed.data.sessionId,undefined,parsed.data.gitDiff??undefined)}),'browser: model file display intent')
   ctx.effect(() => {
     if (!native) return () => {}
     const onCloseTab = (event: Event) => {
@@ -499,7 +516,7 @@ export function apply(ctx: BrowserContext) {
   ctx.effect(() => {
     if (document.getElementById(STYLE_ID)) return () => {}
     const style = document.createElement('style')
-    style.id = STYLE_ID; style.textContent = CSS; document.head.append(style)
+    style.id = STYLE_ID; style.textContent = CSS+FILE_CSS; document.head.append(style)
     return () => style.remove()
   }, 'xharness-ui-browser: styles')
   ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
@@ -507,5 +524,5 @@ export function apply(ctx: BrowserContext) {
   }, BrowserToggle))
   ctx.slots.inject('workspace.item', () => ctx.slots.register({
     name: 'workspace.item', id: 'browser-pane', order: 40,
-  }, (props: BrowserPaneProps) => props.item?.kind === 'browser' ? h(BrowserPane, props) : null))
+  }, (props: WorkspaceItemOwner) => props.item.kind === 'browser' ? h(BrowserPane, props) : props.item.kind==='file'&&client?h(FilePane,{...props,client}):null))
 }

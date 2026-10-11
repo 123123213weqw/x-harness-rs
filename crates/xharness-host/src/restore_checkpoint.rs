@@ -11,7 +11,11 @@ use std::collections::{BTreeMap, VecDeque};
 use xharness_projection::metrics::MetricsProjectionState;
 use xharness_session::{EventData, Session, SessionRecoveryCheckpoint, SessionRecoveryTail};
 
-pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v1";
+// v1 cached admission using only explicit pause events. Its false bit cannot
+// certify an old failed turn as healthy under terminal-failure admission.
+// Fall back to authoritative replay once; v2 also existed before the capacity/failure-gate integration, so it
+// cannot certify both facts. Newly published v3 remains fast.
+pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v3";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -505,6 +509,49 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[tokio::test]
+    async fn legacy_idle_checkpoint_cannot_reopen_a_terminal_failure() {
+        assert_legacy_checkpoint_falls_back("xharness.host.idle-recovery.v1").await;
+        assert_legacy_checkpoint_falls_back("xharness.host.idle-recovery.v2").await;
+    }
+
+    async fn assert_legacy_checkpoint_falls_back(schema: &str) {
+        let d = Dir::new();
+        let s = d.store();
+        let session = s.create(SessionHeader::new("test")).await.unwrap();
+        let mut turn = closed_turn(1);
+        *turn.last_mut().unwrap() = EventData::TurnEnd {
+            turn: 1,
+            reason: xharness_session::TurnEndReason::Failed {
+                error: "compaction candidate gave no safe gain".into(),
+                provider_failure: None,
+            },
+        }
+        .into();
+        s.append("test", session.revision(), turn).await.unwrap();
+        let first = host(s.clone(), true);
+        first.restore_from_store(s.clone()).await.unwrap();
+        let journal = s.load("test").await.unwrap().unwrap();
+        let mut legacy = {
+            let state = first.state.read().await;
+            checkpoint(&first, &journal, &state.sessions["test"]).unwrap()
+        };
+        legacy.schema = schema.into();
+        legacy.state["dispatch_paused"] = serde_json::json!(false);
+        s.publish_recovery_checkpoint(legacy).await.unwrap();
+        drop(first);
+        let cold = d.store();
+        let restored = host(cold.clone(), true);
+        let report = restored.restore_from_store(cold.clone()).await.unwrap();
+        assert_eq!(report.checkpoint_restored_sessions, 0);
+        assert!(
+            cold.loads.load(Ordering::SeqCst) > 0,
+            "old admission cache requires authoritative replay"
+        );
+        assert!(restored.state.read().await.sessions["test"].dispatch_paused);
+        assert!(cold.load("test").await.unwrap().unwrap().dispatch_paused());
     }
     #[tokio::test]
     async fn metadata_tail_and_exact_mutation_receipts_match_full_replay() {
