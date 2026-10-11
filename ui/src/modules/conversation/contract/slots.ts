@@ -170,6 +170,8 @@ declare module "../types/slots" {
      * reads the global workspace list.
      */
     'conversation.hero.workspace': { kind: 'single'; scope: 'root'; owner: EmptyWorkspaceOwnerProps }
+    /** Execution-target presentation beside the new-task workspace selector. */
+    'conversation.hero.runtimeEnvironment': { kind: 'single'; scope: 'root'; owner: RuntimeEnvironmentOwnerProps }
     /**
      * Brand mark leading the blank-session headline. Declared by this
      * package's `conversation` entry; the shell supplies a fish fallback.
@@ -288,6 +290,16 @@ declare module "../types/slots" {
 export interface HeroAgentPresetOwnerProps {
   /** Marker field: the chip owns its own roster, staging, and menu state. */
   children?: (never) | undefined
+}
+
+/** Authoritative composer facts; an occupant must not infer binding from DOM. */
+export interface RuntimeEnvironmentOwnerProps {
+  sessionId: SessionId | undefined
+  summaryBlank: boolean | undefined
+  composerPhase: ConversationSnapshot['composerPhase'] | undefined
+  openState: ConversationSnapshot['openState'] | undefined
+  /** Reuse the workspace chip's exact visual contract without copying CSS. */
+  appearance: { trigger: string; icon: string; label: string; chevron: string }
 }
 
 /** Owner share of the strict session content seat. */
@@ -630,6 +642,7 @@ export type ConversationSlotProps =
     | 'conversation.input.left' | 'conversation.input.right'
     | 'conversation.hero.brand.mark'
     | 'conversation.hero.workspace'
+    | 'conversation.hero.runtimeEnvironment'
     | 'conversation.hero.agentPreset'
   >
   & InjectFace<ConversationInjected>
