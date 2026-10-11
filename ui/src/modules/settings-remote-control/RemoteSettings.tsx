@@ -2,6 +2,7 @@ import {useEffect,useRef,useState,type FormEvent} from 'react'
 import type {AccountView,Catalog,GrantEntry,GrantVersion,InboxEntry,InboxResolution,RecoveryEntry,RemoteSettingsProps,Status} from './contracts'
 import {AdminFailure} from './api'
 import './styles'
+import {MobileSettings} from './MobileSettings'
 const toggle=(values:readonly string[],id:string)=>values.includes(id)?values.filter(value=>value!==id):[...values,id]
 const union=(...values:readonly (readonly string[])[])=>[...new Set(values.flat())].sort()
 const numeric=(s:string)=>/^[1-9][0-9]{0,18}$/.test(s)&&BigInt(s)<=9223372036854775807n
@@ -66,6 +67,7 @@ export function RemoteSettings({t,local,api,catalog}:RemoteSettingsProps){
   {status&&<>
    <p className="xr_remoteMeta">{t('manager')}: {t(status.manager.state)} · Host <code>{status.host}</code></p>
    {status.credential_cleanup_pending&&<div className="xr_remoteMessage"><p>{t('cleanupPending')}</p><button disabled={busy} onClick={()=>void mutate({type:'cleanup_credentials'})}>{t('cleanup')}</button></div>}
+   <MobileSettings catalog={catalog}/>
    <fieldset disabled={busy}><legend>{t('accounts')}</legend>
     {!status.accounts.length&&<p>{t('emptyAccounts')}</p>}
     <ul className="xr_remoteList">{status.accounts.map(a=><li key={a.account.channel+':'+a.account.id}><div><strong>{a.account.channel} · {a.account.id}</strong><p>{t(a.connection.state)} · {t('revision')} {a.revision}</p>{a.connection.state==='failed'&&<p>{t(a.connection.reason==='native_credential_unavailable'?'native_credentials_unavailable':a.connection.reason==='invalid_credentials'?'invalid_input':'unavailable')}</p>}</div><div className="xr_remoteActions"><button disabled={a.account.channel!=='telegram'} onClick={()=>chooseAccount(a)}>{t('rotate')}</button><button onClick={()=>void mutate({type:'set_enabled',account:a.account,expected_revision:a.revision,enabled:!a.enabled})}>{t(a.enabled?'disable':'enable')}</button></div></li>)}</ul>
@@ -75,7 +77,7 @@ export function RemoteSettings({t,local,api,catalog}:RemoteSettingsProps){
    </fieldset>
    <fieldset disabled={busy}><legend>{t('grants')}</legend><p>{t('scopeHint')}</p>
     {!grants.length&&<p>{t('emptyGrants')}</p>}
-    <ul className="xr_remoteList">{grants.map(e=><li key={e.principal.id}><div><strong>{e.principal.sender.channel} · {e.principal.sender.account} / {e.principal.sender.user}</strong><p>{e.principal.revoked?t('revoked'):e.bindings.map(b=>(places?.workspaces.find(w=>w.id===b.workspace)?.title??b.workspace)+' / '+(places?.sessions[b.session]??b.session)).join(' · ')}</p><small>{t('revision')} {e.principal.revision} · {e.principal.sessions.length} {t('allowedSessions')} · {e.creation_policy?.principal_revision===e.principal.revision&&e.creation_policy.workspaces.length?t('createAllowed'):t('createDisabled')}</small></div>{!e.principal.revoked&&<div className="xr_remoteActions"><button disabled={e.principal.sender.channel!=='telegram'||e.bindings.length!==1} onClick={()=>edit(e)}>{t('editScope')}</button><button onClick={()=>{if(globalThis.confirm(t('confirmRevoke')))void mutate({type:'revoke',principal:e.principal.id})}}>{t('revoke')}</button></div>}</li>)}</ul>
+    <ul className="xr_remoteList">{grants.filter(e=>e.principal.sender.channel==='telegram').map(e=><li key={e.principal.id}><div><strong>{e.principal.sender.channel} · {e.principal.sender.account} / {e.principal.sender.user}</strong><p>{e.principal.revoked?t('revoked'):e.bindings.map(b=>(places?.workspaces.find(w=>w.id===b.workspace)?.title??b.workspace)+' / '+(places?.sessions[b.session]??b.session)).join(' · ')}</p><small>{t('revision')} {e.principal.revision} · {e.principal.sessions.length} {t('allowedSessions')} · {e.creation_policy?.principal_revision===e.principal.revision&&e.creation_policy.workspaces.length?t('createAllowed'):t('createDisabled')}</small></div>{!e.principal.revoked&&<div className="xr_remoteActions"><button disabled={e.principal.sender.channel!=='telegram'||e.bindings.length!==1} onClick={()=>edit(e)}>{t('editScope')}</button><button onClick={()=>{if(globalThis.confirm(t('confirmRevoke')))void mutate({type:'revoke',principal:e.principal.id})}}>{t('revoke')}</button></div>}</li>)}</ul>
     {moreGrants&&<button onClick={()=>void loadMore('grants')}>{t('more')}</button>}
     <form onSubmit={saveGrant} className="xr_remoteForm"><label>{t('account')}<select aria-label={t('account')} value={grantAccount} disabled={expected!==undefined} onChange={e=>setGrantAccount(e.target.value)}><option value="">{t('choose')}</option>{status.accounts.filter(a=>a.account.channel==='telegram').map(a=><option key={a.account.id} value={a.account.id}>Telegram {a.account.id}</option>)}</select></label>
      <label>{t('userId')}<input aria-label={t('userId')} inputMode="numeric" value={user} disabled={expected!==undefined} onChange={e=>setUser(e.target.value)} required/></label>
@@ -113,7 +115,7 @@ export function RemoteSettings({t,local,api,catalog}:RemoteSettingsProps){
      <button disabled={!/^[0-9a-f]{64}$/.test(evidence)||(resolution==='observed_delivered'&&!message)}>{t('resolve')}</button>
     </form>}
    </fieldset>
-   <fieldset><legend>{t('otherChannels')}</legend><p>Mobile Web · Weixin iLink · Feishu · Lark</p><small>{t('notImplemented')}</small></fieldset>
+   <fieldset><legend>{t('otherChannels')}</legend><p>Weixin iLink · Feishu · Lark</p><small>{t('notImplemented')}</small></fieldset>
   </>}
  </section>
 }

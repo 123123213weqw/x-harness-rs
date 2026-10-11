@@ -118,6 +118,18 @@ class CiTieringContract(unittest.TestCase):
                     self.assertIn("      - name: " + step + "\n        run: cargo test --locked", body)
                 self.assertNotIn("continue-on-error:", body)
 
+    def test_mobile_contracts_run_in_the_required_ui_build(self) -> None:
+        body = job(workflow_source(), "ui-build")
+        block = (
+            "      - name: Mobile UI and isolated deployment contracts (no live account or service)\n"
+            "        run: |\n"
+            "          node scripts/test-mobile-ui-contract.mjs\n"
+            "          python3 -B scripts/test_deploy_mobile_experiment.py\n"
+        )
+        self.assertEqual(body.count(block), 1)
+        self.assertNotIn("continue-on-error:", body)
+        self.assertLess(body.index("test-mobile-ui-contract.mjs"), body.index("Seal same-run UI artifact"))
+
     def test_ui_required_check_aggregates_all_shards_fail_closed(self) -> None:
         source = workflow_source()
         body = job(source, "context-layout")

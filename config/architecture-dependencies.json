@@ -93,6 +93,7 @@
     "xharness-interaction",
     "xharness-jobs",
     "xharness-mcp",
+    "xharness-mobile",
     "xharness-platform",
     "xharness-plugins",
     "xharness-provider-openai",
@@ -181,6 +182,16 @@
     "xharness-api"
   ],
   "xharness-channel-telegram": [
+    "xharness-remote"
+  ],
+  "xharness-mobile": [
+    "xharness-api",
+    "xharness-remote"
+  ],
+  "xharness-relay": [
+    "xharness-mobile"
+  ],
+  "xharness-channel-weixin": [
     "xharness-remote"
   ]
 }
