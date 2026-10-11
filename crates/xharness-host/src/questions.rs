@@ -1037,6 +1037,7 @@ mod tests {
                 ],
                 allow_custom: true,
                 destination,
+                blocks_goal: true,
             }],
         }
     }

@@ -4,13 +4,15 @@ The shared remote gateway, Telegram protocol composition and desktop scope/recov
 
 ## Verification status
 
-The 2026-10-10 convergence checkpoint passed 763 tests with zero failures and 11 unchanged ignored across API, remote, Telegram, Host, Host app, projection, server and Schedule on WZU_Server (56 test harnesses), with all-target Clippy warnings denied. Nine emitted-client contracts and Chromium/WebKit protocol fixtures also passed. Ignored subprocess helpers are invoked by their parent cases; live CDN/offline diagnostic cases remain explicitly ignored.
+The 2026-10-11 master integration checkpoint (`e0a35e4c`) passed 786 tests with zero failures and 11 ignored across API, remote, Telegram, Host, Host app, projection, server and Schedule on WZU_Server (56 test harnesses), with all-target Clippy warnings denied. Nine emitted-client contracts, architecture/CI source-policy checks and static UI assembly verification passed. Both remote Settings and the upstream Computer UI passed Chromium/WebKit fixtures. Ignored subprocess helpers are invoked by their parent cases; live CDN/offline diagnostic cases remain explicitly ignored.
+
+The prior 2026-10-10 convergence checkpoint passed 763 tests with zero failures and the same 11 ignored. Integration preserved the upstream macOS/Windows/test media gate alongside the remote account modules and regenerated UI outputs from merged source; no tests were removed or weakened.
 
 This first convergence pass shares only identical scope setup across eight test harnesses: 59 named test bodies remain byte-identical, with 100 net lines of setup removed including the shared helper. All 63 names previously exported by ten wildcard module exports are now explicit and preserved. Fault backends and operation-specific assertions remain separate. Production transaction, authorization, delivery and recovery implementations are unchanged; no crate or dependency was added.
 
 All 38 historical acceptance files were copied and SHA-256 verified before removal from the PR directory; reports, source snapshots and raw logs are preserved outside the repository. This summary is the single maintained acceptance entry. The plan was reduced from 217 to 153 lines without dropping the remaining implementation or acceptance scope.
 
-At the verified convergence checkpoint, all 142 selected source hashes matched the tested remote source. Source-manifest digest (compact sorted-key JSON files map): `47c3d82f18ef637b31dc4c2674cf24d4b6caf70cf9282b2fafb6ef6516ca3503`. This report itself is separately hashed, not included in that digest.
+All 1319 selected integration file hashes match the tested remote files. Source-manifest digest (compact sorted-key JSON files map): `08dcf28c8f558d01ef680a16f1b4a021f15dedc3b93d5929315c7970f0450821`. This report itself is separately hashed, not included in that digest.
 
 ## Coverage and limits
 

@@ -1,0 +1,12 @@
+{
+  "action": "keypress",
+  "keys": [
+    "L"
+  ],
+  "modifiers": [
+    "ctrl"
+  ],
+  "frame_id": "win:6240:1791240695323838800:21",
+  "include_accessibility": false,
+  "include_screenshot": false
+}

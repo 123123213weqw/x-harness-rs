@@ -1,0 +1,5 @@
+{
+  "action": "observe",
+  "include_accessibility": false,
+  "include_screenshot": false
+}

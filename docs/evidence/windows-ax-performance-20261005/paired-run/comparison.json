@@ -1,0 +1,145 @@
+{
+  "baseline": {
+    "source_sha": "a21fd4bcfe202a8090b7aa0cc5a0c96ef0e8c853",
+    "geometry": {
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "viewport": {
+        "height": 728.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scope": "foreground_window"
+    },
+    "modes": {
+      "auto": {
+        "samples": 3,
+        "native_elapsed_median_ms": 9115,
+        "timing_medians": {
+          "discovery_ms": 8007,
+          "child_navigation_ms": 7685,
+          "materialization_ms": 722,
+          "pattern_ms": 267,
+          "invoke_cache_hits": 0,
+          "invoke_live_fallbacks": 0
+        },
+        "returned_range": [
+          88,
+          155
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 34959360,
+        "edge_peak_working_set_bytes": 980140032
+      },
+      "semantic": {
+        "samples": 3,
+        "native_elapsed_median_ms": 8864,
+        "timing_medians": {
+          "discovery_ms": 8005,
+          "child_navigation_ms": 7654,
+          "materialization_ms": 459,
+          "pattern_ms": 171,
+          "invoke_cache_hits": 0,
+          "invoke_live_fallbacks": 0
+        },
+        "returned_range": [
+          88,
+          130
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 35241984,
+        "edge_peak_working_set_bytes": 979947520
+      }
+    },
+    "all_required_anchors_observed": true,
+    "expected_input_coverage": {
+      "Search. Enter keywords, model number or item number": {
+        "observed_samples": 2,
+        "total_samples": 6
+      }
+    },
+    "required_input_coverage_passed": false,
+    "complete_tree_accepted": false,
+    "causal_speedup_claim": false,
+    "memory_scope": "Process working-set sums, not PSS or installed XHarness memory."
+  },
+  "candidate": {
+    "source_sha": "23dd8629d409a901022176fc8d4cb4c082aa3ebd",
+    "geometry": {
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "viewport": {
+        "height": 728.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "scope": "foreground_window"
+    },
+    "modes": {
+      "auto": {
+        "samples": 3,
+        "native_elapsed_median_ms": 8835,
+        "timing_medians": {
+          "discovery_ms": 8011,
+          "child_navigation_ms": 7686,
+          "materialization_ms": 457,
+          "pattern_ms": 110,
+          "invoke_cache_hits": 32,
+          "invoke_live_fallbacks": 35
+        },
+        "returned_range": [
+          88,
+          102
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 31199232,
+        "edge_peak_working_set_bytes": 980090880
+      },
+      "semantic": {
+        "samples": 3,
+        "native_elapsed_median_ms": 8793,
+        "timing_medians": {
+          "discovery_ms": 8005,
+          "child_navigation_ms": 7674,
+          "materialization_ms": 404,
+          "pattern_ms": 100,
+          "invoke_cache_hits": 35,
+          "invoke_live_fallbacks": 41
+        },
+        "returned_range": [
+          88,
+          107
+        ],
+        "partial_samples": 3,
+        "time_limit_samples": 3,
+        "native_peak_working_set_bytes": 31318016,
+        "edge_peak_working_set_bytes": 979542016
+      }
+    },
+    "all_required_anchors_observed": true,
+    "expected_input_coverage": {
+      "Search. Enter keywords, model number or item number": {
+        "observed_samples": 0,
+        "total_samples": 6
+      }
+    },
+    "required_input_coverage_passed": false,
+    "complete_tree_accepted": false,
+    "causal_speedup_claim": false,
+    "memory_scope": "Process working-set sums, not PSS or installed XHarness memory."
+  },
+  "comparison": "Descriptive same-page samples; partial trees and varying node counts do not establish a causal speedup."
+}

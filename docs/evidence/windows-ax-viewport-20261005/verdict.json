@@ -1,0 +1,94 @@
+{
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "windows_ci": {
+    "run_id": 37306874279,
+    "passed": true,
+    "tests": 26,
+    "clippy": true,
+    "host_composition": true
+  },
+  "linux_tests": 19,
+  "native_fixture_cases": 14,
+  "same_page_read_passed": true,
+  "paired_observations": [
+    {
+      "id": 0,
+      "elapsed_ms": 9448,
+      "returned": 146,
+      "visited": 890,
+      "eligible": 117,
+      "omitted": 0,
+      "truncation_reasons": [
+        "time_limit"
+      ],
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "accessibility_json_bytes": 63247,
+      "products_and_exact_price_labels_present": true,
+      "outside_region_only_context": true,
+      "known_values": [
+        {
+          "label": "地址和搜索栏",
+          "value": "https://www.newegg.com/p/pl?d=1TB+NVMe+SSD"
+        },
+        {
+          "label": "36 ",
+          "value": "36"
+        },
+        {
+          "label": "price from",
+          "value": ""
+        },
+        {
+          "label": "price to",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "elapsed_ms": 8771,
+      "returned": 73,
+      "visited": 737,
+      "eligible": 59,
+      "omitted": 0,
+      "truncation_reasons": [
+        "time_limit"
+      ],
+      "region": {
+        "height": 640.0,
+        "width": 760.0,
+        "x": 260.0,
+        "y": 80.0
+      },
+      "accessibility_json_bytes": 32554,
+      "products_and_exact_price_labels_present": true,
+      "outside_region_only_context": true,
+      "known_values": [
+        {
+          "label": "36 ",
+          "value": "36"
+        }
+      ]
+    }
+  ],
+  "full_model_shopping_passed": false,
+  "model_ended_because": "SSH forwarding connection reset during receipt GET; subsequent SSH closed then timed out",
+  "model_confirmed_native_results": 5,
+  "pending_native_id": 7,
+  "pending_action_replayed": false,
+  "separate_runtime_issue": "navigation dispatched once, follow-up observe changed frame; outcome_unknown returned, next model request was observe",
+  "full_installed_host_or_multimodal_accepted": false,
+  "cleanup": {
+    "local_model_stopped": true,
+    "forwarding_process_exited": true,
+    "remote_probe_stop_not_confirmed": "Server unreachable; existing guarded guest script has a 20 minute TTL and finally cleanup."
+  },
+  "software_replaced": false,
+  "main_merged": false,
+  "released": false
+}

@@ -1,0 +1,9 @@
+{"mode": "expanded", "turn": 0, "model_s": 1.34, "calls": 1, "usage": {"prompt_tokens": 1072, "completion_tokens": 63, "total_tokens": 1135, "prompt_tokens_details": {"cached_tokens": 0}, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 1072}}
+{"id": 24, "action": "observe", "ok": true, "native_ms": 8562, "wall_s": 12.3, "image": false}
+{"mode": "expanded", "turn": 1, "model_s": 1.45, "calls": 1, "usage": {"prompt_tokens": 11801, "completion_tokens": 143, "total_tokens": 11944, "prompt_tokens_details": {"cached_tokens": 1024}, "prompt_cache_hit_tokens": 1024, "prompt_cache_miss_tokens": 10777}}
+{"id": 25, "action": "scroll", "ok": true, "native_ms": 9006, "wall_s": 13.04, "image": true}
+{"mode": "expanded", "turn": 2, "model_s": 1.79, "calls": 1, "usage": {"prompt_tokens": 23106, "completion_tokens": 153, "total_tokens": 23259, "prompt_tokens_details": {"cached_tokens": 11904}, "prompt_cache_hit_tokens": 11904, "prompt_cache_miss_tokens": 11202}}
+{"id": 26, "action": "scroll", "ok": true, "native_ms": 8914, "wall_s": 12.64, "image": true}
+{"mode": "expanded", "turn": 3, "model_s": 1.7, "calls": 1, "usage": {"prompt_tokens": 34421, "completion_tokens": 165, "total_tokens": 34586, "prompt_tokens_details": {"cached_tokens": 23168}, "prompt_cache_hit_tokens": 23168, "prompt_cache_miss_tokens": 11253}}
+STOP: Non-whitelisted action; not dispatched
+{"mode": "expanded", "error": "Non-whitelisted action; not dispatched", "native_calls": 3, "elapsed_s": 76.7}

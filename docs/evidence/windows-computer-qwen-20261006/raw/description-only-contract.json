@@ -1,0 +1,16 @@
+{
+  "only_description_fields_changed": true,
+  "changed_properties": [
+    "action",
+    "delta_x",
+    "delta_y",
+    "duration_ms",
+    "keys",
+    "node_id",
+    "path",
+    "text"
+  ],
+  "candidate_sha256": "4a18cfe8eab9da7469e355dcf6d821e4f291cac011d125aafb5f9865ffc29339",
+  "native_runtime_source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "description_schema_source_sha256": "c53fbe84f5b9b9a69d2d9826e90fd590737f01f0ea19feb7cfad431d027a8495"
+}

@@ -456,7 +456,7 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
             "modifiers",
         ],
         "type" => &["text", "node_id", "frame_id"],
-        "keypress" => &["keys", "modifiers"],
+        "keypress" => &["keys", "modifiers", "frame_id"],
         "wait" => &["duration_ms"],
         "window" => &["surface_id", "operation", "x", "y", "width", "height"],
         _ => return Ok(()), // The registry's enum validation reports this case.
@@ -481,26 +481,26 @@ fn validate_argument_shape(value: &Value) -> Result<(), ToolHandlerError> {
 pub fn definition() -> ToolDefinition {
     ToolDefinition::new(
         COMPUTER_TOOL_NAME,
-        "Observe and operate the local macOS desktop. Use observe before coordinate or node actions and reuse its frame_id. Coordinates are logical desktop points. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
+        "Observe and operate the local desktop. Use observe before coordinate or node actions and reuse its frame_id. Use the coordinate_space and display bounds returned by observe: macOS uses logical points; Windows uses physical desktop pixels. Prefer node_id for click, scroll, and type when available. Actions are serialized; do not issue overlapping computer calls. detail=semantic returns the accessibility tree without a screenshot; other observations return screenshots only for vision-capable models.",
         json!({
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "action": {"type":"string","enum":["observe","move","click","drag","scroll","type","keypress","wait","window"]},
+                "action": {"type":"string","description":"observe reads the desktop; move moves the pointer without clicking; click activates a target; drag follows path; scroll scrolls at the target; type inserts text; keypress sends keys; wait pauses; window controls windows. Clicking a control may trigger its action, not just focus it.","enum":["observe","move","click","drag","scroll","type","keypress","wait","window"]},
                 "surface_id": {"type":"string"},
-                "frame_id": {"type":"string"},
-                "node_id": {"type":"string"},
+                "frame_id": {"type":"string","description":"Use the frame_id from the latest successful observation for input actions. Do not include it in observe. If expired, observe again; never guess or silently replay an uncertain action."},
+                "node_id": {"type":"string","description":"Target from the latest observation. Match its label to your intent; IDs from earlier layouts are not interchangeable."},
                 "x": {"type":"number"}, "y": {"type":"number"},
                 "button": {"type":"string","enum":["left","right","middle"]},
                 "count": {"type":"integer"},
                 "modifiers": {"type":"array","items":{"type":"string"}},
-                "path": {"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}},
-                "duration_ms": {"type":"integer"},
-                "text": {"type":"string"},
-                "keys": {"type":"array","items":{"type":"string"}},
-                "delta_x": {"type":"integer"}, "delta_y": {"type":"integer"},
+                "path": {"type":"array","description":"Drag points in order, from start to end; at least two points in the observed coordinate space.","items":{"type":"object","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}},
+                "duration_ms": {"type":"integer","description":"Milliseconds for drag or wait. wait permits 1–30000; it does not confirm the page is ready."},
+                "text": {"type":"string","description":"Text to insert at the focused input, or focus node_id first. Does not automatically clear existing text."},
+                "keys": {"type":"array","description":"Key names such as Enter, Tab, PageDown, PageUp, Down or a; no underscores. Put ctrl/cmd/shift in modifiers.","items":{"type":"string"}},
+                "delta_x": {"type":"integer","description":"Horizontal native scroll delta. Windows: positive right, negative left; 120 is one wheel notch, not pixels. macOS uses native pixel deltas."}, "delta_y": {"type":"integer","description":"Vertical native scroll delta. Windows: positive down, negative up; 120 is one wheel notch, not pixels. macOS uses native pixel deltas; signs are platform-specific. Check the resulting view."},
                 "detail": {"type":"string","enum":["auto","low","high","semantic"]},
-                "region": {"type":"object","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
+                "region": {"type":"object","description":"Physical desktop rectangle on Windows (logical points on macOS). On Windows this filters accessibility content as well as cropping the screenshot; context-only ancestors have no actionable target. Truncated trees are partial, not proof content is absent.","additionalProperties":false,"properties":{"x":{"type":"number"},"y":{"type":"number"},"width":{"type":"number"},"height":{"type":"number"}},"required":["x","y","width","height"]},
                 "include_screenshot": {"type":"boolean"},
                 "include_accessibility": {"type":"boolean"},
                 "observe_after": {"type":"string","enum":["never","auto","always"]},
@@ -564,6 +564,39 @@ mod tests {
         xharness_tools::validate_tool_schema(&definition.parameters).unwrap();
     }
 
+    #[test]
+    fn concise_input_descriptions_cover_actions_and_platform_differences() {
+        let definition = definition();
+        let properties = &definition.parameters["properties"];
+        let actions = properties["action"]["description"].as_str().unwrap();
+        for action in properties["action"]["enum"].as_array().unwrap() {
+            assert!(actions.contains(action.as_str().unwrap()));
+        }
+        for field in [
+            "node_id",
+            "path",
+            "duration_ms",
+            "text",
+            "keys",
+            "delta_x",
+            "delta_y",
+        ] {
+            assert!(!properties[field]["description"]
+                .as_str()
+                .unwrap()
+                .is_empty());
+        }
+        assert!(properties["delta_y"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("Windows: positive down, negative up"));
+        assert!(properties["keys"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("no underscores"));
+        xharness_tools::validate_tool_schema(&definition.parameters).unwrap();
+    }
+
     #[tokio::test]
     async fn action_specific_validation_fails_before_driver() {
         let result = execute(r#"{"action":"drag","frame_id":"f","path":[{"x":1,"y":2}]}"#).await;
@@ -580,6 +613,15 @@ mod tests {
         let result = execute(r#"{"action":"observe","detail":"semantic"}"#).await;
         assert!(result.is_ok(), "{:?}", result.failure);
         assert!(result.output.unwrap().content.contains("observe"));
+    }
+
+    #[tokio::test]
+    async fn keypress_accepts_observed_frame_through_tool_registry() {
+        let result = execute(
+            r#"{"action":"keypress","keys":["a"],"modifiers":["ctrl"],"frame_id":"observed"}"#,
+        )
+        .await;
+        assert!(result.is_ok(), "{:?}", result.failure);
     }
 
     #[tokio::test]

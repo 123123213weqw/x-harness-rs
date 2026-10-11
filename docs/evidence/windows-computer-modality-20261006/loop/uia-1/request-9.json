@@ -1,0 +1,6 @@
+{
+  "action": "observe",
+  "include_accessibility": true,
+  "include_screenshot": false,
+  "detail": "semantic"
+}

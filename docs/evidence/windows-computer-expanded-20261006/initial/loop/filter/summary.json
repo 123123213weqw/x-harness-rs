@@ -1,0 +1,359 @@
+{
+  "case": "filter",
+  "mode": "expanded",
+  "label": "filter",
+  "source_sha": "16c5568041b165a8136ac6c6fc09a4e864bde860",
+  "model": "deepseek-flash",
+  "settings": {
+    "thinking": "disabled",
+    "temperature": 0,
+    "observation_policy": "model selected; schema defaults unchanged"
+  },
+  "error": "Turn limit reached, not completion",
+  "calls": [
+    {
+      "id": 0,
+      "action": "observe",
+      "ok": true,
+      "elapsed_ms": 8891,
+      "wall_s": 11.116261499933898
+    },
+    {
+      "id": 1,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4232,
+      "wall_s": 7.493860166054219
+    },
+    {
+      "id": 2,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 9977,
+      "wall_s": 13.674304665997624
+    },
+    {
+      "id": 3,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3580,
+      "wall_s": 6.934912833850831
+    },
+    {
+      "id": 4,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 3746,
+      "wall_s": 6.669131499715149
+    },
+    {
+      "id": 5,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 3807,
+      "wall_s": 6.268703625071794
+    },
+    {
+      "id": 6,
+      "action": "keypress",
+      "ok": true,
+      "elapsed_ms": 3657,
+      "wall_s": 5.435439582914114
+    },
+    {
+      "id": 7,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 9935,
+      "wall_s": 13.50619541713968
+    },
+    {
+      "id": 8,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3427,
+      "wall_s": 5.64694554079324
+    },
+    {
+      "id": 9,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 3818,
+      "wall_s": 6.861478790640831
+    },
+    {
+      "id": 10,
+      "action": "scroll",
+      "ok": true,
+      "elapsed_ms": 3649,
+      "wall_s": 5.515249750111252
+    },
+    {
+      "id": 11,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4233,
+      "wall_s": 6.4258374171331525
+    },
+    {
+      "id": 12,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4264,
+      "wall_s": 17.761055333074182
+    },
+    {
+      "id": 13,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4300,
+      "wall_s": 7.23474545776844
+    },
+    {
+      "id": 14,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3503,
+      "wall_s": 6.523378207813948
+    },
+    {
+      "id": 15,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3922,
+      "wall_s": 6.577737500425428
+    },
+    {
+      "id": 16,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3700,
+      "wall_s": 7.513992291875184
+    },
+    {
+      "id": 17,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3856,
+      "wall_s": 8.33036620914936
+    },
+    {
+      "id": 18,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 4036,
+      "wall_s": 9.803937999997288
+    },
+    {
+      "id": 19,
+      "action": "click",
+      "ok": true,
+      "elapsed_ms": 3159,
+      "wall_s": 6.59707766585052
+    }
+  ],
+  "usage": [
+    {
+      "prompt_tokens": 1086,
+      "completion_tokens": 63,
+      "total_tokens": 1149,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 1086
+    },
+    {
+      "prompt_tokens": 11810,
+      "completion_tokens": 127,
+      "total_tokens": 11937,
+      "prompt_tokens_details": {
+        "cached_tokens": 1024
+      },
+      "prompt_cache_hit_tokens": 1024,
+      "prompt_cache_miss_tokens": 10786
+    },
+    {
+      "prompt_tokens": 30177,
+      "completion_tokens": 128,
+      "total_tokens": 30305,
+      "prompt_tokens_details": {
+        "cached_tokens": 11904
+      },
+      "prompt_cache_hit_tokens": 11904,
+      "prompt_cache_miss_tokens": 18273
+    },
+    {
+      "prompt_tokens": 57762,
+      "completion_tokens": 128,
+      "total_tokens": 57890,
+      "prompt_tokens_details": {
+        "cached_tokens": 30208
+      },
+      "prompt_cache_hit_tokens": 30208,
+      "prompt_cache_miss_tokens": 27554
+    },
+    {
+      "prompt_tokens": 76223,
+      "completion_tokens": 194,
+      "total_tokens": 76417,
+      "prompt_tokens_details": {
+        "cached_tokens": 57856
+      },
+      "prompt_cache_hit_tokens": 57856,
+      "prompt_cache_miss_tokens": 18367
+    },
+    {
+      "prompt_tokens": 94657,
+      "completion_tokens": 173,
+      "total_tokens": 94830,
+      "prompt_tokens_details": {
+        "cached_tokens": 76416
+      },
+      "prompt_cache_hit_tokens": 76416,
+      "prompt_cache_miss_tokens": 18241
+    },
+    {
+      "prompt_tokens": 113070,
+      "completion_tokens": 168,
+      "total_tokens": 113238,
+      "prompt_tokens_details": {
+        "cached_tokens": 94720
+      },
+      "prompt_cache_hit_tokens": 94720,
+      "prompt_cache_miss_tokens": 18350
+    },
+    {
+      "prompt_tokens": 131483,
+      "completion_tokens": 142,
+      "total_tokens": 131625,
+      "prompt_tokens_details": {
+        "cached_tokens": 113152
+      },
+      "prompt_cache_hit_tokens": 113152,
+      "prompt_cache_miss_tokens": 18331
+    },
+    {
+      "prompt_tokens": 156900,
+      "completion_tokens": 112,
+      "total_tokens": 157012,
+      "prompt_tokens_details": {
+        "cached_tokens": 131584
+      },
+      "prompt_cache_hit_tokens": 131584,
+      "prompt_cache_miss_tokens": 25316
+    },
+    {
+      "prompt_tokens": 175344,
+      "completion_tokens": 236,
+      "total_tokens": 175580,
+      "prompt_tokens_details": {
+        "cached_tokens": 156928
+      },
+      "prompt_cache_hit_tokens": 156928,
+      "prompt_cache_miss_tokens": 18416
+    },
+    {
+      "prompt_tokens": 193820,
+      "completion_tokens": 264,
+      "total_tokens": 194084,
+      "prompt_tokens_details": {
+        "cached_tokens": 175488
+      },
+      "prompt_cache_hit_tokens": 175488,
+      "prompt_cache_miss_tokens": 18332
+    },
+    {
+      "prompt_tokens": 212324,
+      "completion_tokens": 229,
+      "total_tokens": 212553,
+      "prompt_tokens_details": {
+        "cached_tokens": 194048
+      },
+      "prompt_cache_hit_tokens": 194048,
+      "prompt_cache_miss_tokens": 18276
+    },
+    {
+      "prompt_tokens": 230793,
+      "completion_tokens": 124,
+      "total_tokens": 230917,
+      "prompt_tokens_details": {
+        "cached_tokens": 212480
+      },
+      "prompt_cache_hit_tokens": 212480,
+      "prompt_cache_miss_tokens": 18313
+    },
+    {
+      "prompt_tokens": 249157,
+      "completion_tokens": 123,
+      "total_tokens": 249280,
+      "prompt_tokens_details": {
+        "cached_tokens": 230912
+      },
+      "prompt_cache_hit_tokens": 230912,
+      "prompt_cache_miss_tokens": 18245
+    },
+    {
+      "prompt_tokens": 267520,
+      "completion_tokens": 137,
+      "total_tokens": 267657,
+      "prompt_tokens_details": {
+        "cached_tokens": 249216
+      },
+      "prompt_cache_hit_tokens": 249216,
+      "prompt_cache_miss_tokens": 18304
+    },
+    {
+      "prompt_tokens": 285897,
+      "completion_tokens": 123,
+      "total_tokens": 286020,
+      "prompt_tokens_details": {
+        "cached_tokens": 267648
+      },
+      "prompt_cache_hit_tokens": 267648,
+      "prompt_cache_miss_tokens": 18249
+    },
+    {
+      "prompt_tokens": 304260,
+      "completion_tokens": 155,
+      "total_tokens": 304415,
+      "prompt_tokens_details": {
+        "cached_tokens": 285952
+      },
+      "prompt_cache_hit_tokens": 285952,
+      "prompt_cache_miss_tokens": 18308
+    },
+    {
+      "prompt_tokens": 322655,
+      "completion_tokens": 162,
+      "total_tokens": 322817,
+      "prompt_tokens_details": {
+        "cached_tokens": 304384
+      },
+      "prompt_cache_hit_tokens": 304384,
+      "prompt_cache_miss_tokens": 18271
+    },
+    {
+      "prompt_tokens": 341057,
+      "completion_tokens": 158,
+      "total_tokens": 341215,
+      "prompt_tokens_details": {
+        "cached_tokens": 322816
+      },
+      "prompt_cache_hit_tokens": 322816,
+      "prompt_cache_miss_tokens": 18241
+    },
+    {
+      "prompt_tokens": 359455,
+      "completion_tokens": 124,
+      "total_tokens": 359579,
+      "prompt_tokens_details": {
+        "cached_tokens": 341120
+      },
+      "prompt_cache_hit_tokens": 341120,
+      "prompt_cache_miss_tokens": 18335
+    }
+  ],
+  "elapsed_s": 474.8815884576179,
+  "actual_cost_not_reported": true
+}
