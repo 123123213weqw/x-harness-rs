@@ -1,0 +1,100 @@
+name: One native build cache benchmark pass
+
+on:
+  workflow_call:
+    inputs:
+      phase:
+        type: string
+        required: true
+      workspace_experiment:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    name: ${{ inputs.phase }} / ${{ matrix.target }} / ${{ matrix.mode }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.workspace_experiment && '[{"runner":"windows-2025","target":"x86_64-pc-windows-msvc","mode":"dependencies"},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","mode":"dependencies"},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","mode":"workspace"}]' || '[{"runner":"windows-2025","target":"x86_64-pc-windows-msvc","mode":"dependencies"},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","mode":"dependencies"}]') }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: '1'
+      XHARNESS_RELEASE_CHANNEL: stable
+      ZSTD_CLEVEL: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked source UI
+        run: |
+          npm ci --prefix ui --ignore-scripts
+          npm run build --prefix ui
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+          targets: ${{ matrix.target }}
+          components: clippy
+      - name: Match production Windows release symbols before cache fingerprinting
+        if: runner.os == 'Windows'
+        run: |
+          echo 'CARGO_PROFILE_RELEASE_DEBUG=2' >> "$GITHUB_ENV"
+          echo 'CARGO_PROFILE_RELEASE_STRIP=none' >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        id: native-cache
+        with:
+          # Separate diagnostic namespace and ref scope; never overwrite production caches.
+          shared-key: benchmark-native-${{ matrix.target }}-${{ matrix.mode }}-${{ github.sha }}
+          cache-workspace-crates: ${{ matrix.mode == 'workspace' }}
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST XHARNESS_ACCOUNT_ORIGIN XHARNESS_INSTALLATION_ENDPOINT XHARNESS_RELEASE_CHANNEL
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+      - name: Restore pinned portable ripgrep cache
+        if: runner.os == 'macOS'
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
+      - name: Install verified native search
+        if: runner.os == 'macOS'
+        run: bash scripts/install-portable-rg.sh
+      - name: Install pinned Windows search
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'ripgrep.zip'
+          Invoke-WebRequest 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5') { throw 'ripgrep hash mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/search"
+          "XHARNESS_RG=$env:RUNNER_TEMP/search/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
+      - name: Measure complete native compilation without bundling or signing
+        run: |
+          python -B scripts/benchmark-desktop-build.py --target '${{ matrix.target }}' --phase '${{ inputs.phase }}' --workspace-cache '${{ matrix.mode }}' --cache-hit '${{ steps.native-cache.outputs.cache-hit }}' --output dist/build-cache/metrics.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: build-cache-${{ inputs.phase }}-${{ matrix.target }}-${{ matrix.mode }}
+          path: dist/build-cache/metrics.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save verified portable ripgrep for the fresh-runner warm pass
+        if: success() && runner.os == 'macOS' && steps.portable-rg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
