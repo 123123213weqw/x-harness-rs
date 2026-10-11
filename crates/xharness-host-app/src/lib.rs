@@ -5,6 +5,7 @@
 //! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
+pub mod channel_accounts;
 #[cfg(target_os = "macos")]
 mod computer_media;
 mod github_http;
@@ -17,6 +18,8 @@ pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
 mod read_media;
+pub mod remote_admin;
+pub mod remote_control;
 pub mod tool_allowlist;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_discovery;

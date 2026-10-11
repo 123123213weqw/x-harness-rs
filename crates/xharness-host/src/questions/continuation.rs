@@ -163,6 +163,7 @@ impl DurableQuestionHub {
                 .entry(q.invocation.interaction_id.clone())
                 .or_insert_with(|| {
                     Arc::new(PendingQuestion {
+                        scoped_nonce: std::sync::OnceLock::new(),
                         session_id: header.id.clone(),
                         workspace: header.cwd.clone().unwrap_or_default(),
                         invocation: q.invocation,

@@ -353,6 +353,48 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native channel account lifecycle and separate credential namespace fixtures
+        run: |
+          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
+          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
+      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
+        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
+      - name: Remote control genuine Host scoped stream contract
+        run: cargo test --locked -p xharness-host scoped_stream_tests
+      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test tickets
+          cargo test --locked -p xharness-host scoped_interaction
+          cargo test --locked -p xharness-host scoped_question
+          cargo test --locked -p xharness-host scoped_catalogue
+          cargo test --locked -p xharness-remote --test catalogue
+          cargo test --locked -p xharness-remote --test catalogue_commands
+          cargo test --locked -p xharness-remote --test selection_commands
+          cargo test --locked -p xharness-remote --test creation_commands
+          cargo test --locked -p xharness-host scoped_durable_events
+          cargo test --locked -p xharness-remote --test projection
+          cargo test --locked -p xharness-remote --test command_replies
+          cargo test --locked -p xharness-remote --test media
+          cargo test --locked -p xharness-channel-telegram --test media
+          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
+          cargo test --locked -p xharness-remote --test creation
+          cargo test --locked -p xharness-host-app --test remote_creation
+          cargo test --locked -p xharness-host-app --test remote_output
+      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test inbox_recovery
+          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
+      - name: Scoped native automation original receipts and owned drain fixtures
+        run: |
+          cargo test --locked -p xharness-api --test contract saved_automation
+          cargo test --locked -p xharness-schedule
+          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
+          cargo test --locked -p xharness-remote --test automation_commands
+          cargo test --locked -p xharness-host-app --test remote_creation native_automation
+      - name: Remote control desktop auth, same-origin and private setup fixtures
+        run: cargo test --locked -p xharness-host-app --test remote_admin
+      - name: Remote control disposable executable lifecycle
+        run: cargo test --locked -p xharness-host-app --test remote_control
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
           XHARNESS_SESSION_TERMINAL_EXPORT: ${{ runner.temp }}/session-terminal-contract
@@ -438,6 +480,48 @@ jobs:
       - run: cargo fmt --check --all
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native channel account lifecycle and separate credential namespace fixtures
+        run: |
+          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
+          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
+      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
+        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
+      - name: Remote control genuine Host scoped stream contract
+        run: cargo test --locked -p xharness-host scoped_stream_tests
+      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test tickets
+          cargo test --locked -p xharness-host scoped_interaction
+          cargo test --locked -p xharness-host scoped_question
+          cargo test --locked -p xharness-host scoped_catalogue
+          cargo test --locked -p xharness-remote --test catalogue
+          cargo test --locked -p xharness-remote --test catalogue_commands
+          cargo test --locked -p xharness-remote --test selection_commands
+          cargo test --locked -p xharness-remote --test creation_commands
+          cargo test --locked -p xharness-host scoped_durable_events
+          cargo test --locked -p xharness-remote --test projection
+          cargo test --locked -p xharness-remote --test command_replies
+          cargo test --locked -p xharness-remote --test media
+          cargo test --locked -p xharness-channel-telegram --test media
+          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
+          cargo test --locked -p xharness-remote --test creation
+          cargo test --locked -p xharness-host-app --test remote_creation
+          cargo test --locked -p xharness-host-app --test remote_output
+      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test inbox_recovery
+          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
+      - name: Scoped native automation original receipts and owned drain fixtures
+        run: |
+          cargo test --locked -p xharness-api --test contract saved_automation
+          cargo test --locked -p xharness-schedule
+          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
+          cargo test --locked -p xharness-remote --test automation_commands
+          cargo test --locked -p xharness-host-app --test remote_creation native_automation
+      - name: Remote control desktop auth, same-origin and private setup fixtures
+        run: cargo test --locked -p xharness-host-app --test remote_admin
+      - name: Remote control disposable executable lifecycle
+        run: cargo test --locked -p xharness-host-app --test remote_control
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
@@ -634,6 +718,48 @@ jobs:
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
       - run: cargo test --workspace --all-targets
+      - name: Native channel account lifecycle and separate credential namespace fixtures
+        run: |
+          cargo test --locked -p xharness-host-app --lib channel_accounts::tests
+          cargo test --locked -p xharness-host-app --lib channel_namespace_tests
+      - name: Remote control durable intake and Telegram protocol fixtures (no real account or model)
+        run: cargo test --locked -p xharness-remote -p xharness-channel-telegram
+      - name: Remote control genuine Host scoped stream contract
+        run: cargo test --locked -p xharness-host scoped_stream_tests
+      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test tickets
+          cargo test --locked -p xharness-host scoped_interaction
+          cargo test --locked -p xharness-host scoped_question
+          cargo test --locked -p xharness-host scoped_catalogue
+          cargo test --locked -p xharness-remote --test catalogue
+          cargo test --locked -p xharness-remote --test catalogue_commands
+          cargo test --locked -p xharness-remote --test selection_commands
+          cargo test --locked -p xharness-remote --test creation_commands
+          cargo test --locked -p xharness-host scoped_durable_events
+          cargo test --locked -p xharness-remote --test projection
+          cargo test --locked -p xharness-remote --test command_replies
+          cargo test --locked -p xharness-remote --test media
+          cargo test --locked -p xharness-channel-telegram --test media
+          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages
+          cargo test --locked -p xharness-remote --test creation
+          cargo test --locked -p xharness-host-app --test remote_creation
+          cargo test --locked -p xharness-host-app --test remote_output
+      - name: Desktop inbox recovery identity audit and sealed interaction fixtures
+        run: |
+          cargo test --locked -p xharness-remote --test inbox_recovery
+          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin
+      - name: Scoped native automation original receipts and owned drain fixtures
+        run: |
+          cargo test --locked -p xharness-api --test contract saved_automation
+          cargo test --locked -p xharness-schedule
+          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests
+          cargo test --locked -p xharness-remote --test automation_commands
+          cargo test --locked -p xharness-host-app --test remote_creation native_automation
+      - name: Remote control desktop auth, same-origin and private setup fixtures
+        run: cargo test --locked -p xharness-host-app --test remote_admin
+      - name: Remote control disposable executable lifecycle
+        run: cargo test --locked -p xharness-host-app --test remote_control
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json

@@ -24,13 +24,20 @@ pub struct NativeCredentialStore {
 
 impl NativeCredentialStore {
     pub fn new(state_dir: &Path) -> Result<Self, String> {
+        Self::namespace(state_dir, "models")
+    }
+    /// Separate namespace: model credential RPCs cannot read/write bot secrets.
+    pub fn for_channels(state_dir: &Path) -> Result<Self, String> {
+        Self::namespace(state_dir, "channels")
+    }
+    fn namespace(state_dir: &Path, namespace: &'static str) -> Result<Self, String> {
         std::fs::create_dir_all(state_dir)
             .map_err(|_| "Cannot create model state directory".to_owned())?;
         let path = std::fs::canonicalize(state_dir)
             .map_err(|_| "Cannot resolve model state directory".to_owned())?;
         let digest = Sha256::digest(path.to_string_lossy().as_bytes());
         Ok(Self {
-            service: format!("com.xlang.xharness.models.{digest:x}"),
+            service: format!("com.xlang.xharness.{namespace}.{digest:x}"),
             gate: Arc::new(std::sync::Mutex::new(())),
         })
     }
@@ -404,5 +411,24 @@ impl ModelSettingsBackend for NativeModelSettings {
             .take(512)
             .collect::<Vec<_>>();
         Ok(json!({"models":models}))
+    }
+}
+
+#[cfg(test)]
+mod channel_namespace_tests {
+    use super::*;
+    #[test]
+    fn channel_credentials_are_not_in_the_model_rpc_namespace() {
+        let path = std::env::temp_dir().join(format!("xh-key-namespace-{}", std::process::id()));
+        std::fs::create_dir(&path).unwrap();
+        let models = NativeCredentialStore::new(&path).unwrap();
+        let channels = NativeCredentialStore::for_channels(&path).unwrap();
+        assert_ne!(models.service, channels.service);
+        assert!(channels.service.starts_with("com.xlang.xharness.channels."));
+        assert_eq!(
+            channels.service,
+            NativeCredentialStore::for_channels(&path).unwrap().service
+        );
+        std::fs::remove_dir_all(path).unwrap();
     }
 }

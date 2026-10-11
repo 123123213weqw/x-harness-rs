@@ -560,6 +560,7 @@ pub(crate) enum PendingResponse {
         control: mpsc::Sender<DriverCommand>,
         reviewing: bool,
         reason: String,
+        scoped_nonce: std::sync::Arc<std::sync::OnceLock<String>>,
         deciding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     },
 }

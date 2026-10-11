@@ -172,6 +172,17 @@
       ]
     },
     {
+      "id": "@xharness/dsh-client-ui-settings-remote-control",
+      "kind": "source-module",
+      "source": "src/modules/settings-remote-control/index.ts",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-settings-plugin-inventory",
       "kind": "source-module",
       "source": "src/modules/settings-plugin-inventory/index.ts",

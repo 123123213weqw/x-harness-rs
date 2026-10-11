@@ -1,5 +1,5 @@
 {
-  "rev": "2e1caef88754aedf",
+  "rev": "d3357af8ff8b1098",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -233,6 +233,21 @@
       "external": [
         "@xharness/dsh-client-runtime/client",
         "@xharness/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-remote-control",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-remote-control/client.js?rev=5ef0745115d9bae4",
+      "rev": "5ef0745115d9bae4",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ],
+      "external": [
         "react",
         "react/jsx-runtime"
       ]

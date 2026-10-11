@@ -54,6 +54,70 @@ class CiTieringContract(unittest.TestCase):
                 for call in script_calls:
                     self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
 
+    def test_remote_control_gates_run_on_every_native_pull_request_runner(self) -> None:
+        source = workflow_source()
+        commands = (
+            "cargo test --locked -p xharness-remote -p xharness-channel-telegram",
+            "cargo test --locked -p xharness-host scoped_stream_tests",
+            "cargo test --locked -p xharness-host-app --test remote_control",
+            "cargo test --locked -p xharness-host-app --test remote_admin",
+        )
+        for name in ("rust-linux", "rust-windows", "rust-macos-arm64"):
+            with self.subTest(job=name):
+                body = job(source, name)
+                for command in commands:
+                    self.assertEqual(body.count("        run: " + command + "\n"), 1)
+                native_account_block = (
+                    "      - name: Native channel account lifecycle and separate credential namespace fixtures\n"
+                    "        run: |\n"
+                    "          cargo test --locked -p xharness-host-app --lib channel_accounts::tests\n"
+                    "          cargo test --locked -p xharness-host-app --lib channel_namespace_tests\n"
+                )
+                self.assertEqual(body.count(native_account_block), 1)
+                inbox_recovery_block = (
+                    "      - name: Desktop inbox recovery identity audit and sealed interaction fixtures\n"
+                    "        run: |\n"
+                    "          cargo test --locked -p xharness-remote --test inbox_recovery\n"
+                    "          cargo test --locked -p xharness-host-app --test remote_admin inbox_admin\n"
+                )
+                self.assertEqual(body.count(inbox_recovery_block), 1)
+                native_automation_block = (
+                    "      - name: Scoped native automation original receipts and owned drain fixtures\n"
+                    "        run: |\n"
+                    "          cargo test --locked -p xharness-api --test contract saved_automation\n"
+                    "          cargo test --locked -p xharness-schedule\n"
+                    "          cargo test --locked -p xharness-host --lib rpc::scoped_automation::tests\n"
+                    "          cargo test --locked -p xharness-remote --test automation_commands\n"
+                    "          cargo test --locked -p xharness-host-app --test remote_creation native_automation\n"
+                )
+                self.assertEqual(body.count(native_automation_block), 1)
+                native_ticket_block = (
+                    "      - name: Scoped native interaction, catalogue, durable output and crash-safe once-only ticket fixtures\n"
+                    "        run: |\n"
+                    "          cargo test --locked -p xharness-remote --test tickets\n"
+                    "          cargo test --locked -p xharness-host scoped_interaction\n"
+                    "          cargo test --locked -p xharness-host scoped_question\n"
+                    "          cargo test --locked -p xharness-host scoped_catalogue\n"
+                    "          cargo test --locked -p xharness-remote --test catalogue\n"
+                    "          cargo test --locked -p xharness-remote --test catalogue_commands\n"
+                    "          cargo test --locked -p xharness-remote --test selection_commands\n"
+                    "          cargo test --locked -p xharness-remote --test creation_commands\n"
+                    "          cargo test --locked -p xharness-host scoped_durable_events\n"
+                    "          cargo test --locked -p xharness-remote --test projection\n"
+                    "          cargo test --locked -p xharness-remote --test command_replies\n"
+                    "          cargo test --locked -p xharness-remote --test media\n"
+                    "          cargo test --locked -p xharness-channel-telegram --test media\n"
+                    "          cargo test --locked -p xharness-projection media_projection_preserves_files_and_messages\n"
+                    "          cargo test --locked -p xharness-remote --test creation\n"
+                    "          cargo test --locked -p xharness-host-app --test remote_creation\n"
+                    "          cargo test --locked -p xharness-host-app --test remote_output\n"
+                )
+                self.assertEqual(body.count(native_ticket_block), 1)
+                # These must not acquire the release-only guard or suppress errors.
+                for step in re.findall(r"(?m)^      - name: (Remote control .*)$", body):
+                    self.assertIn("      - name: " + step + "\n        run: cargo test --locked", body)
+                self.assertNotIn("continue-on-error:", body)
+
     def test_ui_required_check_aggregates_all_shards_fail_closed(self) -> None:
         source = workflow_source()
         body = job(source, "context-layout")

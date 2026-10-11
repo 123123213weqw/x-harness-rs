@@ -1322,21 +1322,47 @@ fn web_message(
     json!({
         "id": id,
         "role": message.role.as_str(),
-        "content": if message.role == MessageRole::Assistant {
-            assistant_content(&message.content, &message.reasoning)
-        } else {
-            vec![json!({"type":"text", "text":message.content})]
-        },
+        "content": web_message_content(message),
         "source": source,
     })
+}
+
+fn web_attachment_block(block: &xharness_session::ContentBlock) -> Option<Value> {
+    use xharness_session::ContentBlock;
+    match block {
+        ContentBlock::Image { attachment: r } => Some(
+            json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}),
+        ),
+        ContentBlock::File {
+            attachment: r,
+            name,
+        } => Some(
+            json!({"type":"file","name":name,"attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"reference":r}}),
+        ),
+        ContentBlock::Text { .. } => None,
+    }
+}
+fn web_message_content(message: &Message) -> Vec<Value> {
+    let mut parts = if message.role == MessageRole::Assistant {
+        assistant_content(&message.content, &message.reasoning)
+    } else {
+        vec![json!({"type":"text","text":message.content})]
+    };
+    parts.extend(
+        message
+            .content_blocks
+            .iter()
+            .filter_map(web_attachment_block),
+    );
+    parts
 }
 
 /// Shared durable/live attachment projection; binary payloads stay out of events.
 pub fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
     let mut parts = vec![json!({"type":"text","text":text})];
     for b in xharness_session::ContentBlock::from_tool_metadata(metadata) {
-        if let xharness_session::ContentBlock::Image { attachment: r } = b {
-            parts.push(json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}));
+        if let Some(block) = web_attachment_block(&b) {
+            parts.push(block);
         }
     }
     parts
@@ -1637,5 +1663,38 @@ mod projection_encoding_tests {
             project_history_window_view(&window, &window.events[0]),
             project_session_event_view(&session, &session.events()[3])
         );
+    }
+}
+
+#[cfg(test)]
+mod media_projection_tests {
+    use super::*;
+    #[test]
+    fn media_projection_preserves_files_and_messages() {
+        use xharness_session::{AttachmentRef, ContentBlock};
+        let reference = AttachmentRef {
+            id: "a".repeat(64),
+            session_id: "ancestor".into(),
+            media_type: "text/plain".into(),
+            bytes: 8,
+            width: 0,
+            height: 0,
+        };
+        let block = ContentBlock::File {
+            attachment: reference.clone(),
+            name: Some("note.txt".into()),
+        };
+        let result = web_tool_content(
+            "text",
+            Some(&json!({"xharnessContentBlocks":[block.clone()]})),
+        );
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[1]["type"], "file");
+        assert_eq!(result[1]["attachment"]["attachmentId"], reference.id);
+        let mut message = Message::new(MessageRole::Assistant, "assistant");
+        message.content_blocks.push(block);
+        let parts = web_message_content(&message);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[1]["type"], "file");
     }
 }
