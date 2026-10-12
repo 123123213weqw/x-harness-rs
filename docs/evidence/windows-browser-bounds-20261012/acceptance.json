@@ -1,0 +1,243 @@
+{
+  "date": "2026-10-12",
+  "passed": true,
+  "tested_code_commit": "5d7b4408786183eb97a46837a4a9fa26f143e400",
+  "windows_ci_run": 38203477830,
+  "vm": "xharness-install-lab-20261005",
+  "uuid": "66B64058-BDCC-43E9-85EE-55A79FE2E875",
+  "windows_version": "10.0.26300",
+  "actual_scale_factors": [
+    1.0
+  ],
+  "baseline": {
+    "reproduced": true,
+    "case": {
+      "case": "reselect-hidden-a",
+      "expected_logical": [
+        210.0,
+        72.0,
+        540.0,
+        410.0
+      ],
+      "native_physical": [
+        280,
+        84,
+        400,
+        320
+      ],
+      "passed": false,
+      "position_asserted": true,
+      "scale_factor": 1.0,
+      "tab": "bounds-a",
+      "viewport": {
+        "height": 320,
+        "ratio": 1,
+        "width": 400
+      }
+    },
+    "native_exit_code": 0,
+    "exit_code_is_not_the_oracle": true
+  },
+  "candidate": {
+    "passed": true,
+    "cases": [
+      {
+        "case": "initial-a",
+        "expected_logical": [
+          16.0,
+          24.0,
+          320.0,
+          240.0
+        ],
+        "native_physical": [
+          16,
+          24,
+          320,
+          240
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-a",
+        "viewport": {
+          "height": 240,
+          "ratio": 1,
+          "width": 320
+        }
+      },
+      {
+        "case": "initial-b",
+        "expected_logical": [
+          280.0,
+          84.0,
+          400.0,
+          320.0
+        ],
+        "native_physical": [
+          280,
+          84,
+          400,
+          320
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-b",
+        "viewport": {
+          "height": 320,
+          "ratio": 1,
+          "width": 400
+        }
+      },
+      {
+        "case": "resize-active-b",
+        "expected_logical": [
+          210.0,
+          72.0,
+          540.0,
+          410.0
+        ],
+        "native_physical": [
+          210,
+          72,
+          540,
+          410
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-b",
+        "viewport": {
+          "height": 410,
+          "ratio": 1,
+          "width": 540
+        }
+      },
+      {
+        "case": "reselect-hidden-a",
+        "expected_logical": [
+          210.0,
+          72.0,
+          540.0,
+          410.0
+        ],
+        "native_physical": [
+          210,
+          72,
+          540,
+          410
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-a",
+        "viewport": {
+          "height": 410,
+          "ratio": 1,
+          "width": 540
+        }
+      },
+      {
+        "case": "reopen-after-hidden-layout",
+        "expected_logical": [
+          360.0,
+          60.0,
+          380.0,
+          350.0
+        ],
+        "native_physical": [
+          360,
+          60,
+          380,
+          350
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-a",
+        "viewport": {
+          "height": 350,
+          "ratio": 1,
+          "width": 380
+        }
+      },
+      {
+        "case": "reselect-hidden-b",
+        "expected_logical": [
+          360.0,
+          60.0,
+          380.0,
+          350.0
+        ],
+        "native_physical": [
+          360,
+          60,
+          380,
+          350
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-b",
+        "viewport": {
+          "height": 350,
+          "ratio": 1,
+          "width": 380
+        }
+      },
+      {
+        "case": "position-only-sidebar-shift",
+        "expected_logical": [
+          220.0,
+          60.0,
+          380.0,
+          350.0
+        ],
+        "native_physical": [
+          220,
+          60,
+          380,
+          350
+        ],
+        "passed": true,
+        "position_asserted": true,
+        "scale_factor": 1.0,
+        "tab": "bounds-a",
+        "viewport": {
+          "height": 350,
+          "ratio": 1,
+          "width": 380
+        }
+      }
+    ],
+    "sha256": "d189d9bf87f5b3ab85d5abae134395127243f75af5c9bf8beb7d087fe66eb086"
+  },
+  "frontend": {
+    "position_only_before": "failed: no bounds refresh after ancestor translation",
+    "position_only_after": [
+      "Chromium/source",
+      "WebKit/source",
+      "Chromium/committed artifact",
+      "WebKit/committed artifact"
+    ],
+    "existing_visibility_race_and_model_control": "passed"
+  },
+  "linux_rust": {
+    "library_tests_passed": 64,
+    "clippy": "lib + example passed, -D warnings"
+  },
+  "limits": [
+    "Actual native production commands plus document/native geometry oracle in Windows VM; not the installed production React/Host application or a final installer acceptance",
+    "100% single-display only: mixed DPI, per-monitor transition and maximized-window matrix not accepted",
+    "No real LLM requests",
+    "Separate Linux GTK/Xvfb geometry probe did not pass its initial rectangle; preserved as unaccepted, not evidence for the Windows fix",
+    "Earlier artifact digest rejection and GUI-exit-code-only gate failure retained; precise negative/positive geometry evidence is authoritative, not rc=0",
+    "No PR, merge, release, original VM change or installed software replacement"
+  ],
+  "source_sha256": {
+    "apps/desktop/src-tauri/src/browser.rs": "2979c7846198eccb318429553145310e68cf5ad76a9caa34ae2d3a2899096fd7",
+    "apps/desktop/src-tauri/examples/browser-inspect-probe.rs": "499f6cf3edd7f3dbec827e4313d3cd765df91f019dcb2a9b2fd4a21e78211014",
+    "ui/src/modules/browser/index.tsx": "bda92020d4ca22dc7fe769e1e0feb1f35c946a7b7bfcb35b12838c522aa102fc",
+    "scripts/test-browser-native-bridge.mjs": "0b4ca697448747acfdc0abe324613b5af04106b89883ee99d4accf4004ae5833"
+  }
+}
