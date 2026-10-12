@@ -313,6 +313,8 @@
     {"id":"contract-094","suite":"contract","argv":["node","--test","scripts/test-model-capability-refresh.mjs"],"env":{},"weight":6},
     {"id":"contract-095","suite":"contract","argv":["node","--test","scripts/test-runtime-environment-source.mjs"],"env":{},"weight":60},
     {"id":"browser-206","suite":"browser","argv":["node","scripts/test-runtime-environment-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
-    {"id":"browser-207","suite":"browser","argv":["node","scripts/test-runtime-environment-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
+    {"id":"browser-207","suite":"browser","argv":["node","scripts/test-runtime-environment-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120},
+    {"id":"browser-210","suite":"browser","argv":["node","scripts/test-performance-browser.mjs","--reception"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":120},
+    {"id":"browser-211","suite":"browser","argv":["node","scripts/test-performance-browser.mjs","--reception"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":120}
   ]
 }

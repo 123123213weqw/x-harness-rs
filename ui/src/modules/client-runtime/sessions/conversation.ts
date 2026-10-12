@@ -104,6 +104,8 @@ export interface AssistantTiming {
   firstTokenTime: number | null
   /** Final assistant/message timestamp. */
   completedTime: number
+  /** Transport observation, independent of journal submission. */
+  receptionMs?: number | undefined
 }
 
 /** A finalized assistant message or an interruption-frozen streaming prefix. */

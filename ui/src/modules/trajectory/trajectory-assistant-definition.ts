@@ -1,3 +1,4 @@
+import { receptionReading, type ReceptionReading } from '../shared/reception-metrics'
 import {MessageId} from '../client-connection/contracts/llm/llm/brand'
 import {isTrajectoryEvent} from './wire-event-codec'
 import type { Context } from './contracts'
@@ -30,6 +31,7 @@ interface RetryValue {
 }
 
 interface AssistantState {
+  readonly reception?: ReceptionReading | undefined
   readonly turn: number
   readonly step: number
   readonly startSeq: number
@@ -182,6 +184,12 @@ function closedBoundary(
 function fallbackState(context: ConversationNodeContext<AssistantState>): AssistantState | undefined {
   let state: AssistantState | undefined
   for (const match of context.matches) {
+    const r = receptionReading(match.event)
+    if (r !== null) {
+      state ??= initialState(r.turn,r.step,match.event.seq,r.startMs,false)
+      state = { ...state, reception:r }
+      continue
+    }
     const event = match.event
     if (isTrajectoryEvent(event, 'assistant/chunk')) {
       state ??= initialState(event.data.turn, event.data.step, event.seq, event.time, false)
@@ -222,9 +230,10 @@ function finalNode(
         model: event.data.message.source.model,
       },
       timing: {
-        stepStartTime: state.started ? state.startTime : null,
-        firstTokenTime: state.firstTokenTime ?? null,
-        completedTime: event.time,
+        stepStartTime: state.reception?.startMs ?? (state.started ? state.startTime : null),
+        firstTokenTime: state.reception?.firstDeltaMs ?? state.firstTokenTime ?? null,
+        completedTime: state.reception?.finished ? state.reception.startMs + state.reception.elapsedMs : event.time,
+        ...(state.reception === undefined ? {} : { receptionMs:state.reception.receptionMs }),
       },
       ...(event.data.interrupted === true ? { interrupted: true } : {}),
     }
@@ -283,6 +292,8 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
   kind: 'trajectory-assistant-step',
   target: 'trajectory',
   match: (event) => {
+    const r = receptionReading(event)
+    if (r !== null) return { id:`${r.turn}:${r.step}`,role:'update' }
     if (isTrajectoryEvent(event, 'step/start')) {
       return { id: `${event.data.turn}:${event.data.step}`, role: 'start' }
     }
@@ -307,6 +318,8 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
     )
   },
   update: (context, match) => {
+    const r = receptionReading(match.event)
+    if (r !== null) return { ...context.state, reception:r }
     if (isTrajectoryEvent(match.event, 'assistant/chunk')) return updateChunk(context.state, match)
     if (isTrajectoryEvent(match.event, 'assistant/message')) {
       return {

@@ -43,3 +43,58 @@ test('production manifest uses owned TS and excludes private test exports',()=>{
  assert.ok(!manifest.modules.some(m=>m.source?.includes('performance/test-exports')))
  assert.deepEqual(plain(plugin.inject),['slots','locale'])
 })
+
+test('transport timing and provider usage calibrate curves without changing smoothing averages',()=>{
+ const turn=structuredClone(fixture.turns[0]);const r=turn.requests[0];r.receptionMs=3000;r.estimatedUnits=8;r.estimatedReasoningUnits=0;r.reportedOutputTokens=288;r.reportedReasoningTokens=12
+ assert.equal(api.reportedTps(turn),100)
+ const sample={timeMs:2000,step:1,attempt:0,textUnits:4,reasoningUnits:0,argumentUnits:0}
+ assert.equal(api.sampleTps(sample,undefined,r),144)
+ api.series(turn,'textUnits',true);assert.equal(api.reportedTps(turn),100)
+ r.firstDeltaMs=r.endMs;r.receptionMs=3000;assert.equal(api.reportedTps(turn),100)
+ turn.requests.push({...r,model:'beta',receptionMs:1000,reportedOutputTokens:20,reportedReasoningTokens:0})
+ assert.equal(api.reportedTps(turn),20)
+})
+
+test('Chat and Performance share total-output and time-weighted throughput arithmetic',()=>{
+ const id='@xlang/reception-metrics-test'
+ const built=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/conversation/chat/reception-test-exports.ts'},{id:'@xlang/conversation-owner-test',source:'src/modules/conversation/index.ts'}])
+ const chat=load(built.get(id).bytes.toString())
+ const node={kind:'assistant',seq:1,time:6112,turn:0,step:1,blocks:[],usage:{outputTokens:288,reasoningTokens:12},timing:{stepStartTime:1100,firstTokenTime:3100,completedTime:6100,receptionMs:3000}}
+ assert.equal(chat.assistantStepReading(node).outputTokens,300)
+ assert.equal(chat.deriveTurnMetrics([node]).get(0).tokensPerSecond,100)
+ const switched=[{...node,provenance:{provider:'p',model:'alpha'}},{...node,step:2,provenance:{provider:'p',model:'beta'},usage:{outputTokens:20},timing:{...node.timing,receptionMs:1000}}]
+ assert.equal(chat.deriveTurnMetrics(switched).get(0).tokensPerSecond,20)
+ assert.equal(chat.totalOutputTokens({outputTokens:288,reasoningTokens:12}),300)
+ assert.equal(chat.throughput(0,3000),0);assert.equal(chat.throughput(288,0),null)
+ const reading={type:'model/reception',data:{turn:0,step:1,reception:{attempt:0,startMs:1100,firstDeltaMs:3100,elapsedMs:5000,receptionMs:3000,finished:true}}}
+ assert.equal(chat.receptionReading(reading).receptionMs,3000)
+ assert.equal(chat.receptionReading({...reading,data:{...reading.data,reception:{...reading.data.reception,receptionMs:-1}}}),null)
+})
+
+
+test('the measured Rust wire fixture carries original transport seconds into the UI',()=>{
+ const value=JSON.parse(readFileSync('protocol/fixtures/performance-reception-v1.json','utf8'))
+ assert.equal(api.readTimeline(value),value)
+ assert.equal(value.source,'provider_reception_estimate')
+ assert.deepEqual(value.turns[0].samples.map(s=>s.timeMs),[3000,5000])
+ assert.equal(api.reportedTps(value.turns[0]),100)
+ assert.equal(api.sampleTps(value.turns[0].samples[0],undefined,value.turns[0].requests[0]),144)
+})
+
+test('Chat consumes transport metadata identically live and in cold history',async()=>{
+ const { exposeConversation }=await import('./conversation-artifact-test.mjs')
+ const { harness }=await import('./conversation-test-harness.mjs')
+ const source=readFileSync('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js','utf8')
+ const def=harness(exposeConversation(source,['assistantDefinition']),{runtime:{isAppendSurfaceEvent:e=>!e.surfaceOp}}).plugin.assistantDefinition
+ const reception={attempt:0,startMs:1100,firstDeltaMs:3100,elapsedMs:5000,receptionMs:3000,finished:true}
+ const events=[{type:'step/start',seq:1,time:1100,data:{turn:0,step:1}},
+  {type:'model/reception',seq:2,time:6112,data:{turn:0,step:1,reception}},
+  {type:'assistant/chunk',seq:3,time:6112,data:{turn:0,step:1,chunk:{type:'text-delta',index:0,text:'done'}}},
+  {type:'assistant/message',seq:4,time:6120,data:{turn:0,step:1,message:{id:'a',source:{provider:'p',model:'m'},content:[{type:'text',text:'done'}]},usage:{outputTokens:288,reasoningTokens:12}}}]
+ const context={state:undefined,start:undefined,matches:[],key:'assistant-step:0:1',id:'0:1',target:'chat'}
+ for(const event of events){const role=def.match(event);assert.ok(role);const match={event,role:role.role,location:{kind:'step',turn:{turn:0,status:'open'},step:{step:1,status:'open'}}};context.matches.push(match);if(role.role==='start'){context.start=match;context.state=def.start(context,match)}else context.state=def.update(context,match)}
+ const live=def.buildViewNode(context).data.finalNode
+ const cold=def.buildViewNode({...context,state:undefined}).data.finalNode
+ assert.deepEqual(plain(live),plain(cold));assert.equal(live.timing.receptionMs,3000);assert.equal(live.timing.firstTokenTime,3100);assert.equal(live.timing.completedTime,6100)
+ assert.deepEqual(plain(live.provenance),{provider:'p',model:'m'})
+})

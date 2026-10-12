@@ -1,0 +1,79 @@
+{
+  "bucketMs": 1000,
+  "maxSamples": 600,
+  "schemaVersion": 1,
+  "source": "provider_reception_estimate",
+  "turns": [
+    {
+      "endMs": null,
+      "lastMs": 6112,
+      "phases": [
+        {
+          "attempt": 0,
+          "endMs": 1100,
+          "kind": "preparing",
+          "startMs": 1000,
+          "step": null
+        },
+        {
+          "attempt": 0,
+          "endMs": 6112,
+          "kind": "waiting_first_token",
+          "startMs": 1100,
+          "step": 1
+        },
+        {
+          "attempt": 0,
+          "endMs": 6112,
+          "kind": "output",
+          "startMs": 6112,
+          "step": 1
+        },
+        {
+          "attempt": 0,
+          "endMs": null,
+          "kind": "between_steps",
+          "startMs": 6112,
+          "step": 1
+        }
+      ],
+      "requests": [
+        {
+          "attempt": 0,
+          "endMs": 6100,
+          "estimatedReasoningUnits": 0,
+          "estimatedUnits": 8,
+          "firstDeltaMs": 3100,
+          "model": "test-model",
+          "provider": "test-provider",
+          "receptionMs": 3000,
+          "reportedOutputTokens": 288,
+          "reportedReasoningTokens": 12,
+          "startMs": 1100,
+          "step": 1
+        }
+      ],
+      "samples": [
+        {
+          "argumentUnits": 4,
+          "attempt": 0,
+          "reasoningUnits": 0,
+          "step": 1,
+          "textUnits": 0,
+          "timeMs": 3000
+        },
+        {
+          "argumentUnits": 4,
+          "attempt": 0,
+          "reasoningUnits": 0,
+          "step": 1,
+          "textUnits": 0,
+          "timeMs": 5000
+        }
+      ],
+      "startMs": 1000,
+      "truncated": false,
+      "turn": 0
+    }
+  ]
+}

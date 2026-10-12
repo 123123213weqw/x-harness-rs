@@ -1011,6 +1011,15 @@ pub fn restored_web_event(
         return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"execution-checkpoint-state"}, "hidden":true});
     }
     let (event_type, data, surface_op) = match event.data() {
+        EventData::ModelReception {
+            turn,
+            step,
+            reception,
+        } => (
+            "model/reception".into(),
+            json!({"turn":web_turn(*turn), "step":step, "reception":reception}),
+            None,
+        ),
         EventData::ExecutionCheckpoint { turn, notice, .. } => (
             "run/checkpoint".into(),
             web_execution_notice(web_turn(*turn), notice.as_ref()),

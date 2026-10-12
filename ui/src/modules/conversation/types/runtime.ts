@@ -54,7 +54,7 @@ export interface ProjectionMap {
  tokenUsage: TokenUsageProjection
  contextPressure: ContextPressureProjection
  contextBreakdown: { systemTokens: number; toolsTokens: number; messageTokens: number }
- sessionStats: { turns: number; steps: number; llmMs: number; toolMs: number; ttftMs: number; ttftSteps: number; decodeMs: number; decodeTokens: number }
+ sessionStats: { turns: number; steps: number; llmMs: number; toolMs: number; ttftMs: number; ttftSteps: number; decodeMs: number; decodeTokens: number; activeThroughput?: {provider:string; model:string; decodeTokens:number; decodeMs:number} }
  imageLimits: import('./wire').ImageAttachmentLimits
  attachmentLimits: { images: { maxCount: number; maxBytes: number } }
 }
