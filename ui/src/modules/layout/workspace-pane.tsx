@@ -1,10 +1,14 @@
 import * as React from 'react'
 import type {BrowserItem,BrowserPatch} from '../browser/index'
+import {GIT_DIFF_SCOPES} from '../shared/generated/file-display-options'
+import type {GitDiffScope} from '../shared/generated/file-display'
 import {objectValue} from '../shared/runtime-types'
 
 export interface WorkspaceItem extends BrowserItem {
   kind:'browser'|'tool'|'file'
   source:string
+  gitDiff?:GitDiffScope|undefined
+  relativeTo?:string|undefined
   sessionId?:string|undefined
 }
 /** Collapsed is transient presentation state; persisted browser history is unchanged. */
@@ -57,7 +61,7 @@ export function xhNextWorkspaceId(spaces:BrowserSpaces):number {
   return Math.max(0,...Object.values(spaces).flatMap(space=>space.items.map(item=>Number(item.id.match(/^browser:(\d+)$/)?.[1])||0)))
 }
 export function xhWorkspaceOpen(space:WorkspaceSpace,item:WorkspaceItem,reuse=true):WorkspaceSpace {
-  const existing=reuse&&space.items.find(value=>value.kind===item.kind&&value.source===item.source)
+  const existing=reuse&&space.items.find(value=>value.kind===item.kind&&value.source===item.source&&value.gitDiff===item.gitDiff&&value.relativeTo===item.relativeTo&&value.sessionId===item.sessionId)
   const visible=space.collapsed===true?{...space,collapsed:false}:space
   if(existing)return{...visible,activeId:existing.id}
   return{...visible,items:[...space.items,item],activeId:item.id}
@@ -99,12 +103,14 @@ export function XhWorkspacePane({space,open,sessionId,renderSlot,onSelect,onClos
   </section>
 }
 
-export interface WorkspaceOpenDetail {kind:WorkspaceItem['kind'];fresh?:boolean;source?:string;title?:string;sessionId?:string;url?:string}
+export interface WorkspaceOpenDetail {kind:WorkspaceItem['kind'];fresh?:boolean;source?:string;title?:string;sessionId?:string;url?:string;relativeTo?:string;gitDiff?:GitDiffScope}
 /** Actual DOM event fields produced by BrowserToggle/ToolDetails/FileView. */
 export function workspaceOpenDetail(value:unknown):WorkspaceOpenDetail|undefined {
   const raw=objectValue(value)
   if(raw.kind!=='browser'&&raw.kind!=='tool'&&!(raw.kind==='file'&&typeof raw.source==='string'&&raw.source.length>0))return undefined
+  const gitDiff=GIT_DIFF_SCOPES.find(scope=>scope===raw.gitDiff)
+  if(raw.gitDiff!==undefined&&gitDiff===undefined)return undefined
   const kind=raw.kind
   if(kind!=='browser'&&kind!=='tool'&&kind!=='file')return undefined
-  return{kind,...typeof raw.fresh==='boolean'?{fresh:raw.fresh}:{},...typeof raw.source==='string'?{source:raw.source}:{},...typeof raw.title==='string'?{title:raw.title}:{},...typeof raw.sessionId==='string'?{sessionId:raw.sessionId}:{},...typeof raw.url==='string'?{url:raw.url}:{}}
+  return{kind,...gitDiff===undefined?{}:{gitDiff},...typeof raw.fresh==='boolean'?{fresh:raw.fresh}:{},...typeof raw.source==='string'?{source:raw.source}:{},...typeof raw.title==='string'?{title:raw.title}:{},...typeof raw.sessionId==='string'?{sessionId:raw.sessionId}:{},...typeof raw.url==='string'?{url:raw.url}:{},...typeof raw.relativeTo==='string'?{relativeTo:raw.relativeTo}:{}}
 }

@@ -34,7 +34,16 @@ try{
  await page.getByText(reception ? 'Reception estimate · before buffering · usage-calibrated after completion' : 'Reception estimate · journal checkpoint timing · not server decode TPS',{exact:true}).first().waitFor()
  if(reception){await page.getByText('100.0 tok/s',{exact:true}).waitFor();assert.equal(await page.getByText('Unknown',{exact:true}).count(),0)}
  const graph=page.locator('.xhperf svg');await graph.waitFor()
+ const sampleDetails=page.locator('.xhperf dl[aria-label="Sample details"]')
  await graph.focus();await graph.press('ArrowRight');await page.getByText('test-model',{exact:true}).waitFor()
+ const firstTime=await sampleDetails.locator('dd').first().innerText()
+ assert.equal(await sampleDetails.locator('dd').last().innerText(),reception?'Reception estimate · before buffering · usage-calibrated after completion':'Reception estimate · journal checkpoint timing · not server decode TPS','sample-level source describes its actual typed request timing, not only the page heading')
+ await graph.press('ArrowRight');assert.notEqual(await sampleDetails.locator('dd').first().innerText(),firstTime,'keyboard advances to the next real bucket')
+ await graph.press('ArrowLeft');assert.equal(await sampleDetails.locator('dd').first().innerText(),firstTime,'keyboard returns to the first bucket')
+ if(reception)await sampleDetails.getByText('≈ 144.0 tok/s',{exact:true}).waitFor()
+ await graph.hover();await sampleDetails.waitFor()
+ await page.mouse.move(0,0);await sampleDetails.waitFor({state:'detached'})
+ await graph.focus();await graph.press('ArrowRight');await sampleDetails.waitFor()
  await page.getByRole('button',{name:'3s smoothing',exact:true}).click();assert.equal(await page.getByRole('button',{name:'3s smoothing',exact:true}).getAttribute('aria-pressed'),'true')
  assert.ok((await page.locator('polyline[data-tps-track]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('points')))).every(points=>!points.includes('NaN')&&!points.includes('Infinity')))
  const evidence=resolve('dist/regression/performance-20261012');mkdirSync(evidence,{recursive:true})
@@ -43,11 +52,12 @@ try{
   await page.screenshot({path:resolve(evidence,`${engine}-${reception?'reception':'legacy'}-${dark?'dark':'light'}.png`),animations:'disabled'})
  }
  assert.equal(await page.locator('.xhperf tbody tr').count(),0,'collapsed data table is not mounted')
- await page.getByText('Accessible timeline data',{exact:true}).click();assert.equal(await page.locator('.xhperf tbody tr').count(),fixture.turns[0].samples.length)
+ await page.getByText('Accessible timeline data',{exact:true}).click();await page.locator('.xhperf tbody').waitFor();assert.equal(await page.locator('.xhperf tbody tr').count(),fixture.turns[0].samples.length)
+ await page.getByText('Accessible timeline data',{exact:true}).click();await page.locator('.xhperf tbody').waitFor({state:'detached'})
  for(const width of [520,390]){await page.setViewportSize({width,height:780});const b=await graph.boundingBox();assert.ok(b.x>=0&&b.x+b.width<=width+1,'graph stays in viewport')}
  // Switching back must keep the real composer usable and does not reset data.
  await page.getByRole('tab',{name:'Harness',exact:true}).click();await page.locator('.xhctx-harness-root').waitFor()
  await tab.click();await graph.waitFor();await page.getByRole('tab',{name:'Chat',exact:true}).click();assert.ok(await page.locator('textarea,[contenteditable=true]').count()>0)
  assert.ok(requests.includes('/plugins/@xlang/xharness-client-ui-performance/client.js'));assert.ok(!requests.some(p=>p.startsWith('/api/')))
- assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,fullGraph:true,sharedRustFixture:true,tabNextToHarness:true,keyboard:true,themes:2,widths:2,chatUsable:true,errors}))
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,fullGraph:true,sharedRustFixture:true,tabNextToHarness:true,keyboard:true,pointerLeaveReset:true,lazyTableUnmount:true,usageCalibrated:reception,themes:2,widths:2,chatUsable:true,errors}))
 }finally{await browser.close()}

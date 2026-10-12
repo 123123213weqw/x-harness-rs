@@ -20,7 +20,7 @@ import {
   collectReferenceTargets, createReferenceTargets, renderBlocks, renderFootnoteSection,
   wrapBlockChildren,
 } from './render'
-import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets } from './render'
+import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, MarkdownResources, ReferenceTargets } from './render'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 import { useStreamPresentation } from './use-stream-presentation'
@@ -33,12 +33,14 @@ function renderSettled(
   text: string,
   codeLabels: MarkdownCodeLabels | undefined,
   fileMentions: MarkdownFileMentions | undefined,
+  resources: MarkdownResources | undefined,
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
   collectReferenceTargets(root.children, targets)
   const context: MarkdownRenderContext = {
     streaming: false,
+    resources,
     codeLabels,
     fileMentions,
     targets,
@@ -159,13 +161,15 @@ class StreamingRenderer {
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, smoothStreaming = false, codeLabels, fileMentions }: {
+export const MarkdownText = memo(function MarkdownText({ text, streaming = false, smoothStreaming = false, codeLabels, fileMentions, resources }: {
   text: string
   streaming?: boolean
   /** Opt-in live prose smoothing; history, finish and generic renderers stay immediate. */
   smoothStreaming?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
+  /** Read-only file preview resolver; absent in normal chat. */
+  resources?: MarkdownResources | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
@@ -175,13 +179,13 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, codeLabels, fileMentions)
+      return renderSettled(text, codeLabels, fileMentions, resources)
     }
     if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
       streamRef.current = new StreamingRenderer(codeLabels)
       streamLabelsRef.current = codeLabels
     }
     return streamRef.current.render(visibleText, motion)
-  }, [visibleText, streaming, motion, codeLabels, fileMentions])
+  }, [visibleText, streaming, motion, codeLabels, fileMentions, resources])
   return <div className={css.markdown} data-xh-stream-owned={smoothStreaming || undefined}>{children}</div>
 })

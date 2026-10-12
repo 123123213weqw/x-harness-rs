@@ -41,6 +41,12 @@ const require=createRequire(resolve(deps,'package.json')),browser=await require(
 try{
  // English accessible-name assertions must not inherit the runner's OS locale.
  const page=await browser.newPage({viewport:{width:1280,height:820},colorScheme:'light',locale:'en-US'}),errors=[],failed=[],requests=[],consoleErrors=[]
+ // Both immutable reference and candidate use the same deterministic clock.
+ // The built-in Host fixture deliberately toggles fx-gamma every five seconds;
+ // CPU contention must not compare opposite phases of that transport heartbeat.
+ // Freeze only after actual boot effects have completed and its idle phase is
+ // visible. No fixture bytes, DOM copy, control or pixel is masked/rewritten.
+ await page.clock.install({time:new Date('2026-10-12T00:00:00Z')})
  assert.equal(await page.evaluate(()=>navigator.language),'en-US','complete graph fixture uses its explicit English browser locale')
  page.on('pageerror',error=>errors.push(error.stack??error.message));page.on('console',message=>{if(message.type()==='error')consoleErrors.push(message.text())});page.on('requestfailed',request=>failed.push({url:request.url(),error:request.failure()?.errorText}))
  await page.route('**/*',route=>{
@@ -60,6 +66,10 @@ try{
  // Compare the settled UI, not the optional 180ms decorative loading exit.
  // This is a lifecycle condition, not a fixed sleep or an animation gate.
  await page.locator('[data-xh-startup-exit]').waitFor({state:'detached'})
+ await page.clock.pauseAt(await page.evaluate(()=>Date.now()+1000))
+ const idleHeartbeat=page.getByRole('treeitem').filter({hasText:/^fixture\s*2min$/})
+ if(await idleHeartbeat.count()===0)await page.clock.runFor(5000)
+ await idleHeartbeat.waitFor()
  if(referenceLayout){
   const projectedMenu=page.locator('[data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment])')
   assert.equal(await projectedMenu.count(),1,'reference lane projects exactly the reviewed slot Menu wrapper')
@@ -98,6 +108,9 @@ try{
   copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
   return {environmentEntryCount:environmentEntry.length,effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length-environmentEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ // Interaction acceptance resumes naturally advancing timers; only the settled,
+ // phase-bound boot receipt above is frozen. Navigation needs no manual ticks.
+ await page.clock.resume()
  assert.equal(early.effortEntryCount,implementation==='source'?1:0,'exactly one reviewed adjacent effort control')
  assert.equal(early.modelEntryCount,implementation==='source'?1:0,'source retains one authoritative model control')
  assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
