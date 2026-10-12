@@ -99,6 +99,7 @@ exports.ModelDirectoryResolver = void 0;
 const core_context_1 = require("./core-context");
 const cordis_1 = require("@xharness/cordis");
 const directory_1 = require("./directory");
+const capability_refresh_1 = require("./capability-refresh");
 // Cordis is dynamically injected; narrow its constructor to the context this
 // service actually consumes, rather than leaking its open service registry.
 const ContextService = cordis_1.Service;
@@ -106,6 +107,7 @@ class ModelDirectoryResolver extends ContextService {
     constructor(ctx, config) {
         super((0, core_context_1.requireCoreContext)(ctx), 'modelDirectories');
         this.live = { directories: new Map() };
+        this.capabilities = new capability_refresh_1.CapabilityRefresh();
         this.blockReason = config.blockReason;
         ctx.on('connection/reset', () => { for (const directory of this.live.directories.values())
             directory.resetConnected(); });
@@ -138,6 +140,10 @@ class ModelDirectoryResolver extends ContextService {
                 return () => { stop(); conversation.blocks.set(sessionId, undefined); };
             }, 'ui-model-selection: composer block');
         }
+        scope.effect(() => {
+            const stop = directory.store.subscribe(() => { this.capabilities.schedule(directory); });
+            return () => { stop(); this.capabilities.cancel(directory); };
+        }, 'ui-model-selection: stale capabilities');
         scope.effect(() => () => { directory.dispose(); this.live.directories.delete(sessionId); }, 'ui-model-selection: session directory');
         return directory;
     }
@@ -1557,6 +1563,78 @@ function castImmutable(value) {
 }
 
 },
+"src/modules/model-selection/capability-refresh.js": function(module, exports, require) {
+// source: src/modules/model-selection/capability-refresh.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CapabilityRefresh = void 0;
+const scheduler = {
+    now: () => Date.now(),
+    later: run => { const timer = setTimeout(run, 1500); return () => { clearTimeout(timer); }; },
+};
+function staleProvider(directory) {
+    if (directory.disposed || !directory.available())
+        return undefined;
+    const state = directory.store.getSnapshot();
+    if (state.status !== 'ready' || state.current === null)
+        return undefined;
+    const provider = state.groups.find(group => group.id === state.current?.provider);
+    const capability = provider?.models.find(model => model.id === state.current?.model)?.reasoningCapability;
+    if (!capability?.stale || capability.state === 'disabled')
+        return undefined;
+    if (!['provider_reported', 'last_known_good', 'discovery_failed'].includes(capability.source ?? ''))
+        return undefined;
+    return provider?.id;
+}
+class CapabilityRefresh {
+    constructor(clock = scheduler) {
+        this.clock = clock;
+        this.waiting = new Map();
+        this.attempts = new Map();
+        this.running = false;
+    }
+    cancel(directory) { this.waiting.get(directory)?.(); this.waiting.delete(directory); }
+    schedule(directory) {
+        if (staleProvider(directory) === undefined) {
+            this.cancel(directory);
+            return;
+        }
+        if (this.waiting.has(directory))
+            return;
+        this.waiting.set(directory, this.clock.later(() => {
+            this.waiting.delete(directory);
+            void this.refresh(directory);
+        }));
+    }
+    async refresh(directory) {
+        const provider = staleProvider(directory);
+        if (provider === undefined || this.running)
+            return;
+        const at = this.clock.now(), previous = this.attempts.get(provider);
+        if (previous !== undefined && at - previous < 5 * 60000)
+            return;
+        // Even a failed attempt has a cooldown; reopening a menu must not spin.
+        this.attempts.delete(provider);
+        this.attempts.set(provider, at);
+        if (this.attempts.size > 128) {
+            const oldest = this.attempts.keys().next();
+            if (!oldest.done)
+                this.attempts.delete(oldest.value);
+        }
+        this.running = true;
+        try {
+            await directory.load(true);
+        }
+        catch { /* Directory retains last-good choices and reports the real error. */ }
+        finally {
+            this.running = false;
+        }
+    }
+}
+exports.CapabilityRefresh = CapabilityRefresh;
+
+},
 "src/modules/model-selection/ModelSelect.js": function(module, exports, require) {
 // source: src/modules/model-selection/ModelSelect.tsx
 
@@ -1574,13 +1652,15 @@ const styles_1 = require("./styles");
 const ContextPane_css_1 = __importDefault(require("./ContextPane.css"));
 const managed_models_1 = require("../shared/managed-models");
 function classes(...values) { return values.filter(Boolean).join(' '); }
-/** One composer trigger; model, effort and context live in its nested menu. */
+/** Adjacent composer controls; effort choices reuse the authoritative session RPC. */
 function ModelSelect({ locked, available, directory, load, select, manageModels, t }) {
     const state = (0, react_1.useSyncExternalStore)(fn => directory.subscribe(fn), () => directory.getSnapshot());
     const [open, setOpen] = (0, react_1.useState)(false);
     const [pane, setPane] = (0, react_1.useState)('root');
+    const openerRef = (0, react_1.useRef)('model');
+    const effortTriggerRef = (0, react_1.useRef)(null);
     const lastActionRef = (0, react_1.useRef)('load');
-    (0, react_1.useEffect)(() => { setPane('root'); }, [state.current?.provider, state.current?.model]);
+    (0, react_1.useLayoutEffect)(() => { setOpen(false); setPane('root'); }, [state.current?.provider, state.current?.model]);
     const [toast, setToast] = (0, react_1.useState)(null);
     const toastSeq = (0, react_1.useRef)(0);
     const rootRef = (0, react_1.useRef)(null);
@@ -1599,7 +1679,11 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
     const visibleGroups = state.groups.filter(group => (0, managed_models_1.isManagedModelProvider)(group.id) === (pane !== 'custom'));
     const customSelected = state.current !== null && !(0, managed_models_1.isManagedModelProvider)(state.current.provider);
     const busy = state.status === 'selecting';
-    const reload = () => { lastActionRef.current = 'load'; load(); };
+    const capability = currentChoice?.model.reasoningCapability;
+    const displayEffort = capability?.state === 'disabled' ? t('effort.disabled') : effortLabel ?? t('effort.unknown');
+    const effortTriggerLabel = t('effort.trigger', { effort: displayEffort });
+    const reload = () => { lastActionRef.current = 'load'; void Promise.resolve(load()).catch(() => { }); };
+    const refreshCapabilities = () => { lastActionRef.current = 'load'; void Promise.resolve(load(true)).catch(() => { }); };
     (0, react_1.useEffect)(() => { if (available) {
         lastActionRef.current = 'load';
         load();
@@ -1613,18 +1697,30 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
         return () => { document.removeEventListener('mousedown', closeOutside); };
     }, [open]);
     (0, react_1.useEffect)(() => {
-        if (open && pane !== 'root' && pane !== 'context')
-            itemRefs.current.find(item => item !== null && !item.disabled)?.focus();
-    }, [open, pane]);
+        if (open && pane !== 'root' && pane !== 'context') {
+            const enabled = itemRefs.current.filter((item) => item !== null && !item.disabled);
+            // Retain navigation focus on metadata refresh unless that item disappeared.
+            if (!enabled.some(item => item === document.activeElement))
+                (enabled.find(item => item.getAttribute('aria-checked') === 'true') ?? enabled[0])?.focus();
+        }
+    }, [open, pane, reasoning, effectiveEffort]);
     if (!available)
         return null;
     const close = (restoreFocus = false) => {
         setOpen(false);
         setPane('root');
         if (restoreFocus)
-            queueMicrotask(() => { triggerRef.current?.focus(); });
+            queueMicrotask(() => { (openerRef.current === 'effort' ? effortTriggerRef : triggerRef).current?.focus(); });
     };
-    const show = () => { setPane('root'); setOpen(true); reload(); };
+    const show = (opener) => {
+        openerRef.current = opener;
+        (opener === 'effort' ? effortTriggerRef : triggerRef).current?.focus();
+        setPane(opener === 'effort' ? 'effort' : 'root');
+        setOpen(true);
+        // A cached catalog is already authoritative. Opening a menu is not a refresh.
+        if (state.status === 'idle')
+            reload();
+    };
     const moveFocus = (offset) => {
         const items = itemRefs.current.filter((item) => item !== null && !item.disabled);
         if (items.length === 0)
@@ -1635,11 +1731,12 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
     const onKeyDown = (event) => {
         if ((event.key === 'Escape' || (event.key === 'ArrowLeft' && pane !== 'root' && pane !== 'context')) && open) {
             event.preventDefault();
-            if (pane !== 'root')
-                setPane(pane === 'custom' ? 'model' : 'root');
-            else
+            if (openerRef.current === 'effort' || pane === 'root')
                 close(true);
-            queueMicrotask(() => { itemRefs.current.find(item => item !== null)?.focus(); });
+            else {
+                setPane(pane === 'custom' ? 'model' : 'root');
+                queueMicrotask(() => { itemRefs.current.find(item => item !== null)?.focus(); });
+            }
             return;
         }
         if (!open || pane === 'context')
@@ -1671,6 +1768,8 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
         }
     };
     const choose = (selection) => {
+        if (locked || busy)
+            return;
         if (state.current?.provider === selection.provider && state.current.model === selection.model) {
             close(true);
             return;
@@ -1679,7 +1778,7 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
         void select(selection).then(settleSelection);
     };
     const chooseEffort = (effort) => {
-        if (state.current === null)
+        if (locked || busy || state.current === null || capability?.state === 'disabled')
             return;
         if (effectiveEffort === effort) {
             close(true);
@@ -1694,18 +1793,21 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
     };
     const modelLabel = currentChoice?.model.name ?? t('trigger.fallback');
     const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`;
-    const triggerAria = currentChoice === undefined ? t('trigger.selectAria') : effortLabel === undefined ? t('trigger.aria', { model: modelLabel }) : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel });
+    const triggerAria = currentChoice === undefined ? t('trigger.selectAria') : t('trigger.aria', { model: modelLabel });
     itemRefs.current = [];
     let itemIndex = 0;
     const itemRef = () => { const at = itemIndex++; return node => { itemRefs.current[at] = node; }; };
-    const loadError = (retryLabel) => state.error !== null && lastActionRef.current === 'load' && (0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.error, children: [(0, jsx_runtime_1.jsx)("span", { children: t('error.action', { message: state.error }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.css.retry, onClick: reload, children: t(retryLabel) })] });
-    return (0, jsx_runtime_1.jsxs)("div", { ref: rootRef, className: styles_1.css.root, onKeyDown: onKeyDown, onBlur: onBlur, children: [(0, jsx_runtime_1.jsxs)("button", { ref: triggerRef, type: "button", className: styles_1.css.trigger, "aria-label": triggerAria, "aria-haspopup": "menu", "aria-expanded": open, "aria-controls": open ? `${id}-menu` : undefined, title: triggerLabel, disabled: locked, onClick: () => { if (open)
+    const loadError = (retryLabel, retry = reload) => state.error !== null && lastActionRef.current === 'load' && (0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.error, children: [(0, jsx_runtime_1.jsx)("span", { children: t('error.action', { message: state.error }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.css.retry, onClick: retry, children: t(retryLabel) })] });
+    return (0, jsx_runtime_1.jsxs)("div", { ref: rootRef, className: styles_1.css.root, onKeyDown: onKeyDown, onBlur: onBlur, children: [(0, jsx_runtime_1.jsxs)("button", { ref: triggerRef, "data-xh-model-control": "model", type: "button", className: styles_1.css.trigger, "aria-label": triggerAria, "aria-haspopup": "menu", "aria-expanded": open && openerRef.current === 'model', "aria-controls": open && openerRef.current === 'model' ? `${id}-menu` : undefined, title: triggerLabel, disabled: locked || busy, onClick: () => { if (open && openerRef.current === 'model')
                     close();
                 else
-                    show(); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.triggerLabel, children: modelLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { className: classes(styles_1.css.chevron, open && styles_1.css.chevronOpen) })] }), open && (0, jsx_runtime_1.jsxs)("div", { id: `${id}-menu`, className: styles_1.css.menu, role: pane === 'context' ? 'dialog' : 'menu', "aria-label": pane === 'context' ? '调整上下文容量' : t('menu.aria'), "aria-busy": state.status === 'loading' || busy, children: [pane === 'root' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { setPane('model'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellLabel, children: t('menu.model') }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue, children: modelLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.cellChevron })] }), reasoning !== undefined && (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { setPane('effort'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellLabel, children: t('menu.effort') }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue, children: effortLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.cellChevron })] }), (0, jsx_runtime_1.jsx)(ContextPane_1.ReasoningStatus, { state: state, load: load, itemRef: itemRef() }), (0, jsx_runtime_1.jsx)(ContextPane_1.ContextRow, { state: state, itemRef: itemRef(), open: () => { setPane('context'); } })] }), pane === 'context' && (0, jsx_runtime_1.jsx)(ContextPane_1.ContextPane, { locked: locked, directory: directory, load: reload, select: select, back: () => { setPane('root'); }, saved: () => { close(true); } }), (pane === 'model' || pane === 'custom') && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [pane === 'custom' && (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, "aria-label": t('menu.back'), onClick: () => { setPane('model'); }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.backChevron }), (0, jsx_runtime_1.jsx)("span", { children: t('menu.custom') })] }), state.status === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.status, children: t('status.loading') }), loadError('retry'), state.failures.map(failure => (0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.warning, children: [(0, jsx_runtime_1.jsx)("span", { children: t('warning.groupLoad', { name: failure.name, message: failure.message }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.css.retry, onClick: reload, children: t('retry') })] }, failure.id)), (0, jsx_runtime_1.jsx)("div", { className: classes(styles_1.css.groups, 'scrollable'), children: visibleGroups.map(group => (0, jsx_runtime_1.jsxs)("section", { role: "group", "aria-labelledby": `${id}-${group.id}`, className: styles_1.css.group, children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.groupTitle, id: `${id}-${group.id}`, children: [(0, jsx_runtime_1.jsx)("span", { children: (0, managed_models_1.isManagedModelProvider)(group.id) ? 'XHarness' : group.name }), (0, managed_models_1.isManagedModelProvider)(group.id) && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.sourceBadge, title: t('source.accountHint'), children: t('source.account') })] }), group.models.map(model => {
+                    show('model'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.triggerLabel, children: modelLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { className: classes(styles_1.css.chevron, open && openerRef.current === 'model' && styles_1.css.chevronOpen) })] }), (0, jsx_runtime_1.jsxs)("button", { ref: effortTriggerRef, "data-xh-model-control": "effort", type: "button", className: classes(styles_1.css.trigger, styles_1.css.triggerEffort), "aria-label": effortTriggerLabel, "aria-haspopup": "menu", "aria-expanded": open && openerRef.current === 'effort', "aria-controls": open && openerRef.current === 'effort' ? `${id}-menu` : undefined, title: effortTriggerLabel, disabled: locked || busy || state.current === null, onClick: () => { if (open && openerRef.current === 'effort')
+                    close();
+                else
+                    show('effort'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.triggerLabel, children: effortTriggerLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { className: classes(styles_1.css.chevron, open && openerRef.current === 'effort' && styles_1.css.chevronOpen) })] }), open && (0, jsx_runtime_1.jsxs)("div", { id: `${id}-menu`, className: styles_1.css.menu, role: pane === 'context' ? 'dialog' : 'menu', "aria-label": pane === 'context' ? '调整上下文容量' : pane === 'effort' ? t('menu.effort') : t('menu.aria'), "aria-busy": state.status === 'loading' || busy, children: [pane === 'root' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { setPane('model'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellLabel, children: t('menu.model') }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue, children: modelLabel }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.cellChevron })] }), (0, jsx_runtime_1.jsx)(ContextPane_1.ContextRow, { state: state, itemRef: itemRef(), open: () => { setPane('context'); } })] }), pane === 'context' && (0, jsx_runtime_1.jsx)(ContextPane_1.ContextPane, { locked: locked, directory: directory, load: reload, select: select, back: () => { setPane('root'); }, saved: () => { close(true); } }), (pane === 'model' || pane === 'custom') && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [pane === 'custom' && (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, "aria-label": t('menu.back'), onClick: () => { setPane('model'); }, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.backChevron }), (0, jsx_runtime_1.jsx)("span", { children: t('menu.custom') })] }), state.status === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.status, children: t('status.loading') }), loadError('retry'), state.failures.map(failure => (0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.warning, children: [(0, jsx_runtime_1.jsx)("span", { children: t('warning.groupLoad', { name: failure.name, message: failure.message }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: styles_1.css.retry, onClick: reload, children: t('retry') })] }, failure.id)), (0, jsx_runtime_1.jsx)("div", { className: classes(styles_1.css.groups, 'scrollable'), children: visibleGroups.map(group => (0, jsx_runtime_1.jsxs)("section", { role: "group", "aria-labelledby": `${id}-${group.id}`, className: styles_1.css.group, children: [(0, jsx_runtime_1.jsxs)("div", { className: styles_1.css.groupTitle, id: `${id}-${group.id}`, children: [(0, jsx_runtime_1.jsx)("span", { children: (0, managed_models_1.isManagedModelProvider)(group.id) ? 'XHarness' : group.name }), (0, managed_models_1.isManagedModelProvider)(group.id) && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.sourceBadge, title: t('source.accountHint'), children: t('source.account') })] }), group.models.map(model => {
                                             const selected = state.current?.provider === group.id && state.current.model === model.id;
-                                            return (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitemradio", "aria-checked": selected, className: classes(styles_1.css.option, selected && styles_1.css.selected), title: model.name, disabled: busy, onClick: () => { choose({ provider: group.id, model: model.id }); }, children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.css.optionCopy, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.modelName, children: model.name }), model.description !== undefined && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.description, children: model.description })] }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.check, children: selected ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, {}) : null })] }, model.id);
-                                        })] }, group.id)) }), state.status === 'ready' && pane === 'custom' && visibleGroups.every(group => group.models.length === 0) && (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.empty, children: t('empty.custom') }), pane === 'model' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { role: "separator", className: styles_1.css.separator }), (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { setPane('custom'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellLabel, children: t('menu.custom') }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue }), customSelected && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { className: styles_1.css.check }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.cellChevron })] })] }), manageModels !== undefined && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { role: "separator", className: styles_1.css.separator }), (0, jsx_runtime_1.jsx)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { close(true); queueMicrotask(manageModels); }, children: t('menu.manage') })] })] }), pane === 'effort' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [loadError('action.reload'), effortChoices.length === 0 ? (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.empty, children: t('empty.efforts') }) : effortChoices.map(level => (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitemradio", "aria-checked": effectiveEffort === level.effort, className: classes(styles_1.css.option, effectiveEffort === level.effort && styles_1.css.selected), disabled: busy, onClick: () => { chooseEffort(level.effort); }, children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.css.optionCopy, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.modelName, children: level.label }), level.description !== undefined && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.description, children: level.description })] }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.check, children: effectiveEffort === level.effort ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, {}) : null })] }, level.key))] })] }), toast !== null && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Toast, { text: toast.text, icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconWarningOutline16, {}), anchor: rootRef.current?.closest('[data-composer-card]') ?? null, onDone: () => { setToast(null); } }, toast.seq)] });
+                                            return (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitemradio", "aria-checked": selected, className: classes(styles_1.css.option, selected && styles_1.css.selected), title: model.name, disabled: locked || busy, onClick: () => { choose({ provider: group.id, model: model.id }); }, children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.css.optionCopy, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.modelName, children: model.name }), model.description !== undefined && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.description, children: model.description })] }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.check, children: selected ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, {}) : null })] }, model.id);
+                                        })] }, group.id)) }), state.status === 'ready' && pane === 'custom' && visibleGroups.every(group => group.models.length === 0) && (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.empty, children: t('empty.custom') }), pane === 'model' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { role: "separator", className: styles_1.css.separator }), (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { setPane('custom'); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellLabel, children: t('menu.custom') }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue }), customSelected && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { className: styles_1.css.check }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronRightOutline14, { className: styles_1.css.cellChevron })] })] }), manageModels !== undefined && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("div", { role: "separator", className: styles_1.css.separator }), (0, jsx_runtime_1.jsx)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { close(true); queueMicrotask(manageModels); }, children: t('menu.manage') })] })] }), pane === 'effort' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [loadError('action.reload', refreshCapabilities), (0, jsx_runtime_1.jsx)("div", { className: classes(styles_1.css.groups, 'scrollable'), children: capability?.state === 'disabled' || effortChoices.length === 0 ? (0, jsx_runtime_1.jsx)("div", { className: styles_1.css.empty, children: t(capability?.state === 'disabled' ? 'effort.disabledHint' : 'effort.unknownHint') }) : effortChoices.map(level => (0, jsx_runtime_1.jsxs)("button", { ref: itemRef(), type: "button", role: "menuitemradio", "aria-checked": effectiveEffort === level.effort, className: classes(styles_1.css.option, effectiveEffort === level.effort && styles_1.css.selected), disabled: locked || busy, onClick: () => { chooseEffort(level.effort); }, children: [(0, jsx_runtime_1.jsxs)("span", { className: styles_1.css.optionCopy, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.modelName, children: level.label }), level.description !== undefined && (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.description, children: level.description })] }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.check, children: effectiveEffort === level.effort ? (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, {}) : null })] }, level.key)) }), (0, jsx_runtime_1.jsx)("div", { role: "separator", className: styles_1.css.separator }), (0, jsx_runtime_1.jsx)(ContextPane_1.ReasoningStatus, { state: state, load: refreshCapabilities, itemRef: itemRef(), t: t }), manageModels !== undefined && (capability?.state === 'disabled' || reasoning === undefined) && (0, jsx_runtime_1.jsx)("button", { ref: itemRef(), type: "button", role: "menuitem", className: styles_1.css.cell, onClick: () => { close(true); queueMicrotask(manageModels); }, children: t('menu.manage') })] })] }), toast !== null && (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Toast, { text: toast.text, icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconWarningOutline16, {}), anchor: rootRef.current?.closest('[data-composer-card]') ?? null, onDone: () => { setToast(null); } }, toast.seq)] });
 }
 function XHarnessModelSelect(props) { return (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("style", { children: ContextPane_css_1.default }), (0, jsx_runtime_1.jsx)(ModelSelect, { ...props })] }); }
 
@@ -1761,9 +1863,12 @@ function xhReasoningStatus(state) {
     const sources = { configured: '已配置', documented: '厂商文档', provider_reported: '服务端提供', last_known_good: '上次有效能力' };
     return sources[capability?.source ?? ''] ?? '已配置';
 }
-function ReasoningStatus({ state, load, itemRef }) {
+function ReasoningStatus({ state, load, itemRef, t }) {
     const busy = state.status === 'loading' || state.status === 'selecting';
-    return (0, jsx_runtime_1.jsxs)("button", { type: "button", role: "menuitem", disabled: busy, style: { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', width: '100%', fontSize: 12 }, ref: itemRef, "aria-label": "\u5237\u65B0\u6A21\u578B\u80FD\u529B", onClick: () => { void Promise.resolve(load(true)).catch(() => { }); }, children: [(0, jsx_runtime_1.jsxs)("span", { children: ["\u601D\u8003\u80FD\u529B\uFF1A", xhReasoningStatus(state)] }), (0, jsx_runtime_1.jsx)("span", { children: busy ? '获取中…' : '刷新' })] });
+    const { model } = xhModelInfo(state);
+    const capability = model?.reasoningCapability;
+    const statusKey = capability?.state === 'disabled' ? 'capability.disabled' : !model?.reasoning ? 'capability.unknown' : capability?.stale ? 'capability.stale' : capability?.source === 'provider_reported' ? 'capability.reported' : capability?.source === 'documented' ? 'capability.documented' : 'capability.configured';
+    return (0, jsx_runtime_1.jsxs)("button", { type: "button", role: "menuitem", disabled: busy, className: styles_1.css.cell, ref: itemRef, "aria-label": t('capability.check'), onClick: () => { void Promise.resolve(load(true)).catch(() => { }); }, children: [(0, jsx_runtime_1.jsx)("span", { className: styles_1.css.description, children: t(statusKey) }), (0, jsx_runtime_1.jsx)("span", { className: styles_1.css.cellValue, children: t(busy ? 'capability.checking' : 'capability.check') })] });
 }
 function ContextRow({ state, itemRef, open }) {
     const { current, maximum } = xhModelInfo(state);
@@ -1874,7 +1979,7 @@ if (typeof document !== 'undefined' && document.querySelector('style[data-plugin
 // source: src/modules/model-selection/ModelSelect.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".AbPDjW_root{min-width:0;position:relative}.AbPDjW_trigger{min-width:0;max-width:min(360px,45cqw);height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:flex}.AbPDjW_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.AbPDjW_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.AbPDjW_triggerEffort{color:var(--dsw-alias-label-caption);flex:none}.AbPDjW_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s}.AbPDjW_chevronOpen{transform:rotate(180deg)}.AbPDjW_menu{z-index:20;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:max-content;min-width:min(240px,100vw - 32px);max-width:min(420px,100vw - 32px);max-height:min(360px,100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:12px;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 8px);right:0;overflow:hidden}.AbPDjW_status,.AbPDjW_empty{color:var(--dsw-alias-label-tertiary);padding:10px;font-size:13px;line-height:20px}.AbPDjW_error,.AbPDjW_warning{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;padding:7px 8px;font-size:12px;line-height:18px;display:flex}.AbPDjW_warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}.AbPDjW_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0;font-weight:600}.AbPDjW_groups{min-height:0;overflow-y:auto}.AbPDjW_group+.AbPDjW_group{margin-top:4px}.AbPDjW_groupTitle{z-index:1;background:var(--dsw-specific-menu);color:var(--dsw-alias-label-tertiary);padding:5px 8px 3px;font-size:12px;font-weight:500;line-height:18px;position:sticky;top:0}.AbPDjW_option{box-sizing:border-box;width:auto;min-width:100%;min-height:38px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:10px;outline:none;align-items:center;gap:8px;padding:6px 8px;display:flex}.AbPDjW_option:hover:not(:disabled),.AbPDjW_option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_selected{background:0 0}.AbPDjW_option:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_optionCopy{flex-direction:column;flex:1;min-width:0;display:flex}.AbPDjW_modelName{color:inherit;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:20px;overflow:hidden}.AbPDjW_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}.AbPDjW_check{color:var(--dsw-alias-label-primary);flex:0 0 18px;place-items:center;display:grid}.AbPDjW_cell{box-sizing:border-box;width:auto;min-width:100%;height:40px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 10px;font-size:14px;line-height:22px;display:flex}.AbPDjW_cell:hover{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_cellLabel{white-space:nowrap;flex:none}.AbPDjW_cellValue{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}.AbPDjW_cellChevron{color:var(--dsw-alias-label-tertiary);flex:none}\n.AbPDjW_groupTitle{display:flex;align-items:center;gap:8px;padding:8px 10px 4px}.AbPDjW_sourceBadge{border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);padding:1px 7px;font-size:11px;font-weight:500;line-height:18px;white-space:nowrap}.AbPDjW_separator{height:1px;flex:none;background:var(--dsw-alias-border-l3);margin:4px -4px}.AbPDjW_backChevron{transform:rotate(180deg);flex:none;color:var(--dsw-alias-label-tertiary)}.AbPDjW_cell:focus-visible{outline:2px solid var(--dsw-alias-border-l3);outline-offset:-2px}\n";
+exports.default = ".AbPDjW_root{min-width:0;position:relative}.AbPDjW_trigger{min-width:0;max-width:min(360px,45cqw);height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;border-radius:24px;outline:none;align-items:center;gap:4px;padding:0 4px 0 8px;font-size:13px;font-weight:500;line-height:20px;display:flex}.AbPDjW_trigger:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_trigger:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}.AbPDjW_trigger:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_triggerLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.AbPDjW_triggerEffort{color:var(--dsw-alias-label-caption);flex:none}.AbPDjW_chevron{color:var(--dsw-alias-label-caption);flex:none;transition:transform .12s}.AbPDjW_chevronOpen{transform:rotate(180deg)}.AbPDjW_menu{z-index:20;border:1px solid var(--dsw-alias-border-inverted);background:var(--dsw-specific-menu);width:max-content;min-width:min(240px,100vw - 32px);max-width:min(420px,100vw - 32px);max-height:min(360px,100vh - 96px);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:12px;flex-direction:column;padding:4px;display:flex;position:absolute;bottom:calc(100% + 8px);right:0;overflow:hidden}.AbPDjW_status,.AbPDjW_empty{color:var(--dsw-alias-label-tertiary);padding:10px;font-size:13px;line-height:20px}.AbPDjW_error,.AbPDjW_warning{background:var(--dsw-alias-interactive-bg-hover-danger);color:var(--dsw-alias-state-error-primary);border-radius:8px;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;padding:7px 8px;font-size:12px;line-height:18px;display:flex}.AbPDjW_warning{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-state-warn-label)}.AbPDjW_retry{color:inherit;font:inherit;cursor:pointer;background:0 0;border:none;flex:none;padding:0;font-weight:600}.AbPDjW_groups{min-height:0;overflow-y:auto}.AbPDjW_group+.AbPDjW_group{margin-top:4px}.AbPDjW_groupTitle{z-index:1;background:var(--dsw-specific-menu);color:var(--dsw-alias-label-tertiary);padding:5px 8px 3px;font-size:12px;font-weight:500;line-height:18px;position:sticky;top:0}.AbPDjW_option{box-sizing:border-box;width:auto;min-width:100%;min-height:38px;color:inherit;text-align:left;cursor:pointer;background:0 0;border:none;border-radius:10px;outline:none;align-items:center;gap:8px;padding:6px 8px;display:flex}.AbPDjW_option:hover:not(:disabled),.AbPDjW_option:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_selected{background:0 0}.AbPDjW_option:disabled{color:var(--dsw-alias-label-dimmed);cursor:default}.AbPDjW_optionCopy{flex-direction:column;flex:1;min-width:0;display:flex}.AbPDjW_modelName{color:inherit;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:500;line-height:20px;overflow:hidden}.AbPDjW_description{color:var(--dsw-alias-label-tertiary);text-overflow:ellipsis;white-space:nowrap;font-size:12px;line-height:18px;overflow:hidden}.AbPDjW_check{color:var(--dsw-alias-label-primary);flex:0 0 18px;place-items:center;display:grid}.AbPDjW_cell{box-sizing:border-box;width:auto;min-width:100%;height:40px;color:var(--dsw-alias-label-primary);cursor:pointer;text-align:left;background:0 0;border:none;border-radius:10px;align-items:center;gap:8px;padding:0 10px;font-size:14px;line-height:22px;display:flex}.AbPDjW_cell:hover{background:var(--dsw-alias-interactive-bg-hover)}.AbPDjW_cellLabel{white-space:nowrap;flex:none}.AbPDjW_cellValue{text-overflow:ellipsis;white-space:nowrap;text-align:right;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;overflow:hidden}.AbPDjW_cellChevron{color:var(--dsw-alias-label-tertiary);flex:none}\n.AbPDjW_groupTitle{display:flex;align-items:center;gap:8px;padding:8px 10px 4px}.AbPDjW_sourceBadge{border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);padding:1px 7px;font-size:11px;font-weight:500;line-height:18px;white-space:nowrap}.AbPDjW_separator{height:1px;flex:none;background:var(--dsw-alias-border-l3);margin:4px -4px}.AbPDjW_backChevron{transform:rotate(180deg);flex:none;color:var(--dsw-alias-label-tertiary)}.AbPDjW_cell:focus-visible{outline:2px solid var(--dsw-alias-border-l3);outline-offset:-2px}\n\n/* Independent effort entry, sharing the original composer/menu styling. */\n.AbPDjW_root{display:flex;align-items:center;gap:6px;max-width:100%;flex-wrap:wrap}\n.AbPDjW_trigger{min-width:0}\n.AbPDjW_triggerEffort{max-width:min(220px,40cqw);color:var(--dsw-alias-label-caption)}\n";
 
 },
 "src/modules/model-selection/ContextPane.css": function(module, exports, require) {
@@ -1910,6 +2015,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.en = exports.zh = void 0;
 exports.zh = {
     'menu.back': '返回模型',
+    'effort.trigger': '思考：{effort}',
+    'effort.unknown': '默认',
+    'effort.disabled': '未配置',
+    'effort.unknownHint': '尚未获取可调档位，继续使用模型默认设置。',
+    'effort.disabledHint': '当前配置关闭了思考档位调整，可在管理模型中修改。',
+    'capability.check': '检查能力',
+    'capability.checking': '检查中…',
+    'capability.unknown': '未提供能力信息',
+    'capability.stale': '保留上次档位',
+    'capability.disabled': '配置已禁用',
+    'capability.configured': '使用已配置档位',
+    'capability.reported': '服务端提供',
+    'capability.documented': '厂商文档',
     'menu.custom': '自定义',
     'menu.manage': '管理模型',
     'source.account': '账号服务',
@@ -1924,7 +2042,7 @@ exports.zh = {
     "menu.aria": "模型与推理等级",
     "menu.model": "模型",
     "menu.effort": "推理等级",
-    "effort.providerDefault": "Default",
+    "effort.providerDefault": "默认",
     "status.loading": "正在刷新模型列表…",
     "error.action": "模型操作失败：{message}",
     "action.reload": "重新加载",
@@ -1935,6 +2053,19 @@ exports.zh = {
 };
 exports.en = {
     'menu.back': 'Back to models',
+    'effort.trigger': 'Thinking: {effort}',
+    'effort.unknown': 'Default',
+    'effort.disabled': 'Not configured',
+    'effort.unknownHint': 'Adjustable levels are not available yet. Using the model defaults.',
+    'effort.disabledHint': 'Effort adjustment is disabled in this configuration. Change it in Manage models.',
+    'capability.check': 'Check capabilities',
+    'capability.checking': 'Checking…',
+    'capability.unknown': 'No capability information',
+    'capability.stale': 'Keeping previous levels',
+    'capability.disabled': 'Disabled in configuration',
+    'capability.configured': 'Using configured levels',
+    'capability.reported': 'Provider-reported',
+    'capability.documented': 'Provider documentation',
     'menu.custom': 'Custom',
     'menu.manage': 'Manage models',
     'source.account': 'Account service',
@@ -1971,7 +2102,7 @@ exports.OPEN_SETTINGS_SECTION = 'settings/open-section';
 
 }
 };
-const __dependencies = {"src/modules/model-selection/index.js":{"./service":"src/modules/model-selection/service.js","./ModelSelect":"src/modules/model-selection/ModelSelect.js","./locales":"src/modules/model-selection/locales.js","./directory":"src/modules/model-selection/directory.js","./ContextPane":"src/modules/model-selection/ContextPane.js","../shared/settings-navigation":"src/modules/shared/settings-navigation.js"},"src/modules/model-selection/service.js":{"./core-context":"src/modules/model-selection/core-context.js","./directory":"src/modules/model-selection/directory.js"},"src/modules/model-selection/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/model-selection/directory.js":{"immer":"vendor/immer.js","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"vendor/immer.js":{},"src/modules/model-selection/ModelSelect.js":{"./ContextPane":"src/modules/model-selection/ContextPane.js","./styles":"src/modules/model-selection/styles.js","./ContextPane.css":"src/modules/model-selection/ContextPane.css","../shared/managed-models":"src/modules/shared/managed-models.js"},"src/modules/model-selection/ContextPane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./styles":"src/modules/model-selection/styles.js"},"src/modules/model-selection/styles.js":{"./ModelSelect.css":"src/modules/model-selection/ModelSelect.css"},"src/modules/model-selection/ModelSelect.css":{},"src/modules/model-selection/ContextPane.css":{},"src/modules/shared/managed-models.js":{},"src/modules/model-selection/locales.js":{},"src/modules/shared/settings-navigation.js":{}};
+const __dependencies = {"src/modules/model-selection/index.js":{"./service":"src/modules/model-selection/service.js","./ModelSelect":"src/modules/model-selection/ModelSelect.js","./locales":"src/modules/model-selection/locales.js","./directory":"src/modules/model-selection/directory.js","./ContextPane":"src/modules/model-selection/ContextPane.js","../shared/settings-navigation":"src/modules/shared/settings-navigation.js"},"src/modules/model-selection/service.js":{"./core-context":"src/modules/model-selection/core-context.js","./directory":"src/modules/model-selection/directory.js","./capability-refresh":"src/modules/model-selection/capability-refresh.js"},"src/modules/model-selection/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/model-selection/directory.js":{"immer":"vendor/immer.js","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"vendor/immer.js":{},"src/modules/model-selection/capability-refresh.js":{},"src/modules/model-selection/ModelSelect.js":{"./ContextPane":"src/modules/model-selection/ContextPane.js","./styles":"src/modules/model-selection/styles.js","./ContextPane.css":"src/modules/model-selection/ContextPane.css","../shared/managed-models":"src/modules/shared/managed-models.js"},"src/modules/model-selection/ContextPane.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./styles":"src/modules/model-selection/styles.js"},"src/modules/model-selection/styles.js":{"./ModelSelect.css":"src/modules/model-selection/ModelSelect.css"},"src/modules/model-selection/ModelSelect.css":{},"src/modules/model-selection/ContextPane.css":{},"src/modules/shared/managed-models.js":{},"src/modules/model-selection/locales.js":{},"src/modules/shared/settings-navigation.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

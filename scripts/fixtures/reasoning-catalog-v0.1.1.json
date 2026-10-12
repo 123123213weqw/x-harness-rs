@@ -1,0 +1,184 @@
+{
+  "packageVersion": "0.1.1",
+  "gitRevision": "b76585abb9102690d2dd85e385550e0d2f688601",
+  "catalogVersion": "2026-10-12.2",
+  "profiles": {
+    "deepseek-chat": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "deepseek-responses": {
+      "default_effort": "high",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "reasoning": {
+              "effort": "none"
+            }
+          }
+        },
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "reasoning": {
+              "effort": "low"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "high"
+            }
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "reasoning": {
+              "effort": "max"
+            }
+          }
+        }
+      ]
+    },
+    "glm-toggle": {
+      "default_effort": "on",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "on",
+          "name": "开启",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
+        }
+      ]
+    },
+    "glm-5.2": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "off",
+          "name": "关闭",
+          "request_patch": {
+            "thinking": {
+              "type": "disabled"
+            }
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    },
+    "glm-5.3": {
+      "default_effort": "max",
+      "efforts": [
+        {
+          "id": "low",
+          "name": "低",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "low"
+          }
+        },
+        {
+          "id": "high",
+          "name": "高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "high"
+          }
+        },
+        {
+          "id": "max",
+          "name": "最高",
+          "request_patch": {
+            "thinking": {
+              "type": "enabled"
+            },
+            "reasoning_effort": "max"
+          }
+        }
+      ]
+    }
+  }
+}

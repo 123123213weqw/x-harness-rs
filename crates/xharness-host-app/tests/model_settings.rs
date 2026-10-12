@@ -1178,3 +1178,159 @@ async fn legacy_output_migration_restores_native_budget_and_preserves_later_rpc_
     assert_eq!(budget.reserved_output_tokens, 32000);
     assert_eq!(budget.minimum_output_tokens, 8192);
 }
+
+#[tokio::test]
+async fn official_reasoning_catalog_is_automatic_read_only_and_rpc_selectable() {
+    for (base, model, levels, default) in [
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            vec!["off", "low", "high", "max"],
+            "high",
+        ),
+        (
+            "https://api.deepseek.com/v1",
+            "deepseek-v4-pro",
+            vec!["off", "low", "high", "max"],
+            "high",
+        ),
+        (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-4.7",
+            vec!["off", "on"],
+            "on",
+        ),
+        (
+            "https://api.z.ai/api/coding/paas/v4",
+            "glm-5.2",
+            vec!["off", "high", "max"],
+            "max",
+        ),
+        (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-5.3",
+            vec!["low", "high", "max"],
+            "max",
+        ),
+        (
+            "https://api.z.ai/api/paas/v4",
+            "glm-5.3-flash",
+            vec!["low", "high", "max"],
+            "max",
+        ),
+    ] {
+        let dir = TempDir::new();
+        // Provider ID/name are user labels, not capability identifiers.
+        let document = json!({"providers":{"my-service":{"baseURL":base,"api":"openai-completions","models":[{"id":"friendly-alias","upstreamModel":model,"contextWindow":32768,"maxTokens":4096}]}}});
+        let (host, runtime) = fixture_with_base(
+            &dir,
+            Arc::new(TestCredentials::default()),
+            Arc::new(MemorySessionStore::default()),
+            document.clone(),
+        )
+        .await;
+        let models = runtime.model_catalog();
+        let reasoning = models[0].reasoning.as_ref().unwrap();
+        assert_eq!(reasoning.default_effort.as_deref(), Some(default));
+        assert_eq!(
+            reasoning
+                .efforts
+                .iter()
+                .map(|e| e.id.as_str())
+                .collect::<Vec<_>>(),
+            levels
+        );
+        assert_eq!(models[0].reasoning_capability["source"], "documented");
+        let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+        let session = created["sessionId"].as_str().unwrap();
+        let public = rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":session}),
+        )
+        .await;
+        assert_eq!(
+            public["groups"][0]["models"][0]["reasoning"]["defaultEffort"],
+            default
+        );
+        for effort in &levels {
+            rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":session,"provider":"my-service","model":"friendly-alias","reasoningEffort":effort})).await;
+        }
+        let saved = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+        assert_eq!(
+            saved["namespaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|ns| ns["ns"] == MODEL_SETTINGS_NAMESPACE)
+                .unwrap()["value"],
+            document,
+            "derived capability must not become a sticky user override"
+        );
+        rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":session,"refreshCapabilities":true}),
+        )
+        .await;
+        assert_eq!(
+            runtime.model_catalog()[0].reasoning_capability["source"],
+            "documented"
+        );
+    }
+}
+
+#[tokio::test]
+async fn official_reasoning_catalog_never_overwrites_explicit_disable_custom_profile_or_proxy() {
+    for (base, model, explicit, expected) in [
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            Some(Value::Null),
+            None,
+        ),
+        (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            Some(
+                json!({"efforts":[{"id":"custom","name":"我的档位","request_patch":{"reasoning_effort":"high"}}]}),
+            ),
+            Some("custom"),
+        ),
+        ("http://127.0.0.1:12345/v1", "deepseek-flash", None, None),
+        ("https://api.deepseek.com", "unknown-new-model", None, None),
+    ] {
+        let dir = TempDir::new();
+        let mut entry = json!({"id":model,"contextWindow":32768,"maxTokens":4096});
+        if let Some(explicit) = explicit {
+            entry["reasoning"] = explicit;
+        }
+        let document = json!({"providers":{"user":{"baseURL":base,"api":"openai-completions","models":[entry]}}});
+        let (host, runtime) = fixture_with_base(
+            &dir,
+            Arc::new(TestCredentials::default()),
+            Arc::new(MemorySessionStore::default()),
+            document.clone(),
+        )
+        .await;
+        let models = runtime.model_catalog();
+        assert_eq!(
+            models[0]
+                .reasoning
+                .as_ref()
+                .map(|r| r.efforts[0].id.as_str()),
+            expected
+        );
+        assert_ne!(models[0].reasoning_capability["source"], "documented");
+        let saved = rpc(&host, RpcMethod::SettingsDescribe, json!({})).await;
+        assert_eq!(
+            saved["namespaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|ns| ns["ns"] == MODEL_SETTINGS_NAMESPACE)
+                .unwrap()["value"],
+            document
+        );
+    }
+}
