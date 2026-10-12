@@ -778,6 +778,13 @@ impl HostState {
             PromptSection::new("coding/workflow", "2", workflow),
             PromptSection::new("tool/jobs", "4", background_jobs),
         ];
+        if session.delegated {
+            sections.push(PromptSection::new(
+                "agent/delegated-clarification",
+                "1",
+                crate::questions::DELEGATED_QUESTION_POLICY,
+            ));
+        }
         let agent_markdown = std::path::Path::new(&session.cwd).join("AGENTS.md");
         if let Ok(bytes) = std::fs::read(&agent_markdown) {
             // The managed sink is intentionally small. Refuse to pin an
