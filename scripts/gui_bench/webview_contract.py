@@ -3,6 +3,7 @@
 Only observed labels/refs drive actions. Fixture state is read separately by the
 grader, never used to complete a task. Public GitHub mode is observation-only.
 """
+import json
 import time
 
 
@@ -58,7 +59,9 @@ class Contract:
         receipt = self.call('perform', request)
         if receipt.get('ok') is not True or receipt.get('effect') != 'applied':
             # Unknown/applied effects must NEVER be automatically replayed.
-            raise AssertionError('native action did not settle: ' + action + ' ' + label)
+            diagnostic = {key: receipt.get(key) for key in ('ok', 'effect', 'message')}
+            raise AssertionError('native action did not settle: ' + action + ' ' + label
+                                 + ' receipt=' + json.dumps(diagnostic, ensure_ascii=True))
         self.actions.append(dict(action=action, label=label))
         self.deny(request, 'consumed_frame')
 
