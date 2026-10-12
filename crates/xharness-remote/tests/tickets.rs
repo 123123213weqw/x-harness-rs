@@ -316,12 +316,43 @@ async fn distinct_authorized_controllers_share_one_native_instance_consumption_f
         )
         .await
         .unwrap();
-    let (one, two) = tokio::join!(g.dispatch(&one.key), g.dispatch(&two.key));
+    assert!(one.sequence < two.sequence);
+    // Direct workers may attempt the later delivery first. FIFO defers it
+    // without consuming a ticket or calling Host; only the accepted head runs.
     assert!(matches!(
-        (one.unwrap().state, two.unwrap().state),
-        (DeliveryState::Completed, DeliveryState::Rejected)
-            | (DeliveryState::Rejected, DeliveryState::Completed)
+        g.dispatch(&two.key).await,
+        Err(Error::SessionBlocked)
     ));
+    assert_eq!(
+        g.inspect(&two.key).await.unwrap().unwrap().state,
+        DeliveryState::Queued
+    );
+    assert_eq!(h.calls.load(Ordering::SeqCst), 0);
+    let (head, later) = tokio::join!(g.dispatch(&one.key), g.dispatch(&two.key));
+    assert_eq!(head.unwrap().state, DeliveryState::Completed);
+    let later = match later {
+        Ok(delivery) => delivery,
+        Err(Error::SessionBlocked) => {
+            // The head is now durably completed. Resume the still-queued
+            // delivery, never retry a dispatched/uncertain native operation.
+            assert_eq!(
+                g.inspect(&two.key).await.unwrap().unwrap().state,
+                DeliveryState::Queued
+            );
+            assert_eq!(h.calls.load(Ordering::SeqCst), 1);
+            g.dispatch(&two.key).await.unwrap()
+        }
+        Err(error) => panic!("unexpected later delivery error: {error:?}"),
+    };
+    assert_eq!(later.state, DeliveryState::Rejected);
+    assert_eq!(
+        g.dispatch(&two.key).await.unwrap().state,
+        DeliveryState::Rejected
+    );
+    assert_eq!(
+        g.dispatch(&one.key).await.unwrap().state,
+        DeliveryState::Completed
+    );
     assert_eq!(h.calls.load(Ordering::SeqCst), 1);
 }
 #[tokio::test]
