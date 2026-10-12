@@ -5,6 +5,17 @@ import {test} from 'node:test'
 import {sha256,readInput} from './ui-build-contract.mjs'
 const root=resolve('ui/reference/master-a613970')
 const metadata=JSON.parse(readFileSync(join(root,'REFERENCE.json'),'utf8'))
+const approvedAdditions = [
+  { id: '@xlang/xharness-client-ui-performance', kind: 'source-module', source: 'src/modules/performance/index.ts', inject: ['@xharness/dsh-client-ui-conversation', '@xharness/dsh-client-runtime', '@xharness/dsh-client-locale'] },
+  { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
+  { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },
+  { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime', '@xlang/xharness-client-ui-assistant'] },
+]
+function assertReviewedAdditions(manifest, baseline) {
+  const additions = manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id))
+  assert.deepEqual(additions.map(({id,kind,source,inject}) => ({id,kind,source,inject})), approvedAdditions, 'only reviewed source/transport additions and their exact ABI are admitted')
+  assert.ok(additions.every(row => row.immediately !== true), 'reviewed additions must not add eager boot work')
+}
 test('parity reference is independent immutable merged master, not a candidate self-golden',()=>{
   assert.equal(metadata.sourceCommit,'a613970c78a36a024de56100078323df25b96004')
   assert.equal(metadata.files.length,216)
@@ -52,18 +63,47 @@ test('production manifest retains every merged-master module and no legacy execu
   }
   // Admit only reviewed additions, pinning their source and injected ABI;
   // the frozen baseline remains immutable and arbitrary WIP modules still fail.
-  const approvedAdditions = [
-    { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
-    { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },
-    { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime', '@xlang/xharness-client-ui-assistant'] },
-  ]
-  const additions = manifest.modules.filter(row => !baseline.entries.some(old => old.id === row.id))
-  assert.deepEqual(additions.map(({id,kind,source,inject}) => ({id,kind,source,inject})), approvedAdditions, 'only reviewed source/transport additions and their exact ABI are admitted')
-  assert.ok(additions.every(row => row.immediately !== true), 'reviewed additions must not add eager boot work')
+  assertReviewedAdditions(manifest, baseline)
   assert.ok(manifest.modules.every(row => row.source.startsWith('src/')))
   assert.ok(manifest.assets.every(row => !row.source.startsWith('legacy/') && !row.source.startsWith('reference/') && !row.source.startsWith('dist/')))
   const originalLibrary = manifest.assets.filter(row => row.path.endsWith('.js') && row.kind !== 'script-ts')
   assert.equal(originalLibrary.length, 1)
   assert.equal(originalLibrary[0].source, 'plugins/@xlang/xharness-client-ui-terminal/vendor/xterm.js')
   assert.equal(originalLibrary[0].sha256, sha256(readFileSync(join(root, originalLibrary[0].source))))
+})
+
+test('reviewed additions still reject unknown modules, removal and registration reordering', () => {
+  const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
+  const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
+  for (const mutate of [
+    candidate => candidate.modules.push({id:'@xlang/unreviewed-wip', kind:'source-module', source:'src/modules/wip/index.ts', inject:[]}),
+    candidate => { candidate.modules = candidate.modules.filter(row => row.id !== '@xlang/xharness-client-ui-performance') },
+    candidate => { const index = candidate.modules.findIndex(row => row.id === '@xlang/xharness-client-ui-performance'); candidate.modules.push(...candidate.modules.splice(index, 1)) },
+  ]) {
+    const candidate = structuredClone(manifest); mutate(candidate)
+    assert.throws(() => assertReviewedAdditions(candidate, baseline), /only reviewed source\/transport additions/)
+  }
+})
+test('performance allowance pins source, module kind and the complete injected ABI', () => {
+  const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
+  const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
+  for (const mutate of [
+    row => { row.source = 'src/modules/wip/index.ts' },
+    row => { row.kind = 'source-library' },
+    row => { row.inject = row.inject.slice(0, -1) },
+    row => { row.inject.push('@xharness/dsh-client-connection') },
+    row => { row.inject.reverse() },
+  ]) {
+    const candidate = structuredClone(manifest)
+    const row = candidate.modules.find(row => row.id === '@xlang/xharness-client-ui-performance')
+    assert.ok(row); mutate(row)
+    assert.throws(() => assertReviewedAdditions(candidate, baseline), /only reviewed source\/transport additions/)
+  }
+})
+test('performance allowance cannot add eager boot work', () => {
+  const manifest = JSON.parse(readFileSync('ui/modules.json', 'utf8'))
+  const baseline = JSON.parse(readFileSync(join(root, 'client-graph.json'), 'utf8'))
+  const row = manifest.modules.find(row => row.id === '@xlang/xharness-client-ui-performance')
+  assert.ok(row); row.immediately = true
+  assert.throws(() => assertReviewedAdditions(manifest, baseline), /must not add eager boot work/)
 })
