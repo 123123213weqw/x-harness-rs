@@ -273,10 +273,22 @@ pub trait Store: Send + Sync + 'static {
         })
     }
 
-    /// Whether the caller must materialize a full request envelope for audit.
+    /// Whether the caller must materialize conversation inputs for full audit.
+    /// System/tool surface capture does not depend on this diagnostic switch.
     /// Stores retaining the original header keep the compatible default.
     fn captures_full_request_audit(&self) -> bool {
         true
+    }
+
+    /// Archive only the exact system prompt and tool definitions, independently
+    /// of full request diagnostics. `None` means the store retains them inline.
+    /// The session id is trusted runtime scope, never model-provided metadata.
+    async fn archive_harness_snapshot(
+        &self,
+        _session_id: &str,
+        _header: &crate::RequestHeader,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        Ok(None)
     }
 
     /// Store request audit data outside the hot journal when supported.
@@ -304,6 +316,19 @@ pub trait Store: Send + Sync + 'static {
                 None
             })
         }))
+    }
+
+    /// Resolve only system text and tool definitions. Full conversation inputs
+    /// must never be returned to the Harness inspector.
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<crate::RequestHeader>, StoreError> {
+        Ok(self
+            .request_header(session_id, seq)
+            .await?
+            .map(|h| h.harness_view()))
     }
 
     /// Atomically append a batch iff `expected_revision` is still current.

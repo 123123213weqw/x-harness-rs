@@ -33,6 +33,8 @@ use xharness_session::{
 };
 
 mod audit;
+mod blobs;
+mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
 mod results;
@@ -96,8 +98,8 @@ pub struct JsonlSessionStore {
 }
 
 /// Request diagnostics are independent of the authoritative conversation
-/// journal. Ordinary operation keeps only small metadata; exact payload
-/// capture must be opted into explicitly for a debugging session.
+/// journal and default-on Harness system/tool snapshots. Ordinary request
+/// audits keep only metadata; full conversation input capture is opt-in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RequestAuditMode {
     #[default]
@@ -278,6 +280,67 @@ fn catalog_path(session_path: &Path) -> PathBuf {
 }
 
 impl JsonlSessionStore {
+    async fn read_request_header(
+        &self,
+        id: &str,
+        seq: u64,
+        harness_only: bool,
+    ) -> Result<Option<xharness_session::RequestHeader>, StoreError> {
+        let permit = self
+            .audit_reads
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| backend_message("audit reader closed"))?;
+        let owned = id.to_owned();
+        let (path, guard) = self.locked_path(id).await?;
+        let root = self.root.clone();
+        let cache = self.cache.clone();
+        run_blocking(move || {
+            let _permit = permit;
+            let _guard = guard;
+            let _lock = acquire_file_lock(&path)?;
+            let Some(cut) = load_file_cached(&path, &owned, &cache)? else {
+                return Ok(None);
+            };
+            let Some((offset, len)) = cut.audit_offsets.get(&seq).copied() else {
+                return Ok(None);
+            };
+            let format_version = cut.format_version;
+            drop(cut);
+            if len > 128 * 1024 * 1024 {
+                return Err(backend_message("audit record exceeds 128 MiB"));
+            }
+            let mut file = secure_open_options()
+                .read(true)
+                .open(&path)
+                .map_err(|e| backend_error("open request audit", &path, e))?;
+            ensure_regular_file(&file, &path, "session audit")?;
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| backend_error("seek request audit", &path, e))?;
+            let mut bytes = vec![0; len as usize];
+            file.read_exact(&mut bytes)
+                .map_err(|e| backend_error("read request audit", &path, e))?;
+            let record = decode_batch_line(&bytes, format_version)
+                .map_err(|e| backend_message(e.to_string()))?;
+            for event in record.events {
+                if event.seq == seq {
+                    if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
+                        return if harness_only {
+                            harness_snapshot::expand(&root, &owned, header)
+                        } else {
+                            audit::expand(&root, header)
+                        }
+                        .map(Some);
+                    }
+                }
+            }
+            Err(backend_message(
+                "audit index did not match authoritative sequence",
+            ))
+        })
+        .await
+    }
     /// Open (or create) a storage directory.
     ///
     /// The directory is canonicalized once so independently constructed store
@@ -902,6 +965,7 @@ impl Store for JsonlSessionStore {
                 let _ = sync_parent_directory(&path);
             }
             results::delete(&root, &session_id)?;
+            harness_snapshot::delete(&root, &session_id)?;
             cache_remove(&cache, &path)
         })
         .await
@@ -1079,60 +1143,42 @@ impl Store for JsonlSessionStore {
         let root = self.root.clone();
         run_blocking(move || audit::archive(&root, header)).await
     }
+    async fn archive_harness_snapshot(
+        &self,
+        id: &str,
+        header: &xharness_session::RequestHeader,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        let (path, guard) = self.locked_path(id).await?;
+        let root = self.root.clone();
+        let id = id.to_owned();
+        let header = header.harness_view();
+        run_blocking(move || {
+            let _guard = guard;
+            let _lock = acquire_file_lock(&path)?;
+            let file = secure_open_options()
+                .read(true)
+                .open(&path)
+                .map_err(|e| backend_error("open Harness session", &path, e))?;
+            ensure_regular_file(&file, &path, "Harness session")?;
+            harness_snapshot::archive(&root, &id, &header).map(Some)
+        })
+        .await
+    }
+
     async fn request_header(
         &self,
         id: &str,
         seq: u64,
     ) -> Result<Option<xharness_session::RequestHeader>, StoreError> {
-        let permit = self
-            .audit_reads
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| backend_message("audit reader closed"))?;
-        let owned = id.to_owned();
-        let (path, guard) = self.locked_path(id).await?;
-        let root = self.root.clone();
-        let cache = self.cache.clone();
-        run_blocking(move || {
-            let _permit = permit;
-            let _guard = guard;
-            let _lock = acquire_file_lock(&path)?;
-            let Some(cut) = load_file_cached(&path, &owned, &cache)? else {
-                return Ok(None);
-            };
-            let Some((offset, len)) = cut.audit_offsets.get(&seq).copied() else {
-                return Ok(None);
-            };
-            let format_version = cut.format_version;
-            drop(cut);
-            if len > 128 * 1024 * 1024 {
-                return Err(backend_message("audit record exceeds 128 MiB"));
-            }
-            let mut file = secure_open_options()
-                .read(true)
-                .open(&path)
-                .map_err(|e| backend_error("open request audit", &path, e))?;
-            ensure_regular_file(&file, &path, "session audit")?;
-            file.seek(SeekFrom::Start(offset))
-                .map_err(|e| backend_error("seek request audit", &path, e))?;
-            let mut bytes = vec![0; len as usize];
-            file.read_exact(&mut bytes)
-                .map_err(|e| backend_error("read request audit", &path, e))?;
-            let record = decode_batch_line(&bytes, format_version)
-                .map_err(|e| backend_message(e.to_string()))?;
-            for event in record.events {
-                if event.seq == seq {
-                    if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
-                        return audit::expand(&root, header).map(Some);
-                    }
-                }
-            }
-            Err(backend_message(
-                "audit index did not match authoritative sequence",
-            ))
-        })
-        .await
+        self.read_request_header(id, seq, false).await
+    }
+
+    async fn harness_header(
+        &self,
+        id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, StoreError> {
+        self.read_request_header(id, seq, true).await
     }
     async fn inspect(&self, session_id: &str) -> Result<Option<SessionInspection>, StoreError> {
         let owned = session_id.to_owned();
