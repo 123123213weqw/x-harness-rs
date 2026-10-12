@@ -174,7 +174,7 @@ export function updateCompactionState<State extends CompactionEvidence>(
   state: State,
   match: ConversationMatch,
 ): State {
-  if (isSessionEvent(match.event, 'compaction/progress') && (state.end || state.presentation?.phase === 'failed' || state.presentation?.phase === 'succeeded')) return state
+  if (isSessionEvent(match.event, 'compaction/progress') && (state.end || (state.presentation !== undefined && state.presentation.phase !== 'running'))) return state
   const presentation = projectedCompactionView(match.view)
   let next = state
   if (isSessionEvent(match.event, 'compaction/start')) next = { ...state, start: match, end: undefined }

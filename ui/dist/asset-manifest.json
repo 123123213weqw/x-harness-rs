@@ -650,7 +650,7 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "0de608ed79b174afcfc088f22d1d3bb958dc6a9f45f1fd91e2db7e870203bc4f",
+      "sha256": "298dcc4531267783ff5f098d27de24815e3396b718e8125ef5d8780bf644e4cc",
       "bytes": 26146
     },
     "desktop-bootstrap.js": {
@@ -678,7 +678,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "cdf33d1746c31f610b1560241881ca5bbcb7723d78ae255ac136811e244ba409",
+      "sha256": "f9d5ea45696487bb3e615aacc898d92e9c00c4afbc2e27b974695338ef882422",
       "bytes": 26398
     },
     "logo-motion.css": {
@@ -770,8 +770,8 @@
       "bytes": 18939
     },
     "plugins/@xharness/dsh-client-runtime/client.js": {
-      "sha256": "7ff35dcec2be204dd380daef32b6ea5604ca850cedce02ad6199d8ad7c570fe4",
-      "bytes": 1165387
+      "sha256": "9d60575ad9b26770c8173c26dff9b9f3ffe0a2640c2ac0bd252c381f9eaf6b06",
+      "bytes": 1167296
     },
     "plugins/@xharness/dsh-client-ui-agent-preset/client.js": {
       "sha256": "d323ea922a1d5bee0772a6df74e01b6207ded6c92180e1f2eec5b719a972e2e4",
@@ -790,8 +790,8 @@
       "bytes": 59312
     },
     "plugins/@xharness/dsh-client-ui-conversation/client.js": {
-      "sha256": "1284fda7d16c7b53cbe7b61fdbb432c7d4f4807b24b7d74d3c6cc4e2d5f9e9de",
-      "bytes": 1431194
+      "sha256": "77a4c57c98c7e24d3afc3d8ba59623b1bac4b8b2eea270a454eed40e0ccfc30d",
+      "bytes": 1435220
     },
     "plugins/@xharness/dsh-client-ui-cordis/client.js": {
       "sha256": "806599dc2b8a73a39d65c5ce991a3efc3d4548f564ec422d1e1f3acbcfdda909",
@@ -882,8 +882,8 @@
       "bytes": 859891
     },
     "plugins/@xharness/dsh-client-ui-trajectory/client.js": {
-      "sha256": "a865d8cd66d10fff16e98055c7d44b56dc287f91ad09d3713d4ea18cbe590518",
-      "bytes": 1219577
+      "sha256": "a98170a7f63956f11d3769520c3f7f052294bbc1d9af2400984fcd54c931908f",
+      "bytes": 1222996
     },
     "plugins/@xharness/dsh-client-ui-user-questions/client.js": {
       "sha256": "307ec76f3198fe786e32b561975597bf822d613fdd24093491152a4eca06df36",

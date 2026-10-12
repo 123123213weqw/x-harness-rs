@@ -1,4 +1,5 @@
 import {z} from 'zod'
+import { CompactionEndOutcomeSchema } from '../shared/compaction-outcome'
 import {isObjectRecord} from '../shared/runtime-types'
 import {imageAttachmentRefSchema} from '../client-connection/contracts/host/apiproxy/api/sessions.schema'
 import {promptSchema,requestConfigSchema} from './wire-event-codec'
@@ -48,8 +49,8 @@ const change=z.looseObject({seq:n,time:n,kind:z.enum(['initial','system','tools'
 const requestFacts={startSeq:n,startedAt:n,completedAt:n.nullable(),status:z.enum(['running','complete','error']),error:s.optional(),provenance:provenance.optional(),requestConfig:config.optional(),usage:z.unknown().optional(),resultSeq:n.optional()}
 const request=z.union([
  z.looseObject({...requestFacts,purpose:z.literal('assistant'),turn:n,step:n,prompt:promptSchema.optional(),promptChange:change.optional(),retry:n.optional(),maxRetries:n.optional(),retryDelayMs:n.optional()}),
- z.looseObject({...requestFacts,purpose:z.literal('compaction'),turn:n.nullable(),step:z.literal(0),replacementSeq:n.optional(),summary:content.optional(),rawOutput:content.optional()}),
-]).refine(value => exactOptionals(value,['error','provenance','requestConfig','resultSeq','prompt','promptChange','retry','maxRetries','retryDelayMs','replacementSeq','summary','rawOutput']))
+ z.looseObject({...requestFacts,purpose:z.literal('compaction'),status:z.enum(['running','complete','error','skipped','cancelled']),outcome:CompactionEndOutcomeSchema.optional(),turn:n.nullable(),step:z.literal(0),replacementSeq:n.optional(),summary:content.optional(),rawOutput:content.optional()}),
+]).refine(value => exactOptionals(value,['error','provenance','requestConfig','resultSeq','prompt','promptChange','retry','maxRetries','retryDelayMs','replacementSeq','summary','rawOutput','outcome']))
 const location=z.union([
  z.looseObject({kind:z.enum(['session','unresolved'])}),
  z.looseObject({kind:z.literal('turn'),turn:z.looseObject({turn:n})}),

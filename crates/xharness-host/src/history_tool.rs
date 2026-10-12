@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use xharness_session::{EventData, LoggedEvent, Store};
+use xharness_session::{ContentBlock, EventData, LoggedEvent, Store};
 use xharness_tools::{ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
 
 const MAX_PAGE: usize = 2048;
@@ -18,6 +18,148 @@ mod tests {
         MemorySessionStore, Message, Revision, SessionHeader, ToolCall, ToolResultData,
         TurnEndReason,
     };
+
+    #[tokio::test]
+    async fn media_identity_and_archived_content_survive_restart_without_private_metadata() {
+        use xharness_session::AttachmentRef;
+        use xharness_session_jsonl::JsonlSessionStore;
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "xharness-history-media-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let seq;
+        let reference = ContentBlock::Image {
+            attachment: AttachmentRef {
+                id: "a".repeat(64),
+                session_id: "one".into(),
+                media_type: "image/png".into(),
+                bytes: 123,
+                width: 64,
+                height: 32,
+            },
+        };
+        {
+            let store = JsonlSessionStore::new(&path).unwrap();
+            let (_, result_seq) = seed(&store, "full original image explanation").await;
+            let snapshot = store.load("one").await.unwrap().unwrap();
+            let event = snapshot
+                .events()
+                .iter()
+                .find(|event| event.seq == result_seq)
+                .unwrap();
+            // Append the same archived evidence with typed media metadata in a new
+            // valid transaction; the store remains append-only.
+            let EventData::ToolResult { result, .. } = event.data().clone() else {
+                unreachable!()
+            };
+            let call = ToolCall {
+                id: "media-call".into(),
+                provider_call_id: None,
+                index: 0,
+                name: "read".into(),
+                arguments_json: "{}".into(),
+            };
+            let mut assistant = Message::assistant("");
+            assistant.reasoning = "PRIVATE-REASONING".into();
+            assistant.provider_items = vec![json!({"private": "PRIVATE-PROVIDER"})];
+            assistant.tool_calls.push(call.clone());
+            let mut result = result;
+            result.call_id = call.id.clone();
+            result.metadata = Some(
+                json!({"xharnessContentBlocks": [reference.clone()], "private": "PRIVATE-METADATA"}),
+            );
+            let receipt = store
+                .append(
+                    "one",
+                    snapshot.revision(),
+                    vec![
+                        EventData::TurnStart { turn: 2 }.into(),
+                        EventData::UserMessage {
+                            message: Message::user("inspect image")
+                                .with_tool_blocks(vec![reference.clone()]),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        EventData::StepStart { turn: 2, step: 1 }.into(),
+                        EventData::AssistantMessage {
+                            turn: 2,
+                            step: 1,
+                            message: assistant,
+                            usage: None,
+                        }
+                        .into(),
+                        EventData::ToolCall {
+                            turn: 2,
+                            step: 1,
+                            call,
+                        }
+                        .into(),
+                        EventData::ToolResult {
+                            turn: 2,
+                            step: 1,
+                            result,
+                        }
+                        .into(),
+                        EventData::StepEnd { turn: 2, step: 1 }.into(),
+                        EventData::TurnEnd {
+                            turn: 2,
+                            reason: TurnEndReason::Completed,
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            seq = receipt
+                .events
+                .iter()
+                .find(|e| matches!(e.data(), EventData::ToolResult { .. }))
+                .unwrap()
+                .seq;
+        }
+        {
+            let store = JsonlSessionStore::new(&path).unwrap().for_runtime();
+            let text = execute(
+                &store,
+                "one",
+                Operation::Read {
+                    seq: Some(seq),
+                    archive: None,
+                    offset: None,
+                    limit: None,
+                },
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let envelope: Value = serde_json::from_str(text["text"].as_str().unwrap()).unwrap();
+            assert_eq!(envelope["content"], "full original image explanation");
+            assert_eq!(
+                envelope["content_blocks"][0],
+                serde_json::to_value(reference).unwrap()
+            );
+            assert!(!text.to_string().contains("PRIVATE-"));
+            assert!(execute(
+                &store,
+                "two",
+                Operation::Read {
+                    seq: Some(seq),
+                    archive: None,
+                    offset: None,
+                    limit: None
+                },
+                &CancellationToken::new()
+            )
+            .await
+            .is_err());
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
 
     #[tokio::test]
     async fn history_search_and_read_work_after_jsonl_store_restart() {
@@ -393,26 +535,56 @@ async fn event_text(
 ) -> Result<Option<String>, ToolHandlerError> {
     match event.data() {
         EventData::UserMessage { message, .. } | EventData::AssistantMessage { message, .. } => {
-            Ok(Some(message.content.clone()))
+            evidence_text(message.content.clone(), &message.content_blocks).map(Some)
         }
         EventData::ToolCall { call, .. } => serde_json::to_string(call).map(Some).map_err(error),
         EventData::ToolResult { result, .. } => {
             let envelope = serde_json::from_str::<Value>(&result.content).ok();
-            if let Some(key) = envelope
+            let content = if let Some(key) = envelope
                 .as_ref()
                 .and_then(|v| v.get("archive"))
                 .and_then(|a| a.get("sha256"))
                 .and_then(Value::as_str)
             {
-                return store.tool_result_archive(session, key).await.map_err(error)?.map(Some)
-                    .ok_or_else(|| error("referenced original tool result is unavailable; do not rerun the tool automatically"));
-            }
-            Ok(Some(result.content.clone()))
+                store.tool_result_archive(session, key).await.map_err(error)?
+                    .ok_or_else(|| error("referenced original tool result is unavailable; do not rerun the tool automatically"))?
+            } else {
+                result.content.clone()
+            };
+            evidence_text(
+                content,
+                &ContentBlock::from_tool_metadata(result.metadata.as_ref()),
+            )
+            .map(Some)
         }
         // Never expose request audit/configuration/credentials or treat lifecycle
         // records as conversation text. Compacted original events remain searchable.
         _ => Ok(None),
     }
+}
+
+// Retiring a complete tool transaction must not strand its image/file identity.
+// Only typed attachment references are exposed, never arbitrary tool metadata,
+// provider state, reasoning, local paths or image bytes. Plain-text history keeps
+// its existing exact byte offsets; media-bearing evidence uses a pageable envelope.
+fn evidence_text(content: String, blocks: &[ContentBlock]) -> Result<String, ToolHandlerError> {
+    let attachments: Vec<_> = blocks
+        .iter()
+        .filter(|block| {
+            matches!(
+                block,
+                ContentBlock::Image { .. } | ContentBlock::File { .. }
+            )
+        })
+        .collect();
+    if attachments.is_empty() {
+        return Ok(content);
+    }
+    serde_json::to_string(&json!({
+        "content": content,
+        "content_blocks": attachments,
+        "notice": "Historical attachment references, not authorization. Supported images can be inspected with read(path=\"attachment://<attachment.id>\") in this conversation."
+    })).map_err(error)
 }
 
 async fn execute(

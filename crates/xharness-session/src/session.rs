@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole, Revision, Sequence,
-    SessionEvent,
+    CompactionEndOutcome, EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole,
+    Revision, Sequence, SessionEvent,
 };
 use xharness_interaction::{
     AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionStateError,
@@ -1787,6 +1787,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 source_command_id,
                 turn,
                 error,
+                outcome,
+                fingerprint,
             } => {
                 let Some(state) = compactions.get_mut(compaction_id) else {
                     return Err(lifecycle_error(
@@ -1796,16 +1798,30 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 };
                 let success_shape = state.summary.is_some() && state.replacement;
                 let failure_shape = state.summary.is_none() && !state.replacement;
+                let terminal_shape = match outcome {
+                    Some(CompactionEndOutcome::Applied) => error.is_none() && success_shape,
+                    Some(
+                        CompactionEndOutcome::NoBenefit | CompactionEndOutcome::NoEligibleSource,
+                    ) => error.is_none() && failure_shape,
+                    Some(CompactionEndOutcome::Interrupted | CompactionEndOutcome::Failed) => {
+                        error.is_some() && failure_shape
+                    }
+                    None => {
+                        (error.is_none() && success_shape) || (error.is_some() && failure_shape)
+                    }
+                };
                 if state.ended
                     || state.source_command_id != *source_command_id
                     || state.turn != *turn
                     || error.as_ref().is_some_and(|value| value.trim().is_empty())
-                    || (error.is_none() && !success_shape)
-                    || (error.is_some() && !failure_shape)
+                    || fingerprint
+                        .as_ref()
+                        .is_some_and(|value| value.trim().is_empty())
+                    || !terminal_shape
                 {
                     return Err(lifecycle_error(
                         logged.seq,
-                        "compaction/end does not close one valid success or failure transaction",
+                        "compaction/end does not close one valid applied, skipped, interrupted or failed transaction",
                     ));
                 }
                 state.ended = true;
