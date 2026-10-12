@@ -906,7 +906,9 @@ async fn seed_long_compaction_history(store: &EventMemorySessionStore, session_i
             vec![
                 SessionEventData::TurnStart { turn: 1 }.into(),
                 SessionEventData::UserMessage {
-                    message: AgentMessage::user(format!("OLD-CONTEXT:{}", "x".repeat(6_000))),
+                    message: AgentMessage::user(
+                        "Original task scope: inspect only; do not publish.",
+                    ),
                     surface_replace: None,
                 }
                 .into(),
@@ -918,11 +920,24 @@ async fn seed_long_compaction_history(store: &EventMemorySessionStore, session_i
                 SessionEventData::AssistantMessage {
                     turn: 1,
                     step: 1,
-                    message: AgentMessage::assistant("old answer"),
+                    message: AgentMessage::assistant(format!("OLD-CONTEXT:{}", "x".repeat(6_000))),
                     usage: None,
                 }
                 .into(),
                 SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+                SessionEventData::StepStart { turn: 1, step: 2 }.into(),
+                SessionEventData::RequestHeader {
+                    header: xharness_session::RequestHeader::new("test-provider", "test-model"),
+                }
+                .into(),
+                SessionEventData::AssistantMessage {
+                    turn: 1,
+                    step: 2,
+                    message: AgentMessage::assistant("old answer"),
+                    usage: None,
+                }
+                .into(),
+                SessionEventData::StepEnd { turn: 1, step: 2 }.into(),
                 SessionEventData::TurnEnd {
                     turn: 1,
                     reason: TurnEndReason::Completed,
@@ -6348,7 +6363,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
     for input in [900, 980] {
         let provider = Arc::new(SequencedCountingProvider::new(
             if input == 900 {
-                vec![900, 500, 980]
+                vec![900, 500, 980, 900]
             } else {
                 vec![980, 500, 980]
             },
@@ -6381,7 +6396,16 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             ..CompactionConfig::default()
         });
         let (_, result) = collect(LoopEngine.start(request)).await;
-        assert_eq!(result.status, LoopStatus::Failed);
+        assert_eq!(
+            result.status,
+            if input == 900 {
+                LoopStatus::Completed
+            } else {
+                LoopStatus::Failed
+            },
+            "input={input}: {:?}",
+            result.error
+        );
         let session = journal.load("candidate-budget").await.unwrap().unwrap();
         assert!(session
             .derive_messages()
@@ -6391,12 +6415,414 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             .events()
             .iter()
             .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
-        assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionEnd { error: Some(message), .. } if message.contains("candidate still exceeds"))));
+        assert!(
+            session.events().iter().any(|e| matches!(
+                e.data(),
+                SessionEventData::CompactionEnd {
+                    outcome: Some(xharness_session::CompactionEndOutcome::NoBenefit),
+                    ..
+                }
+            )),
+            "input={input}"
+        );
+        assert_eq!(provider.inner.attempts(), if input == 900 {2} else {1},
+            "soft pressure must revalidate original before continuing; overflow must never send an oversized main request");
+        let requests = provider.inner.requests();
+        if input == 900 {
+            assert_eq!(result.final_text, "done");
+            assert!(requests[1]
+                .messages
+                .iter()
+                .any(|m| m.content.contains("OLD-CONTEXT")));
+            assert!(!requests[1]
+                .messages
+                .iter()
+                .any(|m| m.content.contains("SMALL-CANDIDATE")));
+        } else {
+            assert!(result
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("does not reduce the complete request"));
+        }
+    }
+}
+
+struct CounterRejectionProbe {
+    inner: ScriptProvider,
+    counts: AtomicUsize,
+    rejection: ProviderError,
+    counted: Mutex<Vec<ProviderRequest>>,
+}
+#[async_trait]
+impl ModelProvider for CounterRejectionProbe {
+    fn provider_name(&self) -> &str {
+        "test-provider"
+    }
+    fn model_name(&self) -> Option<&str> {
+        Some("test-model")
+    }
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        self.counted.lock().unwrap().push(request.clone());
+        let call = self.counts.fetch_add(1, Ordering::SeqCst);
+        if call == 0 {
+            return Err(self.rejection.clone());
+        }
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "native-counter-probe",
+            if call == 1 { 500 } else { 300 },
+        )))
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancel: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, cancel).await
+    }
+}
+
+#[tokio::test]
+async fn native_counter_context_400_recovers_but_auth_and_generic_400_do_not_fallback() {
+    for (name, rejection, recover) in [
+        (
+            "context",
+            ProviderError::http(
+                400,
+                "request (1200 tokens) exceeds the available context size (1000 tokens)",
+            ),
+            true,
+        ),
+        (
+            "auth",
+            ProviderError::http(401, "counter credential rejected"),
+            false,
+        ),
+        (
+            "bad-request",
+            ProviderError::http(400, "invalid counter field"),
+            false,
+        ),
+    ] {
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let session_id = format!("counter-reject-{name}");
+        seed_long_compaction_history(journal.as_ref(), &session_id).await;
+        let original = journal.load(&session_id).await.unwrap().unwrap();
+        let provider = Arc::new(CounterRejectionProbe {
+            inner: ScriptProvider::new([
+                vec![
+                    Ok(ProviderEvent::TextDelta("NATIVE-COUNTER-CHECKPOINT".into())),
+                    Ok(completed()),
+                ],
+                vec![
+                    Ok(ProviderEvent::TextDelta(
+                        "done after counter recovery".into(),
+                    )),
+                    Ok(completed()),
+                ],
+            ]),
+            counts: AtomicUsize::new(0),
+            rejection,
+            counted: Mutex::new(Vec::new()),
+        });
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+        request.session_id = Some(session_id.clone());
+        request.journal_store = Some(journal.clone());
+        request.token_guard = Some(
+            TokenGuard::conservative(TokenBudget {
+                context_window_tokens: 1000,
+                reserved_output_tokens: 40,
+                minimum_output_tokens: 40,
+                safety_margin_tokens: 10,
+            })
+            .unwrap(),
+        );
+        request.compaction = Some(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(10),
+            max_tokens: 64,
+            ..CompactionConfig::default()
+        });
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        let after = journal.load(&session_id).await.unwrap().unwrap();
+        assert_eq!(
+            &after.events()[..original.events().len()],
+            original.events()
+        );
+        if recover {
+            assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+            assert_eq!(
+                provider.inner.attempts(),
+                2,
+                "only auxiliary summary followed by admitted main request"
+            );
+            assert_eq!(provider.counts.load(Ordering::SeqCst), 4);
+            let counted = provider.counted.lock().unwrap();
+            assert_eq!(
+                counted[2].messages, counted[3].messages,
+                "full candidate must be recounted for actual main request"
+            );
+            assert!(provider.inner.requests()[0]
+                .messages
+                .iter()
+                .any(|m| m.content.contains("OLD-CONTEXT")));
+            assert!(!provider.inner.requests()[1]
+                .messages
+                .iter()
+                .any(|m| m.content.contains("OLD-CONTEXT")));
+            assert!(after.events().iter().any(|e| matches!(
+                e.data(),
+                SessionEventData::CompactionEnd {
+                    outcome: Some(xharness_session::CompactionEndOutcome::Applied),
+                    ..
+                }
+            )));
+        } else {
+            assert_eq!(result.status, LoopStatus::Failed);
+            assert_eq!(provider.counts.load(Ordering::SeqCst), 1);
+            assert_eq!(provider.inner.attempts(),0,"auth/general request failure cannot be reinterpreted as capacity or send permission");
+            assert!(result
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("provider input token count failed"));
+            assert!(!after
+                .events()
+                .iter()
+                .any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+            assert!(after
+                .derive_messages()
+                .iter()
+                .any(|m| m.content.contains("OLD-CONTEXT")));
+        }
+    }
+}
+
+#[tokio::test]
+async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
+    for input in [900, 980] {
+        let original = format!(
+            "USER-EVIDENCE:{}; scope=read-only; do not publish",
+            "x".repeat(6_000)
+        );
+        let provider = Arc::new(ScriptProvider::new([vec![
+            Ok(ProviderEvent::TextDelta(
+                "read-only observation complete".into(),
+            )),
+            Ok(completed()),
+        ]]));
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let mut request =
+            LoopRequest::new(provider.clone(), vec![AgentMessage::user(original.clone())]);
+        request.session_id = Some("pinned-user".into());
+        request.journal_store = Some(journal.clone());
+        request.token_guard = Some(
+            TokenGuard::new(
+                Arc::new(FixedTokenMeter { total: input }),
+                TokenBudget {
+                    context_window_tokens: 1000,
+                    reserved_output_tokens: 40,
+                    minimum_output_tokens: 40,
+                    safety_margin_tokens: 10,
+                },
+            )
+            .unwrap(),
+        );
+        request.compaction = Some(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(10),
+            max_tokens: 64,
+            ..CompactionConfig::default()
+        });
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(
+            result.status,
+            if input == 900 {
+                LoopStatus::Completed
+            } else {
+                LoopStatus::Failed
+            },
+            "input={input}: {:?}",
+            result.error
+        );
+        assert_eq!(
+            provider.attempts(),
+            usize::from(input == 900),
+            "no auxiliary or unsafe main request can be sent for protected source"
+        );
+        let session = journal.load("pinned-user").await.unwrap().unwrap();
+        assert!(session
+            .derive_messages()
+            .iter()
+            .any(|message| message.content == original));
+        assert!(!session
+            .events()
+            .iter()
+            .any(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. })));
+        if input == 900 {
+            assert!(
+                session.events().iter().any(|event| matches!(
+                    event.data(),
+                    SessionEventData::CompactionEnd {
+                        outcome: Some(xharness_session::CompactionEndOutcome::NoEligibleSource),
+                        error: None,
+                        ..
+                    }
+                )),
+                "soft no-eligible must close explicitly without rewriting the user instruction"
+            );
+            assert!(provider.requests()[0]
+                .messages
+                .iter()
+                .any(|message| message.content == original));
+        } else {
+            let error = result.error.as_deref().unwrap();
+            assert!(error.contains("token budget rejected request"));
+            assert!(
+                error.contains("protected") || error.contains("uncompressible"),
+                "capacity failure should identify pinned input: {error}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn successive_manual_compactions_consume_new_raw_spans_not_old_checkpoints() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let session_id = "incremental-manual";
+    seed_long_compaction_history(journal.as_ref(), session_id).await;
+    let mut prior_replacement = None;
+    for round in [1, 2] {
+        if round == 2 {
+            let current = journal.load(session_id).await.unwrap().unwrap();
+            journal.append(session_id,current.revision(),vec![
+                SessionEventData::TurnStart {turn:3}.into(),
+                SessionEventData::UserMessage {message:AgentMessage::user("New report-only scope; prior user instructions remain original evidence"),surface_replace:None}.into(),
+                SessionEventData::StepStart {turn:3,step:1}.into(),
+                SessionEventData::RequestHeader {header:RequestHeader::new("test-provider","test-model")}.into(),
+                SessionEventData::AssistantMessage {turn:3,step:1,message:AgentMessage::assistant(format!("FRESH-CONTEXT-2:{}","y".repeat(6000))),usage:None}.into(),
+                SessionEventData::StepEnd {turn:3,step:1}.into(),
+                SessionEventData::StepStart {turn:3,step:2}.into(),
+                SessionEventData::RequestHeader {header:RequestHeader::new("test-provider","test-model")}.into(),
+                SessionEventData::AssistantMessage {turn:3,step:2,message:AgentMessage::assistant("recent raw tail"),usage:None}.into(),
+                SessionEventData::StepEnd {turn:3,step:2}.into(),
+                SessionEventData::TurnEnd {turn:3,reason:TurnEndReason::Completed}.into(),
+            ]).await.unwrap();
+        }
+        let before = journal.load(session_id).await.unwrap().unwrap();
+        let command_id = format!("incremental-command-{round}");
+        journal
+            .append(
+                session_id,
+                before.revision(),
+                vec![SessionEventData::CommandRun {
+                    command_id: command_id.clone(),
+                    name: "compact".into(),
+                    args: None,
+                    source: CommandSource::User,
+                }
+                .into()],
+            )
+            .await
+            .unwrap();
+        let provider = Arc::new(SequencedCountingProvider::new(
+            [500, 500, 300],
+            [vec![
+                Ok(ProviderEvent::TextDelta(format!("UNIQUE-NOTE-{round}"))),
+                Ok(completed()),
+            ]],
+        ));
+        let mut request = LoopRequest::new(provider.clone(), Vec::new());
+        request.session_id = Some(session_id.into());
+        request.journal_store = Some(journal.clone());
+        request.manual_compaction_command_id = Some(command_id);
+        request.token_guard = Some(
+            TokenGuard::conservative(TokenBudget {
+                context_window_tokens: 1000,
+                reserved_output_tokens: 40,
+                minimum_output_tokens: 40,
+                safety_margin_tokens: 10,
+            })
+            .unwrap(),
+        );
+        request.compaction = Some(CompactionConfig {
+            retain_ratio: None,
+            retain_tokens: Some(0),
+            max_tokens: 64,
+            ..CompactionConfig::default()
+        });
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(
+            result.status,
+            LoopStatus::Completed,
+            "round={round}: {:?}",
+            result.error
+        );
         assert_eq!(
             provider.inner.attempts(),
             1,
-            "failed pressure compaction must not silently continue"
+            "one fresh source summary, no final merge or main response"
         );
+        let request = provider.inner.requests().remove(0);
+        if round == 2 {
+            assert!(request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("FRESH-CONTEXT-2")));
+            assert!(!request
+                .messages
+                .iter()
+                .any(|message| message.content.contains("UNIQUE-NOTE-1")
+                    || message.content.contains("OLD-CONTEXT")));
+        }
+        let after = journal.load(session_id).await.unwrap().unwrap();
+        assert_eq!(
+            &after.events()[..before.events().len()],
+            before.events(),
+            "original log prefix must remain exact"
+        );
+        let summary = after
+            .events()
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                SessionEventData::CompactionSummary { shadowed_seqs, .. } => Some(shadowed_seqs),
+                _ => None,
+            })
+            .unwrap();
+        if let Some(old_seq) = prior_replacement {
+            assert!(
+                !summary.contains(&old_seq),
+                "old checkpoint is not a new summary source"
+            );
+        }
+        prior_replacement = after
+            .events()
+            .iter()
+            .rev()
+            .find_map(|event| match event.data() {
+                SessionEventData::UserMessage {
+                    surface_replace: Some(_),
+                    ..
+                } => Some(event.seq),
+                _ => None,
+            });
+        assert_eq!(
+            after
+                .events()
+                .iter()
+                .filter(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. }))
+                .count(),
+            round
+        );
+        assert!(after
+            .derive_messages()
+            .iter()
+            .any(|message| message.content.contains("Original task scope")));
     }
 }
 
@@ -6792,7 +7218,7 @@ async fn pause_during_candidate_admission_does_not_commit_and_resume_keeps_histo
 }
 
 #[tokio::test]
-async fn concurrent_durable_inbox_preserves_pending_input_and_allows_valid_compaction() {
+async fn concurrent_durable_inbox_invalidates_candidate_cursor_without_losing_input() {
     let (request, provider) = candidate_probe(true).await;
     let mut run = LoopEngine.start(request);
     tokio::time::timeout(Duration::from_secs(5), provider.seen.notified())
@@ -6844,9 +7270,17 @@ async fn concurrent_durable_inbox_preserves_pending_input_and_allows_valid_compa
             .iter()
             .filter(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. }))
             .count(),
-        1
+        0,
+        "candidate seq reservation changed; no summary can be committed"
     );
-    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::UserMessage { message, .. } if message.content.contains("OLD-CONTEXT"))));
+    assert!(after.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd {
+            outcome: Some(xharness_session::CompactionEndOutcome::Interrupted),
+            ..
+        }
+    )));
+    assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::AssistantMessage { message, .. } if message.content.contains("OLD-CONTEXT"))));
     assert!(after.events().iter().any(|e| matches!(e.data(), SessionEventData::AgentInboxSpliced { inserted, .. } if inserted.iter().any(|m| m.id == "concurrent-input"))));
     assert!(
         !provider.inner.requests()[1]
@@ -7509,7 +7943,9 @@ async fn independent_review_is_fenced_against_pending_user_steering() {
 
 const COMPACT_REVIEW_SESSION: &str = "review-after-compact";
 
-async fn compacted_review_fixture() -> (
+async fn compacted_review_fixture(
+    legacy_user_shadow: bool,
+) -> (
     LoopRun,
     Arc<EventMemorySessionStore>,
     Arc<AtomicUsize>,
@@ -7539,6 +7975,7 @@ async fn compacted_review_fixture() -> (
         ],
     ));
     let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), COMPACT_REVIEW_SESSION).await;
     let count = Arc::new(AtomicUsize::new(0));
     let executed = count.clone();
     let mut request = LoopRequest::new(provider, vec![AgentMessage::user(original.clone())]);
@@ -7588,14 +8025,18 @@ async fn compacted_review_fixture() -> (
     assert!(
         session.events().iter().any(|e| matches!(
             e.data(),
-            SessionEventData::CompactionEnd { error: None, .. }
+            SessionEventData::CompactionEnd {
+                error: None,
+                outcome: Some(xharness_session::CompactionEndOutcome::Applied),
+                ..
+            }
         )),
-        "fixture must really compact"
+        "fixture must really compact an eligible observation"
     );
     let (seq, current_user) = session.latest_user_request().unwrap();
     assert_eq!(current_user.content, original);
     let surface = session.derive_messages();
-    assert_ne!(
+    assert_eq!(
         surface
             .iter()
             .rev()
@@ -7603,8 +8044,73 @@ async fn compacted_review_fixture() -> (
             .unwrap()
             .content,
         original,
-        "fixture must shadow the current real user request"
+        "new compaction must preserve the current real user request exactly"
     );
+    if legacy_user_shadow {
+        // Old releases did summarize raw user messages. Compatibility must be
+        // tested with a real legacy replacement, not generated by new code.
+        let id = "legacy-user-checkpoint".to_owned();
+        let summary =
+            "Legacy user handoff; authorization still refers to the original event".to_owned();
+        let range = xharness_session::SequenceRange {
+            start: seq,
+            end: seq,
+        };
+        journal
+            .append(
+                COMPACT_REVIEW_SESSION,
+                session.revision(),
+                vec![
+                    SessionEventData::CompactionStart {
+                        compaction_id: id.clone(),
+                        source_command_id: None,
+                        turn: Some(2),
+                    }
+                    .into(),
+                    SessionEventData::CompactionSummary {
+                        compaction_id: id.clone(),
+                        source_command_id: None,
+                        summary: summary.clone(),
+                        shadowed_range: range,
+                        shadowed_seqs: vec![seq],
+                        shadowed_token_count: 2000,
+                        provider: "test-provider".into(),
+                        model: "test-model".into(),
+                        max_tokens: Some(64),
+                        usage: None,
+                    }
+                    .into(),
+                    SessionEventData::UserMessage {
+                        message: AgentMessage::user(
+                            xharness_compaction::frame_summary(&summary).unwrap(),
+                        ),
+                        surface_replace: Some(xharness_session::SurfaceReplace {
+                            compaction_id: id.clone(),
+                            shadowed_range: range,
+                            shadowed_seqs: vec![seq],
+                        }),
+                    }
+                    .into(),
+                    SessionEventData::CompactionEnd {
+                        compaction_id: id,
+                        source_command_id: None,
+                        turn: Some(2),
+                        error: None,
+                        outcome: None,
+                        fingerprint: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let legacy = journal.load(COMPACT_REVIEW_SESSION).await.unwrap().unwrap();
+        assert_eq!(legacy.latest_user_request().unwrap().1.content, original);
+        assert!(!legacy
+            .derive_messages()
+            .iter()
+            .any(|m| m.content == original));
+    }
     (run, journal, count, original, call_id, seq)
 }
 
@@ -7612,7 +8118,8 @@ async fn compacted_review_fixture() -> (
 async fn independent_review_survives_mid_turn_compaction_for_allow_and_reject() {
     use sha2::{Digest, Sha256};
     for approved in [false, true] {
-        let (mut run, journal, count, original, call_id, seq) = compacted_review_fixture().await;
+        let (mut run, journal, count, original, call_id, seq) =
+            compacted_review_fixture(false).await;
         run.send(LoopCommand::ReviewToolDecision {
             call_id,
             approved,
@@ -7641,7 +8148,8 @@ async fn independent_review_after_compaction_rejects_stale_scope_and_pending_ste
         "system-steer",
         "same-text-steer",
     ] {
-        let (mut run, _journal, count, original, call_id, seq) = compacted_review_fixture().await;
+        let (mut run, _journal, count, original, call_id, seq) =
+            compacted_review_fixture(false).await;
         match scenario {
             "user-steer" => {
                 run.send(LoopCommand::Steer(AgentMessage::user("new task")))
@@ -7701,7 +8209,7 @@ async fn independent_review_after_compaction_rejects_stale_scope_and_pending_ste
 async fn independent_review_restores_authorization_from_compacted_pending_approval() {
     use sha2::{Digest, Sha256};
     let (mut original_run, source, original_count, original, call_id, seq) =
-        compacted_review_fixture().await;
+        compacted_review_fixture(true).await;
     let snapshot = source.load(COMPACT_REVIEW_SESSION).await.unwrap().unwrap();
     let restored = Arc::new(EventMemorySessionStore::default());
     restored.create(snapshot.header().clone()).await.unwrap();
@@ -7911,4 +8419,997 @@ async fn durable_provider_failure_is_typed_and_does_not_classify_by_message_text
                 .any(|m| m.interrupted && m.content == "preserved"));
         }
     }
+}
+
+/// Inject a foreign metadata append at the strict-CAS boundary, or fail the
+/// first durability flush AFTER a successful atomic compaction append. Both
+/// faults are deterministic and do not require sleeps or scheduler races.
+struct CompactionCommitFaultStore {
+    inner: EventMemorySessionStore,
+    conflict_once: AtomicBool,
+    flush_failure_once: AtomicBool,
+    successful_commit: AtomicBool,
+    conflicts_injected: AtomicUsize,
+    flush_failures_injected: AtomicUsize,
+}
+
+impl CompactionCommitFaultStore {
+    fn new(conflict: bool, flush_failure: bool) -> Self {
+        Self {
+            inner: EventMemorySessionStore::default(),
+            conflict_once: AtomicBool::new(conflict),
+            flush_failure_once: AtomicBool::new(flush_failure),
+            successful_commit: AtomicBool::new(false),
+            conflicts_injected: AtomicUsize::new(0),
+            flush_failures_injected: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl EventStore for CompactionCommitFaultStore {
+    async fn list_headers(&self) -> Result<Vec<SessionHeader>, StoreError> {
+        self.inner.list_headers().await
+    }
+    async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
+        self.inner.create(header).await
+    }
+    async fn load(&self, id: &str) -> Result<Option<Session>, StoreError> {
+        self.inner.load(id).await
+    }
+    async fn append(
+        &self,
+        id: &str,
+        revision: Revision,
+        events: Vec<SessionEvent>,
+    ) -> Result<AppendReceipt, StoreError> {
+        let compaction_commit = events
+            .iter()
+            .any(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. }));
+        if compaction_commit && self.conflict_once.swap(false, Ordering::SeqCst) {
+            let session = self.inner.load(id).await?.unwrap();
+            self.inner
+                .append(
+                    id,
+                    session.revision(),
+                    vec![SessionEventData::SessionTitle {
+                        title: "external metadata arrived at strict CAS".into(),
+                        message_seqs: Vec::new(),
+                        source: SessionTitleSource::User,
+                    }
+                    .into()],
+                )
+                .await?;
+            self.conflicts_injected.fetch_add(1, Ordering::SeqCst);
+        }
+        let receipt = self.inner.append(id, revision, events).await?;
+        if compaction_commit {
+            self.successful_commit.store(true, Ordering::SeqCst);
+        }
+        Ok(receipt)
+    }
+    async fn flush(&self, id: &str) -> Result<Revision, StoreError> {
+        if self.successful_commit.load(Ordering::SeqCst)
+            && self.flush_failure_once.swap(false, Ordering::SeqCst)
+        {
+            self.flush_failures_injected.fetch_add(1, Ordering::SeqCst);
+            return Err(StoreError::Backend {
+                message: "injected durability failure after compaction append".into(),
+            });
+        }
+        self.inner.flush(id).await
+    }
+    async fn inspect(&self, id: &str) -> Result<Option<SessionInspection>, StoreError> {
+        self.inner.inspect(id).await
+    }
+}
+
+async fn compaction_commit_fault_request(
+    id: &str,
+    conflict: bool,
+    flush_failure: bool,
+) -> (
+    LoopRequest,
+    Arc<CompactionCommitFaultStore>,
+    Arc<SequencedCountingProvider>,
+) {
+    let store = Arc::new(CompactionCommitFaultStore::new(conflict, flush_failure));
+    seed_long_compaction_history(&store.inner, id).await;
+    let provider = Arc::new(SequencedCountingProvider::new(
+        [980, 500, 300, 300, 300],
+        [
+            vec![
+                Ok(ProviderEvent::TextDelta("CHECKPOINT".into())),
+                Ok(completed()),
+            ],
+            vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+        ],
+    ));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
+    request.session_id = Some(id.into());
+    request.journal_store = Some(store.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 64,
+        ..CompactionConfig::default()
+    });
+    (request, store, provider)
+}
+
+#[tokio::test]
+async fn strict_compaction_commit_does_not_adopt_foreign_metadata_cursor() {
+    let id = "strict-compaction-cas";
+    let (request, store, provider) = compaction_commit_fault_request(id, true, false).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(store.conflicts_injected.load(Ordering::SeqCst), 1);
+    assert!(!store.successful_commit.load(Ordering::SeqCst));
+    let session = store.load(id).await.unwrap().unwrap();
+    assert!(!session
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. })));
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::UserMessage {
+            surface_replace: Some(_),
+            ..
+        }
+    )));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd {
+            outcome: Some(xharness_session::CompactionEndOutcome::Interrupted),
+            ..
+        }
+    )));
+    assert!(session
+        .derive_messages()
+        .iter()
+        .any(|message| message.content.contains("OLD-CONTEXT")));
+    assert_eq!(provider.inner.attempts(), 2);
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::TurnEnd {
+            turn: 2,
+            reason: TurnEndReason::Completed
+        }
+    )));
+}
+
+#[tokio::test]
+async fn compaction_flush_failure_keeps_committed_cursor_and_closes_failed_turn() {
+    let id = "compaction-flush-failure";
+    let (request, store, provider) = compaction_commit_fault_request(id, false, true).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    let error = result.error.as_deref().unwrap();
+    assert!(error.contains("compaction commit flush failed"), "{error}");
+    assert!(
+        !error.contains("session journal changed outside"),
+        "{error}"
+    );
+    assert_eq!(store.flush_failures_injected.load(Ordering::SeqCst), 1);
+    assert!(store.successful_commit.load(Ordering::SeqCst));
+    assert_eq!(
+        provider.inner.attempts(),
+        1,
+        "no main model request after durability failure"
+    );
+    let session = store.load(id).await.unwrap().unwrap();
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::CompactionSummary { .. }))
+            .count(),
+        1
+    );
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionEnd {
+            outcome: Some(xharness_session::CompactionEndOutcome::Applied),
+            ..
+        }
+    )));
+    assert!(session
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), SessionEventData::StepEnd { turn: 2, step: 1 })));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::TurnEnd {
+            turn: 2,
+            reason: TurnEndReason::Failed { .. }
+        }
+    )));
+    assert!(session.events().iter().any(|event| matches!(
+        event.data(), SessionEventData::AssistantMessage { message, .. } if message.content.contains("OLD-CONTEXT")
+    )), "original evidence remains in immutable history even if append succeeded before flush failed");
+}
+
+struct RecordingCompactionCounts {
+    inner: SequencedCountingProvider,
+    counted: Mutex<Vec<ProviderRequest>>,
+}
+
+#[async_trait]
+impl ModelProvider for RecordingCompactionCounts {
+    fn provider_name(&self) -> &str {
+        self.inner.provider_name()
+    }
+    fn model_name(&self) -> Option<&str> {
+        self.inner.model_name()
+    }
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        self.counted.lock().unwrap().push(request.clone());
+        self.inner.count_input_tokens(request, cancellation).await
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, cancellation).await
+    }
+}
+
+#[tokio::test]
+async fn compaction_candidate_and_reload_preserve_explicit_system_without_prompt_assembly() {
+    for assembled_prompt in [false, true] {
+        let id = if assembled_prompt {
+            "compaction-assembled-system-prefix"
+        } else {
+            "compaction-explicit-system-prefix"
+        };
+        let (mut request, store, scripted) =
+            compaction_commit_fault_request(id, false, false).await;
+        // Start below the hard 950-token input limit but above soft pressure.
+        // The other counts cover the auxiliary call, candidate and live call.
+        *scripted.counts.lock().unwrap() = [880, 500, 300, 300, 300].into();
+        let provider = Arc::new(RecordingCompactionCounts {
+            inner: scripted.as_ref().clone(),
+            counted: Mutex::new(Vec::new()),
+        });
+        request.provider = provider.clone();
+        let expected_systems = if assembled_prompt {
+            let prompt = PromptAssembler
+                .assemble([PromptSection::new(
+                    "identity",
+                    "1",
+                    "Stable assembled system; do not publish.",
+                )])
+                .unwrap();
+            let system = AgentMessage::system(prompt.system());
+            request.prompt = Some(prompt);
+            vec![system]
+        } else {
+            let systems = vec![
+                AgentMessage::system("Explicit system byte boundary: \n禁止发布。  ")
+                    .with_id("explicit-system-identity"),
+                AgentMessage::system("Independent system section; preserve exact whitespace.\n")
+                    .with_id("explicit-system-workflow"),
+            ];
+            request.messages.splice(0..0, systems.clone());
+            systems
+        };
+
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        assert!(store.successful_commit.load(Ordering::SeqCst));
+        let systems = |messages: &[AgentMessage]| {
+            messages
+                .iter()
+                .filter(|message| message.role == Role::System)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let counted = provider.counted.lock().unwrap().clone();
+        assert_eq!(
+            systems(&counted[0].messages),
+            expected_systems,
+            "initial admission must not duplicate the caller's System messages"
+        );
+        let candidate_and_live = counted
+            .iter()
+            .filter(|request| {
+                request.messages.iter().any(|message| {
+                    message
+                        .id
+                        .as_deref()
+                        .is_some_and(|id| id.starts_with("compaction-checkpoint-"))
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            candidate_and_live.len(),
+            2,
+            "both precommit admission and the reloaded main call must be counted"
+        );
+        for counted_request in &candidate_and_live {
+            assert_eq!(systems(&counted_request.messages), expected_systems);
+            assert_eq!(
+                counted_request.messages[..expected_systems.len()],
+                expected_systems,
+                "each live System stays a strong-pinned prefix, byte-for-byte"
+            );
+        }
+        assert_eq!(
+            candidate_and_live[0].messages, candidate_and_live[1].messages,
+            "the full candidate budget must cover the exact committed System prefix"
+        );
+        let streamed = provider.inner.inner.requests();
+        assert_eq!(streamed.len(), 2, "one summary and one main request");
+        // The summarizer may replay its stable System prefix; that prefix is
+        // not part of the raw source covered by the summary's shadowed seqs.
+        assert_eq!(systems(&streamed[0].messages), expected_systems[..1]);
+        assert_eq!(systems(&streamed[1].messages), expected_systems);
+        assert_eq!(systems(&result.messages), expected_systems);
+
+        let session = store.load(id).await.unwrap().unwrap();
+        let summary = session
+            .events()
+            .iter()
+            .find_map(|event| match event.data() {
+                SessionEventData::CompactionSummary { shadowed_seqs, .. } => Some(shadowed_seqs),
+                _ => None,
+            })
+            .expect("soft-pressure compaction committed a summary");
+        for seq in summary {
+            let event = session
+                .events()
+                .iter()
+                .find(|event| event.seq == *seq)
+                .unwrap();
+            assert!(matches!(
+                event.data(),
+                SessionEventData::AssistantMessage { message, .. }
+                    if message.role == Role::Assistant
+            ));
+        }
+        assert!(systems(&session.derive_messages()).is_empty());
+    }
+}
+
+#[tokio::test]
+async fn retired_candidate_checkpoint_reference_matches_real_commit_sequence_and_recount() {
+    let id = "candidate-note-reference";
+    let journal = Arc::new(EventMemorySessionStore::default());
+    seed_long_compaction_history(journal.as_ref(), id).await;
+    let provider = Arc::new(RecordingCompactionCounts {
+        inner: SequencedCountingProvider::new(
+            // Complete wire units need not equal the bytes/3 heuristic. This
+            // density forces the note to be cold, even after paired calibration.
+            [5000, 5000, 500, 300, 300],
+            [
+                vec![
+                    Ok(ProviderEvent::TextDelta("x".repeat(1500))),
+                    Ok(completed()),
+                ],
+                vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+            ],
+        ),
+        counted: Mutex::new(Vec::new()),
+    });
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new scope")]);
+    request.session_id = Some(id.into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 1000,
+            reserved_output_tokens: 40,
+            minimum_output_tokens: 40,
+            safety_margin_tokens: 10,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(10),
+        max_tokens: 400,
+        ..CompactionConfig::default()
+    });
+    install_tool(
+        &mut request,
+        TestToolSpec::new(
+            "history",
+            "session-bound history recovery",
+            json!({"type":"object"}),
+            |_, _| async { ToolResult::success("unused in this sequence-admission test") },
+        ),
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let counted = provider.counted.lock().unwrap().clone();
+    assert_eq!(
+        counted.len(),
+        5,
+        "one activation recount, one summary, candidate, final main"
+    );
+    assert_eq!(
+        counted[3].messages, counted[4].messages,
+        "cold note history handles must point to the reserved real commit seq, not old raw seq"
+    );
+    assert_eq!(counted[3].tools, counted[4].tools);
+    let reference = counted[4]
+        .messages
+        .iter()
+        .find(|message| message.content.starts_with("<working_set_history>"))
+        .expect("oversized new note must be cold-retirable even when it is latest");
+    let index: Value = serde_json::from_str(
+        reference
+            .content
+            .lines()
+            .find(|line| line.starts_with('{'))
+            .unwrap(),
+    )
+    .unwrap();
+    let reference_seq = index["read_example"]["seq"].as_u64().unwrap();
+    let session = journal.load(id).await.unwrap().unwrap();
+    let checkpoint_seq = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::UserMessage {
+                surface_replace: Some(_),
+                ..
+            } => Some(event.seq),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reference_seq, checkpoint_seq);
+    assert!(matches!(
+        session.events()[reference_seq as usize].data(),
+        SessionEventData::UserMessage {
+            surface_replace: Some(_),
+            ..
+        }
+    ));
+    assert!(session.events().iter().any(|event| matches!(event.data(),
+        SessionEventData::CompactionProgress { progress, .. }
+        if progress.stage == xharness_session::CompactionStage::Committing
+            && progress.input_tokens_after == Some(300)
+    )));
+}
+
+/// The fake counter models a complete wire request whose units differ from
+/// the local bytes/3 eviction heuristic. It depends on actual request contents,
+/// not a chronological count script: recounting an unchanged oversized request
+/// cannot accidentally turn it into a safe request.
+struct DensityMismatchCounter {
+    inner: ScriptProvider,
+    counted: Mutex<Vec<(ProviderRequest, u64)>>,
+}
+
+impl DensityMismatchCounter {
+    fn input_tokens(request: &ProviderRequest) -> u64 {
+        if request.messages.iter().any(|message| {
+            message.role == Role::Tool && message.content.contains("CALIBRATION_RAW_")
+        }) {
+            15886
+        } else if request
+            .messages
+            .iter()
+            .any(|message| message.content.starts_with("<working_set_history>"))
+        {
+            800
+        } else {
+            500
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for DensityMismatchCounter {
+    fn provider_name(&self) -> &str {
+        "density-test"
+    }
+    fn model_name(&self) -> Option<&str> {
+        Some("density-model")
+    }
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        let input = Self::input_tokens(request);
+        self.counted.lock().unwrap().push((request.clone(), input));
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "complete-wire-test",
+            input,
+        )))
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        self.inner.stream(request, cancellation).await
+    }
+}
+
+#[tokio::test]
+async fn complete_count_calibration_retires_closed_read_read_test_batch_before_safe_recount() {
+    let id = "workset-density-mismatch";
+    let store = Arc::new(EventMemorySessionStore::default());
+    let alpha = format!(
+        "{}CALIBRATION_RAW_ALPHA_汉字{}",
+        "a".repeat(2500),
+        "z".repeat(2500)
+    );
+    let beta = format!(
+        "{}CALIBRATION_RAW_BETA{}",
+        "b".repeat(2500),
+        "y".repeat(2500)
+    );
+    let test_output = format!("tests passed: CALIBRATION_RAW_TEST{}", "t".repeat(1800));
+    let provider = Arc::new(DensityMismatchCounter {
+        inner: ScriptProvider::new([
+            vec![
+                Ok(tool_delta(
+                    0,
+                    "read-alpha",
+                    "read",
+                    r#"{"path":"alpha.rs"}"#,
+                )),
+                Ok(tool_delta(1, "read-beta", "read", r#"{"path":"beta.rs"}"#)),
+                Ok(tool_delta(
+                    2,
+                    "test-alpha",
+                    "test",
+                    r#"{"command":"run-tests"}"#,
+                )),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+        ]),
+        counted: Mutex::new(Vec::new()),
+    });
+    let mut request = LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user(
+            "Read alpha.rs and beta.rs, test; inspect only, do not publish.",
+        )],
+    );
+    request.session_id = Some(id.into());
+    request.journal_store = Some(store.clone());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 16384,
+            reserved_output_tokens: 1024,
+            minimum_output_tokens: 1024,
+            safety_margin_tokens: 1024,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(7000),
+        max_tokens: 512,
+        ..CompactionConfig::default()
+    });
+    let read_alpha = alpha.clone();
+    let read_beta = beta.clone();
+    let history_store = store.clone();
+    install_tools(
+        &mut request,
+        vec![
+            TestToolSpec::new(
+                "read",
+                "read test fixtures",
+                json!({"type":"object"}),
+                move |arguments, _| {
+                    let content = if arguments["path"] == "alpha.rs" {
+                        read_alpha.clone()
+                    } else {
+                        read_beta.clone()
+                    };
+                    async move { ToolResult::success(content) }
+                },
+            ),
+            TestToolSpec::new(
+                "test",
+                "return deterministic test evidence",
+                json!({"type":"object"}),
+                move |_, _| {
+                    let content = test_output.clone();
+                    async move { ToolResult::success(content) }
+                },
+            ),
+            // Minimal session-bound history-search test double. Production paging,
+            // archive and multimodal recovery are validated in Host's history suite;
+            // Core must keep the exact original results available to this boundary.
+            TestToolSpec::new(
+                "history",
+                "search immutable session evidence",
+                json!({"type":"object"}),
+                move |arguments, _| {
+                    let store = history_store.clone();
+                    async move {
+                        let session = store.load(id).await.unwrap().unwrap();
+                        let query = arguments["query"].as_str().unwrap();
+                        let matches = session
+                            .events()
+                            .iter()
+                            .filter_map(|event| match event.data() {
+                                SessionEventData::ToolResult { result, .. }
+                                    if result.content.contains(query) =>
+                                {
+                                    Some(json!({"seq":event.seq,"text":result.content}))
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+                        ToolResult::success(json!({"matches":matches}).to_string())
+                    }
+                },
+            ),
+        ],
+    )
+    .await;
+    let executor = request.tool_executor.clone().unwrap();
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(
+        provider.inner.attempts(),
+        2,
+        "only main model rounds; no summary calls"
+    );
+    let counted = provider.counted.lock().unwrap().clone();
+    assert_eq!(
+        counted.iter().map(|(_, input)| *input).collect::<Vec<_>>(),
+        vec![500, 15886, 800]
+    );
+    let local = xharness_context::approximate_working_set_tokens(&counted[1].0.messages).unwrap();
+    assert!(
+        local < 8601,
+        "local heuristic was below absolute 3/5 target: {local}"
+    );
+    assert!(xharness_context::calibrate_working_set_tokens(8601, local, 15886) < local);
+    assert!(counted[1]
+        .0
+        .messages
+        .iter()
+        .any(|message| message.role == Role::Tool));
+    assert!(!counted[2]
+        .0
+        .messages
+        .iter()
+        .any(|message| message.role == Role::Tool));
+    assert!(counted[2]
+        .0
+        .messages
+        .iter()
+        .any(|message| message.content.starts_with("<working_set_history>")));
+    for sent in provider.inner.requests() {
+        assert!(
+            DensityMismatchCounter::input_tokens(&sent) + sent.max_output_tokens.unwrap() + 1024
+                <= 16384,
+            "an oversized request must only be counted, never sent to generation"
+        );
+        assert!(
+            !sent.tools.is_empty(),
+            "no auxiliary summary request expected"
+        );
+    }
+    let session = store.load(id).await.unwrap().unwrap();
+    assert_eq!(
+        session
+            .events()
+            .iter()
+            .filter(|event| matches!(event.data(), SessionEventData::ToolResult { .. }))
+            .count(),
+        3
+    );
+    assert!(!session.events().iter().any(|event| matches!(
+        event.data(),
+        SessionEventData::CompactionStart { .. } | SessionEventData::CompactionSummary { .. }
+    )));
+    let query = executor
+        .execute(xharness_tools::ToolRequest::new(
+            "history",
+            json!({
+                "action":"search","query":"CALIBRATION_RAW_ALPHA_汉字"
+            })
+            .to_string(),
+        ))
+        .await;
+    assert!(
+        query.is_ok(),
+        "history boundary remains executable after retirement"
+    );
+    let recovered: Value = serde_json::from_str(&query.output.unwrap().content).unwrap();
+    assert_eq!(recovered["matches"].as_array().unwrap().len(), 1);
+    let original: ToolResult =
+        serde_json::from_str(recovered["matches"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        original.content, alpha,
+        "retirement must not modify or clip original evidence"
+    );
+}
+
+/// Complete-request counting must cover fixed tool schemas as well as the
+/// current conversation. A large contract can activate pressure before there
+/// is any raw work; message-only calibration would then give new observations
+/// an artificially tiny local quota and unload them before the model sees them.
+struct SchemaPressureConsumptionProvider {
+    expected_observation: String,
+    main_rounds: AtomicUsize,
+    main_requests: Mutex<Vec<ProviderRequest>>,
+    counted: Mutex<Vec<(ProviderRequest, u64)>>,
+    summaries: AtomicUsize,
+}
+
+impl SchemaPressureConsumptionProvider {
+    fn input_tokens(request: &ProviderRequest) -> u64 {
+        let serialized = serde_json::to_vec(&json!({
+            "messages": &request.messages,
+            "tools": &request.tools,
+        }))
+        .unwrap();
+        // Proportional, content-sensitive input price; framing is fixed for
+        // this provider, never a chronological script that blesses a recount.
+        u64::try_from(serialized.len()).unwrap().div_ceil(3) + 256
+    }
+
+    fn has_complete_native_observation(&self, request: &ProviderRequest) -> bool {
+        request.messages.iter().any(|message| {
+            message.role == Role::Tool
+                && serde_json::from_str::<ToolResult>(&message.content)
+                    .is_ok_and(|result| result.content == self.expected_observation)
+        })
+    }
+}
+
+#[async_trait]
+impl ModelProvider for SchemaPressureConsumptionProvider {
+    fn provider_name(&self) -> &str {
+        "schema-pressure-test"
+    }
+
+    fn model_name(&self) -> Option<&str> {
+        Some("complete-wire-model")
+    }
+
+    async fn count_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
+        let input = Self::input_tokens(request);
+        self.counted.lock().unwrap().push((request.clone(), input));
+        Ok(Some(ProviderInputTokenCount::exact_request(
+            "serialized-complete-wire",
+            input,
+        )))
+    }
+
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        _: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        if request.tools.is_empty() {
+            self.summaries.fetch_add(1, Ordering::SeqCst);
+            return Ok(Box::pin(stream::iter(vec![
+                Ok(ProviderEvent::TextDelta(
+                    "Historical source inspected; task remains inspect-only, no publishing.".into(),
+                )),
+                Ok(completed()),
+            ])));
+        }
+        self.main_requests.lock().unwrap().push(request.clone());
+        let round = self.main_rounds.fetch_add(1, Ordering::SeqCst);
+        let events = if round == 0 {
+            vec![
+                Ok(tool_delta(
+                    0,
+                    "schema-read",
+                    "read",
+                    r#"{"path":"source.txt"}"#,
+                )),
+                Ok(completed_for_calls()),
+            ]
+        } else if round >= 2 && self.has_complete_native_observation(&request) {
+            vec![
+                Ok(ProviderEvent::TextDelta("observation consumed".into())),
+                Ok(completed()),
+            ]
+        } else {
+            vec![
+                Ok(tool_delta(
+                    0,
+                    &format!("schema-history-{round}"),
+                    "history",
+                    r#"{"action":"search","query":"FRESH_NATIVE_HISTORY_OBSERVATION"}"#,
+                )),
+                Ok(completed_for_calls()),
+            ]
+        };
+        Ok(Box::pin(stream::iter(events)))
+    }
+}
+
+#[tokio::test]
+async fn schema_heavy_early_pressure_keeps_fresh_history_observation_consumable() {
+    let id = "workset-fixed-schema-pressure";
+    let store = Arc::new(EventMemorySessionStore::default());
+    let observation = format!("FRESH_NATIVE_HISTORY_OBSERVATION:{}", "e".repeat(1950));
+    let read_payload = format!(
+        "SOURCE_PREFIX:{}{observation}SOURCE_SUFFIX:{}",
+        "a".repeat(500),
+        "z".repeat(500)
+    );
+    let provider = Arc::new(SchemaPressureConsumptionProvider {
+        expected_observation: observation.clone(),
+        main_rounds: AtomicUsize::new(0),
+        main_requests: Mutex::new(Vec::new()),
+        counted: Mutex::new(Vec::new()),
+        summaries: AtomicUsize::new(0),
+    });
+    let mut request = LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user(
+            "Inspect source, recover evidence via history; do not publish.",
+        )],
+    );
+    request.session_id = Some(id.into());
+    request.journal_store = Some(store.clone());
+    request.config.max_steps = 6;
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 16384,
+            reserved_output_tokens: 1024,
+            minimum_output_tokens: 1024,
+            safety_margin_tokens: 1024,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        // Working-set pressure still starts at at most 80% of available input.
+        // A generous summary threshold isolates schema pricing / observation
+        // consumption rather than forcing a model summary on every main round.
+        threshold_ratio: 0.98,
+        retain_ratio: None,
+        retain_tokens: Some(7000),
+        max_tokens: 512,
+        ..CompactionConfig::default()
+    });
+    let read_count = Arc::new(AtomicUsize::new(0));
+    let history_count = Arc::new(AtomicUsize::new(0));
+    let read_calls = read_count.clone();
+    let history_calls = history_count.clone();
+    let read_body = read_payload.clone();
+    let history_store = store.clone();
+    let history_expected = observation.clone();
+    install_tools(
+        &mut request,
+        vec![
+            TestToolSpec::new(
+                "read",
+                format!("Fixed provider tool contract: {}", "s".repeat(35000)),
+                json!({"type":"object"}),
+                move |arguments, _| {
+                    assert_eq!(arguments["path"], "source.txt");
+                    read_calls.fetch_add(1, Ordering::SeqCst);
+                    let content = read_body.clone();
+                    async move { ToolResult::success(content) }
+                },
+            ),
+            // Session-bound history test double: recover the exact requested
+            // source fragment from durable evidence, regardless of projection.
+            TestToolSpec::new(
+                "history",
+                "recover immutable evidence",
+                json!({"type":"object"}),
+                move |arguments, _| {
+                    let store = history_store.clone();
+                    let expected = history_expected.clone();
+                    history_calls.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        assert_eq!(arguments["query"], "FRESH_NATIVE_HISTORY_OBSERVATION");
+                        let session = store.load(id).await.unwrap().unwrap();
+                        let original = session
+                            .events()
+                            .iter()
+                            .find_map(|event| match event.data() {
+                                SessionEventData::ToolResult { result, .. } => {
+                                    serde_json::from_str::<ToolResult>(&result.content)
+                                        .ok()
+                                        .filter(|output| {
+                                            output.content.starts_with("SOURCE_PREFIX:")
+                                        })
+                                }
+                                _ => None,
+                            })
+                            .unwrap();
+                        let start = original.content.find(&expected).unwrap();
+                        ToolResult::success(
+                            original.content[start..start + expected.len()].to_owned(),
+                        )
+                    }
+                },
+            ),
+        ],
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(result.final_text, "observation consumed");
+    assert_eq!(read_count.load(Ordering::SeqCst), 1);
+    assert_eq!(history_count.load(Ordering::SeqCst), 1);
+    let sent = provider.main_requests.lock().unwrap().clone();
+    assert_eq!(
+        sent.len(),
+        3,
+        "new observations must not enter a history reread loop"
+    );
+    assert!(provider.has_complete_native_observation(&sent[2]));
+    for generation in &sent {
+        assert!(
+            SchemaPressureConsumptionProvider::input_tokens(generation)
+                + generation.max_output_tokens.unwrap()
+                + 1024
+                <= 16384,
+            "full schemas and messages must fit before generation"
+        );
+        assert!(generation
+            .tools
+            .iter()
+            .any(|tool| tool.name == "read" && tool.description.len() > 35000));
+    }
+    let counted = provider.counted.lock().unwrap().clone();
+    let initial = &counted[0];
+    assert!(
+        initial.1 >= 14336 * 4 / 5,
+        "initial schema pressure must activate"
+    );
+    assert!(
+        initial.1 < 14336,
+        "initial request is safe despite early pressure"
+    );
+    let messages_only =
+        xharness_context::approximate_working_set_tokens(&initial.0.messages).unwrap();
+    assert!(
+        messages_only.saturating_mul(20) < initial.1,
+        "fixture must expose fixed-schema / message-only calibration mismatch"
+    );
+    assert!(
+        counted
+            .iter()
+            .filter(|(request, _)| request.step == 1 && !request.tools.is_empty())
+            .count()
+            >= 2,
+        "early pressure activation must force a complete recount before the first generation"
+    );
+    let session = store.load(id).await.unwrap().unwrap();
+    let originals = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::ToolResult { result, .. } => {
+                serde_json::from_str::<ToolResult>(&result.content).ok()
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(originals
+        .iter()
+        .any(|result| result.content == read_payload));
+    assert!(originals.iter().any(|result| result.content == observation));
 }

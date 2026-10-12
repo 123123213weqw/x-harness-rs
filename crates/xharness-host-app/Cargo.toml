@@ -49,10 +49,12 @@ xharness-web = { path = "../xharness-web" }
 xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
+xharness-prompt = { path = "../xharness-prompt" }
+thiserror.workspace = true
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 futures.workspace = true
 reqwest.workspace = true
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true, features = ["process", "test-util"] }
 tokio-tungstenite.workspace = true
 
 [target.'cfg(windows)'.dependencies]

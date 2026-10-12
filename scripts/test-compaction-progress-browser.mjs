@@ -24,7 +24,7 @@ try {
  const errors=[];page.on('pageerror',e=>{if(e.message!=='owned feature fixture: stop Host boot')errors.push(e.message)});
  await installOwnedViewPlatform(page,frozen?'legacy':'source');
  await page.addStyleTag({content:'body{font:14px system-ui;margin:0;background:#fff;color:#171717;--dsw-alias-label-primary:#171717;--dsw-alias-label-secondary:#717171;--dsw-alias-line-secondary:#e5e5e5}main{max-width:760px;margin:80px auto;padding:24px}button{color:inherit;font:inherit}'});
- await page.evaluate(()=>{document.body.innerHTML='<main><h2>Context compaction</h2><p>Isolated UI regression · no model requests</p><div id="root"></div></main>';window.registrations={};window.__ModuleLoader__={load:registration=>registrations[registration.id]=registration}});
+ await page.evaluate(()=>{document.body.innerHTML='<main><h2>Context compaction</h2><p>Isolated UI regression · no model requests</p><div id="compaction-fixture"></div></main>';window.registrations={};window.__ModuleLoader__={load:registration=>registrations[registration.id]=registration}});
  for(const name of readdirSync(resolve(dist,'plugins/@xharness'))){
   let content=readFileSync(resolve(dist,'plugins/@xharness',name,'client.js'),'utf8');
   if(name==='dsh-client-ui-conversation'){
@@ -38,7 +38,7 @@ try {
   const api=load('@xharness/dsh-client-ui-conversation/client');
   const react=staticModules.react,D=staticModules['react-dom'],dicts={zh:api.zh,en:api.en};
   window.Card=api.CompactionProgressCard;
-  const root=D.createRoot(document.getElementById('root'));
+  const root=D.createRoot(document.getElementById('compaction-fixture'));
   const nativeSet=setInterval,nativeClear=clearInterval, timers=new Set();
   window.setInterval=(...args)=>{const id=nativeSet(...args);timers.add(id);return id;};
   window.clearInterval=id=>{timers.delete(id);nativeClear(id);};window.timerCount=()=>timers.size;
@@ -87,6 +87,23 @@ try {
    assert.ok((await card.innerText()).includes('network failed'));
    const size=await page.evaluate(()=>({full:document.documentElement.scrollWidth,window:innerWidth}));
    assert.ok(size.full<=size.window+1,JSON.stringify({theme,width,locale,size}));
+  }
+ }
+ if (!frozen) {
+  for (const locale of ['zh','en']) for (const [status,outcome,error] of [
+   ['skipped','no_benefit',null], ['skipped','no_eligible_source',null], ['cancelled','interrupted','new user input'],
+  ]) {
+   await page.evaluate(({status,outcome,error,locale})=>render({...running,status,outcome,error,endedAt:Date.now()},locale,'terminal-'+outcome),{status,outcome,error,locale});
+   assert.equal(await card.getAttribute('data-compaction-running'),null,'typed terminal is not left Compact');
+   assert.equal(await card.getAttribute('data-state'),status);
+   assert.equal(await card.getByRole('alert').count(),0,'skipped/interrupted is not shown as failure');
+   assert.equal(await card.getByRole('status').count(),1);
+   const text=await card.innerText();
+   assert.ok(text.includes(locale==='zh'?(status==='skipped'?'压缩已跳过':'压缩已中断'):(status==='skipped'?'Compaction skipped':'Compaction interrupted')));
+   assert.equal(await page.evaluate(()=>timerCount()),0);
+   assert.equal(await card.locator('button').isEnabled(),error!==null);
+   if (artifacts && locale==='zh') await page.screenshot({path:resolve(artifacts,`compaction-terminal-${engine}-${implementation}-${outcome}.png`),fullPage:true});
+   assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('compaction-fixture')).backgroundColor),'rgba(0, 0, 0, 0)','isolated fixture must not inherit app-shell light surface over dark theme');
   }
  }
  await page.evaluate(()=>render({status:'failed',seq:10,time:1000},'zh','without-error'));

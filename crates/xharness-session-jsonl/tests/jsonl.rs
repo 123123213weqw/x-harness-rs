@@ -2079,6 +2079,8 @@ async fn indexed_compaction_terminal_page_retains_summary_sources_after_restart_
                     source_command_id: None,
                     turn: Some(1),
                     error: None,
+                    outcome: None,
+                    fingerprint: None,
                 }
                 .into(),
                 EventData::StepEnd { turn: 1, step: 1 }.into(),
