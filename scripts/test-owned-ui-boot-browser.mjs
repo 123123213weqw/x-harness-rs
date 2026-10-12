@@ -23,6 +23,9 @@ const referenceLayoutCss=`
  ._84hhiq_sidebarCol ._84hhiq_regionSurface .U910La_root{width:calc(100% + 1px)!important}
  ._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2)!important}
  ._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none!important}
+ /* The reviewed execution chip has separate full-graph interaction/style
+    acceptance. Remove ONLY its Menu wrapper in the frozen-geometry lane. */
+ [data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment]){display:none!important}
 `
 
 // Project only the user-approved adjacent effort entry for frozen pixels.
@@ -57,6 +60,11 @@ try{
  // Compare the settled UI, not the optional 180ms decorative loading exit.
  // This is a lifecycle condition, not a fixed sleep or an animation gate.
  await page.locator('[data-xh-startup-exit]').waitFor({state:'detached'})
+ if(referenceLayout){
+  const projectedMenu=page.locator('[data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment])')
+  assert.equal(await projectedMenu.count(),1,'reference lane projects exactly the reviewed slot Menu wrapper')
+  assert.equal(await projectedMenu.evaluate(node=>getComputedStyle(node).display),'none','projection removes the exact new Menu flex item')
+ }
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
@@ -74,6 +82,7 @@ try{
   const assistantEntry=document.querySelectorAll('button[data-xharness-assistant-nav][aria-label="Little X"]')
   const accountEntry=document.querySelectorAll('button[data-xh-account-trigger][aria-label="Account & settings"]')
   const effortEntry=document.querySelectorAll('button[data-xh-model-control="effort"]')
+  const environmentEntry=document.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]')
   const modelEntry=document.querySelectorAll('button[data-xh-model-control="model"]')
   // Explicit product deltas: Tasks, Code Review, Little X and removed sidebar search.
   // Count the removed controls independently; all other controls and exact
@@ -85,14 +94,16 @@ try{
   copy.querySelectorAll('button[data-xh-account-trigger]').forEach(node=>{node.textContent='Settings'})
   // Approved entry has separate exact counts; only its extra copy is projected.
   copy.querySelectorAll('button[data-xh-model-control="effort"]').forEach(node=>node.remove())
+  copy.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]').forEach(node=>node.remove())
   copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
-  return {effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  return {environmentEntryCount:environmentEntry.length,effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length-environmentEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
  assert.equal(early.effortEntryCount,implementation==='source'?1:0,'exactly one reviewed adjacent effort control')
  assert.equal(early.modelEntryCount,implementation==='source'?1:0,'source retains one authoritative model control')
  assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
  assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
  assert.equal(early.assistantEntryCount,implementation==='source'?1:0,'Little X is one exact owned control, not a generic parity mask')
+ assert.equal(early.environmentEntryCount,implementation==='source'?1:0,'exactly the reviewed typed execution-environment chip; frozen reference stays unchanged')
  assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
  assert.equal(early.accountEntryCount,implementation==='source'?1:0,'one reviewed account trigger replaces Settings; frozen control unchanged')
  assert.equal(early.sidebarSearchInputCount,implementation==='source'?0:1,'removed search field versus intact frozen positive control')
@@ -143,5 +154,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,environmentEntryCount:early.environmentEntryCount,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

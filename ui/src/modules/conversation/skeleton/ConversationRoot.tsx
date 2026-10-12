@@ -99,7 +99,14 @@ export function ConversationRoot({
           : workspaceLabel(cwd)))
 
   const heroWorkspaceRow = (
-    <div className={css.heroWorkspaceRow}>
+    <div className={css.heroWorkspaceRow} style={{ flexWrap: 'wrap' }}>
+      {renderSlot('conversation.hero.runtimeEnvironment', {
+        sessionId, summaryBlank, composerPhase, openState,
+        appearance: {
+          trigger: heroCss.workspace, icon: heroCss.folder,
+          label: heroCss.workspaceLabel, chevron: heroCss.chevron,
+        },
+      })}
       <WorkspaceChip
         buttonRef={pickerAnchor}
         label={chipTitle}

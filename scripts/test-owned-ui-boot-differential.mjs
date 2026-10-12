@@ -20,7 +20,8 @@ try{
    assert.equal(receipt.fullGraph,true);assert.equal(receipt.fixtureTransport,true)
    assert.deepEqual(receipt.errors,[]);assert.deepEqual(receipt.staticFailures,[])
    assert.equal(receipt.settingsProviders,true);assert.equal(receipt.modelEffortAndContextControls,true);assert.equal(receipt.effortChange,true)
-   assert.equal(receipt.loadedPlugins,implementation==='source'?56:52,'source adds only the reviewed Plugin API helper, Code Review, Little X and Performance modules')
+   assert.equal(receipt.loadedPlugins,implementation==='source'?57:52,'source adds only the reviewed Plugin API helper, Code Review, Little X, Performance and execution-environment modules')
+   assert.equal(receipt.environmentEntryCount,implementation==='source'?1:0,'one reviewed environment entry, separately exercised by the full-graph picker acceptance')
    assert.equal(receipt.effortEntryCount,implementation==='source'?1:0,'approved independent reasoning entry only')
    assert.equal(receipt.modelEntryCount,implementation==='source'?1:0,'retained model entry has explicit count')
    assert.equal(receipt.shellNavigationCount,implementation==='source'?2:0,'reviewed Back/Forward controls only')
@@ -36,6 +37,7 @@ try{
    '/plugins/@xlang/xharness-client-ui-code-review/client.js',
    '/plugins/@xlang/xharness-client-ui-assistant/client.js',
    '/plugins/@xlang/xharness-client-ui-performance/client.js',
+   '/plugins/@xlang/xharness-client-ui-runtime/client.js',
   ].sort(),`${browser}: exact reviewed plugin additions; no missing, duplicate or unreviewed modules`)
   for(const receipt of outputs) assert.equal(receipt.navigationCount,1,'exactly one work navigation, legacy footer or new clock')
   for(const key of ['stableText','stableButtons','inputs'])assert.deepEqual(outputs[0][key],outputs[1][key],`${browser}: full UI ${key} parity`)
@@ -56,7 +58,7 @@ try{
   const source=readFileSync(join(directory,browser+'-source-reference-chat-boot.png'))
   const old=readFileSync(join(directory,browser+'-legacy-chat-boot.png'))
   assert.notDeepEqual(actualSource,old,`${browser}: actual rounded conversation region must differ from the frozen shell`)
-  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry and approved reasoning-entry projection must match independent frozen master`)
+  assert.equal(Buffer.compare(source,old),0,`${browser}: settled conversation pixels after only regional geometry and approved reasoning/environment-entry projection must match independent frozen master`)
   console.log(JSON.stringify({browser,implementationRuns:3,fullGraph:true,controls:'providers + model + effort + context',effortChange:true,regionalChrome:true,workNavigation:true,pixelSha256:digest(source),actualPixelSha256:digest(actualSource)}))
  }
 }finally{rmSync(directory,{recursive:true,force:true})}
