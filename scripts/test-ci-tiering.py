@@ -54,6 +54,15 @@ class CiTieringContract(unittest.TestCase):
                 for call in script_calls:
                     self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
 
+    def test_linux_native_sandbox_is_installed_and_probed_before_tests(self) -> None:
+        body = job(workflow_source(), "rust-linux")
+        install = body.index("sudo apt-get install -y ripgrep bubblewrap")
+        probe = body.index("bwrap --unshare-user --unshare-pid --unshare-net")
+        tests = body.index("cargo test --workspace --all-targets")
+        self.assertLess(install, probe)
+        self.assertLess(probe, tests)
+        self.assertNotIn("/bin/true ||", body)
+
     def test_ui_required_check_aggregates_all_shards_fail_closed(self) -> None:
         source = workflow_source()
         body = job(source, "context-layout")
