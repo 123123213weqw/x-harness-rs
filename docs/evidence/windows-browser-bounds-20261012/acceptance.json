@@ -239,5 +239,15 @@
     "apps/desktop/src-tauri/examples/browser-inspect-probe.rs": "499f6cf3edd7f3dbec827e4313d3cd765df91f019dcb2a9b2fd4a21e78211014",
     "ui/src/modules/browser/index.tsx": "bda92020d4ca22dc7fe769e1e0feb1f35c946a7b7bfcb35b12838c522aa102fc",
     "scripts/test-browser-native-bridge.mjs": "0b4ca697448747acfdc0abe324613b5af04106b89883ee99d4accf4004ae5833"
+  },
+  "text_normalization": {
+    "policy": "CRLF to LF and trailing blank EOF removal only; original byte digests retained below",
+    "original_sha256": {
+      "baseline-sha256.txt": "dffdbf5b7e67b8cb5df74ae02ade9d96c2e9ec98306d97486e2b231b1cef9fdf",
+      "baseline-source.txt": "9ec25662c87753d1bcdc86735af8851c16fb17d80e02b304f81698a6b73731cf",
+      "executable-sha256.txt": "ee208a886939d2a5c6f09586b0bd8bc0589f8ebbbd28d53f3383262dd5cf7a9d",
+      "source-sha.txt": "3e3b47db907a9fab6cb3370d72396434061a48425c41185a9db30f7fd79191b2",
+      "remote-rust.log": "cc802a7fadc2b28f4aa74ac44e2690fab62dac26e86be057c2451ac77c679e3b"
+    }
   }
 }
