@@ -1,6 +1,7 @@
 import { requireCoreContext, isSessions, isConnection, isConversation } from './core-context'
 import { Service } from '@xharness/cordis'
 import { ModelDirectory } from './directory'
+import { CapabilityRefresh } from './capability-refresh'
 import type { ModelClientContext } from './contracts'
 
 // Cordis is dynamically injected; narrow its constructor to the context this
@@ -9,6 +10,7 @@ const ContextService = Service
 export class ModelDirectoryResolver extends ContextService {
   static inject = ['connection', 'sessions', 'remote']
   readonly live = { directories: new Map<string, ModelDirectory>() }
+  private readonly capabilities = new CapabilityRefresh()
   readonly blockReason: () => string
   constructor(ctx: ModelClientContext, config: { blockReason(): string }) {
     super(requireCoreContext(ctx), 'modelDirectories')
@@ -38,6 +40,10 @@ export class ModelDirectoryResolver extends ContextService {
         return () => { stop(); conversation.blocks.set(sessionId, undefined) }
       }, 'ui-model-selection: composer block')
     }
+    scope.effect(() => {
+      const stop = directory.store.subscribe(() => { this.capabilities.schedule(directory) })
+      return () => { stop(); this.capabilities.cancel(directory) }
+    }, 'ui-model-selection: stale capabilities')
     scope.effect(() => () => { directory.dispose(); this.live.directories.delete(sessionId) }, 'ui-model-selection: session directory')
     return directory
   }
