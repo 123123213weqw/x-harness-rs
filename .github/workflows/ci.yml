@@ -362,6 +362,13 @@ jobs:
           cargo test --locked -p xharness-projection export_session_terminal_contract
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
+      - name: File display wire is generated from actual Rust DTOs
+        env:
+          XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
+        run: |
+          cargo test --locked -p xharness-api export_file_display_contract
+          node scripts/generate-file-display-contract.mjs --from "$XHARNESS_FILE_DISPLAY_EXPORT" --check
+          node --test scripts/test-file-display-source.mjs
       - name: Real Rust fork announcements and lists cross the production WebSocket and HTTP decoders
         env:
           XHARNESS_FORK_WIRE_EXPORT: ${{ runner.temp }}/fork-wire.json

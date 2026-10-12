@@ -3573,6 +3573,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -3864,7 +3865,9 @@ dependencies = [
  "xharness-mcp",
  "xharness-platform",
  "xharness-plugins",
+ "xharness-process",
  "xharness-provider-openai",
+ "xharness-sandbox",
  "xharness-schedule",
  "xharness-server",
  "xharness-session",

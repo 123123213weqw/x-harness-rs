@@ -38419,11 +38419,11 @@ function renderNode(node2, key, context) {
     case "table":
       return renderTable(node2, key, { ...context, streamMotion: void 0 });
     case "link":
-      return renderAnchor(node2.url, renderChildren(node2.children, { ...context, inLink: true }), key);
+      return renderResourceLink(node2.url, renderChildren(node2.children, { ...context, inLink: true }), key, context);
     case "linkReference":
       return renderLinkReference(node2, key, context);
     case "image":
-      return renderImage(node2.url, node2.alt ?? "", key);
+      return renderResourceImage(node2.url, node2.alt ?? "", key, context);
     case "imageReference":
       return renderImageReference(node2, key, context);
     case "footnoteReference":
@@ -38550,6 +38550,14 @@ function inlineCodeHttpUrl(value) {
     return void 0;
   }
 }
+function renderResourceLink(url, children, key, context) {
+  const local = context.resources?.link(url, children);
+  return local === void 0 ? renderAnchor(url, children, key) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: local }, key);
+}
+function renderResourceImage(url, alt, key, context) {
+  const local = context.resources?.image(url, alt);
+  return local === void 0 ? renderImage(url, alt, key) : /* @__PURE__ */ (0, import_jsx_runtime26.jsx)(import_react20.Fragment, { children: local }, key);
+}
 function renderImage(url, alt, key) {
   const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)));
   if (imageSrc === void 0) {
@@ -38582,12 +38590,12 @@ function renderLinkReference(node2, key, context) {
       referenceSuffix(node2)
     ] }, key);
   }
-  return renderAnchor(definition2.url, renderChildren(node2.children, { ...context, inLink: true }), key);
+  return renderResourceLink(definition2.url, renderChildren(node2.children, { ...context, inLink: true }), key, context);
 }
 function renderImageReference(node2, key, context) {
   const definition2 = context.targets.definitions.get(node2.identifier.toUpperCase());
   if (definition2 === void 0) return `![${node2.alt ?? ""}${referenceSuffix(node2)}`;
-  return renderImage(definition2.url, node2.alt ?? "", key);
+  return renderResourceImage(definition2.url, node2.alt ?? "", key, context);
 }
 function renderFootnoteReference(node2, key, context) {
   const id = node2.identifier.toUpperCase();
@@ -38682,12 +38690,13 @@ function useStreamPresentation(text5, enabled) {
 
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
 var import_jsx_runtime27 = __toESM(require_jsx_runtime());
-function renderSettled(text5, codeLabels, fileMentions) {
+function renderSettled(text5, codeLabels, fileMentions, resources) {
   const root = parseGfmWithMath(text5);
   const targets = createReferenceTargets();
   collectReferenceTargets(root.children, targets);
   const context = {
     streaming: false,
+    resources,
     codeLabels,
     fileMentions,
     targets,
@@ -38778,7 +38787,7 @@ var StreamingRenderer = class {
     return this.lastRendered;
   }
 };
-var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5, streaming = false, smoothStreaming = false, codeLabels, fileMentions }) {
+var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5, streaming = false, smoothStreaming = false, codeLabels, fileMentions, resources }) {
   const streamRef = (0, import_react22.useRef)(null);
   const streamLabelsRef = (0, import_react22.useRef)(codeLabels);
   const frame = useStreamPresentation(text5, streaming && smoothStreaming);
@@ -38787,14 +38796,14 @@ var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5
   const children = (0, import_react22.useMemo)(() => {
     if (!streaming) {
       streamRef.current = null;
-      return renderSettled(text5, codeLabels, fileMentions);
+      return renderSettled(text5, codeLabels, fileMentions, resources);
     }
     if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
       streamRef.current = new StreamingRenderer(codeLabels);
       streamLabelsRef.current = codeLabels;
     }
     return streamRef.current.render(visibleText, motion);
-  }, [visibleText, streaming, motion, codeLabels, fileMentions]);
+  }, [visibleText, streaming, motion, codeLabels, fileMentions, resources]);
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: MarkdownText_default.markdown, "data-xh-stream-owned": smoothStreaming || void 0, children });
 });
 
@@ -39154,4 +39163,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-RJJUECQJ.js.map
+//# sourceMappingURL=platform-67REKODJ.js.map
