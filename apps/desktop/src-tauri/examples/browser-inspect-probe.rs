@@ -921,10 +921,14 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
         "({http:window.probeHttpUserAgent,js:navigator.userAgent})",
     )
     .await?;
+    let native = evidence(&main, "navigator.userAgent").await?;
+    println!(
+        "USER_AGENT_EVIDENCE {}",
+        json!({"main":native,"guest":identity,"first_request_matches_js":identity["http"].is_string() && identity["http"] == identity["js"],"test_only":true})
+    );
     if !identity["http"].is_string() || identity["http"] != identity["js"] {
         return Err("guest HTTP and JavaScript browser identities differ".into());
     }
-    let native = evidence(&main, "navigator.userAgent").await?;
     #[cfg(target_os = "macos")]
     {
         let guest_ua = identity["js"].as_str().ok_or("missing guest identity")?;
@@ -945,10 +949,6 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     if identity["js"] != native {
         return Err("non-macOS browser identity was unexpectedly changed".into());
     }
-    println!(
-        "USER_AGENT_EVIDENCE {}",
-        json!({"main":native,"guest":identity,"first_request_matches_js":true,"test_only":true})
-    );
     delegation_probe(app, &main).await?;
     observation = observe(app, &main).await?;
     let nodes = observation["nodes"].as_array().ok_or("missing nodes")?;

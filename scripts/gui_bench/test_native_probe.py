@@ -52,6 +52,51 @@ class NativeProbeTests(unittest.TestCase):
         self.assertIn('input_error.is_none() && focus_observed',source)
         self.assertIn('Duration::from_secs(2)',source)
 
+    def test_receipt_omits_unmeasured_parity_but_still_rejects_incomplete_core_or_exit(self):
+        import io
+        import json
+        from contextlib import redirect_stdout
+        from scripts.gui_bench import run_native_probe as probe
+
+        capabilities = {name: {"status": "not_implemented"} for name in [
+            "trusted_input", "cross_origin_frames", "screenshot", "recording", "hidden_tab_actions"]}
+        subframe = dict(same_origin='passed', cross_origin='passed', same_document='passed',
+                        guest_caller='denied', top_level_address='preserved',
+                        loaded_owner_receipt='preserved', test_only=True)
+        log = ("Native lifecycle probe passed:\nNative Tauri DOM probe passed:\n"
+               + "HARD_CAPABILITY_EVIDENCE " + json.dumps(capabilities)
+               + "\nSUBFRAME_NAVIGATION_EVIDENCE " + json.dumps(subframe))
+        api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
+                   cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
+                   observed={'pointers':[dict(type='click', trusted=True, id=target, x=x, y=y)
+                             for target,x,y in [('native-probe',450,120), ('answer',60,35)]]})
+        for name, output, evidence, code, expected in [
+            ('complete', log, api, 0, True),
+            ('zero-but-incomplete', '', api, 0, False),
+            ('no-native-api-evidence', log, {}, 0, False),
+            ('failed-process', log, api, 1, False),
+        ]:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                binary = root / 'fixture-binary'
+                binary.write_bytes(b'test fixture; not executable Rust')
+                receipt_dir = root / 'evidence'
+
+                def fake_probe(_binary, _env, handle):
+                    handle.write(output.encode('utf-8'))
+                    return code
+
+                with patch.object(probe.sys, 'argv', ['probe', str(binary), '--evidence-dir', str(receipt_dir)]), \
+                     patch.object(probe, 'run_probe', side_effect=fake_probe), \
+                     patch.object(probe, 'native_api_evidence', return_value=evidence), \
+                     redirect_stdout(io.StringIO()):
+                    exit_code = probe.main()
+                receipt = json.loads((receipt_dir / 'receipt.json').read_text())
+                self.assertNotIn('browser_parity_passed', receipt)
+                self.assertEqual(receipt['native_api_core_passed'], bool(evidence))
+                self.assertEqual(receipt['passed'], expected)
+                self.assertEqual(exit_code, 0 if expected else 1)
+
     def test_core_api_gate_requires_trusted_state_and_changed_pixels(self):
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
             cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
