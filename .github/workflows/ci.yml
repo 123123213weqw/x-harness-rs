@@ -336,7 +336,9 @@ jobs:
 
   rust-linux:
     name: Rust / Linux x86_64
-    runs-on: ubuntu-latest
+    # Match the supported native packaging baseline. Floating latest images
+    # can deny bubblewrap's network-namespace setup through AppArmor policy.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -363,7 +365,7 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
-      - name: Install search and native read-only sandbox test dependencies
+      - name: Install search integration test dependency
         run: |
           sudo apt-get update
           sudo apt-get install -y ripgrep bubblewrap
