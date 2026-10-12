@@ -17,8 +17,9 @@ pub use config::{
     DEFAULT_MAX_SUMMARY_TOKENS, DEFAULT_RETAIN_RATIO, DEFAULT_THRESHOLD_RATIO,
 };
 pub use planner::{
-    select_compactable_range, BasicCompactionPlanner, CompactionDecision, CompactionPlan,
-    CompactionRange, CompactionRequest, CompactionTrigger, SurfaceNode, SurfaceNodeKind,
+    select_compactable_range, select_incremental_range, BasicCompactionPlanner, CompactionDecision,
+    CompactionPlan, CompactionRange, CompactionRequest, CompactionTrigger, SurfaceNode,
+    SurfaceNodeKind,
 };
 pub use pruner::{
     PrunedText, ToolResultPruner, ToolResultPrunerConfig, DEFAULT_HEAD_CHARS, DEFAULT_TAIL_CHARS,

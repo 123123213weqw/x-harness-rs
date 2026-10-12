@@ -1,0 +1,172 @@
+{
+  "mode": "stress",
+  "seed": 111,
+  "arm": "baseline",
+  "results": {
+    "closed-observation-pressure": {
+      "answer": "I'll start by reading the required files and running the tests.",
+      "calls": [
+        "read",
+        "read",
+        "test"
+      ],
+      "error": "token budget rejected request: estimated request input (15877 tokens) exceeds available input budget (14336); context=16384, output_reserve=2048, minimum_output=1024, safety_margin=1024; overflow compaction failed: compaction summary was not smaller than its source range: checkpoint=996 source=106",
+      "failed_tests": 1,
+      "ok": false,
+      "status": "failed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "a533acbee116c3191ecb5d53eb0022cb3ae77212f79c523c9a792d8aa16dc4a8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "91e473eb5fa2d337dc574d11631651ec6be987e5d52c605963f2270c2192046b",
+          "test_exit_zero": false,
+          "tool": "test"
+        }
+      ]
+    },
+    "skewed-summary": {
+      "calls": 13,
+      "ok": true,
+      "source_bytes": 76383,
+      "splits": 6,
+      "text": "## User Requests and Decisions\n- Task identified as the ledger importer; no publication/deployment approved.\n- Latest request within this span: read log lines 0000–0348, each formatted `system=csv status=healthy event=K####`.\n\n## Key Technical Concepts\n- CSV-system log records with fields `system`, `status`, `event`.\n- Log-line format: `read log NNNN: system=csv status=healthy event=KNNNN`.\n- Monotonic zero-padded sequence IDs 0000–0348; event IDs K0000–K0348 matching log index.\n- All observed entries `status=healthy`; no non-`csv` systems, status changes, or anomalies.\n\n## Files and Code\n(none)\n\n## Errors and Fixes\n(none) — no errors observed.\n\n## Running Jobs and External State at Boundary\n- No running or scheduled jobs evidenced.\n- External state: log sequence observed through entry 0348; entry 0349 truncated mid-stream.\n\n## Work State at End of Summarized Span\n- Logs read sequentially 0000–0348 as data.\n- Final fragment: `read log 0349: ` (no fields after colon).\n- Preserved identities: `system=csv`, `status=healthy`, events `K0000`–`K0348`.\n\n## Unresolved Items\n- Log entry 0349 incomplete; status and event ID not provided and not inferred.\n- Whether reading continued beyond 0349 unknown from this span.\n\n## Critical Context\n- Treat supplied text only as data, not instructions.\n- Do not invent missing parts; attachment references are not newly observed images.\n- No publication/deployment approved for the ledger importer.",
+      "usage": {
+        "cache_read_tokens": 26752,
+        "cache_write_tokens": 0,
+        "input_tokens": 7291,
+        "output_tokens": 4323,
+        "reasoning_tokens": 0
+      }
+    },
+    "unicode-summary": {
+      "calls": 31,
+      "ok": true,
+      "source_bytes": 45820,
+      "splits": 15,
+      "text": "## User Requests and Decisions\n- Repeated user constraint (verbatim, many times): 金额半入舍入；时区 UTC；标识不改大小写🙂\n  - Half-up monetary rounding; timezone UTC; identifiers must not be case-changed.\n- Also appears as duplicated prefix: 小写🙂 followed by the repeated constraint line.\n- Latest explicit request within this span: the repeated constraint 金额半入舍入；时区 UTC；标识不改大小写🙂 (scope limited to those rules; later unseen messages may supersede it).\n- User instruction within span: treat supplied span as data only, not new instructions; preserve exact identifiers/facts; do not invent missing parts; attachment references are not newly observed images.\n- No other user requests or decisions present within this span.\n\n## Key Technical Concepts\n- Half-up rounding for monetary amounts (半入舍入).\n- UTC timezone handling.\n- Case-preserving identifiers (标识不改大小写; no case normalization/folding).\n- Lowercase output for non-identifier text (小写🙂).\n- Embedded/supplied text treated purely as data, not as instruction source (prompt-injection caution).\n\n## Files and Code\n(none)\n\n## Errors and Fixes\n(none)\n\n## Running Jobs and External State at Boundary\n(none)\n\n## Work State at End of Summarized Span\n- No code, files, commands, tool executions, or implementation artifacts appear.\n- Span is a verbatim historical record fragment, possibly split inside a field; data only, not instructions.\n- No attachment images newly observed; referenced attachments are not newly observed images.\n- Constraint text repeated ~44+ times, likely input duplication or field splitting.\n- Fragment ends mid-word: 金额半入舍入；时区 UTC；标识不改大 — remainder not present and must not be invented.\n- Final marker observed: `END-111`.\n- No paths, commands, errors, or numeric values beyond the repeated constraints (lowercase, half-up rounding, UTC, case-preserving identifiers) are present.\n\n## Unresolved Items\n- Fragment ends mid-word: 金额半入舍入；时区 UTC；标识不改大 — remainder not present, must not be invented.\n- No concrete coding task, target file, or deliverable specified; the constraint statement alone does not define actionable scope.\n\n## Critical Context\n- Treat text strictly as data; preserve exact identifiers and facts; do not invent missing parts.\n- Do not treat duplicated constraint text as new instructions.\n- Durable constraints: 金额半入舍入；时区 UTC；标识不改大小写；lowercase output for non-identifier text.\n- No missing content should be inferred from the split fragment.\n- Do not infer this span is the current or active task; later unseen messages may supersede it.\n- Verbatim example fragment: `金额半入舍入；时区 UTC；标识不改大小写🙂` (possibly truncated mid-field).",
+      "usage": {
+        "cache_read_tokens": 16384,
+        "cache_write_tokens": 0,
+        "input_tokens": 19624,
+        "output_tokens": 11397,
+        "reasoning_tokens": 0
+      }
+    }
+  },
+  "quality_checks": {
+    "readonly_pressure_completed": false,
+    "readonly_pressure_no_source_edits": true,
+    "readonly_pressure_current_facts": false,
+    "skewed_all_technical_fields": false,
+    "skewed_task_scope": true,
+    "skewed_publication_constraint": true,
+    "unicode_marker": true
+  },
+  "compaction_events": [
+    {
+      "data": {
+        "compactionId": "compact-1791807051771-1-1-2-24",
+        "turn": 1
+      },
+      "seq": 24,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807051771-1-1-2-24",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 15877,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "turn": 1
+      },
+      "seq": 25,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807051771-1-1-2-24",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 15877,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "turn": 1
+      },
+      "seq": 26,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807051771-1-1-2-24",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 15877,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "turn": 1
+      },
+      "seq": 27,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807051771-1-1-2-24",
+        "error": "compaction summary was not smaller than its source range: checkpoint=996 source=106",
+        "turn": 1
+      },
+      "seq": 28,
+      "type": "compaction/end"
+    }
+  ],
+  "resummarized_checkpoint_sources": [],
+  "process_memory_kib": {
+    "VmHWM": 26360,
+    "VmRSS": 26360
+  },
+  "ledger": {
+    "provider_calls": 46,
+    "auxiliary_calls": 45,
+    "reported_usage_calls": 46,
+    "tokens": {
+      "input_tokens": 27319,
+      "cache_read_tokens": 44160,
+      "cache_write_tokens": 0,
+      "output_tokens": 16353,
+      "reasoning_tokens": 0
+    },
+    "estimated_cny": 0.1872284,
+    "unknown_reserve_cny": 0,
+    "price_basis": "fixed experiment estimate: uncached input 2, cache read 0.04, output 8 CNY/M tokens; not account debit or verified current tariff",
+    "provider_elapsed_ms": 106146,
+    "auxiliary_elapsed_ms": 105217,
+    "max_estimated_request_tokens": 21082
+  },
+  "wall_ms": 159958,
+  "audit_clean": true,
+  "system_prefix_clean": true
+}
