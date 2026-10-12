@@ -1,0 +1,52 @@
+{
+  "verifiedAt": "2026-10-11T04:39:13.816448+00:00",
+  "sourceCommit": "cfe08c76",
+  "execution": "Rust compilation/tests and native Linux probe on WZU_Server; no local Rust compilation",
+  "desktopRustTests": {
+    "passed": 69,
+    "failed": 0,
+    "newUserAgentTests": 5
+  },
+  "uiBrowserControl": {
+    "passed": true,
+    "engine": "Chromium",
+    "scope": "existing real UI with mock Tauri transport"
+  },
+  "windowsManifestStaticTests": {
+    "passed": 3,
+    "failed": 0
+  },
+  "linuxNative": {
+    "kind": "native_tauri_dom_contract",
+    "platform": "linux",
+    "model_calls": 0,
+    "os_input": false,
+    "titlebar": "standard",
+    "ready_delay_ms": 0,
+    "binary_sha256": "f345156f147c146e514182bf4199a7fd8b8556eec9f6148aa842db952c251218",
+    "subframe_navigation_passed": true,
+    "native_api_prototype_tested": true,
+    "native_api_core_passed": true,
+    "browser_parity_passed": false,
+    "hard_capability_status": "blocked; DOM actions are not native input; no claim of full ZCode parity",
+    "cleanup_passed": true,
+    "exit_code": 0,
+    "seconds": 12.385,
+    "passed": true,
+    "contract_completed": true
+  },
+  "linuxIdentity": {
+    "first_request_matches_js": true,
+    "guest": {
+      "http": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15",
+      "js": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15"
+    },
+    "main": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15",
+    "test_only": true
+  },
+  "notVerified": [
+    "New macOS executable native probe (PR CI pending)",
+    "Actual Bilibili video playback and DRM"
+  ],
+  "localInstalledAppReplaced": false
+}
