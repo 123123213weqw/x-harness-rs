@@ -78,3 +78,32 @@ upgrade rounds, real Windows upgrade/data preservation and independent Promote
 remain unchanged. Automatic candidate preparation remains paused. No new release
 is created by implementing or running this experiment. Report measured warm
 results before changing the production workspace-cache policy.
+
+## Measured result (2026-10-15 UTC)
+
+The corrected experiment used source `2e0e72ffe56d6e25c2a9e8e085e0218fe063ce93`
+on fresh hosted runners. All six reports passed the source, compiler, lock/config,
+cache-hit and zero-exit checks. Warm samples restored the exact populated cache.
+
+| Compilation variant | Populate | Warm |
+| --- | ---: | ---: |
+| Windows dependency-only | 1,503.735 s | 783.844 s |
+| Intel Mac dependency-only | 1,707.427 s | 605.899 s |
+| Intel Mac workspace retention | 1,594.906 s | 658.314 s |
+
+**Keep production dependency-only.** Workspace retention was not faster in this
+sample and its cache post-job step took 305 s versus 114 s for dependency-only.
+This is one sample per variant, not statistical proof of a universal performance
+ordering. Cache/post-job timings are observational, not a compression-only A/B.
+Portable ripgrep's verified cache reuse also ran successfully on fresh Mac runners.
+
+The first scratch run exposed missing Windows sandbox-runner staging in the
+benchmark, now fixed and regression-tested. The corrected run's workspace warm
+job hit npm's `Exit handler never called` before Rust started; only that job was
+retried once on unchanged source. The first five successful reports remain from
+attempt 1; workspace warm is from attempt 2. Failed logs/attempts are retained and
+excluded from performance claims. The evidence JSON binds each report hash and
+tested implementation-file hash to the exact remote run.
+
+These improvements do not establish a new four-platform release duration. The
+public 0.2.51 packages and all production acceptance requirements are unchanged.
