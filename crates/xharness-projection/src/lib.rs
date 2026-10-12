@@ -11,6 +11,7 @@ use xharness_session::{
 };
 
 pub mod metrics;
+pub mod performance;
 pub mod wire;
 use metrics::web_token_usage;
 

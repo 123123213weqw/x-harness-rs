@@ -459,6 +459,16 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-performance",
+      "kind": "source-module",
+      "source": "src/modules/performance/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-conversation",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-ui-schedule",
       "kind": "source-module",
       "source": "src/modules/schedule/index.tsx",
