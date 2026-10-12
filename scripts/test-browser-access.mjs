@@ -40,8 +40,8 @@ try {
     ` })
     await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
     await page.evaluate(() => {
-      const plugin = registration.factory(id => id === 'react' ? React : {})
-      plugin.apply({ effect: fn => fn(), slots: { inject: (_name, fn) => fn(), register: () => {} } })
+      const plugin = registration.factory(id => staticModules[id] ?? (id === 'react' ? React : {}))
+      plugin.apply({ get:()=>undefined,remote:{$on:()=>()=>{}},effect: fn => fn(), slots: { inject: (_name, fn) => fn(), register: () => {} } })
       window.root = ReactDOM.createRoot(document.getElementById('root'))
       function App() {
         const [item, setItem] = React.useState({ id: 'browser:1', kind: 'browser', entries: ['https://example.com/'], position: 0, title: 'example.com' })

@@ -1,0 +1,220 @@
+{
+  "contract": "xharness-file-display-v1",
+  "schemas": {
+    "DisplayFile": {
+      "$defs": {
+        "DisplayDiffSource": {
+          "enum": [
+            "patch",
+            "working",
+            "staged",
+            "head"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "markdown",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "diff",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/DisplayDiffSource"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "text",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "dataBase64": {
+              "type": "string"
+            },
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "mediaType": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "path",
+            "mediaType",
+            "dataBase64",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      ],
+      "title": "DisplayFile"
+    },
+    "DisplayOpen": {
+      "$defs": {
+        "GitDiffScope": {
+          "enum": [
+            "working",
+            "staged",
+            "head"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "gitDiff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitDiffScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path"
+      ],
+      "title": "DisplayOpen",
+      "type": "object"
+    },
+    "DisplayRead": {
+      "$defs": {
+        "GitDiffScope": {
+          "enum": [
+            "working",
+            "staged",
+            "head"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "gitDiff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitDiffScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None reads a file; Some reads only tracked Git changes under path."
+        },
+        "path": {
+          "type": "string"
+        },
+        "relativeTo": {
+          "description": "A displayed Markdown document, used ONLY as a relative resource base.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path"
+      ],
+      "title": "DisplayRead",
+      "type": "object"
+    },
+    "GitDiffScope": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "enum": [
+        "working",
+        "staged",
+        "head"
+      ],
+      "title": "GitDiffScope",
+      "type": "string"
+    }
+  }
+}

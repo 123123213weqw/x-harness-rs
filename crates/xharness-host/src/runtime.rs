@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use serde_json::Value;
 use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use xharness_agent::{
     AgentCommandError, AgentEvent, AgentRegistry, AgentShutdownReport, AgentSupervisor,
     DurableAgentHandle, InboxMessage, LeaseManager, RegistryError, TurnRequestFactory,
@@ -527,6 +528,29 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    /// Fixed read-only Git operation; no shell or model-selected argv.
+    async fn read_display_diff(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _path: &std::path::Path,
+        _scope: xharness_api::display::GitDiffScope,
+        _cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("Git diff display is unavailable on this deployment".into())
+    }
+
+    /// Deployment-owned read-only file display; independent of executing a turn.
+    async fn read_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("file display is unavailable on this runtime".into())
+    }
+
     /// Bind host-owned tools without a strong runtime/Host reference cycle.
     fn bind_host(&self, _host: std::sync::Weak<crate::BasicHost>) {}
 
@@ -589,6 +613,18 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _session_id: &str,
     ) -> Result<Option<Session>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Read the inspector surface without exposing full request inputs.
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        Ok(self
+            .request_header(session_id, seq)
+            .await?
+            .map(|h| h.harness_view()))
     }
 
     async fn request_header(
@@ -759,6 +795,31 @@ impl LoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for LoopAgentRuntime {
+    async fn read_display_diff(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        path: &std::path::Path,
+        scope: xharness_api::display::GitDiffScope,
+        cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn read_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_file(session_id, cwd, permission, path)
+            .await
+    }
+
     fn has_available_route(&self) -> bool {
         self.provider.is_some()
     }
@@ -1352,6 +1413,31 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn read_display_diff(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        path: &std::path::Path,
+        scope: xharness_api::display::GitDiffScope,
+        cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn read_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        self.tool_factory
+            .read_display_file(session_id, cwd, permission, path)
+            .await
+    }
+
     async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
         self.store
             .delete_session_data(session_id)
@@ -1521,6 +1607,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .await
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
+            })
+    }
+
+    async fn harness_header(
+        &self,
+        session_id: &str,
+        seq: u64,
+    ) -> Result<Option<xharness_session::RequestHeader>, AgentRuntimeError> {
+        self.store
+            .harness_header(session_id, seq)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: format!("Harness snapshot unavailable: {e}"),
             })
     }
 
