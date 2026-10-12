@@ -53,6 +53,7 @@ test('production manifest retains every merged-master module and no legacy execu
   // Admit only reviewed additions, pinning their source and injected ABI;
   // the frozen baseline remains immutable and arbitrary WIP modules still fail.
   const approvedAdditions = [
+    { id: '@xharness/dsh-client-ui-settings-remote-control', kind: 'source-module', source: 'src/modules/settings-remote-control/index.ts', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-settings', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection'] },
     { id: '@xlang/xharness-client-plugin-api', kind: 'plugin-api-ts', source: 'src/plugin-api/client.ts', inject: [] },
     { id: '@xlang/xharness-client-ui-assistant', kind: 'source-module', source: 'src/modules/assistant/index.tsx', inject: ['@xharness/dsh-client-runtime', '@xharness/dsh-client-ui-primitives', '@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-ui-conversation'] },
     { id: '@xlang/xharness-client-ui-code-review', kind: 'source-module', source: 'src/modules/code-review/index.tsx', inject: ['@xharness/dsh-client-ui-layout', '@xharness/dsh-client-ui-sidebar', '@xharness/dsh-client-locale', '@xharness/dsh-client-connection', '@xharness/dsh-client-runtime', '@xlang/xharness-client-ui-assistant'] },
