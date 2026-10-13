@@ -117,6 +117,10 @@ def handoff(client, path, version, scope, publish, *, status=False):
 
 def latest_checkpoint(rows, version, run_id, sha):
     prefix = artifact_prefix(version, run_id)
+    return select_checkpoint(rows, prefix, sha)
+
+
+def select_checkpoint(rows, prefix, sha):
     candidates = []
     for row in rows:
         name = row.get('name', '')
@@ -135,7 +139,11 @@ def latest_checkpoint(rows, version, run_id, sha):
 
 
 def restore(client, root, version, run_id, sha):
-    row = latest_checkpoint(client.pages(f'actions/runs/{run_id}/artifacts?per_page=100', 'artifacts'), version, run_id, sha)
+    return restore_checkpoint(client, root, artifact_prefix(version, run_id), run_id, sha)
+
+
+def restore_checkpoint(client, root, prefix, run_id, sha):
+    row = select_checkpoint(client.pages(f'actions/runs/{run_id}/artifacts?per_page=100', 'artifacts'), prefix, sha)
     if row is None:
         # A rerun without evidence may have lost a dispatch intent: fail closed.
         require(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'No checkpoint for a rerun; inspect remote runs, do not redispatch')

@@ -4,6 +4,9 @@ inputs:
   rehearsal:
     description: No-secret CI artifact round-trip only, never dispatch or publish
     default: 'false'
+  candidate:
+    description: Automatic preparation only; never authorize publication
+    default: 'false'
 runs:
   using: node24
   main: index.cjs
