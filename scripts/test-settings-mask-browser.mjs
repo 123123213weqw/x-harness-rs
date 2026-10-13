@@ -1,5 +1,5 @@
 import {openAccountSettings} from './fixtures/open-account-settings.mjs'
-/** Full shipped graph: section card widths must never resize the native modal/mask. */
+/** Full shipped graph: section changes never resize the settings card or modal/mask. */
 import assert from 'node:assert/strict'
 import {readFileSync, existsSync, mkdirSync} from 'node:fs'
 import {resolve, sep, extname} from 'node:path'
@@ -30,11 +30,11 @@ try {
   const evidence = process.env.UI_SETTINGS_MASK_RECEIPT_DIR
   if (evidence) mkdirSync(evidence, {recursive:true})
   const sections = [
-    ['General', null, 800],
-    ['Models', null, 800],
-    ['Profile', '.xhp-root', 1040],
-    ['Archived chats', '.xhtask-settings-root', 1180],
-    ['Display & shortcuts', '.xhe-root', 800],
+    ['General', null],
+    ['Models', null],
+    ['Profile', '.xhp-root'],
+    ['Archived chats', '.xhtask-settings-root'],
+    ['Display & shortcuts', '.xhe-root'],
   ]
   const dialog = page.getByRole('dialog', {name:'Settings',exact:true})
   const geometry = () => page.evaluate(() => {
@@ -61,7 +61,8 @@ try {
     for (const width of [1810,1280,960,640,426]) {
       const height=width<=640 ? 664 : 900
       await page.setViewportSize({width,height})
-      for (const [name, content, idealWidth] of sections) {
+      let stablePanel
+      for (const [name, content] of sections) {
         await dialog.getByRole('button',{name,exact:true}).click()
         if(content) await dialog.locator(content).waitFor()
         // Wait for the native top-layer and React section commit, not arbitrary sleeps.
@@ -76,7 +77,9 @@ try {
         near(g.panel.x+g.panel.width/2,width/2, `${theme}/${width}/${name} card remains horizontally centered`)
         near(g.panel.y+g.panel.height/2,height/2, `${theme}/${width}/${name} card remains vertically centered`)
         assert.ok(g.panel.width<=width-24+1 && g.panel.height<=height-24+1, `${name} card retains viewport gutters`)
-        if(width>=1280) near(g.panel.width,idealWidth,`${name} changes only the content card width`)
+        if(stablePanel === undefined) stablePanel=g.panel
+        for(const coordinate of ['x','y','width','height']) near(g.panel[coordinate],stablePanel[coordinate],`${theme}/${width}/${name} stable card ${coordinate}`)
+        near(g.panel.width,Math.min(1040,width-(width<=640?24:48)),`${name} uses the common responsive settings width`)
         assert.deepEqual(g.paint,expectedPaint, `${name} shares theme mask color and blur`)
         assert.equal(g.edgeMasked,true, `${name} right-edge pointer target is the mask`)
         cases++
