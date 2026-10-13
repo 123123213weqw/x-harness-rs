@@ -141,6 +141,13 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "display/read" {
+            let result = crate::display::read_rpc(self, &payload, _cancellation).await;
+            return Some(match result {
+                Ok(v) => RpcResult::success(v),
+                Err(e) => RpcResult::failure(e),
+            });
+        }
         if endpoint.starts_with("github/review-") {
             let result = crate::github_review::call(self, endpoint, &payload, _cancellation).await;
             return Some(match result {

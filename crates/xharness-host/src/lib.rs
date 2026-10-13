@@ -26,7 +26,9 @@ mod goals;
 mod history_tool;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
+mod display;
 mod driver;
+pub use display::DisplayTool;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
@@ -69,6 +71,7 @@ use std::{
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
+use tokio_util::sync::CancellationToken;
 use xharness_api::RpcId;
 use xharness_control::{ControlStore, MemoryControlStore};
 use xharness_core::{ContextPolicy, IdentityContextPolicy, ModelProvider};
@@ -160,6 +163,29 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         cwd: &str,
         permission: PermissionPreset,
     ) -> Result<ToolExecutor, String>;
+
+    /// Fixed read-only Git operation; no shell or model-selected argv.
+    async fn read_display_diff(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _path: &std::path::Path,
+        _scope: xharness_api::display::GitDiffScope,
+        _cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("Git diff display is unavailable on this deployment".into())
+    }
+
+    /// Bounded, permission-aware read-only preview; non-native deployments fail closed.
+    async fn read_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        Err("file display is unavailable on this deployment".into())
+    }
 
     /// Deployment composition policy for tools injected by Host itself.
     /// Defaults preserve production behavior; restrictions must cover this

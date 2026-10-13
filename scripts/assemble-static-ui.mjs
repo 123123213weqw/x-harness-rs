@@ -12,6 +12,7 @@ import { compileScriptAssets } from './build-script-assets.mjs'
 import { compilePlatformUi } from './build-platform-ui.mjs'
 import { verifyPreparedCaches } from './prepare-platform-regex-cache.mjs'
 import { run as checkSessionTerminalContract } from './generate-session-terminal-contract.mjs'
+import { run as checkFileDisplayContract } from './generate-file-display-contract.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ui = join(repoRoot, 'ui')
@@ -36,6 +37,7 @@ if (!check && output !== join(ui, 'dist') && existsSync(output)) {
 // Mandatory at the assembly boundary, including direct CLI / plugin-api builds;
 // an npm wrapper alone can be bypassed by packaging or a custom output path.
 checkSessionTerminalContract(['--check'])
+checkFileDisplayContract(['--check'])
 await verifyPreparedCaches()
 const manifest = JSON.parse(readInput(ui, { source: 'modules.json' }).toString('utf8'))
 if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.modules) || !manifest.modules.length || !Array.isArray(manifest.assets)) throw Error('Invalid repository UI manifest')

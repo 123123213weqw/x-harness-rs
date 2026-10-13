@@ -46,19 +46,21 @@ function PerformanceView({ useProjection, t }) {
     const start = firstSample !== undefined && turn.truncated ? Math.max(turn.startMs, firstSample.timeMs) : turn.startMs;
     const end = Math.max(start + 1000, turn.endMs ?? turn.lastMs, (turn.samples.at(-1)?.timeMs ?? start) + 1000);
     const x = (time) => 46 + Math.max(0, Math.min(1, (time - start) / (end - start))) * 690;
-    const max = Math.max(5, ...turn.samples.map(sample => (0, chart_1.sampleTps)(sample)));
+    const requestFor = (sample) => turn.requests.find(r => r.step === sample.step && r.attempt === sample.attempt);
+    const rate = (sample, track) => (0, chart_1.sampleTps)(sample, track, requestFor(sample));
+    const max = Math.max(5, ...turn.samples.map(sample => rate(sample)));
     const y = (value) => 230 - Math.min(1, value / max) * 190;
     const sample = hover === null ? undefined : turn.samples[hover];
     const request = sample === undefined ? undefined : turn.requests.find(r => r.step === sample.step && r.attempt === sample.attempt);
     const avg = (0, chart_1.reportedTps)(turn);
     const phaseClass = (kind) => kind === 'reasoning' || kind === 'arguments' ? kind + 'Band' : kind;
-    return (0, jsx_runtime_1.jsxs)("section", { "data-conversation-composer-overlay": "", className: "xhperf", "data-performance-view": "", children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("h2", { children: t('title') }), (0, jsx_runtime_1.jsx)("select", { "aria-label": t('turn'), value: turn.turn, onChange: e => { setSelected(Number(e.target.value)); setHover(null); }, children: timeline.turns.map(item => (0, jsx_runtime_1.jsxs)("option", { value: item.turn, children: [t('turn'), " ", item.turn + 1, " \u00B7 ", t(item.endMs === null ? 'live' : 'done')] }, item.turn)) }), (0, jsx_runtime_1.jsx)("button", { "aria-pressed": !smooth, onClick: () => setSmooth(false), children: t('raw') }), (0, jsx_runtime_1.jsx)("button", { "aria-pressed": smooth, onClick: () => setSmooth(true), children: t('smooth') })] }), (0, jsx_runtime_1.jsx)("p", { children: t('estimate') }), turn.truncated && (0, jsx_runtime_1.jsx)("p", { role: "status", children: t('retention') }), turn.samples.length === 0 ? (0, jsx_runtime_1.jsx)("p", { children: t('empty') }) : (0, jsx_runtime_1.jsxs)("figure", { children: [(0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 760 300", role: "img", "aria-label": `${t('rate')} · tok/s`, tabIndex: 0, onPointerMove: e => { const rect = e.currentTarget.getBoundingClientRect(); const found = (0, chart_1.nearest)(turn, start + Math.max(0, Math.min(1, ((e.clientX - rect.left) / rect.width * 760 - 46) / 690)) * (end - start) - 500); setHover(found === undefined ? null : turn.samples.indexOf(found)); }, onPointerLeave: () => setHover(null), onKeyDown: e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    return (0, jsx_runtime_1.jsxs)("section", { "data-conversation-composer-overlay": "", className: "xhperf", "data-performance-view": "", children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("h2", { children: t('title') }), (0, jsx_runtime_1.jsx)("select", { "aria-label": t('turn'), value: turn.turn, onChange: e => { setSelected(Number(e.target.value)); setHover(null); }, children: timeline.turns.map(item => (0, jsx_runtime_1.jsxs)("option", { value: item.turn, children: [t('turn'), " ", item.turn + 1, " \u00B7 ", t(item.endMs === null ? 'live' : 'done')] }, item.turn)) }), (0, jsx_runtime_1.jsx)("button", { "aria-pressed": !smooth, onClick: () => setSmooth(false), children: t('raw') }), (0, jsx_runtime_1.jsx)("button", { "aria-pressed": smooth, onClick: () => setSmooth(true), children: t('smooth') })] }), (0, jsx_runtime_1.jsx)("p", { children: t(turn.requests.length > 0 && turn.requests.every(r => r.receptionMs !== undefined) ? 'receptionEstimate' : 'estimate') }), turn.truncated && (0, jsx_runtime_1.jsx)("p", { role: "status", children: t('retention') }), turn.samples.length === 0 ? (0, jsx_runtime_1.jsx)("p", { children: t('empty') }) : (0, jsx_runtime_1.jsxs)("figure", { children: [(0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 760 300", role: "img", "aria-label": `${t('rate')} · tok/s`, tabIndex: 0, onPointerMove: e => { const rect = e.currentTarget.getBoundingClientRect(); const found = (0, chart_1.nearest)(turn, start + Math.max(0, Math.min(1, ((e.clientX - rect.left) / rect.width * 760 - 46) / 690)) * (end - start) - 500); setHover(found === undefined ? null : turn.samples.indexOf(found)); }, onPointerLeave: () => setHover(null), onKeyDown: e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                             e.preventDefault();
                             const index = hover ?? -1;
                             const next = Math.max(0, Math.min(turn.samples.length - 1, index + (e.key === 'ArrowRight' ? 1 : -1)));
                             if (turn.samples[next] !== undefined)
                                 setHover(next);
-                        } }, children: [(0, jsx_runtime_1.jsx)("title", { children: t('rate') }), [0, 0.5, 1].map(f => (0, jsx_runtime_1.jsxs)("g", { children: [(0, jsx_runtime_1.jsx)("line", { className: "grid", x1: "46", x2: "736", y1: y(f * max), y2: y(f * max) }), (0, jsx_runtime_1.jsx)("text", { className: "axis", x: "38", y: y(f * max) + 4, textAnchor: "end", children: format(f * max) })] }, f)), (0, jsx_runtime_1.jsx)("text", { className: "axis", x: "46", y: "22", children: "tok/s \u2248" }), tracks.flatMap(([track, cls]) => (0, chart_1.series)(turn, track, smooth).map((segment, i) => { const first = segment[0]; return (0, jsx_runtime_1.jsxs)("g", { className: cls, fill: "none", children: [(0, jsx_runtime_1.jsx)("polyline", { "data-tps-track": cls, points: segment.map(s => `${x(s.timeMs + 500)},${y((0, chart_1.sampleTps)(s, track))}`).join(' '), strokeWidth: "2", strokeLinejoin: "round" }), segment.length === 1 && first !== undefined && (0, jsx_runtime_1.jsx)("circle", { cx: x(first.timeMs + 500), cy: y((0, chart_1.sampleTps)(first, track)), r: "2", fill: "currentColor" })] }, `${track}-${i}`); })), turn.phases.filter(phase => (phase.endMs ?? turn.lastMs) >= start).map((phase, i) => (0, jsx_runtime_1.jsx)("rect", { className: phaseClass(phase.kind), x: x(phase.startMs), y: "250", width: Math.max(1, x(phase.endMs ?? turn.lastMs) - x(phase.startMs)), height: "10", rx: "2", children: (0, jsx_runtime_1.jsxs)("title", { children: [t(phase.kind), " \u00B7 ", format(Math.max(0, phase.startMs - turn.startMs) / 1000), t('seconds')] }) }, i)), [0, 0.5, 1].map(f => (0, jsx_runtime_1.jsxs)("text", { className: "axis", x: 46 + f * 690, y: "285", textAnchor: f === 0 ? 'start' : f === 1 ? 'end' : 'middle', children: [format((start - turn.startMs + f * (end - start)) / 1000), t('seconds')] }, f)), sample !== undefined && (0, jsx_runtime_1.jsx)("line", { x1: x(sample.timeMs + 500), x2: x(sample.timeMs + 500), y1: "35", y2: "260", stroke: "currentColor", strokeDasharray: "3 4", opacity: ".4" })] }), (0, jsx_runtime_1.jsxs)("figcaption", { className: "legend", children: [tracks.map(([, cls]) => (0, jsx_runtime_1.jsxs)("span", { className: cls, children: [(0, jsx_runtime_1.jsx)("i", {}), t(cls)] }, cls)), (0, jsx_runtime_1.jsx)("span", { children: [...new Set(turn.phases.map(phase => phase.kind))].map(kind => t(kind)).join(' · ') })] })] }), (0, jsx_runtime_1.jsx)("p", { children: t('hint') }), (0, jsx_runtime_1.jsxs)("dl", { children: [(0, jsx_runtime_1.jsx)("dt", { children: t('reported') }), (0, jsx_runtime_1.jsx)("dd", { children: avg === null ? t('missing') : `${format(avg)} tok/s` })] }), sample !== undefined && (0, jsx_runtime_1.jsxs)("dl", { "aria-label": t('details'), children: [(0, jsx_runtime_1.jsx)("dt", { children: t('time') }), (0, jsx_runtime_1.jsxs)("dd", { children: [format(Math.max(0, sample.timeMs - turn.startMs) / 1000), "\u2013", format(Math.max(0, sample.timeMs + 1000 - turn.startMs) / 1000), t('seconds')] }), (0, jsx_runtime_1.jsx)("dt", { children: t('rate') }), (0, jsx_runtime_1.jsxs)("dd", { children: ["\u2248 ", format((0, chart_1.sampleTps)(sample)), " tok/s"] }), (0, jsx_runtime_1.jsxs)("dt", { children: [t('step'), " / ", t('attempt')] }), (0, jsx_runtime_1.jsxs)("dd", { children: [sample.step, " / ", sample.attempt + 1] }), (0, jsx_runtime_1.jsx)("dt", { children: t('model') }), (0, jsx_runtime_1.jsx)("dd", { children: request?.model ?? t('missing') }), (0, jsx_runtime_1.jsx)("dt", { children: t('source') }), (0, jsx_runtime_1.jsx)("dd", { children: t('estimate') })] }), (0, jsx_runtime_1.jsxs)("details", { onToggle: event => setShowTable(event.currentTarget.open), children: [(0, jsx_runtime_1.jsx)("summary", { children: t('table') }), showTable && (0, jsx_runtime_1.jsx)("div", { children: (0, jsx_runtime_1.jsxs)("table", { children: [(0, jsx_runtime_1.jsx)("thead", { children: (0, jsx_runtime_1.jsx)("tr", { children: ['time', 'step', 'attempt', 'text', 'reasoning', 'arguments'].map(key => (0, jsx_runtime_1.jsx)("th", { children: t(key) }, key)) }) }), (0, jsx_runtime_1.jsx)("tbody", { children: turn.samples.map((s, i) => (0, jsx_runtime_1.jsxs)("tr", { children: [(0, jsx_runtime_1.jsxs)("td", { children: [format(Math.max(0, s.timeMs - turn.startMs) / 1000), t('seconds')] }), (0, jsx_runtime_1.jsx)("td", { children: s.step }), (0, jsx_runtime_1.jsx)("td", { children: s.attempt + 1 }), tracks.map(([track]) => (0, jsx_runtime_1.jsxs)("td", { children: ["\u2248 ", format((0, chart_1.sampleTps)(s, track))] }, track))] }, i)) })] }) })] })] });
+                        } }, children: [(0, jsx_runtime_1.jsx)("title", { children: t('rate') }), [0, 0.5, 1].map(f => (0, jsx_runtime_1.jsxs)("g", { children: [(0, jsx_runtime_1.jsx)("line", { className: "grid", x1: "46", x2: "736", y1: y(f * max), y2: y(f * max) }), (0, jsx_runtime_1.jsx)("text", { className: "axis", x: "38", y: y(f * max) + 4, textAnchor: "end", children: format(f * max) })] }, f)), (0, jsx_runtime_1.jsx)("text", { className: "axis", x: "46", y: "22", children: "tok/s \u2248" }), tracks.flatMap(([track, cls]) => (0, chart_1.series)(turn, track, smooth).map((segment, i) => { const first = segment[0]; return (0, jsx_runtime_1.jsxs)("g", { className: cls, fill: "none", children: [(0, jsx_runtime_1.jsx)("polyline", { "data-tps-track": cls, points: segment.map(s => `${x(s.timeMs + 500)},${y(rate(s, track))}`).join(' '), strokeWidth: "2", strokeLinejoin: "round" }), segment.length === 1 && first !== undefined && (0, jsx_runtime_1.jsx)("circle", { cx: x(first.timeMs + 500), cy: y(rate(first, track)), r: "2", fill: "currentColor" })] }, `${track}-${i}`); })), turn.phases.filter(phase => (phase.endMs ?? turn.lastMs) >= start).map((phase, i) => (0, jsx_runtime_1.jsx)("rect", { className: phaseClass(phase.kind), x: x(phase.startMs), y: "250", width: Math.max(1, x(phase.endMs ?? turn.lastMs) - x(phase.startMs)), height: "10", rx: "2", children: (0, jsx_runtime_1.jsxs)("title", { children: [t(phase.kind), " \u00B7 ", format(Math.max(0, phase.startMs - turn.startMs) / 1000), t('seconds')] }) }, i)), [0, 0.5, 1].map(f => (0, jsx_runtime_1.jsxs)("text", { className: "axis", x: 46 + f * 690, y: "285", textAnchor: f === 0 ? 'start' : f === 1 ? 'end' : 'middle', children: [format((start - turn.startMs + f * (end - start)) / 1000), t('seconds')] }, f)), sample !== undefined && (0, jsx_runtime_1.jsx)("line", { x1: x(sample.timeMs + 500), x2: x(sample.timeMs + 500), y1: "35", y2: "260", stroke: "currentColor", strokeDasharray: "3 4", opacity: ".4" })] }), (0, jsx_runtime_1.jsxs)("figcaption", { className: "legend", children: [tracks.map(([, cls]) => (0, jsx_runtime_1.jsxs)("span", { className: cls, children: [(0, jsx_runtime_1.jsx)("i", {}), t(cls)] }, cls)), (0, jsx_runtime_1.jsx)("span", { children: [...new Set(turn.phases.map(phase => phase.kind))].map(kind => t(kind)).join(' · ') })] })] }), (0, jsx_runtime_1.jsx)("p", { children: t('hint') }), avg !== null && (0, jsx_runtime_1.jsxs)("dl", { children: [(0, jsx_runtime_1.jsx)("dt", { children: t('reported') }), (0, jsx_runtime_1.jsxs)("dd", { children: [format(avg), " tok/s"] })] }), sample !== undefined && (0, jsx_runtime_1.jsxs)("dl", { "aria-label": t('details'), children: [(0, jsx_runtime_1.jsx)("dt", { children: t('time') }), (0, jsx_runtime_1.jsxs)("dd", { children: [format(Math.max(0, sample.timeMs - turn.startMs) / 1000), "\u2013", format(Math.max(0, sample.timeMs + 1000 - turn.startMs) / 1000), t('seconds')] }), (0, jsx_runtime_1.jsx)("dt", { children: t('rate') }), (0, jsx_runtime_1.jsxs)("dd", { children: ["\u2248 ", format(rate(sample)), " tok/s"] }), (0, jsx_runtime_1.jsxs)("dt", { children: [t('step'), " / ", t('attempt')] }), (0, jsx_runtime_1.jsxs)("dd", { children: [sample.step, " / ", sample.attempt + 1] }), (0, jsx_runtime_1.jsx)("dt", { children: t('model') }), (0, jsx_runtime_1.jsx)("dd", { children: request?.model ?? t('missing') }), (0, jsx_runtime_1.jsx)("dt", { children: t('source') }), (0, jsx_runtime_1.jsx)("dd", { children: t(request?.receptionMs === undefined ? 'estimate' : 'receptionEstimate') })] }), (0, jsx_runtime_1.jsxs)("details", { onToggle: event => setShowTable(event.currentTarget.open), children: [(0, jsx_runtime_1.jsx)("summary", { children: t('table') }), showTable && (0, jsx_runtime_1.jsx)("div", { children: (0, jsx_runtime_1.jsxs)("table", { children: [(0, jsx_runtime_1.jsx)("thead", { children: (0, jsx_runtime_1.jsx)("tr", { children: ['time', 'step', 'attempt', 'text', 'reasoning', 'arguments'].map(key => (0, jsx_runtime_1.jsx)("th", { children: t(key) }, key)) }) }), (0, jsx_runtime_1.jsx)("tbody", { children: turn.samples.map((s, i) => (0, jsx_runtime_1.jsxs)("tr", { children: [(0, jsx_runtime_1.jsxs)("td", { children: [format(Math.max(0, s.timeMs - turn.startMs) / 1000), t('seconds')] }), (0, jsx_runtime_1.jsx)("td", { children: s.step }), (0, jsx_runtime_1.jsx)("td", { children: s.attempt + 1 }), tracks.map(([track]) => (0, jsx_runtime_1.jsxs)("td", { children: ["\u2248 ", format(rate(s, track))] }, track))] }, i)) })] }) })] })] });
 }
 
 },
@@ -78,7 +80,7 @@ const nullable = (v) => v === null || integer(v);
 const ordered = (start, end) => integer(start) && nullable(end) && (end === null || end >= start);
 /** Invalid optional telemetry disables only this panel, never Session history. */
 function isTimeline(value) {
-    if (!record(value) || value.schemaVersion !== 1 || value.source !== 'journal_checkpoint_estimate'
+    if (!record(value) || value.schemaVersion !== 1 || (value.source !== 'journal_checkpoint_estimate' && value.source !== 'provider_reception_estimate')
         || value.bucketMs !== 1000 || value.maxSamples !== 600 || !array(value.turns) || value.turns.length > 4)
         return false;
     let samples = 0, phases = 0, requests = 0, previousTurn = -1;
@@ -106,6 +108,9 @@ function isTimeline(value) {
             if (!record(request) || !integer(request.step) || !integer(request.attempt)
                 || !ordered(request.startMs, request.endMs) || !ordered(request.startMs, request.firstDeltaMs)
                 || !nullable(request.reportedOutputTokens) || !nullable(request.reportedReasoningTokens)
+                || request.receptionMs !== undefined && (!integer(request.receptionMs) || request.receptionMs < 1)
+                || request.estimatedUnits !== undefined && !integer(request.estimatedUnits)
+                || request.estimatedReasoningUnits !== undefined && (!integer(request.estimatedReasoningUnits) || request.estimatedReasoningUnits > (request.estimatedUnits ?? 0))
                 || ![request.provider, request.model].every(v => v === null || (typeof v === 'string' && v.length <= 320)))
                 return false;
     }
@@ -125,8 +130,26 @@ exports.sampleTps = sampleTps;
 exports.series = series;
 exports.nearest = nearest;
 exports.reportedTps = reportedTps;
-function sampleTps(sample, track) {
-    return (track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track]) / 4;
+const reception_metrics_1 = require("../shared/reception-metrics");
+function sampleTps(sample, track, request) {
+    const raw = (n) => n / 4;
+    if (request?.reportedOutputTokens === null || request?.reportedOutputTokens === undefined
+        || request.estimatedUnits === undefined || request.estimatedUnits <= 0) {
+        return raw(track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track]);
+    }
+    const output = request.reportedOutputTokens;
+    const total = output + (request.reportedReasoningTokens ?? 0);
+    const reasoning = request.estimatedReasoningUnits;
+    // Detailed reasoning usage must not manufacture a curve for hidden thought.
+    // Without a reported split, calibration preserves the observed total shape.
+    if (reasoning === undefined || !(request.reportedReasoningTokens ?? 0)) {
+        return (track === undefined ? sample.textUnits + sample.reasoningUnits + sample.argumentUnits : sample[track]) * total / request.estimatedUnits;
+    }
+    const visible = request.estimatedUnits - reasoning;
+    const rate = (kind) => kind === 'reasoningUnits'
+        ? (reasoning > 0 ? sample[kind] * (request.reportedReasoningTokens ?? 0) / reasoning : 0)
+        : (visible > 0 ? sample[kind] * output / visible : 0);
+    return track === undefined ? rate('textUnits') + rate('reasoningUnits') + rate('argumentUnits') : rate(track);
 }
 /** No interpolation across steps, retries, or missing reception seconds. */
 function series(turn, track, smooth) {
@@ -151,13 +174,92 @@ function nearest(turn, timeMs) {
 }
 function reportedTps(turn) {
     let tokens = 0, milliseconds = 0;
+    const route = turn.requests.at(-1);
     for (const request of turn.requests) {
-        if (request.reportedOutputTokens === null || request.firstDeltaMs === null || request.endMs === null || request.endMs <= request.firstDeltaMs)
+        if (route !== undefined && (request.provider !== route.provider || request.model !== route.model))
             continue;
+        if (request.reportedOutputTokens === null || request.firstDeltaMs === null || request.endMs === null)
+            continue;
+        const span = request.receptionMs ?? (request.endMs > request.firstDeltaMs ? request.endMs - request.firstDeltaMs : Math.max(1, request.endMs - request.startMs));
         tokens += request.reportedOutputTokens + (request.reportedReasoningTokens ?? 0);
-        milliseconds += request.endMs - request.firstDeltaMs;
+        milliseconds += span;
     }
-    return milliseconds === 0 ? null : tokens / (milliseconds / 1000);
+    return (0, reception_metrics_1.throughput)(tokens, milliseconds);
+}
+
+},
+"src/modules/shared/reception-metrics.js": function(module, exports, require) {
+// source: src/modules/shared/reception-metrics.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.throughput = throughput;
+exports.totalOutputTokens = totalOutputTokens;
+exports.messageProvenance = messageProvenance;
+exports.receptionReading = receptionReading;
+const runtime_types_1 = require("./runtime-types");
+/** Pure metric arithmetic shared by Chat and Performance. Never reads UI time. */
+function throughput(tokens, milliseconds) {
+    return Number.isFinite(tokens) && tokens >= 0 && Number.isFinite(milliseconds) && milliseconds > 0
+        ? tokens / (milliseconds / 1000) : null;
+}
+function totalOutputTokens(usage) {
+    if (!(0, runtime_types_1.isObjectRecord)(usage))
+        return null;
+    const output = usage.outputTokens;
+    const reasoning = usage.reasoningTokens ?? 0;
+    return typeof output === 'number' && Number.isFinite(output) && output >= 0
+        && typeof reasoning === 'number' && Number.isFinite(reasoning) && reasoning >= 0 ? output + reasoning : null;
+}
+function messageProvenance(message) {
+    if (!(0, runtime_types_1.isObjectRecord)(message) || !(0, runtime_types_1.isObjectRecord)(message.source))
+        return undefined;
+    const { provider, model } = message.source;
+    return typeof provider === 'string' && typeof model === 'string' ? { provider, model } : undefined;
+}
+function receptionReading(event) {
+    if (event?.type !== 'model/reception' || !(0, runtime_types_1.isObjectRecord)(event.data))
+        return null;
+    const data = event.data, r = data.reception;
+    if (!(0, runtime_types_1.isObjectRecord)(r))
+        return null;
+    const { turn, step } = data;
+    const { attempt, startMs, firstDeltaMs, elapsedMs, receptionMs, finished } = r;
+    const finite = (n) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+    if (!finite(turn) || !finite(step) || !finite(attempt) || !finite(startMs) || !finite(elapsedMs)
+        || !finite(receptionMs) || receptionMs < 1 || typeof finished !== 'boolean'
+        || !(firstDeltaMs === null || finite(firstDeltaMs) && firstDeltaMs >= startMs))
+        return null;
+    return { turn, step, attempt, startMs, firstDeltaMs, elapsedMs, receptionMs, finished };
+}
+
+},
+"src/modules/shared/runtime-types.js": function(module, exports, require) {
+// source: src/modules/shared/runtime-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isObjectRecord = isObjectRecord;
+exports.objectValue = objectValue;
+exports.errorText = errorText;
+exports.textValue = textValue;
+exports.numberValue = numberValue;
+function isObjectRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function objectValue(value) {
+    return isObjectRecord(value) ? value : {};
+}
+function errorText(error) {
+    const record = objectValue(error);
+    const rpc = objectValue(record.rpcError);
+    return typeof rpc.message === 'string' ? rpc.message : typeof record.message === 'string' ? record.message : String(error);
+}
+function textValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+function numberValue(value, fallback = 0) {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 },
@@ -170,6 +272,7 @@ exports.zh = exports.en = exports.NS = void 0;
 exports.NS = 'xharness.performance';
 exports.en = {
     title: 'Performance', turn: 'Turn', raw: '1s buckets', smooth: '3s smoothing', empty: 'No timed stream checkpoints available. An average cannot reconstruct a curve.', unavailable: 'This Host does not provide performance telemetry yet.', invalid: 'Performance telemetry is incompatible. Chat history is unaffected.',
+    receptionEstimate: 'Reception estimate · before buffering · usage-calibrated after completion',
     estimate: 'Reception estimate · journal checkpoint timing · not server decode TPS', retention: 'Only the latest sampling window is retained. Older samples were evicted.',
     rate: 'Estimated reception', reported: 'Reported tokens / reception time', missing: 'Unknown', time: 'Time', step: 'Step', attempt: 'Attempt', model: 'Model', source: 'Source',
     text: 'Text', reasoning: 'Reasoning', arguments: 'Tool input', details: 'Sample details',
@@ -178,6 +281,7 @@ exports.en = {
 };
 exports.zh = {
     title: '性能', turn: '轮次', raw: '每秒采样', smooth: '3 秒平滑', empty: '没有可用的流式时间采样。不能根据平均值补出曲线。', unavailable: '当前 Host 尚未提供性能采样。', invalid: '性能采样协议不兼容；不影响聊天历史。',
+    receptionEstimate: '接收侧采样 · 缓冲前计时 · 完成后按接口 Token 校准',
     estimate: '接收侧估算 · 日志检查点计时 · 不是服务端生成 TPS', retention: '仅保留最近采样窗口；更早的采样已淘汰。',
     rate: '估算接收速度', reported: '接口 Token / 接收耗时', missing: '未知', time: '时间', step: '步骤', attempt: '尝试', model: '模型', source: '来源',
     text: '正文', reasoning: '思考', arguments: '工具参数', details: '采样详情',
@@ -203,7 +307,7 @@ exports.CSS = `
 
 }
 };
-const __dependencies = {"src/modules/performance/index.js":{"./PerformanceView":"src/modules/performance/PerformanceView.js","./locales":"src/modules/performance/locales.js","./styles":"src/modules/performance/styles.js"},"src/modules/performance/PerformanceView.js":{"./contract":"src/modules/performance/contract.js","./chart":"src/modules/performance/chart.js"},"src/modules/performance/contract.js":{},"src/modules/performance/chart.js":{},"src/modules/performance/locales.js":{},"src/modules/performance/styles.js":{}};
+const __dependencies = {"src/modules/performance/index.js":{"./PerformanceView":"src/modules/performance/PerformanceView.js","./locales":"src/modules/performance/locales.js","./styles":"src/modules/performance/styles.js"},"src/modules/performance/PerformanceView.js":{"./contract":"src/modules/performance/contract.js","./chart":"src/modules/performance/chart.js"},"src/modules/performance/contract.js":{},"src/modules/performance/chart.js":{"../shared/reception-metrics":"src/modules/shared/reception-metrics.js"},"src/modules/shared/reception-metrics.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/performance/locales.js":{},"src/modules/performance/styles.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

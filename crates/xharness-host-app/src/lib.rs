@@ -7,6 +7,8 @@
 
 #[cfg(any(target_os = "macos", windows, test))]
 mod computer_media;
+mod file_display;
+mod git_display;
 mod github_http;
 pub mod github_service;
 pub mod hosted;
@@ -34,6 +36,7 @@ use std::{
 
 use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use xharness_coding_tools::CodingToolBundle;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
@@ -66,6 +69,7 @@ pub fn configured_web_runtime(
 /// by session owner so they remain collectable across model turns.
 pub struct NativeToolFactory {
     jobs: Arc<JobRegistry>,
+    display_slots: Arc<tokio::sync::Semaphore>,
     web: Arc<WebRuntime>,
     platforms: RwLock<BTreeMap<(String, String, PermissionPreset), Arc<NativePlatform>>>,
     debug: DebugRecorder,
@@ -92,6 +96,7 @@ impl NativeToolFactory {
     pub fn new_with_debug(web: WebRuntime, debug: DebugRecorder) -> Arc<Self> {
         Arc::new(Self {
             jobs: Arc::new(JobRegistry::default()),
+            display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
             debug,
@@ -112,6 +117,7 @@ impl NativeToolFactory {
     ) -> Arc<Self> {
         Arc::new(Self {
             jobs: Arc::new(JobRegistry::default()),
+            display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
             debug,
@@ -133,6 +139,7 @@ impl NativeToolFactory {
     ) -> Arc<Self> {
         Arc::new(Self {
             jobs: Arc::new(JobRegistry::default()),
+            display_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             web: Arc::new(web),
             platforms: RwLock::new(BTreeMap::new()),
             debug,
@@ -323,6 +330,43 @@ impl SessionToolFactory for NativeToolFactory {
         Ok(pending)
     }
 
+    async fn read_display_diff(
+        &self,
+        _session_id: &str,
+        cwd: &str,
+        path: &Path,
+        scope: xharness_api::display::GitDiffScope,
+        cancellation: CancellationToken,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        let permit = tokio::select! {
+            _ = cancellation.cancelled() => return Err("Git preview cancelled".into()),
+            result = self.display_slots.clone().acquire_owned() => result.map_err(|e|e.to_string())?,
+        };
+        // Even a full-access session's display adapter is read-only, offline,
+        // and fails closed if the native sandbox is unavailable.
+        let (config, layout) = git_display::platform_config(Path::new(cwd))?;
+        let platform =
+            NativePlatform::with_debug(config, self.debug.clone()).map_err(|e| e.to_string())?;
+        git_display::read(&platform, &layout, path, scope, cancellation, permit).await
+    }
+
+    async fn read_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &Path,
+    ) -> Result<xharness_api::display::DisplayFile, String> {
+        let platform = self.platform(session_id, cwd, permission).await?;
+        let permit = self
+            .display_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| e.to_string())?;
+        file_display::read(&platform, path, permit).await
+    }
+
     async fn executor(
         &self,
         session_id: &str,
@@ -341,7 +385,7 @@ impl SessionToolFactory for NativeToolFactory {
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             bundle = bundle.with_media_reader(Arc::new(read_media::Reader {
                 host: Arc::downgrade(&host),
-                platform,
+                platform: platform.clone(),
                 session: session_id.into(),
             }));
         }
@@ -352,6 +396,7 @@ impl SessionToolFactory for NativeToolFactory {
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+            specs.push(xharness_host::DisplayTool::for_host(&host, session_id));
         }
         // Native desktop control deliberately remains outside the workspace
         // sandbox. It is registered as one provider-neutral tool only after

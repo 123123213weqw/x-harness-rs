@@ -4,8 +4,9 @@ import assert from 'node:assert/strict'
 import {readFileSync,existsSync,mkdirSync} from 'node:fs'
 import {resolve,sep,extname} from 'node:path'
 import {createRequire} from 'node:module'
+const reception=process.argv.includes('--reception')
 const engine=process.env.UI_TEST_BROWSER??'chromium',deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
-const require=createRequire(resolve(deps,'package.json')),base=resolve('ui/dist'),fixture=JSON.parse(readFileSync('protocol/fixtures/performance-timeline-v1.json','utf8'))
+const require=createRequire(resolve(deps,'package.json')),base=resolve('ui/dist'),fixture=JSON.parse(readFileSync(reception ? 'protocol/fixtures/performance-reception-v1.json' : 'protocol/fixtures/performance-timeline-v1.json','utf8'))
 const connectionPath='/plugins/@xharness/dsh-client-connection/client.js'
 const marker="values['sessionStats'] = sessionStatsOf(log);"
 const browser=await require('playwright')[engine].launch({headless:true})
@@ -30,22 +31,33 @@ try{
  await tab.waitFor();const labels=await page.getByRole('tab').allTextContents();assert.equal(labels.indexOf('Performance'),labels.indexOf('Harness')+1)
  await tab.click();await page.locator('[data-performance-view]').waitFor()
  const collapse=page.getByRole('button',{name:'Collapse the question card',exact:true});if(await collapse.count()>0)await collapse.click()
- await page.getByText('Reception estimate · journal checkpoint timing · not server decode TPS',{exact:true}).first().waitFor()
+ await page.getByText(reception ? 'Reception estimate · before buffering · usage-calibrated after completion' : 'Reception estimate · journal checkpoint timing · not server decode TPS',{exact:true}).first().waitFor()
+ if(reception){await page.getByText('100.0 tok/s',{exact:true}).waitFor();assert.equal(await page.getByText('Unknown',{exact:true}).count(),0)}
  const graph=page.locator('.xhperf svg');await graph.waitFor()
+ const sampleDetails=page.locator('.xhperf dl[aria-label="Sample details"]')
  await graph.focus();await graph.press('ArrowRight');await page.getByText('test-model',{exact:true}).waitFor()
+ const firstTime=await sampleDetails.locator('dd').first().innerText()
+ assert.equal(await sampleDetails.locator('dd').last().innerText(),reception?'Reception estimate · before buffering · usage-calibrated after completion':'Reception estimate · journal checkpoint timing · not server decode TPS','sample-level source describes its actual typed request timing, not only the page heading')
+ await graph.press('ArrowRight');assert.notEqual(await sampleDetails.locator('dd').first().innerText(),firstTime,'keyboard advances to the next real bucket')
+ await graph.press('ArrowLeft');assert.equal(await sampleDetails.locator('dd').first().innerText(),firstTime,'keyboard returns to the first bucket')
+ if(reception)await sampleDetails.getByText('≈ 144.0 tok/s',{exact:true}).waitFor()
+ await graph.hover();await sampleDetails.waitFor()
+ await page.mouse.move(0,0);await sampleDetails.waitFor({state:'detached'})
+ await graph.focus();await graph.press('ArrowRight');await sampleDetails.waitFor()
  await page.getByRole('button',{name:'3s smoothing',exact:true}).click();assert.equal(await page.getByRole('button',{name:'3s smoothing',exact:true}).getAttribute('aria-pressed'),'true')
  assert.ok((await page.locator('polyline[data-tps-track]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('points')))).every(points=>!points.includes('NaN')&&!points.includes('Infinity')))
  const evidence=resolve('dist/regression/performance-20261012');mkdirSync(evidence,{recursive:true})
  for(const dark of [false,true]){
   await page.evaluate(dark=>document.body.toggleAttribute('data-ds-dark-theme',dark),dark)
-  await page.screenshot({path:resolve(evidence,`${engine}-${dark?'dark':'light'}.png`),animations:'disabled'})
+  await page.screenshot({path:resolve(evidence,`${engine}-${reception?'reception':'legacy'}-${dark?'dark':'light'}.png`),animations:'disabled'})
  }
  assert.equal(await page.locator('.xhperf tbody tr').count(),0,'collapsed data table is not mounted')
- await page.getByText('Accessible timeline data',{exact:true}).click();await page.locator('.xhperf tbody tr').first().waitFor();assert.equal(await page.locator('.xhperf tbody tr').count(),3)
+ await page.getByText('Accessible timeline data',{exact:true}).click();await page.locator('.xhperf tbody').waitFor();assert.equal(await page.locator('.xhperf tbody tr').count(),fixture.turns[0].samples.length)
+ await page.getByText('Accessible timeline data',{exact:true}).click();await page.locator('.xhperf tbody').waitFor({state:'detached'})
  for(const width of [520,390]){await page.setViewportSize({width,height:780});const b=await graph.boundingBox();assert.ok(b.x>=0&&b.x+b.width<=width+1,'graph stays in viewport')}
  // Switching back must keep the real composer usable and does not reset data.
  await page.getByRole('tab',{name:'Harness',exact:true}).click();await page.locator('.xhctx-harness-root').waitFor()
  await tab.click();await graph.waitFor();await page.getByRole('tab',{name:'Chat',exact:true}).click();assert.ok(await page.locator('textarea,[contenteditable=true]').count()>0)
  assert.ok(requests.includes('/plugins/@xlang/xharness-client-ui-performance/client.js'));assert.ok(!requests.some(p=>p.startsWith('/api/')))
- assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,fullGraph:true,sharedRustFixture:true,tabNextToHarness:true,keyboard:true,themes:2,widths:2,chatUsable:true,errors}))
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({engine,fullGraph:true,sharedRustFixture:true,tabNextToHarness:true,keyboard:true,pointerLeaveReset:true,lazyTableUnmount:true,usageCalibrated:reception,themes:2,widths:2,chatUsable:true,errors}))
 }finally{await browser.close()}
