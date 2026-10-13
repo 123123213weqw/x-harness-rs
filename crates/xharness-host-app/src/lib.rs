@@ -5,6 +5,7 @@
 //! independent from Linux/macOS/Windows process, filesystem, sandbox, jobs and Web
 //! implementations.
 
+mod builtin_ui;
 #[cfg(any(target_os = "macos", windows, test))]
 mod computer_media;
 mod file_display;
@@ -390,13 +391,15 @@ impl SessionToolFactory for NativeToolFactory {
             }));
         }
         let mut specs = bundle.specs();
+        let mut guards = Vec::new();
+        let mut builtin_ui = None;
         if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
             read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Recent uploaded images are provided directly; an earlier deferred image can be inspected with read(path=\"attachment://<image id>\") as shown in its history marker. Image reads do not accept text pagination options.");
         }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
             specs.push(xharness_host::AgentTool::for_host(&host, session_id));
-            specs.push(xharness_host::DisplayTool::for_host(&host, session_id));
+            builtin_ui = Some(Arc::new(builtin_ui::BuiltinUi::new(&host, session_id)));
         }
         // Native desktop control deliberately remains outside the workspace
         // sandbox. It is registered as one provider-neutral tool only after
@@ -474,19 +477,25 @@ impl SessionToolFactory for NativeToolFactory {
                 ));
             }
         }
-        if let Some(mcp) = self.mcp.get() {
-            let enabled = match self.plugins.get() {
-                Some(plugins) => !plugins.enabled_mcp_plugins().await.is_empty(),
-                None => false,
-            };
-            if enabled || self.native_browser.get().is_some() {
-                specs.push(plugin_mcp::spec(
-                    self.plugins.get().cloned(),
-                    Arc::clone(mcp),
-                    self.native_browser.get().cloned(),
-                    session_id.into(),
-                ));
-            }
+        let enabled_mcp = match self.plugins.get() {
+            Some(plugins) => !plugins.enabled_mcp_plugins().await.is_empty(),
+            None => false,
+        };
+        // Host UI exists on Web as well as desktop, even with no plugin store,
+        // external MCP runtime or native-browser bridge configured.
+        if builtin_ui.is_some()
+            || self.mcp.get().is_some() && (enabled_mcp || self.native_browser.get().is_some())
+        {
+            let binding = plugin_mcp::bind(
+                self.plugins.get().cloned(),
+                self.mcp.get().cloned(),
+                self.native_browser.get().cloned(),
+                builtin_ui,
+                session_id.into(),
+                permission == PermissionPreset::DangerFullAccess,
+            );
+            specs.push(binding.spec);
+            guards.push(binding.guard);
         }
         if let Some(questions) = &self.questions {
             if questions
@@ -521,13 +530,13 @@ impl SessionToolFactory for NativeToolFactory {
         }
         // Questions collect information; they do not change tool permissions.
         // Existing platform policy and approval requirements remain authoritative.
-        let mut executor = ToolExecutor::new(registry).with_debug(self.debug.clone());
+        let executor = ToolExecutor::new(registry).with_debug(self.debug.clone());
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
-            executor = executor.with_guards(vec![xharness_host::AgentTool::model_selection_guard(
+            guards.push(xharness_host::AgentTool::model_selection_guard(
                 &host, session_id,
-            )]);
+            ));
         }
-        Ok(executor)
+        Ok(executor.with_guards(guards))
     }
 
     async fn shutdown(&self) -> Result<(), String> {

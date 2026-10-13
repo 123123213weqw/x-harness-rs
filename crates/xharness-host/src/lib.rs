@@ -28,7 +28,6 @@ pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 mod display;
 mod driver;
-pub use display::DisplayTool;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
