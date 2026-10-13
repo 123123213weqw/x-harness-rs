@@ -20,6 +20,14 @@ on:
         required: false
         type: boolean
         default: false
+      expected_ci_run_id:
+        description: Automatic candidate CI identity, never rebound
+        required: false
+        type: string
+      expected_ci_attempt:
+        description: Automatic candidate CI attempt, never rebound
+        required: false
+        type: string
       prepare_tag:
         description: Unified entry only; create immutable tag with GITHUB_TOKEN (no duplicate push build)
         required: false
@@ -106,6 +114,8 @@ jobs:
           INTEGRATED_ACCEPTANCE: ${{ inputs.integrated_acceptance }}
           AUTOMATIC_CANDIDATE: ${{ inputs.automatic_candidate }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
+          EXPECTED_CI_RUN_ID: ${{ inputs.expected_ci_run_id }}
+          EXPECTED_CI_ATTEMPT: ${{ inputs.expected_ci_attempt }}
           RELEASE_SCOPE_INPUT: ${{ inputs.release_scope || vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'all-macos-preview' }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag || github.ref_name }}
           XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}

@@ -1000,6 +1000,11 @@ def main():
             plan['acceptance_mode'] = 'in-build'
             _contract.validate_plan(plan)
             args.output.write_text(json.dumps(plan, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+        if os.environ.get('AUTOMATIC_CANDIDATE') == 'true':
+            ci = load(args.output)['ci']
+            require(str(ci['id']) == os.environ.get('EXPECTED_CI_RUN_ID')
+                    and str(ci['run_attempt']) == os.environ.get('EXPECTED_CI_ATTEMPT'),
+                    'CI changed before candidate planning; never substitute another attempt')
         write_matrix(load(args.output))
     elif args.command == 'signing-plan': signing_plan(load(args.plan))
     elif args.command == 'acceptance-matrix':

@@ -218,6 +218,8 @@ def build_inputs(state):
     return {'release_tag': 'desktop-v' + state['version'], 'release_scope': state['scope'],
             'prepare_tag': not tagged, 'expected_sha': state['source_sha'],
             **({'automatic_candidate': True} if tagged else {}),
+            **({'expected_ci_run_id': str(state['trigger_ci']['id']),
+                'expected_ci_attempt': str(state['trigger_ci']['run_attempt'])} if state.get('trigger_ci') else {}),
             **({'integrated_acceptance': True} if state.get('pipeline') else {}),
             **({'expected_macos_signing_fingerprint': state['macos_signing_fingerprint']}
                if state['scope'] == contract.MACOS_SELFSIGNED_SCOPE else {})}
@@ -332,7 +334,9 @@ class ReleaseTask:
             newest = max(matches, key=lambda r: r['id'])
             if newest['status'] != 'completed':
                 return self.checkpoint('waiting_ci')
-            contract.select_ci(runs, sha)
+            selected = contract.select_ci(runs, sha)
+            require(not self.state.get('trigger_ci') or selected == self.state['trigger_ci'],
+                    'CI changed after automatic preparation was triggered; never rebind its evidence')
             jobs = self.client.jobs(newest['id'], newest['run_attempt'])
             require(jobs and all(j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs), 'Master CI has non-passing jobs')
             releases = [{'tagName': r['tag_name'], 'isDraft': r['draft']} for r in self.client.releases()]

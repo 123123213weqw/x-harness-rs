@@ -126,6 +126,7 @@ def reserve(client, journal, persist):
         state = release.new_task(client.repo, intent['version'], journal['scope'], journal['source_sha'],
                                  journal['publisher_pin'], pipeline=True, tagged_candidate=True)
         state['preparation_only'] = True
+        state['trigger_ci'] = journal['ci']
         journal['task'] = state
         persist(journal)
         return state
@@ -150,6 +151,7 @@ def validate_journal(journal, client, ci, sha, scope, pin):
                 and task.get('macos_signing_fingerprint') == pin
                 and task.get('version') == journal['allocation']['version'] and 'publish' not in task.get('stages', {}),
                 'Automatic checkpoint cannot become a publication task')
+        require(task.get('trigger_ci') == ci, 'Automatic checkpoint CI binding changed')
 
 
 def reuse_task(client, run_id, version, scope=None):
@@ -186,6 +188,7 @@ def reuse_task(client, run_id, version, scope=None):
     state = release.new_task(client.repo, version, plan.get('release_scope', 'all'), plan['sha'], pin,
                              pipeline=True, tagged_candidate=True)
     state['reused_build'] = run_id
+    state['trigger_ci'] = plan['ci']
     state['phase'] = 'awaiting_confirmation'
     state['stages']['build'] = {'token': token, 'created': run['created_at'], 'dispatch': 'adopted',
                               'inputs': release.build_inputs(state), 'run_id': int(run_id),

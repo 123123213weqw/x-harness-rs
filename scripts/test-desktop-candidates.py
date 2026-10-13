@@ -161,6 +161,14 @@ class Allocation(unittest.TestCase):
 
 
 class Preparation(unittest.TestCase):
+    def test_ci_change_between_allocation_and_dispatch_is_not_rebound(self):
+        client, state = FakeGitHub(), journal()
+        task_state = c.reserve(client, state, lambda _: None)
+        client.cis.append({**old.ci(), 'run_attempt': 2})
+        with self.assertRaisesRegex(ValueError, 'CI changed'):
+            c.release.ReleaseTask(client, task_state, lambda _: None).advance()
+        self.assertEqual(client.posts, [])
+
     def test_controller_reaches_ready_on_exact_old_source_without_any_promote(self):
         client = FakeGitHub(); client.sha = OTHER
         with tempfile.TemporaryDirectory() as folder:
