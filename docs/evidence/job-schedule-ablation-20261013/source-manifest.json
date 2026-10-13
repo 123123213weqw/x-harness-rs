@@ -1,0 +1,13 @@
+{
+  "baseline": "164301a497cea55b9efa7b12330dde314ca05a73",
+  "files": {
+    "crates/xharness-schedule/src/lib.rs": "5cd5bfe8d9a688b8fe9b849bbfd36411f35e469625c4c8ffdf876329a144d368",
+    "crates/xharness-schedule/src/automation.rs": "e80cefa56a0dc1c716cd57381c3a6111fa3cead92eef64537f364a87c3c401d7",
+    "crates/xharness-jobs/src/lib.rs": "ace396ddd06323e1e1bbf5fa8210b28e023a544ad17b7d9d6e0b99297a371560",
+    "experiments/job-schedule-ablation/lab.rs": "564ceaea28adbb1aca28b8ef33d931ea9ceaef6434242035963d66db3a026a4b",
+    "crates/xharness-schedule/Cargo.toml": "5da837bdf903bc75e5454f3c583412d232d5f69daba4a6ed26a130df75bf580a",
+    "Cargo.lock": "6a8472d49e9b55e2f9755f5aa8e0b2d7a9afcdecd38508ed418d84a700ce3de0",
+    "scripts/run-job-schedule-ablation-remote.sh": "8be59e38c1d030278cb2eb74e9f0b3cc809e98a7dbe01d237704e258d74496fe"
+  },
+  "scope": "test-only prototype, no installed Host changes"
+}

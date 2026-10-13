@@ -24,3 +24,5 @@ xharness-tools = { path = "../xharness-tools" }
 async-trait.workspace = true
 futures.workspace = true
 xharness-core = { path = "../xharness-core" }
+xharness-jobs = { path = "../xharness-jobs" }
+xharness-session-jsonl = { path = "../xharness-session-jsonl" }
