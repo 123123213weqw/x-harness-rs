@@ -18745,6 +18745,7 @@ const terminal_card_model_1 = require("../models/terminal-card-model");
 const tool_call_model_1 = require("../models/tool-call-model");
 const locale_1 = require("../../locale");
 const bash_sample_styles_1 = __importDefault(require("./bash-sample.styles"));
+const RunPanel_1 = require("../../../jobs/RunPanel");
 function leadingFor(state) {
     switch (state) {
         case 'error': return (0, jsx_runtime_1.jsx)(primitives_1.StateDot, { state: "error" });
@@ -18767,7 +18768,7 @@ function stateStatus(state, t) {
  * whole row toggling the command's terminal or generic error card (ToolRow's unified
  * expand interaction, replicated locally per the registrant posture).
  */
-function BashRow({ toolName, block, sessionId, useSessions, inspect, t }) {
+function BashRow({ toolName, block, sessionId, useSessions, inspect, t, jobClient }) {
     const model = (0, tool_call_model_1.toolRowModel)(toolName, block);
     // Session workspace root: the terminal view's cwd resolves against it (an
     // omitted workdir IS the workspace), which the pure presenter cannot do.
@@ -18808,7 +18809,7 @@ function BashRow({ toolName, block, sessionId, useSessions, inspect, t }) {
                locally per the registrant posture. */
             (0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.bodyWrap, children: [terminal !== null
                         ? ((0, jsx_runtime_1.jsx)(primitives_1.TerminalBlock, { ...terminal.card, maxLines: Infinity, labels: (0, terminal_card_model_1.terminalBlockLabels)(t), className: bash_sample_styles_1.default.terminal }))
-                        : ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioCard, children: [model.body !== null && ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioSection, children: [(0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioLabel, children: "IN" }), (0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioText, children: model.body })] })), model.body !== null && model.output !== null && ((0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioDivider, "aria-hidden": true })), model.output !== null && ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioSection, children: [(0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioLabel, children: "OUT" }), (0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioText, "data-error": true, children: model.output })] }))] })), inspect !== undefined && ((0, jsx_runtime_1.jsxs)("button", { type: "button", className: bash_sample_styles_1.default.inspectButton, onClick: inspect, children: [(0, jsx_runtime_1.jsx)(primitives_1.IconInspectOutline12, {}), "Inspect"] }))] }))] }));
+                        : ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioCard, children: [model.body !== null && ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioSection, children: [(0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioLabel, children: "IN" }), (0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioText, children: model.body })] })), model.body !== null && model.output !== null && ((0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioDivider, "aria-hidden": true })), model.output !== null && ((0, jsx_runtime_1.jsxs)("div", { className: bash_sample_styles_1.default.ioSection, children: [(0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioLabel, children: "OUT" }), (0, jsx_runtime_1.jsx)("span", { className: bash_sample_styles_1.default.ioText, "data-error": true, children: model.output })] }))] })), inspect !== undefined && ((0, jsx_runtime_1.jsxs)("button", { type: "button", className: bash_sample_styles_1.default.inspectButton, onClick: inspect, children: [(0, jsx_runtime_1.jsx)(primitives_1.IconInspectOutline12, {}), "Inspect"] }))] })), jobClient && (0, jsx_runtime_1.jsx)(RunPanel_1.JobToolPanel, { client: jobClient, sessionId: sessionId, block: block })] }));
 }
 /**
  * The sample as a plain registrant plugin. Slot injection follows the chat
@@ -18816,13 +18817,14 @@ function BashRow({ toolName, block, sessionId, useSessions, inspect, t }) {
  */
 exports.bashToolviewSample = {
     name: 'bash-toolview-sample',
-    inject: ['slots'],
+    inject: ['slots', 'connection'],
     /**
      * Register the bash row into the Tool-owned keyed view slot.
      * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
      */
     apply(ctx) {
-        ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'bash', locale: locale_1.CONVERSATION_NS }, BashRow));
+        const jobs = ctx.get?.('connection')?.jobs;
+        ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'bash', locale: locale_1.CONVERSATION_NS }, (props) => (0, jsx_runtime_1.jsx)(BashRow, { ...props, jobClient: jobs })));
     },
 };
 
@@ -18875,6 +18877,249 @@ exports.default = {
 
 Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = ".ANgngG_card{flex-direction:column;display:flex}.ANgngG_terminal{--dsl-terminal-font:var(--dsw-font-markdown-code-block-small);--dsl-terminal-line-height:18px;--dsl-terminal-output-max-height:224px;border:1px solid var(--dsw-alias-border-l1);margin:4px 0 4px 4px}.ANgngG_ioCard{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-markdown-code-block);font:var(--dsw-font-markdown-code-block-small);border-radius:12px;flex-direction:column;margin:4px 0 4px 4px;display:flex}.ANgngG_ioSection{grid-template-columns:max-content 1fr;align-items:baseline;column-gap:14px;max-height:150px;padding:12px 16px;display:grid;overflow-y:auto}.ANgngG_ioSection::-webkit-scrollbar-thumb{background-clip:padding-box;border:2px solid #0000;border-radius:6px}.ANgngG_ioSection::-webkit-scrollbar-track{margin:6px 0}.ANgngG_ioLabel{color:var(--dsw-alias-label-caption);align-self:start;position:sticky;top:0}.ANgngG_ioDivider{background:var(--dsw-alias-border-l2);flex:none;height:1px}.ANgngG_ioText{white-space:pre-wrap;word-break:break-word;min-width:0;color:var(--dsw-alias-label-secondary)}.ANgngG_ioText[data-error]{color:var(--dsw-alias-state-error-primary)}.ANgngG_root[data-expandable]{cursor:pointer}.ANgngG_root{align-items:center;min-width:0;height:24px;display:flex;position:relative;overflow:hidden}.ANgngG_root[data-state=running]:after{content:\"\";background:linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%, transparent 100%);pointer-events:none;width:300px;animation:2.6s ease-out infinite ANgngG_dsh-bash-row-sweep;position:absolute;top:0;bottom:0;left:0}@keyframes ANgngG_dsh-bash-row-sweep{0%{left:-300px}90%,to{left:100%}}.ANgngG_leading{width:16px;height:16px;color:var(--dsw-alias-label-tertiary);flex:none;justify-content:center;align-items:center;margin-right:6px;display:inline-flex;position:relative}.ANgngG_chevron{color:var(--dsw-alias-label-secondary)}.ANgngG_iconIdle{opacity:1;transition:opacity .1s;display:inline-flex}.ANgngG_chevronHover{opacity:0;margin:auto;transition:opacity .1s;position:absolute;inset:0}.ANgngG_root:hover .ANgngG_iconIdle{opacity:0}.ANgngG_root:hover .ANgngG_chevronHover{opacity:1}.ANgngG_title{color:var(--dsw-alias-label-secondary);flex:none;font-size:14px;line-height:24px}.ANgngG_sep{background:var(--dsw-alias-label-caption);border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}.ANgngG_summary{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-tertiary);flex:auto;font-size:14px;line-height:24px;overflow:hidden}.ANgngG_errorSummary{color:var(--dsw-alias-state-error-primary)}.ANgngG_bodyWrap{flex-direction:column;display:flex}.ANgngG_inspectButton{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;opacity:0;border-radius:999px;align-self:flex-start;align-items:center;gap:4px;margin:4px 0 2px 4px;padding:2px 8px;font-size:11px;line-height:16px;transition:opacity .1s;display:inline-flex}.ANgngG_card:hover .ANgngG_inspectButton,.ANgngG_inspectButton:focus-visible{opacity:1}.ANgngG_inspectButton:hover{background:var(--dsw-alias-interactive-bg-hover-solid);color:var(--dsw-alias-label-primary)}.ANgngG_visuallyHidden{clip:rect(0 0 0 0);white-space:nowrap;width:1px;height:1px;position:absolute;overflow:hidden}";
+
+},
+"src/modules/jobs/RunPanel.js": function(module, exports, require) {
+// source: src/modules/jobs/RunPanel.tsx
+
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.JobRunPanel = JobRunPanel;
+exports.JobToolPanel = JobToolPanel;
+exports.ExecutionsPage = ExecutionsPage;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const React = __importStar(require("react"));
+const RunPanel_css_1 = __importDefault(require("./RunPanel.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)('@xharness/jobs/RunPanel.css', '@xharness/jobs', RunPanel_css_1.default);
+const model_1 = require("./model");
+const zh = () => typeof document !== 'undefined' && document.documentElement.lang.startsWith('zh');
+const labels = { preparing: ['准备中', 'Preparing'], queued: ['排队中', 'Queued'], running: ['运行中', 'Running'], waiting: ['等待中', 'Waiting'], stopping: ['停止中', 'Stopping'], completed: ['已完成', 'Completed'], failed: ['失败', 'Failed'], cancelled: ['已取消', 'Cancelled'], interrupted: ['已中断', 'Interrupted'], incomplete: ['未完成', 'Incomplete'], unavailable: ['不可用', 'Unavailable'], scheduled: ['等待触发', 'Scheduled'], overdue: ['等待调度', 'Overdue'], paused: ['未来触发已暂停', 'Future triggers paused'], finished: ['触发已结束', 'Trigger finished'], deleted: ['未来触发已取消', 'Future triggers cancelled'], inherited: ['继承记录', 'Inherited'], inactive: ['未启用', 'Inactive'] };
+const label = (state) => labels[state]?.[zh() ? 0 : 1] ?? state;
+function RunRow({ run, client, openSession }) {
+    const [pending, setPending] = React.useState(false), [error, setError] = React.useState(''), [output, setOutput] = React.useState('');
+    const controller = React.useRef(), alive = React.useRef(true), mutation = React.useRef(false);
+    React.useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); }; }, [run.id, run.sourceSessionId]);
+    async function act(kind) {
+        if (mutation.current)
+            return;
+        mutation.current = true;
+        setPending(true);
+        setError('');
+        controller.current?.abort();
+        controller.current = new AbortController();
+        try {
+            if (kind === 'cancel')
+                await client.control(run.sourceSessionId, { action: 'cancel_run', reference: run.reference });
+            else {
+                const value = await client.output(run.sourceSessionId, run.reference, controller.current.signal);
+                if (alive.current)
+                    setOutput(`${value.stdout}${value.stderr ? `\n${value.stderr}` : ''}${value.stdoutTruncated || value.stderrTruncated ? `\n${zh() ? '[较早输出已被清理]' : '[Earlier output was evicted]'}` : ''}`);
+            }
+        }
+        catch (e) {
+            if (alive.current)
+                setError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            mutation.current = false;
+            if (alive.current)
+                setPending(false);
+        }
+    }
+    return (0, jsx_runtime_1.jsxs)("article", { className: "xhjob-run", "data-run-id": run.id, "data-run-state": run.state, children: [(0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-title", children: run.label }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-bottom", children: [(0, jsx_runtime_1.jsxs)("span", { children: [run.reference.kind === 'process' ? (zh() ? '命令' : 'Command') : (zh() ? 'Agent' : 'Agent'), " \u00B7 ", label(run.state)] }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-actions", children: [run.capabilities.readOutput && (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void act('output'), children: zh() ? '读取输出' : 'Read output' }), run.capabilities.cancelRun && (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void act('cancel'), children: zh() ? '取消本次执行' : 'Cancel this run' }), run.capabilities.openSession && openSession && (0, jsx_runtime_1.jsx)("button", { onClick: () => openSession(run.targetSessionId), children: zh() ? '查看对话' : 'Open conversation' })] })] }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: zh() ? '运行详情' : 'Run details' }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-muted", children: [(0, jsx_runtime_1.jsx)("code", { children: run.id }), run.startedAtMs !== null && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [" \u00B7 ", zh() ? '开始' : 'Started', " ", new Date(run.startedAtMs).toLocaleString()] })] })] }), run.detail && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: run.detail }), output && (0, jsx_runtime_1.jsx)("pre", { "aria-label": zh() ? '运行输出' : 'Run output', children: output }), error && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-error", role: "alert", children: error })] });
+}
+function JobRunPanel({ client, sessionId, planId, runId, openSession }) {
+    const subscribe = React.useCallback((f) => client.subscribe(sessionId, f), [client, sessionId]), snapshot = React.useCallback(() => client.snapshot(sessionId), [client, sessionId]);
+    const state = React.useSyncExternalStore(subscribe, snapshot);
+    const [pending, setPending] = React.useState(false), [error, setError] = React.useState(''), [confirm, setConfirm] = React.useState();
+    const gate = React.useRef(false), alive = React.useRef(true);
+    React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, [sessionId, planId]);
+    async function control(id, action) {
+        if (gate.current)
+            return;
+        gate.current = true;
+        setPending(true);
+        setError('');
+        try {
+            await client.control(sessionId, { action, planId: id });
+            if (alive.current)
+                setConfirm(undefined);
+        }
+        catch (e) {
+            if (alive.current)
+                setError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            gate.current = false;
+            if (alive.current)
+                setPending(false);
+        }
+    }
+    const plans = runId === undefined ? state.catalog?.plans.filter(p => planId === undefined || p.id === planId) ?? [] : [], runs = state.catalog?.runs.filter(r => (planId === undefined || r.planId === planId) && (runId === undefined || r.id === runId)) ?? [];
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-card xhjob-panel", "aria-label": zh() ? '执行记录' : 'Execution records', children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("span", { children: zh() ? '执行记录' : 'Execution records' }), (0, jsx_runtime_1.jsx)("button", { disabled: state.loading, onClick: () => void client.refresh(sessionId), children: zh() ? '刷新' : 'Refresh' })] }), state.loading && !state.catalog && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh() ? '读取中…' : 'Loading…' }), (state.error || error) && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-card-error", role: "alert", children: state.error ?? error }), !state.error && plans.map(p => (0, jsx_runtime_1.jsxs)("div", { className: "xhjob-plan", children: [(0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-title", children: p.label }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-bottom", children: [(0, jsx_runtime_1.jsxs)("span", { children: [zh() ? '计划' : 'Plan', " \u00B7 ", label(p.state)] }), ['scheduled', 'overdue', 'paused'].includes(p.state) && (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-actions", children: [(0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void control(p.id, p.state === 'paused' ? 'resume_plan' : 'pause_plan'), children: p.state === 'paused' ? (zh() ? '恢复未来触发' : 'Resume future triggers') : (zh() ? '暂停未来触发' : 'Pause future triggers') }), confirm === p.id ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { children: zh() ? '取消后不再触发，正在运行的任务不受影响。' : 'Stop future triggers, without cancelling admitted runs?' }), (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void control(p.id, 'cancel_future'), children: zh() ? '确认' : 'Confirm' }), (0, jsx_runtime_1.jsx)("button", { onClick: () => setConfirm(undefined), children: zh() ? '返回' : 'Back' })] }) : (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => setConfirm(p.id), children: zh() ? '取消未来触发' : 'Cancel future triggers' })] })] })] }, p.id)), !state.error && runs.map(run => (0, jsx_runtime_1.jsx)(RunRow, { run: run, client: client, openSession: openSession }, JSON.stringify([sessionId, run.id]))), state.catalog && !state.error && runs.length === 0 && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-card-muted", children: runId ? (zh() ? '此运行已失效或已被清理；不会关联到新的同名任务。' : 'This run expired or was evicted; it will not resolve to another job.') : (zh() ? '暂无执行记录。等待触发不代表执行成功。' : 'No runs yet. A scheduled trigger is not execution success.') })] });
+}
+function JobToolPanel({ client, sessionId, block }) {
+    const id = (0, model_1.processHint)(block);
+    return id ? (0, jsx_runtime_1.jsx)(JobRunPanel, { client: client, sessionId: sessionId, runId: id }) : null;
+}
+function ExecutionsPage({ client, service, openSession }) {
+    const snapshot = React.useSyncExternalStore(service.subscribe, service.getSnapshot), [selected, setSelected] = React.useState('');
+    const sessions = snapshot.sessions;
+    const current = sessions.some(s => s.sessionId === selected) ? selected : sessions[0]?.sessionId;
+    React.useEffect(() => { const c = new AbortController(); void service.refresh(c.signal).catch(() => { }); return () => c.abort(); }, [service]);
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-page", children: [(0, jsx_runtime_1.jsx)("h2", { children: zh() ? '任务执行' : 'Executions' }), snapshot.error && (0, jsx_runtime_1.jsx)("p", { role: "alert", children: snapshot.error }), (0, jsx_runtime_1.jsxs)("label", { children: [zh() ? '对话' : 'Chat', " ", (0, jsx_runtime_1.jsx)("select", { "aria-label": zh() ? '执行记录所属对话' : 'Execution chat', value: current ?? '', onChange: e => setSelected(e.target.value), children: sessions.map(s => (0, jsx_runtime_1.jsx)("option", { value: s.sessionId, children: s.sessionId }, s.sessionId)) })] }), current ? (0, jsx_runtime_1.jsx)(JobRunPanel, { client: client, sessionId: current, openSession: openSession }, current) : snapshot.loading || snapshot.phase === 'pending' ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh() ? '读取对话中…' : 'Loading chats…' }) : (0, jsx_runtime_1.jsx)("p", { children: zh() ? '暂无对话' : 'No chats' })] });
+}
+
+},
+"src/modules/jobs/RunPanel.css": function(module, exports, require) {
+// source: src/modules/jobs/RunPanel.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xhauto-card{border:1px solid var(--dsw-alias-border-l1);border-radius:14px;margin:8px 0;padding:12px 14px;max-width:100%;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-background-primary,transparent)}\n.xhauto-card header{display:flex;align-items:center;gap:8px}.xhauto-card header>span:first-of-type{font-weight:500}.xhauto-card header>span:last-child{margin-left:auto}\n.xhauto-card-task{padding-top:10px}.xhauto-card-task+.xhauto-card-task{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}\n.xhauto-card-title{line-height:1.5;font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n.xhauto-card-meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12px;color:var(--dsw-alias-label-tertiary)}\n.xhauto-card-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-top:9px;font-size:12px}.xhauto-card-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}\n.xhauto-card button{border:1px solid var(--dsw-alias-border-l1);padding:4px 9px;border-radius:7px;cursor:pointer;background:transparent;color:inherit;font:inherit}.xhauto-card button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhauto-card button:disabled{opacity:.5;cursor:default}.xhauto-card button:focus-visible,.xhauto-card summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhauto-card-muted,.xhauto-card details{font-size:12px;color:var(--dsw-alias-label-tertiary)}.xhauto-card-error{margin-top:8px;color:var(--dsw-alias-state-danger-primary,#ba3939);overflow-wrap:anywhere}.xhauto-card details{margin-top:10px}.xhauto-card summary{cursor:pointer;width:fit-content}.xhauto-card pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}\n.xhjob-panel{overflow-wrap:anywhere}.xhjob-panel header{justify-content:space-between}.xhjob-run,.xhjob-plan{padding:12px 0;border-top:1px solid var(--dsw-alias-border-l1);margin-top:8px}.xhjob-run code{font-size:11px}.xhjob-panel .xhauto-card-muted{margin-top:6px}.xhjob-panel .xhauto-card-actions{min-width:0}.xhjob-panel select{font:inherit;color:inherit;background:var(--dsw-alias-background-primary);border:1px solid var(--dsw-alias-border-l1)}\n";
+
+},
+"src/modules/views-types.js": function(module, exports, require) {
+// source: src/modules/views-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.classNames = classNames;
+exports.installStyles = installStyles;
+function classNames(...values) { return values.filter(Boolean).join(' '); }
+/** Exact legacy style identity, but editable source rather than compiled input. */
+function installStyles(id, plugin, css) {
+    if (typeof document === 'undefined' || document.querySelector(`style[data-plugin-css=${JSON.stringify(id)}]`) !== null)
+        return;
+    const tag = document.createElement('style');
+    tag.dataset.plugin = plugin;
+    tag.dataset.pluginCss = id;
+    tag.textContent = css;
+    document.head.appendChild(tag);
+}
+
+},
+"src/modules/jobs/model.js": function(module, exports, require) {
+// source: src/modules/jobs/model.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ACTIVE = exports.PLAN_STATES = exports.RUN_STATES = void 0;
+exports.parseRun = parseRun;
+exports.parseCatalog = parseCatalog;
+exports.parseOutput = parseOutput;
+exports.processHint = processHint;
+/** Version 1 execution contract. Tool results only supply lookup hints. */
+exports.RUN_STATES = ['preparing', 'queued', 'running', 'waiting', 'stopping', 'completed', 'failed', 'cancelled', 'interrupted', 'incomplete', 'unavailable'];
+exports.PLAN_STATES = ['scheduled', 'overdue', 'paused', 'finished', 'deleted', 'inherited', 'inactive'];
+exports.ACTIVE = new Set(['preparing', 'queued', 'running', 'waiting', 'stopping']);
+function isObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+function object(v) { return isObject(v) ? v : {}; }
+function list(v) { return Array.isArray(v) ? v : []; }
+function text(v) { return typeof v === 'string' && v.length > 0; }
+function timestamp(v) { return v === null || typeof v === 'number' && Number.isSafeInteger(v) && v >= 0; }
+function runState(v) { return exports.RUN_STATES.some(s => s === v); }
+function planState(v) { return exports.PLAN_STATES.some(s => s === v); }
+function parseRef(raw) {
+    const r = object(raw);
+    if (r.kind === 'process' && text(r.id))
+        return { kind: 'process', id: r.id };
+    if (r.kind === 'automation' && text(r.planId) && text(r.inputId))
+        return { kind: 'automation', planId: r.planId, inputId: r.inputId };
+    throw Error('Invalid Job execution reference');
+}
+function parseRun(raw, session) {
+    const v = object(raw), reference = parseRef(v.reference), c = object(v.capabilities);
+    if (!text(v.id) || !text(v.label) || v.sourceSessionId !== session || !text(v.targetSessionId)
+        || !runState(v.state) || !(v.planId === null || text(v.planId))
+        || typeof c.cancelRun !== 'boolean' || typeof c.readOutput !== 'boolean' || typeof c.openSession !== 'boolean'
+        || !timestamp(v.startedAtMs) || !timestamp(v.scheduledAtMs) || !timestamp(v.finishedAtMs)
+        || !(v.detail === null || typeof v.detail === 'string'))
+        throw Error('Invalid Job execution projection');
+    if (reference.kind === 'process' ? reference.id !== v.id : reference.inputId !== v.id || reference.planId !== v.planId)
+        throw Error('Job reference identity mismatch');
+    return { id: v.id, label: v.label, sourceSessionId: session, targetSessionId: v.targetSessionId, planId: v.planId, state: v.state, reference, capabilities: { cancelRun: c.cancelRun, readOutput: c.readOutput, openSession: c.openSession }, startedAtMs: v.startedAtMs, scheduledAtMs: v.scheduledAtMs, finishedAtMs: v.finishedAtMs, detail: v.detail };
+}
+function parseCatalog(raw, session) {
+    const v = object(raw);
+    if (v.version !== 1 || v.sessionId !== session || !Array.isArray(v.runs) || !Array.isArray(v.plans))
+        throw Error('Unsupported or foreign Job contract');
+    const runs = list(v.runs).map(run => parseRun(run, session)), plans = list(v.plans).map((raw) => {
+        const p = object(raw);
+        if (!text(p.id) || !text(p.label) || !planState(p.state) || !text(p.nextAt) || !Number.isFinite(Date.parse(p.nextAt)) || !(p.everySeconds === null || typeof p.everySeconds === 'number' && Number.isSafeInteger(p.everySeconds) && p.everySeconds > 0))
+            throw Error('Invalid Job plan projection');
+        return { id: p.id, label: p.label, state: p.state, nextAt: p.nextAt, everySeconds: p.everySeconds };
+    });
+    if (new Set(runs.map(r => r.id)).size !== runs.length || new Set(plans.map(p => p.id)).size !== plans.length)
+        throw Error('Duplicate Job identity');
+    return { version: 1, sessionId: session, runs, plans };
+}
+function parseOutput(raw, session, ref) {
+    const v = object(raw), c = object(v.nextCursor);
+    if (v.version !== 1 || ref.kind !== 'process' || typeof v.stdout !== 'string' || typeof v.stderr !== 'string' || typeof v.stdoutTruncated !== 'boolean' || typeof v.stderrTruncated !== 'boolean' || c.job_id !== ref.id || typeof c.stdout !== 'number' || !Number.isSafeInteger(c.stdout) || c.stdout < 0 || typeof c.stderr !== 'number' || !Number.isSafeInteger(c.stderr) || c.stderr < 0)
+        throw Error('Invalid Job output projection');
+    const run = parseRun(v.run, session);
+    if (run.id !== ref.id)
+        throw Error('Job output identity changed');
+    return { stdout: v.stdout, stderr: v.stderr, stdoutTruncated: v.stdoutTruncated, stderrTruncated: v.stderrTruncated, nextCursor: { job_id: ref.id, stdout: c.stdout, stderr: c.stderr }, run };
+}
+/** Nested legacy envelopes are ID hints only, never executable instructions. */
+function processHint(block) {
+    const b = object(block), call = object(b.call);
+    const parse = (value) => { if (typeof value !== 'string' || value.length > 1048576)
+        return undefined; try {
+        return JSON.parse(value);
+    }
+    catch {
+        return undefined;
+    } };
+    const args = object(parse(call.argsRaw ?? b.argsRaw));
+    if (text(args.job_id))
+        return args.job_id;
+    let out = object(parse(list(b.content).map(p => { const o = object(p); return o.type === 'text' && typeof o.text === 'string' ? o.text : ''; }).join('\n')));
+    if (out.ok === false || b.isError === true)
+        return undefined;
+    if (typeof out.content === 'string')
+        out = object(parse(out.content));
+    const snapshot = object(out.snapshot);
+    return text(out.job_id) ? out.job_id : text(snapshot.id) ? snapshot.id : undefined;
+}
 
 },
 "src/modules/tool/tool/toolviews/file-mutation-row.js": function(module, exports, require) {
@@ -19195,7 +19440,7 @@ exports.webToolview = {
 
 }
 };
-const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../models/agent-communication-model":"src/modules/tool/tool/models/agent-communication-model.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/tool/tool/models/agent-communication-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
+const __dependencies = {"src/modules/tool/index.js":{"./apply":"src/modules/tool/apply.js"},"src/modules/tool/apply.js":{"./tool/ToolCallTree":"src/modules/tool/tool/ToolCallTree.js","./tool/ToolDetails":"src/modules/tool/tool/ToolDetails.js","./locale":"src/modules/tool/locale.js","./tool/toolviews/ask-question-row":"src/modules/tool/tool/toolviews/ask-question-row.js","./tool/toolviews/bash-sample":"src/modules/tool/tool/toolviews/bash-sample.js","./tool/toolviews/file-mutation-row":"src/modules/tool/tool/toolviews/file-mutation-row.js","./tool/toolviews/read-row":"src/modules/tool/tool/toolviews/read-row.js","./tool/toolviews/search-row":"src/modules/tool/tool/toolviews/search-row.js","./tool/toolviews/todo-row":"src/modules/tool/tool/toolviews/todo-row.js","./tool/toolviews/web-row":"src/modules/tool/tool/toolviews/web-row.js"},"src/modules/tool/tool/ToolCallTree.js":{"./toolviews/GenericToolCard":"src/modules/tool/tool/toolviews/GenericToolCard.js","./ToolCallTree.styles":"src/modules/tool/tool/ToolCallTree.styles.js"},"src/modules/tool/tool/toolviews/GenericToolCard.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../models/agent-communication-model":"src/modules/tool/tool/models/agent-communication-model.js"},"src/modules/tool/primitives.js":{},"src/modules/tool/tool/models/read-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/models/view-codec.js":{"zod":"vendor/zod.js"},"vendor/zod.js":{},"src/modules/tool/runtime.js":{},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/tool/models/diff-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/search-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../value-guards":"src/modules/tool/value-guards.js"},"src/modules/tool/tool/models/terminal-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/tool/models/web-card-model.js":{"./view-codec":"src/modules/tool/tool/models/view-codec.js"},"src/modules/tool/tool/components/ToolRow.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../process-mode":"src/modules/tool/process-mode.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./ToolRow.styles":"src/modules/tool/tool/components/ToolRow.styles.js","./ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js"},"src/modules/tool/transcript-state.js":{},"src/modules/tool/process-mode.js":{"../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/tool/class-names.js":{},"src/modules/tool/tool/components/ToolRow.styles.js":{"./ToolRow.css":"src/modules/tool/tool/components/ToolRow.css"},"src/modules/tool/tool/components/ToolRow.css":{},"src/modules/tool/tool/components/ReviewDiffBlock.js":{"../../primitives":"src/modules/tool/primitives.js","../../transcript-state":"src/modules/tool/transcript-state.js","./ReviewDiffBlock.styles":"src/modules/tool/tool/components/ReviewDiffBlock.styles.js"},"src/modules/tool/tool/components/ReviewDiffBlock.styles.js":{"./ReviewDiffBlock.css":"src/modules/tool/tool/components/ReviewDiffBlock.css"},"src/modules/tool/tool/components/ReviewDiffBlock.css":{},"src/modules/tool/tool/models/agent-communication-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","./tool-call-model":"src/modules/tool/tool/models/tool-call-model.js"},"src/modules/tool/tool/ToolCallTree.styles.js":{"./ToolCallTree.css":"src/modules/tool/tool/ToolCallTree.css"},"src/modules/tool/tool/ToolCallTree.css":{},"src/modules/tool/tool/ToolDetails.js":{"../primitives":"src/modules/tool/primitives.js","./components/ReviewDiffBlock":"src/modules/tool/tool/components/ReviewDiffBlock.js","./models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","./models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","./models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","./models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","./models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","./ToolDetails.styles":"src/modules/tool/tool/ToolDetails.styles.js"},"src/modules/tool/tool/ToolDetails.styles.js":{"./ToolDetails.css":"src/modules/tool/tool/ToolDetails.css"},"src/modules/tool/tool/ToolDetails.css":{},"src/modules/tool/locale.js":{},"src/modules/tool/tool/toolviews/ask-question-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/bash-sample.js":{"../../transcript-state":"src/modules/tool/transcript-state.js","../../class-names":"src/modules/tool/class-names.js","../../primitives":"src/modules/tool/primitives.js","../models/terminal-card-model":"src/modules/tool/tool/models/terminal-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../../locale":"src/modules/tool/locale.js","./bash-sample.styles":"src/modules/tool/tool/toolviews/bash-sample.styles.js","../../../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/toolviews/bash-sample.styles.js":{"./bash-sample.css":"src/modules/tool/tool/toolviews/bash-sample.css"},"src/modules/tool/tool/toolviews/bash-sample.css":{},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/tool/tool/toolviews/file-mutation-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/diff-card-model":"src/modules/tool/tool/models/diff-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/read-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/read-card-model":"src/modules/tool/tool/models/read-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/search-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/search-card-model":"src/modules/tool/tool/models/search-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"},"src/modules/tool/tool/toolviews/todo-row.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../primitives":"src/modules/tool/primitives.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js","./plan-summary":"src/modules/tool/tool/toolviews/plan-summary.js"},"src/modules/tool/tool/toolviews/plan-summary.js":{},"src/modules/tool/tool/toolviews/web-row.js":{"../../primitives":"src/modules/tool/primitives.js","../models/web-card-model":"src/modules/tool/tool/models/web-card-model.js","../models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","../components/ToolRow":"src/modules/tool/tool/components/ToolRow.js","../../locale":"src/modules/tool/locale.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

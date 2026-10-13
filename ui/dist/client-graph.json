@@ -1,5 +1,5 @@
 {
-  "rev": "cfb937846c6beec1",
+  "rev": "2da3cc1341f60a06",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -73,8 +73,8 @@
     },
     {
       "id": "@xharness/dsh-client-connection",
-      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=611fb0d28cbff397",
-      "rev": "611fb0d28cbff397",
+      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=a834842312c9ee4a",
+      "rev": "a834842312c9ee4a",
       "inject": [],
       "external": [],
       "immediately": true
@@ -142,8 +142,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-layout",
-      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=3fa344fbc057b29b",
-      "rev": "3fa344fbc057b29b",
+      "url": "/plugins/@xharness/dsh-client-ui-layout/client.js?rev=d669cd2fc471519f",
+      "rev": "d669cd2fc471519f",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-theme"
@@ -319,8 +319,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-tool",
-      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=a4edf87533857b3f",
-      "rev": "a4edf87533857b3f",
+      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=11dc20573a3f3c40",
+      "rev": "11dc20573a3f3c40",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -694,14 +694,15 @@
     },
     {
       "id": "@xlang/xharness-client-ui-schedule",
-      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=1ab961d5a187d1f6",
-      "rev": "1ab961d5a187d1f6",
+      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=23098e056b27ad0b",
+      "rev": "23098e056b27ad0b",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
         "@xharness/dsh-client-ui-conversation"
       ],
       "external": [
+        "@xharness/dsh-client-runtime/client",
         "@xharness/dsh-client-ui-primitives",
         "react",
         "react-dom",

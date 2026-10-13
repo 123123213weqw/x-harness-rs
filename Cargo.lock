@@ -3819,6 +3819,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-interaction",
+ "xharness-jobs",
  "xharness-process",
  "xharness-projection",
  "xharness-prompt",
@@ -3916,6 +3917,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
