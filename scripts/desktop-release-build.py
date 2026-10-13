@@ -405,7 +405,16 @@ def check_run(run_data, repo, sha, path, *, event=None):
     else:
         require(run_data['event'] in {'push', 'workflow_dispatch'}, 'Unsupported release trigger')
         if run_data['event'] == 'workflow_dispatch':
-            require(run_data['head_branch'] == 'master', 'Release dispatch was not on master')
+            if run_data['head_branch'] != 'master':
+                require(path == '.github/workflows/desktop-release.yml', 'Only candidate builds may use a tag dispatch')
+                verify_candidate_tag(repo, run_data['head_branch'], run_data['head_sha'])
+
+
+def verify_candidate_tag(repo, tag, sha):
+    require(isinstance(tag, str) and re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag),
+            'Candidate dispatch requires an immutable desktop version tag')
+    verify_tag(repo, tag, sha)
+    ancestor(repo, sha, api(f'repos/{repo}/git/ref/heads/master')['object']['sha'])
 
 
 def successful_run(repo, run_id, sha, path, *, event=None, unix_platforms=None):
@@ -455,7 +464,7 @@ def fetch_candidate(run_id, destination):
     plan = load(candidate / 'plan.json')
     require(plan['repository'] == repo and plan['sha'] == sha and plan['release_run_id'] == str(run_id)
             and plan['release_run_attempt'] == str(build['run_attempt']), 'Candidate plan is not from this exact build attempt')
-    if build['event'] == 'push':
+    if build['event'] == 'push' or build['head_branch'] != 'master':
         require(build['head_branch'] == plan['tag'], 'Tag build provenance mismatch')
     key = candidate.parent / 'trusted-updater.pub'
     public_key(key)
@@ -484,7 +493,10 @@ def current_build(plan, *, require_pipeline=True):
             and value['head_sha'] == plan['sha'] and value['run_attempt'] == int(plan['release_run_attempt'])
             and value['status'] == 'in_progress' and value.get('conclusion') is None,
             'In-build artifacts require the authenticated running workflow')
-    require((value['event'] == 'workflow_dispatch' and value['head_branch'] == 'master')
+    if value['event'] == 'workflow_dispatch' and value['head_branch'] != 'master':
+        require(value['head_branch'] == plan['tag'], 'Candidate tag differs from its immutable plan')
+        verify_candidate_tag(repo, value['head_branch'], plan['sha'])
+    require((value['event'] == 'workflow_dispatch' and value['head_branch'] in ('master', plan['tag']))
             or (value['event'] == 'push' and value['head_branch'] == plan['tag']), 'Untrusted build trigger')
     return value
 
@@ -601,10 +613,29 @@ def fetch_promotion(args):
     live = api(f'repos/{repo}/releases/latest')
     require(not live['draft'] and not live['prerelease'], 'No public stable channel to preserve')
     download_release(repo, live['tag_name'], root / 'live-manifest', ['latest.json', 'updater.pub'])
+    if build['event'] == 'workflow_dispatch' and build['head_branch'] == plan['tag']:
+        # Automatic candidates can finish out of source order. A higher reserved
+        # version does not authorize rolling code backwards, nor does an old
+        # Windows base receipt prove an upgrade from a newly published version.
+        check_reuse_live_base(repo, sha, live, load(root / 'live-manifest/latest.json'),
+                              load(root / 'acceptance/windows-x86_64/acceptance.json'))
     names = live_names(load(root / 'live-manifest/latest.json'), repo, live['tag_name'])
     download_release(repo, live['tag_name'], root / 'live', names)
     write(root / 'live-snapshot.json', snapshot(live))
     write(root / 'provenance.json', runs)
+
+
+def check_reuse_live_base(repo, sha, live, manifest, windows):
+    tag = live['tag_name']
+    if tag.startswith('desktop-v'):
+        live_sha = _contract.remote_tag_commit(repo, tag)
+    else:
+        live_sha = live.get('target_commitish')
+        require(isinstance(live_sha, str) and re.fullmatch(r'[0-9a-f]{40}', live_sha),
+                'Legacy live source must be pinned before automatic candidate promotion')
+    ancestor(repo, live_sha, sha)
+    require(windows.get('base_version') == manifest.get('version'),
+            'Stable Windows base changed after candidate acceptance; select a freshly accepted candidate, never bypass or silently rebuild')
 
 
 def publish(args):
@@ -953,6 +984,14 @@ def main():
         require(sha == os.environ.get('GITHUB_SHA'), 'Release planning must use the exact workflow source')
         tag = os.environ.get('RELEASE_TAG_INPUT', '')
         require(re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag), 'Invalid release tag')
+        if os.environ.get('AUTOMATIC_CANDIDATE') == 'true':
+            require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+                    and os.environ.get('GITHUB_REF') == 'refs/tags/' + tag
+                    and os.environ.get('EXPECTED_SOURCE_SHA') == sha
+                    and os.environ.get('INTEGRATED_ACCEPTANCE') == 'true'
+                    and os.environ.get('RELEASE_SCOPE_INPUT') in ('all', 'all-macos-preview', 'all-macos-selfsigned'),
+                    'Automatic candidate must pin an integrated four-platform tag build')
+            verify_candidate_tag(repository(), tag, sha)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         publisher_pin()
         contract('plan', tag, '--release-scope', os.environ.get('RELEASE_SCOPE_INPUT', 'all'), '--output', args.output)
