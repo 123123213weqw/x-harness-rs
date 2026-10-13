@@ -1469,6 +1469,19 @@ async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() 
 async fn every_upstream_rpc_has_baseline_behavior() {
     let mut fx = Fixture::new();
 
+    let preview = fx
+        .value(
+            RpcMethod::SessionImport,
+            json!({
+                "source": "claude-code",
+                "jsonl": format!("{}\n", json!({"type":"user","message":{"content":"baseline transcript"}})),
+                "preview": true,
+            }),
+        )
+        .await;
+    assert_eq!(preview["messages"], 1);
+    assert!(preview.get("sessionId").is_none());
+
     fx.value(RpcMethod::HostDescribe, json!({})).await;
     fx.value(RpcMethod::HostPickDirectory, json!({})).await;
     fx.value(RpcMethod::HostListDirectory, json!({"path": fx.root}))

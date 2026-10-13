@@ -69,6 +69,7 @@
     "xharness-prompt",
     "xharness-schedule",
     "xharness-session",
+    "xharness-session-import",
     "xharness-token",
     "xharness-tools",
     "xharness-win32"
@@ -177,5 +178,8 @@
   "xharness-win32": [],
   "xharness-cloud-app": [
     "xharness-cloud"
+  ],
+  "xharness-session-import": [
+    "xharness-session"
   ]
 }

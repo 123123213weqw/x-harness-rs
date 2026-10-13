@@ -320,6 +320,8 @@
     {"id":"browser-212","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
     {"id":"browser-213","suite":"browser","argv":["node","scripts/test-file-display-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90},
     {"id":"browser-214","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
-    {"id":"browser-215","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90}
+    {"id":"browser-215","suite":"browser","argv":["node","scripts/test-harness-snapshot-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90},
+    {"id":"browser-216","suite":"browser","argv":["node","scripts/test-session-import-browser.mjs"],"env":{"UI_TEST_BROWSER":"chromium"},"weight":90},
+    {"id":"browser-217","suite":"browser","argv":["node","scripts/test-session-import-browser.mjs"],"env":{"UI_TEST_BROWSER":"webkit"},"weight":90}
   ]
 }

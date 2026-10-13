@@ -2354,6 +2354,9 @@ function createFixtureWorld(options) {
     };
     const api = {
         sessions: {
+            // This preview fixture deliberately does not pretend to parse or import
+            // external history. Real import acceptance uses the Rust Host.
+            importHistory: request => err(request, { code: 'bad-request', message: 'External history import requires a real XHarness Host, not fixture mode', details: { issues: [] } }),
             delete: request => {
                 const id = request.payload.sessionId, summary = summaryOf(id);
                 if (!summary)
@@ -3311,6 +3314,7 @@ class FixtureApiClient extends api_1.AbstractApiClient {
             case 'workspace.unarchiveSession': return this.api.workspace.unarchiveSession({ rpcId: request.rpcId, payload: workspace_schema_1.workspaceUnarchiveSessionRequestSchema.parse(request.payload) });
             case 'session.list': return this.api.sessions.list({ rpcId: request.rpcId, payload: sessions_schema_1.sessionListRequestSchema.parse(request.payload) });
             case 'session.search': return this.api.sessions.search({ rpcId: request.rpcId, payload: sessions_schema_1.sessionSearchRequestSchema.parse(request.payload) }, signal);
+            case 'session.import': return this.api.sessions.importHistory({ rpcId: request.rpcId, payload: sessions_schema_1.sessionImportRequestSchema.parse(request.payload) });
             case 'session.create': return this.api.sessions.create({ rpcId: request.rpcId, payload: sessions_schema_1.sessionCreateRequestSchema.parse(request.payload) });
             case 'session.history': return this.api.sessions.history({ rpcId: request.rpcId, payload: sessions_schema_1.sessionHistoryRequestSchema.parse(request.payload) });
             case 'session.models': return this.api.sessions.models({ rpcId: request.rpcId, payload: sessions_schema_1.sessionModelsRequestSchema.parse(request.payload) });
@@ -3418,7 +3422,8 @@ function isUnknownArray(value) { return Array.isArray(value); }
  * with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionOriginSchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
+exports.sessionImportRequestSchema = exports.sessionDeleteValueSchema = exports.sessionDeleteRequestSchema = exports.sessionCancelValueSchema = exports.sessionCancelRequestSchema = exports.sessionUpdateQueueValueSchema = exports.sessionUpdateQueueRequestSchema = exports.sessionAttachmentValueSchema = exports.sessionAttachmentRequestSchema = exports.imageAttachmentRefSchema = exports.attachmentIdSchema = exports.sessionPromptValueSchema = exports.sessionPromptRequestSchema = exports.promptContentPartSchema = exports.imageMediaTypeSchema = exports.contentBlockSchema = exports.sessionSelectModelValueSchema = exports.sessionSelectModelRequestSchema = exports.sessionModelsValueSchema = exports.sessionModelsRequestSchema = exports.sessionHistoryValueSchema = exports.imageLimitsProjectionSchema = exports.sessionListMetadataProjectionSchema = exports.sessionProjectionsBlockSchema = exports.historyEntrySchema = exports.toolEventViewSchema = exports.modelCatalogFailureSchema = exports.modelProviderGroupSchema = exports.modelCatalogModelSchema = exports.modelReasoningSchema = exports.modelReasoningEffortSchema = exports.modelSelectionSchema = exports.sessionHistoryRequestSchema = exports.sessionForkValueSchema = exports.sessionForkRequestSchema = exports.sessionRenameValueSchema = exports.sessionRenameRequestSchema = exports.sessionCreateValueSchema = exports.sessionCreateRequestSchema = exports.sessionSearchValueSchema = exports.sessionSearchItemSchema = exports.sessionSearchRequestSchema = exports.sessionListValueSchema = exports.sessionListRequestSchema = exports.sessionSummarySchema = exports.sessionOriginSchema = exports.sessionEventSchema = exports.workspaceIdSchema = exports.messageIdSchema = exports.sessionIdSchema = void 0;
+exports.sessionImportValueSchema = void 0;
 const zod_1 = require("zod");
 const session_search_1 = require("./session-search");
 /** SessionId: one brand cast after schema validation (the only cast point in this domain). */
@@ -3715,6 +3720,16 @@ exports.sessionDeleteRequestSchema = zod_1.z.object({
 exports.sessionDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.boolean(),
     deletedSessionIds: zod_1.z.array(exports.sessionIdSchema).optional(),
+});
+/** External tools are history text only; this request never submits a prompt. */
+exports.sessionImportRequestSchema = zod_1.z.object({
+    source: zod_1.z.enum(['claude-code', 'codex']), jsonl: zod_1.z.string().max(8 * 1024 * 1024),
+    preview: zod_1.z.boolean(), cwd: zod_1.z.string().optional(), workspaceId: exports.workspaceIdSchema.optional(),
+}).strict().refine(p => p.cwd === undefined || p.workspaceId === undefined);
+exports.sessionImportValueSchema = zod_1.z.object({
+    sessionId: exports.sessionIdSchema.optional(), title: zod_1.z.string(), messages: zod_1.z.number().int().nonnegative(),
+    tools: zod_1.z.number().int().nonnegative(), warnings: zod_1.z.array(zod_1.z.string()),
+    preview: zod_1.z.array(zod_1.z.object({ role: zod_1.z.string(), content: zod_1.z.string() })),
 });
 
 },
@@ -21262,6 +21277,7 @@ exports.UNARY_VALUE_SCHEMAS = {
     'session.list': sessions_schema_1.sessionListValueSchema,
     'session.search': sessions_schema_1.sessionSearchValueSchema,
     'session.create': sessions_schema_1.sessionCreateValueSchema,
+    'session.import': sessions_schema_1.sessionImportValueSchema,
     'session.history': sessions_schema_1.sessionHistoryValueSchema,
     'session.models': sessions_schema_1.sessionModelsValueSchema,
     'session.selectModel': sessions_schema_1.sessionSelectModelValueSchema,
@@ -21339,6 +21355,7 @@ class AbstractApiClient {
             list: (payload, signal) => this.callUnary('session.list', payload, signal),
             search: (payload, signal) => this.callUnary('session.search', payload, signal),
             create: (payload, signal) => this.callUnary('session.create', payload, signal),
+            importHistory: (payload, signal) => this.callUnary('session.import', payload, signal),
             history: (payload, signal) => this.callUnary('session.history', payload, signal),
             models: (payload, signal) => this.callUnary('session.models', payload, signal),
             selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),

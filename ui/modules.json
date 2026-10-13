@@ -596,6 +596,17 @@
         "@xharness/dsh-client-runtime",
         "@xlang/xharness-client-ui-assistant"
       ]
+    },
+    {
+      "id": "@xlang/xharness-client-ui-session-import",
+      "kind": "source-module",
+      "source": "src/modules/session-import/index.ts",
+      "inject": [
+        "@xharness/dsh-client-ui-settings-general",
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-connection",
+        "@xharness/dsh-client-locale"
+      ]
     }
   ],
   "assets": [

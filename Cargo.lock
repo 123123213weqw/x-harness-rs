@@ -3824,6 +3824,7 @@ dependencies = [
  "xharness-prompt",
  "xharness-schedule",
  "xharness-session",
+ "xharness-session-import",
  "xharness-session-jsonl",
  "xharness-token",
  "xharness-tools",
@@ -4087,6 +4088,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "xharness-interaction",
+]
+
+[[package]]
+name = "xharness-session-import"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "xharness-session",
 ]
 
 [[package]]

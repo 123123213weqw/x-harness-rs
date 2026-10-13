@@ -1,4 +1,4 @@
-import { sessionSummarySchema, sessionDeleteRequestSchema, sessionListRequestSchema, sessionSearchRequestSchema, sessionCreateRequestSchema, sessionHistoryRequestSchema, sessionModelsRequestSchema, sessionSelectModelRequestSchema, sessionRenameRequestSchema, sessionForkRequestSchema, sessionPromptRequestSchema, sessionAttachmentRequestSchema, sessionUpdateQueueRequestSchema, sessionCancelRequestSchema } from './contracts/host/apiproxy/api/sessions.schema'
+import { sessionSummarySchema, sessionDeleteRequestSchema, sessionListRequestSchema, sessionSearchRequestSchema, sessionCreateRequestSchema, sessionImportRequestSchema, sessionHistoryRequestSchema, sessionModelsRequestSchema, sessionSelectModelRequestSchema, sessionRenameRequestSchema, sessionForkRequestSchema, sessionPromptRequestSchema, sessionAttachmentRequestSchema, sessionUpdateQueueRequestSchema, sessionCancelRequestSchema } from './contracts/host/apiproxy/api/sessions.schema'
 import { subagentListRequestSchema, subagentHistoryRequestSchema, subagentPromptRequestSchema, subagentInterruptRequestSchema } from './contracts/host/apiproxy/api/subagents.schema'
 import { hostDescribeRequestSchema, hostPickDirectoryRequestSchema, hostListDirectoryRequestSchema, hostCreateDirectoryRequestSchema, hostOpenPathRequestSchema } from './contracts/host/apiproxy/api/host.schema'
 import { workspaceListRequestSchema, workspaceCreateRequestSchema, workspaceRenameRequestSchema, workspaceDeleteRequestSchema, workspaceInsertBeforeRequestSchema, workspaceInsertSessionBeforeRequestSchema, workspaceUnarchiveSessionRequestSchema, workspaceArchiveSessionRequestSchema } from './contracts/host/apiproxy/api/workspace.schema'
@@ -2323,6 +2323,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
 
   const api: ApiProxy = {
     sessions: {
+      // This preview fixture deliberately does not pretend to parse or import
+      // external history. Real import acceptance uses the Rust Host.
+      importHistory: request => err(request, {code: 'bad-request', message: 'External history import requires a real XHarness Host, not fixture mode', details: {issues: []}}),
       delete: request => {
         const id = request.payload.sessionId, summary = summaryOf(id)
         if (!summary) return err(request, { code: 'session-not-found', message: `no session ${id}`, details: { sessionId: id } })
@@ -3305,6 +3308,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.unarchiveSession': return this.api.workspace.unarchiveSession({ rpcId: request.rpcId, payload: workspaceUnarchiveSessionRequestSchema.parse(request.payload) })
       case 'session.list': return this.api.sessions.list({ rpcId: request.rpcId, payload: sessionListRequestSchema.parse(request.payload) })
       case 'session.search': return this.api.sessions.search({ rpcId: request.rpcId, payload: sessionSearchRequestSchema.parse(request.payload) }, signal)
+      case 'session.import': return this.api.sessions.importHistory({rpcId: request.rpcId, payload: sessionImportRequestSchema.parse(request.payload)})
       case 'session.create': return this.api.sessions.create({ rpcId: request.rpcId, payload: sessionCreateRequestSchema.parse(request.payload) })
       case 'session.history': return this.api.sessions.history({ rpcId: request.rpcId, payload: sessionHistoryRequestSchema.parse(request.payload) })
       case 'session.models': return this.api.sessions.models({ rpcId: request.rpcId, payload: sessionModelsRequestSchema.parse(request.payload) })
