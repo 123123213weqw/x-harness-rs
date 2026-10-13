@@ -426,7 +426,7 @@ function AccountEntry({ wide, rows, openSection, t }) {
                     trigger.current?.focus();
                     firstFocus.current = 'first';
                     setOpen(value => !value);
-                }, children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.avatar, "aria-hidden": "true", children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconUserOutline16, { size: 18 }) }), wide && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("span", { className: AccountEntry_styles_1.default.identity, children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.name, children: t('account.name') }), (0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.caption, children: t('account.caption') })] }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 14, className: AccountEntry_styles_1.default.chevron })] })] }) }) });
+                }, children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.avatar, "aria-hidden": "true", children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconUserOutline16, { size: 18 }) }), wide && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.identity, children: (0, jsx_runtime_1.jsx)("span", { className: AccountEntry_styles_1.default.name, children: t('account.name') }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconChevronDownOutline14, { size: 14, className: AccountEntry_styles_1.default.chevron })] })] }) }) });
 }
 
 },
@@ -454,7 +454,7 @@ exports.default = styles;
 // source: src/modules/settings-general/AccountEntry.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".xhAccount_root,.xhAccount_anchor{display:flex;width:100%;min-width:0}\n.xhAccount_trigger{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;height:52px;margin:4px 0;padding:6px 8px;background:transparent;color:var(--dsw-alias-label-primary);border:0;border-radius:12px;font:inherit;text-align:left;cursor:pointer}\n.xhAccount_trigger:hover,.xhAccount_trigger[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}\n.xhAccount_trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhAccount_avatar{display:flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-layer-2)}\n.xhAccount_identity{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}\n.xhAccount_name{font-size:14px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.xhAccount_caption{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.xhAccount_chevron{flex:none;color:var(--dsw-alias-label-secondary)}\n.xhAccount_rail{width:36px;height:36px;padding:0;justify-content:center;border-radius:50%;margin:8px 0 10px}\n.xhAccount_menuLabel{display:block;min-width:204px;max-width:calc(100vw - 76px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\nbutton[role=menuitem]:has(.xhAccount_menuLabel):focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n";
+exports.default = ".xhAccount_root,.xhAccount_anchor{display:flex;width:100%;min-width:0}\n.xhAccount_trigger{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;height:52px;margin:4px 0;padding:6px 8px;background:transparent;color:var(--dsw-alias-label-primary);border:0;border-radius:12px;font:inherit;text-align:left;cursor:pointer}\n.xhAccount_trigger:hover,.xhAccount_trigger[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}\n.xhAccount_trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhAccount_avatar{display:flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-layer-2)}\n.xhAccount_identity{display:flex;align-items:center;flex:1;min-width:0}\n.xhAccount_name{font-size:14px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.xhAccount_chevron{flex:none;color:var(--dsw-alias-label-secondary)}\n.xhAccount_rail{width:36px;height:36px;padding:0;justify-content:center;border-radius:50%;margin:8px 0 10px}\n.xhAccount_menuLabel{display:block;min-width:204px;max-width:calc(100vw - 76px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\nbutton[role=menuitem]:has(.xhAccount_menuLabel):focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n";
 
 },
 "src/modules/settings-general/chrome.js": function(module, exports, require) {
@@ -736,7 +736,6 @@ exports.zh = {
     'general.nav': '通用设置',
     'account.trigger': '账号与设置',
     'account.name': 'XHarness',
-    'account.caption': '账号与设置',
     'account.local': '本机工作区',
     'account.menu': '账号与额度',
     'account.profile': '使用档案',
@@ -751,7 +750,6 @@ exports.en = {
     'general.nav': 'General',
     'account.trigger': 'Account & settings',
     'account.name': 'XHarness',
-    'account.caption': 'Account & settings',
     'account.local': 'Local workspace',
     'account.menu': 'Account & allowance',
     'account.profile': 'Usage profile',
