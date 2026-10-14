@@ -64,6 +64,7 @@
     "xharness-control",
     "xharness-core",
     "xharness-debug",
+    "xharness-fs",
     "xharness-interaction",
     "xharness-projection",
     "xharness-prompt",

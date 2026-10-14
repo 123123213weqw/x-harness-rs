@@ -3818,6 +3818,7 @@ dependencies = [
  "xharness-control",
  "xharness-core",
  "xharness-debug",
+ "xharness-fs",
  "xharness-interaction",
  "xharness-process",
  "xharness-projection",

@@ -851,7 +851,7 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     std::fs::write(
         root.join("AGENTS.md"),
         concat!(
-            "# Repository instructions\n\nDo not promote this whole file.\n\n",
+            "# Repository instructions\n\nRun the project tests before submitting.\n\n",
             "<!-- XHARNESS:USER-MEMORY:BEGIN -->\n",
             "## XHarness 持久目标\n\n- 发布到东京\n",
             "<!-- XHARNESS:USER-MEMORY:END -->\n",
@@ -926,9 +926,10 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     );
     assert!(!system.contains("Do not emulate managed jobs with shell &"));
     assert!(system.contains("Plan mode is active."));
-    assert!(system.contains("User-approved persistent goals for this workspace:"));
-    assert!(system.contains("发布到东京"));
-    assert!(!system.contains("Do not promote this whole file."));
+    assert!(system.contains("Project instructions from AGENTS.md"));
+    assert!(system.contains("Run the project tests before submitting."));
+    assert!(!system.contains("User-approved persistent goals for this workspace:"));
+    assert!(!system.contains("发布到东京"));
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");
     drop(requests);
     let _ = std::fs::remove_dir_all(root);
