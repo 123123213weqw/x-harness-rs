@@ -157,7 +157,7 @@ async fn first_request_rejections_are_observable_and_parent_driven_retry_reuses_
         // A parent send is accepted durably, not permission to reopen a
         // non-retryable child's gate. The canonical failure boundary (#278)
         // requires an actual human recovery input after credentials are fixed.
-        assert!(store.load(&id).await.unwrap().dispatch_paused());
+        assert!(store.load(&id).await.unwrap().unwrap().dispatch_paused());
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
         host.enqueue_prompt(crate::driver::PromptAdmission {
             rpc_id: RpcId::new("human-recovery"),
