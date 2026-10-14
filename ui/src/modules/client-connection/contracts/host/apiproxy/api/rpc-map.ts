@@ -25,6 +25,7 @@ export interface RpcMethodMap {
   'session.delete': SessionsApi['delete']
   'session.list': SessionsApi['list']
   'session.search': SessionsApi['search']
+  'session.import': SessionsApi['importHistory']
   'session.create': SessionsApi['create']
   'session.history': SessionsApi['history']
   'session.models': SessionsApi['models']

@@ -28,6 +28,7 @@ xharness-prompt = { path = "../xharness-prompt" }
 xharness-projection = { path = "../xharness-projection" }
 xharness-interaction = { path = "../xharness-interaction" }
 xharness-schedule = { path = "../xharness-schedule" }
+xharness-session-import = { path = "../xharness-session-import" }
 xharness-session = { path = "../xharness-session" }
 xharness-token = { path = "../xharness-token" }
 xharness-tools = { path = "../xharness-tools" }

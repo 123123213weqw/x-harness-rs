@@ -24,6 +24,7 @@ mod model;
 mod preset;
 mod session;
 mod session_delete;
+mod session_import;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
@@ -74,6 +75,7 @@ impl ApiBackend for BasicHost {
             | RpcMethod::SessionModels) => {
                 session::call_read(self, method, &payload, &cancellation).await
             }
+            RpcMethod::SessionImport => session_import::import(self, &payload, &cancellation).await,
             RpcMethod::SessionCreate => session_lifecycle::create(self, &payload).await,
             RpcMethod::SessionSelectModel => {
                 session_lifecycle::select_model(self, rpc_id, &payload).await
