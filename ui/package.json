@@ -107,7 +107,7 @@
     "space-separated-tokens": "2.0.2",
     "stringify-entities": "4.0.4",
     "trim-lines": "3.0.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "unist-util-is": "6.0.1",
     "unist-util-position": "5.0.0",
     "unist-util-remove-position": "5.0.0",
