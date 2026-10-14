@@ -86,6 +86,7 @@ jobs:
       - run: python -B scripts/test-desktop-release-build.py
       - run: python -B scripts/test-release-orchestrator.py
       - run: python -B scripts/test-release-service.py
+      - run: python -B scripts/test-desktop-candidates.py
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-macos-stable-signing.py
@@ -430,6 +431,13 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+      # PR portable contracts run on Linux only. Exercise both Windows shells
+      # here before any expensive Rust build, not only after master merge.
+      - name: Owned Windows profile isolation regression (no installer or Rust build)
+        run: |
+          ./scripts/test-windows-install-ownership-isolation.ps1
+          & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -NonInteractive -File scripts/test-windows-install-ownership-isolation.ps1
+          if ($LASTEXITCODE) { throw 'Windows fixture isolation regression failed' }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

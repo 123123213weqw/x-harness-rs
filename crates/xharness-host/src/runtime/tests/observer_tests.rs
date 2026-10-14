@@ -896,6 +896,23 @@ async fn restart_resumes_a_queued_user_prompt_despite_the_persisted_stop() {
     })
     .await
     .expect("a queued user prompt must still run after a restart");
+    // The actor can now atomically resume a queued human input itself. Its
+    // durable TurnEnd precedes the asynchronously attached Host observer;
+    // verify publication too, rather than treating journal closure as that
+    // observer's acknowledgement.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let state = host.state.read().await;
+            let record = &state.sessions["stop-restore"];
+            if !record.dispatch_paused && !record.running {
+                break;
+            }
+            drop(state);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("Host must publish the durable human resume and settled status");
     let state = host.state.read().await;
     assert!(!state.sessions["stop-restore"].dispatch_paused);
     drop(state);
