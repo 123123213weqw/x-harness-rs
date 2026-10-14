@@ -513,6 +513,11 @@ mod tests {
 
     #[tokio::test]
     async fn legacy_idle_checkpoint_cannot_reopen_a_terminal_failure() {
+        assert_legacy_checkpoint_falls_back("xharness.host.idle-recovery.v1").await;
+        assert_legacy_checkpoint_falls_back("xharness.host.idle-recovery.v2").await;
+    }
+
+    async fn assert_legacy_checkpoint_falls_back(schema: &str) {
         let d = Dir::new();
         let s = d.store();
         let session = s.create(SessionHeader::new("test")).await.unwrap();
@@ -533,7 +538,7 @@ mod tests {
             let state = first.state.read().await;
             checkpoint(&first, &journal, &state.sessions["test"]).unwrap()
         };
-        legacy.schema = "xharness.host.idle-recovery.v1".into();
+        legacy.schema = schema.into();
         legacy.state["dispatch_paused"] = serde_json::json!(false);
         s.publish_recovery_checkpoint(legacy).await.unwrap();
         drop(first);
