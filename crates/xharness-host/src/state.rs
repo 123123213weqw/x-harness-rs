@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use xharness_control::{ControlRevision, MutationReceipt};
 use xharness_core::{AgentMessage, LoopCommand, LoopControlError};
-use xharness_prompt::{PromptAssembler, PromptAssembly, PromptSection};
+use xharness_prompt::PromptSection;
 use xharness_session::{ScheduleRecord, SessionMutationReceipt};
 
 use crate::HostConfig;
@@ -748,10 +748,10 @@ impl HostState {
         }
     }
 
-    /// Build the exact system prompt selected by one Session. The section
-    /// order is part of the provider-visible contract and must not depend on
-    /// map iteration order.
-    pub(crate) fn prompt_assembly(&self, session_id: &str) -> Result<PromptAssembly, String> {
+    /// Capture pure base sections selected by one Session. Filesystem work
+    /// belongs to InstructionLoader after releasing the Host state lock.
+    /// Section order must not depend on map iteration order.
+    pub(crate) fn prompt_sections(&self, session_id: &str) -> Result<Vec<PromptSection>, String> {
         let session = self
             .sessions
             .get(session_id)
@@ -795,22 +795,6 @@ impl HostState {
                 crate::questions::DELEGATED_QUESTION_POLICY,
             ));
         }
-        let agent_markdown = std::path::Path::new(&session.cwd).join("AGENTS.md");
-        if let Ok(bytes) = std::fs::read(&agent_markdown) {
-            // The managed sink is intentionally small. Refuse to pin an
-            // unexpectedly huge file into every model request even if the
-            // surrounding repository owns a large AGENTS.md.
-            if bytes.len() <= 256 * 1024 {
-                if let Ok(text) = String::from_utf8(bytes) {
-                    if let Some(memory) = crate::managed_agent_memory(&text) {
-                        sections.push(PromptSection::content_addressed(
-                            "workspace/agent-memory",
-                            format!("User-approved persistent goals for this workspace:\n{memory}"),
-                        ));
-                    }
-                }
-            }
-        }
         if session.plan_active {
             sections.push(PromptSection::new(
                 "plan/policy",
@@ -818,8 +802,6 @@ impl HostState {
                 "Plan mode is active. Investigate and design a concrete plan, but do not perform implementation changes until the user approves the plan. If no plan-review tool is available, present the plan clearly and wait for the user's decision.",
             ));
         }
-        PromptAssembler
-            .assemble(sections)
-            .map_err(|error| format!("prompt assembly failed: {error}"))
+        Ok(sections)
     }
 }
