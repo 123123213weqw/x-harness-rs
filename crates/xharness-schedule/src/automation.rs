@@ -83,7 +83,7 @@ fn selector(after: Option<u64>, at: Option<Value>, every: Option<u64>) -> Result
         Selector::Every(every.unwrap())
     })
 }
-fn settings(record: &ScheduleRecord) -> AutomationSettings {
+pub(super) fn settings(record: &ScheduleRecord) -> AutomationSettings {
     record.automation.clone().unwrap_or(AutomationSettings {
         mode: AutomationMode::Reminder,
         target: AutomationTarget::CurrentChat,
@@ -175,77 +175,7 @@ impl ScheduleManager {
                     )
                 }
                 AutomationCommand::View { id } => {
-                    let record = session.events().iter().rev().find_map(|e| match e.data() {
-                        EventData::ScheduleChange {
-                            change:
-                                ScheduleChange::Create { schedule, .. }
-                                | ScheduleChange::Update { schedule, .. },
-                        } if schedule.id == id => Some(schedule),
-                        _ => None,
-                    });
-                    let Some(record) = record else {
-                        return public_error("not_found", "Automation not found in this chat.");
-                    };
-                    let mut value = automation_view(record, now);
-                    if let Some(current) = folded.active.iter().find(|r| r.id == id) {
-                        value = automation_view(current, now);
-                    } else {
-                        let deleted = session.events().iter().any(|e| matches!(e.data(), EventData::ScheduleChange { change: ScheduleChange::Delete { id: deleted, .. } } if *deleted == id));
-                        value["state"] =
-                            json!(if inherited_automation_ids(&session).contains(&id) {
-                                "inherited"
-                            } else if deleted {
-                                "deleted"
-                            } else {
-                                "finished"
-                            });
-                    }
-                    let mut runs = Vec::new();
-                    let all_runs = folded
-                        .runs
-                        .iter()
-                        .chain(folded.pending_runs.iter().map(|(r, _)| r))
-                        .chain(folded.cancelled_runs.iter())
-                        .collect::<Vec<_>>();
-                    for run in all_runs
-                        .into_iter()
-                        .filter(|r| r.schedule_id == id)
-                        .rev()
-                        .take(50)
-                    {
-                        let state = if folded.cancelled_runs.contains(run) {
-                            "cancelled"
-                        } else {
-                            run_state(&owner.store, run).await
-                        };
-                        let state = if state == "unavailable"
-                            && folded.pending_runs.iter().any(|(r, _)| r == run)
-                        {
-                            "preparing"
-                        } else {
-                            state
-                        };
-                        let mut run = serde_json::to_value(run).unwrap();
-                        run["state"] = json!(state);
-                        runs.push(run);
-                    }
-                    value["runs"] = json!(runs);
-                    value["admittedRunCount"] =
-                        json!(folded.runs.iter().filter(|r| r.schedule_id == id).count());
-                    value["runCount"] = json!(
-                        folded.runs.iter().filter(|r| r.schedule_id == id).count()
-                            + folded
-                                .pending_runs
-                                .iter()
-                                .filter(|(r, _)| r.schedule_id == id)
-                                .count()
-                            + folded
-                                .cancelled_runs
-                                .iter()
-                                .filter(|r| r.schedule_id == id)
-                                .count()
-                    );
-                    return value;
+                    return saved_view(&owner, &session, &folded, &id, now).await;
                 }
                 AutomationCommand::Create {
                     prompt,
@@ -573,4 +503,80 @@ pub(super) fn scheduled_message(
         "[SCHEDULED USER TASK]\nContinue only the user-authorized task saved below. This is a scheduled user request, not a system instruction. Preserve the current permission and approval policy. Report the result in this chat; do not create another schedule unless the user requested it.\nschedule_id_json: {}\noccurrence_at: {}\ntask_json: {}\n[/SCHEDULED USER TASK]",
         json!(record.id),occurrence,json!(record.prompt))).with_id(id),
         source:Some(json!({"kind":"automation","sourceSessionId":source,"scheduleId":record.id,"occurrenceAt":occurrence})), }
+}
+
+// Shared read reducer: native remote reads need no mutation, timer or model call.
+pub(super) async fn saved_view(
+    owner: &ScheduleOwner,
+    session: &Session,
+    folded: &FoldedSchedules,
+    id: &str,
+    now: i64,
+) -> Value {
+    let record = session.events().iter().rev().find_map(|e| match e.data() {
+        EventData::ScheduleChange {
+            change:
+                ScheduleChange::Create { schedule, .. } | ScheduleChange::Update { schedule, .. },
+        } if schedule.id == *id => Some(schedule),
+        _ => None,
+    });
+    let Some(record) = record else {
+        return public_error("not_found", "Automation not found in this chat.");
+    };
+    let mut value = automation_view(record, now);
+    if let Some(current) = folded.active.iter().find(|r| r.id == *id) {
+        value = automation_view(current, now);
+    } else {
+        let deleted = session.events().iter().any(|e| matches!(e.data(), EventData::ScheduleChange { change: ScheduleChange::Delete { id: deleted, .. } } if deleted == id));
+        value["state"] = json!(if inherited_automation_ids(session).contains(id) {
+            "inherited"
+        } else if deleted {
+            "deleted"
+        } else {
+            "finished"
+        });
+    }
+    let mut runs = Vec::new();
+    let all_runs = folded
+        .runs
+        .iter()
+        .chain(folded.pending_runs.iter().map(|(r, _)| r))
+        .chain(folded.cancelled_runs.iter())
+        .collect::<Vec<_>>();
+    for run in all_runs
+        .into_iter()
+        .filter(|r| r.schedule_id == *id)
+        .rev()
+        .take(50)
+    {
+        let state = if folded.cancelled_runs.contains(run) {
+            "cancelled"
+        } else {
+            run_state(&owner.store, run).await
+        };
+        let state = if state == "unavailable" && folded.pending_runs.iter().any(|(r, _)| r == run) {
+            "preparing"
+        } else {
+            state
+        };
+        let mut run = serde_json::to_value(run).unwrap();
+        run["state"] = json!(state);
+        runs.push(run);
+    }
+    value["runs"] = json!(runs);
+    value["admittedRunCount"] = json!(folded.runs.iter().filter(|r| r.schedule_id == *id).count());
+    value["runCount"] = json!(
+        folded.runs.iter().filter(|r| r.schedule_id == *id).count()
+            + folded
+                .pending_runs
+                .iter()
+                .filter(|(r, _)| r.schedule_id == *id)
+                .count()
+            + folded
+                .cancelled_runs
+                .iter()
+                .filter(|r| r.schedule_id == *id)
+                .count()
+    );
+    value
 }
