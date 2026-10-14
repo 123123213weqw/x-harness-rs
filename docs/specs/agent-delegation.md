@@ -13,7 +13,7 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 | --- | --- | --- |
 | start | task；可选 label；provider/model/reasoning_effort 仅传递用户明确指定的选择 | 创建独立子会话，继承设置或先获用户确认，再持久化后返回 agent_id / message_id / model |
 | send | agent_id、message | 运行中安全 Steering；空闲时下一轮；暂停时只入队 |
-| inspect | 可选 agent_id | 指定孩子状态与模型；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
+| inspect | 可选 agent_id | 指定孩子状态、模型与最近持久结算；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
 | stop | agent_id | 中断当前轮，保留未领取消息，暂停后续派发 |
 
 工具根 Schema 使用便携 object + action enum；Rust tagged enum 严格验证分支字段，
@@ -72,6 +72,10 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 
 - provider/model 必须来自运行时注册目录；inspect.models 只返回 ID、合法 effort ID 与默认值，
   不含端点、凭据或 wire patch。目录可见不等于获准切换。
+- 每项 `models[].start_selectors` 提供可复制的完整 `provider`／`model` 组合。
+  选择模型时一起复制；只填 model 仍继承父 Provider，不能自动推测／切换其他 Provider。
+  model ID 可以含 `/`，不将 `provider/model` 拼接字符串当作 model 字段。
+  配置目录不是实时可用性证明；未知路由错误提示匹配候选但不自动回退。
 - 未指定路由时继承父配置；改变路由但未指定强度时使用目标默认值，预算用目标 TokenGuard。
   不向小模型复制父级的大预算。不支持的路由／强度在确认与创建前拒绝，不静默回退。
 - 字段只用于 start；send 不能悄悄修改已有孩子配置。既有用户模型 RPC 仍可修改配置。
@@ -92,6 +96,28 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 目标路由／强度确认卡片，未回答不创建孩子，允许一次后才向目标 Provider 传递强度。
 
 此前开放自主选择和中间菜单-only 版本的测试只是历史基线，当前验收以人工确认版本的报告为准。
+
+## 真实请求观察与主 Agent 决策
+
+不增加启动前探测、每次健康请求、模型健康缓存或第二套重试循环。沿用 Core 的请求重试，
+结算后由主 Agent 决定下一步；`accepted`／`running` 不是模型响应成功。
+
+- `inspect(agent_id).last_settlement` 与自动送达父 Inbox 的结算使用同一权威终态；
+  自动回执保持旧 payload／去重指纹，额外观察只通过 inspect 读取，兼容旧版投递崩溃窗口。
+  尚未结算为 null；结果带 work_id、turn、settlement_seq、timestamp_ms，明确属于历史结算，
+  不表示当前正在执行的轮次。事实直接来自既有日志，重启可重建，不新增事件格式。
+- `outcome` 保留原始终态。失败时已有 `provider_failure` 原样保留 retryable、http_status、
+  retry_after_ms；旧日志缺少分类时保持未知，不靠错误文字猜测。
+- `execution` 仅显示本轮已记录的请求路由、是否观察到输出／记录到工具调用。
+  `request_recorded` 只是请求日志事实，不代表网络成功；未观察到输出也不是无副作用证明。
+  请求正文、凭据、工具参数和推理内容不加入这些观察字段。
+  没有权威 turn/end 的准备／宿主故障标记为 `without_turn_end`，不声称没有执行工具。
+- 主 Agent 可读失败回执后选择 `send` 在同一孩子继续，避免重复创建；不新增自动复活／换模型。
+  认证／权限等错误先修配置，临时失败参考已记录分类。重试有副作用的工作先核对已执行结果。
+  已停止／暂停的孩子仍遵守显式用户恢复门禁；send 不解锁暂停。
+
+受控验收注入 400／401／403／404、429／503、部分输出后失败；检查首请求次数、父级回执、
+同孩子重试与去重、重启恢复，以及不因观察而发起额外 Provider 请求。
 
 ## 执行与并发
 
@@ -135,7 +161,9 @@ Semaphore，默认至多 4 个真实子模型轮次；租约覆盖工具和模�
 
 后台监听器只扫描发生变化的已停稳子会话，每秒一轮，复用既有日志；
 结果最长 8 KiB，按 UTF-8 边界截断并标记。不会把子 Agent 全部工具日志注入父上下文。
-父级活跃时通知排入下一轮；父级空闲时唤醒；父级暂停时只落盘。
+父级活跃时通知排入下一轮；父级健康空闲时唤醒；父级暂停或最近 Turn 不可重试失败时只落盘。
+失败门禁来自权威 `turn/end`，Host 与 Actor 共用同一投影；内部回执不算用户恢复，
+不自动重启压缩或模型请求。人类明确重试后才能继续处理，旧回执与原历史仍保留。
 父级等待孩子期间不轮询模型，但 UI 目前仍可能把父级显示为 idle；
 聚合 waiting 状态属于后续 UI 工作，不伪称已完成独立 Waiting 状态机。
 
