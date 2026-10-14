@@ -376,3 +376,14 @@ export const sessionDeleteValueSchema = z.object({
   deleted: z.boolean(),
   deletedSessionIds: z.array(sessionIdSchema).optional(),
 }) satisfies z.ZodType<ResponseValue<'session.delete'>>
+
+/** External tools are history text only; this request never submits a prompt. */
+export const sessionImportRequestSchema = z.object({
+  source: z.enum(['claude-code', 'codex']), jsonl: z.string().max(8 * 1024 * 1024),
+  preview: z.boolean(), cwd: z.string().optional(), workspaceId: workspaceIdSchema.optional(),
+}).strict().refine(p => p.cwd === undefined || p.workspaceId === undefined) satisfies z.ZodType<Wire<RequestPayload<'session.import'>>>
+export const sessionImportValueSchema = z.object({
+  sessionId: sessionIdSchema.optional(), title: z.string(), messages: z.number().int().nonnegative(),
+  tools: z.number().int().nonnegative(), warnings: z.array(z.string()),
+  preview: z.array(z.object({role: z.string(), content: z.string()})),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.import'>>>

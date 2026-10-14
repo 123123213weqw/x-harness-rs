@@ -60,7 +60,7 @@ class CiTieringContract(unittest.TestCase):
         self.assertIn("prefix-key: native-ubuntu-22.04-v1", body)
         install = body.index("sudo apt-get install -y ripgrep bubblewrap")
         probe = body.index("bwrap --unshare-user --unshare-pid --unshare-net")
-        tests = body.index("cargo test --workspace --all-targets")
+        tests = body.index("cargo test --locked --workspace --all-targets")
         self.assertLess(install, probe)
         self.assertLess(probe, tests)
         self.assertNotIn("/bin/true ||", body)

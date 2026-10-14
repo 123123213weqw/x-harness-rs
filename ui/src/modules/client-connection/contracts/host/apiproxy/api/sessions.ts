@@ -237,7 +237,24 @@ export interface SessionSearchItem {
 }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
+export interface SessionImportReport {
+  sessionId?: string | undefined
+  title: string
+  messages: number
+  tools: number
+  warnings: string[]
+  preview: {role: string; content: string}[]
+}
+export interface SessionImportInput {
+  source: 'claude-code' | 'codex'
+  jsonl: string
+  preview: boolean
+  cwd?: string | undefined
+  workspaceId?: string | undefined
+}
 export interface SessionsApi {
+  importHistory(request: RpcRequest<SessionImportInput>): Promise<RpcResponse<SessionImportReport>>
+
   /** Permanently delete an archived, inactive session; host enforces admission and child constraints. */
   delete(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ deleted: boolean; deletedSessionIds?: SessionId[] | undefined }>>
 

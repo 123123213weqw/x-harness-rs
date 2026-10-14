@@ -15,6 +15,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
+pub mod continuation;
+
+pub mod protocol;
 
 pub const DEFAULT_MAX_CONCURRENT_JOBS_PER_OWNER: usize = 10;
 pub const DEFAULT_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
@@ -267,6 +270,9 @@ pub struct JobRegistry {
 }
 
 struct RegistryInner {
+    /// New on each Registry/Host lifetime; raw counters must never address a
+    /// different producer after restart. No legacy-counter alias is resolved.
+    generation: String,
     config: JobRegistryConfig,
     state: Mutex<RegistryState>,
     events: broadcast::Sender<JobEvent>,
@@ -364,6 +370,7 @@ impl JobRegistry {
         let (events, _) = broadcast::channel(config.event_capacity);
         Ok(Self {
             inner: Arc::new(RegistryInner {
+                generation: uuid::Uuid::new_v4().simple().to_string(),
                 config,
                 state: Mutex::new(RegistryState {
                     accepting: true,
@@ -679,7 +686,7 @@ impl JobReservation {
             );
             let count = state.counters.entry(self.kind.clone()).or_default();
             *count = count.saturating_add(1);
-            let id = JobId(format!("{}-{}", self.kind, *count));
+            let id = JobId(format!("{}-{}-{}", self.kind, registry.generation, *count));
             let (changed, _) = watch::channel(0);
             let entry = Arc::new(JobEntry {
                 id: id.clone(),
@@ -923,5 +930,28 @@ const fn utf8_width(byte: u8) -> Option<usize> {
         0xe0..=0xef => Some(3),
         0xf0..=0xf4 => Some(4),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod continuation_identity_tests {
+    use super::*;
+    #[test]
+    fn generation_prevents_old_subscription_aliasing_new_producer() {
+        let a = JobRegistry::default();
+        let b = JobRegistry::default();
+        let ca: JobCancel = Arc::new(|_| Ok(()));
+        let x = a
+            .reserve("owner", "bash", "x", None)
+            .unwrap()
+            .commit(None, ca.clone())
+            .unwrap();
+        let y = b
+            .reserve("owner", "bash", "x", None)
+            .unwrap()
+            .commit(None, ca)
+            .unwrap();
+        assert_ne!(x.0, y.0);
+        assert!(b.get("owner", x.0.as_str()).is_err());
     }
 }

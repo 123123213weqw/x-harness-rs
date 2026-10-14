@@ -69,6 +69,8 @@ try {
       ['General','general'],['Models','models'],['Account & model service','account'],['Profile','usage'],
       ['Archived chats','archive'],['Display & shortcuts','display'],['Installation statistics & privacy','installation'],
     ])
+    if (existsSync(resolve('ui/src/modules/memory/index.tsx'))) expectedIcons.set('Memory','memory')
+    if (existsSync(resolve('ui/src/modules/session-import/index.ts'))) expectedIcons.set('Import session','import')
     for(const [label,kind] of expectedIcons) {
       const icon=icons.find(item=>item.label===label)
       assert.ok(icon,`${theme}: registered settings row ${label}`)

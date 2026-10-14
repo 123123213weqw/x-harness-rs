@@ -1,0 +1,36 @@
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-agent)
+   Compiling xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-schedule)
+   Compiling xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host)
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.51s
+     Running tests/job_continuation.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/job_continuation-484797d1b3c33191)
+
+running 14 tests
+test live_deepseek_uses_production_defer_and_automatic_continuation ... ignored, Requires explicitly authorized official DeepSeek key; no credentials in the repository
+test ordinary_conversation_fork_does_not_inherit_job_subscriptions ... ok
+test action_schema_validation_rejects_ambiguous_wait_and_unavailable_actions ... ok
+test finish_before_registration_failed_producer_is_not_reported_as_success ... ok
+test registry_loss_recovers_interrupted_and_archive_has_explicit_no_cursor_contract ... ok
+Job continuation reconciliation failed: session storage backend error: Injected lost delivery acknowledgement
+test same_registration_races_are_idempotent_and_cancel_does_not_kill_producer ... ok
+test receipt_queued_before_failure_is_parked_by_actor_before_claim ... ok
+test cold_host_restores_settlement_and_terminal_output_without_replaying_producer ... ok
+test lost_delivery_ack_after_consumed_input_does_not_duplicate_continuation ... ok
+test receipt_during_active_user_turn_queues_without_parallel_model_execution ... ok
+test release_user_turn_and_auto_resume_through_native_production_factory ... ok
+test nonreducing_compaction_is_not_retriggered_by_terminal_receipt ... ok
+test stopped_session_retains_receipt_until_explicit_user_resume ... ok
+
+thread 'stuck_outbox_store_does_not_prevent_bounded_native_producer_shutdown' (2373112) panicked at crates/xharness-host-app/tests/job_continuation.rs:459:9:
+assertion failed: self.runtime.shutdown(Duration::from_secs(5)).await.is_graceful()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test stuck_outbox_store_does_not_prevent_bounded_native_producer_shutdown ... FAILED
+
+failures:
+
+failures:
+    stuck_outbox_store_does_not_prevent_bounded_native_producer_shutdown
+
+test result: FAILED. 12 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.25s
+
+error: test failed, to rerun pass `-p xharness-host-app --test job_continuation`

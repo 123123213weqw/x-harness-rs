@@ -539,6 +539,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     }
 
     let mut current_logged_revision = Revision::ZERO;
+    let mut job_continuations = HashMap::<String, crate::JobContinuationRecord>::new();
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
     let mut questions = HashMap::<String, QuestionInteraction>::new();
@@ -604,6 +605,12 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::JobContinuation { record } => {
+                record
+                    .validate_transition(job_continuations.get(&record.job_id))
+                    .map_err(|e| lifecycle_error(logged.seq, e))?;
+                job_continuations.insert(record.job_id.clone(), (**record).clone());
+            }
             EventData::ExecutionCheckpoint { turn, state, .. } => {
                 if open_turn != Some(*turn)
                     || state.phase == 0
@@ -634,6 +641,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             EventData::SessionForkOrigin {
                 parent_session_id, ..
             } => {
+                job_continuations.clear();
                 if parent_session_id.trim().is_empty() {
                     return Err(lifecycle_error(logged.seq, "fork parent must be non-empty"));
                 }

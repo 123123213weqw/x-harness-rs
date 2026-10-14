@@ -64,11 +64,14 @@
     "xharness-control",
     "xharness-core",
     "xharness-debug",
+    "xharness-fs",
     "xharness-interaction",
+    "xharness-jobs",
     "xharness-projection",
     "xharness-prompt",
     "xharness-schedule",
     "xharness-session",
+    "xharness-session-import",
     "xharness-token",
     "xharness-tools",
     "xharness-win32"
@@ -88,6 +91,7 @@
     "xharness-core",
     "xharness-debug",
     "xharness-diagnostics",
+    "xharness-fs",
     "xharness-host",
     "xharness-interaction",
     "xharness-jobs",
@@ -177,5 +181,8 @@
   "xharness-win32": [],
   "xharness-cloud-app": [
     "xharness-cloud"
+  ],
+  "xharness-session-import": [
+    "xharness-session"
   ]
 }

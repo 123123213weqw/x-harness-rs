@@ -18,11 +18,14 @@ mod export;
 mod goal;
 mod host;
 mod interaction;
+mod jobs;
 pub(crate) use interaction::respond_review;
+mod memory;
 mod model;
 mod preset;
 mod session;
 mod session_delete;
+mod session_import;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
@@ -73,6 +76,7 @@ impl ApiBackend for BasicHost {
             | RpcMethod::SessionModels) => {
                 session::call_read(self, method, &payload, &cancellation).await
             }
+            RpcMethod::SessionImport => session_import::import(self, &payload, &cancellation).await,
             RpcMethod::SessionCreate => session_lifecycle::create(self, &payload).await,
             RpcMethod::SessionSelectModel => {
                 session_lifecycle::select_model(self, rpc_id, &payload).await
@@ -141,6 +145,13 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "workspace/memory" {
+            // Settings must remain repairable even if session hydration fails.
+            return Some(match memory::call(self, rpc_id, &payload).await {
+                Ok(v) => RpcResult::success(v),
+                Err(e) => RpcResult::failure(e),
+            });
+        }
         if endpoint == "display/read" {
             let result = crate::display::read_rpc(self, &payload, _cancellation).await;
             return Some(match result {

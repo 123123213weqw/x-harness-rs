@@ -28,6 +28,13 @@ const { zh, en } = load('account-labels-test')
 const plain = value => JSON.parse(JSON.stringify(value))
 const rows = ['general', 'profile', 'managed-account'].map(id => ({ id, label: 'wrong translated label', order: 0 }))
 
+function visibleText(node) {
+  if (typeof node === 'string') return node
+  if (Array.isArray(node)) return node.map(visibleText).join('')
+  if (node && typeof node === 'object') return visibleText(node.props?.children)
+  return ''
+}
+
 test('bilingual menu routes by IDs, independently of row labels/order', () => {
   assert.deepEqual(Object.keys(zh).sort(), Object.keys(en).sort())
   for (const dict of [zh, en]) {
@@ -50,6 +57,8 @@ test('wide and rail share one accessible trigger and real menu routing; no infer
     assert.equal(menu.anchor.props['aria-label'], dict['account.trigger'])
     assert.equal(menu.anchor.props['aria-haspopup'], 'menu')
     assert.equal(menu.anchor.props['aria-expanded'], false)
+    assert.equal(visibleText(menu.anchor), wide ? dict['account.name'] : '', 'only the product name is visible; no redundant account/settings caption')
+    assert.equal(menu.anchor.props.title, wide ? undefined : dict['account.trigger'])
     assert.equal(menu.items[0].text, dict['account.local'])
     for (const id of ['managed-account', 'profile', 'general', 'unknown']) menu.onSelect(id)
     assert.deepEqual(selections, ['managed-account', 'profile', 'general'])

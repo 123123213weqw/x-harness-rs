@@ -55,8 +55,12 @@ Provider 显式声明：
   llama.cpp 可从 `/props` 读取实际 `n_ctx`。
 - 服务端没有能力接口时允许 `fallback_context_window_tokens`，但来源必须保持
   `deployment_declared_fallback`；旧键 `context_window_tokens` 只作为该 fallback 的兼容别名。
-- Session 的 `contextWindowTokens` 是可持久化软预算，省略时物化当前硬上限；它可以小于但不能大于
-  Provider 上限。Token Guard 与 Compact 必须使用这个有效窗口，而不是修改 Capability。
+- 未显式配置容量时不再注入 32K fallback。读取精确模型 `/models` 的运行限制，必要时补读
+  单模型 llama-server `/props` 每槽 `n_ctx`；不使用训练长度。缺失时保持能力未知，临时
+  工作预算不进入 `effective_hard_max()`。
+- Session 的 `contextWindowTokens` 是可持久化软预算；`None` 表示自动，每轮重新使用注册表
+  的有效预算，不物化为固定数字。明确的小窗口必须保留；已知上限不能超出，未知上限可由用户
+  指定请求预算，但不宣称服务端支持它。Token Guard 和 Compact 共用该有效预算。
 - Capability 投影包含来源、版本/ETag 和抓取时间。一次活动 Turn 使用冻结快照，不允许请求中途变化。
 
 ### 精确模型推理等级

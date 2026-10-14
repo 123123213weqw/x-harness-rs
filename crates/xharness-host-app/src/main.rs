@@ -208,6 +208,7 @@ async fn run(
         }
     };
     let mut config = HostConfig::new(&workspace);
+    config.memory_dir = Some(args.state_dir.join("memory"));
     config.auto_titles = true;
     config.attachment_store = attachments.clone();
     config.provider_id = deployment.default_route.provider.clone();
@@ -215,6 +216,7 @@ async fn run(
     config.model_id = deployment.default_route.model.clone();
     config.reasoning_effort = deployment.default_route.reasoning_effort.clone();
     config.token_guard = deployment.default_token_guard.clone();
+    config.selected_context_window_tokens = deployment.default_route.context_window_tokens;
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
@@ -298,6 +300,7 @@ async fn run(
         host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
     }
     tools.bind_agent_host(&host)?;
+    let job_continuations = tools.enable_job_continuations(store.clone(), &host)?;
     *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let model_settings_base = match &args.providers_file {
         Some(path) => config::settings_from_file(path)?,
@@ -453,6 +456,7 @@ async fn run(
         }
     }
     host.start_delegation_listener();
+    job_continuations.start();
     if let Some(execution) = &hosted {
         execution.record_ready()?;
     }
@@ -524,6 +528,9 @@ async fn run(
                 None => unreachable!("one recovery worker was just spawned"),
             }
             tokio::task::yield_now().await;
+        }
+        if let Err(error) = job_continuations.recover().await {
+            eprintln!("xharness Job continuation recovery failed: {error}");
         }
         hydration_host.backfill_startup_metrics().await;
     });

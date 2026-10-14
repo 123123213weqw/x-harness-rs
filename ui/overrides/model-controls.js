@@ -16,11 +16,12 @@ function xhModelInfo(state) {
   return { current, model, maximum, effort: current?.reasoningEffort ?? model?.reasoning?.defaultEffort };
 }
 function xhContextSelection(state, raw) {
-  const { current, maximum } = xhModelInfo(state);
-  if (!current || !maximum) throw new Error('当前模型未提供上下文上限，无法调整。');
+  const { current, model, maximum } = xhModelInfo(state);
+  if (!current || !model) throw new Error('请先选择模型。');
   if (!/^\d+$/.test(raw.trim())) throw new Error('请输入正整数 Token 数量。');
   const tokens = Number(raw);
-  if (!Number.isSafeInteger(tokens) || tokens < 1 || tokens > maximum) throw new Error(`请输入 1–${maximum.toLocaleString()} 之间的 Token 数量。`);
+  if (!Number.isSafeInteger(tokens) || tokens < 1) throw new Error('请输入正整数 Token 数量。');
+  if (maximum !== undefined && tokens > maximum) throw new Error(`请输入 1–${maximum.toLocaleString()} 之间的 Token 数量。`);
   return { ...current, contextWindowTokens: tokens };
 }
 function xhTokenLabel(value) {
@@ -46,7 +47,7 @@ function XHarnessContextPane({ locked, directory, load, select, back, saved }) {
   react.useEffect(() => () => { ++version.current; }, []);
   async function submit(event) {
     event.preventDefault();
-    if (locked || busy || !maximum) return;
+    if (locked || busy) return;
     let selection;
     try { selection = xhContextSelection(directory.getSnapshot(), draft); }
     catch (e) { setError(e.message); return; }
@@ -70,12 +71,13 @@ function XHarnessContextPane({ locked, directory, load, select, back, saved }) {
     h('p', { key: 'scope' }, '仅影响后续请求，不改变正在运行的请求。'),
     h('label', { key: 'label' }, ['Token 数量', h('input', { key: 'input', autoFocus: true, type: 'text', inputMode: 'numeric', 'aria-label': '上下文 Token 数量', value: draft, readOnly: busy, disabled: locked, onChange: e => { setDraft(e.target.value); setError(null); } })]),
     h('p', { key: 'limit' }, `当前模型有效上限：${maximum?.toLocaleString() ?? '未知'} tokens（${model?.contextWindowSource ?? '来源未标注'}）`),
-    !maximum && h('p', { key: 'unknown' }, '当前模型未提供上限，暂时无法调整。'),
+    !maximum && h('p', { key: 'unknown' }, '服务端容量未知；可手动设置请求预算，这不代表模型支持该容量。'),
     (error || state.error) && h('p', { key: 'error', role: 'alert' }, error || state.error),
     state.status === 'error' && h('button', { key: 'retry', type: 'button', onClick: load }, '重新获取'),
     h('div', { key: 'actions', className: 'xh-context-actions' }, [
+      h('button', { key: 'refresh', type: 'button', disabled: busy || locked, onClick: () => { const generation = version.current; void Promise.resolve(load(true)).catch(error => { const next = directory.getSnapshot(); if (generation === version.current && identity === JSON.stringify([next.current, xhModelInfo(next).maximum])) setError(error.message ?? String(error)); }); } }, '刷新容量'),
       h('button', { key: 'max', type: 'button', disabled: busy || locked || !maximum, onClick: () => { setDraft(String(maximum)); setError(null); } }, '填入上限'),
-      h('button', { key: 'save', type: 'submit', disabled: busy || locked || !maximum }, saving ? '保存中…' : '保存'),
+      h('button', { key: 'save', type: 'submit', disabled: busy || locked }, saving ? '保存中…' : '保存'),
     ]),
   ]);
 }

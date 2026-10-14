@@ -11,6 +11,9 @@ import CARD_CSS from './AutomationToolCard.css'
 import {AutomationToolCard} from './AutomationToolCard'
 import {AutomationCardClient} from './automation-card-client'
 import type {ConnectionHandle} from '../client-connection/index'
+import {JobClient} from '../jobs/client'
+import {ExecutionsPage} from '../jobs/RunPanel'
+import {JobToolCard} from '../jobs/ToolCard'
 
 interface ScheduleState { seq: number; time: number; change: unknown }
 interface ScheduleSessionSnapshot { openState: string; views: ReadonlyMap<string, readonly ScheduleRecord[]> }
@@ -453,6 +456,7 @@ function apply(ctx: ScheduleContext) {
   const connection = ctx.get('connection')
   if (!connection) throw Error('schedule: Connection service unavailable')
   const cardClient = new AutomationCardClient(connection.rpc)
+  const jobs=connection.jobs ?? new JobClient(connection.rpc)
   const service = ctx.get('workCatalog')
   if (service === undefined) throw Error('schedule: Work catalog service unavailable')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'xharness-ui-schedule: dictionaries')
@@ -481,7 +485,11 @@ function apply(ctx: ScheduleContext) {
   }, 'xharness-ui-schedule: tool card styles')
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview', key: 'automation', locale: NS,
-  }, (props: Omit<React.ComponentProps<typeof AutomationToolCard>, 'client'>) => h(AutomationToolCard, {...props, client: cardClient})))
+  }, (props: Omit<React.ComponentProps<typeof AutomationToolCard>, 'client'>) => h(AutomationToolCard, {...props, client: cardClient,jobs})))
+  for(const name of ['job_output','job_kill','job_list'])ctx.slots.inject('tool.call.toolview',()=>ctx.slots.register({name:'tool.call.toolview',key:name,locale:NS},
+    (props:Omit<React.ComponentProps<typeof JobToolCard>,'client'|'toolName'>)=>h(JobToolCard,{...props,toolName:name,client:jobs})))
+  ctx.slots.inject('work.center.executions',()=>ctx.slots.register({name:'work.center.executions',id:'executions',order:30},
+    (props:{openSession(id:string):void})=>h(ExecutionsPage,{...props,service,client:jobs})))
   ctx.slots.inject('work.center.automations', () => ctx.slots.register({
     name: 'work.center.automations', id: 'automations', order: 20,
   }, (props: {openSession(id: string): void}) => h(AutomationPage, {...props, service})))

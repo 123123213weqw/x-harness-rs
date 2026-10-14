@@ -27,6 +27,15 @@ pub(crate) async fn create_with_visibility(
     payload: &Value,
     announce: bool,
 ) -> Result<Value, RpcError> {
+    create_seeded(host, payload, announce, None).await
+}
+
+pub(crate) async fn create_seeded(
+    host: &BasicHost,
+    payload: &Value,
+    announce: bool,
+    imported: Option<&xharness_session_import::Transcript>,
+) -> Result<Value, RpcError> {
     let object = require_object(payload)?;
     if object.contains_key("workspaceId") && object.contains_key("cwd") {
         return Err(bad_request(
@@ -125,7 +134,7 @@ pub(crate) async fn create_with_visibility(
                     .reasoning
                     .as_ref()
                     .and_then(|r| r.default_effort.clone()),
-                context_window_tokens: model.context_window.effective_hard_max(),
+                context_window_tokens: None,
             };
         }
     }
@@ -195,6 +204,17 @@ pub(crate) async fn create_with_visibility(
             .into(),
         );
     }
+    if let Some(history) = imported {
+        initial_events.extend(history.events());
+        initial_events.push(
+            SessionEventData::SessionTitle {
+                title: format!("{} · {}", history.source.label(), history.title),
+                message_seqs: Vec::new(),
+                source: SessionTitleSource::User,
+            }
+            .into(),
+        );
+    }
     if let Err(error) = host
         .commit_session_events(&session_id, initial_events)
         .await
@@ -212,7 +232,7 @@ pub(crate) async fn create_with_visibility(
         host.push_host(json!({
             "type": "host/session-added",
             "sessionId": session_id,
-            "blank": true,
+            "blank": imported.is_none(),
             "cwd": cwd,
             "agentPreset": effective_preset,
         }));
@@ -256,22 +276,16 @@ pub(super) async fn select_model(
             .and_then(|entry| entry.reasoning.as_ref())
             .and_then(|reasoning| reasoning.default_effort.clone())
     });
-    let context_window_tokens = optional_u64(payload, "contextWindowTokens")?
-        .or_else(|| {
-            same_route
-                .then_some(current.context_window_tokens)
-                .flatten()
-        })
-        .or_else(|| {
-            descriptor
-                .as_ref()
-                .and_then(|entry| entry.context_window.effective_hard_max())
-        });
+    let context_window_tokens = optional_u64(payload, "contextWindowTokens")?.or_else(|| {
+        same_route
+            .then_some(current.context_window_tokens)
+            .flatten()
+    });
     if let Some(selected_tokens) = context_window_tokens {
         let advertised = descriptor
             .as_ref()
             .and_then(|entry| entry.context_window.effective_hard_max());
-        if selected_tokens == 0 || advertised.is_none_or(|maximum| selected_tokens > maximum) {
+        if selected_tokens == 0 || advertised.is_some_and(|maximum| selected_tokens > maximum) {
             return Err(rpc_error(
                     RpcErrorCode::ModelUnavailable,
                     match advertised {

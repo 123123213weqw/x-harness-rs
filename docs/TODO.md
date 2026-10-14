@@ -1,5 +1,51 @@
 # XHarness 总任务清单
 
+## 本机全局与工作区记忆（2026-10-14）
+
+- [x] `WMEM-01` 与 AGENTS/Goal 分离；应用数据目录按 canonical cwd 隔离，跨会话/模型复用，不写入项目 Git。
+- [x] `WMEM-02` 默认仅明确要求时保存；设置可关闭或选择自动整理。不重新接入 question sink，不保证模型每轮整理。
+- [x] `WMEM-03` 复用 read/edit/write 的精确 memory URI，保留审批、分页、观察版本与原子 CAS；关闭后旧 executor 的新调用也拒绝。
+- [x] `WMEM-04` 索引 2048 UTF-8 字节/24 行、正文 64 KiB，有界锁外读取；同轮固定、下一轮刷新。
+- [x] `WMEM-05` 双语设置、独立草稿、版本冲突、确认清空/自动模式；RPC 的工作区范围只接受已知会话/工作区 ID，全局范围使用固定 scope，不复制正文到控制收据/RPC 调试日志。
+- [x] `WMEM-09` 设置默认进入全局记忆，无工作区也可定义；同一本机配置下跨工作区/模型共用，全局/工作区模式、文件、草稿和 CAS 分开，不自动提升项目事实，不新增模型工具或承诺账号/设备同步。
+- [x] `WMEM-06` V100 全局/工作区记忆相关四包全量回归：584 项通过、16 个既有辅助/环境测试忽略；四包 all-targets 严格 Clippy。Chromium/WebKit 源码/产物四组合通过。
+- [ ] `WMEM-08` GitHub 跨平台 CI 验收；不自动合并、发版或替换本机应用。
+- [ ] `WMEM-07` 真实模型记忆选择质量另做授权评测，不把脚本 provider 或浏览器 mock 当模型自主效果。
+
+设计：[workspace-memory.md](design/workspace-memory.md)。
+
+## 工作区项目规则（2026-10-14）
+
+- [x] `AGENTS-01` 根 AGENTS.md 以 Session cwd 为范围锁外有界加载，复用受限 FsService；不创建/修改文件。
+- [x] `AGENTS-02` 实际新轮次刷新，排队输入不锁旧规则；同一 Loop 保持快照，沿用 Prompt/Harness 哈希审计。
+- [x] `AGENTS-03` 排除旧问答托管区、不升级为项目规则；普通文件工具显式维护，问答无写入端口。
+- [x] `AGENTS-04` 根规则与子目录作用域指导分离；子目录使用现有工具按需读取，不递归扫描，不声称自动 Guard。
+- [ ] `AGENTS-05` V100 Rust/Host 两运行时/JSONL 回归与跨平台 CI 验收。
+- [ ] `AGENTS-06` 如需确定性子目录规则发现/已读 Guard、跨进程未完成轮次旧规则正文恢复，另行设计，不伪装成已实现。
+
+## Job 执行协议与 UI 统一（2026-10-13）
+
+- [x] `JOB-RUN-01` Registry generation + opaque 进程 ID，旧运行、旧 cursor 和旧数字短名失败关闭，不再复用新 producer。
+- [x] `JOB-RUN-02` v1 Plan/Run DTO、owner 绑定、显式取消范围、取消 ack 与 terminal settlement 分离；复用原 Schedule/进程驱动。
+- [x] `JOB-RUN-03` 原生 ToolFactory 共享 Registry 接口，Job RPC 查询/输出/控制；原工具与 automation/manage 保持兼容。
+- [x] `JOB-RUN-04` Rust/TS 共用 fixture、JobClient 单连接/单 scope 请求、迟到回包/断线/卸载回归；共用执行卡片与工作中心执行页。
+- [x] `JOB-RUN-05` 黑白灰主题 Token、双击/深浅色/窄屏/键盘/文本转义浏览器回归，新增测试加入既有 CI 分片计划。
+- [ ] `JOB-RUN-06` PR 审核、GitHub 完整 CI、正式安装包与实际 Host 的端到端验收；当前开发分支不等于已部署。
+- [ ] `JOB-RUN-07` Agent occurrence 精确取消、进程记录持久化、catalog 分页/增量事件、统一创建入口与真实模型选工具 A/B。
+- [ ] `JOB-RUN-08` 完成事件→持久化 Inbox 桥接；必须遵守 terminal-failure gate，避免回执重复唤醒。
+
+规格：`docs/specs/unified-jobs.md`；验收：`docs/evidence/unified-jobs-20261013.md`。
+
+## 后台 Job 自动续跑（2026-10-14）
+
+- [x] `JOB-CONT-01` 正式 Native Host 接入 defer/cancel_defer、版本化持久 outbox、稳定 Inbox 回执去重、终态归档读取、启动恢复与有界 Shutdown；未绑定的嵌入方不广告新 action。
+- [x] `JOB-CONT-02` 复用 Session::dispatch_paused 和 InboxMessage::is_user_authored，Actor 用户恢复/claim 原子 CAS；移除重复门禁投影；保留原 Goal 的授权退避重试策略，不重写 Loop。
+- [x] `JOB-CONT-03` 新增 13 个 Native/JSONL 回归；WZU_Server 扩展测试合计 782 通过、全 workspace 检查与严格 Clippy 通过。
+- [x] `JOB-CONT-04` 官方 DeepSeek 成功续跑得到 VERIFIED_OK；失败用例读取真实 exit 7 并报告失败。已记录模型一次尝试重跑失败脚本（被夹具拒绝），不承诺模型严格服从所有指令。
+- [ ] `JOB-CONT-05` 发布与已安装软件升级；当前提交用于 PR 审阅，未替换当前软件。
+
+规范：[后台 Job 自动续跑](specs/job-continuation.md)。证据：[正式链路验收](evidence/job-continuation-production-20261014.md)。
+
 ## 压缩失败后的回执派发门禁（2026-10-12）
 
 - [x] `FAIL-ADMISSION-01` Host 与 Actor 从权威终态共用自动派发门禁；压缩／上下文不可重试失败后，内部回执保留、去重、落盘，但不再次启动计数／模型／压缩。旧日志与重启生效，不清空历史、不重写架构。
