@@ -27,6 +27,20 @@ const inlineRun = { ...run, event: 'workflow_dispatch', head_branch: 'master', s
 const inlineEnv = { ...env, GITHUB_SHA: plan.sha, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
   GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/desktop-release.yml@refs/heads/master` }
 validateRun(inlineRun, inlinePlan, inlineEnv)
+const taggedEnv = { ...inlineEnv, AUTOMATIC_CANDIDATE: 'true', RELEASE_TAG_INPUT: plan.tag,
+  GITHUB_REF: `refs/tags/${plan.tag}`, GITHUB_EVENT_NAME: 'workflow_dispatch',
+  GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/desktop-release.yml@refs/tags/${plan.tag}` }
+const taggedRun = { ...inlineRun, head_branch: plan.tag, head_repository: { full_name: repo } }
+requireHostedWindows(taggedEnv, 'win32')
+validateRun(taggedRun, inlinePlan, taggedEnv)
+for (const patch of [{ AUTOMATIC_CANDIDATE: 'false' }, { RELEASE_TAG_INPUT: 'desktop-v0.2.7' },
+  { GITHUB_REF: 'refs/heads/topic' }, { GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/evil.yml@refs/tags/${plan.tag}` },
+  { GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_EVENT_NAME: 'push' }]) {
+  assert.throws(() => { requireHostedWindows({ ...taggedEnv, ...patch }, 'win32'); validateRun(taggedRun, inlinePlan, { ...taggedEnv, ...patch }) })
+}
+for (const patch of [{ head_branch: 'desktop-v0.2.7' }, { head_repository: { full_name: 'attacker/fork' } }]) {
+  assert.throws(() => validateRun({ ...taggedRun, ...patch }, inlinePlan, taggedEnv))
+}
 assert.throws(() => validateRun(inlineRun, inlinePlan))
 for (const patch of [{ GITHUB_SHA: 'b'.repeat(40) }, { GITHUB_RUN_ID: '124' }, { GITHUB_RUN_ATTEMPT: '1' },
   { GITHUB_WORKFLOW_REF: `${repo}/.github/workflows/evil.yml@refs/heads/master` }, { RUNNER_ENVIRONMENT: 'self-hosted' }]) {

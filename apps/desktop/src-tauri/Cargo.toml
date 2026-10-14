@@ -35,6 +35,7 @@ tokio = { version = "1", features = ["fs", "io-util", "net", "sync", "time", "ma
 url = "2"
 
 [target.'cfg(windows)'.dependencies]
+xharness-process = { path = "../../../crates/xharness-process" }
 xharness-win32 = { path = "../../../crates/xharness-win32" }
 webview2-com = "0.38.2"
 

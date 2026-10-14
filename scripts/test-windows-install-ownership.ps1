@@ -73,22 +73,27 @@ function New-FixtureClaim([string]$Path, [string]$Nonce) {
             MarkerHandle = $handle; Created = (Get-Item -LiteralPath $path -Force).CreationTimeUtc.Ticks; ArchivedTo = $null }
     } catch { $handle.Dispose(); throw }
 }
-function Assert-FixtureClaim($Claim) {
+function Assert-FixtureIdentity($Claim, [string]$Location) {
     Assert-That ($null -ne $Claim -and $Claim.Path -ceq $Claim.ExpectedPath -and
         $Claim.Marker -ceq (Join-Path $Claim.ExpectedPath '.xharness-install-ownership') -and
-        $Claim.Nonce -cmatch '^[0-9a-f]{32}$' -and $null -ne $Claim.MarkerHandle -and $Claim.MarkerHandle.CanRead) 'Missing or changed fixture ownership ledger'
-    Assert-FixtureNoRedirect $Claim.Path -Recurse
-    $directory = Get-Item -LiteralPath $Claim.Path -Force
+        $Claim.Nonce -cmatch '^[0-9a-f]{32}$') 'Missing or changed fixture ownership ledger'
+    Assert-FixtureNoRedirect $Location -Recurse
+    $directory = Get-Item -LiteralPath $Location -Force
     Assert-That ($directory.PSIsContainer -and $directory.CreationTimeUtc.Ticks -eq $Claim.Created) 'Fixture root identity changed'
-    $marker = Get-Item -LiteralPath $Claim.Marker -Force
+    $markerPath = Join-Path $Location '.xharness-install-ownership'
+    $marker = Get-Item -LiteralPath $markerPath -Force
     Assert-That (-not $marker.PSIsContainer -and $marker.Length -eq 32) 'Fixture ownership marker missing or changed'
     # The retained marker denies write/delete sharing on Windows, pinning the
     # claim until all roots have been validated and are ready for rename.
-    $reader = [IO.File]::Open($Claim.Marker, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    $reader = [IO.File]::Open($markerPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
     try {
         $bytes = New-Object byte[] 32
         Assert-That ($reader.Read($bytes, 0, 32) -eq 32 -and [Text.Encoding]::ASCII.GetString($bytes) -ceq $Claim.Nonce) 'Fixture ownership marker changed'
     } finally { $reader.Dispose() }
+}
+function Assert-FixtureClaim($Claim) {
+    Assert-That ($null -ne $Claim -and $null -ne $Claim.MarkerHandle -and $Claim.MarkerHandle.CanRead) 'Missing or changed fixture ownership ledger'
+    Assert-FixtureIdentity $Claim $Claim.Path
 }
 function Add-OwnedFixtureProcess($Process, [string]$ExpectedPath) {
     $null = $Process.Handle # Retain the real process identity, not just a recyclable PID.
@@ -114,6 +119,43 @@ function Assert-FixtureQuiescent {
 function Move-FixtureProfile([string]$Source, [string]$Destination) {
     [IO.Directory]::Move($Source, $Destination)
 }
+function Assert-FixtureIsolationState([string[]]$Destinations) {
+    Assert-FixtureQuiescent
+    Assert-That ($profiles.Count -eq 2 -and $archives.Count -eq 2 -and $Destinations.Count -eq 2) 'Incomplete fixture ownership ledger'
+    for ($i = 0; $i -lt 2; $i++) {
+        Assert-FixtureClaim $archives[$i]
+        Assert-That ($Destinations[$i] -ceq (Join-Path $archives[$i].Path 'profile') -and
+            [IO.Path]::GetPathRoot($profiles[$i].Path) -ieq [IO.Path]::GetPathRoot($Destinations[$i])) 'Profile archive destination changed'
+        if ($profiles[$i].ArchivedTo) {
+            Assert-That ($profiles[$i].ArchivedTo -ceq $Destinations[$i]) 'Profile archive ledger changed'
+            Assert-FixtureAbsent @($profiles[$i].Path)
+            Assert-FixtureIdentity $profiles[$i] $Destinations[$i]
+        } else {
+            Assert-FixtureIdentity $profiles[$i] $profiles[$i].Path
+            Assert-FixtureAbsent @($Destinations[$i])
+        }
+    }
+}
+function Resolve-FixtureMoveOutcome($Claim, [string]$Destination) {
+    $sourceExists = Test-Path -LiteralPath $Claim.Path
+    $destinationExists = Test-Path -LiteralPath $Destination
+    if ($sourceExists -and -not $destinationExists) { return $false }
+    Assert-That (-not $sourceExists -and $destinationExists) 'Fixture move left ambiguous source/destination state'
+    # A rename may have completed before an error was surfaced. Validate its
+    # exact preserved identity and record it; never repeat a completed move.
+    Assert-FixtureAbsent @($Claim.Path)
+    Assert-FixtureIdentity $Claim $Destination
+    $Claim.ArchivedTo = $Destination
+    return $true
+}
+function Test-FixtureTransientMoveError($Failure) {
+    $exception = $Failure.Exception.GetBaseException()
+    # Win32 access denied, sharing violation, lock violation only. An ACL denial
+    # also expires as failure; neither this nor a cache handle justifies deletion.
+    return (($exception -is [IO.IOException] -or $exception -is [UnauthorizedAccessException]) -and
+        (($exception.HResult -band 0xFFFF0000) -eq 0x80070000) -and
+        (($exception.HResult -band 0xFFFF) -in @(5, 32, 33)))
+}
 function Complete-FixtureIsolation {
     Stop-OwnedFixtureProcesses
     Assert-FixtureQuiescent
@@ -129,11 +171,31 @@ function Complete-FixtureIsolation {
     }
     # Validate BOTH roots/destinations and process state before the first move.
     foreach ($claim in $profiles) { $claim.MarkerHandle.Dispose() }
+    # Retain the existing 40-second waiting budget, shared by BOTH renames.
+    # Desktop/Host exit does not prove every Windows cache handle is released.
+    $deadline = [DateTime]::UtcNow.AddSeconds(40)
     for ($i = 0; $i -lt 2; $i++) {
-        Move-FixtureProfile $profiles[$i].Path $destinations[$i]
-        $profiles[$i].ArchivedTo = $destinations[$i]
+        while (-not $profiles[$i].ArchivedTo) {
+            # Revalidate both sources until the first move, then the preserved
+            # first archive and remaining source, including all writer guards.
+            Assert-FixtureIsolationState $destinations
+            Assert-That ([DateTime]::UtcNow -lt $deadline) 'Fixture profile rename remained locked after the 40-second isolation budget'
+            try {
+                Move-FixtureProfile $profiles[$i].Path $destinations[$i]
+            } catch {
+                $failure = $_
+                $completed = Resolve-FixtureMoveOutcome $profiles[$i] $destinations[$i]
+                Assert-FixtureIsolationState $destinations
+                if (-not (Test-FixtureTransientMoveError $failure)) { throw $failure }
+                if ($completed) { break }
+                Assert-That ([DateTime]::UtcNow -lt $deadline) 'Fixture profile rename remained locked after the 40-second isolation budget'
+                Start-Sleep -Milliseconds 200
+                continue
+            }
+            Assert-That (Resolve-FixtureMoveOutcome $profiles[$i] $destinations[$i]) 'Fixture profile rename did not release its source'
+        }
     }
-    Assert-FixtureQuiescent
+    Assert-FixtureIsolationState $destinations
     foreach ($claim in $profiles) {
         Assert-That (-not (Test-Path -LiteralPath $claim.Path)) 'Original application namespace was not released'
         Assert-FixtureNoRedirect $claim.ArchivedTo -Recurse
@@ -175,6 +237,12 @@ function Assert-InstalledPayload {
     foreach ($module in $audit.modules) {
         $path = Join-Path $canonical $module.path
         Assert-That ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $module.sha256) "Installed payload is stale or mixed: $($module.path)"
+    }
+    Assert-That ($null -ne $audit.powershell) 'Missing bundled PowerShell acceptance receipt'
+    $runtimeRoot = Join-Path $canonical 'runtime/powershell'
+    Assert-That ((Get-FileHash -LiteralPath (Join-Path $runtimeRoot 'manifest.json')).Hash.ToLowerInvariant() -eq $audit.powershell.manifest_sha256) 'Installed PowerShell manifest differs from audited installer'
+    foreach ($file in $audit.powershell.files.PSObject.Properties) {
+        Assert-That ((Get-FileHash -LiteralPath (Join-Path $runtimeRoot $file.Name)).Hash.ToLowerInvariant() -eq $file.Value.sha256) "Installed runtime is stale or mixed: $($file.Name)"
     }
 }
 function Start-TestCopy([string]$Directory) {
