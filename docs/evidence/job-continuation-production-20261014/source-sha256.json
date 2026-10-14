@@ -1,5 +1,6 @@
 {
   "Cargo.lock": "0d0e1bae1f522b404becefecdc2e0bb0a582b1b634fadcaeb6a7e1dccdb025ff",
+  "config/architecture-dependencies.json": "b74a9a0a62d5e56162fce2fdac47db51a2c3762515e07ee0b27cab87666c2561",
   "crates/xharness-agent/src/admission.rs": "bfb1365e00beb5bbb208e92a5a07078e0c2e6afc8c31e83534265d644b5c2437",
   "crates/xharness-agent/src/driver.rs": "f929bac0b501f4980078ec469979420a8c6bf650a52e2f54ef20897d81f3b533",
   "crates/xharness-agent/src/lib.rs": "27f0f0137f29f736cbc2ec62ced6122afe1dfe3c1e9e2553575dc6699b20aab0",

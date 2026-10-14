@@ -33,6 +33,10 @@
 
 完整测试曾发现门闸过宽，阻断了 Goal 授权的网络退避重试和用户恢复后 FIFO 中的普通 Agent 消息。最终将新增拦截收窄到 `job-settlement/agent-settlement`，并检查整个待处理队列中的用户恢复信号。原有 Goal 冷恢复、退避重试与停止恢复测试已全部通过。早期编译/夹具失败记录保留在同目录，不用最后一次绿灯覆盖它们。
 
+## PR 架构检查补充
+
+PR #294 首次 CI 在编译前发现 Host 到 Jobs 的新依赖尚未登记。只补充了 `xharness-host → xharness-jobs` 这一条基线边，并在规范记录分层理由；检查器未修改、未关闭。架构依赖检查及 5 个边界变异测试通过。Rust 源码和已验收的模型行为没有变化。
+
 ## 官方 DeepSeek
 
 端点固定为 `https://api.deepseek.com`，模型 `deepseek-flash`，thinking disabled，每请求输出上限 1024，测试总模型请求上限 16。真实 Provider、NativeToolFactory、进程、JSONL、Host Admission 与 Durable Inbox；不存在脚本模拟模型 Loop。
