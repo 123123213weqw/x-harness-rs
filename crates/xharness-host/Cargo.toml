@@ -32,7 +32,6 @@ xharness-jobs = { path = "../xharness-jobs" }
 xharness-schedule = { path = "../xharness-schedule" }
 xharness-session-import = { path = "../xharness-session-import" }
 
-xharness-jobs = { path = "../xharness-jobs" }
 xharness-session = { path = "../xharness-session" }
 xharness-token = { path = "../xharness-token" }
 xharness-tools = { path = "../xharness-tools" }
