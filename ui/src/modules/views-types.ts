@@ -122,7 +122,7 @@ export interface ClientContext {
   reflect: { provide(name: 'layout', value: { toggleSidebar(): void; openDetails(): void; closeDetails(): void }): () => void | Promise<void> }
   theme: { getTheme(): ThemeSnapshot }
 }
-export interface ThemeSnapshot { active: { colorScheme: 'light' | 'dark'; tokens: Readonly<Record<string, string>> } }
+export interface ThemeSnapshot { preference: string; active: { colorScheme: 'light' | 'dark'; tokens: Readonly<Record<string, string>> } }
 export interface EngineStoreHandle<State, Actions> { readonly spec: { init(): State; actions: Actions } }
 export type BoundActions<Handle> = Handle extends EngineStoreHandle<unknown, infer Actions> ? {
   [Name in keyof Actions]: Actions[Name] extends (state: never, ...args: infer Args) => void ? (...args: Args) => void : never

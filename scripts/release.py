@@ -133,9 +133,12 @@ class GitHub:
     def jobs(self, run_id, attempt):
         return self.pages(f'actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100', 'jobs')
 
-    def dispatch(self, workflow, inputs):
+    def dispatch(self, workflow, inputs, *, ref='master'):
+        require(ref == 'master' or workflow == WORKFLOWS['build'] and
+                re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', ref),
+                'Only a candidate build may dispatch on an immutable desktop tag')
         gh(['api', '--method', 'POST', f'{self.root}/actions/workflows/{workflow}/dispatches', '--input', '-'],
-           {'ref': 'master', 'inputs': inputs})
+           {'ref': ref, 'inputs': inputs})
 
 
 def save(path, state):
@@ -197,21 +200,35 @@ def task_lock(path):
         stream.close()
 
 
-def new_task(repo, version, scope, sha, publisher_pin=None, *, pipeline=False):
+def new_task(repo, version, scope, sha, publisher_pin=None, *, pipeline=False, tagged_candidate=False):
     contract.version(version)
     require(scope in SCOPES and re.fullmatch(r'[0-9a-f]{40}', sha or ''), 'Invalid scope or source SHA')
     require(publisher_pin is None or scope == contract.MACOS_SELFSIGNED_SCOPE, 'Signer pin outside self-signed scope')
     if scope == contract.MACOS_SELFSIGNED_SCOPE:
         contract.signing_fingerprint(publisher_pin)
     require(type(pipeline) is bool, 'Pipeline selection must be a boolean')
-    return {**({'pipeline': True} if pipeline else {}), **({'macos_signing_fingerprint': publisher_pin} if scope == contract.MACOS_SELFSIGNED_SCOPE else {}), 'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
+    require(type(tagged_candidate) is bool and (not tagged_candidate or pipeline and scope != 'windows-linux'),
+            'Automatic candidates require integrated four-platform acceptance')
+    return {**({'tagged_candidate': True} if tagged_candidate else {}), **({'pipeline': True} if pipeline else {}), **({'macos_signing_fingerprint': publisher_pin} if scope == contract.MACOS_SELFSIGNED_SCOPE else {}), 'schema': 1, 'repository': repo, 'version': version, 'scope': scope,
             'source_sha': sha, 'phase': 'waiting_ci', 'stages': {}, 'history': []}
+
+
+def build_inputs(state):
+    tagged = state.get('tagged_candidate', False)
+    return {'release_tag': 'desktop-v' + state['version'], 'release_scope': state['scope'],
+            'prepare_tag': not tagged, 'expected_sha': state['source_sha'],
+            **({'automatic_candidate': True} if tagged else {}),
+            **({'expected_ci_run_id': str(state['trigger_ci']['id']),
+                'expected_ci_attempt': str(state['trigger_ci']['run_attempt'])} if state.get('trigger_ci') else {}),
+            **({'integrated_acceptance': True} if state.get('pipeline') else {}),
+            **({'expected_macos_signing_fingerprint': state['macos_signing_fingerprint']}
+               if state['scope'] == contract.MACOS_SELFSIGNED_SCOPE else {})}
 
 
 class ReleaseTask:
     def __init__(self, client, state, persist):
         require(state.get('schema') == 1 and state.get('repository') == client.repo, 'Task repository/schema mismatch')
-        new_task(client.repo, state['version'], state['scope'], state['source_sha'], state.get('macos_signing_fingerprint'), pipeline=state.get('pipeline', False))
+        new_task(client.repo, state['version'], state['scope'], state['source_sha'], state.get('macos_signing_fingerprint'), pipeline=state.get('pipeline', False), tagged_candidate=state.get('tagged_candidate', False))
         self.client, self.state, self.persist = client, state, persist
 
     def checkpoint(self, phase):
@@ -220,8 +237,9 @@ class ReleaseTask:
         return phase
 
     def validate_run(self, stage, run, intent):
+        ref = 'desktop-v' + self.state['version'] if stage == 'build' and self.state.get('tagged_candidate') else 'master'
         require(run.get('path') == '.github/workflows/' + WORKFLOWS[stage]
-                and run.get('event') == 'workflow_dispatch' and run.get('head_branch') == 'master'
+                and run.get('event') == 'workflow_dispatch' and run.get('head_branch') == ref
                 and run.get('head_repository', {}).get('full_name') == self.client.repo
                 and run.get('display_title') == 'release-task ' + intent['token'],
                 f'{stage}: workflow provenance/correlation mismatch')
@@ -245,7 +263,11 @@ class ReleaseTask:
             # Write-ahead intent, before the non-idempotent HTTP POST.
             self.checkpoint(name + '_dispatching')
             try:
-                self.client.dispatch(WORKFLOWS[name], {**inputs, 'orchestration_id': intent['token']})
+                params = {**inputs, 'orchestration_id': intent['token']}
+                if name == 'build' and self.state.get('tagged_candidate'):
+                    self.client.dispatch(WORKFLOWS[name], params, ref='desktop-v' + self.state['version'])
+                else:
+                    self.client.dispatch(WORKFLOWS[name], params)
             except TransportError:
                 self.checkpoint(name + '_dispatch_unknown')
                 return False
@@ -282,11 +304,17 @@ class ReleaseTask:
                          if p != 'windows-x86_64'] if name == 'unix' else None
         require(contract.passing_workflow_jobs(jobs, run['path'], unix_platforms),
                 f'{name}: every required job must pass; skipped/cancelled jobs do not count')
+        if name == 'build' and self.state.get('tagged_candidate'):
+            require({'Signed ' + p + ' candidate' for p in contract.PLATFORMS} <= {j.get('name') for j in jobs},
+                    'Automatic candidate is missing a signed/native platform worker')
         intent['verified_attempt'] = run['run_attempt']
         self.persist(self.state)
         return True
 
     def advance(self, *, dispatch=True, retry=False, confirm=None):
+        require(not self.state.get('preparation_only') or confirm is None and 'publish' not in self.state['stages'],
+                'Automatic preparation cannot authorize publication')
+        require(not self.state.get('reused_build') or not retry, 'A reused candidate must never fall back to rebuilding')
         if confirm is not None:
             require(confirm == self.state['version'], 'Publication confirmation must exactly match the version')
             require(self.state['phase'] == 'awaiting_confirmation' or 'publish' in self.state['stages'],
@@ -294,24 +322,27 @@ class ReleaseTask:
         require(self.client.opted_in(), 'Repository has not opted into this release channel')
         sha = self.state['source_sha']
         if 'build' not in self.state['stages']:
-            require(self.client.master() == sha, 'master changed before build; review the new source in a new task')
+            if self.state.get('tagged_candidate'):
+                master = self.client.master()
+                require(master == sha or self.client.get(f'compare/{sha}...{master}')['status'] in ('ahead', 'identical'),
+                        'Candidate source is outside master ancestry')
+            else:
+                require(self.client.master() == sha, 'master changed before build; review the new source in a new task')
             runs = self.client.ci(sha)
             matches = [r for r in runs if r.get('head_sha') == sha and r.get('head_branch') == 'master' and r.get('event') == 'push']
             require(matches, 'No exact-SHA master CI found')
             newest = max(matches, key=lambda r: r['id'])
             if newest['status'] != 'completed':
                 return self.checkpoint('waiting_ci')
-            contract.select_ci(runs, sha)
+            selected = contract.select_ci(runs, sha)
+            require(not self.state.get('trigger_ci') or selected == self.state['trigger_ci'],
+                    'CI changed after automatic preparation was triggered; never rebind its evidence')
             jobs = self.client.jobs(newest['id'], newest['run_attempt'])
             require(jobs and all(j['status'] == 'completed' and j['conclusion'] == 'success' for j in jobs), 'Master CI has non-passing jobs')
             releases = [{'tagName': r['tag_name'], 'isDraft': r['draft']} for r in self.client.releases()]
             contract.make_plan(self.client.repo, self.client.repo, 'desktop-v' + self.state['version'], sha, 1, 1,
                                releases, runs, self.state['scope'], self.state.get('macos_signing_fingerprint'))
-        inputs = {'release_tag': 'desktop-v' + self.state['version'], 'release_scope': self.state['scope'],
-                  'prepare_tag': True, 'expected_sha': sha,
-                  **({'integrated_acceptance': True} if self.state.get('pipeline') else {}),
-                  **({'expected_macos_signing_fingerprint': self.state['macos_signing_fingerprint']}
-                     if self.state['scope'] == contract.MACOS_SELFSIGNED_SCOPE else {})}
+        inputs = build_inputs(self.state)
         if not self.stage('build', inputs, dispatch=dispatch, retry=retry):
             return self.state['phase']
         build_id = str(self.state['stages']['build']['run_id'])
@@ -350,6 +381,7 @@ def main():
     parser.add_argument('--no-wait', action='store_true', help='Advance once and exit; invoke again to resume')
     parser.add_argument('--retry', action='store_true', help='Retry a known failed stage once; never resend an uncertain dispatch')
     parser.add_argument('--confirm-publish', metavar='VERSION')
+    parser.add_argument('--candidate-run-id', help='Reuse an already accepted automatic candidate; never compile or redispatch its build')
     parser.add_argument('--timeout', type=int, default=14400)
     parser.add_argument('--poll', type=int, default=30)
     args = parser.parse_args()
@@ -357,6 +389,8 @@ def main():
         contract.version(args.version)
         require(args.timeout > 0 and args.poll > 0, 'Timeout and poll must be positive')
         require(not (args.status and (args.retry or args.confirm_publish)), 'Status must not include mutation flags')
+        require(not args.candidate_run_id or not (args.hosted or args.pipeline or args.retry),
+                'Candidate reuse is a promotion-only entry, not a new hosted build or retry')
         repo = args.repo or gh(['repo', 'view', '--json', 'nameWithOwner'])['nameWithOwner']
         client = GitHub(repo)
         path = args.state_dir / repo.replace('/', '--') / (args.version + '.json')
@@ -377,6 +411,15 @@ def main():
                 state = json.loads(path.read_text(encoding='utf-8'))
                 require(state['version'] == args.version and (args.platforms is None or state['scope'] == args.platforms), 'Cannot change an existing task version/scope')
                 require(not args.pipeline or state.get('pipeline') is True, 'Cannot change an existing task to the new pipeline')
+                require(not args.candidate_run_id or state.get('reused_build') == args.candidate_run_id,
+                        'Cannot rebind an existing task to another candidate')
+            elif args.candidate_run_id:
+                require(not args.status, 'No candidate promotion task exists')
+                spec = importlib.util.spec_from_file_location('desktop_candidates', ROOT / 'scripts/desktop-candidates.py')
+                candidates = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(candidates)
+                state = candidates.reuse_task(client, args.candidate_run_id, args.version, args.platforms)
+                save(path, state)
             else:
                 require(not args.status and args.confirm_publish is None, 'No task exists; prepare this version first')
                 scope = args.platforms or 'all-macos-preview'

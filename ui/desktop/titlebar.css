@@ -1,4 +1,4 @@
-/* macOS only: replace the native white title bar with the app's own surface.
+/* macOS only: paint the title bar with the shared sidebar/chrome surface.
    Keep the traffic-light zone free; the rest of the strip drags the window. */
 html[data-xh-mac-titlebar="overlay"] body {
   height: 100%;
@@ -16,7 +16,7 @@ html[data-xh-mac-titlebar="overlay"] #root {
   inset: 0 0 auto;
   height: 32px;
   z-index: 30;
-  background: var(--dsw-alias-bg-base, var(--xh-startup-bg, #151517));
+  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base, var(--xh-startup-bg, #fafafa)));
 }
 
 #xh-desktop-titlebar-drag {

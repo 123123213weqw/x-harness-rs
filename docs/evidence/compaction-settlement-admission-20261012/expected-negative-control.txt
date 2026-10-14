@@ -1,0 +1,38 @@
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-session)
+warning: unused import: `TurnEndReason`
+ --> crates/xharness-session/src/dispatch.rs:4:47
+  |
+4 | use crate::{EventData, InboxMessage, Session, TurnEndReason};
+  |                                               ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-compaction)
+   Compiling xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-goal)
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-context)
+warning: `xharness-session` (lib) generated 1 warning (run `cargo fix --lib -p xharness-session` to apply 1 suggestion)
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-core)
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/.admission-baseline-xwy4pkcb/crates/xharness-agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.27s
+     Running tests/failure_admission.rs (target/debug/deps/failure_admission-f5e9f8944f1707ae)
+
+running 1 test
+
+thread 'restored_failed_journal_and_new_receipts_remain_parked_without_a_pause_marker' (1895633) panicked at crates/xharness-agent/tests/failure_admission.rs:352:5:
+assertion `left == right` failed
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test restored_failed_journal_and_new_receipts_remain_parked_without_a_pause_marker ... FAILED
+
+failures:
+
+failures:
+    restored_failed_journal_and_new_receipts_remain_parked_without_a_pause_marker
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p xharness-agent --test failure_admission`
+
+NEGATIVE_CONTROL_EXIT 101
+EXPECTED_NEGATIVE_CONTROL_CONFIRMED: old gate made one unexpected token-count request
