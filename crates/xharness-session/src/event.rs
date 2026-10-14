@@ -690,6 +690,10 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    #[serde(rename = "job/continuation")]
+    JobContinuation {
+        record: Box<crate::JobContinuationRecord>,
+    },
     /// Versioned durable Goal controller state, never model conversation text.
     #[serde(rename = "goal/execution")]
     GoalExecution {

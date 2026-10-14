@@ -26,6 +26,8 @@ mod goals;
 mod history_tool;
 mod instructions;
 mod memory;
+
+pub mod job_continuation;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
 pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};

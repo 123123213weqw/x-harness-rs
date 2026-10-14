@@ -1638,7 +1638,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         if self.execution.check().is_err() {
             return Ok(false);
         }
-        if pending_manual_compaction(session).is_some() {
+        if pending_manual_compaction(session).is_some()
+            || crate::job_continuation::has_pending(session)
+        {
             return Ok(true);
         }
         if xharness_session::goal::execution_state(session).is_some_and(|s| {

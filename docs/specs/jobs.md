@@ -87,6 +87,5 @@ Host 的版本化 System Prompt 与 `bash` Tool Description 都注入同一选�
 
 ## 持久化边界
 
-当前 Job Registry 是进程内能力，不写 Session JSONL。正常 Shutdown 负责资源收敛；Host 崩溃后
-不得自动重放后台 Bash，因为这会重复副作用。未来若增加恢复，只能记录 Outcome Unknown、PID/
-Process Identity 和 Orphan Reconciliation 证据，不得凭旧 PID 直接 Kill 新进程。
+当前 Job Registry 是进程内能力，生产者资源不写 Session JSONL。完成续跑订阅和有界终态快照写入同一 Session；见 [后台 Job 完成后续跑规范](job-continuation.md)。正常 Shutdown 负责资源收敛；Host 崩溃后
+不得自动重放后台 Bash，因为这会重复副作用。恢复订阅但缺失原 Registry 时只记录 interrupted（副作用未知），不自动重放后台 Bash，也不得凭旧 PID 直接 Kill 新进程。

@@ -1,0 +1,26 @@
+   Compiling xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host)
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+error[E0061]: this method takes 2 arguments but 1 argument was supplied
+    --> crates/xharness-host-app/tests/job_continuation.rs:1166:10
+     |
+1166 |       fork.append(vec![EventData::SessionForkOrigin {
+     |  __________^^^^^^_-
+1167 | |         parent_session_id: SESSION.into(),
+1168 | |         before_user_seq: None,
+1169 | |     }
+1170 | |     .into()])
+     | |____________- argument #1 of type `Revision` is missing
+     |
+note: method defined here
+    --> crates/xharness-session/src/session.rs:189:12
+     |
+ 189 |     pub fn append(
+     |            ^^^^^^
+help: provide the argument
+     |
+1166 |     fork.append(/* Revision */, vec![EventData::SessionForkOrigin {
+     |                 +++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `xharness-host-app` (test "job_continuation") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
