@@ -12,20 +12,10 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import {classNames as clsx} from '../views-types'
-import {
-  IconAgentPresetOutline16, IconCloseOutline16, IconDataOutline16,
-  IconPersonalizationOutline16, IconSettingsOutline16, DialogSurface,
-} from '@xharness/dsh-client-ui-primitives'
+import { IconCloseOutline16, DialogSurface } from '@xharness/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract'
 import css from './SettingsRoot.styles'
-
-/** Nav glyph by section id; unknown ids fall back to the settings gear. */
-function navIcon(id: string) {
-  if (id === 'models') return <IconDataOutline16 className={css.navIcon} size={16} />
-  if (id === 'agent-presets') return <IconAgentPresetOutline16 className={css.navIcon} size={16} />
-  if (id === 'plugins') return <IconPersonalizationOutline16 className={css.navIcon} size={16} />
-  return <IconSettingsOutline16 className={css.navIcon} size={16} />
-}
+import { SettingsSectionIcon } from './SettingsSectionIcon'
 
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
@@ -66,7 +56,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
                 aria-current={row.id === active ? 'true' : undefined}
                 onClick={() => { onSelect(row.id) }}
               >
-                {navIcon(row.id)}
+                <SettingsSectionIcon section={row.id} className={css.navIcon} />
                 <span className={css.navLabel}>{row.label}</span>
               </button>
             ))}

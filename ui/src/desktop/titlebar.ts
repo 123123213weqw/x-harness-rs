@@ -1,9 +1,12 @@
 import type {} from '../modules/shared/tauri'
+import { syncNativeTheme } from './native-theme'
 import { DESKTOP_TITLEBAR_CONTROLS_ID, DESKTOP_TITLEBAR_READY_EVENT } from '../modules/shared/desktop-titlebar'
 // The web UI is also served to ordinary browsers. Only the macOS Tauri
 // window has an overlay title bar and needs a draggable safe area.
 (() => {
   if (typeof window.__TAURI__?.core?.invoke !== 'function') return
+  const native = window.__TAURI__?.window?.getCurrentWindow?.()
+  if (native !== undefined && typeof native.setTheme === 'function') syncNativeTheme(native)
   if (!/Macintosh|Mac OS X/.test(navigator.userAgent)) return
 
   document.documentElement.dataset.xhMacTitlebar = 'overlay'

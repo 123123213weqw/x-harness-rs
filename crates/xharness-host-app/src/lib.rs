@@ -25,26 +25,17 @@ pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_compat;
 pub mod reasoning_discovery;
 
-use std::{
-    collections::BTreeMap,
-    io::Write,
-    path::Path,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use xharness_coding_tools::CodingToolBundle;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
-    update_agent_markdown, AgentMarkdownSink, DurableQuestionHub, DurableQuestionProvider,
-    PermissionPreset, SessionToolFactory,
+    DurableQuestionHub, DurableQuestionProvider, PermissionPreset, SessionToolFactory,
 };
-use xharness_interaction::{AskUserQuestionTool, QuestionInvocation, QuestionResolution};
+use xharness_interaction::AskUserQuestionTool;
 use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_schedule::ScheduleManager;
@@ -533,7 +524,6 @@ impl SessionToolFactory for NativeToolFactory {
                     AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
                         Arc::clone(questions),
                         session_id,
-                        cwd,
                     )))
                     .spec(),
                 );
@@ -595,121 +585,11 @@ impl SessionToolFactory for NativeToolFactory {
     }
 }
 
-/// Atomic, symlink-safe writer for the Host-managed AGENTS.md memory section.
-#[derive(Default)]
-pub struct ManagedAgentMarkdownSink {
-    gate: Mutex<()>,
-}
-
-impl ManagedAgentMarkdownSink {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
-}
-
-#[async_trait]
-impl AgentMarkdownSink for ManagedAgentMarkdownSink {
-    async fn persist(
-        &self,
-        workspace: &Path,
-        invocation: &QuestionInvocation,
-        resolution: &QuestionResolution,
-    ) -> Result<(), String> {
-        static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
-        let _guard = self.gate.lock().await;
-        let workspace = workspace.to_path_buf();
-        let invocation = invocation.clone();
-        let resolution = resolution.clone();
-        tokio::task::spawn_blocking(move || {
-            let canonical = std::fs::canonicalize(&workspace).map_err(|error| {
-                format!(
-                    "could not resolve workspace {}: {error}",
-                    workspace.display()
-                )
-            })?;
-            if !canonical.is_dir() {
-                return Err(format!(
-                    "workspace {} is not a directory",
-                    canonical.display()
-                ));
-            }
-            let path = canonical.join("AGENTS.md");
-            let existing = match std::fs::symlink_metadata(&path) {
-                Ok(metadata) => {
-                    if metadata.file_type().is_symlink() || !metadata.is_file() {
-                        return Err(format!(
-                            "refusing to replace non-regular AGENTS.md at {}",
-                            path.display()
-                        ));
-                    }
-                    std::fs::read_to_string(&path)
-                        .map_err(|error| format!("could not read {}: {error}", path.display()))?
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(error) => {
-                    return Err(format!("could not inspect {}: {error}", path.display()));
-                }
-            };
-            let updated = update_agent_markdown(&existing, &invocation, &resolution)?;
-            if updated == existing {
-                return Ok(());
-            }
-            let temp = canonical.join(format!(
-                ".AGENTS.md.xharness.{}.{}.tmp",
-                std::process::id(),
-                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-            ));
-            let result = (|| {
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&temp)
-                    .map_err(|error| format!("could not create {}: {error}", temp.display()))?;
-                file.write_all(updated.as_bytes())
-                    .and_then(|_| file.sync_all())
-                    .map_err(|error| format!("could not persist {}: {error}", temp.display()))?;
-                std::fs::rename(&temp, &path).map_err(|error| {
-                    format!(
-                        "could not atomically replace {} with {}: {error}",
-                        path.display(),
-                        temp.display()
-                    )
-                })?;
-                sync_workspace_directory(&canonical).map_err(|error| {
-                    format!("could not sync workspace {}: {error}", canonical.display())
-                })?;
-                Ok(())
-            })();
-            if result.is_err() {
-                let _ = std::fs::remove_file(&temp);
-            }
-            result
-        })
-        .await
-        .map_err(|error| format!("AGENTS.md writer task failed: {error}"))?
-    }
-}
-
-#[cfg(unix)]
-fn sync_workspace_directory(path: &Path) -> std::io::Result<()> {
-    std::fs::File::open(path)?.sync_all()
-}
-
-#[cfg(windows)]
-fn sync_workspace_directory(path: &Path) -> std::io::Result<()> {
-    if std::fs::metadata(path)?.is_dir() {
-        Ok(())
-    } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "workspace is not a directory",
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use xharness_interaction::QuestionInvocation;
     #[tokio::test]
     async fn deployment_allowlist_removes_execution_not_just_definitions() {
         let workspace = TempWorkspace::new();
@@ -1142,58 +1022,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn managed_memory_sink_atomically_preserves_existing_agents_markdown() {
-        use xharness_interaction::{
-            AnswerDestination, AskUserQuestionRequest, QuestionAnswer, QuestionInteraction,
-            QuestionOption, QuestionSpec, ResolveAction,
-        };
-
-        let workspace = TempWorkspace::new();
-        std::fs::write(workspace.0.join("AGENTS.md"), "# Existing\n\nKeep me.\n").unwrap();
-        let invocation = QuestionInvocation::new(
-            "memory-1",
-            AskUserQuestionRequest {
-                questions: vec![QuestionSpec {
-                    id: "goal".to_owned(),
-                    header: "目标".to_owned(),
-                    question: "长期目标是什么？".to_owned(),
-                    options: vec![QuestionOption {
-                        id: "ship".to_owned(),
-                        label: "完成发布".to_owned(),
-                        description: None,
-                        recommended: true,
-                    }],
-                    allow_custom: true,
-                    destination: AnswerDestination::AgentMarkdown,
-                    blocks_goal: true,
-                }],
-            },
-        );
-        let mut interaction = QuestionInteraction::new(invocation.clone()).unwrap();
-        let resolution = interaction
-            .resolve(
-                ResolveAction::Continue,
-                vec![QuestionAnswer {
-                    question_id: "goal".to_owned(),
-                    selected_option_id: Some("ship".to_owned()),
-                    custom_text: None,
-                }],
-            )
-            .unwrap();
-        let sink = ManagedAgentMarkdownSink::new();
-        sink.persist(&workspace.0, &invocation, &resolution)
-            .await
-            .unwrap();
-        sink.persist(&workspace.0, &invocation, &resolution)
-            .await
-            .unwrap();
-        let text = std::fs::read_to_string(workspace.0.join("AGENTS.md")).unwrap();
-        assert!(text.starts_with("# Existing\n\nKeep me."));
-        assert_eq!(text.matches("长期目标是什么").count(), 1);
-        assert!(text.contains("完成发布"));
-    }
-
-    #[tokio::test]
     async fn production_factory_projects_ask_user_question_through_the_normal_registry() {
         let workspace = TempWorkspace::new();
         let store: Arc<dyn xharness_session::Store> =
@@ -1202,7 +1030,7 @@ mod tests {
             .create(xharness_session::SessionHeader::new("questions"))
             .await
             .unwrap();
-        let hub = DurableQuestionHub::new(store, Arc::new(NoopTestSink));
+        let hub = DurableQuestionHub::new(store);
         let factory = NativeToolFactory::new_with_questions(
             WebRuntime::default(),
             DebugRecorder::disabled(),
@@ -1293,7 +1121,7 @@ mod tests {
             .await
             .unwrap();
         store.flush(id).await.unwrap();
-        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopTestSink));
+        let hub = DurableQuestionHub::new(store.clone());
         let factory = NativeToolFactory::new_with_questions(
             WebRuntime::default(),
             DebugRecorder::disabled(),
@@ -1365,7 +1193,7 @@ mod tests {
             .create(xharness_session::SessionHeader::new("schedules"))
             .await
             .unwrap();
-        let questions = DurableQuestionHub::new(Arc::clone(&store), Arc::new(NoopTestSink));
+        let questions = DurableQuestionHub::new(Arc::clone(&store));
         let schedules = ScheduleManager::new(store);
         let factory = NativeToolFactory::new_with_questions_and_schedules(
             WebRuntime::default(),
@@ -1397,19 +1225,6 @@ mod tests {
         }
     }
 
-    struct NoopTestSink;
-
-    #[async_trait]
-    impl AgentMarkdownSink for NoopTestSink {
-        async fn persist(
-            &self,
-            _workspace: &Path,
-            _invocation: &QuestionInvocation,
-            _resolution: &QuestionResolution,
-        ) -> Result<(), String> {
-            Ok(())
-        }
-    }
     #[tokio::test]
     async fn goal_jobs_are_explicit_owner_scoped_and_unknown_never_counts_as_success() {
         use xharness_session::goal::GoalEvidence;

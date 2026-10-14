@@ -19,6 +19,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-size",
+    "core:window:allow-set-theme",
     "allow-desktop-status",
     "allow-desktop-installation-status",
     "allow-desktop-set-installation-statistics",

@@ -309,9 +309,45 @@ impl DurableInbox {
     /// Prepare the complete batch for a model step without mutating storage.
     /// Next-step messages are ordered before at most one next-turn message.
     pub async fn prepare_claim(&self, target: InboxTarget) -> Result<PreparedClaim, InboxError> {
+        self.prepare_claim_inner(target, false).await
+    }
+
+    /// Reopen a failed/stopped agent only for real user input. The resume fact
+    /// and this revision-bound claim are committed together by the turn executor.
+    /// Earlier runtime reports stay pending, not discarded or executed first.
+    pub async fn prepare_user_claim(&self) -> Result<PreparedClaim, InboxError> {
+        self.prepare_claim_inner(InboxTarget::NextTurn, true).await
+    }
+
+    /// Freeze the derived failure gate across explicit input-free maintenance.
+    /// A maintenance completion is not permission to execute pending receipts.
+    pub(crate) async fn preserve_dispatch_pause(&self) -> Result<(), InboxError> {
+        self.mutate(|_| Ok(Some(EventData::AgentDispatchPaused { paused: true }.into())))
+            .await?;
+        Ok(())
+    }
+
+    async fn prepare_claim_inner(
+        &self,
+        target: InboxTarget,
+        require_user: bool,
+    ) -> Result<PreparedClaim, InboxError> {
         let _guard = self.local_gate.lock().await;
         let session = self.load().await?;
         let projection = InboxProjection::from_session(&session)?;
+        if require_user
+            && !projection
+                .next_turn
+                .iter()
+                .chain(&projection.next_step)
+                .any(InboxMessage::is_user_authored)
+        {
+            return Ok(PreparedClaim {
+                expected_revision: session.revision(),
+                messages: Vec::new(),
+                deletion_events: Vec::new(),
+            });
+        }
         let mut messages = projection.next_step.clone();
         let mut deletion_events = Vec::new();
         if !projection.next_step.is_empty() {
@@ -329,12 +365,12 @@ impl DurableInbox {
                 .as_ref()
                 .and_then(|s| s.pending.as_ref())
                 .map(|p| p.message_id.as_str());
-            let user = projection
-                .next_turn
-                .iter()
-                .position(|m| !crate::goal::is_goal_message(m));
+            let user = projection.next_turn.iter().position(|m| {
+                !crate::goal::is_goal_message(m) && (!require_user || m.is_user_authored())
+            });
             let index = user.or_else(|| {
-                if !messages.is_empty()
+                if require_user
+                    || !messages.is_empty()
                     || !goal.as_ref().is_some_and(|s| {
                         s.definition.execution_enabled
                             && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
@@ -353,6 +389,9 @@ impl DurableInbox {
                 messages.push(message.clone());
                 deletion_events.push(splice(InboxTarget::NextTurn, index, 1, Vec::new(), None));
             }
+        }
+        if require_user {
+            deletion_events.insert(0, EventData::AgentDispatchPaused { paused: false }.into());
         }
         Ok(PreparedClaim {
             expected_revision: session.revision(),

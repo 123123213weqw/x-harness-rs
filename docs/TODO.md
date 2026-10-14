@@ -3,12 +3,19 @@
 ## 后台 Job 自动续跑（2026-10-14）
 
 - [x] `JOB-CONT-01` 正式 Native Host 接入 defer/cancel_defer、版本化持久 outbox、稳定 Inbox 回执去重、终态归档读取、启动恢复与有界 Shutdown；未绑定的嵌入方不广告新 action。
-- [x] `JOB-CONT-02` 停止与失败回执门闸覆盖 Host Admission 和 Actor claim，检查整个待处理队列的用户恢复信号；保留原 Goal 的授权退避重试策略，不重写 Loop。
+- [x] `JOB-CONT-02` 复用 Session::dispatch_paused 和 InboxMessage::is_user_authored，Actor 用户恢复/claim 原子 CAS；移除重复门禁投影；保留原 Goal 的授权退避重试策略，不重写 Loop。
 - [x] `JOB-CONT-03` 新增 13 个 Native/JSONL 回归；WZU_Server 扩展测试合计 782 通过、全 workspace 检查与严格 Clippy 通过。
 - [x] `JOB-CONT-04` 官方 DeepSeek 成功续跑得到 VERIFIED_OK；失败用例读取真实 exit 7 并报告失败。已记录模型一次尝试重跑失败脚本（被夹具拒绝），不承诺模型严格服从所有指令。
 - [ ] `JOB-CONT-05` 发布与已安装软件升级；当前提交用于 PR 审阅，未替换当前软件。
 
 规范：[后台 Job 自动续跑](specs/job-continuation.md)。证据：[正式链路验收](evidence/job-continuation-production-20261014.md)。
+
+## 压缩失败后的回执派发门禁（2026-10-12）
+
+- [x] `FAIL-ADMISSION-01` Host 与 Actor 从权威终态共用自动派发门禁；压缩／上下文不可重试失败后，内部回执保留、去重、落盘，但不再次启动计数／模型／压缩。旧日志与重启生效，不清空历史、不重写架构。
+- [x] `FAIL-ADMISSION-02` 按可信 Source 区分真实用户与内部上下文，兼容 Host admission 包装；直接 Actor 用户恢复和 Claim 原子 CAS。保留正常通知与 Goal 已分类网络退避，手动 Compact 不隐式解锁，失败停车不覆盖 Goal 原错误原因。
+- [x] `FAIL-ADMISSION-03` 新增 11 项回归（含旧检查点回退）；V100 同步当前源码后相关四模块 428 项通过、0 失败，6 项既有诊断用例保持忽略；严格 Clippy 通过。2026-10-13 同步最新 master 后 434 项通过、0 失败、6 项既有诊断忽略，严格 Clippy 通过；集成源码与原始验收分别绑定哈希。隔离恢复旧门禁时，回归正确捕获额外计数调用。证据见 `docs/evidence/compaction-settlement-admission-20261012/verification.json`。
+- [ ] `FAIL-ADMISSION-04` PR 审核、当前 SHA 的跨平台 CI 与正式部署；PR 提交阶段不自动合并、发布或重启应用。
 
 ## 前端 CI 并行优化（2026-10-06）
 

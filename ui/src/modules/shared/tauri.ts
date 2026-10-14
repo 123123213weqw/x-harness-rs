@@ -15,6 +15,7 @@ export interface NativeWindow {
   scaleFactor():Promise<number>
   isFullscreen():Promise<boolean>
   setSize(size:NativeSize):Promise<void>
+  setTheme(theme: 'light' | 'dark' | null): Promise<void>
   minimize(): Promise<void>
   toggleMaximize(): Promise<void>
   isMaximized(): Promise<boolean>

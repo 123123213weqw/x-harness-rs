@@ -72,3 +72,7 @@ Shutdown 先停止回执投递并有界等待监听器，再终止生产者，�
 回归使用真实 NativeToolFactory、JSONL Session、Durable Agent、Host Admission 和原工具执行器；模型行为与预算故障使用明确标注的 Scripted Provider。另有显式 opt-in 的官方 DeepSeek 测试，完整走相同链路。
 
 复现入口：`scripts/run-deepseek-job-continuation-live.py`。脚本先 rsync，再在 WZU_Server 编译；API Key 通过 SSH stdin 进入远程测试进程环境，不写远程凭据文件。当前运行软件与公开发布不属于这次源码验收。
+
+## 与统一派发门禁的集成（2026-10-14）
+
+后台 Job 与子 Agent 回执共用 `Session::dispatch_paused()`，不维护第二套“最后一次 TurnEnd”判断。Actor 复用 `prepare_user_claim` 与用户恢复 CAS，失败停车使用 `park_settled_pending`，不覆盖 Goal 的终态原因；已分类暂态网络故障保留原有 Goal 退避。用户身份使用 `InboxMessage::is_user_authored()`，兼容可信 Host source 包装。
