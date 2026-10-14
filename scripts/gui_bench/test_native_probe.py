@@ -16,7 +16,7 @@ class NativeProbeTests(unittest.TestCase):
         self.assertIn('production_native_probe(app).await?',source)
         self.assertIn('PRODUCTION_NATIVE_EVIDENCE',source)
         native=(root/'apps/desktop/src-tauri/src/browser_native/mod.rs').read_text()
-        for guard in ('tx.is_closed()', 'Instant::now() >= deadline', 'Arc::ptr_eq', 'inspector.claim', 'inspector.check_point'):
+        for guard in ('tx.is_closed()', 'Instant::now() >= deadline', 'native_dispatch_target', 'inspector.claim', 'inspector.check_point'):
             self.assertIn(guard,native)
         for name,api in [('windows','Input.dispatchMouseEvent'),('linux','view.event(&event)'),('macos','view.mouseDown(&event)')]:
             backend=(root/f'apps/desktop/src-tauri/src/browser_native/{name}.rs').read_text()

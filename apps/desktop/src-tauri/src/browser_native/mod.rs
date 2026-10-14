@@ -150,16 +150,9 @@ async fn dispatch<T: Send + 'static>(
         }
         let state = app.state::<BrowserState>();
         let valid = state
-            .delegated_tab(&owner)
-            .and_then(|tab| {
-                state.loaded_receipt(&owner, &tab)?;
-                state.inspection_target(&tab)
-            })
-            .is_ok_and(|(current, other)| {
-                current.label() == target.label()
-                    && Arc::ptr_eq(&inspector, &other)
-                    && inspector.navigation_epoch.load(Ordering::SeqCst) == epoch
-            });
+            .native_dispatch_target(target.label(), &inspector)
+            .is_ok()
+            && inspector.navigation_epoch.load(Ordering::SeqCst) == epoch;
         if !valid || browser_inspect::authorize(&target, &inspector, Some(&owner), action).is_err()
         {
             let _ = tx.send(Err("browser binding changed before native dispatch".into()));

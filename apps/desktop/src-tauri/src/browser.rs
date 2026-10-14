@@ -138,16 +138,32 @@ impl BrowserState {
         owner: &str,
         tab_id: &str,
     ) -> Result<serde_json::Value, String> {
-        if self.delegated_tab(owner)? != tab_id {
-            return Err("browser owner changed".into());
-        }
-        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
-        let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
-        if inner.active.as_deref() != Some(tab_id) || !tab.loaded.load(Ordering::SeqCst) {
-            return Err("browser page is not ready".into());
-        }
-        let url = tab.webview.url().map_err(|_| "browser URL unavailable")?;
-        if !tab.inspector.delegation.permits(owner, &url, false) {
+        // Native getters can rendezvous with the UI thread. Never hold the
+        // registry mutex while waiting for one: the UI may be validating input.
+        let (view, inspector, loaded) = {
+            let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
+            if inner.active.as_deref() != Some(tab_id)
+                || inner.bounds.is_none()
+                || !tab.loaded.load(Ordering::SeqCst)
+            {
+                return Err("browser page is not ready".into());
+            }
+            (
+                tab.webview.clone(),
+                Arc::clone(&tab.inspector),
+                Arc::clone(&tab.loaded),
+            )
+        };
+        let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
+        let url = view.url().map_err(|_| "browser URL unavailable")?;
+        let (current, other) = self.inspection_target(tab_id)?;
+        if current.label() != view.label()
+            || !Arc::ptr_eq(&inspector, &other)
+            || !loaded.load(Ordering::SeqCst)
+            || inspector.navigation_epoch.load(Ordering::SeqCst) != epoch
+            || !inspector.delegation.permits(owner, &url, false)
+        {
             return Err("browser binding changed".into());
         }
         Ok(
@@ -155,19 +171,47 @@ impl BrowserState {
         )
     }
     pub(super) fn delegated_tab(&self, owner: &str) -> Result<String, String> {
-        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
-        let id = inner.active.as_ref().ok_or("native browser is hidden")?;
-        let tab = inner.tabs.get(id).ok_or("native browser is not open")?;
-        if inner.bounds.is_none()
-            || !tab.inspector.delegation.permits(
-                owner,
-                &tab.webview.url().map_err(|_| "browser URL unavailable")?,
-                false,
-            )
+        let (id, view, inspector) = {
+            let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            let id = inner.active.as_ref().ok_or("native browser is hidden")?;
+            let tab = inner.tabs.get(id).ok_or("native browser is not open")?;
+            if inner.bounds.is_none() {
+                return Err("native browser is not laid out".into());
+            }
+            (id.clone(), tab.webview.clone(), Arc::clone(&tab.inspector))
+        };
+        let url = view.url().map_err(|_| "browser URL unavailable")?;
+        let (current, other) = self.inspection_target(&id)?;
+        if current.label() != view.label()
+            || !Arc::ptr_eq(&inspector, &other)
+            || !inspector.delegation.permits(owner, &url, false)
         {
             return Err("native browser is not delegated to this session".into());
         }
-        Ok(id.clone())
+        Ok(id)
+    }
+    /// Main-thread dispatch guard must never wait for a registry lock held by
+    /// a worker awaiting native UI creation/getters. A busy registry rejects
+    /// dispatch rather than freezing the event loop. No native call under lock.
+    pub(super) fn native_dispatch_target(
+        &self,
+        label: &str,
+        inspector: &Arc<crate::browser_inspect::Inspector>,
+    ) -> Result<(), String> {
+        let inner = self
+            .0
+            .try_lock()
+            .map_err(|_| "browser state busy before native dispatch")?;
+        let id = inner.active.as_ref().ok_or("native browser hidden")?;
+        let tab = inner.tabs.get(id).ok_or("native browser closed")?;
+        if inner.bounds.is_none()
+            || !tab.loaded.load(Ordering::SeqCst)
+            || tab.webview.label() != label
+            || !Arc::ptr_eq(inspector, &tab.inspector)
+        {
+            return Err("browser binding changed before native dispatch".into());
+        }
+        Ok(())
     }
 }
 
@@ -686,6 +730,25 @@ pub fn close_all(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{safe_download_name, valid_tab_id, validate_tab_snapshot, web_url, BrowserBounds};
+
+    #[test]
+    fn main_thread_native_guard_never_waits_for_worker_registry_lock() {
+        use super::{Arc, BrowserState};
+        let state = Arc::new(BrowserState::default());
+        let held = state.0.lock().unwrap();
+        let copy = state.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(copy.native_dispatch_target(
+                "unused",
+                &Arc::new(crate::browser_inspect::Inspector::default()),
+            ));
+        });
+        let result = receiver.recv_timeout(std::time::Duration::from_millis(200));
+        drop(held);
+        worker.join().unwrap();
+        assert!(result.unwrap().unwrap_err().contains("state busy"));
+    }
 
     #[test]
     fn only_web_pages_and_safe_tab_ids() {
