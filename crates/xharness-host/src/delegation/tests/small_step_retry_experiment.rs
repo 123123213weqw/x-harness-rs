@@ -332,7 +332,7 @@ async fn compare_send_with_one_completed_step_fork_without_undoing_side_effects(
         1,
         "discarded write must not replay"
     );
-    let requests = fixture.requests.lock().unwrap();
+    let requests = { fixture.requests.lock().unwrap().clone() };
     assert_eq!(
         requests.len(),
         5,
@@ -356,7 +356,6 @@ async fn compare_send_with_one_completed_step_fork_without_undoing_side_effects(
     if let Ok(path) = std::env::var("XHARNESS_SMALL_STEP_EXPERIMENT_RECEIPT") {
         std::fs::write(path, serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
     }
-    drop(requests);
     host.agent_runtime.shutdown(Duration::from_secs(2)).await;
 }
 
@@ -438,7 +437,7 @@ async fn production_revert_retains_prefix_and_does_not_replay_or_undo_files() {
     );
     assert_eq!(fixture.reads.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.writes.load(Ordering::SeqCst), 1);
-    let requests = fixture.requests.lock().unwrap();
+    let requests = { fixture.requests.lock().unwrap().clone() };
     assert_eq!(requests.len(), 4);
     let messages = &requests[3].messages;
     complete_tool_pairs(messages);
@@ -460,6 +459,5 @@ async fn production_revert_retains_prefix_and_does_not_replay_or_undo_files() {
             .as_deref(),
         Some("p")
     );
-    drop(requests);
     host.agent_runtime.shutdown(Duration::from_secs(2)).await;
 }
