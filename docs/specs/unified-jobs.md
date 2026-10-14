@@ -68,3 +68,7 @@ generation/旧 cursor/无短名别名、owner 隔离、原生 Factory 与工具�
 取消 ack 非完成、未来触发与当前执行互不误伤、Plan finished 不代表 Run completed、
 时间字段真实性、Rust/TS 同一 fixture、旧工具兼容、断线/卸载/迟到回包、请求合并、
 双击控制、HTML 转义、窄屏、键盘导航、深浅色和静态构建一致性。
+
+## 审阅后的依赖方向
+
+Host → xharness-jobs 仅用于中立 JobCatalog/RunRef DTO 与 Registry 读取端口；Jobs 不依赖 Host、工具、平台或 Provider，不负责启动模型。后台 continuation 与 catalog 共用这一个向下边，保留架构检查器与变异测试。
