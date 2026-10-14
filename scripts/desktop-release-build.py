@@ -489,18 +489,28 @@ def current_build(plan, *, require_pipeline=True):
             and plan['release_run_id'] == os.environ.get('GITHUB_RUN_ID')
             and plan['release_run_attempt'] == os.environ.get('GITHUB_RUN_ATTEMPT'),
             'Only the exact candidate build attempt may wait for its artifacts')
-    value = api(f"repos/{repo}/actions/runs/{plan['release_run_id']}")
-    require(value['path'] == '.github/workflows/desktop-release.yml'
-            and value.get('head_repository', {}).get('full_name') == repo
-            and value['head_sha'] == plan['sha'] and value['run_attempt'] == int(plan['release_run_attempt'])
-            and value['status'] == 'in_progress' and value.get('conclusion') is None,
-            'In-build artifacts require the authenticated running workflow')
-    if value['event'] == 'workflow_dispatch' and value['head_branch'] != 'master':
-        require(value['head_branch'] == plan['tag'], 'Candidate tag differs from its immutable plan')
-        verify_candidate_tag(repo, value['head_branch'], plan['sha'])
-    require((value['event'] == 'workflow_dispatch' and value['head_branch'] in ('master', plan['tag']))
-            or (value['event'] == 'push' and value['head_branch'] == plan['tag']), 'Untrusted build trigger')
-    return value
+    # REST's aggregate run status can remain queued after this hosted worker
+    # starts (observed in the first immutable automatic candidate). Only retry
+    # this transient read: reauthenticate every response, keep the same attempt,
+    # and never consume artifacts until the run is actually in_progress.
+    for visibility_attempt in range(9):
+        value = api(f"repos/{repo}/actions/runs/{plan['release_run_id']}")
+        require(value['id'] == int(plan['release_run_id'])
+                and value['path'] == '.github/workflows/desktop-release.yml'
+                and value.get('head_repository', {}).get('full_name') == repo
+                and value['head_sha'] == plan['sha'] and value['run_attempt'] == int(plan['release_run_attempt'])
+                and value.get('conclusion') is None,
+                'In-build artifacts require the authenticated running workflow')
+        if value['event'] == 'workflow_dispatch' and value['head_branch'] != 'master':
+            require(value['head_branch'] == plan['tag'], 'Candidate tag differs from its immutable plan')
+            verify_candidate_tag(repo, value['head_branch'], plan['sha'])
+        require((value['event'] == 'workflow_dispatch' and value['head_branch'] in ('master', plan['tag']))
+                or (value['event'] == 'push' and value['head_branch'] == plan['tag']), 'Untrusted build trigger')
+        if value['status'] == 'in_progress':
+            return value
+        require(value['status'] == 'queued', 'In-build artifacts require the authenticated running workflow')
+        require(visibility_attempt < 8, 'Candidate workflow is still queued after bounded visibility wait')
+        time.sleep(15)
 
 
 def wait_build_artifacts(plan, names, destination, *, timeout=4500, interval=60, require_pipeline=True):
