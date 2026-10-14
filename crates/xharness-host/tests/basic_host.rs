@@ -1074,7 +1074,10 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         other => panic!("default model effort selection failed: {other:?}"),
     };
     assert_eq!(selected_default["selected"]["reasoningEffort"], "high");
-    assert_eq!(selected_default["selected"]["contextWindowTokens"], 53_248);
+    assert!(
+        selected_default["selected"]["contextWindowTokens"].is_null(),
+        "automatic selection must resolve the live model guard, not persist a numeric maximum"
+    );
     let selected = host
         .call(
             RpcId::new("catalog-select-max"),
@@ -1146,9 +1149,9 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching to the larger model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_larger_model["selected"]["contextWindowTokens"], 131_072,
-        "a model switch must materialize the destination maximum instead of inheriting 32K"
+    assert!(
+        switched_to_larger_model["selected"]["contextWindowTokens"].is_null(),
+        "a model switch must use the destination's live automatic capacity, not inherit 32K"
     );
 
     let switched_to_smaller_model = host
@@ -1167,8 +1170,8 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching back to the smaller model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_smaller_model["selected"]["contextWindowTokens"], 53_248,
+    assert!(
+        switched_to_smaller_model["selected"]["contextWindowTokens"].is_null(),
         "a model switch must never carry the previous model's 131K window into a 53K route"
     );
     assert_eq!(

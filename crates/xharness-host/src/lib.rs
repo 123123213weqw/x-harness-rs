@@ -34,6 +34,7 @@ mod driver;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
+mod context_selection;
 #[cfg(test)]
 mod failed_turn_projection_tests;
 mod github_backend;
@@ -114,6 +115,8 @@ pub struct HostConfig {
     pub reasoning_effort: Option<String>,
     /// Provider/model context admission configured by the product host.
     pub token_guard: Option<TokenGuard>,
+    /// Explicit default-route soft window (not inferred from a token guard).
+    pub selected_context_window_tokens: Option<u64>,
     /// Enabled by the native app composition; embeddings opt in explicitly.
     pub auto_titles: bool,
     pub attachment_store: Arc<dyn xharness_attachments::AttachmentStore>,
@@ -150,6 +153,7 @@ impl HostConfig {
             model_id: "unconfigured".to_owned(),
             reasoning_effort: None,
             token_guard: None,
+            selected_context_window_tokens: None,
             auto_titles: false,
             attachment_store: Arc::new(xharness_attachments::MemoryAttachmentStore::default()),
             event_capacity: 2_048,

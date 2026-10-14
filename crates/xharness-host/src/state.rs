@@ -127,10 +127,9 @@ impl ModelSelection {
             provider: config.provider_id.clone(),
             model: config.model_id.clone(),
             reasoning_effort: config.reasoning_effort.clone(),
-            context_window_tokens: config
-                .token_guard
-                .as_ref()
-                .map(|guard| guard.budget().context_window_tokens),
+            // None means automatic: bind the route's current guard each turn,
+            // not a numeric snapshot of the deployment's temporary budget.
+            context_window_tokens: config.selected_context_window_tokens,
         }
     }
 }

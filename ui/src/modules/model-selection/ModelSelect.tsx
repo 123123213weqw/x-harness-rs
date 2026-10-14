@@ -43,6 +43,7 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
   const effortTriggerLabel = t('effort.trigger', { effort: displayEffort })
   const reload = () => { lastActionRef.current = 'load'; void Promise.resolve(load()).catch(() => {}) }
   const refreshCapabilities = () => { lastActionRef.current = 'load'; void Promise.resolve(load(true)).catch(() => {}) }
+  const loadContext = (refresh?: boolean) => { lastActionRef.current = 'load'; return Promise.resolve(load(refresh)).catch(() => {}) }
   useEffect(() => { if (available) { lastActionRef.current = 'load'; load() } }, [available, load])
   useEffect(() => {
     if (!open) return
@@ -143,7 +144,7 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
         </button>
         <ContextRow state={state} itemRef={itemRef()} open={() => { setPane('context') }} />
       </>}
-      {pane === 'context' && <ContextPane locked={locked} directory={directory} load={reload} select={select} back={() => { setPane('root') }} saved={() => { close(true) }} />}
+      {pane === 'context' && <ContextPane locked={locked} directory={directory} load={loadContext} select={select} back={() => { setPane('root') }} saved={() => { close(true) }} />}
       {(pane === 'model' || pane === 'custom') && <>
         {pane === 'custom' && <button ref={itemRef()} type="button" role="menuitem" className={css.cell} aria-label={t('menu.back')} onClick={() => { setPane('model') }}>
           <IconChevronRightOutline14 className={css.backChevron} /><span>{t('menu.custom')}</span>

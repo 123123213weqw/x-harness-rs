@@ -44,7 +44,8 @@ test('context validation uses selected model maximum and preserves complete sele
  for(const {plugin}of apis){const state={...catalog,status:'ready',error:null};
   assert.deepEqual(json(plugin.xhContextSelection(state,' 262144 ')),{...current,contextWindowTokens:262144});
   for(const raw of ['','0','-1','262145','1.5','1e3','9007199254740992','Infinity'])assert.throws(()=>plugin.xhContextSelection(state,raw));
-  assert.throws(()=>plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'1'));
+  if (plugin===apis[1].plugin) assert.equal(plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'65536').contextWindowTokens,65536, 'unknown capacity is editable without inventing a maximum');
+  else assert.throws(()=>plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'1'));
   assert.equal(plugin.xhModelInfo(state).effort,'ultra');
  }
 });
