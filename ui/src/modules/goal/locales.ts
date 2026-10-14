@@ -2,6 +2,10 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'progress.title': '进度',
+  'progress.completed': '已完成',
+  'progress.running': '进行中',
+  'progress.pending': '待办',
   'phase.active': '进行中的目标',
   'phase.paused': '已暂停的目标',
   'phase.blocked': '受阻的目标',
@@ -20,6 +24,10 @@ export type GoalKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'progress.title': 'Progress',
+  'progress.completed': 'Completed',
+  'progress.running': 'In progress',
+  'progress.pending': 'Pending',
   'phase.active': 'Ongoing Goal',
   'phase.paused': 'Paused Goal',
   'phase.blocked': 'Blocked Goal',

@@ -539,6 +539,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     }
 
     let mut current_logged_revision = Revision::ZERO;
+    let mut plan_revision = 0_u64;
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
     let mut questions = HashMap::<String, QuestionInteraction>::new();
@@ -1173,6 +1174,17 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         ));
                     }
                 }
+            }
+            EventData::SessionPlanUpdated { plan } => {
+                plan.validate()
+                    .map_err(|message| lifecycle_error(logged.seq, message))?;
+                if plan.revision != plan_revision + 1 {
+                    return Err(lifecycle_error(
+                        logged.seq,
+                        "non-contiguous working plan revision",
+                    ));
+                }
+                plan_revision = plan.revision;
             }
             EventData::GoalExecution { .. } => {
                 has_goal_execution_events = true;

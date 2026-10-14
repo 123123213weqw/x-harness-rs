@@ -1043,6 +1043,7 @@ pub fn restored_web_event(
         | EventData::CommandDone { .. }
         | EventData::SessionTitle { .. }
         | EventData::GoalExecution { .. }
+        | EventData::SessionPlanUpdated { .. }
         | EventData::GoalChange { .. }
         | EventData::ScheduleChange { .. }
         | EventData::PlanMode { .. }

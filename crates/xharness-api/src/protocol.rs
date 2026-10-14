@@ -248,6 +248,40 @@ pub struct GoalRef {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GoalPlanItem {
+    pub id: String,
+    pub title: String,
+    pub status: GoalPlanItemStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalPlanItemStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GoalPlanView {
+    pub revision: u64,
+    pub items: Vec<GoalPlanItem>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GoalPlanUpdateResponse {
+    pub plan: GoalPlanView,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalPlanUpdateParams {
+    pub session_id: String,
+    pub plan_revision: u64,
+    pub items: Vec<GoalPlanItem>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalCreateParams {
     pub session_id: String,
@@ -860,6 +894,7 @@ typed_rpc_catalog! {
     AgentPresetCopy => (AgentPresetCopyParams, AgentPresetResponse),
     AgentPresetOpenDocument => (AgentPresetParams, OpenedResponse),
     AgentPresetRemove => (AgentPresetParams, EmptyParams),
+    GoalUpdatePlan => (GoalPlanUpdateParams, GoalPlanUpdateResponse),
     GoalCreate => (GoalCreateParams, GoalRefResponse),
     GoalEdit => (GoalEditParams, GoalRefResponse),
     GoalPause => (GoalTransitionParams, GoalRefResponse),

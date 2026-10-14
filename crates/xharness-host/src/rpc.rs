@@ -18,6 +18,7 @@ mod export;
 mod goal;
 mod host;
 mod interaction;
+mod session_plan;
 pub(crate) use interaction::respond_review;
 mod model;
 mod preset;
@@ -110,7 +111,8 @@ impl ApiBackend for BasicHost {
             | RpcMethod::AgentPresetCopy
             | RpcMethod::AgentPresetOpenDocument
             | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::GoalCreate
+            method @ (RpcMethod::GoalUpdatePlan
+            | RpcMethod::GoalCreate
             | RpcMethod::GoalEdit
             | RpcMethod::GoalPause
             | RpcMethod::GoalResume
