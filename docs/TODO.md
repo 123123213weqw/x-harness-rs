@@ -1,5 +1,15 @@
 # XHarness 总任务清单
 
+## 后台 Job 自动续跑（2026-10-14）
+
+- [x] `JOB-CONT-01` 正式 Native Host 接入 defer/cancel_defer、版本化持久 outbox、稳定 Inbox 回执去重、终态归档读取、启动恢复与有界 Shutdown；未绑定的嵌入方不广告新 action。
+- [x] `JOB-CONT-02` 停止与失败回执门闸覆盖 Host Admission 和 Actor claim，检查整个待处理队列的用户恢复信号；保留原 Goal 的授权退避重试策略，不重写 Loop。
+- [x] `JOB-CONT-03` 新增 13 个 Native/JSONL 回归；WZU_Server 扩展测试合计 782 通过、全 workspace 检查与严格 Clippy 通过。
+- [x] `JOB-CONT-04` 官方 DeepSeek 成功续跑得到 VERIFIED_OK；失败用例读取真实 exit 7 并报告失败。已记录模型一次尝试重跑失败脚本（被夹具拒绝），不承诺模型严格服从所有指令。
+- [ ] `JOB-CONT-05` 发布与已安装软件升级；当前提交用于 PR 审阅，未替换当前软件。
+
+规范：[后台 Job 自动续跑](specs/job-continuation.md)。证据：[正式链路验收](evidence/job-continuation-production-20261014.md)。
+
 ## 前端 CI 并行优化（2026-10-06）
 
 - [x] `CI-UI-01` 单 job 拆为严格构建、四契约分片、两引擎各四浏览器分片和独立构建前后像素检查；保留原 290 次 argv／env 调用，含重复次数。

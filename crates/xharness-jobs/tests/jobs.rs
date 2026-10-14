@@ -85,10 +85,10 @@ fn reservation_preflights_capacity_and_failed_start_does_not_consume_an_id() {
     drop(abandoned);
 
     let (id, lease) = start(&registry, "owner", "bash", "first actual process");
-    assert_eq!(id, "bash-1");
+    assert!(id.starts_with("bash-") && id.ends_with("-1"));
     lease.finish(JobOutcome::completed("exit code: 0"));
     let (next, next_lease) = start(&registry, "owner", "bash", "second process");
-    assert_eq!(next, "bash-2");
+    assert!(next.starts_with("bash-") && next.ends_with("-2"));
     next_lease.finish(JobOutcome::completed("exit code: 0"));
 }
 

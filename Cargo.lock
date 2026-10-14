@@ -3819,6 +3819,7 @@ dependencies = [
  "xharness-core",
  "xharness-debug",
  "xharness-interaction",
+ "xharness-jobs",
  "xharness-process",
  "xharness-projection",
  "xharness-prompt",
@@ -3913,9 +3914,12 @@ dependencies = [
 name = "xharness-jobs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -89,6 +89,7 @@ pub struct CodingToolBundle {
     session_id: Arc<str>,
     owner_id: Arc<str>,
     media_reader: Option<Arc<dyn MediaReader>>,
+    continuation: Option<Arc<dyn xharness_jobs::continuation::JobContinuationPort>>,
     shell: Result<Shell, ShellError>,
 }
 
@@ -107,6 +108,7 @@ impl CodingToolBundle {
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
             media_reader: None,
+            continuation: None,
             shell: Shell::discover(),
         }
     }
@@ -119,6 +121,14 @@ impl CodingToolBundle {
 
     pub fn with_media_reader(mut self, reader: Arc<dyn MediaReader>) -> Self {
         self.media_reader = Some(reader);
+        self
+    }
+
+    pub fn with_job_continuation(
+        mut self,
+        port: Arc<dyn xharness_jobs::continuation::JobContinuationPort>,
+    ) -> Self {
+        self.continuation = Some(port);
         self
     }
 
@@ -267,39 +277,47 @@ impl CodingToolBundle {
     fn job_output_spec(&self) -> ToolSpec {
         let jobs = Arc::clone(&self.jobs);
         let owner = Arc::clone(&self.owner_id);
+        let port = self.continuation.clone();
+        let mut schema = json!({"type":"object","properties":{
+            "job_id":{"type":"string"},"cursor":{"type":"object","properties":{
+                "job_id":{"type":"string"},"stdout":{"type":"integer","minimum":0},"stderr":{"type":"integer","minimum":0}},
+                "required":["job_id","stdout","stderr"],"additionalProperties":false},
+            "wait":{"type":"boolean"},"timeout_ms":{"type":"integer","description":"Positive wait bound; defaults to 30000 and is capped at 600000. Only used with wait=true."}},
+            "required":["job_id"],"additionalProperties":false});
+        let mut description = "Read bounded output from one managed background job without consuming it. Pass next_cursor on the next live read; omitting it replays the retained window. wait=true is a bounded foreground wait: use it for a short immediate dependency, not every launched job. A timeout returns running, not success or failure. Do not busy-poll or duplicate producer work.".to_owned();
+        if port.is_some() {
+            schema["properties"]["action"] =
+                json!({"type":"string","enum":["defer","cancel_defer"]});
+            schema["properties"]["continuation"] = json!({"type":"string","maxLength":2048,"description":"Required with action=defer. State the dependent work to continue when this Job settles."});
+            description.push_str(" For a long immediate producer, action=defer with continuation registers automatic durable continuation WITHOUT waiting. Do independent work now; if none remains, end this turn with a brief pending update. On completion the Host queues one terminal receipt and resumes the dependent work. Do not call wait=true after defer unless the current turn genuinely needs the result now. action=cancel_defer cancels an undelivered subscription, NOT its producer; delivered input cannot be retracted. Duplicate identical registration is idempotent; cancelled registration is not rearmed. Restart with an unavailable producer yields interrupted with unknown side effects, never automatic script replay. Archived terminal output is a bounded snapshot with cursor_supported=false, not a live log. Failed/killed/interrupted never means success. Do not create nohup/script polling loops or schedules just to bypass managed lifecycle.");
+        }
         ToolSpec::new(
             definition(
                 "job_output",
-                "Read bounded output from one managed background job without consuming it. Pass the returned next_cursor on the next read; omitting it replays the retained window. Set wait=true only when blocked on this job; a wait timeout returns the still-running status and is not an error. Track every job id and collect relevant jobs before the final answer; do not busy-poll or duplicate their work.",
-                json!({
-                    "type": "object",
-                    "properties": {
-                        "job_id": {"type": "string"},
-                        "cursor": {
-                            "type": "object",
-                            "properties": {
-                                "job_id": {"type": "string"},
-                                "stdout": {"type": "integer", "minimum": 0},
-                                "stderr": {"type": "integer", "minimum": 0}
-                            },
-                            "required": ["job_id", "stdout", "stderr"],
-                            "additionalProperties": false
-                        },
-                        "wait": {"type": "boolean"},
-                        "timeout_ms": {
-                            "type": "integer",
-                            "description": "Positive wait bound; defaults to 30000 and is capped at 600000. Only used with wait=true."
-                        }
-                    },
-                    "required": ["job_id"],
-                    "additionalProperties": false
-                }),
+                &description,
+                schema,
             ),
             move |context| {
                 let jobs = Arc::clone(&jobs);
                 let owner = Arc::clone(&owner);
+                let port = port.clone();
                 async move {
                     let job_id = required_string(&context, "job_id")?;
+                    if let Some(action) = context.arguments.get("action") {
+                        if ["cursor","wait","timeout_ms"].iter().any(|k|context.arguments.get(k).is_some()) {
+                            return Err(ToolHandlerError::new("action cannot be combined with cursor/wait/timeout_ms"));
+                        }
+                        let port = port.as_ref().ok_or_else(||ToolHandlerError::new("automatic Job continuation unavailable"))?;
+                        let value = match action.as_str() {
+                            Some("defer") => port.defer(&owner,&job_id,&required_string(&context,"continuation")?).await,
+                            Some("cancel_defer") if context.arguments.get("continuation").is_none() => port.cancel_defer(&owner,&job_id).await,
+                            _ => return Err(ToolHandlerError::new("invalid Job continuation action or arguments")),
+                        }.map_err(handler_error)?;
+                        return Ok(json_output(value));
+                    }
+                    if context.arguments.get("continuation").is_some() {
+                        return Err(ToolHandlerError::new("continuation requires action=defer"));
+                    }
                     let cursor = match context.arguments.get("cursor") {
                         Some(value) => serde_json::from_value::<JobOutputCursor>(value.clone())
                             .map_err(handler_error)?,
@@ -311,8 +329,21 @@ impl CodingToolBundle {
                             "timeout_ms is only valid when wait=true",
                         ));
                     }
-                    if wait {
-                        let timeout = job_wait_argument(&context)?;
+                    let timeout = if wait { Some(job_wait_argument(&context)?) } else { None };
+                    if let Err(error) = jobs.get(&owner,&job_id) {
+                        if matches!(error,xharness_jobs::JobError::NotFound {..}) {
+                            if let Some(port) = &port {
+                                if let Some(snapshot) = port.archived_output(&owner,&job_id).await.map_err(handler_error)? {
+                                    if context.arguments.get("cursor").is_some() {
+                                        return Err(ToolHandlerError::new("archived terminal snapshot has no cursor; omit cursor to read its bounded retained output"));
+                                    }
+                                    return Ok(json_output(snapshot));
+                                }
+                            }
+                        }
+                        return Err(handler_error(error));
+                    }
+                    if let Some(timeout) = timeout {
                         tokio::select! {
                             result = jobs.wait(&owner, &job_id, timeout) => {
                                 result.map_err(handler_error)?;

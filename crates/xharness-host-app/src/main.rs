@@ -300,6 +300,7 @@ async fn run(
         host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
     }
     tools.bind_agent_host(&host)?;
+    let job_continuations = tools.enable_job_continuations(store.clone(), &host)?;
     *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let model_settings_base = match &args.providers_file {
         Some(path) => config::settings_from_file(path)?,
@@ -455,6 +456,7 @@ async fn run(
         }
     }
     host.start_delegation_listener();
+    job_continuations.start();
     if let Some(execution) = &hosted {
         execution.record_ready()?;
     }
@@ -526,6 +528,9 @@ async fn run(
                 None => unreachable!("one recovery worker was just spawned"),
             }
             tokio::task::yield_now().await;
+        }
+        if let Err(error) = job_continuations.recover().await {
+            eprintln!("xharness Job continuation recovery failed: {error}");
         }
         hydration_host.backfill_startup_metrics().await;
     });

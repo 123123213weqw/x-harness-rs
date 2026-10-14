@@ -5,6 +5,8 @@
 //! restart. The session event log is the only authoritative history.
 
 mod activation;
+mod admission;
+pub use admission::{internal_inputs_blocked, is_completion_receipt, is_user_inbox_message};
 mod driver;
 mod inbox;
 mod lease;
