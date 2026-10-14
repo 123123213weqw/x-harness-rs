@@ -10,3 +10,7 @@
 .xhm-root :focus-visible { outline:2px solid currentColor; outline-offset:2px; }
 .xhm-root [role=alert] { color:inherit; border-inline-start:2px solid currentColor; padding-inline-start:12px; }
 .xhm-actions { display:flex; gap:4px; margin:16px 0 4px; flex-wrap:wrap; }
+
+.xhm-scopes { display:flex; gap:4px; border-bottom:1px solid var(--dsr-border-1,#8885); margin:16px 0; }
+.xhm-scopes button { border:0; border-radius:0; margin:0; padding:10px 4px; margin-inline-end:20px; opacity:.55; }
+.xhm-scopes [aria-selected=true] { opacity:1; border-bottom:2px solid currentColor; font-weight:600; }

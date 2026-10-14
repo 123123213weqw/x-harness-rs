@@ -11,7 +11,19 @@ pub(super) async fn call(host: &BasicHost, id: RpcId, payload: &Value) -> Result
         .into_iter()
         .filter(|key| object.contains_key(*key))
         .collect::<Vec<_>>();
-    if scopes.len() != 1 || object[scopes[0]].as_str().is_none_or(str::is_empty) {
+    let global = match object.get("scope") {
+        Some(Value::String(scope)) if scope == "global" => true,
+        None => false,
+        Some(Value::String(scope)) if scope == "workspace" => false,
+        _ => return Err(bad_request("scope must be global or workspace")),
+    };
+    if global {
+        if !scopes.is_empty() {
+            return Err(bad_request(
+                "global memory must not include workspace/session selectors",
+            ));
+        }
+    } else if scopes.len() != 1 || object[scopes[0]].as_str().is_none_or(str::is_empty) {
         return Err(bad_request(
             "select exactly one nonempty sessionId or workspaceId",
         ));
@@ -25,7 +37,7 @@ pub(super) async fn call(host: &BasicHost, id: RpcId, payload: &Value) -> Result
         _ => return Err(bad_request("unknown memory action")),
     };
     if object.keys().any(|key| {
-        !["action", "sessionId", "workspaceId"].contains(&key.as_str())
+        !["action", "scope", "sessionId", "workspaceId"].contains(&key.as_str())
             && !fields.contains(&key.as_str())
     }) {
         return Err(bad_request("unknown memory field"));
@@ -41,12 +53,16 @@ pub(super) async fn call(host: &BasicHost, id: RpcId, payload: &Value) -> Result
             return Ok(value);
         }
     }
-    let cwd = host.memory_cwd(payload).await.map_err(bad_request)?;
+    let scope = if global {
+        crate::memory::MemoryScope::Global
+    } else {
+        crate::memory::MemoryScope::Workspace(host.memory_cwd(payload).await.map_err(bad_request)?)
+    };
     if action == "view" {
-        return host.memory_view(cwd).await.map_err(RpcError::internal);
+        return host.memory_view(scope).await.map_err(RpcError::internal);
     }
     let response = host
-        .memory_update(cwd, &action, payload)
+        .memory_update(scope, &action, payload)
         .await
         .map_err(bad_request)?;
     // Files and the control log are separate stores. A response lost between

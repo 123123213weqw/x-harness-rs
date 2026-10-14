@@ -235,10 +235,19 @@ async fn actual_turn_refreshes_queued_rules_but_tool_steps_keep_one_snapshot() {
             )
             .await
             .unwrap();
+        fx.host
+            .memory_update(
+                crate::memory::MemoryScope::Global,
+                "save",
+                &json!({"content":"GLOBAL_V1","version":null}),
+            )
+            .await
+            .unwrap();
         fx.prompt("first").await;
         let first = system(&fx.next().await);
         assert!(first.contains("ROOT_RULE_V1"));
         assert!(first.contains("MEMORY_V1"));
+        assert!(first.contains("GLOBAL_V1"));
         // Queue while the old file is present; the next actual turn must
         // refresh, while this turn's following tool step must not.
         fx.prompt("queued").await;
@@ -256,6 +265,19 @@ async fn actual_turn_refreshes_queued_rules_but_tool_steps_keep_one_snapshot() {
             )
             .await
             .unwrap();
+        let global = fx
+            .host
+            .memory_view(crate::memory::MemoryScope::Global)
+            .await
+            .unwrap();
+        fx.host
+            .memory_update(
+                crate::memory::MemoryScope::Global,
+                "save",
+                &json!({"content":"GLOBAL_V2","version":global["version"]}),
+            )
+            .await
+            .unwrap();
         fx.release.add_permits(1);
         let second = system(&fx.next().await);
         assert_eq!(first, second);
@@ -263,6 +285,8 @@ async fn actual_turn_refreshes_queued_rules_but_tool_steps_keep_one_snapshot() {
         let third = system(&fx.next().await);
         assert!(third.contains("ROOT_RULE_V2"));
         assert!(third.contains("MEMORY_V2"));
+        assert!(third.contains("GLOBAL_V2"));
+        assert!(!third.contains("GLOBAL_V1"));
         assert!(!third.contains("MEMORY_V1"));
         assert!(!third.contains("ROOT_RULE_V1"));
         assert_eq!(third.matches("ROOT_RULE_V2").count(), 1);
