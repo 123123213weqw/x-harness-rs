@@ -602,7 +602,7 @@ jobs:
       - name: Build installable Windows application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         id: windows-bundle
-        uses: tauri-apps/tauri-action@v0.6.2
+        uses: tauri-apps/tauri-action@v1.0.0
         with:
           projectPath: apps/desktop
           args: >-
@@ -750,7 +750,7 @@ jobs:
           retention-days: 3
       - name: Build installable macOS application
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: tauri-apps/tauri-action@v0.6.2
+        uses: tauri-apps/tauri-action@v1.0.0
         with:
           projectPath: apps/desktop
           args: >-
