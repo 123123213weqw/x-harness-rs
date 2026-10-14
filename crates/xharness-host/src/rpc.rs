@@ -18,6 +18,7 @@ mod export;
 mod goal;
 mod host;
 mod interaction;
+mod jobs;
 pub(crate) use interaction::respond_review;
 mod memory;
 mod model;
