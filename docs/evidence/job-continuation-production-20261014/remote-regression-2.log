@@ -1,0 +1,24 @@
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-session)
+   Compiling xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-jobs)
+   Compiling xharness-coding-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-coding-tools)
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-compaction)
+   Compiling xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-goal)
+   Compiling xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-attachments)
+   Compiling xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-session-jsonl)
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-context)
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-core)
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-agent)
+   Compiling xharness-projection v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-projection)
+   Compiling xharness-provider-openai v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-provider-openai)
+   Compiling xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-schedule)
+   Compiling xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host)
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+error[E0599]: no method named `is_ok` found for enum `RpcReceipt` in the current scope
+   --> crates/xharness-host-app/tests/job_continuation.rs:305:256
+    |
+305 | ...valId"],"outcome":"allowed-once"}))}}).await.is_ok());
+    |                                                 ^^^^^ method not found in `RpcReceipt`
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `xharness-host-app` (test "job_continuation") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
