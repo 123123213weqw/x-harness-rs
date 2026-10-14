@@ -534,6 +534,16 @@
       ]
     },
     {
+      "id": "@xlang/xharness-client-ui-memory",
+      "kind": "source-module",
+      "source": "src/modules/memory/index.tsx",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-ui-settings-general"
+      ]
+    },
+    {
       "id": "@xlang/xharness-client-plugin-api",
       "kind": "plugin-api-ts",
       "source": "src/plugin-api/client.ts",

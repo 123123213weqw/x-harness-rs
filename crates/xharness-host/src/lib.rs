@@ -25,8 +25,10 @@ mod goal_tool;
 mod goals;
 mod history_tool;
 mod instructions;
+mod memory;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
+pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};
 mod display;
 mod driver;
 mod event_gateway;
@@ -100,6 +102,8 @@ pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, Workspa
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
+    /// Local profile-global and workspace memory, outside Git. Embeddings opt in explicitly.
+    pub memory_dir: Option<PathBuf>,
     pub cwd: PathBuf,
     pub home: PathBuf,
     pub version: String,
@@ -137,6 +141,7 @@ impl HostConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         Self {
+            memory_dir: None,
             cwd,
             home,
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -266,6 +271,8 @@ pub struct BasicHost {
     pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
     instructions: instructions::InstructionLoader,
+    memory: Arc<memory::MemoryStore>,
+    memory_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
     pub(crate) github: Arc<std::sync::OnceLock<Arc<dyn GitHubBackend>>>,
@@ -368,6 +375,8 @@ impl BasicHost {
             event_gateway,
             questions,
             instructions: instructions::InstructionLoader::default(),
+            memory: Arc::new(memory::MemoryStore::default()),
+            memory_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
             github: Arc::new(std::sync::OnceLock::new()),

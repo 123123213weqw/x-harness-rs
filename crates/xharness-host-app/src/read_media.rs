@@ -23,6 +23,11 @@ impl xharness_coding_tools::MediaReader for Reader {
         if cancel.is_cancelled() {
             return Err(err("read cancelled"));
         }
+        // The file mount owns this virtual capability and its live mode gate.
+        // Never sniff an identically named project file or bypass revocation.
+        if path.starts_with("memory:") {
+            return Ok(None);
+        }
         if let Some(id) = path.strip_prefix("attachment://") {
             if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                 return Err(err("invalid attachment reference"));
