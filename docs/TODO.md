@@ -1,5 +1,12 @@
 # XHarness 总任务清单
 
+## 压缩失败后的回执派发门禁（2026-10-12）
+
+- [x] `FAIL-ADMISSION-01` Host 与 Actor 从权威终态共用自动派发门禁；压缩／上下文不可重试失败后，内部回执保留、去重、落盘，但不再次启动计数／模型／压缩。旧日志与重启生效，不清空历史、不重写架构。
+- [x] `FAIL-ADMISSION-02` 按可信 Source 区分真实用户与内部上下文，兼容 Host admission 包装；直接 Actor 用户恢复和 Claim 原子 CAS。保留正常通知与 Goal 已分类网络退避，手动 Compact 不隐式解锁，失败停车不覆盖 Goal 原错误原因。
+- [x] `FAIL-ADMISSION-03` 新增 11 项回归（含旧检查点回退）；V100 同步当前源码后相关四模块 428 项通过、0 失败，6 项既有诊断用例保持忽略；严格 Clippy 通过。2026-10-13 同步最新 master 后 434 项通过、0 失败、6 项既有诊断忽略，严格 Clippy 通过；集成源码与原始验收分别绑定哈希。隔离恢复旧门禁时，回归正确捕获额外计数调用。证据见 `docs/evidence/compaction-settlement-admission-20261012/verification.json`。
+- [ ] `FAIL-ADMISSION-04` PR 审核、当前 SHA 的跨平台 CI 与正式部署；PR 提交阶段不自动合并、发布或重启应用。
+
 ## 前端 CI 并行优化（2026-10-06）
 
 - [x] `CI-UI-01` 单 job 拆为严格构建、四契约分片、两引擎各四浏览器分片和独立构建前后像素检查；保留原 290 次 argv／env 调用，含重复次数。
