@@ -457,6 +457,15 @@ mod tests {
     }
     #[test]
     fn route_defaults_and_custom_efforts_remain_provider_owned() {
+        let mut automatic_parent = parent();
+        automatic_parent.context_window_tokens = None;
+        let inherited = ModelOverride::default()
+            .resolve(&automatic_parent, &catalog())
+            .unwrap();
+        assert_eq!(
+            inherited.context_window_tokens, None,
+            "automatic capacity must remain automatic in a child"
+        );
         assert!(same_selection(
             &parent(),
             &ModelOverride::default()
