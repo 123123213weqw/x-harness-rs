@@ -1,5 +1,5 @@
 {
-  "rev": "bef75996a3a6aea4",
+  "rev": "ec7c1b61c8ca6e22",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -202,8 +202,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-settings-general",
-      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=ce3259bca960810f",
-      "rev": "ce3259bca960810f",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=9c1649bf2a601e19",
+      "rev": "9c1649bf2a601e19",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-settings",
