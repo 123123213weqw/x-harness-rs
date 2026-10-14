@@ -15,6 +15,7 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 | send | agent_id、message | 运行中安全 Steering；空闲时下一轮；暂停时只入队 |
 | inspect | 可选 agent_id | 指定孩子状态、模型与最近持久结算；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
 | stop | agent_id | 中断当前轮，保留未领取消息，暂停后续派发 |
+| revert | agent_id、checkpoint_seq、message | 主 Agent 显式选择完整前缀，建立受管纠偏分支；保留原历史，不回滚文件 |
 
 工具根 Schema 使用便携 object + action enum；Rust tagged enum 严格验证分支字段，
 拒绝跨 action 字段、缺参、空文本和未知操作。不把 parent/sender 身份交给模型填写。
@@ -238,3 +239,43 @@ Host 必须在子会话的 `session.list` 摘要和 `host/session-added` 推送�
 在 Chromium/WebKit 验证鼠标、键盘及恢复后的 child → parent 导航。
 其中输入框为隔离夹具，不能替代完整原生 App 的 RPC/发送消息端到端验收。
 本修复尚未替换本机安装包；安装新 Host 并重连后，既有持久化孩子可恢复该标记。
+
+## 主 Agent 显式小步纠偏（context branch，不是文件回滚）
+
+新增同一 `agent` 工具的 `revert` action。不是自动 retry、自动换模型、第二套模型循环，
+也不修改普通 `send`。仅直接父 Agent 可以选择回推位置与纠偏指令：
+
+```json
+{"action":"inspect","agent_id":"source-child"}
+{"action":"revert","agent_id":"source-child","checkpoint_seq":26,"message":"回到授权范围问题；先核对当前文件，不继续错误登录计划。"}
+```
+
+- `inspect.revert_checkpoints` 提供最近最多 8 个完整 StepEnd／TurnEnd 候选（seq、turn、step、工具名及轮次终态）。
+  提供事实定位点帮助主 Agent 选择，不暴露工具参数／结果正文／隐藏推理。
+  不定时探测、没有检查点 TTL，也不以模型输出耗时判断过期。准入再核对权威日志。
+- **回推前缀上下文，不擦除原历史**：原孩子完整对话仍保存；新分支保留检查点之前的
+  正文、真实推理、工具调用／结果及观察。不是伪造 CoT，不用新摘要代替完整前缀。
+- **新分支仍是当前主 Agent 的直接孩子**，返回新的 `agent_id`，后续 send／inspect／stop
+  使用这个 ID。不是普通 session.fork，也不是孩子创建孙级。原孩子不会被自动重发任务。
+  同工作区的两条轨迹不具备文件事务隔离；主 Agent 不应同时恢复原孩子做依赖性编辑。
+- **不回滚文件、Git、远端操作、外部服务**。即使新上下文不含后续写操作，真实效果仍存在；
+  Host 在纠偏消息中明确要求核对当前状态，再决定是否重复有副作用的工作。
+- 源孩子必须空闲且未暂停，无待派发 Inbox／未决审批／未答问题／未知工具结果，
+  无未闭合轮次／压缩，无 Goal／Schedule。不能通过回推绕过人工暂停或未决操作保护；
+  运行中不会偷偷取消。停止后的人工恢复规则与原版一致。
+- 必须是权威日志里的完整 StepEnd／TurnEnd；不接受半个工具、流式块或不存在的 seq。
+  检查点的模型／权限／Preset／Plan 配置必须与当前孩子一致，不借回推改路由或扩大权限。
+  StepEnd 位于已结束源轮次的内部时，在新分支以既有 Interrupted 事实闭合该前缀轮次；
+  不伪造 Completed 或成功工具结果。
+- 创建确定性分支 ID，前缀＋新的 `SessionForkOrigin`／`AgentDelegated` 一批持久化，
+  原委派行政元数据不复制；已消费 Inbox 事实仍保留。新的主归属是出入队／结算命名空间。
+  同 invocation、同操作重试返回同一回执；改变指令或检查点冲突。创建后、首次 Inbox
+  投递前崩溃，现有 listener 只恢复纠偏消息；历史轮次不重新通知主 Agent。
+- `accepted` 仍只证明纠偏消息入队，不代表模型已纠正；UI 展示原孩子、检查点、新孩子与
+  “仅回推上下文，不回滚文件”，严格核对双方 ID 和检查点回执。
+
+验收分层：受控 Host／DurableLoop 测试验证前缀、工具配对、源历史不变、真实文件标记不变、
+无工具重放、所有权、幂等、停止和冷恢复；真实模型入口为
+`crates/xharness-host-app/examples/subagent_revert_acceptance.rs` 与
+`scripts/experiments/live-subagent-revert.py`，只在 V100 一次性合成目录验收，上游 API Key 留在本机，远端只持有受请求次数限制的临时 relay nonce。
+真实验收是方向变更链路，不把合成故障／模型参数实验当作生产任务质量全面通过。

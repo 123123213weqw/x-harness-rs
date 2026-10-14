@@ -4,6 +4,8 @@
 //! in the Host adapter. This module only turns immutable facts into the public
 //! model-selector view.
 
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};

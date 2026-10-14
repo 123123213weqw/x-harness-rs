@@ -18447,8 +18447,9 @@ function agentCommunicationModel(toolName, block) {
     if (!record(args))
         return null;
     const action = args.action;
-    if (action !== 'start' && action !== 'send' && action !== 'stop')
+    if (action !== 'start' && action !== 'send' && action !== 'stop' && action !== 'revert')
         return null;
+    const checkpoint = action === 'revert' && typeof args.checkpoint_seq === 'number' && Number.isSafeInteger(args.checkpoint_seq) && args.checkpoint_seq >= 0 ? args.checkpoint_seq : null;
     const target = action === 'start' ? text(args.label) : text(args.agent_id);
     const message = text(action === 'start' ? args.task : args.message) ?? '';
     const output = done ? (0, tool_call_model_1.resultText)(block) || null : null;
@@ -18456,7 +18457,7 @@ function agentCommunicationModel(toolName, block) {
     const ackTarget = ack === null ? null : text(ack.agent_id);
     const messageId = ack === null ? null : text(ack.message_id);
     // An acknowledgement for another child is not evidence for this call.
-    const matches = ackTarget !== null && (action === 'start' || ackTarget === target);
+    const matches = ackTarget !== null && (action === 'start' || (action === 'revert' ? ack !== null && text(ack.source_agent_id) === target && checkpoint !== null && ack.checkpoint_seq === checkpoint && ack.filesystem_rollback === false && ackTarget !== target : ackTarget === target));
     let phase = 'sending';
     if (done) {
         if (block.error?.code === 'OUTCOME_UNKNOWN' || block.error?.code === 'interrupted')
@@ -18473,7 +18474,8 @@ function agentCommunicationModel(toolName, block) {
     const state = phase === 'sending' ? 'running'
         : phase === 'failed' ? 'error'
             : phase === 'unknown' || phase === 'unconfirmed' ? 'stopped' : 'ok';
-    return { action, target: action === 'start' && matches ? ackTarget : target, message,
+    return { action, target: (action === 'start' || action === 'revert') && matches ? ackTarget : target, message,
+        source: action === 'revert' ? target : null, checkpoint,
         messageId: phase === 'queued' ? messageId : null, phase, state, output };
 }
 /** Keep the status visible outside the clipped message preview. Full message
@@ -18484,8 +18486,8 @@ function agentCommunicationCopy(model, chinese) {
         ? { sending: '发送中', queued: '已入队', 'stop-requested': '已请求停止', failed: '工具失败', unknown: '状态未知', unconfirmed: '未确认' }
         : { sending: 'Sending', queued: 'Queued', 'stop-requested': 'Stop requested', failed: 'Tool failed', unknown: 'Outcome unknown', unconfirmed: 'Unconfirmed' };
     const titles = chinese
-        ? { start: '创建子 Agent', send: '发送给 Agent', stop: '停止 Agent' }
-        : { start: 'Start agent', send: 'Message to agent', stop: 'Stop agent' };
+        ? { start: '创建子 Agent', send: '发送给 Agent', stop: '停止 Agent', revert: '纠偏子 Agent' }
+        : { start: 'Start agent', send: 'Message to agent', stop: 'Stop agent', revert: 'Correct agent' };
     const target = model.target ?? (chinese ? '目标待确认' : 'Target unconfirmed');
     const shortTarget = target.length > 24 ? target.slice(0, 12) + '…' + target.slice(-8) : target;
     const preview = model.message.replace(/\s+/g, ' ').slice(0, 160);
@@ -18500,7 +18502,7 @@ function agentCommunicationCopy(model, chinese) {
         title: titles[model.action],
         summary: preview === '' ? shortTarget : `${shortTarget} · ${preview}`,
         status: phases[model.phase],
-        body: `${chinese ? '目标' : 'Target'}: ${target}\n${model.messageId === null ? '' : `${chinese ? '消息 ID' : 'Message ID'}: ${model.messageId}\n`}\n${model.message}\n\n${note}`,
+        body: `${model.source === null ? '' : `${chinese ? '原 Agent' : 'Source agent'}: ${model.source} · ${chinese ? '检查点' : 'Checkpoint'}: ${model.checkpoint ?? '?'}\n${chinese ? '仅回推上下文，不回滚文件。' : 'Context branch only; files are not rolled back.'}\n`}${chinese ? '目标' : 'Target'}: ${target}\n${model.messageId === null ? '' : `${chinese ? '消息 ID' : 'Message ID'}: ${model.messageId}\n`}\n${model.message}\n\n${note}`,
     };
 }
 

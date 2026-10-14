@@ -24,6 +24,12 @@ pub enum AgentOperation {
         agent_id: String,
         message: String,
     },
+    /// Explicit parent-selected context branch; never a filesystem rollback.
+    Revert {
+        agent_id: String,
+        checkpoint_seq: u64,
+        message: String,
+    },
     Inspect {
         #[serde(default)]
         agent_id: Option<String>,
@@ -69,7 +75,10 @@ impl AgentOperation {
                     }
                 }
             }
-            Self::Send { agent_id, message } => {
+            Self::Send { agent_id, message }
+            | Self::Revert {
+                agent_id, message, ..
+            } => {
                 text(agent_id, "agent_id", 256)?;
                 text(message, "message", 32768)?;
             }
@@ -105,6 +114,9 @@ mod tests {
             json!({"action":"start","task":"x","agent_id":"a"}),
             json!({"action":"stop","agent_id":"a","message":"x"}),
             json!({"action":"send","agent_id":"a"}),
+            json!({"action":"revert","agent_id":"a","message":"fix"}),
+            json!({"action":"revert","agent_id":"a","message":"fix","checkpoint_seq":-1}),
+            json!({"action":"revert","agent_id":"a","message":"fix","checkpoint_seq":1,"model":"x"}),
             json!({"action":"delete","agent_id":"a"}),
             json!({"action":"inspect","parent_id":"fake"}),
             json!({"action":"send","agent_id":"a","message":"x","model":"test"}),
@@ -163,13 +175,14 @@ mod tests {
         }
     }
     #[test]
-    fn validates_all_four_actions_and_bounds() {
+    fn validates_all_actions_and_bounds() {
         for value in [
             json!({"action":"start","task":"检查中文路径"}),
             json!({"action":"send","agent_id":"a","message":"继续"}),
             json!({"action":"inspect"}),
             json!({"action":"inspect","agent_id":"a"}),
             json!({"action":"stop","agent_id":"a"}),
+            json!({"action":"revert","agent_id":"a","checkpoint_seq":4,"message":"纠偏"}),
         ] {
             serde_json::from_value::<AgentOperation>(value)
                 .unwrap()

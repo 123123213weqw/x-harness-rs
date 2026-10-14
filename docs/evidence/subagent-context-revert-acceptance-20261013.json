@@ -1,0 +1,708 @@
+{
+  "date": "2026-10-13",
+  "scope": "production_parent_controlled_context_branch_no_file_rollback",
+  "base_pr": 283,
+  "source_sha256": {
+    "crates/xharness-agent/src/delegation.rs": "45e8d7f8f7a7a201157677e7d79112bc793fe758e8c5eafa83bc24c88e21481c",
+    "crates/xharness-host/src/delegation.rs": "dc5c2cc3c34677329e93b6fc680b49062a0ebbcae49257196946af6c7094de32",
+    "crates/xharness-host/src/delegation/revert.rs": "fb34d20de50dc4203a0ce222d3f66d6c3e15357b1866b5c707bc4cbe04d8a638",
+    "crates/xharness-host/src/delegation/settlement.rs": "3fb49470d85089a709e569b1c46f3c0f7b9d01e23f6b7e130dda4f8b2ce9bd0f",
+    "crates/xharness-host/src/delegation/tests/revert_tests.rs": "1d5492ae3d373493a3c2eabf83d4785316083f738363a7f455e348f513db7f7c",
+    "crates/xharness-host/src/delegation/tests/small_step_retry_experiment.rs": "e3cde29942d60b6af5a19f04fb658fd9762710ad80fe92b453a19bf42d0fd29b",
+    "crates/xharness-host-app/examples/subagent_revert_acceptance.rs": "14ecf4377983051dd30fa15fc76382ea00277cde8f6c4cb13e933fc0009a7251"
+  },
+  "remote_rust": {
+    "server": "WZU_Server",
+    "full_agent_host_and_native_guard_tests_before_landmarks": [
+      {
+        "passed": 15,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 10,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 20,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 307,
+        "failed": 0,
+        "ignored": 6
+      },
+      {
+        "passed": 22,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      }
+    ],
+    "passed": 388,
+    "ignored": 6,
+    "latest_landmarks_delegation_tests": {
+      "passed": 36,
+      "failed": 0
+    },
+    "no_local_rust_compilation": true
+  },
+  "frontend": {
+    "strict_typecheck": true,
+    "tool_source_tests": {
+      "passed": 10,
+      "failed": 0
+    },
+    "rebuild_and_check": true,
+    "architecture": {
+      "passed": 5
+    }
+  },
+  "real_provider": {
+    "route": "deepseek-flash",
+    "thinking": "disabled for real transport acceptance; controlled provider tests separately preserve reasoning deltas",
+    "runs": [
+      {
+        "scope": "real_rust_production_agent_tool",
+        "passed": true,
+        "exit_code": 0,
+        "fixture": "/tmp/xharness-revert-live-1122091db851999e",
+        "requests": 6,
+        "usage_receipts": [
+          {
+            "request": 1,
+            "reported_usage": {
+              "prompt_tokens": 1962,
+              "completion_tokens": 32,
+              "total_tokens": 1994,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 1962
+            },
+            "input_messages": 2
+          },
+          {
+            "request": 2,
+            "reported_usage": {
+              "prompt_tokens": 2045,
+              "completion_tokens": 43,
+              "total_tokens": 2088,
+              "prompt_tokens_details": {
+                "cached_tokens": 1792
+              },
+              "prompt_cache_hit_tokens": 1792,
+              "prompt_cache_miss_tokens": 253
+            },
+            "input_messages": 4
+          },
+          {
+            "request": 3,
+            "reported_usage": {
+              "prompt_tokens": 2117,
+              "completion_tokens": 151,
+              "total_tokens": 2268,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 197
+            },
+            "input_messages": 6
+          },
+          {
+            "request": 4,
+            "reported_usage": {
+              "prompt_tokens": 2240,
+              "completion_tokens": 41,
+              "total_tokens": 2281,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 320
+            },
+            "input_messages": 5
+          },
+          {
+            "request": 5,
+            "reported_usage": {
+              "prompt_tokens": 2315,
+              "completion_tokens": 48,
+              "total_tokens": 2363,
+              "prompt_tokens_details": {
+                "cached_tokens": 2176
+              },
+              "prompt_cache_hit_tokens": 2176,
+              "prompt_cache_miss_tokens": 139
+            },
+            "input_messages": 7
+          },
+          {
+            "request": 6,
+            "reported_usage": {
+              "prompt_tokens": 2392,
+              "completion_tokens": 177,
+              "total_tokens": 2569,
+              "prompt_tokens_details": {
+                "cached_tokens": 2176
+              },
+              "prompt_cache_hit_tokens": 2176,
+              "prompt_cache_miss_tokens": 216
+            },
+            "input_messages": 9
+          }
+        ],
+        "stderr": "",
+        "filesystem_rollback": false,
+        "provider_api_key_sent_to_server": false,
+        "acceptance_revision": "before additional pending-question/compaction guards",
+        "result": {
+          "branch": "agent-8b5179a59565573786922acfb81c15809e5225b17b81c6113b8006fcafb160ce",
+          "checkpoint_seq": 29,
+          "correction_calls": [
+            "read_plan",
+            "write_plan"
+          ],
+          "files_rolled_back": false,
+          "final_file": "AUTHORIZATION_ONLY",
+          "initial_file": "STALE_LOGIN_PLAN",
+          "managed_branch": true,
+          "original_history_unchanged": true,
+          "retained_fact_in_provider_request": true,
+          "scope": "production_agent_tool_real_deepseek_synthetic_direction_change",
+          "settlement": {
+            "agents": [
+              {
+                "agent_id": "agent-8b5179a59565573786922acfb81c15809e5225b17b81c6113b8006fcafb160ce",
+                "label": "Synthetic integration acceptance. First call read_context ALONE and wait for its",
+                "model": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance"
+                },
+                "pending_messages": 0,
+                "status": "idle"
+              }
+            ],
+            "last_settlement": {
+              "agent_id": "agent-8b5179a59565573786922acfb81c15809e5225b17b81c6113b8006fcafb160ce",
+              "answer": "Done — report follows.\n\n**Fact (from `read_context`, still valid):** `FACT_AUTH_42: the project concerns authorization scopes, not login.`\n\n**Current file state:**\n- Before correction, `read_plan` returned exactly `STALE_LOGIN_PLAN`, meaning the earlier (pre-checkpoint) instruction had already been executed and left stale content on disk.\n- I then applied the corrected instruction and wrote `AUTHORIZATION_ONLY` (`write_plan` → `written`). The file now contains exactly `AUTHORIZATION_ONLY`, which matches the valid authorization-scope context.\n\n**What I did not do:** no `read_context` re-read, no shell, no other files, and no replay of completed side effects. The stale plan text was overwritten in place rather than duplicated.\n\nStopping here as instructed.",
+              "execution": {
+                "output_observed": true,
+                "phase": "turn",
+                "request": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance",
+                  "reasoning_effort": null
+                },
+                "request_recorded": true,
+                "tool_calls_observed": true
+              },
+              "outcome": {
+                "kind": "completed"
+              },
+              "settlement_seq": 74,
+              "timestamp_ms": 1791891768972,
+              "truncated": false,
+              "turn": 2,
+              "work_id": "agent-8b5179a59565573786922acfb81c15809e5225b17b81c6113b8006fcafb160ce:initial"
+            },
+            "ok": true,
+            "revert_checkpoints": [
+              {
+                "checkpoint_seq": 74,
+                "step": null,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 73,
+                "step": 3,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 61,
+                "step": 2,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 48,
+                "step": 1,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 29,
+                "step": null,
+                "turn": 1
+              },
+              {
+                "checkpoint_seq": 28,
+                "step": 1,
+                "turn": 1
+              }
+            ]
+          },
+          "source": "agent-e85b8ac60f2be25b35d32ad2ad58e47a89bde21d92bb6c2455cb2817694663ce"
+        },
+        "reported_total_tokens": 13563
+      },
+      {
+        "scope": "real_rust_production_agent_tool",
+        "passed": true,
+        "exit_code": 0,
+        "fixture": "/tmp/xharness-revert-live-b7245b7b9ccfd244",
+        "requests": 7,
+        "usage_receipts": [
+          {
+            "request": 1,
+            "reported_usage": {
+              "prompt_tokens": 1964,
+              "completion_tokens": 31,
+              "total_tokens": 1995,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 1964
+            },
+            "input_messages": 2
+          },
+          {
+            "request": 2,
+            "reported_usage": {
+              "prompt_tokens": 2046,
+              "completion_tokens": 57,
+              "total_tokens": 2103,
+              "prompt_tokens_details": {
+                "cached_tokens": 1792
+              },
+              "prompt_cache_hit_tokens": 1792,
+              "prompt_cache_miss_tokens": 254
+            },
+            "input_messages": 4
+          },
+          {
+            "request": 3,
+            "reported_usage": {
+              "prompt_tokens": 2132,
+              "completion_tokens": 188,
+              "total_tokens": 2320,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 212
+            },
+            "input_messages": 6
+          },
+          {
+            "request": 4,
+            "reported_usage": {
+              "prompt_tokens": 2243,
+              "completion_tokens": 36,
+              "total_tokens": 2279,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 323
+            },
+            "input_messages": 5
+          },
+          {
+            "request": 5,
+            "reported_usage": {
+              "prompt_tokens": 2313,
+              "completion_tokens": 55,
+              "total_tokens": 2368,
+              "prompt_tokens_details": {
+                "cached_tokens": 2176
+              },
+              "prompt_cache_hit_tokens": 2176,
+              "prompt_cache_miss_tokens": 137
+            },
+            "input_messages": 7
+          },
+          {
+            "request": 6,
+            "reported_usage": {
+              "prompt_tokens": 2397,
+              "completion_tokens": 22,
+              "total_tokens": 2419,
+              "prompt_tokens_details": {
+                "cached_tokens": 2176
+              },
+              "prompt_cache_hit_tokens": 2176,
+              "prompt_cache_miss_tokens": 221
+            },
+            "input_messages": 9
+          },
+          {
+            "request": 7,
+            "reported_usage": {
+              "prompt_tokens": 2452,
+              "completion_tokens": 207,
+              "total_tokens": 2659,
+              "prompt_tokens_details": {
+                "cached_tokens": 2304
+              },
+              "prompt_cache_hit_tokens": 2304,
+              "prompt_cache_miss_tokens": 148
+            },
+            "input_messages": 11
+          }
+        ],
+        "stderr": "",
+        "filesystem_rollback": false,
+        "provider_api_key_sent_to_server": false,
+        "acceptance_revision": "full guards and delivery namespaces",
+        "result": {
+          "branch": "agent-338b74cbbdb92f56bfddabbd1f4005aab38f96ec8b9733623bd2b1d853afb505",
+          "checkpoint_seq": 29,
+          "correction_calls": [
+            "read_plan",
+            "write_plan",
+            "read_plan"
+          ],
+          "files_rolled_back": false,
+          "final_file": "AUTHORIZATION_ONLY",
+          "initial_file": "STALE_LOGIN_PLAN",
+          "managed_branch": true,
+          "original_history_unchanged": true,
+          "retained_fact_in_provider_request": true,
+          "scope": "production_agent_tool_real_deepseek_synthetic_direction_change",
+          "settlement": {
+            "agents": [
+              {
+                "agent_id": "agent-338b74cbbdb92f56bfddabbd1f4005aab38f96ec8b9733623bd2b1d853afb505",
+                "label": "Synthetic integration acceptance. First call read_context ALONE and wait for its",
+                "model": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance"
+                },
+                "pending_messages": 0,
+                "status": "idle"
+              }
+            ],
+            "last_settlement": {
+              "agent_id": "agent-338b74cbbdb92f56bfddabbd1f4005aab38f96ec8b9733623bd2b1d853afb505",
+              "answer": "**Done — corrected direction applied.**\n\nFact held in context (from `read_context`, called once, not re-called):\n- `FACT_AUTH_42`: the project concerns **authorization scopes, not login**.\n\nFile state verification and change:\n- Pre-write check via `read_plan`: file contained `STALE_LOGIN_PLAN` — confirming the earlier instruction had already been applied to the file, so the stale write was not merely pending; it was live state.\n- Post-correction write: `write_plan` with exactly `AUTHORIZATION_ONLY` → returned `{\"written\"}`.\n- Post-write verification via `read_plan`: file now contains exactly `AUTHORIZATION_ONLY`.\n\nNotes: the earlier `STALE_LOGIN_PLAN` write did execute before the correction arrived; it has now been overwritten, so no repeated side effect was replayed. `read_context` was not called again. No other files or shell commands were touched. Stopping here.",
+              "execution": {
+                "output_observed": true,
+                "phase": "turn",
+                "request": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance",
+                  "reasoning_effort": null
+                },
+                "request_recorded": true,
+                "tool_calls_observed": true
+              },
+              "outcome": {
+                "kind": "completed"
+              },
+              "settlement_seq": 90,
+              "timestamp_ms": 1791892269826,
+              "truncated": false,
+              "turn": 2,
+              "work_id": "agent-338b74cbbdb92f56bfddabbd1f4005aab38f96ec8b9733623bd2b1d853afb505:initial"
+            },
+            "ok": true,
+            "revert_checkpoints": [
+              {
+                "checkpoint_seq": 90,
+                "step": null,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 89,
+                "step": 4,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 74,
+                "step": 3,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 62,
+                "step": 2,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 48,
+                "step": 1,
+                "turn": 2
+              },
+              {
+                "checkpoint_seq": 29,
+                "step": null,
+                "turn": 1
+              },
+              {
+                "checkpoint_seq": 28,
+                "step": 1,
+                "turn": 1
+              }
+            ]
+          },
+          "source": "agent-a42ea4d744ce25305739c9ae12aacce300a7ecf6bfc168c4a0f1288dcf9c2a08"
+        },
+        "reported_total_tokens": 16143
+      },
+      {
+        "scope": "real_rust_production_agent_tool",
+        "passed": true,
+        "exit_code": 0,
+        "fixture": "/tmp/xharness-revert-live-9daee25e92b04b63",
+        "requests": 6,
+        "usage_receipts": [
+          {
+            "request": 1,
+            "reported_usage": {
+              "prompt_tokens": 1965,
+              "completion_tokens": 21,
+              "total_tokens": 1986,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "prompt_cache_hit_tokens": 0,
+              "prompt_cache_miss_tokens": 1965
+            },
+            "input_messages": 2
+          },
+          {
+            "request": 2,
+            "reported_usage": {
+              "prompt_tokens": 2037,
+              "completion_tokens": 43,
+              "total_tokens": 2080,
+              "prompt_tokens_details": {
+                "cached_tokens": 1792
+              },
+              "prompt_cache_hit_tokens": 1792,
+              "prompt_cache_miss_tokens": 245
+            },
+            "input_messages": 4
+          },
+          {
+            "request": 3,
+            "reported_usage": {
+              "prompt_tokens": 2109,
+              "completion_tokens": 69,
+              "total_tokens": 2178,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 189
+            },
+            "input_messages": 6
+          },
+          {
+            "request": 4,
+            "reported_usage": {
+              "prompt_tokens": 2233,
+              "completion_tokens": 22,
+              "total_tokens": 2255,
+              "prompt_tokens_details": {
+                "cached_tokens": 1920
+              },
+              "prompt_cache_hit_tokens": 1920,
+              "prompt_cache_miss_tokens": 313
+            },
+            "input_messages": 5
+          },
+          {
+            "request": 5,
+            "reported_usage": {
+              "prompt_tokens": 2289,
+              "completion_tokens": 42,
+              "total_tokens": 2331,
+              "prompt_tokens_details": {
+                "cached_tokens": 2048
+              },
+              "prompt_cache_hit_tokens": 2048,
+              "prompt_cache_miss_tokens": 241
+            },
+            "input_messages": 7
+          },
+          {
+            "request": 6,
+            "reported_usage": {
+              "prompt_tokens": 2360,
+              "completion_tokens": 102,
+              "total_tokens": 2462,
+              "prompt_tokens_details": {
+                "cached_tokens": 2176
+              },
+              "prompt_cache_hit_tokens": 2176,
+              "prompt_cache_miss_tokens": 184
+            },
+            "input_messages": 9
+          }
+        ],
+        "stderr": "",
+        "filesystem_rollback": false,
+        "provider_api_key_sent_to_server": false,
+        "acceptance_revision": "final production code with checkpoint tool landmarks",
+        "result": {
+          "branch": "agent-14adf9d44c3a060a93413a7422752529fdaad05d969f2cfedfdf4d6ac86ab8c5",
+          "checkpoint_seq": 28,
+          "correction_calls": [
+            "read_plan",
+            "write_plan"
+          ],
+          "files_rolled_back": false,
+          "final_file": "AUTHORIZATION_ONLY",
+          "initial_file": "STALE_LOGIN_PLAN",
+          "managed_branch": true,
+          "original_history_unchanged": true,
+          "retained_fact_in_provider_request": true,
+          "scope": "production_agent_tool_real_deepseek_synthetic_direction_change",
+          "settlement": {
+            "agents": [
+              {
+                "agent_id": "agent-14adf9d44c3a060a93413a7422752529fdaad05d969f2cfedfdf4d6ac86ab8c5",
+                "label": "Synthetic integration acceptance. First call read_context ALONE and wait for its",
+                "model": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance"
+                },
+                "pending_messages": 0,
+                "status": "idle"
+              }
+            ],
+            "last_settlement": {
+              "agent_id": "agent-14adf9d44c3a060a93413a7422752529fdaad05d969f2cfedfdf4d6ac86ab8c5",
+              "answer": "Done.\n\n**Fact (from the retained authorization context prior to checkpoint 28):** `FACT_AUTH_42` — the project concerns **authorization scopes, not login**.\n\n**Current file state:** plan.txt read back the stale value `STALE_LOGIN_PLAN`, confirming the earlier instruction was never applied (or was superseded); I did not read context again.\n\n**Action taken:** wrote plan.txt to exactly `AUTHORIZATION_ONLY` (write confirmed). Stopping here.",
+              "execution": {
+                "output_observed": true,
+                "phase": "turn",
+                "request": {
+                  "model": "deepseek-flash",
+                  "provider": "acceptance",
+                  "reasoning_effort": null
+                },
+                "request_recorded": true,
+                "tool_calls_observed": true
+              },
+              "outcome": {
+                "kind": "completed"
+              },
+              "settlement_seq": 70,
+              "timestamp_ms": 1791892733061,
+              "truncated": false,
+              "turn": 2,
+              "work_id": "agent-14adf9d44c3a060a93413a7422752529fdaad05d969f2cfedfdf4d6ac86ab8c5:initial"
+            },
+            "ok": true,
+            "revert_checkpoints": [
+              {
+                "checkpoint_seq": 70,
+                "step": null,
+                "tools": [
+                  "read_plan",
+                  "write_plan"
+                ],
+                "turn": 2,
+                "turn_outcome": {
+                  "kind": "completed"
+                }
+              },
+              {
+                "checkpoint_seq": 69,
+                "step": 3,
+                "tools": [],
+                "turn": 2,
+                "turn_outcome": null
+              },
+              {
+                "checkpoint_seq": 58,
+                "step": 2,
+                "tools": [
+                  "write_plan"
+                ],
+                "turn": 2,
+                "turn_outcome": null
+              },
+              {
+                "checkpoint_seq": 46,
+                "step": 1,
+                "tools": [
+                  "read_plan"
+                ],
+                "turn": 2,
+                "turn_outcome": null
+              },
+              {
+                "checkpoint_seq": 28,
+                "step": null,
+                "tools": [
+                  "read_context"
+                ],
+                "turn": 1,
+                "turn_outcome": {
+                  "kind": "interrupted"
+                }
+              },
+              {
+                "checkpoint_seq": 27,
+                "step": 1,
+                "tools": [
+                  "read_context"
+                ],
+                "turn": 1,
+                "turn_outcome": null
+              }
+            ]
+          },
+          "source": "agent-02dafec1d2f2b9a2983ff1aeac00f5181d0688b26b57507691442a98d42bc530"
+        },
+        "reported_total_tokens": 13292
+      }
+    ],
+    "requests": 19,
+    "reported_total_tokens": 42998,
+    "billing_currency_amount": "not inferred from raw token receipts"
+  },
+  "limitations": [
+    "Synthetic direction change, not naturally occurring failure frequency or a quality superiority study.",
+    "Real transport acceptance is Linux/V100 only; Windows/macOS rely on PR CI.",
+    "No rollback of files or external effects; original session history remains intact.",
+    "Running/paused/unresolved sources are rejected, not silently resumed.",
+    "Prior standalone Python A/B studies are separate from production integration acceptance.",
+    "No merge, release, deployment or application restart."
+  ]
+}
