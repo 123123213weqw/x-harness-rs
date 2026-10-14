@@ -81,6 +81,51 @@ pub trait MediaReader: Send + Sync {
         cancellation: &CancellationToken,
     ) -> Result<Option<ToolOutput>, ToolHandlerError>;
 }
+
+/// Deployment-owned virtual files. The model supplies only a virtual path,
+/// never an external root. Normal paths retain native workspace confinement.
+pub struct MountedFile {
+    pub filesystem: Arc<xharness_fs::FsService>,
+    pub target: xharness_fs::FsTarget,
+    pub max_bytes: usize,
+}
+#[async_trait::async_trait]
+pub trait FileMountProvider: Send + Sync {
+    async fn resolve(
+        &self,
+        path: &str,
+        writing: bool,
+    ) -> Result<Option<MountedFile>, ToolHandlerError>;
+}
+
+async fn resolve_file(
+    platform: &NativePlatform,
+    mount: Option<&dyn FileMountProvider>,
+    path: &str,
+    writing: bool,
+) -> Result<(xharness_fs::FsService, xharness_fs::FsTarget, Option<usize>), ToolHandlerError> {
+    if let Some(mount) = mount {
+        if let Some(file) = mount.resolve(path, writing).await? {
+            return Ok((
+                file.filesystem.as_ref().clone(),
+                file.target,
+                Some(file.max_bytes),
+            ));
+        }
+    }
+    if writing {
+        Ok((
+            platform.filesystem().clone(),
+            platform.resolve_file(path).map_err(handler_error)?,
+            None,
+        ))
+    } else {
+        platform
+            .resolve_read_file(path)
+            .map(|(fs, target)| (fs.clone(), target, None))
+            .map_err(handler_error)
+    }
+}
 #[derive(Clone)]
 pub struct CodingToolBundle {
     platform: Arc<NativePlatform>,
@@ -89,6 +134,7 @@ pub struct CodingToolBundle {
     session_id: Arc<str>,
     owner_id: Arc<str>,
     media_reader: Option<Arc<dyn MediaReader>>,
+    file_mount: Option<Arc<dyn FileMountProvider>>,
     shell: Result<Shell, ShellError>,
 }
 
@@ -107,6 +153,7 @@ impl CodingToolBundle {
             session_id: Arc::from(session_id.into()),
             owner_id: Arc::from(owner_id.into()),
             media_reader: None,
+            file_mount: None,
             shell: Shell::discover(),
         }
     }
@@ -119,6 +166,11 @@ impl CodingToolBundle {
 
     pub fn with_media_reader(mut self, reader: Arc<dyn MediaReader>) -> Self {
         self.media_reader = Some(reader);
+        self
+    }
+
+    pub fn with_file_mount(mut self, mount: Arc<dyn FileMountProvider>) -> Self {
+        self.file_mount = Some(mount);
         self
     }
 
@@ -411,6 +463,7 @@ impl CodingToolBundle {
     }
 
     fn read_spec(&self) -> ToolSpec {
+        let file_mount = self.file_mount.clone();
         let platform = Arc::clone(&self.platform);
         let session_id = Arc::clone(&self.session_id);
         let media_reader = self.media_reader.clone();
@@ -433,6 +486,7 @@ impl CodingToolBundle {
                 }),
             ),
             move |context| {
+                let file_mount=file_mount.clone();
                 let media_reader=media_reader.clone();
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
@@ -499,7 +553,8 @@ impl CodingToolBundle {
                         MAX_READ_PAGE_LINES,
                         "line_limit",
                     )?;
-                    let (filesystem, target) = platform.resolve_read_file(path).map_err(handler_error)?;
+                    let (filesystem, target, mounted_limit) = resolve_file(&platform,file_mount.as_deref(),&path,false).await?;
+                    let display=if mounted_limit.is_some() {path} else {target.display().to_owned()};
                     let result = filesystem
                         .read_page(
                             &session_id,
@@ -515,10 +570,10 @@ impl CodingToolBundle {
                         .map_err(handler_error)?;
                     match result {
                         ReadOutcome::Absent => Ok(json_output(json!({
-                            "path": target.display(), "absent": true
+                            "path": display, "absent": true
                         }))),
                         ReadOutcome::File(read) => Ok(json_output(json!({
-                            "path": target.display(),
+                            "path": display,
                             "content": read.text,
                             "bytes_read": read.bytes_read,
                             "page_start_offset": read.page_start_offset,
@@ -538,6 +593,7 @@ impl CodingToolBundle {
     }
 
     fn write_spec(&self) -> ToolSpec {
+        let file_mount = self.file_mount.clone();
         let platform = Arc::clone(&self.platform);
         let session_id = Arc::clone(&self.session_id);
         ToolSpec::new(
@@ -555,19 +611,28 @@ impl CodingToolBundle {
                 }),
             ),
             move |context| {
+                let file_mount = file_mount.clone();
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
                     let content = required_string(&context, "content")?;
-                    let target = platform.resolve_file(path).map_err(handler_error)?;
-                    let result = platform
-                        .filesystem()
+                    let (filesystem, target, limit) =
+                        resolve_file(&platform, file_mount.as_deref(), &path, true).await?;
+                    if limit.is_some_and(|limit| content.len() > limit) {
+                        return Err(ToolHandlerError::new("virtual file exceeds its byte limit"));
+                    }
+                    let display = if limit.is_some() {
+                        path
+                    } else {
+                        target.display().to_owned()
+                    };
+                    let result = filesystem
                         .write(&session_id, &target, content.into_bytes())
                         .await
                         .map_err(handler_error)?;
                     Ok(json_output(json!({
-                        "path": target.display(),
+                        "path": display,
                         "created": result.created,
                         "bytes_written": result.bytes_written,
                         "sha256": result.version.sha256_hex()
@@ -581,6 +646,7 @@ impl CodingToolBundle {
     }
 
     fn edit_spec(&self) -> ToolSpec {
+        let file_mount = self.file_mount.clone();
         let platform = Arc::clone(&self.platform);
         let session_id = Arc::clone(&self.session_id);
         ToolSpec::new(
@@ -599,20 +665,42 @@ impl CodingToolBundle {
                 }),
             ),
             move |context| {
+                let file_mount = file_mount.clone();
                 let platform = Arc::clone(&platform);
                 let session_id = Arc::clone(&session_id);
                 async move {
                     let path = required_string(&context, "path")?;
                     let old = required_string(&context, "old")?;
                     let new = required_string(&context, "new")?;
-                    let target = platform.resolve_file(path).map_err(handler_error)?;
-                    let result = platform
-                        .filesystem()
+                    let (filesystem, target, limit) =
+                        resolve_file(&platform, file_mount.as_deref(), &path, true).await?;
+                    if let Some(limit) = limit {
+                        let before = filesystem
+                            .read_preview_bytes(&target, limit)
+                            .await
+                            .map_err(handler_error)?;
+                        if before
+                            .len()
+                            .saturating_add(new.len())
+                            .saturating_sub(old.len())
+                            > limit
+                        {
+                            return Err(ToolHandlerError::new(
+                                "virtual file edit exceeds its byte limit",
+                            ));
+                        }
+                    }
+                    let display = if limit.is_some() {
+                        path
+                    } else {
+                        target.display().to_owned()
+                    };
+                    let result = filesystem
                         .edit_literal(&session_id, &target, old, new)
                         .await
                         .map_err(handler_error)?;
                     Ok(json_output(json!({
-                        "path": target.display(),
+                        "path": display,
                         "bytes_written": result.bytes_written,
                         "sha256": result.version.sha256_hex()
                     })))

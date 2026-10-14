@@ -147,7 +147,7 @@ impl crate::BasicHost {
             (session.cwd.clone(), state.prompt_sections(session_id)?)
         };
         // No filesystem work while holding the global Host state lock.
-        self.instructions.assemble(cwd, sections).await
+        self.assemble_prompt(cwd, sections).await
     }
 }
 
