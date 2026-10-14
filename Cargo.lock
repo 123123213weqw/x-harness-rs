@@ -3840,6 +3840,7 @@ dependencies = [
  "async-trait",
  "fs2",
  "futures",
+ "image",
  "keyring",
  "reqwest",
  "serde",

@@ -10,10 +10,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, Semaphore};
 
-use crate::{browser::BrowserState, browser_inspect, browser_lifecycle, browser_perform};
+use crate::{
+    browser::BrowserState, browser_inspect, browser_lifecycle, browser_native, browser_perform,
+};
 
 const MAX_REQUEST: usize = 32 * 1024;
 const MAX_REPLY: usize = 64 * 1024;
+const MAX_SCREENSHOT_REPLY: usize = 12 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct BrowserBridge(OnceCell<Connection>);
@@ -37,6 +40,8 @@ enum Operation {
     Control,
     Observe,
     Perform,
+    Screenshot,
+    Input,
 }
 
 fn matches_token(provided: &str, expected: &str) -> bool {
@@ -109,6 +114,11 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
     })
     .await
     .map_err(|_| ())??;
+    let reply_limit = if matches!(request.op, Operation::Screenshot) {
+        MAX_SCREENSHOT_REPLY
+    } else {
+        MAX_REPLY
+    };
     // Closing the Host socket cancels open's UI rendezvous too. No detached
     // navigation continues after a caller has abandoned the request.
     let result = tokio::select! {
@@ -120,7 +130,7 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
         Err(error) => json!({"ok":false,"error":error}),
     };
     let bytes = serde_json::to_vec(&reply).map_err(|_| ())?;
-    if bytes.len() > MAX_REPLY {
+    if bytes.len() > reply_limit {
         return Err(());
     }
     stream.write_u32(bytes.len() as u32).await.map_err(|_| ())?;
@@ -157,12 +167,32 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     }
     let tab = match state.delegated_tab(&request.owner) {
         Ok(tab) => tab,
-        Err(error) if matches!(request.op, Operation::Perform) => {
+        Err(error) if matches!(request.op, Operation::Perform | Operation::Input) => {
             return Ok(rejected_action(&error))
         }
         Err(error) => return Err(error),
     };
     match request.op {
+        Operation::Screenshot => {
+            if request.arguments != json!({}) {
+                return Err("screenshot takes no arguments".into());
+            }
+            browser_native::screenshot(&state, &tab, &request.owner).await
+        }
+        Operation::Input => {
+            let arguments = match serde_json::from_value(request.arguments) {
+                Ok(arguments) => arguments,
+                Err(_) => {
+                    return Ok(rejected_action(
+                        "invalid native input arguments; describe input",
+                    ))
+                }
+            };
+            match browser_native::input(&state, &tab, &request.owner, arguments).await {
+                Ok(receipt) => Ok(receipt),
+                Err(error) => Ok(rejected_action(&error)),
+            }
+        }
         Operation::Observe => {
             browser_inspect::inspect(
                 &state,
