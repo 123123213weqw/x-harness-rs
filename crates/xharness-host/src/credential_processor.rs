@@ -4,6 +4,8 @@
 //! enter the state snapshot, response or error details. OS/keychain access and
 //! model-registry activation remain side effects of the RPC adapter.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeSet;
 
 use serde_json::{json, Map, Value};
