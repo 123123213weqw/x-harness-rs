@@ -690,6 +690,9 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Independent working-plan snapshot; not provider text or a Goal transition.
+    #[serde(rename = "session/plan-updated")]
+    SessionPlanUpdated { plan: crate::SessionPlan },
     /// Versioned durable Goal controller state, never model conversation text.
     #[serde(rename = "goal/execution")]
     GoalExecution {

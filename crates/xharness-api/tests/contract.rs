@@ -45,6 +45,7 @@ const SUPPORTED_METHODS: &[&str] = &[
     "agentPreset.copy",
     "agentPreset.openDocument",
     "agentPreset.remove",
+    "goal.updatePlan",
     "goal.create",
     "goal.edit",
     "goal.pause",
@@ -72,7 +73,7 @@ fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
         .map(|method| method.as_str())
         .collect::<Vec<_>>();
     assert_eq!(actual, SUPPORTED_METHODS);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 54);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 55);
     for name in SUPPORTED_METHODS {
         assert_eq!(name.parse::<RpcMethod>().unwrap().as_str(), *name);
     }
@@ -218,6 +219,7 @@ fn canonical_request(method: RpcMethod) -> Value {
         RpcMethod::AgentPresetOpenDocument | RpcMethod::AgentPresetRemove => {
             json!({"agentPreset":"custom"})
         }
+        RpcMethod::GoalUpdatePlan => json!({"sessionId":"session","planRevision":0,"items":[]}),
         RpcMethod::GoalCreate => json!({"sessionId":"session","objective":"ship"}),
         RpcMethod::GoalEdit => json!({
             "sessionId":"session", "ref":{"id":"goal","revision":1},
@@ -275,4 +277,21 @@ fn compatibility_boundary_tolerates_additive_fields() {
     let payload = json!({"sessionId":"session","futureField":{"enabled":true}});
     let typed = TypedRpcParams::decode(RpcMethod::SessionModels, &payload).unwrap();
     assert_eq!(typed.method(), RpcMethod::SessionModels);
+}
+
+#[test]
+fn working_plan_contract_has_typed_items_and_a_plan_not_a_goal_ref() {
+    let value =
+        json!({"plan":{"revision":1,"items":[{"id":"a","title":"Verify","status":"in_progress"}]}});
+    let reply = TypedRpcResponse::decode(RpcMethod::GoalUpdatePlan, &value).unwrap();
+    let TypedRpcResponse::GoalUpdatePlan(reply) = reply else {
+        panic!("expected plan reply")
+    };
+    assert_eq!(serde_json::to_value(reply).unwrap(), value);
+    assert!(TypedRpcResponse::decode(
+        RpcMethod::GoalUpdatePlan,
+        &json!({"ref":{"id":"not-a-plan","revision":1}})
+    )
+    .is_err());
+    assert!(TypedRpcParams::decode(RpcMethod::GoalUpdatePlan,&json!({"sessionId":"s","planRevision":0,"items":[{"id":"a","title":"Verify","status":"unknown"}]})).is_err());
 }

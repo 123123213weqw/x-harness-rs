@@ -411,6 +411,13 @@ impl BasicHost {
             );
             let prepared_events =
                 prepare_projection_events(&session, route, inputs.cursor.unwrap_or_default())?;
+            // Plans are whole-value metadata: only rebuild on hydration or a
+            // plan event, never scan/clone a long plan for every text chunk.
+            let task_plan_update = (inputs.cursor.is_none()
+                || prepared_events.iter().any(|(event, _)| {
+                    event.get("type").and_then(Value::as_str) == Some("session/plan-updated")
+                }))
+            .then(|| xharness_session::session_plan(&session));
             let schedule_projection = (!inputs.schedules_hydrated
                 || prepared_events.iter().any(|(event, _)| {
                     event.get("type").and_then(Value::as_str) == Some("schedule/change")
@@ -422,9 +429,21 @@ impl BasicHost {
                 .events()
                 .iter()
                 .any(|event| matches!(event.data(), xharness_session::EventData::TurnStart { .. }));
-            let (new_events, queue_changed, permission_changed, schedules_changed) = {
+            let (
+                new_events,
+                queue_changed,
+                permission_changed,
+                schedules_changed,
+                task_plan_changed,
+            ) = {
                 let mut state = self.state.write().await;
-                let (new_events, queue_changed, permission_changed, schedules_changed) = {
+                let (
+                    new_events,
+                    queue_changed,
+                    permission_changed,
+                    schedules_changed,
+                    task_plan_changed,
+                ) = {
                     let record = state.sessions.get_mut(session_id).ok_or_else(|| {
                         rpc_error(
                             RpcErrorCode::SessionNotFound,
@@ -466,6 +485,12 @@ impl BasicHost {
                     record.title = title;
                     record.plan_active = plan_active;
                     record.goal = goal.clone();
+                    let task_plan_changed = task_plan_update
+                        .as_ref()
+                        .is_some_and(|plan| record.task_plan != *plan);
+                    if let Some(plan) = task_plan_update.as_ref() {
+                        record.task_plan = plan.clone();
+                    }
                     let schedules_changed = schedule_projection.as_ref().is_some_and(|catalog| {
                         !record.schedules_hydrated || record.schedules != *catalog
                     });
@@ -488,6 +513,7 @@ impl BasicHost {
                         queue_changed,
                         permission_changed,
                         schedules_changed,
+                        task_plan_changed,
                     )
                 };
                 if let Some(goal) = goal.as_ref() {
@@ -500,6 +526,7 @@ impl BasicHost {
                     queue_changed,
                     permission_changed,
                     schedules_changed,
+                    task_plan_changed,
                 )
             };
             for (event, updates, view) in new_events {
@@ -531,6 +558,10 @@ impl BasicHost {
                 goal.as_ref().map_or(Value::Null, |g| g.projection()),
             )
             .await;
+            if task_plan_changed {
+                self.push_projection(session_id, "taskPlan", json!(task_plan_update.flatten()))
+                    .await;
+            }
             if permission_changed {
                 self.push_permission_projection(session_id).await;
             }

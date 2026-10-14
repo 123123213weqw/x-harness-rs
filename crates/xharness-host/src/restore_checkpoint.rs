@@ -30,6 +30,8 @@ struct IdleState {
     permission: PermissionPreset,
     plan_active: bool,
     goal: Option<GoalState>,
+    #[serde(default)]
+    task_plan: Option<xharness_session::SessionPlan>,
     dispatch_paused: bool,
     delegated: bool,
     next_turn: u32,
@@ -143,6 +145,7 @@ pub(crate) fn checkpoint(
         permission: crate::restore::restored_permission(session),
         plan_active: crate::restore::restored_plan_mode(session),
         goal: crate::restore::restored_goal(session),
+        task_plan: xharness_session::session_plan(session),
         dispatch_paused: crate::delegation::restored_dispatch_paused(session),
         delegated: crate::delegation::restored_delegation(session).is_some(),
         next_turn: session
@@ -303,6 +306,7 @@ pub(crate) fn restore(host: &BasicHost, tail: &SessionRecoveryTail) -> Option<Se
         active_permission: None,
         plan_active: state.plan_active,
         goal: state.goal,
+        task_plan: state.task_plan,
         schedules: Vec::new(),
         schedules_hydrated: true,
         events: Vec::new(),
