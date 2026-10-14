@@ -41,7 +41,7 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 | `xharness-terminal` | [持久 PTY](terminal.md) | Unix PTY / Windows ConPTY 已实现；不在默认模型工具面 |
 | `xharness-web` | [网页搜索与抓取](web.md) | 已实现 |
 | `xharness-coding-tools` | [标准 11 工具包](coding-tools.md) | Unix Bash / Windows PowerShell 7 与后台 Job 已实现 |
-| `xharness-interaction` | [用户提问与等待交互](user-questions.md) | 类型/状态机、Registry、Session/Host/Web 持久恢复和 AGENTS.md Sink 已实现 |
+| `xharness-interaction` | [用户提问与等待交互](user-questions.md) | 类型/状态机、Registry、Session/Host/Web 持久恢复；问答已与 AGENTS.md 写入解耦 |
 | `xharness-context` | [上下文预算](context.md) | Surface 抽象、原生/后备 Token Guard 与 Durable Compact 接线已实现 |
 | Web Context Inspector | [上下文检查器](context-inspector.md) | RequestHeader 完整输入投影、第三个 Context Tab、颜色分类与压缩前后视图已实现 |
 | `xharness-compaction` | [上下文压缩](compaction.md) | 自动 Pressure/Overflow、摘要重计量、Session Replace 与 Web 投影已接线；手动命令/生产 Pruner 待完成 |

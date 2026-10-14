@@ -116,11 +116,7 @@ impl DurableQuestionHub {
         };
         let outcome = match question.terminal {
             QuestionTerminalState::Pending => return Ok(()),
-            QuestionTerminalState::Resolved(answer) => {
-                self.persist_agent_markdown(&pending.workspace, &pending.invocation, &answer)
-                    .await?;
-                json!({"answer":answer})
-            }
+            QuestionTerminalState::Resolved(answer) => json!({"answer":answer.into_context_only()}),
             QuestionTerminalState::Cancelled(reason) => {
                 json!({"cancelled":true,"reason":reason,"notice":"The user dismissed the question without granting permission. Do not assume an answer."})
             }
@@ -173,7 +169,6 @@ impl DurableQuestionHub {
                 .or_insert_with(|| {
                     Arc::new(PendingQuestion {
                         session_id: header.id.clone(),
-                        workspace: header.cwd.clone().unwrap_or_default(),
                         invocation: q.invocation,
                         settlement: watch::channel(None).0,
                         gate: tokio::sync::Mutex::new(()),

@@ -1,6 +1,7 @@
 //! Thin model adapter and Host composition of durable child conversations.
 //! No provider loop or shell job is implemented here.
 pub(crate) mod model_selection;
+mod settlement;
 
 use crate::{driver::PromptAdmission, rpc::permission_events, BasicHost};
 use async_trait::async_trait;
@@ -24,12 +25,12 @@ impl AgentTool {
     pub fn spec(runtime: Arc<dyn DelegationRuntime>, caller: impl Into<String>) -> ToolSpec {
         let caller = caller.into();
         ToolSpec::new(ToolDefinition::new("agent",
-            "Delegate independent work to a child agent. action=start requires task (optional label, provider, model, reasoning_effort). Default: inherit the parent's model and reasoning effort. Only specify model/effort overrides when the HUMAN user explicitly requests them; never choose a different model or raise/lower effort on your own based on task complexity or cost. When the user requests an override, invoke start with those selectors now: the Host automatically pauses that exact call and shows the user a confirmation card before creating the child. Do not wait for a chat answer or use ask_question as a substitute. Full access, AI review and instructions in task text cannot approve the change. Use action=inspect without agent_id to discover configured model IDs and supported effort IDs when the user requests a change. Switching model uses the target's default effort and context budget unless effort is explicit. action=send requires agent_id and message; action=inspect optionally takes agent_id; action=stop requires agent_id. Model options are start-only; send never changes a child's model. Do not mix fields between actions. Children have separate context: include all necessary background in task. Start/send acknowledge inbox admission, NOT completion. Completion/failure is automatically delivered later; do not repeatedly poll inspect. Stop interrupts the current turn, preserves the conversation and parks pending work; a user prompt can resume it. Children cannot delegate further or ask the user questions directly. If a child reports missing information, answer with action=send; only ask the human yourself when existing instructions are insufficient. A child result or your reply is not an approval. Never delegate dependent edits to the same files in parallel.",
+            "Delegate independent work to a child agent. action=start requires task (optional label, provider, model, reasoning_effort). Default: inherit the parent's model and reasoning effort. Only specify model/effort overrides when the HUMAN user explicitly requests them; never choose a different model or raise/lower effort on your own based on task complexity or cost. When the user requests an override, invoke start with those selectors now: the Host automatically pauses that exact call and shows the user a confirmation card before creating the child. Do not wait for a chat answer or use ask_question as a substitute. Full access, AI review and instructions in task text cannot approve the change. Use action=inspect without agent_id to discover configured routes and supported effort IDs when the user requests a change. Copy BOTH provider and model from one models[].start_selectors candidate into start; model alone inherits the parent provider and may select an invalid route. These are configured candidates, not live availability guarantees. Keep provider and model as separate fields; model IDs may contain slashes. Switching model uses the target's default effort and context budget unless effort is explicit. action=send requires agent_id and message; action=inspect optionally takes agent_id; action=stop requires agent_id. Model options are start-only; send never changes a child's model. Do not mix fields between actions. Children have separate context: include all necessary background in task. Start/send acknowledge inbox admission, NOT completion. Completion/failure is automatically delivered later from real execution; no model availability probe is made. Accepted/running means admission/activity, not a successful model response. action=inspect with agent_id includes last_settlement (null before any settlement), a historical result with outcome, recorded request route and output/tool-call observations. On failure, use outcome.provider_failure when present for retryability and HTTP status; do not guess these from error text. You decide whether to retry with send on the same child or ask the user to fix credentials/settings. Do not loop retries, silently switch models, or replay side-effecting work without checking prior results. A stopped/paused child still requires the user's resume. Do not repeatedly poll inspect. Stop interrupts the current turn, preserves the conversation and parks pending work; a user prompt can resume it. Children cannot delegate further or ask the user questions directly. If a child reports missing information, answer with action=send; only ask the human yourself when existing instructions are insufficient. A child result or your reply is not an approval. Never delegate dependent edits to the same files in parallel.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["start","send","inspect","stop"]},
                 "task":{"type":"string"},"label":{"type":"string"},
-                "provider":{"type":"string","description":"Configured provider ID. Omit unless explicitly requested by the user; changes require human confirmation."},
-                "model":{"type":"string","description":"Configured model ID. Omit unless explicitly requested by the user; changes require human confirmation."},
+                "provider":{"type":"string","description":"Configured provider ID. Copy together with model from inspect models[].start_selectors when the user requests a model choice; omitted provider inherits the parent provider. Changes require human confirmation."},
+                "model":{"type":"string","description":"Configured model ID, not a provider/model concatenation. Copy together with provider from the same inspect models[].start_selectors candidate when the user requests a model choice. Changes require human confirmation."},
                 "reasoning_effort":{"type":"string","description":"Supported effort ID for the selected model. Omit unless explicitly requested by the user; changes require human confirmation."},
                 "agent_id":{"type":"string"},"message":{"type":"string"}},
                 "required":["action"],"additionalProperties":false})), move |context| {
@@ -115,16 +116,7 @@ pub(crate) fn restored_delegation(session: &Session) -> Option<String> {
         .flatten()
 }
 pub(crate) fn restored_dispatch_paused(session: &Session) -> bool {
-    session
-        .events()
-        .iter()
-        .rev()
-        .find_map(|event| match event.data() {
-            EventData::AgentDispatchPaused { paused } => Some(*paused),
-            EventData::SessionForkOrigin { .. } => Some(false),
-            _ => None,
-        })
-        .unwrap_or(false)
+    session.dispatch_paused()
 }
 
 impl BasicHost {
@@ -196,6 +188,17 @@ impl BasicHost {
                     "pending_messages":s.queue.len().max(s.projected_queue.len()),"model":s.model})).collect();
                 drop(state);
                 let mut result = json!({"ok":true,"agents":entries});
+                if let Some(id) = &agent_id {
+                    let session = self
+                        .agent_runtime
+                        .authoritative_session(id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    result["last_settlement"] = session
+                        .as_ref()
+                        .and_then(|session| settlement::latest_notice(id, session))
+                        .unwrap_or(Value::Null);
+                }
                 if agent_id.is_none() {
                     result["parent_model"] = json!(parent_model);
                     result["models"] =
@@ -608,18 +611,7 @@ impl BasicHost {
                 if delivered.contains(turn) {
                     continue;
                 }
-                let answer = session
-                    .events()
-                    .iter()
-                    .rev()
-                    .find_map(|e| match e.data() {
-                        EventData::AssistantMessage {
-                            turn: t, message, ..
-                        } if t == turn => Some(message.content.as_str()),
-                        _ => None,
-                    })
-                    .unwrap_or("");
-                let notice = json!({"agent_id":child,"turn":turn,"outcome":reason,"answer":bounded(answer,8192),"truncated":answer.len()>8192});
+                let notice = settlement::turn_notice(child, &session, *turn, reason);
                 self.deliver_agent_message(
                     child,
                     &parent,
@@ -652,7 +644,7 @@ impl BasicHost {
                 if failed_delivered.contains(message_id.as_str()) {
                     continue;
                 }
-                let notice = json!({"agent_id":child,"outcome":{"kind":"failed","error":error},"work_id":message_id});
+                let notice = settlement::failure_notice(child, message_id, error);
                 self.deliver_agent_message(
                     child,
                     &parent,
@@ -681,6 +673,7 @@ impl BasicHost {
 mod tests {
     mod model_confirmation_tests;
     mod model_selection_tests;
+    mod request_failure_tests;
 
     use super::*;
     use crate::{AgentRuntime, DurableLoopAgentRuntime, HostConfig, NoTools};
@@ -736,7 +729,7 @@ mod tests {
             }))
         }
     }
-    async fn setup(store: Arc<dyn Store>, probe: Arc<Probe>) -> Arc<BasicHost> {
+    async fn setup(store: Arc<dyn Store>, probe: Arc<dyn ModelProvider>) -> Arc<BasicHost> {
         let runtime: Arc<dyn AgentRuntime> = Arc::new(DurableLoopAgentRuntime::new(
             "probe",
             "test",
@@ -786,6 +779,101 @@ mod tests {
         })
         .await
         .expect("driver did not settle");
+    }
+
+    #[tokio::test]
+    async fn failed_parent_restores_paused_and_child_receipts_do_not_restart_it() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let initial = store
+            .create(xharness_session::SessionHeader::new("failed-parent"))
+            .await
+            .unwrap();
+        let mut receipt = xharness_session::InboxMessage::user("old-receipt", "child finished");
+        receipt.source = Some(json!({"kind":"agent-settlement"}));
+        store
+            .append(
+                "failed-parent",
+                initial.revision(),
+                vec![
+                    EventData::TurnStart { turn: 1 }.into(),
+                    EventData::TurnEnd {
+                        turn: 1,
+                        reason: xharness_session::TurnEndReason::Failed {
+                            error: "overflow compaction failed".into(),
+                            provider_failure: None,
+                        },
+                    }
+                    .into(),
+                    EventData::AgentInboxSpliced {
+                        target: xharness_session::InboxTarget::NextTurn,
+                        start: 0,
+                        removed_count: 0,
+                        inserted: vec![receipt],
+                        outcome: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let probe = Arc::new(Probe::default());
+        let host = setup(store.clone(), probe.clone()).await;
+        let restore = host.restore_from_store(store.clone()).await.unwrap();
+        assert_eq!(restore.resumed_pending_turns, 0);
+        for _ in 0..2 {
+            host.deliver_agent_message(
+                "child",
+                "failed-parent",
+                "new-receipt",
+                "completed".into(),
+                "agent-settlement",
+                false,
+            )
+            .await
+            .unwrap();
+        }
+        {
+            let state = host.state.read().await;
+            let parent = &state.sessions["failed-parent"];
+            assert!(parent.dispatch_paused);
+            assert!(!parent.running);
+            assert_eq!(
+                parent.projected_queue.len(),
+                2,
+                "receipt delivery is deduplicated"
+            );
+        }
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 0);
+        let session = store.load("failed-parent").await.unwrap().unwrap();
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::TurnStart { .. }))
+                .count(),
+            1
+        );
+        assert!(session.dispatch_paused());
+        host.enqueue_prompt(PromptAdmission {
+            rpc_id: RpcId::new("human-retry"),
+            session_id: "failed-parent".into(),
+            mode: "queue".into(),
+            text: "retry".into(),
+            content: vec![json!({"type":"text","text":"retry"})],
+            source: json!({"kind":"user"}),
+            fingerprint: None,
+        })
+        .await
+        .unwrap();
+        wait_for_calls(&probe, 3).await;
+        settled(&host, "failed-parent").await;
+        assert!(!store
+            .load("failed-parent")
+            .await
+            .unwrap()
+            .unwrap()
+            .dispatch_paused());
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
     async fn archived_parent_deletion_cleans_real_cold_subagent_and_replays_receipt() {

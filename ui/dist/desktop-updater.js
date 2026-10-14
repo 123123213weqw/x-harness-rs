@@ -159,21 +159,24 @@
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML = `
     <style>
-      :host{color-scheme:light dark} *{box-sizing:border-box}
+      :host{color-scheme:inherit} *{box-sizing:border-box}
       .panel{position:absolute;bottom:46px;left:0;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 166px);overflow:auto;padding:16px;border-radius:16px;
-        background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,CanvasText 15%,transparent);
+        background:var(--dsw-alias-bg-layer-2,Canvas);color:var(--dsw-alias-label-primary,CanvasText);border:1px solid var(--dsw-alias-border-l2,color-mix(in srgb,CanvasText 15%,transparent));
         box-shadow:0 12px 40px #0003;font:13px/1.5 ui-sans-serif,system-ui,sans-serif}
       [hidden]{display:none!important}.header{display:flex;justify-content:space-between;align-items:center;gap:8px}
       .title{font-size:14px;font-weight:650}.text{margin:12px 0;overflow-wrap:anywhere}
       .notes{max-height:160px;overflow:auto;white-space:pre-wrap;font:inherit;border-top:1px solid #8883;padding-top:10px}
       .footer{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}.hint{opacity:.65;font-size:12px;margin-top:10px}
-      button{appearance:none;border:0;border-radius:9px;padding:8px 12px;font:inherit;cursor:pointer;background:color-mix(in srgb,CanvasText 8%,Canvas);color:CanvasText}
-      button:hover{filter:brightness(.93)}button:focus-visible{outline:2px solid #3974ff;outline-offset:3px}
-      button:disabled{cursor:wait;opacity:.65}.primary{background:#2463eb;color:white}
-      .toggle{position:relative;width:34px;height:34px;padding:8px;display:grid;place-items:center;border-radius:10px;background:Canvas;color:CanvasText;border:1px solid #8883}
-      .toggle.primary{background:#2463eb;color:white;border-color:transparent;box-shadow:0 3px 12px #2463eb33}
+      button{appearance:none;border:0;border-radius:9px;padding:8px 12px;font:inherit;cursor:pointer;background:var(--dsw-alias-interactive-bg-hover,color-mix(in srgb,CanvasText 8%,Canvas));color:var(--dsw-alias-label-primary,CanvasText)}
+      button:hover{background:var(--dsw-alias-interactive-bg-active,color-mix(in srgb,CanvasText 12%,Canvas))}button:focus-visible{outline:2px solid var(--dsw-alias-label-primary,CanvasText);outline-offset:3px}
+      button:disabled{cursor:wait;opacity:.65}.primary{background:var(--dsw-alias-button-info-fill,#171717);color:var(--dsw-alias-bg-base,#fff)}
+      .primary:hover{background:var(--dsw-alias-button-info-hover,#404040)}
+      .toggle{position:relative;width:34px;height:34px;padding:8px;display:grid;place-items:center;border-radius:10px;background:transparent;color:var(--dsw-alias-label-secondary,CanvasText);border:1px solid transparent}
+      .toggle.primary{background:var(--dsw-alias-button-info-fill,#171717);color:var(--dsw-alias-bg-base,#fff);border-color:transparent;box-shadow:none}
+      .toggle.primary:hover{background:var(--dsw-alias-button-info-hover,#404040)}
       .toggle svg{width:18px;height:18px}.close{font-size:18px;line-height:1;padding:4px 8px;background:transparent}
-      progress{width:100%;height:6px;accent-color:#2463eb}.confirm{margin-top:12px;padding:10px;border:1px solid #d99b3444;border-radius:8px}
+      progress{width:100%;height:6px;accent-color:var(--dsw-alias-button-info-fill,#171717)}.confirm{margin-top:12px;padding:10px;border:1px solid #d99b3444;border-radius:8px}
+      @media(forced-colors:active){.panel,button,.toggle{background:Canvas;color:CanvasText;border:1px solid ButtonText}.primary,.toggle.primary{background:Highlight;color:HighlightText;box-shadow:none}button:focus-visible{outline-color:Highlight}}
       @media(prefers-reduced-motion:no-preference){.busy svg{animation:pulse 1.5s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}}
     </style>
     <section class="panel" hidden role="dialog" aria-modal="false" aria-label="XHarness \u8F6F\u4EF6\u66F4\u65B0">

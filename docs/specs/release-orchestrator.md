@@ -1,5 +1,13 @@
 # 统一发布任务入口
 
+## 自动候选优先
+
+master CI 全绿后由 `Desktop Candidate Prepare` 自动构建、签名和验收四平台候选，
+**不会发布**。正式发布优先使用该摘要提供的版本和 build run id：
+`python3 -B scripts/release.py VERSION --candidate-run-id BUILD_RUN_ID --confirm-publish VERSION`。
+只推广同一份候选，不重新构建。分配、故障恢复、签名策略和过期限制见
+[自动候选协议](automatic-desktop-candidates.md)。以下旧入口用于明确需要新建候选的发布。
+
 ## Windows 同机验收的数据归属
 
 签名 worker 会先运行安装归属验收，再运行真实 updater 升级验收；不能假定第二项拥有新的用户 profile。
