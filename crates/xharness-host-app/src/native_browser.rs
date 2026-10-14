@@ -181,10 +181,14 @@ impl NativeBrowser {
             .and_then(|v| v.remove("png_base64"))
             .and_then(|v| v.as_str().map(str::to_owned))
             .ok_or_else(|| error("missing native PNG".into()))?;
-        let png = tokio::task::spawn_blocking(move || normalize_png(&encoded))
-            .await
-            .map_err(|_| error("screenshot decoder unavailable".into()))?
-            .map_err(error)?;
+        // A blocking decoder cannot be cancelled by dropping its JoinHandle.
+        // Move the permit into it, and return it with the PNG: an abandoned
+        // caller cannot release the slot while decoding is still allocating.
+        let (png, _permit) =
+            tokio::task::spawn_blocking(move || (normalize_png(&encoded), _permit))
+                .await
+                .map_err(|_| error("screenshot decoder unavailable".into()))?;
+        let png = png.map_err(error)?;
         sink.project_png(
             result.to_string(),
             xharness_computer::Screenshot {
