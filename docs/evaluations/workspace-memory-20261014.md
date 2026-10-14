@@ -21,6 +21,9 @@ provider calls, no desktop deployment or native mouse/keyboard automation.
 - UI strict build/typecheck/rebuild byte parity, 50 source/type-policy checks,
   14 CI-shard contracts, 123 foundation checks, six question-source tests,
   Profile regression and architecture checker + five checker tests passed.
+- Full generated-UI frozen/source differential: three implementations/layout
+  runs per Chromium/WebKit; exact text/control and settled conversation pixels
+  pass. Only the explicit workspace-memory plugin addition changes the load set.
 
 Raw complete remote output, source archives, SHA-256 receipts and local UI logs
 are retained in the task workspace under
@@ -54,6 +57,11 @@ corrected to the fixed `workspace.list` endpoint and a real HTTP regression was
 added. Memory request/response body omission was also added at the existing
 server debug boundary. Large rsync streams stalled; bounded small overlays were
 used successfully. No Rust work was moved to the local Mac.
+
+Initial GitHub CI also caught the frozen boot allowlist still expecting 57
+plugins. It now expects exactly 58 and names the single new memory-module path;
+the immutable legacy list and pixel/text/control assertions were not relaxed.
+The complete differential passes locally on both engines; CI was retriggered.
 
 ## Limits
 
