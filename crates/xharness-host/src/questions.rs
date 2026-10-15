@@ -1622,8 +1622,7 @@ mod tests {
         };
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         session_with_question_call(&store, "scoped").await;
-        let sink = Arc::new(RecordingSink::default());
-        let mut hub = DurableQuestionHub::new(store.clone(), sink.clone());
+        let mut hub = DurableQuestionHub::new(store.clone());
         Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
         let invocation =
             QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
@@ -1633,7 +1632,7 @@ mod tests {
         let id = RpcId::new(&invocation.interaction_id);
         assert!(hub.scoped_snapshot("other", &id).await.unwrap().is_none());
         let expected = hub.scoped_snapshot("scoped", &id).await.unwrap().unwrap();
-        let restored = DurableQuestionHub::new(store.clone(), sink.clone());
+        let restored = DurableQuestionHub::new(store.clone());
         restored.restore_detached().await.unwrap();
         let fresh = restored
             .scoped_snapshot("scoped", &id)
@@ -1691,8 +1690,14 @@ mod tests {
             .is_none());
         // Resolution was durable, but the deliberately unbound continuation
         // Host was unavailable. It is not a definitive invalid/non-effect.
-        assert!(!sink.0.lock().unwrap().is_empty());
         let session = store.load("scoped").await.unwrap().unwrap();
+        assert!(
+            !session
+                .events()
+                .iter()
+                .any(|event| matches!(event.data(), EventData::QuestionAnswerDelivered { .. })),
+            "a missing continuation Host must not certify answer delivery"
+        );
         assert_eq!(
             session
                 .events()
@@ -1710,8 +1715,7 @@ mod tests {
         for cancel in [false, true] {
             let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
             session_with_question_call(&store, "normal-scoped").await;
-            let sink = Arc::new(RecordingSink::default());
-            let hub = DurableQuestionHub::new(store.clone(), sink.clone());
+            let hub = DurableQuestionHub::new(store.clone());
             let invocation =
                 QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
             let id = RpcId::new(&invocation.interaction_id);
@@ -1767,7 +1771,22 @@ mod tests {
                     .count(),
                 1
             );
-            assert_eq!(sink.0.lock().unwrap().len(), usize::from(!cancel));
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.data(), EventData::QuestionResolved { .. }))
+                    .count(),
+                usize::from(!cancel)
+            );
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.data(), EventData::QuestionCancelled { .. }))
+                    .count(),
+                usize::from(cancel)
+            );
         }
     }
 }
