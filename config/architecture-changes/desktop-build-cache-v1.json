@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "kind": "compatible-addition",
-  "reason": "Reduce cold native compilation and cache compression overhead without bypassing release validation.",
+  "reason": "Reduce cold native compilation and cache compression overhead without bypassing release validation; refresh the record after current master integration.",
   "compatibility": "Only CI compiler and cache placement change; production profiles, runtime code, signatures, immutable receipts, install ownership, update confirmation and native acceptance remain unchanged.",
   "paths": {
     ".github/workflows/ci.yml": {
-      "before": "c2d57aa79e2b8baf48ece9ec6eac7934a0a88fb765959bed6be2ab109f63c243",
-      "after": "e4328fdc01e4365b9ed08b28b51d6ad27a0cba59738d8a63c7c541c471ca9e6d"
+      "before": "23fb88e1cddd988c0125770f97145d57455392c36be3379fe13d63591c273b45",
+      "after": "d7644bf1a32fa5825a13727cd8878e78e813aecc42f33f71b4f2e14c0c998d8a"
     }
   },
   "regressions": [
