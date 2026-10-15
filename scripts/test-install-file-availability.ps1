@@ -55,16 +55,16 @@ try {
         Refused { Assert-XHarnessFilesAvailable @($fixture) -TimeoutMilliseconds 400 } '0x8007002[01]'
         Check ($script:clock -eq 400 -and $script:attempts -eq 2) 'Persistent lock wait is not bounded'
     }
-    foreach ($mode in @('access', 'unexpected')) {
-        Reset-Case; $script:mode = $mode
+    foreach ($failureMode in @('access', 'unexpected')) {
+        Reset-Case; $script:mode = $failureMode
         Refused { Assert-XHarnessFilesAvailable @($fixture) } 'busy or not writable'
         Check ($script:clock -eq 0 -and $script:attempts -eq 1) 'Non-transient failure was retried'
     }
     Reset-Case; $script:hresult = -2147024873
     Refused { Assert-XHarnessFilesAvailable @($fixture) } '0x80070017'
     Check ($script:clock -eq 0) 'Unrecognized I/O error was retried'
-    foreach ($mode in @('change', 'disappear', 'appear')) {
-        Reset-Case; $script:mode = $mode
+    foreach ($failureMode in @('change', 'disappear', 'appear')) {
+        Reset-Case; $script:mode = $failureMode
         Refused { Assert-XHarnessFilesAvailable @($fixture) } 'changed while waiting'
     }
     Reset-Case
