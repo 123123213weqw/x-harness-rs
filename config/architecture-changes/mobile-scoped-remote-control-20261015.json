@@ -58,7 +58,7 @@
     },
     "scripts/regression/test_check_architecture.py": {
       "before": "bfd731414aef98eb631237fe0084ae0a6abd9aee69d0ad5dc394900ec9e677dc",
-      "after": "b7a615ce3922720c7a58ffa6167b1786590c1ad9067013337c27057fc90e1357"
+      "after": "3d9bc88deabe6f397acd245b0b8235a44307d1b91d7eebb5f87069b5e12e44bf"
     },
     "scripts/test-ci-tiering.py": {
       "before": "cfb719e233b5ad1c33de603a94dc1aebdd85b1500f81bc2768c83cbe69c0e665",

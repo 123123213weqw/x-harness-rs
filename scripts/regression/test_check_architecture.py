@@ -119,7 +119,11 @@ class RemoteInteractionSeamPolicyTests(unittest.TestCase):
 
     def run_checker(self) -> tuple[int, str]:
         output = io.StringIO()
-        with patch.object(CHECKER, "ROOT", self.root), patch.object(CHECKER, "BASELINE", self.baseline), patch.object(CHECKER, "HOST_POLICY", self.policy), contextlib.redirect_stdout(output):
+        # This disposable fixture tests dependency/source seams, not a Git diff.
+        # The independent freeze mutation suite exercises the real freeze gate.
+        with patch("sys.argv", ["check-architecture.py"]), patch.object(
+            CHECKER.runpy, "run_path", return_value={"run": lambda _root, _base: 0}
+        ), patch.object(CHECKER, "ROOT", self.root), patch.object(CHECKER, "BASELINE", self.baseline), patch.object(CHECKER, "HOST_POLICY", self.policy), contextlib.redirect_stdout(output):
             result = CHECKER.main()
         return result, output.getvalue()
 
