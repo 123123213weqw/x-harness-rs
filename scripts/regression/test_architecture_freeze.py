@@ -72,6 +72,16 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(len(report["flexible_changes"]), 3)
         self.assertEqual(report["protected"], [])
 
+    def test_tool_dependencies_are_flexible_but_shared_and_desktop_manifests_need_review(self):
+        self.write("crates/xharness-coding-tools/Cargo.toml", '[dependencies]\nnew_tool_dependency = "1"\n')
+        self.assertEqual(self.result()[0], [])
+        for path in ["Cargo.toml", "apps/desktop/src-tauri/Cargo.toml"]:
+            self.write(path, '[dependencies]\nshared_runtime = "1"\n')
+        errors, report = self.result()
+        self.assertEqual(len(errors),2)
+        self.record(report["protected"])
+        self.assertEqual(self.result()[0], [])
+
     def test_all_six_layers_are_enforced_and_correct_records_pass(self):
         for path in [self.native,"crates/xharness-tools/src/executor.rs","crates/xharness-api/src/protocol.rs",
                      "crates/xharness-session-jsonl/src/recovery.rs","apps/desktop/src-tauri/src/updater.rs","scripts/regression/check-architecture.py"]:
