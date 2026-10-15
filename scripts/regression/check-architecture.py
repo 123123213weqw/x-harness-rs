@@ -5,7 +5,9 @@ The first decoupling phase permits deleting dependencies but not adding more.
 Intentional new edges require an explicit architecture-baseline review.
 """
 
+import argparse
 import json
+import runpy
 import re
 from pathlib import Path
 
@@ -186,6 +188,9 @@ def production_dependencies(manifest: Path) -> set[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base", help="Full trusted comparison commit for the stabilization freeze")
+    args = parser.parse_args()
     expected = {key: set(value) for key, value in json.loads(BASELINE.read_text()).items()}
     manifests = sorted((ROOT / "crates").glob("*/Cargo.toml"))
     actual = {}
@@ -252,7 +257,8 @@ def main() -> int:
     )
     for crate, dependencies in removed.items():
         print(f"- improved {crate}: removed {', '.join(dependencies)}")
-    return 0
+    freeze = runpy.run_path(str(Path(__file__).with_name("architecture_freeze.py")))
+    return freeze["run"](ROOT, args.base)
 
 
 if __name__ == "__main__":

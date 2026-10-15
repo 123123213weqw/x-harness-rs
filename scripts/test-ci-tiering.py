@@ -35,6 +35,34 @@ def assert_step_guarded(test: unittest.TestCase, body: str, step: str) -> None:
 
 
 class CiTieringContract(unittest.TestCase):
+    def test_stabilization_freeze_is_unconditional_and_does_not_skip_windows(self) -> None:
+        source = workflow_source()
+        body = job(source, "architecture-freeze")
+        self.assertNotIn("\n    if:", body)
+        self.assertIn("fetch-depth: 0", body)
+        self.assertIn("github.event.pull_request.base.sha || github.event.before", body)
+        self.assertIn('check-architecture.py --base "$base"', body)
+        self.assertIn("test_architecture_freeze.py", body)
+        self.assertIn("set -euo pipefail", body)
+        self.assertNotIn("continue-on-error", body)
+        windows = job(source, "rust-windows")
+        self.assertNotIn("\n    if:", windows)
+        self.assertIn("runs-on: windows-2025", windows)
+        self.assertIn("test_architecture_freeze.py", windows)
+        self.assertIn("test-bundled-powershell.ps1", windows)
+        self.assertIn("cargo test --locked --workspace --all-targets", windows)
+        self.assertIn("cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets\n", windows)
+        self.assertIn("test-desktop-updater.mjs", windows)
+        self.assertNotIn("continue-on-error", windows)
+        for name in ("Stabilization policy mutations on native Windows (no Rust build)",
+                     "Stage and execute pinned portable PowerShell without system PATH",
+                     "Run workspace tests and export native wire fixtures once",
+                     "Check native Tauri desktop shell"):
+            step = re.search(rf"(?ms)^      - name: {re.escape(name)}\n(.*?)(?=^      - |\Z)", windows)
+            self.assertIsNotNone(step)
+            header = step.group(1).split("run:", 1)[0]
+            self.assertNotIn("if:", header, f"Windows regression may not be conditional: {name}")
+
     def test_superseded_runs_are_cancelled(self) -> None:
         source = workflow_source()
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
