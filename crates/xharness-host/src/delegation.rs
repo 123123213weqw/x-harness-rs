@@ -3,6 +3,9 @@
 pub(crate) mod model_selection;
 mod revert;
 mod settlement;
+#[cfg(test)]
+#[path = "swarm_tests.rs"]
+mod swarm_tests;
 
 use crate::{driver::PromptAdmission, rpc::permission_events, BasicHost};
 use async_trait::async_trait;

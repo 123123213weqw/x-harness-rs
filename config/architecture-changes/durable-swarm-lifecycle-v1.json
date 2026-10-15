@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Persist opt-in Swarm identity, lifecycle and associations with existing delegated sessions; reuse Host Control CAS and Agent recovery without introducing a scheduler. Extend the existing pure-processor architecture gate to the new module.",
+  "compatibility": "Existing session journals, tool schemas, unary RPC catalogue, chat dispatch and recovery defaults are unchanged. Control log gains validated incremental Swarm events; older logs remain readable, but downgrade to binaries unaware of the new event is not guaranteed. Swarm metadata never starts, resumes or stops workers. Validate Control persistence, Host restart and ordinary-chat regressions plus remote Clippy; no platform execution paths changed.",
+  "paths": {
+    "config/architecture-host-modules.json": {
+      "before": "a3d8db08b67c0a20d1530782eef010ea05a387598fe90e0a1454becc874874be",
+      "after": "2235ed5dba0bcee120bc5c414948913032eb211d8e9f3f30a8ef5e1d4500cc18"
+    },
+    "crates/xharness-control/src/lib.rs": {
+      "before": "2a2549a469b12587c1c858d5a66b366303b1a14c0cbd098d83824248ff9685e1",
+      "after": "1bc481211ed6bc15cc266b8de5d77c32281a3ac6fb327122fe6dd67a7733ce44"
+    },
+    "crates/xharness-control/src/swarm.rs": {
+      "before": null,
+      "after": "69c9bb4c5903ea00296374927925999e4dd8735633214bf9a32f6dec36b6695f"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "1c6f5a07b0dd35247b6af4345488ffab8553875af7764c77f52a22571c0c37ec",
+      "after": "f96c51f25986e5dcf4248e11ec7778965570f1e3a0508e53705c83fb7a110f09"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

@@ -3910,6 +3910,42 @@
         "UI_TEST_IMPL": "source"
       },
       "weight": 20
+    },
+    {
+      "id": "contract-98",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-swarm-client.mjs"
+      ],
+      "env": {},
+      "weight": 2
+    },
+    {
+      "id": "browser-224",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-225",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
     }
   ]
 }

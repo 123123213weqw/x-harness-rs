@@ -575,6 +575,7 @@ pub(crate) enum PendingResponse {
 
 pub(crate) struct HostState {
     pub control_revision: ControlRevision,
+    pub swarms: BTreeMap<String, xharness_control::SwarmSnapshot>,
     pub mutation_receipts: BTreeMap<String, MutationReceipt>,
     pub sessions: BTreeMap<String, SessionRecord>,
     pub workspaces: BTreeMap<String, WorkspaceRecord>,
@@ -730,6 +731,7 @@ impl HostState {
         }
         Self {
             control_revision: ControlRevision::ZERO,
+            swarms: BTreeMap::new(),
             mutation_receipts: BTreeMap::new(),
             sessions: BTreeMap::new(),
             workspaces,

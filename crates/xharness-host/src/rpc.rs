@@ -29,6 +29,7 @@ mod session_import;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
+mod swarm;
 pub(crate) mod turn;
 mod wire;
 mod workspace;
@@ -145,6 +146,12 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "swarm/manage" {
+            return Some(match swarm::manage(self, rpc_id, &payload).await {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
+            });
+        }
         if endpoint == "workspace/memory" {
             // Settings must remain repairable even if session hydration fails.
             return Some(match memory::call(self, rpc_id, &payload).await {
