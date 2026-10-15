@@ -321,6 +321,7 @@ function glyphFor(section) {
         case 'plugins': return 'plugins';
         case 'memory': return 'memory';
         case 'session-import': return 'import';
+        case 'remote-control': return 'remote';
         default: return 'general';
     }
 }
@@ -331,6 +332,7 @@ function GlyphImage({ kind }) {
         case 'archive': return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconArchiveOutline20, { size: 16 });
         case 'agent': return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconAgentPresetOutline16, { size: 16 });
         case 'plugins': return (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPersonalizationOutline16, { size: 16 });
+        case 'remote': return ((0, jsx_runtime_1.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.35", strokeLinecap: "round", strokeLinejoin: "round", children: [(0, jsx_runtime_1.jsx)("rect", { x: "1.5", y: "2.5", width: "9", height: "7", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M6 9.5v3M3.5 12.5h5" }), (0, jsx_runtime_1.jsx)("rect", { x: "10", y: "6.5", width: "4.5", height: "7.5", rx: "1" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 12h.5" })] }));
         case 'usage': return ((0, jsx_runtime_1.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.35", strokeLinecap: "round", strokeLinejoin: "round", children: [(0, jsx_runtime_1.jsx)("path", { d: "M2 13.5h12" }), (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "8", width: "2", height: "5.5", rx: ".5" }), (0, jsx_runtime_1.jsx)("rect", { x: "7", y: "2.5", width: "2", height: "11", rx: ".5" }), (0, jsx_runtime_1.jsx)("rect", { x: "11", y: "5.5", width: "2", height: "8", rx: ".5" })] }));
         case 'display': return ((0, jsx_runtime_1.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.35", strokeLinecap: "round", strokeLinejoin: "round", children: [(0, jsx_runtime_1.jsx)("rect", { x: "1.5", y: "2", width: "13", height: "9", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M8 11v3M5.5 14h5M4 5h8M4 8h8" }), (0, jsx_runtime_1.jsx)("path", { d: "M6 4v2M10 7v2" })] }));
         case 'installation': return ((0, jsx_runtime_1.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.35", strokeLinecap: "round", strokeLinejoin: "round", children: [(0, jsx_runtime_1.jsx)("path", { d: "m8 1.5 5.5 3.25v6.5L8 14.5l-5.5-3.25v-6.5L8 1.5Z" }), (0, jsx_runtime_1.jsx)("path", { d: "m2.5 4.75 5.5 3.25 5.5-3.25M8 8v6.5M5.25 3.125l5.5 3.25v3" })] }));

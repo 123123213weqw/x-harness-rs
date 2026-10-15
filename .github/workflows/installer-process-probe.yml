@@ -8,7 +8,15 @@ on:
         type: string
         default: ''
       expected_source_sha:
-        description: Exact source SHA bound to the reused CI installer
+        description: Exact source SHA bound to the reused installer or release
+        type: string
+        default: ''
+      source_release_run_id:
+        description: Optional completed signed candidate for Windows-only upgrade replay (never publication evidence)
+        type: string
+        default: ''
+      expected_version:
+        description: Exact version bound to source_release_run_id
         type: string
         default: ''
   pull_request:
@@ -26,6 +34,8 @@ on:
       - 'scripts/native-desktop-attachment.mjs'
       - 'scripts/windows-migration-acceptance.mjs'
       - 'scripts/test-windows-cache-rehearsal.mjs'
+      - 'scripts/replay-windows-upgrade.mjs'
+      - 'scripts/test-replay-windows-upgrade.mjs'
       - '.github/workflows/installer-process-probe.yml'
 
 permissions:
@@ -67,6 +77,72 @@ jobs:
       - name: Native update attachment lifecycle contracts
         shell: pwsh
         run: node scripts/test-windows-cache-rehearsal.mjs
+      - name: Windows-only replay provenance and isolation contracts
+        shell: pwsh
+        run: node scripts/test-replay-windows-upgrade.mjs
+
+  reuse-upgrade-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.source_release_run_id != ''
+    runs-on: windows-2025
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      SOURCE_RELEASE_RUN_ID: ${{ inputs.source_release_run_id }}
+      SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Authenticate and verify existing signed packages without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/replay-windows-upgrade.mjs stage
+          if ($LASTEXITCODE) { throw 'Windows replay staging rejected' }
+      - name: Independently audit the exact Windows installer runtime
+        run: |
+          python -B scripts/powershell-runtime.py stage --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE) { throw 'Trusted vendor runtime staging failed' }
+          python -B scripts/audit-windows-runtime.py --installer "$env:REPLAY_TARGET_INSTALLER" --output dist/migration-acceptance/evidence/replay-runtime-audit.json
+          if ($LASTEXITCODE) { throw 'Existing signed installer audit failed' }
+      - name: Install isolated native UI driver
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/migration-deps" --no-save --package-lock=false playwright@1.61.1
+          if ($LASTEXITCODE) { throw 'Playwright installation failed' }
+          "MIGRATION_TEST_DEPS=$env:RUNNER_TEMP/migration-deps/node_modules/playwright/index.mjs" >> $env:GITHUB_ENV
+      - name: Real Windows upgrade with signature, consent, shutdown, restart and retention checks
+        run: |
+          ./scripts/windows-migration-acceptance.ps1
+          if ($LASTEXITCODE) { throw 'Windows upgrade replay failed; candidates remain paused' }
+      - name: Record diagnostic result without issuing release acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/replay-windows-upgrade.mjs report
+          if ($LASTEXITCODE) { throw 'Windows replay result rejected' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-upgrade-replay
+          path: |
+            dist/migration-acceptance/evidence/
+            dist/windows-upgrade-replay/identity.json
+          if-no-files-found: warn
+          retention-days: 14
 
   reuse-installer-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.source_ci_run_id != ''

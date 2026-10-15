@@ -1,5 +1,5 @@
 {
-  "rev": "ea26289e7ea5ef14",
+  "rev": "38bacbedb593363f",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -202,8 +202,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-settings-general",
-      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=92262a036aa1d5aa",
-      "rev": "92262a036aa1d5aa",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=d76346872866d60c",
+      "rev": "d76346872866d60c",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-settings",
@@ -233,6 +233,21 @@
       "external": [
         "@xharness/dsh-client-runtime/client",
         "@xharness/dsh-client-ui-primitives",
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
+      "id": "@xharness/dsh-client-ui-settings-remote-control",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-remote-control/client.js?rev=7ec467cb5a853cdf",
+      "rev": "7ec467cb5a853cdf",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ],
+      "external": [
         "react",
         "react/jsx-runtime"
       ]

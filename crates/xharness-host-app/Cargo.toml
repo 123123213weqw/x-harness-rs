@@ -11,6 +11,11 @@ name = "xharness-host"
 path = "src/main.rs"
 
 [dependencies]
+axum.workspace = true
+getrandom = "0.3"
+qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
+xharness-channel-telegram = { path = "../xharness-channel-telegram" }
+xharness-mobile = { path = "../xharness-mobile" }
 # v0.1.1, pinned to its immutable release commit (not a movable tag).
 xharness-model-catalog = { git = "https://github.com/123123213weqw/xharness-model-catalog", rev = "b76585abb9102690d2dd85e385550e0d2f688601", version = "=0.1.1" }
 fs2 = "0.4.3"
@@ -47,6 +52,7 @@ xharness-schedule = { path = "../xharness-schedule" }
 xharness-session = { path = "../xharness-session" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }
 xharness-server = { path = "../xharness-server" }
+xharness-remote = { path = "../xharness-remote" }
 xharness-terminal = { path = "../xharness-terminal" }
 xharness-web-terminal = { path = "../xharness-web-terminal" }
 xharness-token = { path = "../xharness-token" }
@@ -54,6 +60,8 @@ xharness-web = { path = "../xharness-web" }
 xharness-tools = { path = "../xharness-tools" }
 
 [dev-dependencies]
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
+tower.workspace = true
 xharness-prompt = { path = "../xharness-prompt" }
 thiserror.workspace = true
 zip = { version = "2.4", default-features = false, features = ["deflate"] }

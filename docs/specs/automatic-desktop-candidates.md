@@ -90,6 +90,28 @@ The failed candidate remains immutable; a fresh version must pass full acceptanc
 
 ## Policy and retention
 
+### 2026-10-15: Background update preparation in native acceptance
+
+Candidate `0.2.50` passed aggregation but its Windows base app began downloading
+the target before manual discovery. Captured requests show the real background
+download; discovery kept calling `desktop_check_update` and eventually reported
+the updater's busy guard. The old test also incorrectly required observing the
+transient `available` phase and armed corruption only after discovery.
+
+Acceptance now arms the corrupted response before launching the base app, follows
+the production updater snapshot, and waits without issuing checks during
+`checking`/`downloading`. Verified `downloaded` is a valid terminal preparation
+state, not permission to skip install or retention checks. Corrupt rejection must
+be a download error for the exact target with an intercepted corrupt request;
+a verified corrupt payload, different candidate, or unexpected install fails
+immediately. Only the deliberate corruption rejection permits one explicit retry.
+
+Metadata discovery keeps its 90-second deadline. Once payload transfer begins,
+the driver uses the existing production download's 30-minute bound instead of
+misapplying the short discovery deadline. A bounded, rolling updater snapshot
+log is retained for failures. No production updater setting, automatic-install
+consent, signature policy, or release evidence requirement changes.
+
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
 environments. `XHARNESS_DESKTOP_TAG_RELEASE_SCOPE` selects `all-macos-preview`
 (existing default, ad-hoc/unnotarized), `all-macos-selfsigned` (fixed protected
@@ -128,6 +150,39 @@ Legacy new-build release remains available. For ready candidates, use the reuse
 entry, not a second build with an already-reserved version.
 
 ## Validation
+
+### Windows-first diagnostic replay
+
+While automatic candidates are paused, manually dispatch `Windows installer process probe`
+with `source_release_run_id`, `expected_source_sha`, and `expected_version` to replay
+an existing signed Windows target. Leave `source_ci_run_id` empty. This path builds
+no Rust and signs or publishes nothing. It verifies the exact immutable tag/run/
+attempt, successful aggregation and producer safety steps, the complete signed
+candidate, the current stable trust key, and the extracted Windows runtime before
+executing the existing native upgrade driver on a disposable Windows runner.
+
+Failed candidates are eligible only when their sole producer failure was Windows
+upgrade acceptance. The original failure is
+never erased or converted into successful release provenance. The updated harness
+source and original package source are recorded separately. Evidence is uploaded
+as `windows-upgrade-replay`, with `diagnosticOnly=true` and `releaseEligible=false`;
+no formal `acceptance.json` is issued and Promote cannot consume this result.
+The real signed download, corruption rejection, consent barrier, Host stop, native
+installation/restart and unchanged session/config/key/workspace checks still run.
+Automatic candidate preparation must be disabled at staging and reporting, and
+the diagnostic never re-enables it, including after a successful replay.
+
+The first real replay passed on 2026-10-15: signed stable `0.2.44` to the unchanged
+signed `0.2.50` installer, [run 38709926712](https://github.com/123123213weqw/x-harness-rs/actions/runs/38709926712),
+Windows native job 126 seconds including staging. The test observed background
+`checking`, real corrupt rejection, and `downloaded` without ever requiring an
+`available` snapshot. Exactly one corrupt package and one valid package were
+requested. Confirmation, signature/runtime verification, native installation,
+restart, product readiness, and unchanged journal/config/credential/workspace
+fixtures passed. Script hashes and scope are recorded in
+[`windows-upgrade-replay-20261015.json`](../evidence/windows-upgrade-replay-20261015.json).
+This is diagnostic proof for those package bytes, not authorization to publish
+the original failed candidate or skip a fresh release's formal acceptance.
 
 ```sh
 python3 -B scripts/test-desktop-candidates.py

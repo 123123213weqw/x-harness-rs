@@ -141,6 +141,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 ripgrep xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -150,6 +151,13 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Restore pinned portable ripgrep cache
+        if: startsWith(matrix.platform, 'darwin-')
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
       - name: Install native macOS ripgrep
         if: startsWith(matrix.platform, 'darwin-')
         run: bash scripts/install-portable-rg.sh
@@ -212,6 +220,12 @@ jobs:
         if: always() && inputs.mode == 'rehearsal'
         run: |
           rm -f "$CANDIDATE/disposable.key" "$CANDIDATE/disposable.key.pub"
+      - name: Save verified portable ripgrep cache
+        if: success() && github.ref == 'refs/heads/master' && steps.portable-rg-cache.outputs.cache-hit != 'true' && startsWith(matrix.platform, 'darwin-')
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
 
   windows-cache-rehearsal:
     if: inputs.mode == 'rehearsal'
