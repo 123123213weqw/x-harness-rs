@@ -90,6 +90,28 @@ The failed candidate remains immutable; a fresh version must pass full acceptanc
 
 ## Policy and retention
 
+### 2026-10-15: Background update preparation in native acceptance
+
+Candidate `0.2.50` passed aggregation but its Windows base app began downloading
+the target before manual discovery. Captured requests show the real background
+download; discovery kept calling `desktop_check_update` and eventually reported
+the updater's busy guard. The old test also incorrectly required observing the
+transient `available` phase and armed corruption only after discovery.
+
+Acceptance now arms the corrupted response before launching the base app, follows
+the production updater snapshot, and waits without issuing checks during
+`checking`/`downloading`. Verified `downloaded` is a valid terminal preparation
+state, not permission to skip install or retention checks. Corrupt rejection must
+be a download error for the exact target with an intercepted corrupt request;
+a verified corrupt payload, different candidate, or unexpected install fails
+immediately. Only the deliberate corruption rejection permits one explicit retry.
+
+Metadata discovery keeps its 90-second deadline. Once payload transfer begins,
+the driver uses the existing production download's 30-minute bound instead of
+misapplying the short discovery deadline. A bounded, rolling updater snapshot
+log is retained for failures. No production updater setting, automatic-install
+consent, signature policy, or release evidence requirement changes.
+
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
 environments. `XHARNESS_DESKTOP_TAG_RELEASE_SCOPE` selects `all-macos-preview`
 (existing default, ad-hoc/unnotarized), `all-macos-selfsigned` (fixed protected

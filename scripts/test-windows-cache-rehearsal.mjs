@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {spawnSync} from 'node:child_process'
 import {validateRehearsal} from './windows-cache-rehearsal.mjs'
-import {attachmentState} from './native-desktop-attachment.mjs'
+import {attachmentState,preparationAction,UpdatePreparationError} from './native-desktop-attachment.mjs'
 const env={GITHUB_ACTIONS:'true',RUNNER_ENVIRONMENT:'github-hosted',GITHUB_SHA:'a'.repeat(40),GITHUB_REPOSITORY:'fixture/repo',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1'}
 const stage={rehearsal_only:true,sha:env.GITHUB_SHA,repository:env.GITHUB_REPOSITORY,platform:'windows-x86_64',target:'x86_64-pc-windows-msvc',version:'0.0.902',base_version:'0.0.901',release_run_id:'123',release_run_attempt:'1',endpoint:'https://github.com/fixture/repo/releases/latest/download/latest.json',base_sha256:'b'.repeat(64),package_sha256:'c'.repeat(64),manifest_sha256:'d'.repeat(64)}
 validateRehearsal(stage,env,'win32')
@@ -39,10 +39,41 @@ const productReady={...healthy,startup:{hostReadyMs:90,frontendHydratedMs:null,f
 const restoreSequence=[restoring,restoring,productReady]
 assert.equal(restoreSequence.findIndex(status=>attachmentState('0.0.902',status,false).ready),2);cases++
 assert.equal(restoreSequence.some(status=>attachmentState('0.0.902',status,true).ready),false);cases++
+const target='0.0.902'
+const snapshot=(phase,extra={})=>({phase,version:target,...extra})
+for(const [state,options,want] of [
+ [snapshot('idle'),{},'check'],
+ [snapshot('up-to-date'),{},'check'],
+ [snapshot('checking',{version:null}),{},'wait'],
+ [snapshot('available'),{},'download'],
+ [snapshot('downloading'),{},'wait'],
+ [snapshot('downloaded'),{},'ready'],
+ [snapshot('downloading'),{corrupt:true},'wait'],
+ [snapshot('error',{retryAction:'download'}),{corrupt:true,corruptRequestSeen:true},'rejected'],
+ [snapshot('error',{retryAction:'download'}),{retryRejected:true},'download'],
+]){assert.equal(preparationAction(target,state,options),want);cases++}
+for(const [state,options] of [
+ [undefined,{}],
+ [snapshot('downloaded'),{corrupt:true,corruptRequestSeen:true}],
+ [snapshot('error',{retryAction:'download'}),{corrupt:true}],
+ [snapshot('error',{retryAction:'check'}),{corrupt:true,corruptRequestSeen:true}],
+ [snapshot('error',{retryAction:'download'}),{}],
+ [snapshot('downloaded',{version:'9.9.9'}),{}],
+ [snapshot('error',{version:'9.9.9',retryAction:'download'}),{corrupt:true,corruptRequestSeen:true}],
+ [snapshot('installing'),{}],
+ [snapshot('stopping-host'),{}],
+]){assert.throws(()=>preparationAction(target,state,options),UpdatePreparationError);cases++}
+// Background download can make "available" entirely unobservable. Do not issue
+// another check while busy or reset a completed verified download.
+assert.deepEqual(['checking','downloading','downloaded'].map(phase=>preparationAction(target,snapshot(phase))),['wait','wait','ready']);cases++
 const js=readFileSync('scripts/windows-migration-acceptance.mjs','utf8'),wf=readFileSync('.github/workflows/desktop-windows-cache-rehearsal.yml','utf8')
 assert.ok(js.includes('nativeDirectLatest: cacheRehearsal ? false : directLatest'),'Formal promotion must reject rehearsal evidence')
 assert.ok(js.includes('cachedTamperRejectedBeforeHostStop: true'))
 assert.ok(js.includes('packageRequests(), before'))
+assert.ok(js.includes('let rejectPackage = !probeOnly'),'Corrupt fixture must be armed before native startup')
+assert.ok(js.includes('assert.ok(corruptPackageRejected'),'PASS requires observed rejection, not a hard-coded flag')
+assert.ok(js.includes('if (error instanceof UpdatePreparationError) throw error'),'Invalid candidate/verification state must fail immediately')
+assert.ok(js.includes("'update-samples.json'"),'Preserve native updater phase/progress evidence')
 assert.ok(wf.includes('persist-credentials: false'))
 for(const forbidden of ['secrets.','contents: write','pull_request_target','ignoreHTTPSErrors','NODE_TLS_REJECT_UNAUTHORIZED'])assert.ok(!wf.includes(forbidden))
 console.log(`${cases} Windows cache rehearsal provenance/isolation cases passed; no production release evidence claim.`)
