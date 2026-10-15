@@ -17,6 +17,44 @@ env:
   PYTHONUTF8: '1'
 
 jobs:
+  architecture-freeze:
+    name: Architecture / stabilization freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check changed foundations against the exact base policy
+        env:
+          ARCHITECTURE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/architecture
+          base="$ARCHITECTURE_BASE"
+          if [[ ! "$base" =~ ^[0-9a-f]{40}$ || "$base" == 0000000000000000000000000000000000000000 ]]; then
+            base="$(git merge-base HEAD origin/master)"
+          fi
+          python3 -B scripts/regression/check-architecture.py --base "$base" | tee dist/architecture/freeze.log
+      - name: Mutation-test the policy and preserve Windows regression enrollment
+        run: |
+          python3 -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
+          python3 -B scripts/test-ci-tiering.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: architecture-freeze
+          path: dist/architecture/
+          if-no-files-found: warn
+          retention-days: 14
+
   release-checkpoints:
     name: Durable release checkpoint rehearsal (no signing keys)
     runs-on: ubuntu-22.04
@@ -448,6 +486,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Stabilization policy mutations on native Windows (no Rust build)
+        run: |
+          python -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
+          if ($LASTEXITCODE) { throw 'Architecture stabilization regression failed' }
       - name: Stage and execute pinned portable PowerShell without system PATH
         run: |
           python -B scripts/powershell-runtime.py stage
