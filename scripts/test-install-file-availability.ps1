@@ -65,6 +65,7 @@ try {
     Check ($script:clock -eq 0) 'Unrecognized I/O error was retried'
     foreach ($failureMode in @('change', 'disappear', 'appear')) {
         Reset-Case; $script:mode = $failureMode
+        Write-Output "Checking namespace refusal: $failureMode"
         Refused { Assert-XHarnessFilesAvailable @($fixture) } 'changed while waiting'
     }
     Reset-Case
