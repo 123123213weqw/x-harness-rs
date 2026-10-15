@@ -17,8 +17,15 @@ def commands(target):
     if target not in TARGETS:
         raise ValueError('Unsupported benchmark target')
     desktop = ['--locked', '--manifest-path', 'apps/desktop/src-tauri/Cargo.toml']
-    return [
-        ('host-release', ['cargo', 'build', '--locked', '--release', '-p', 'xharness-host-app', '--target', target]),
+    host = [('host-release', ['cargo', 'build', '--locked', '--release', '-p', 'xharness-host-app', '--target', target])]
+    if TARGETS[target] == 'windows-x86_64':
+        host.extend([
+            ('sandbox-release', ['cargo', 'build', '--locked', '--release', '-p', 'xharness-sandbox', '--bin', 'xharness-windows-sandbox-runner', '--target', target]),
+            ('stage-sandbox', [sys.executable, 'scripts/stage-tauri-sidecar.py',
+                               f'target/{target}/release/xharness-windows-sandbox-runner.exe', target,
+                               '--name', 'xharness-windows-sandbox-runner']),
+        ])
+    return host + [
         ('stage-sidecars', [sys.executable, '-B', 'scripts/desktop-release-build.py', 'stage', '--platform', TARGETS[target], '--target', target]),
         ('desktop-tests', ['cargo', 'test', *desktop, '--all-targets', '--target', target]),
         ('desktop-clippy', ['cargo', 'clippy', *desktop, '--all-targets', '--target', target, '--', '-D', 'warnings']),
@@ -44,6 +51,9 @@ def measure(target, phase, mode, cache_hit, output):
     started = time.monotonic()
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
+        if phase == 'warm' and cache_hit != 'true':
+            report['invalidSample'] = 'Warm pass did not restore the exact populated cache'
+            raise ValueError(report['invalidSample'])
         for name, argv in commands(target):
             before = time.monotonic()
             result = subprocess.run(argv, cwd=ROOT, check=False)

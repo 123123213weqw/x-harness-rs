@@ -59,6 +59,7 @@ jobs:
           # Separate diagnostic namespace and ref scope; never overwrite production caches.
           shared-key: benchmark-native-${{ matrix.target }}-${{ matrix.mode }}-${{ github.sha }}
           cache-workspace-crates: ${{ matrix.mode == 'workspace' }}
+          cache-on-failure: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST XHARNESS_ACCOUNT_ORIGIN XHARNESS_INSTALLATION_ENDPOINT XHARNESS_RELEASE_CHANNEL
           workspaces: |
             . -> target

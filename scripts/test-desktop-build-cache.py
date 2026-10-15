@@ -167,7 +167,12 @@ class BuildCacheContracts(unittest.TestCase):
     def test_benchmark_has_all_compile_gates_and_no_installers(self):
         for target in bench.TARGETS:
             commands = dict(bench.commands(target))
-            self.assertEqual(set(commands), {'host-release', 'stage-sidecars', 'desktop-tests', 'desktop-clippy', 'desktop-release'})
+            expected = {'host-release', 'stage-sidecars', 'desktop-tests', 'desktop-clippy', 'desktop-release'}
+            if target.endswith('windows-msvc'):
+                expected.update(['sandbox-release', 'stage-sandbox'])
+                self.assertLess(list(commands).index('stage-sandbox'), list(commands).index('desktop-tests'))
+                self.assertIn('xharness-windows-sandbox-runner', commands['sandbox-release'])
+            self.assertEqual(set(commands), expected)
             self.assertIn('--locked', commands['host-release'])
             self.assertIn('--all-targets', commands['desktop-tests'])
             self.assertEqual(commands['desktop-clippy'][-3:], ['--', '-D', 'warnings'])
@@ -189,7 +194,7 @@ class BuildCacheContracts(unittest.TestCase):
                     patch.object(bench.subprocess, 'check_output', side_effect=['a' * 40, 'fixture rustc']), \
                     patch.object(bench.subprocess, 'run', return_value=subprocess.CompletedProcess([], 7)) as run, \
                     self.assertRaises(subprocess.CalledProcessError):
-                bench.measure('x86_64-apple-darwin', 'warm', 'dependencies', 'false', output)
+                bench.measure('x86_64-apple-darwin', 'populate', 'dependencies', 'false', output)
             report = json.loads(output.read_text())
             self.assertEqual(report['status'], 'failed')
             self.assertEqual(report['steps'][0]['exitCode'], 7)
@@ -197,6 +202,20 @@ class BuildCacheContracts(unittest.TestCase):
             self.assertFalse(report['releaseEligible'])
             self.assertNotIn('must-not-appear', output.read_text())
             self.assertEqual(run.call_count, 1)
+
+    def test_warm_cache_miss_is_an_invalid_sample_not_a_slow_warm_build(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'metrics.json'
+            with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted',
+                     'GITHUB_SHA': 'a' * 40, 'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1'}), \
+                    patch.object(bench.subprocess, 'check_output', side_effect=['a' * 40, 'fixture rustc']), \
+                    patch.object(bench.subprocess, 'run') as run, self.assertRaises(ValueError):
+                bench.measure('x86_64-apple-darwin', 'warm', 'dependencies', 'false', output)
+            report = json.loads(output.read_text())
+            self.assertEqual(report['status'], 'failed')
+            self.assertIn('invalidSample', report)
+            self.assertEqual(report['steps'], [])
+            run.assert_not_called()
 
     def test_checkout_mismatch_fails_before_any_compilation(self):
         with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted', 'GITHUB_SHA': 'a' * 40}), \
