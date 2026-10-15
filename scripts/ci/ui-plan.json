@@ -3910,6 +3910,30 @@
         "UI_TEST_IMPL": "source"
       },
       "weight": 20
+    },
+    {
+      "id": "browser-224",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 30
+    },
+    {
+      "id": "browser-225",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 30
     }
   ]
 }
