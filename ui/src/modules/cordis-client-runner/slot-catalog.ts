@@ -370,8 +370,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     key: 'conversation.composer.dock',
     kind: 'list',
     scope: 'session',
-    summary: 'The band under the composer card, inside the bar\'s width column — the seat for an ambient readout about the conversation (the shipped stats line lives here).',
-    doc: 'The band under the composer card, inside the bar\'s width column — the\nseat for an ambient readout about the conversation (the shipped stats\nline lives here). Same InputZone owner share as the other\nregions. Anything the user must click belongs in the tool row instead\n(`conversation.input.left` / `.right`); anything needing its own line\nabove the card belongs in `conversation.input.dock`.',
+    summary: 'Compact readouts inside the composer toolbar (the shipped statistics disclosure lives here).',
+    doc: 'Compact readouts inside the composer toolbar (the shipped statistics\ndisclosure lives here). Same InputZone owner share as the other\nregions. Keep contributions compact; general actions belong in\n`conversation.input.left` / `.right`, and content needing its own line\nabove the textarea belongs in `conversation.input.dock`.',
     registerOptions: [
       {
         name: 'id',
@@ -595,8 +595,8 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     key: 'conversation.input.dock',
     kind: 'list',
     scope: 'session',
-    summary: 'A full-width row of its own, stacked above the composer card — the seat for anything that needs a line to itself (queue rows, a todo strip, a goal bar).',
-    doc: 'A full-width row of its own, stacked above the composer card — the seat\nfor anything that needs a line to itself (queue rows, a todo strip, a\ngoal bar). Pick this over the three seats below when your content wraps\nor carries prose; pick `conversation.composer.dock` for an ambient\nreadout under the card, and `conversation.input.left` /\n`.right` for a small control INSIDE the card\'s tool row.\nRead only `session`/`input` off the owner share (InputZone) —\nboth are point-in-time snapshots re-rendered for you, never subscribe.',
+    summary: 'A full-width row of its own, in the composer card header — the seat for anything that needs a line to itself (queue rows, a todo strip, a goal bar).',
+    doc: 'A full-width row of its own, in the composer card header — the seat\nfor anything that needs a line to itself (queue rows, a todo strip, a\ngoal bar). Pick this over the three seats below when your content wraps\nor carries prose; pick `conversation.composer.dock` for an ambient\nreadout inside the toolbar, and `conversation.input.left` /\n`.right` for a small control INSIDE the card\'s tool row.\nRead only `session`/`input` off the owner share (InputZone) —\nboth are point-in-time snapshots re-rendered for you, never subscribe.',
     registerOptions: [
       {
         name: 'id',
