@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-12",
+  "baseCommit": "e0a35e4c4b3af36ed0e1b0ef6f348800c298a872",
+  "scope": "Agent tool communication presentation only; backend send/admission, RPC and durable format unchanged in this change",
+  "implementation": [
+    "Target and message preview on collapsed rows; full message and message ID on expansion",
+    "Strict direct/current-envelope receipt validation; accepted means queued, never read/executed",
+    "Error/unknown/unconfirmed and stop-request acknowledgement remain distinct",
+    "Agent roots/nested calls protected from live/closed-turn tool folds; viewport windowing remains active"
+  ],
+  "passed": [
+    {
+      "command": "npm run build --prefix ui",
+      "result": "55 modules, 190 assets; owned strict TS build"
+    },
+    {
+      "command": "npm run typecheck --prefix ui",
+      "result": "passed"
+    },
+    {
+      "command": "node --test scripts/test-owned-ui-type-policy.mjs",
+      "result": "23 passed"
+    },
+    {
+      "command": "node scripts/test-tool-source-module.mjs",
+      "result": "9 passed; existing ABI/CSS/slots and normal tools unchanged"
+    },
+    {
+      "command": "node scripts/test-adaptive-tool-fold.mjs",
+      "result": "7 passed including real Session/Assembler live/history ingestion"
+    },
+    {
+      "command": "node scripts/test-turn-process.mjs",
+      "result": "9 passed"
+    },
+    {
+      "command": "node scripts/test-tool-source-browser.mjs",
+      "engines": [
+        "chromium",
+        "webkit"
+      ],
+      "result": "send -> queued, full body/receipt, unknown/failure, historical remount, bilingual narrow viewport passed"
+    },
+    {
+      "command": "node scripts/test-turn-process-browser.mjs",
+      "engines": [
+        "chromium",
+        "webkit"
+      ],
+      "result": "existing terminal/windowing cases and agent persistence under live/closed folds passed"
+    },
+    {
+      "command": "node scripts/test-transcript-windowing.mjs",
+      "engine": "chromium",
+      "result": "bounded mount/resize and state retention passed; synthetic 350-row fixture, not physical app footprint"
+    },
+    {
+      "command": "node scripts/test-transcript-row-state.mjs",
+      "result": "passed; seven existing Tool call-identity seats retained"
+    },
+    {
+      "command": "npm run check:build --prefix ui",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "browserDependencyRoot": "/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps",
+  "limits": [
+    "User requested code inspection, supplied no specific chat: no assertion about whether the quoted narration sent a real message",
+    "Controlled browser fixtures, not real model behaviour or installed desktop app acceptance",
+    "No new backend Rust implementation in this change; earlier child-question-policy work is separate",
+    "No PR, merge, release, deployment or installed app replacement"
+  ]
+}

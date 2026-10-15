@@ -66,6 +66,35 @@ pub struct SessionCreateParams {
     pub agent_preset: Option<String>,
 }
 
+/// Explicit file content, not an arbitrary server filesystem path.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionImportParams {
+    pub source: String,
+    pub jsonl: String,
+    pub preview: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SessionImportPreview {
+    pub role: String,
+    pub content: String,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionImportResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub title: String,
+    pub messages: usize,
+    pub tools: usize,
+    pub warnings: Vec<String>,
+    pub preview: Vec<SessionImportPreview>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionHistoryParams {
@@ -826,6 +855,7 @@ typed_rpc_catalog! {
     SessionList => (SessionListParams, SessionListResponse),
     SessionSearch => (SessionSearchParams, SessionSearchResponse),
     SessionCreate => (SessionCreateParams, SessionCreateResponse),
+    SessionImport => (SessionImportParams, SessionImportResponse),
     SessionHistory => (SessionHistoryParams, SessionHistoryResponse),
     SessionModels => (SessionIdParams, SessionModelsResponse),
     SessionSelectModel => (SessionSelectModelParams, SessionSelectModelResponse),

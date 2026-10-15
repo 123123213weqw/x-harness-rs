@@ -33,10 +33,11 @@ try {
     const request=route.request().postDataJSON(),{payload}=request;calls.push(payload);
     assert.equal(request.type,'client-request');assert.equal(request.method,'session.requestSnapshot');assert.equal(typeof request.rpcId,'string');
     if(payload.seq===10)await new Promise(resolve=>delayed=resolve);
-    const omitted=payload.seq===20||payload.seq===21;
+    if(implementation!=='legacy')assert.equal(payload.scope,'harness','inspector requests only the system/tool surface');
+    const omitted=payload.seq===20||payload.seq===21||payload.seq===23;
     const header=omitted
-      ? {provider:'test',model:'model',input:[],tools:[],options:{auditSnapshot:{kind:'omitted',reason:payload.seq===20?'capture_disabled':'archive_failed'},inputMessageCount:4,toolCount:2}}
-      : {provider:'test',model:'model',input:[{role:'user',content:'Full request '+payload.sessionId+' '+payload.seq}],system:'System restored '+payload.sessionId+' '+payload.seq,tools:[{name:'read',description:'restored tool'}],options:{}};
+      ? {provider:'test',model:'model',input:[],tools:[],options:{auditSnapshot:{kind:'omitted',reason:payload.seq===20?'capture_disabled':'archive_failed'},...(payload.seq===23?{harnessSnapshot:{kind:'omitted',reason:'archive_failed'}}:{}),inputMessageCount:4,toolCount:2}}
+      : {provider:'test',model:'model',input:payload.scope==='harness'?[]:[{role:'user',content:'Full request '+payload.sessionId+' '+payload.seq}],system:'System restored '+payload.sessionId+' '+payload.seq,tools:[{name:'read',description:'restored tool'}],options:payload.seq===22?{harnessSnapshot:{kind:'archive',version:1,sha256:'fixture'},auditSnapshot:{kind:'omitted',reason:'capture_disabled'}}:{}};
     const result=fail?{ok:false,error:{message:'audit unavailable'}}:{ok:true,value:{...payload,header}};
     await route.fulfill({contentType:'application/json',body:JSON.stringify({type:'server-response',rpcId:request.rpcId,result})}).catch(()=>{});
   });
@@ -88,6 +89,16 @@ try {
       assert.equal(await page.getByText(/没有匹配的工具/).count(),0);
     }
     assert.equal(await page.getByText('System restored b '+seq,{exact:true}).count(),0);
+  }
+  if(implementation!=='legacy') {
+    await page.evaluate(()=>show(22,'b'));
+    await page.getByText('System restored b 22',{exact:true}).waitFor();
+    await page.getByText('1 个工具',{exact:true}).waitFor();
+    assert.equal(await page.getByText(/未开启完整诊断/).count(),0,'lightweight surface does not depend on diagnostics');
+    assert.equal(await page.getByText('Full request b 22',{exact:true}).count(),0);
+    await page.evaluate(()=>show(23,'b'));
+    await page.getByText('未记录；此请求的 Harness 快照保存失败。',{exact:true}).first().waitFor();
+    await page.getByText('2 个工具',{exact:true}).waitFor();
   }
   await page.evaluate(()=>unmount());assert.equal(await page.locator('#root').textContent(),'');
   await page.evaluate(()=>disposeContext());assert.equal(await page.locator('#xharness-context-inspector-style').count(),0);

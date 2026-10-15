@@ -25,7 +25,7 @@ class ManagedHostPolicyTests(unittest.TestCase):
         self.host = self.root / "crates" / "xharness-host" / "src"
         (self.host / "rpc").mkdir(parents=True)
         (self.host / "lib.rs").write_text("mod example_processor;\n")
-        (self.host / "example_processor.rs").write_text("use xharness_api::RpcError;\n")
+        (self.host / "example_processor.rs").write_text("#![forbid(unsafe_code)]\nuse xharness_api::RpcError;\n")
         (self.host / "rpc" / "example.rs").write_text(
             "use crate::example_processor::ExampleProcessor;\n"
         )
@@ -48,9 +48,33 @@ class ManagedHostPolicyTests(unittest.TestCase):
     def test_declared_boundary_passes(self) -> None:
         self.assertEqual(self.check(), [])
 
+    def test_unsafe_guard_cannot_be_deleted_downgraded_or_spoofed(self) -> None:
+        for header in [
+            "", "#![allow(unsafe_code)]", "#![warn(unsafe_code)]",
+            "#![deny(unsafe_code)]", "#[forbid(unsafe_code)]",
+            "#![cfg_attr(any(), forbid(unsafe_code))]",
+            "// #![forbid(unsafe_code)]", "/* #![forbid(unsafe_code)] */",
+            'const FAKE: &str = "#![forbid(unsafe_code)]";',
+            "#[cfg(any())] mod hidden { #![forbid(unsafe_code)] }",
+            "/* unterminated #![forbid(unsafe_code)]",
+        ]:
+            with self.subTest(header=header):
+                (self.host / "example_processor.rs").write_text(header + "\nuse xharness_api::RpcError;\n")
+                self.assertIn("requires unconditional", "\n".join(self.check()))
+
+    def test_real_guard_after_documentation_and_nested_comments_passes(self) -> None:
+        for header in [
+            "//! Business policy\n\n#![forbid(unsafe_code)]",
+            "/* copyright /* nested */ text */\n#![forbid(unsafe_code)]",
+            "#![ forbid ( unsafe_code ) ] // compiler guard",
+        ]:
+            with self.subTest(header=header):
+                (self.host / "example_processor.rs").write_text(header + "\nuse xharness_api::RpcError;\n")
+                self.assertEqual(self.check(), [])
+
     def test_new_internal_dependency_is_rejected(self) -> None:
         (self.host / "example_processor.rs").write_text(
-            "use xharness_api::RpcError;\nuse xharness_session::Session;\n"
+            "#![forbid(unsafe_code)]\nuse xharness_api::RpcError;\nuse xharness_session::Session;\n"
         )
         self.assertIn("undeclared internal crates", "\n".join(self.check()))
 

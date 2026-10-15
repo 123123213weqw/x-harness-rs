@@ -9,10 +9,10 @@ const oldSource=readFileSync(`ui/reference/master-a613970/plugins/${id}/client.j
 const compiled=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/model-selection/index.ts'}]).get(id).bytes.toString();
 const json=x=>JSON.parse(JSON.stringify(x));
 function harness(source) {
- let registration;const styles=[];
+ let registration;const styles=[];const timers=new Set();
  const primitives=new Proxy({}, {get:(_target,key)=>key});
  const makeStore=initial=>{let value=initial;const listeners=new Set();return {getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},update:fn=>{value=structuredClone(value);fn(value);for(const listener of listeners)listener()}}};
- const react={};const context={window:{__ModuleLoader__:{load:row=>{registration=row}}},document:{querySelector:()=>null,createElement:()=>({dataset:{}}),head:{appendChild:x=>styles.push(x)}},console};
+ const react={};const context={setTimeout:fn=>{timers.add(fn);return fn},clearTimeout:fn=>timers.delete(fn),window:{__ModuleLoader__:{load:row=>{registration=row}}},document:{querySelector:()=>null,createElement:()=>({dataset:{}}),head:{appendChild:x=>styles.push(x)}},console};
  vm.runInNewContext(source,context);
  const plugin=registration.factory(name=>{
   if(name==='react')return react;
@@ -22,7 +22,7 @@ function harness(source) {
   if(name==='@xharness/dsh-client-runtime/client')return {createSnapshotStore:makeStore};
   throw Error('Unknown external '+name);
  });
- return{plugin,styles};
+ return{plugin,styles,timers,flushTimers:()=>{const runs=[...timers];timers.clear();runs.forEach(fn=>fn())}};
 }
 const apis=[harness(oldSource),harness(compiled)];
 const current={provider:'p/x',model:'m/x',reasoningEffort:'ultra',contextWindowTokens:4096};
@@ -44,7 +44,8 @@ test('context validation uses selected model maximum and preserves complete sele
  for(const {plugin}of apis){const state={...catalog,status:'ready',error:null};
   assert.deepEqual(json(plugin.xhContextSelection(state,' 262144 ')),{...current,contextWindowTokens:262144});
   for(const raw of ['','0','-1','262145','1.5','1e3','9007199254740992','Infinity'])assert.throws(()=>plugin.xhContextSelection(state,raw));
-  assert.throws(()=>plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'1'));
+  if (plugin===apis[1].plugin) assert.equal(plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'65536').contextWindowTokens,65536, 'unknown capacity is editable without inventing a maximum');
+  else assert.throws(()=>plugin.xhContextSelection({...state,current:{provider:'p/x',model:'other'}},'1'));
   assert.equal(plugin.xhModelInfo(state).effort,'ultra');
  }
 });
@@ -89,8 +90,41 @@ test('/model command, opaque slash ids, dynamic default effort and composer inje
  for (const lang of ['zh','en']) {
   const added = receipts[1].locales[0][1][lang];
   const before = receipts[0].locales[0][1][lang];
-  assert.deepEqual(Object.keys(added).filter(key => !(key in before)).sort(), ['empty.custom','menu.back','menu.custom','menu.manage','source.account','source.accountHint']);
-  for (const key of Object.keys(before)) assert.equal(added[key], before[key]);
+  assert.deepEqual(Object.keys(added).filter(key => !(key in before)).sort(), ['capability.check','capability.checking','capability.configured','capability.disabled','capability.documented','capability.reported','capability.stale','capability.unknown','effort.disabled','effort.disabledHint','effort.trigger','effort.unknown','effort.unknownHint','empty.custom','menu.back','menu.custom','menu.manage','source.account','source.accountHint']);
+  for (const key of Object.keys(before)) assert.equal(added[key], lang === 'zh' && key === 'effort.providerDefault' ? '默认' : before[key]);
  }
  assert.deepEqual({...receipts[1],locales:undefined},{...receipts[0],locales:undefined});
+});
+
+
+test('actual resolver automatically checks stale metadata once and cancels checks before selection/disposal',async()=>{
+ for(const stopBeforeCheck of [undefined,'select','dispose']){
+  const h=harness(compiled),cleanup=[],calls=[];
+  const stale={...catalog,groups:[{id:'p/x',name:'Provider',models:[{...model,reasoningCapability:{state:'supported',stale:true,source:'last_known_good'}}]}]};
+  const fresh={...stale,groups:[{id:'p/x',name:'Provider',models:[{...model,reasoningCapability:{state:'supported',stale:false,source:'provider_reported'}}]}]};
+  const scope={effect:fn=>{cleanup.push(fn())}},sessions={scope:()=>scope,subagentAddress:()=>undefined};
+  const pending=deferred();const wire={models:async args=>{calls.push(args);return ok(args.refreshCapabilities?fresh:stale)},selectModel:()=>pending.promise};
+  const ctx={get:name=>({sessions,connection:{api:{sessions:wire}}}[name]),on(){},remote:{$on(){}}};
+  const resolver=new h.plugin.ModelDirectoryResolver(ctx,{blockReason:()=>''}),directory=resolver.directoryFor('s');
+  await directory.load();assert.equal(h.timers.size,1);
+  let selection;
+  if(stopBeforeCheck==='select')selection=directory.select(current);
+  if(stopBeforeCheck==='dispose')cleanup.forEach(fn=>fn());
+  h.flushTimers();await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(calls.map(call=>call.refreshCapabilities),stopBeforeCheck?[false]:[false,true]);
+  if(selection){pending.resolve(ok({selected:current}));await selection}
+  assert.deepEqual(json(directory.store.getSnapshot().current),current,'discovery never chooses a new effort or context');
+  cleanup.forEach(fn=>fn());assert.equal(h.timers.size,0);
+ }
+});
+
+test('reasoning catalog is an exact external release dependency, not a duplicated workspace crate',()=>{
+ const host=readFileSync('crates/xharness-host-app/Cargo.toml','utf8');
+ assert.match(host,/xharness-model-catalog = \{ git = "https:\/\/github\.com\/123123213weqw\/xharness-model-catalog", rev = "b76585abb9102690d2dd85e385550e0d2f688601", version = "=0\.1\.1" \}/);
+ assert.ok(!readFileSync('Cargo.toml','utf8').includes('crates/xharness-model-catalog'));
+ const fixture=JSON.parse(readFileSync('scripts/fixtures/reasoning-catalog-v0.1.1.json','utf8'));
+ assert.equal(fixture.packageVersion,'0.1.1');
+ assert.equal(fixture.gitRevision,'b76585abb9102690d2dd85e385550e0d2f688601');
+ const lock=readFileSync('Cargo.lock','utf8');
+ assert.match(lock,/name = "xharness-model-catalog"\nversion = "0\.1\.1"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/xharness-model-catalog\?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"/);
 });

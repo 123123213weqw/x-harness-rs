@@ -40,9 +40,10 @@ try {
   ` })
   await page.addScriptTag({ content: ownedViewModuleTestInput('@xlang/xharness-client-ui-browser') })
   await page.evaluate(() => {
-    const plugin = registration.factory(id => id === 'react' ? React : {})
+    const plugin = registration.factory(id => staticModules[id] ?? (id === 'react' ? React : {}))
     const components = {}
     plugin.apply({
+      get:()=>undefined,remote:{$on:()=>()=>{}},
       effect: fn => fn(),
       slots: { inject: (_name, fn) => fn(), register: (config, component) => { components[config.id] = component } },
     })
@@ -103,6 +104,12 @@ try {
     await page.getByRole('button', { name: '刷新', exact: true }).click()
     await page.waitForFunction(count => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length > count, count)
   }
+  // Width/height alone do not report a sidebar/layout position-only shift.
+  const geometryStart = await page.evaluate(() => commands.length)
+  await page.evaluate(() => document.getElementById('root').style.transform='translateX(31px)')
+  await page.waitForFunction(start=>commands.slice(start).some(call=>call.command==='desktop_browser_bounds'&&call.args.bounds.x>=31),geometryStart,{timeout:1500})
+  await page.evaluate(() => document.getElementById('root').style.transform='')
+  await flush()
   const resize = async () => page.evaluate(() => {
     const root = document.getElementById('root'); root.style.height = `${parseInt(root.style.height) + 3}px`; window.dispatchEvent(new Event('resize'))
   })

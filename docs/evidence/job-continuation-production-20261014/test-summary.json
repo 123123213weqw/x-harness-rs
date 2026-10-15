@@ -1,0 +1,9 @@
+{
+  "passed": 782,
+  "ignored": 15,
+  "groups": 29,
+  "new_integration_regressions": 13,
+  "workspace_check": true,
+  "strict_clippy": true,
+  "source_base": "b03b020e092b245c63aebde2e883b6b7b1f28797"
+}

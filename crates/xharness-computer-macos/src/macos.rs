@@ -10,7 +10,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::{process::Command, sync::Mutex};
 use tokio_util::sync::CancellationToken;
@@ -19,146 +19,11 @@ use xharness_computer::{
     Point, Region, Screenshot,
 };
 
+use crate::observation::{recover_snapshot, AccessibilitySnapshot, ObservationPlan, WindowBounds};
+
 static NEXT_SCREENSHOT: AtomicU64 = AtomicU64::new(1);
 
-const ACCESSIBILITY_SNAPSHOT_SCRIPT: &str = r#"
-function safe(f, d) { try { return f(); } catch (_) { return d; } }
-function clipped(value, limit) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'boolean' || typeof value === 'number') return value;
-  const text = String(value).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
-  if (!text) return null;
-  return text.length <= limit ? text : text.slice(0, limit) + '…';
-}
-function boolValue(f, fallback) {
-  const value = safe(f, fallback);
-  return value === null || value === undefined ? fallback : Boolean(value);
-}
-function attribute(element, name, fallback) {
-  return safe(() => element.attributes.byName(name).value(), fallback);
-}
-function bounds(element) {
-  const position = safe(() => element.position(), null);
-  const size = safe(() => element.size(), null);
-  if (!position || !size) return null;
-  const result = {x: Number(position[0]), y: Number(position[1]), width: Number(size[0]), height: Number(size[1])};
-  return Object.values(result).every(Number.isFinite) ? result : null;
-}
-function actionNames(element) {
-  return safe(() => element.actions().map(action => clipped(action.name(), 80)).filter(Boolean), []);
-}
-function safeValue(element, role, subrole) {
-  if (role === 'AXSecureTextField' || subrole === 'AXSecureTextField') return '<redacted>';
-  if (role === 'AXTextField' || role === 'AXTextArea' || role === 'AXComboBox') return null;
-  return clipped(safe(() => element.value(), null), 160);
-}
-function run(argv) {
-  const options = argv.length ? JSON.parse(argv[0]) : {};
-  const maxNodes = Math.max(1, Math.min(Number(options.max_nodes) || 220, 600));
-  const maxDepth = Math.max(1, Math.min(Number(options.max_depth) || 8, 16));
-  const maxVisited = maxNodes * 5;
-  const se = Application('System Events');
-  const result = {windows: [], nodes: [], truncated: false, visited: 0, max_nodes: maxNodes, max_depth: maxDepth};
-  const processes = safe(() => se.applicationProcesses.whose({visible: true})(), []);
-  processes.sort((left, right) => Number(safe(() => right.frontmost(), false)) - Number(safe(() => left.frontmost(), false)));
-
-  function walk(element, context, parentId, path, depth) {
-    if (result.nodes.length >= maxNodes || result.visited >= maxVisited) { result.truncated = true; return; }
-    result.visited += 1;
-    if (depth > maxDepth) { result.truncated = true; return; }
-    const role = clipped(safe(() => element.role(), ''), 80) || 'AXUnknown';
-    const subrole = clipped(safe(() => element.subrole(), ''), 80);
-    const title = clipped(safe(() => element.title(), ''), 160);
-    const name = clipped(safe(() => element.name(), ''), 160);
-    const description = clipped(safe(() => element.description(), ''), 160);
-    const help = clipped(safe(() => element.help(), ''), 160);
-    const identifier = clipped(attribute(element, 'AXIdentifier', ''), 160);
-    const actions = actionNames(element);
-    const nodeId = `ax:${context.pid}:${context.root_kind[0]}${context.root_index}:${path.join('.') || 'root'}`;
-    const nodeBounds = bounds(element);
-    const label = title || name || description || help || identifier || null;
-    const visible = boolValue(() => element.visible(), true);
-    const emit = role !== 'AXUnknown' || label || actions.length || nodeBounds;
-    const nextParent = emit ? nodeId : parentId;
-    if (emit) {
-      result.nodes.push({
-        node_id: nodeId,
-        parent_id: parentId,
-        surface_id: context.surface_id,
-        pid: context.pid,
-        root_kind: context.root_kind,
-        root_index: context.root_index,
-        path,
-        role,
-        subrole,
-        label,
-        description: description && description !== label ? description : null,
-        identifier,
-        value: safeValue(element, role, subrole),
-        enabled: boolValue(() => element.enabled(), true),
-        focused: boolValue(() => element.focused(), false),
-        selected: boolValue(() => element.selected(), false),
-        visible,
-        bounds: nodeBounds,
-        actions,
-        depth
-      });
-      if (result.nodes.length >= maxNodes) { result.truncated = true; return; }
-    }
-    const children = safe(() => element.uiElements(), []);
-    for (let childIndex = 0; childIndex < children.length; childIndex++) {
-      walk(children[childIndex], context, nextParent, path.concat([childIndex]), depth + 1);
-      if (result.truncated && result.nodes.length >= maxNodes) return;
-    }
-  }
-
-  for (const process of processes) {
-    const pid = Number(safe(() => process.unixId(), 0)) || 0;
-    const app = clipped(safe(() => process.name(), ''), 160) || '';
-    const frontmost = boolValue(() => process.frontmost(), false);
-    const windows = safe(() => process.windows(), []);
-    for (let index = 0; index < windows.length; index++) {
-      const window = windows[index];
-      const windowBounds = bounds(window);
-      if (!windowBounds) continue;
-      const surfaceId = `mac:${pid}:${index + 1}`;
-      const windowNodeId = `window:${pid}:${index + 1}`;
-      result.windows.push({
-        surface_id: surfaceId,
-        node_id: windowNodeId,
-        app,
-        pid,
-        window_index: index + 1,
-        title: clipped(safe(() => window.name(), ''), 240) || '',
-        frontmost,
-        focused: boolValue(() => window.attributes.byName('AXFocused').value(), false),
-        minimized: boolValue(() => window.attributes.byName('AXMinimized').value(), false),
-        bounds: windowBounds
-      });
-      if (!boolValue(() => window.attributes.byName('AXMinimized').value(), false)) {
-        const children = safe(() => window.uiElements(), []);
-        const context = {pid, root_kind: 'window', root_index: index + 1, surface_id: surfaceId};
-        for (let childIndex = 0; childIndex < children.length; childIndex++) {
-          walk(children[childIndex], context, windowNodeId, [childIndex], 1);
-          if (result.nodes.length >= maxNodes) break;
-        }
-      }
-      if (result.nodes.length >= maxNodes) break;
-    }
-    if (result.nodes.length >= maxNodes) break;
-    if (frontmost) {
-      const menuBars = safe(() => process.menuBars(), []);
-      for (let menuIndex = 0; menuIndex < menuBars.length; menuIndex++) {
-        const context = {pid, root_kind: 'menu_bar', root_index: menuIndex + 1, surface_id: `mac:${pid}:menu`};
-        walk(menuBars[menuIndex], context, `application:${pid}`, [], 0);
-        if (result.nodes.length >= maxNodes) break;
-      }
-    }
-    if (result.nodes.length >= maxNodes) break;
-  }
-  return JSON.stringify(result);
-}
-"#;
+const ACCESSIBILITY_SNAPSHOT_SCRIPT: &str = include_str!("accessibility-snapshot.js");
 
 const NODE_ACTION_SCRIPT: &str = r#"
 function fail(message) { throw new Error(message); }
@@ -291,79 +156,6 @@ extern "C" {
         ...
     ) -> CGEventRef;
     fn CFRelease(object: *const c_void);
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct WindowInfo {
-    surface_id: String,
-    node_id: String,
-    app: String,
-    pid: i64,
-    window_index: u32,
-    title: String,
-    frontmost: bool,
-    focused: bool,
-    minimized: bool,
-    bounds: WindowBounds,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-struct WindowBounds {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct AxNode {
-    node_id: String,
-    parent_id: Option<String>,
-    surface_id: String,
-    #[serde(skip_serializing)]
-    pid: i64,
-    #[serde(skip_serializing)]
-    root_kind: String,
-    #[serde(skip_serializing)]
-    root_index: u32,
-    #[serde(skip_serializing)]
-    path: Vec<usize>,
-    role: String,
-    subrole: Option<String>,
-    label: Option<String>,
-    description: Option<String>,
-    identifier: Option<String>,
-    value: Option<Value>,
-    enabled: bool,
-    focused: bool,
-    selected: bool,
-    visible: bool,
-    bounds: Option<WindowBounds>,
-    actions: Vec<String>,
-    depth: u32,
-}
-
-#[derive(Debug, Deserialize)]
-struct AccessibilitySnapshot {
-    windows: Vec<WindowInfo>,
-    nodes: Vec<AxNode>,
-    truncated: bool,
-    visited: usize,
-    max_nodes: usize,
-    max_depth: usize,
-}
-
-impl AccessibilitySnapshot {
-    fn empty(max_nodes: usize, max_depth: usize) -> Self {
-        Self {
-            windows: Vec::new(),
-            nodes: Vec::new(),
-            truncated: false,
-            visited: 0,
-            max_nodes,
-            max_depth,
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -514,12 +306,25 @@ impl MacComputer {
     ) -> Result<ComputerOutput, ComputerError> {
         let displays = display_info()?;
         let permissions = permission_status();
-        let (max_nodes, max_depth) = accessibility_budget(request.detail.as_deref());
-        let snapshot = if request.include_accessibility && permissions.accessibility {
-            accessibility_snapshot(max_nodes, max_depth, cancellation).await?
+        let plan = ObservationPlan::for_request(request);
+        let snapshot_result = if plan.needs_snapshot && permissions.accessibility {
+            accessibility_snapshot(plan, cancellation).await
+        } else if plan.needs_snapshot {
+            Err(ComputerError::unavailable(
+                "permission_required: enable Accessibility for XHarness in System Settings > Privacy & Security",
+            ))
         } else {
-            AccessibilitySnapshot::empty(max_nodes, max_depth)
+            Ok(AccessibilitySnapshot::empty(plan.max_nodes, plan.max_depth))
         };
+        // Read failures are observation metadata, not a reason to discard an
+        // independently requested screenshot. Cancellation must still abort.
+        let (snapshot, accessibility_error) = recover_snapshot(snapshot_result, plan)?;
+        if cancellation.is_cancelled() {
+            return Err(ComputerError::retryable(
+                "cancelled",
+                "computer observation cancelled",
+            ));
+        }
         let frame_id = format!(
             "mac-frame-{}",
             self.next_frame.fetch_add(1, Ordering::Relaxed)
@@ -551,10 +356,6 @@ impl MacComputer {
                 },
             );
         }
-        *self.state.lock().await = ObservationState {
-            frame_id: Some(frame_id.clone()),
-            nodes,
-        };
         let screenshot = if request.include_screenshot.unwrap_or(false) {
             if !permissions.screen_recording {
                 return Err(ComputerError::unavailable(
@@ -564,6 +365,29 @@ impl MacComputer {
             Some(capture_png(request.region, cancellation).await?)
         } else {
             None
+        };
+        if cancellation.is_cancelled() {
+            return Err(ComputerError::retryable(
+                "cancelled",
+                "computer observation cancelled",
+            ));
+        }
+        // Publish only a completed observation. Even a degraded observation
+        // replaces old AX targets: never retain nodes from an earlier frame.
+        *self.state.lock().await = ObservationState {
+            frame_id: Some(frame_id.clone()),
+            nodes,
+        };
+        let accessibility_status = if accessibility_error.is_some() {
+            "unavailable"
+        } else if !plan.needs_snapshot {
+            "not_requested"
+        } else if snapshot.truncated {
+            "partial"
+        } else if !plan.include_nodes {
+            "windows_only"
+        } else {
+            "complete"
         };
         let value = json!({
             "ok": true,
@@ -577,7 +401,13 @@ impl MacComputer {
                 "truncated": snapshot.truncated,
                 "visited": snapshot.visited,
                 "max_nodes": snapshot.max_nodes,
-                "max_depth": snapshot.max_depth
+                "max_depth": snapshot.max_depth,
+                "status": accessibility_status,
+                "truncation_reasons": snapshot.truncation_reasons,
+                "elapsed_ms": snapshot.elapsed_ms,
+                "error": accessibility_error.map(|error| json!({
+                    "code": error.code, "message": error.message, "retryable": error.retryable
+                }))
             },
             "permissions": permissions,
             "screenshot_included": screenshot.is_some()
@@ -839,21 +669,11 @@ fn display_info() -> Result<Vec<Value>, ComputerError> {
         .collect())
 }
 
-fn accessibility_budget(detail: Option<&str>) -> (usize, usize) {
-    match detail {
-        Some("low") => (80, 4),
-        Some("semantic") => (300, 10),
-        Some("high") => (500, 12),
-        _ => (220, 8),
-    }
-}
-
 async fn accessibility_snapshot(
-    max_nodes: usize,
-    max_depth: usize,
+    plan: ObservationPlan,
     cancellation: &CancellationToken,
 ) -> Result<AccessibilitySnapshot, ComputerError> {
-    let options = json!({"max_nodes": max_nodes, "max_depth": max_depth});
+    let options = plan.options();
     let output = run_osascript_with_timeout(
         ACCESSIBILITY_SNAPSHOT_SCRIPT,
         Some(&options),
@@ -1307,6 +1127,7 @@ fn key_code(key: &str) -> Result<u16, ComputerError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::observation::accessibility_budget;
 
     #[test]
     fn surface_ids_are_not_accepted_loosely() {

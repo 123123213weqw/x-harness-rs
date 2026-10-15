@@ -1,0 +1,28 @@
+{
+  "base_sha": "05d902f7866854b3898ea3cd4313465bd3a963f7",
+  "source_manifest_sha": "d5e6079ae06de0c92c50fb03c94fb3f9bd02cddae0b79747157605cc59db3e21",
+  "remote_rust": {
+    "passed": 870,
+    "failed": 0,
+    "ignored": 8,
+    "duplicate_jsonl_child_summaries_excluded": true
+  },
+  "post_test_cleanup": "Context/Core tests rerun after test-only clippy fixes; final all-targets clippy across 8 target packages passed",
+  "ui": {
+    "strict_types": "passed",
+    "deterministic_assembly": "passed",
+    "terminal_outcome_checks": 177,
+    "projection_checks": 705,
+    "wire_compatibility_cases": 33,
+    "ci_sharding_contract_tests": 14,
+    "migration_reference_tests": 6,
+    "browsers": [
+      "chromium/source passed",
+      "webkit/source passed"
+    ]
+  },
+  "offline_evaluator_tests": 20,
+  "actionlint": "passed",
+  "live_model_cohort": "frozen baseline-v3/candidate-v8, not this new master tree; original strict JSON failures retained",
+  "deployment": "none"
+}

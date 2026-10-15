@@ -24,6 +24,7 @@ mod attachment;
 pub use attachment::*;
 mod event_page;
 pub use event_page::*;
+pub mod display;
 pub mod protocol;
 
 pub const API_PREFIX: &str = "/api";
@@ -87,6 +88,7 @@ rpc_methods! {
     SessionList => "session.list",
     SessionSearch => "session.search",
     SessionCreate => "session.create",
+    SessionImport => "session.import",
     SessionHistory => "session.history",
     SessionModels => "session.models",
     SessionSelectModel => "session.selectModel",

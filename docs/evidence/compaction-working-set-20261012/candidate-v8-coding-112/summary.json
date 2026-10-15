@@ -1,0 +1,807 @@
+{
+  "mode": "coding",
+  "seed": 112,
+  "arm": "candidate",
+  "phase_results": {
+    "parser": {
+      "answer": "Done with the requested scope. Stopping here as instructed.\n\n**Baseline (before edits):** 4 of 4 failing — `test_money`, `test_negative_rounding`, `test_dedup`, `test_utc`.\n\n**Change made:** `parse_amount` in `parser.py` only. It now strips whitespace, parses via `Decimal` (no binary float), rejects non-string/empty input, invalid decimals, and non-finite values (NaN/Infinity) with `ValueError`, then rounds to cents with `ROUND_HALF_UP` and returns integer cents.\n\n**Post-edit test run:** 4 ran, **2 failures remaining** (both outside parser scope):\n\n1. `test_dedup` — `len(import_rows([...]))` is `2`, expected `1`. `importer.py` still returns a raw per-row list with no dedup by normalized id. This is importer work, which you told me not to touch yet.\n2. `test_utc` — `daily_totals` returns `{'2026-10-12': 200}`, expected `{'2026-10-11': 200}`. `importer.py` still slices `timestamp[:10]` instead of converting aware timestamps to UTC before taking the date. Also out of scope.\n\nThe two parser tests (`test_money`, `test_negative_rounding`) now pass. I did not edit `importer.py` or `report.py`, and did not implement `running_balance`/`report_metadata` (phase boundary). Note: this is not a claim of full success — 2 public failures remain, and hidden acceptance criteria (e.g. more parser edge cases and importer/report behavior) are not covered by this run.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 2,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "logs/legacy.log",
+          "result_sha256": "6fa962d477d03dfe3fe9458b9d6f94dcbe7c365c1c37b5d8879f49476538ea73",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "a6302e000b8884b9858fb7ba9071165cf5eb58ef289ab3c83c1fa96fd054ba3a",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "853c2522e08fadc51a9a7fd11f7d0913084cd758c9c5d13726b022290d3411e1",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "13ff89b05706e2053818ba7b47e2c3e190e45aa1ec4ee7f4a74189a32efeff2d",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "da2b4be98719b2b43600dfb80954765d3d07bb67933e8eba5d817f0b09d36d30",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "7466f87379562be7f44247f9abc76e19ffaa0ea0869046790e0e9f7ace15c3c0",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": "33df7a054a6dd3b972d47531cc33eb19156b59c9e5097be1c593141ae5ed4fe9",
+          "path": "parser.py",
+          "result_sha256": "68a79cf4764e36b2edd54df7829ad4981b954afc9b9ebbcdf0159f2e86720006",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "af2750f36fff963b3fe7ebb5b884950910261754da645394e99ad99fa7a58bf6",
+          "test_exit_zero": false,
+          "tool": "test"
+        }
+      ]
+    },
+    "importer": {
+      "answer": "All 4 public tests now pass (exit=0), including the two previously failing importer-dependent cases.\n\nStopping here as instructed. Status:\n\n- **`parser.py`**: unchanged (preserved exactly).\n- **`report.py`**: unchanged (`running_balance`/`report_metadata` not touched — not authorized this phase).\n- **`importer.py`**: only `import_rows` implemented (+ small private helpers), per the docs/api.txt v1 contract.\n\nWhat `import_rows` now does:\n- Normalizes `id` via strip + NFC (no lowercasing); rejects non-string/empty ids.\n- Parses `timestamp` as ISO8601, accepts `Z`, converts aware timestamps to UTC before taking the date, treats naive as UTC; rejects invalid/empty.\n- Validates `revision` as a non-negative int (default 0), rejecting bools and non-ints.\n- Dedups by normalized id keeping the highest revision, last-input-wins at equal revision.\n- Returns new dicts, does not mutate input, and holds no module-global state.\n\n**Remaining failures: none in the actual public suite (4 ran, 0 failures).** This is not a claim of full contract coverage — `daily_totals` correctness beyond the one `test_utc` case, `running_balance`, and `report_metadata` are unverified/out of scope, and hidden acceptance criteria are not exercised by this run.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "read",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 1,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "575c579f4ce19b637bbd5cbb7d5b1b37cc0a70da7dc16a885394476deed718b0",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "853c2522e08fadc51a9a7fd11f7d0913084cd758c9c5d13726b022290d3411e1",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "33df7a054a6dd3b972d47531cc33eb19156b59c9e5097be1c593141ae5ed4fe9",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "da2b4be98719b2b43600dfb80954765d3d07bb67933e8eba5d817f0b09d36d30",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "af2750f36fff963b3fe7ebb5b884950910261754da645394e99ad99fa7a58bf6",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "13ff89b05706e2053818ba7b47e2c3e190e45aa1ec4ee7f4a74189a32efeff2d",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": "70f720606e0074541d28918a2fe61a66e3de7af6ff695f4dafdef2038935a444",
+          "path": "importer.py",
+          "result_sha256": "643f955029dfe25ff41c92f7474bb23c36346ca8908f88350a41c9552124281c",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "678175ee2e2dec9888fa68ae38b7d08a2a9d49bdd6702ab710e4610659343d02",
+          "test_exit_zero": true,
+          "tool": "test"
+        }
+      ]
+    },
+    "report": {
+      "answer": "All 4 public tests pass (exit=0). Stopping here as instructed.\n\n**Current files re-read (not from history):** `docs/api.txt` (v2), `tests/test_public.py`, `report.py`, `parser.py`, `importer.py`.\n\n**Baseline failures observed before edits:** `test_balance` ERROR (NotImplementedError in `running_balance`) and `test_live_metadata` FAIL (`report_metadata` returned frozen `\"legacy-api\"`); `test_money`/`test_utc` already ok.\n\n**Only `report.py` changed:**\n- `daily_totals` — dedups via `import_rows` (highest revision, ties last) and aggregates integer cents per UTC day into a plain dict; no shared state, no input mutation.\n- `running_balance(rows, opening_cents=0)` — rejects `bool` and non-`int` with `ValueError`; iterates days sorted ascending; each entry is a **new** dict with **exact** keys `day` and `balance_cents`; balance = `opening_cents` + cumulative totals. Empty rows → `[]`. Signed/negative totals and duplicate revisions flow through `daily_totals`.\n- `report_metadata` — returns `{\"api_revision\": importer.API_REVISION}`, resolved from the module on each call (not a frozen literal).\n\n**Preserved exactly:** `parser.py` and `importer.py` untouched. No publishing/deployment.\n\n**Post-edit run:** 4 ran, 0 failures/errors. This is evidence of the public suite only, not a claim of full contract coverage — hidden acceptance criteria for `daily_totals`/`running_balance` edge cases and a live-`API_REVISION` lookup are not exercised by this run.",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read",
+        "read",
+        "test",
+        "write",
+        "test"
+      ],
+      "error": null,
+      "failed_tests": 1,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "13c7642df2f01a39169a51c160236026a1070734a23e11acd7839ef991f2095f",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "tests/test_public.py",
+          "result_sha256": "2c06709588441a868230e87c85c7819ac8898caa54fde0901139a14dd54562d8",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "13ff89b05706e2053818ba7b47e2c3e190e45aa1ec4ee7f4a74189a32efeff2d",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "d7f6df83d32132442b98d01d144f7b9d609b36808bea757f7347b5e2941f9a49",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "e8eb9afeb1ad601e4886e060e3ccdc1f09f42152e887469d7ded4a04b390cf90",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "3eed8bd0d39aafec2c783557aa6a005302dc4a099f5f279d36b38041d7c8aa76",
+          "test_exit_zero": false,
+          "tool": "test"
+        },
+        {
+          "content_sha256": "3a6b91b1468b3441898914f91948b3efe5e8216f28f6c10f640191626efa6991",
+          "path": "report.py",
+          "result_sha256": "5e52b280d36f90702eb14a2ce63a3ed8cc66af188c0e194d5c122e1f3f90a80b",
+          "test_exit_zero": null,
+          "tool": "write"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "b388b1398e08f29f6d8e8bb4ce9fbc319e7eaebac63fa9cc2424d7a5ac2a223b",
+          "test_exit_zero": true,
+          "tool": "test"
+        }
+      ]
+    },
+    "readonly": {
+      "answer": "{\"api_revision\": \"ledger-v2-external-112\", \"scope\": \"read-only\", \"rounding\": \"parse_amount quantizes Decimal amounts to 0.01 (cents) with ROUND_HALF_UP, then scales by 2 to an integer number of cents; non-string, empty, invalid-decimal, and non-finite (NaN/Infinity) inputs raise ValueError.\", \"normalization\": \"import_rows normalizes ids with strip + Unicode NFC (no case folding), rejects non-string/empty ids; revisions are non-negative ints (bool rejected), default 0; dedup by normalized id keeps the highest revision with ties going to the last input row; new dicts are returned and the input is not mutated. daily_totals reuses import_rows so it inherits this dedup, aggregating integer cents per day into a plain dict.\", \"timezone\": \"Timestamps are parsed as ISO8601 with a trailing Z/z treated as +00:00; aware timestamps are converted to UTC before the date is taken, naive ones are treated as UTC; the day is the UTC date as an ISO string, and running_balance orders days ascending.\"}",
+      "calls": [
+        "read",
+        "read",
+        "read",
+        "read"
+      ],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": "docs/api.txt",
+          "result_sha256": "13c7642df2f01a39169a51c160236026a1070734a23e11acd7839ef991f2095f",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "parser.py",
+          "result_sha256": "d7f6df83d32132442b98d01d144f7b9d609b36808bea757f7347b5e2941f9a49",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "importer.py",
+          "result_sha256": "e8eb9afeb1ad601e4886e060e3ccdc1f09f42152e887469d7ded4a04b390cf90",
+          "test_exit_zero": null,
+          "tool": "read"
+        },
+        {
+          "content_sha256": null,
+          "path": "report.py",
+          "result_sha256": "3a6b91b1468b3441898914f91948b3efe5e8216f28f6c10f640191626efa6991",
+          "test_exit_zero": null,
+          "tool": "read"
+        }
+      ]
+    },
+    "history": {
+      "answer": "{\"worker\": \"112-450\", \"diagnostic\": \"0fd4b441a6648940e6f8ad39b5f7bc83337d08bbd1ca9cc8c2903554d316b05b\"}",
+      "calls": [
+        "history",
+        "history"
+      ],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": [
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "1946c62e8c343c5c6370a6e0059e8e677fce7ea4a77f096cbd0ef8c850cc7186",
+          "test_exit_zero": null,
+          "tool": "history"
+        },
+        {
+          "content_sha256": null,
+          "path": null,
+          "result_sha256": "cd0cc9a7ba33c47b1f7a525b0029e1f92d0018a7f926e5caa53542f6fe2d348b",
+          "test_exit_zero": null,
+          "tool": "history"
+        }
+      ]
+    }
+  },
+  "phase_changes": {
+    "parser": [
+      "parser.py"
+    ],
+    "importer": [
+      "importer.py"
+    ],
+    "report": [
+      "report.py"
+    ],
+    "readonly": [],
+    "history": []
+  },
+  "compact_results": [
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    },
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    },
+    {
+      "answer": "",
+      "calls": [],
+      "error": null,
+      "failed_tests": 0,
+      "ok": true,
+      "status": "completed",
+      "tool_evidence": []
+    }
+  ],
+  "journal_prefixes_unchanged": true,
+  "journal_prefix_checks": [
+    {
+      "phase": "parser",
+      "before": {
+        "bytes": 47971,
+        "sha256": "2f5a7abb0467ed57438df5d58205c0869431ed4f8afea330ddc7bfce12e04d8e"
+      },
+      "after_original_prefix": {
+        "bytes": 59526,
+        "sha256": "2f5a7abb0467ed57438df5d58205c0869431ed4f8afea330ddc7bfce12e04d8e"
+      }
+    },
+    {
+      "phase": "importer",
+      "before": {
+        "bytes": 106299,
+        "sha256": "841677120395195e6dbd6b9c9bb0ab25bb260bc6290b06d9df736ba3ee186611"
+      },
+      "after_original_prefix": {
+        "bytes": 116912,
+        "sha256": "841677120395195e6dbd6b9c9bb0ab25bb260bc6290b06d9df736ba3ee186611"
+      }
+    },
+    {
+      "phase": "report",
+      "before": {
+        "bytes": 160568,
+        "sha256": "dc658176f3b4f82b350072dc39d809b2d6419f613c8649f631f69ed1ba0bdfab"
+      },
+      "after_original_prefix": {
+        "bytes": 173171,
+        "sha256": "dc658176f3b4f82b350072dc39d809b2d6419f613c8649f631f69ed1ba0bdfab"
+      }
+    }
+  ],
+  "current_marker": "ledger-v2-external-112",
+  "v2_initial_public_exit_code": 1,
+  "final_public_exit_code": 0,
+  "hidden_exit_code": 0,
+  "history_recovery_passed": true,
+  "history_expected_record": {
+    "worker": "112-450",
+    "diagnostic": "0fd4b441a6648940e6f8ad39b5f7bc83337d08bbd1ca9cc8c2903554d316b05b"
+  },
+  "compact_successes": 3,
+  "compaction_events": [
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 78,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 22749,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 79,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 22749,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 80,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 22749,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 81,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 8779,
+          "inputTokensBefore": 22749,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 82,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 58,
+          "start": 18
+        },
+        "shadowedSeqs": [
+          18,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          46,
+          48,
+          56,
+          58
+        ],
+        "shadowedTokenCount": 6382,
+        "sourceCommandId": "experiment-compact-parser",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 6465,
+          "output_tokens": 935,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 83,
+      "summary_bytes": 3486,
+      "summary_sha256": "a99259babe774fc33b9993e6cae1d88dcfcea83836780f15c775b7842d0eefed",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807509546-2-2-0-78",
+        "outcome": "applied",
+        "sourceCommandId": "experiment-compact-parser",
+        "turn": 2
+      },
+      "seq": 85,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 176,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 20329,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 177,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 20329,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 178,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 20329,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 179,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 14118,
+          "inputTokensBefore": 20329,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 180,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 157,
+          "start": 101
+        },
+        "shadowedSeqs": [
+          101,
+          107,
+          108,
+          109,
+          110,
+          121,
+          124,
+          125,
+          145,
+          147,
+          155,
+          157
+        ],
+        "shadowedTokenCount": 3608,
+        "sourceCommandId": "experiment-compact-importer",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 2707,
+          "output_tokens": 841,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 181,
+      "summary_bytes": 2977,
+      "summary_sha256": "568a29dc70255e0785660403f1631c8b5b484ad6bc4e95fb00b249bde9fc8d41",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807525281-4-4-0-176",
+        "outcome": "applied",
+        "sourceCommandId": "experiment-compact-importer",
+        "turn": 4
+      },
+      "seq": 183,
+      "type": "compaction/end"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 268,
+      "type": "compaction/start"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "progress": {
+          "calls": 0,
+          "completedParts": 0,
+          "inputTokensBefore": 26631,
+          "retries": 0,
+          "splits": 0,
+          "stage": "preparing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 269,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "progress": {
+          "calls": 1,
+          "completedParts": 0,
+          "inputTokensBefore": 26631,
+          "retries": 0,
+          "splits": 0,
+          "stage": "summarizing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 270,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensBefore": 26631,
+          "retries": 0,
+          "splits": 0,
+          "stage": "validating"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 271,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "progress": {
+          "calls": 1,
+          "completedParts": 1,
+          "inputTokensAfter": 17415,
+          "inputTokensBefore": 26631,
+          "retries": 0,
+          "splits": 0,
+          "stage": "committing"
+        },
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 272,
+      "type": "compaction/progress"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "maxTokens": 4096,
+        "model": "deepseek-flash",
+        "provider": "deepseek",
+        "shadowedRange": {
+          "end": 248,
+          "start": 201
+        },
+        "shadowedSeqs": [
+          201,
+          208,
+          209,
+          210,
+          211,
+          212,
+          221,
+          223,
+          236,
+          238,
+          246,
+          248
+        ],
+        "shadowedTokenCount": 3804,
+        "sourceCommandId": "experiment-compact-report",
+        "usage": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "input_tokens": 2883,
+          "output_tokens": 1143,
+          "reasoning_tokens": 0
+        }
+      },
+      "seq": 273,
+      "summary_bytes": 3948,
+      "summary_sha256": "f6afedd3067b6361a1b40685b93cc8c9af6e605d789072fdbb74484fa9250d59",
+      "type": "compaction/summary"
+    },
+    {
+      "data": {
+        "compactionId": "compact-1791807543179-6-6-0-268",
+        "outcome": "applied",
+        "sourceCommandId": "experiment-compact-report",
+        "turn": 6
+      },
+      "seq": 275,
+      "type": "compaction/end"
+    }
+  ],
+  "resummarized_checkpoint_sources": [],
+  "process_memory_kib": {
+    "VmHWM": 28848,
+    "VmRSS": 28848
+  },
+  "ledger": {
+    "provider_calls": 22,
+    "auxiliary_calls": 3,
+    "reported_usage_calls": 22,
+    "tokens": {
+      "input_tokens": 41516,
+      "cache_read_tokens": 61184,
+      "cache_write_tokens": 0,
+      "output_tokens": 6446,
+      "reasoning_tokens": 0
+    },
+    "estimated_cny": 0.13704735999999998,
+    "unknown_reserve_cny": 0,
+    "price_basis": "fixed experiment estimate: uncached input 2, cache read 0.04, output 8 CNY/M tokens; not account debit or verified current tariff",
+    "provider_elapsed_ms": 41619,
+    "auxiliary_elapsed_ms": 14362,
+    "max_estimated_request_tokens": 24552
+  },
+  "wall_ms": 61152,
+  "audit_clean": true,
+  "system_prefix_clean": true
+}

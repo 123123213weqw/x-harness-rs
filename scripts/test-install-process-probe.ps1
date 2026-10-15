@@ -25,8 +25,9 @@ function Assert-Blocked([scriptblock]$Action, [string]$Pattern) {
     Assert-That ($message -and $message -match $Pattern) "Expected refusal /$Pattern/, got: $message"
 }
 function Reset-Probe {
+    $script:probeClock = 0
     $script:listed = @($sample)
-    $script:samples = @($sample, $sample)
+    $script:samples = @($sample, $sample, $sample)
     $script:sampleIndex = 0
     $script:ownerStatus = 2
     $script:ownerSid = $sid
@@ -49,13 +50,18 @@ function Invoke-CimMethod {
     if ($script:ownerThrows) { throw 'synthetic owner exception' }
     [pscustomobject]@{ ReturnValue = $script:ownerStatus; Sid = $script:ownerSid }
 }
-function Start-Sleep { param($Milliseconds) }
+function Start-Sleep { param($Milliseconds) $script:probeClock += $Milliseconds }
+function Get-XHarnessProbeMilliseconds { return $script:probeClock }
 try {
     Reset-Probe
     $script:samples = @($null)
     Assert-That (@(Get-XHarnessProcesses -Directories @($fixture)).Count -eq 0) 'Exited-between-enumeration-and-owner-query must not block'
     Reset-Probe
     Assert-That (@(Get-XHarnessProcesses -Directories @($fixture)).Count -eq 0) 'Stable retired entry and writable target must not block'
+    Reset-Probe
+    $changedAfterWait = $sample.PSObject.Copy(); $changedAfterWait.CreationDate = $sample.CreationDate.AddSeconds(1)
+    $script:samples = @($sample, $sample, $changedAfterWait)
+    Assert-Blocked { Get-XHarnessProcesses -Directories @($fixture) } 'PID 4242'
     Reset-Probe
     $script:ownerThrows = $true
     Assert-That (@(Get-XHarnessProcesses -Directories @($fixture)).Count -eq 0) 'CIM owner exception must use the same bounded fallback'

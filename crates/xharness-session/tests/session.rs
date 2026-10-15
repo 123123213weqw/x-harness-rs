@@ -178,6 +178,8 @@ fn compaction_transaction_replaces_surface_without_deleting_source_history() {
                     source_command_id: None,
                     turn: Some(1),
                     error: None,
+                    outcome: None,
+                    fingerprint: None,
                 }),
             ],
         )
@@ -2089,6 +2091,8 @@ fn compaction_progress_is_metadata_only_and_rejects_invalid_lifecycles() {
                 source_command_id: None,
                 turn: Some(1),
                 error: Some("cancelled".into()),
+                outcome: None,
+                fingerprint: None,
             }),
         )
         .unwrap();
@@ -2100,4 +2104,220 @@ fn compaction_progress_is_metadata_only_and_rejects_invalid_lifecycles() {
     )
     .unwrap();
     assert_eq!(restart.derive_messages(), before);
+}
+
+#[test]
+fn typed_compaction_terminal_outcomes_are_surface_neutral_and_restart_safe() {
+    use xharness_session::CompactionEndOutcome;
+
+    for (outcome, error) in [
+        (CompactionEndOutcome::NoBenefit, None),
+        (CompactionEndOutcome::NoEligibleSource, None),
+        (CompactionEndOutcome::Interrupted, Some("user interrupted")),
+        (
+            CompactionEndOutcome::Failed,
+            Some("provider authentication failed"),
+        ),
+    ] {
+        let mut session = Session::new(header("typed-compact")).unwrap();
+        session
+            .append_batch(
+                Revision::ZERO,
+                vec![
+                    event(EventData::TurnStart { turn: 1 }),
+                    event(EventData::UserMessage {
+                        message: Message::user("preserve original 🧪"),
+                        surface_replace: None,
+                    }),
+                    event(EventData::CompactionStart {
+                        compaction_id: "c".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }),
+                ],
+            )
+            .unwrap();
+        let before = session.derive_surface_messages();
+        let end = EventData::CompactionEnd {
+            compaction_id: "c".into(),
+            source_command_id: None,
+            turn: Some(1),
+            error: error.map(str::to_owned),
+            outcome: Some(outcome),
+            fingerprint: Some("source-budget-signature".into()),
+        };
+        let wire = serde_json::to_value(&end).unwrap();
+        assert_eq!(serde_json::from_value::<EventData>(wire).unwrap(), end);
+        session.append(Revision(1), event(end)).unwrap();
+        assert_eq!(session.derive_surface_messages(), before);
+        assert!(session.interrupted_compaction_recovery().is_empty());
+        let restored = Session::restore(
+            session.header().clone(),
+            session.revision(),
+            session.events().to_vec(),
+        )
+        .unwrap();
+        assert_eq!(restored.derive_surface_messages(), before);
+        assert!(restored.interrupted_compaction_recovery().is_empty());
+        assert!(
+            session
+                .append(
+                    Revision(2),
+                    event(EventData::CompactionEnd {
+                        compaction_id: "c".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                        error: None,
+                        outcome: Some(CompactionEndOutcome::NoBenefit),
+                        fingerprint: None,
+                    })
+                )
+                .is_err(),
+            "one start cannot close twice"
+        );
+    }
+}
+
+#[test]
+fn typed_compaction_terminal_outcomes_reject_inconsistent_transactions() {
+    use xharness_session::CompactionEndOutcome;
+
+    for (outcome, error, fingerprint) in [
+        (None, None, None),
+        (Some(CompactionEndOutcome::Applied), None, None),
+        (Some(CompactionEndOutcome::NoBenefit), Some("failure"), None),
+        (
+            Some(CompactionEndOutcome::NoEligibleSource),
+            Some("failure"),
+            None,
+        ),
+        (Some(CompactionEndOutcome::Interrupted), None, None),
+        (Some(CompactionEndOutcome::Failed), None, None),
+        (Some(CompactionEndOutcome::NoBenefit), None, Some(" ")),
+    ] {
+        let mut session = Session::new(header("invalid-typed-compact")).unwrap();
+        session
+            .append_batch(
+                Revision::ZERO,
+                vec![
+                    event(EventData::TurnStart { turn: 1 }),
+                    event(EventData::UserMessage {
+                        message: Message::user("original"),
+                        surface_replace: None,
+                    }),
+                    event(EventData::CompactionStart {
+                        compaction_id: "c".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }),
+                ],
+            )
+            .unwrap();
+        let before = session.events().to_vec();
+        assert!(session
+            .append(
+                Revision(1),
+                event(EventData::CompactionEnd {
+                    compaction_id: "c".into(),
+                    source_command_id: None,
+                    turn: Some(1),
+                    error: error.map(str::to_owned),
+                    outcome,
+                    fingerprint: fingerprint.map(str::to_owned),
+                })
+            )
+            .is_err());
+        assert_eq!(session.events(), before);
+        assert_eq!(session.revision(), Revision(1));
+    }
+
+    let legacy: EventData = serde_json::from_value(
+        json!({"type":"compaction/end", "data":{"compactionId":"legacy", "turn":1, "error":"old failure"}}),
+    )
+    .unwrap();
+    assert!(matches!(
+        &legacy,
+        EventData::CompactionEnd {
+            outcome: None,
+            fingerprint: None,
+            ..
+        }
+    ));
+    let encoded = serde_json::to_value(legacy).unwrap();
+    assert!(encoded["data"].get("outcome").is_none());
+    assert!(encoded["data"].get("fingerprint").is_none());
+    assert!(serde_json::from_value::<EventData>(
+        json!({"type":"compaction/end", "data":{"compactionId":"c", "outcome":"unknown_success"}})
+    )
+    .is_err());
+}
+
+#[test]
+fn only_applied_outcome_commits_a_summary_and_replacement() {
+    use xharness_session::{CompactionEndOutcome, SequenceRange};
+
+    for outcome in [
+        None,
+        Some(CompactionEndOutcome::Applied),
+        Some(CompactionEndOutcome::NoBenefit),
+        Some(CompactionEndOutcome::NoEligibleSource),
+        Some(CompactionEndOutcome::Interrupted),
+        Some(CompactionEndOutcome::Failed),
+    ] {
+        let mut session = Session::new(header("applied-compact")).unwrap();
+        session
+            .append_batch(
+                Revision::ZERO,
+                vec![
+                    event(EventData::TurnStart { turn: 1 }),
+                    event(EventData::UserMessage {
+                        message: Message::user("original"),
+                        surface_replace: None,
+                    }),
+                    event(EventData::CompactionStart {
+                        compaction_id: "c".into(),
+                        source_command_id: None,
+                        turn: Some(1),
+                    }),
+                ],
+            )
+            .unwrap();
+        let range = SequenceRange { start: 1, end: 1 };
+        let batch = vec![
+            event(EventData::CompactionSummary {
+                compaction_id: "c".into(),
+                source_command_id: None,
+                summary: "note".into(),
+                shadowed_range: range,
+                shadowed_seqs: vec![1],
+                shadowed_token_count: 100,
+                provider: "p".into(),
+                model: "m".into(),
+                max_tokens: Some(20),
+                usage: None,
+            }),
+            event(EventData::UserMessage {
+                message: Message::user("note"),
+                surface_replace: Some(SurfaceReplace {
+                    compaction_id: "c".into(),
+                    shadowed_range: range,
+                    shadowed_seqs: vec![1],
+                }),
+            }),
+            event(EventData::CompactionEnd {
+                compaction_id: "c".into(),
+                source_command_id: None,
+                turn: Some(1),
+                error: None,
+                outcome,
+                fingerprint: None,
+            }),
+        ];
+        let applied = outcome.is_none() || outcome == Some(CompactionEndOutcome::Applied);
+        assert_eq!(session.append_batch(Revision(1), batch).is_ok(), applied);
+        assert_eq!(
+            session.derive_messages(),
+            vec![Message::user(if applied { "note" } else { "original" })]
+        );
+    }
 }

@@ -35,7 +35,7 @@ try {
     $blocking = @(Get-XHarnessProcesses -Directories @($fixture))
     if (@($blocking | Where-Object ProcessId -EQ $live.Id).Count -ne 1) { throw 'Real live child was not blocked' }
     $refused = $false
-    try { Assert-XHarnessFilesAvailable @($fixture) } catch { $refused = $true }
+    try { Assert-XHarnessFilesAvailable @($fixture) -TimeoutMilliseconds 0 } catch { $refused = $true }
     if (-not $refused) { throw 'Executing image was incorrectly considered writable' }
     # Only this fixture's retained process handle is used for termination.
     $live.Kill(); $live.WaitForExit(); $live.Dispose(); $live = $null

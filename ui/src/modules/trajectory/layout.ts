@@ -311,9 +311,14 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       const cell: TrajectoryCellProps = {
         index: ++index,
         kind: 'compacted',
+        ...(request.status === 'skipped' || request.status === 'cancelled' ? { compactionTerminalState: request.status } : {}),
         text: request.status === 'running'
           ? 'Compacting context…'
-          : request.status === 'error'
+          : request.status === 'skipped'
+            ? 'Compaction skipped · Original history unchanged'
+            : request.status === 'cancelled'
+              ? 'Compaction interrupted · Original history unchanged'
+              : request.status === 'error'
             ? request.error ?? 'Compaction failed'
             : request.summary === undefined
               ? 'Context compacted'

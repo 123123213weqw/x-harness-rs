@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -9,17 +9,36 @@ use xharness_api::{
     RpcResult, ServerRequest,
 };
 use xharness_interaction::{
-    AnswerDestination, QuestionAnswer, QuestionInteraction, QuestionInvocation,
-    QuestionProviderError, QuestionResolution, QuestionTerminalState, ResolveAction,
-    UserQuestionProvider,
+    QuestionAnswer, QuestionInteraction, QuestionInvocation, QuestionProviderError,
+    QuestionResolution, QuestionTerminalState, ResolveAction, UserQuestionProvider,
 };
 use xharness_session::{EventData, SessionEvent, Store, StoreError};
 
 mod continuation;
 
 const APPEND_RETRIES: usize = 16;
+pub(crate) const DELEGATED_QUESTION_POLICY: &str = "You are a delegated child agent. Clarifications belong to your parent agent, not directly to the human user. Do not call ask_user_question (ask_question) or create a replacement user-question tool. If essential information remains missing after inspecting available context and tools, finish this turn with a concise clarification report: what is missing, why it matters, and any safe options. Your result is automatically delivered to the parent; do not poll or wait for a human answer. The parent can answer using agent(action=send) and resume your work. Neither a clarification nor a parent reply grants permission: existing approval requirements remain authoritative.";
 pub const AGENT_MEMORY_BEGIN: &str = "<!-- XHARNESS:USER-MEMORY:BEGIN -->";
 pub const AGENT_MEMORY_END: &str = "<!-- XHARNESS:USER-MEMORY:END -->";
+
+/// Close obsolete child/user waits on upgrade, rather than merely hiding their
+/// dialogs and leaving autonomous work blocked. The original question remains
+/// in history; this is a runtime-policy cancellation, never a human answer.
+pub(crate) fn delegated_question_cancellations(
+    session: &xharness_session::Session,
+) -> Vec<SessionEvent> {
+    if crate::delegation::restored_delegation(session).is_none() {
+        return Vec::new();
+    }
+    xharness_session::all_user_questions(session.events())
+        .into_iter()
+        .filter(|question| matches!(question.terminal, QuestionTerminalState::Pending))
+        .map(|question| EventData::QuestionCancelled {
+            interaction_id: question.invocation.interaction_id,
+            reason: "Runtime policy closed an obsolete delegated-agent user question. Report the clarification to the parent agent instead. This was not a user cancellation or answer and grants no permission.".into(),
+        }.into())
+        .collect()
+}
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum QuestionHubError {
@@ -29,33 +48,6 @@ pub enum QuestionHubError {
     BadResponse(String),
     #[error("question persistence failed: {0}")]
     Persistence(String),
-    #[error("agent markdown persistence failed: {0}")]
-    AgentMarkdown(String),
-}
-
-#[async_trait]
-pub trait AgentMarkdownSink: Send + Sync + 'static {
-    async fn persist(
-        &self,
-        workspace: &Path,
-        invocation: &QuestionInvocation,
-        resolution: &QuestionResolution,
-    ) -> Result<(), String>;
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NoopAgentMarkdownSink;
-
-#[async_trait]
-impl AgentMarkdownSink for NoopAgentMarkdownSink {
-    async fn persist(
-        &self,
-        _workspace: &Path,
-        _invocation: &QuestionInvocation,
-        _resolution: &QuestionResolution,
-    ) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,7 +58,6 @@ enum QuestionSettlement {
 
 struct PendingQuestion {
     session_id: String,
-    workspace: String,
     invocation: QuestionInvocation,
     settlement: watch::Sender<Option<QuestionSettlement>>,
     scoped_nonce: std::sync::OnceLock<String>,
@@ -79,7 +70,6 @@ struct PendingQuestion {
 /// restart; the stable interaction id is also its Web RPC id.
 pub struct DurableQuestionHub {
     store: Option<Arc<dyn Store>>,
-    sink: Arc<dyn AgentMarkdownSink>,
     pending: RwLock<BTreeMap<String, Arc<PendingQuestion>>>,
     events: broadcast::Sender<ServerRequest>,
     host: std::sync::OnceLock<std::sync::Weak<crate::BasicHost>>,
@@ -87,11 +77,10 @@ pub struct DurableQuestionHub {
 }
 
 impl DurableQuestionHub {
-    pub fn new(store: Arc<dyn Store>, sink: Arc<dyn AgentMarkdownSink>) -> Arc<Self> {
+    pub fn new(store: Arc<dyn Store>) -> Arc<Self> {
         let (events, _) = broadcast::channel(256);
         Arc::new(Self {
             store: Some(store),
-            sink,
             pending: RwLock::new(BTreeMap::new()),
             events,
             host: std::sync::OnceLock::new(),
@@ -103,7 +92,6 @@ impl DurableQuestionHub {
         let (events, _) = broadcast::channel(16);
         Arc::new(Self {
             store: None,
-            sink: Arc::new(NoopAgentMarkdownSink),
             pending: RwLock::new(BTreeMap::new()),
             events,
             host: std::sync::OnceLock::new(),
@@ -115,27 +103,59 @@ impl DurableQuestionHub {
         self.events.subscribe()
     }
 
+    /// Use durable delegation identity, not a model-supplied parent id or a
+    /// copied fork header. A regular fork of a child is still user-owned.
+    pub async fn allows_user_questions(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, QuestionProviderError> {
+        // Live Host ownership is rebuilt from those durable events. Avoid
+        // rereading a long conversation just to construct each turn's tools.
+        if let Some(host) = self.host.get().and_then(std::sync::Weak::upgrade) {
+            if let Some(session) = host.state.read().await.sessions.get(session_id) {
+                return Ok(!session.delegated);
+            }
+        }
+        let session = self.snapshot(session_id).await.map_err(provider_error)?;
+        Ok(crate::delegation::restored_delegation(&session).is_none())
+    }
+
     pub(crate) async fn baseline(&self) -> Vec<ServerRequest> {
         self.baseline_for(None).await
     }
 
     pub(crate) async fn baseline_for(&self, session_id: Option<&str>) -> Vec<ServerRequest> {
-        self.pending
+        let pending = self
+            .pending
             .read()
             .await
             .values()
             .filter(|pending| session_id.is_none_or(|id| pending.session_id == id))
-            .map(|pending| question_requested_frame(pending.as_ref()))
-            .collect()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut frames = Vec::new();
+        for question in pending {
+            if self
+                .allows_user_questions(&question.session_id)
+                .await
+                .unwrap_or(false)
+            {
+                frames.push(question_requested_frame(&question));
+            }
+        }
+        frames
     }
 
     async fn ask(
         &self,
         session_id: &str,
-        workspace: &str,
         invocation: QuestionInvocation,
         cancellation: CancellationToken,
     ) -> Result<QuestionResolution, QuestionProviderError> {
+        // Enforce ownership even when an old/custom executor still exposes the
+        // tool. Reject new/waiting child questions before persisting or publishing.
+        // Replaying an answer already accepted before upgrade creates no question.
+        let may_ask = self.allows_user_questions(session_id).await?;
         let existing = self
             .question_state(session_id, &invocation.interaction_id)
             .await
@@ -147,9 +167,6 @@ impl DurableQuestionHub {
                         "durable question identity conflicts with this tool invocation",
                     ));
                 }
-                self.persist_agent_markdown(workspace, &invocation, &resolution)
-                    .await
-                    .map_err(provider_error)?;
                 return Ok(resolution);
             }
             Some((durable, QuestionTerminalState::Cancelled(reason))) => {
@@ -166,8 +183,14 @@ impl DurableQuestionHub {
                         "durable question identity conflicts with this tool invocation",
                     ));
                 }
+                if !may_ask {
+                    return Err(QuestionProviderError::new(DELEGATED_QUESTION_POLICY));
+                }
             }
             None => {
+                if !may_ask {
+                    return Err(QuestionProviderError::new(DELEGATED_QUESTION_POLICY));
+                }
                 self.append_and_flush(
                     session_id,
                     EventData::QuestionRequested {
@@ -194,7 +217,6 @@ impl DurableQuestionHub {
                 let (settlement, _) = watch::channel(None);
                 let pending = Arc::new(PendingQuestion {
                     session_id: session_id.to_owned(),
-                    workspace: workspace.to_owned(),
                     invocation,
                     settlement,
                     scoped_nonce: std::sync::OnceLock::new(),
@@ -255,13 +277,6 @@ impl DurableQuestionHub {
                             }
                         }
                         QuestionTerminalState::Resolved(resolution) => {
-                            self.persist_agent_markdown(
-                                &pending.workspace,
-                                &pending.invocation,
-                                &resolution,
-                            )
-                            .await
-                            .map_err(provider_error)?;
                             self.finish_pending(&pending, QuestionOutcome::Answered).await;
                             return Ok(resolution);
                         }
@@ -293,6 +308,13 @@ impl DurableQuestionHub {
         let Some(pending) = pending.filter(|p| p.session_id == session) else {
             return Ok(None);
         };
+        if !self
+            .allows_user_questions(session)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question ownership unavailable"))?
+        {
+            return Ok(None);
+        }
         let _gate = pending.gate.lock().await;
         if pending.settlement.borrow().is_some() {
             return Ok(None);
@@ -322,6 +344,13 @@ impl DurableQuestionHub {
         let Some(pending) = pending.filter(|p| p.session_id == session) else {
             return Ok(R::Stale);
         };
+        if !self
+            .allows_user_questions(session)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question ownership unavailable"))?
+        {
+            return Ok(R::Stale);
+        }
         let _gate = pending.gate.lock().await;
         if pending.settlement.borrow().is_some() || scoped_question_frame(&pending)? != expected {
             return Ok(R::Stale);
@@ -440,8 +469,6 @@ impl DurableQuestionHub {
             )
             .await?;
         }
-        self.persist_agent_markdown(&pending.workspace, &pending.invocation, &resolution)
-            .await?;
         self.deliver_late_answer(pending).await?;
         pending
             .settlement
@@ -610,44 +637,19 @@ impl DurableQuestionHub {
             "question append exceeded its conflict retry budget".to_owned(),
         ))
     }
-
-    async fn persist_agent_markdown(
-        &self,
-        workspace: &str,
-        invocation: &QuestionInvocation,
-        resolution: &QuestionResolution,
-    ) -> Result<(), QuestionHubError> {
-        if !resolution
-            .answers
-            .iter()
-            .any(|answer| answer.destination == AnswerDestination::AgentMarkdown)
-        {
-            return Ok(());
-        }
-        self.sink
-            .persist(Path::new(workspace), invocation, resolution)
-            .await
-            .map_err(QuestionHubError::AgentMarkdown)
-    }
 }
 
 #[derive(Clone)]
 pub struct DurableQuestionProvider {
     hub: Arc<DurableQuestionHub>,
     session_id: String,
-    workspace: String,
 }
 
 impl DurableQuestionProvider {
-    pub fn new(
-        hub: Arc<DurableQuestionHub>,
-        session_id: impl Into<String>,
-        workspace: impl Into<String>,
-    ) -> Self {
+    pub fn new(hub: Arc<DurableQuestionHub>, session_id: impl Into<String>) -> Self {
         Self {
             hub,
             session_id: session_id.into(),
-            workspace: workspace.into(),
         }
     }
 }
@@ -660,7 +662,7 @@ impl UserQuestionProvider for DurableQuestionProvider {
         cancellation: CancellationToken,
     ) -> Result<QuestionResolution, QuestionProviderError> {
         self.hub
-            .ask(&self.session_id, &self.workspace, invocation, cancellation)
+            .ask(&self.session_id, invocation, cancellation)
             .await
     }
 }
@@ -816,120 +818,14 @@ fn store_error(error: StoreError) -> QuestionHubError {
     QuestionHubError::Persistence(error.to_string())
 }
 
-/// Extract only the Host-managed memory section for prompt injection. Other
-/// AGENTS.md content keeps its ordinary repository semantics and is not
-/// silently promoted by this product-specific sink.
+/// Read-only compatibility for the previously written managed memory section.
+/// Questions never add to this section; other AGENTS.md content is unchanged.
 pub fn managed_agent_memory(text: &str) -> Option<String> {
     let start = text.find(AGENT_MEMORY_BEGIN)? + AGENT_MEMORY_BEGIN.len();
     let tail = &text[start..];
     let end = tail.find(AGENT_MEMORY_END)?;
     let content = tail[..end].trim();
     (!content.is_empty()).then(|| content.to_owned())
-}
-
-/// Idempotently upsert one accepted durable-answer entry into the managed
-/// AGENTS.md section while preserving every byte outside that section.
-pub fn update_agent_markdown(
-    existing: &str,
-    invocation: &QuestionInvocation,
-    resolution: &QuestionResolution,
-) -> Result<String, String> {
-    let durable = resolution
-        .answers
-        .iter()
-        .filter(|answer| answer.destination == AnswerDestination::AgentMarkdown)
-        .collect::<Vec<_>>();
-    if durable.is_empty() {
-        return Ok(existing.to_owned());
-    }
-    let key = invocation
-        .interaction_id
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let entry_begin = format!("<!-- XHARNESS:ENTRY:{key}:BEGIN -->");
-    let entry_end = format!("<!-- XHARNESS:ENTRY:{key}:END -->");
-    let mut body = String::new();
-    body.push_str(&entry_begin);
-    body.push('\n');
-    for answer in durable {
-        let question = invocation
-            .request
-            .questions
-            .iter()
-            .find(|question| question.id == answer.question_id)
-            .ok_or_else(|| {
-                format!(
-                    "resolution references unknown question {:?}",
-                    answer.question_id
-                )
-            })?;
-        let mut values = Vec::new();
-        if let Some(label) = &answer.selected_label {
-            values.push(label.trim().to_owned());
-        }
-        if let Some(custom) = &answer.custom_text {
-            let custom = custom.trim();
-            if !custom.is_empty() {
-                values.push(custom.to_owned());
-            }
-        }
-        let value = if values.is_empty() {
-            "（未回答）".to_owned()
-        } else {
-            values.join("；")
-        };
-        body.push_str("- **");
-        body.push_str(&sanitize_managed_markers(&question.question));
-        body.push_str("**：");
-        body.push_str(&sanitize_managed_markers(&value));
-        body.push('\n');
-    }
-    body.push_str(&entry_end);
-
-    let mut output = existing.to_owned();
-    match (
-        output.find(AGENT_MEMORY_BEGIN),
-        output.find(AGENT_MEMORY_END),
-    ) {
-        (Some(section_start), Some(section_end)) if section_start < section_end => {
-            let content_start = section_start + AGENT_MEMORY_BEGIN.len();
-            let section = &output[content_start..section_end];
-            if let Some(relative_start) = section.find(&entry_begin) {
-                let absolute_start = content_start + relative_start;
-                let after_start = absolute_start + entry_begin.len();
-                let relative_end = output[after_start..section_end]
-                    .find(&entry_end)
-                    .ok_or_else(|| "managed AGENTS.md entry has no closing marker".to_owned())?;
-                let absolute_end = after_start + relative_end + entry_end.len();
-                output.replace_range(absolute_start..absolute_end, &body);
-            } else {
-                let insertion = format!("\n\n{body}\n");
-                output.insert_str(section_end, &insertion);
-            }
-        }
-        (None, None) => {
-            if !output.is_empty() && !output.ends_with('\n') {
-                output.push('\n');
-            }
-            if !output.is_empty() {
-                output.push('\n');
-            }
-            output.push_str(AGENT_MEMORY_BEGIN);
-            output.push_str("\n## XHarness 持久目标\n\n");
-            output.push_str(&body);
-            output.push('\n');
-            output.push_str(AGENT_MEMORY_END);
-            output.push('\n');
-        }
-        _ => return Err("managed AGENTS.md section markers are unbalanced".to_owned()),
-    }
-    Ok(output)
-}
-
-fn sanitize_managed_markers(text: &str) -> String {
-    text.replace("<!-- XHARNESS:", "&lt;!-- XHARNESS:")
 }
 
 const fn rejected(reason: ReceiptRejection) -> RpcReceipt {
@@ -940,10 +836,7 @@ const fn rejected(reason: ReceiptRejection) -> RpcReceipt {
 mod tests {
     use super::*;
     use futures::{stream, StreamExt};
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Mutex as StdMutex,
-    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use xharness_core::{
         AgentMessage, FinishReason, LoopEngine, LoopRequest, LoopStatus, ModelProvider,
         ProviderError, ProviderEvent, ProviderRequest, ProviderStream, TokenUsage,
@@ -953,25 +846,6 @@ mod tests {
         QuestionSpec,
     };
     use xharness_session::{MemorySessionStore, Message, Revision, SessionHeader, ToolCall};
-
-    #[derive(Default)]
-    struct RecordingSink(StdMutex<Vec<String>>);
-
-    #[async_trait]
-    impl AgentMarkdownSink for RecordingSink {
-        async fn persist(
-            &self,
-            _workspace: &Path,
-            invocation: &QuestionInvocation,
-            _resolution: &QuestionResolution,
-        ) -> Result<(), String> {
-            self.0
-                .lock()
-                .unwrap()
-                .push(invocation.interaction_id.clone());
-            Ok(())
-        }
-    }
 
     #[derive(Default)]
     struct QuestionLoopProvider(AtomicUsize);
@@ -1089,21 +963,252 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delegated_question_gate_rejects_before_ui_or_persistence_even_after_restart() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "delegated-question").await;
+        let snapshot = store.load("delegated-question").await.unwrap().unwrap();
+        store
+            .append(
+                "delegated-question",
+                snapshot.revision(),
+                vec![EventData::AgentDelegated {
+                    parent_session_id: "parent".into(),
+                    invocation_id: "delegate".into(),
+                    task: "review".into(),
+                }
+                .into()],
+            )
+            .await
+            .unwrap();
+        let before = store.load("delegated-question").await.unwrap().unwrap();
+        for _ in 0..2 {
+            let hub = DurableQuestionHub::new(store.clone());
+            let mut frames = hub.subscribe();
+            assert!(!hub
+                .allows_user_questions("delegated-question")
+                .await
+                .unwrap());
+            let provider = DurableQuestionProvider::new(hub.clone(), "delegated-question");
+            let error = tokio::time::timeout(
+                Duration::from_secs(1),
+                provider.ask(
+                    QuestionInvocation::new(
+                        "execution-1",
+                        request(AnswerDestination::AgentMarkdown),
+                    ),
+                    CancellationToken::new(),
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap_err();
+            assert!(error.message.contains("parent agent"));
+            assert!(!error.retryable);
+            assert!(frames.try_recv().is_err());
+            assert!(hub.baseline().await.is_empty());
+            assert_eq!(
+                store
+                    .load("delegated-question")
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .events(),
+                before.events()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_allows_normal_forks_and_fails_closed_without_identity() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "question-fork").await;
+        let snapshot = store.load("question-fork").await.unwrap().unwrap();
+        store
+            .append(
+                "question-fork",
+                snapshot.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "copied history".into(),
+                    }
+                    .into(),
+                    EventData::SessionForkOrigin {
+                        parent_session_id: "old-child".into(),
+                        before_user_seq: None,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let hub = DurableQuestionHub::new(store);
+        assert!(hub.allows_user_questions("question-fork").await.unwrap());
+        assert!(hub.allows_user_questions("missing").await.is_err());
+        assert!(DurableQuestionHub::unavailable()
+            .allows_user_questions("unknown")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_does_not_restore_old_child_question_dialogs() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "old-child-question").await;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let snapshot = store.load("old-child-question").await.unwrap().unwrap();
+        store
+            .append(
+                "old-child-question",
+                snapshot.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "review".into(),
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: invocation.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionDeferred {
+                        interaction_id: invocation.interaction_id,
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let hub = DurableQuestionHub::new(store.clone());
+        let snapshot = store.load("old-child-question").await.unwrap().unwrap();
+        let cancellations = delegated_question_cancellations(&snapshot);
+        assert_eq!(cancellations.len(), 1);
+        store
+            .append("old-child-question", snapshot.revision(), cancellations)
+            .await
+            .unwrap();
+        let closed = store.load("old-child-question").await.unwrap().unwrap();
+        assert!(!xharness_session::has_unanswered_deferred_question(
+            closed.events()
+        ));
+        assert!(
+            matches!(xharness_session::all_user_questions(closed.events())[0].terminal,
+            QuestionTerminalState::Cancelled(ref reason) if reason.starts_with("Runtime policy"))
+        );
+        assert!(
+            delegated_question_cancellations(&closed).is_empty(),
+            "migration must be idempotent"
+        );
+        hub.restore_snapshot(&closed).await;
+        assert!(hub.baseline().await.is_empty());
+        assert!(hub.pending.read().await.is_empty());
+        assert_eq!(
+            store
+                .load("old-child-question")
+                .await
+                .unwrap()
+                .unwrap()
+                .events(),
+            closed.events()
+        );
+    }
+
+    #[tokio::test]
+    async fn delegated_question_gate_preserves_previously_accepted_answer_without_dialog() {
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        let id = "answered-child";
+        session_with_question_call(&store, id).await;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        let mut interaction = QuestionInteraction::new(invocation.clone()).unwrap();
+        let resolution = interaction
+            .resolve(
+                ResolveAction::Continue,
+                vec![QuestionAnswer {
+                    question_id: "target".into(),
+                    selected_option_id: None,
+                    custom_text: Some("local".into()),
+                }],
+            )
+            .unwrap();
+        let before = store.load(id).await.unwrap().unwrap();
+        store
+            .append(
+                id,
+                before.revision(),
+                vec![
+                    EventData::AgentDelegated {
+                        parent_session_id: "parent".into(),
+                        invocation_id: "old".into(),
+                        task: "review".into(),
+                    }
+                    .into(),
+                    EventData::QuestionRequested {
+                        invocation: invocation.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionDeferred {
+                        interaction_id: invocation.interaction_id.clone(),
+                    }
+                    .into(),
+                    EventData::QuestionResolved {
+                        interaction_id: invocation.interaction_id.clone(),
+                        resolution: resolution.clone(),
+                    }
+                    .into(),
+                ],
+            )
+            .await
+            .unwrap();
+        let snapshot = store.load(id).await.unwrap().unwrap();
+        assert!(delegated_question_cancellations(&snapshot).is_empty());
+        let hub = DurableQuestionHub::new(store.clone());
+        hub.restore_snapshot(&snapshot).await;
+        assert_eq!(
+            hub.pending.read().await.len(),
+            1,
+            "accepted late answer outbox must survive"
+        );
+        assert!(
+            hub.baseline().await.is_empty(),
+            "old accepted answer must not reopen a child dialog"
+        );
+        let mut frames = hub.subscribe();
+        let provider = DurableQuestionProvider::new(hub, id);
+        assert_eq!(
+            provider
+                .ask(invocation, CancellationToken::new())
+                .await
+                .unwrap(),
+            resolution
+        );
+        assert!(provider
+            .ask(
+                QuestionInvocation::new("new-question", request(AnswerDestination::Context)),
+                CancellationToken::new()
+            )
+            .await
+            .is_err());
+        assert!(frames.try_recv().is_err());
+        assert_eq!(
+            store.load(id).await.unwrap().unwrap().events(),
+            snapshot.events()
+        );
+    }
+
+    #[tokio::test]
     async fn deferred_wait_is_not_an_answer_replays_once_and_survives_restore() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         session_with_question_call(&store, "deferred").await;
-        let sink = Arc::new(RecordingSink::default());
-        let mut hub = DurableQuestionHub::new(store.clone(), sink.clone());
+        let mut hub = DurableQuestionHub::new(store.clone());
         Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
         let invocation =
             QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
         let answer = hub
-            .ask(
-                "deferred",
-                "/workspace",
-                invocation.clone(),
-                CancellationToken::new(),
-            )
+            .ask("deferred", invocation.clone(), CancellationToken::new())
             .await
             .unwrap();
         assert_eq!(
@@ -1112,19 +1217,13 @@ mod tests {
         );
         assert!(answer.answers.is_empty());
         assert_eq!(answer.unanswered_question_ids, ["target"]);
-        assert!(sink.0.lock().unwrap().is_empty());
         assert_eq!(hub.baseline().await[0].payload["deferred"], true);
-        let restored = DurableQuestionHub::new(store.clone(), sink);
+        let restored = DurableQuestionHub::new(store.clone());
         restored.restore_detached().await.unwrap();
         assert_eq!(restored.baseline().await.len(), 1);
         // Default 60 seconds does not reset an already-expired persisted wait.
         let replay = restored
-            .ask(
-                "deferred",
-                "/workspace",
-                invocation,
-                CancellationToken::new(),
-            )
+            .ask("deferred", invocation, CancellationToken::new())
             .await
             .unwrap();
         assert_eq!(replay, answer);
@@ -1151,7 +1250,7 @@ mod tests {
         for expire in [false, true] {
             let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
             session_with_question_call(&store, "deadline-race").await;
-            let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+            let mut hub = DurableQuestionHub::new(store.clone());
             if expire {
                 Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
             }
@@ -1160,13 +1259,8 @@ mod tests {
             let mut frames = hub.subscribe();
             let h = hub.clone();
             let waiter = tokio::spawn(async move {
-                h.ask(
-                    "deadline-race",
-                    "/workspace",
-                    invocation,
-                    CancellationToken::new(),
-                )
-                .await
+                h.ask("deadline-race", invocation, CancellationToken::new())
+                    .await
             });
             frames.recv().await.unwrap();
             let pending = hub
@@ -1223,14 +1317,13 @@ mod tests {
     async fn cancellation_does_not_trigger_timeout_continuation() {
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         session_with_question_call(&store, "cancel-defer").await;
-        let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let mut hub = DurableQuestionHub::new(store.clone());
         Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
         let cancel = CancellationToken::new();
         cancel.cancel();
         let result = hub
             .ask(
                 "cancel-defer",
-                "/workspace",
                 QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown)),
                 cancel,
             )
@@ -1251,13 +1344,12 @@ mod tests {
             .create(SessionHeader::new("live-defer"))
             .await
             .unwrap();
-        let mut hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let mut hub = DurableQuestionHub::new(store.clone());
         Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
         let registry = Arc::new(xharness_tools::ToolRegistry::new());
         AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
             hub.clone(),
             "live-defer",
-            "/workspace",
         )))
         .register(&registry)
         .await
@@ -1296,11 +1388,9 @@ mod tests {
         let concrete = Arc::new(MemorySessionStore::default());
         let store: Arc<dyn Store> = concrete;
         session_with_question_call(&store, "question-session").await;
-        let sink = Arc::new(RecordingSink::default());
-        let hub = DurableQuestionHub::new(store.clone(), sink.clone());
+        let hub = DurableQuestionHub::new(store.clone());
         let mut frames = hub.subscribe();
-        let provider =
-            DurableQuestionProvider::new(Arc::clone(&hub), "question-session", "/workspace");
+        let provider = DurableQuestionProvider::new(Arc::clone(&hub), "question-session");
         let invocation =
             QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
         let expected_invocation = invocation.clone();
@@ -1340,7 +1430,6 @@ mod tests {
             resolution.answers[0].selected_option_id.as_deref(),
             Some("tokyo")
         );
-        assert_eq!(sink.0.lock().unwrap().as_slice(), ["question:execution-1"]);
         assert!(hub.baseline().await.is_empty());
 
         let session = store.load("question-session").await.unwrap().unwrap();
@@ -1351,13 +1440,11 @@ mod tests {
             QuestionTerminalState::Resolved(_)
         ));
 
-        let replayed =
-            DurableQuestionProvider::new(Arc::clone(&hub), "question-session", "/workspace")
-                .ask(expected_invocation, CancellationToken::new())
-                .await
-                .unwrap();
+        let replayed = DurableQuestionProvider::new(Arc::clone(&hub), "question-session")
+            .ask(expected_invocation, CancellationToken::new())
+            .await
+            .unwrap();
         assert_eq!(replayed, resolution);
-        assert_eq!(sink.0.lock().unwrap().len(), 2);
 
         let conflicting = hub
             .resolve_response(
@@ -1379,12 +1466,11 @@ mod tests {
         let concrete = Arc::new(MemorySessionStore::default());
         let store: Arc<dyn Store> = concrete;
         session_with_question_call(&store, "external-settlement").await;
-        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let hub = DurableQuestionHub::new(store.clone());
         let mut frames = hub.subscribe();
         let invocation =
             QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
-        let provider =
-            DurableQuestionProvider::new(Arc::clone(&hub), "external-settlement", "/workspace");
+        let provider = DurableQuestionProvider::new(Arc::clone(&hub), "external-settlement");
         let waiting =
             tokio::spawn(async move { provider.ask(invocation, CancellationToken::new()).await });
         frames.recv().await.unwrap();
@@ -1436,13 +1522,12 @@ mod tests {
             .create(SessionHeader::new("live-question-loop"))
             .await
             .unwrap();
-        let hub = DurableQuestionHub::new(store.clone(), Arc::new(NoopAgentMarkdownSink));
+        let hub = DurableQuestionHub::new(store.clone());
         let mut frames = hub.subscribe();
         let registry = Arc::new(xharness_tools::ToolRegistry::new());
         xharness_interaction::AskUserQuestionTool::new(Arc::new(DurableQuestionProvider::new(
             Arc::clone(&hub),
             "live-question-loop",
-            "/workspace",
         )))
         .register(&registry)
         .await
@@ -1495,9 +1580,9 @@ mod tests {
         let concrete = Arc::new(MemorySessionStore::default());
         let store: Arc<dyn Store> = concrete;
         session_with_question_call(&store, "cancel-session").await;
-        let hub = DurableQuestionHub::new(store, Arc::new(NoopAgentMarkdownSink));
+        let hub = DurableQuestionHub::new(store);
         let mut frames = hub.subscribe();
-        let provider = DurableQuestionProvider::new(Arc::clone(&hub), "cancel-session", "/tmp");
+        let provider = DurableQuestionProvider::new(Arc::clone(&hub), "cancel-session");
         let waiting = tokio::spawn(async move {
             provider
                 .ask(
@@ -1530,30 +1615,6 @@ mod tests {
             .contains("用户跳过"));
     }
 
-    #[test]
-    fn managed_agent_markdown_upsert_is_idempotent_and_preserves_user_content() {
-        let invocation =
-            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
-        let mut interaction = QuestionInteraction::new(invocation.clone()).unwrap();
-        let resolution = interaction
-            .resolve(
-                ResolveAction::Continue,
-                vec![QuestionAnswer {
-                    question_id: "target".to_owned(),
-                    selected_option_id: Some("tokyo".to_owned()),
-                    custom_text: Some("端口 8443".to_owned()),
-                }],
-            )
-            .unwrap();
-        let first =
-            update_agent_markdown("# 用户规则\n\n保留。\n", &invocation, &resolution).unwrap();
-        let second = update_agent_markdown(&first, &invocation, &resolution).unwrap();
-        assert_eq!(first, second);
-        assert!(first.starts_with("# 用户规则\n\n保留。"));
-        let memory = managed_agent_memory(&first).unwrap();
-        assert!(memory.contains("部署到哪里"));
-        assert!(memory.contains("东京 (Recommended)；端口 8443"));
-    }
     #[tokio::test]
     async fn scoped_question_restore_nonce_and_missing_continuation_have_no_false_acceptance() {
         use xharness_api::{
@@ -1566,14 +1627,9 @@ mod tests {
         Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
         let invocation =
             QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
-        hub.ask(
-            "scoped",
-            "/workspace",
-            invocation.clone(),
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+        hub.ask("scoped", invocation.clone(), CancellationToken::new())
+            .await
+            .unwrap();
         let id = RpcId::new(&invocation.interaction_id);
         assert!(hub.scoped_snapshot("other", &id).await.unwrap().is_none());
         let expected = hub.scoped_snapshot("scoped", &id).await.unwrap().unwrap();
@@ -1663,13 +1719,8 @@ mod tests {
             let waiting = tokio::spawn({
                 let h = hub.clone();
                 async move {
-                    h.ask(
-                        "normal-scoped",
-                        "/workspace",
-                        invocation,
-                        CancellationToken::new(),
-                    )
-                    .await
+                    h.ask("normal-scoped", invocation, CancellationToken::new())
+                        .await
                 }
             });
             frames.recv().await.unwrap();

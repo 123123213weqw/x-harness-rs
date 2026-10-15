@@ -13,8 +13,9 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 | --- | --- | --- |
 | start | task；可选 label；provider/model/reasoning_effort 仅传递用户明确指定的选择 | 创建独立子会话，继承设置或先获用户确认，再持久化后返回 agent_id / message_id / model |
 | send | agent_id、message | 运行中安全 Steering；空闲时下一轮；暂停时只入队 |
-| inspect | 可选 agent_id | 指定孩子状态与模型；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
+| inspect | 可选 agent_id | 指定孩子状态、模型与最近持久结算；省略 ID 时列出自己的直接孩子和父会话设置与配置模型能力 |
 | stop | agent_id | 中断当前轮，保留未领取消息，暂停后续派发 |
+| revert | agent_id、checkpoint_seq、message | 主 Agent 显式选择完整前缀，建立受管纠偏分支；保留原历史，不回滚文件 |
 
 工具根 Schema 使用便携 object + action enum；Rust tagged enum 严格验证分支字段，
 拒绝跨 action 字段、缺参、空文本和未知操作。不把 parent/sender 身份交给模型填写。
@@ -46,6 +47,12 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 仍只有一个 `agent` 工具，允许用户通过聊天明确指定子模型／思考强度；模型仅传递选择。
 用户没有指定时完整继承父会话设置，不按任务复杂度／成本自主选择其他模型或强度。
 
+上下文继承保留选择语义：父会话自动模式继承 `None`，每轮使用子模型当前容量；
+父会话明确选择的小窗口保留该数字。更换子模型使用目标模型自己的容量，不复制另一模型的上限。
+旧 32K 自动快照依据原始 `session.selectModel` RPC 收据及子创建时的父历史切片追加修复；
+明确的小窗口、缺失收据、时间顺序不明的记录不擅自改动。修复前缀历史保持原样，重复恢复
+不重复追加；刷新已加载会话同样在下一轮边界生效，不中断当前工具或请求。
+
 ```json
 {"action":"inspect"}
 {"action":"start","task":"独立只读审查","provider":"configured-provider","model":"configured-model","reasoning_effort":"high"}
@@ -72,6 +79,10 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 
 - provider/model 必须来自运行时注册目录；inspect.models 只返回 ID、合法 effort ID 与默认值，
   不含端点、凭据或 wire patch。目录可见不等于获准切换。
+- 每项 `models[].start_selectors` 提供可复制的完整 `provider`／`model` 组合。
+  选择模型时一起复制；只填 model 仍继承父 Provider，不能自动推测／切换其他 Provider。
+  model ID 可以含 `/`，不将 `provider/model` 拼接字符串当作 model 字段。
+  配置目录不是实时可用性证明；未知路由错误提示匹配候选但不自动回退。
 - 未指定路由时继承父配置；改变路由但未指定强度时使用目标默认值，预算用目标 TokenGuard。
   不向小模型复制父级的大预算。不支持的路由／强度在确认与创建前拒绝，不静默回退。
 - 字段只用于 start；send 不能悄悄修改已有孩子配置。既有用户模型 RPC 仍可修改配置。
@@ -92,6 +103,28 @@ Driver、LoopEngine 和 Tool Registry。不是 shell Job；不实现第二套模
 目标路由／强度确认卡片，未回答不创建孩子，允许一次后才向目标 Provider 传递强度。
 
 此前开放自主选择和中间菜单-only 版本的测试只是历史基线，当前验收以人工确认版本的报告为准。
+
+## 真实请求观察与主 Agent 决策
+
+不增加启动前探测、每次健康请求、模型健康缓存或第二套重试循环。沿用 Core 的请求重试，
+结算后由主 Agent 决定下一步；`accepted`／`running` 不是模型响应成功。
+
+- `inspect(agent_id).last_settlement` 与自动送达父 Inbox 的结算使用同一权威终态；
+  自动回执保持旧 payload／去重指纹，额外观察只通过 inspect 读取，兼容旧版投递崩溃窗口。
+  尚未结算为 null；结果带 work_id、turn、settlement_seq、timestamp_ms，明确属于历史结算，
+  不表示当前正在执行的轮次。事实直接来自既有日志，重启可重建，不新增事件格式。
+- `outcome` 保留原始终态。失败时已有 `provider_failure` 原样保留 retryable、http_status、
+  retry_after_ms；旧日志缺少分类时保持未知，不靠错误文字猜测。
+- `execution` 仅显示本轮已记录的请求路由、是否观察到输出／记录到工具调用。
+  `request_recorded` 只是请求日志事实，不代表网络成功；未观察到输出也不是无副作用证明。
+  请求正文、凭据、工具参数和推理内容不加入这些观察字段。
+  没有权威 turn/end 的准备／宿主故障标记为 `without_turn_end`，不声称没有执行工具。
+- 主 Agent 可读失败回执后选择 `send` 在同一孩子继续，避免重复创建；不新增自动复活／换模型。
+  认证／权限等错误先修配置，临时失败参考已记录分类。重试有副作用的工作先核对已执行结果。
+  已停止／暂停的孩子仍遵守显式用户恢复门禁；send 不解锁暂停。
+
+受控验收注入 400／401／403／404、429／503、部分输出后失败；检查首请求次数、父级回执、
+同孩子重试与去重、重启恢复，以及不因观察而发起额外 Provider 请求。
 
 ## 执行与并发
 
@@ -135,7 +168,9 @@ Semaphore，默认至多 4 个真实子模型轮次；租约覆盖工具和模�
 
 后台监听器只扫描发生变化的已停稳子会话，每秒一轮，复用既有日志；
 结果最长 8 KiB，按 UTF-8 边界截断并标记。不会把子 Agent 全部工具日志注入父上下文。
-父级活跃时通知排入下一轮；父级空闲时唤醒；父级暂停时只落盘。
+父级活跃时通知排入下一轮；父级健康空闲时唤醒；父级暂停或最近 Turn 不可重试失败时只落盘。
+失败门禁来自权威 `turn/end`，Host 与 Actor 共用同一投影；内部回执不算用户恢复，
+不自动重启压缩或模型请求。人类明确重试后才能继续处理，旧回执与原历史仍保留。
 父级等待孩子期间不轮询模型，但 UI 目前仍可能把父级显示为 idle；
 聚合 waiting 状态属于后续 UI 工作，不伪称已完成独立 Waiting 状态机。
 
@@ -210,3 +245,43 @@ Host 必须在子会话的 `session.list` 摘要和 `host/session-added` 推送�
 在 Chromium/WebKit 验证鼠标、键盘及恢复后的 child → parent 导航。
 其中输入框为隔离夹具，不能替代完整原生 App 的 RPC/发送消息端到端验收。
 本修复尚未替换本机安装包；安装新 Host 并重连后，既有持久化孩子可恢复该标记。
+
+## 主 Agent 显式小步纠偏（context branch，不是文件回滚）
+
+新增同一 `agent` 工具的 `revert` action。不是自动 retry、自动换模型、第二套模型循环，
+也不修改普通 `send`。仅直接父 Agent 可以选择回推位置与纠偏指令：
+
+```json
+{"action":"inspect","agent_id":"source-child"}
+{"action":"revert","agent_id":"source-child","checkpoint_seq":26,"message":"回到授权范围问题；先核对当前文件，不继续错误登录计划。"}
+```
+
+- `inspect.revert_checkpoints` 提供最近最多 8 个完整 StepEnd／TurnEnd 候选（seq、turn、step、工具名及轮次终态）。
+  提供事实定位点帮助主 Agent 选择，不暴露工具参数／结果正文／隐藏推理。
+  不定时探测、没有检查点 TTL，也不以模型输出耗时判断过期。准入再核对权威日志。
+- **回推前缀上下文，不擦除原历史**：原孩子完整对话仍保存；新分支保留检查点之前的
+  正文、真实推理、工具调用／结果及观察。不是伪造 CoT，不用新摘要代替完整前缀。
+- **新分支仍是当前主 Agent 的直接孩子**，返回新的 `agent_id`，后续 send／inspect／stop
+  使用这个 ID。不是普通 session.fork，也不是孩子创建孙级。原孩子不会被自动重发任务。
+  同工作区的两条轨迹不具备文件事务隔离；主 Agent 不应同时恢复原孩子做依赖性编辑。
+- **不回滚文件、Git、远端操作、外部服务**。即使新上下文不含后续写操作，真实效果仍存在；
+  Host 在纠偏消息中明确要求核对当前状态，再决定是否重复有副作用的工作。
+- 源孩子必须空闲且未暂停，无待派发 Inbox／未决审批／未答问题／未知工具结果，
+  无未闭合轮次／压缩，无 Goal／Schedule。不能通过回推绕过人工暂停或未决操作保护；
+  运行中不会偷偷取消。停止后的人工恢复规则与原版一致。
+- 必须是权威日志里的完整 StepEnd／TurnEnd；不接受半个工具、流式块或不存在的 seq。
+  检查点的模型／权限／Preset／Plan 配置必须与当前孩子一致，不借回推改路由或扩大权限。
+  StepEnd 位于已结束源轮次的内部时，在新分支以既有 Interrupted 事实闭合该前缀轮次；
+  不伪造 Completed 或成功工具结果。
+- 创建确定性分支 ID，前缀＋新的 `SessionForkOrigin`／`AgentDelegated` 一批持久化，
+  原委派行政元数据不复制；已消费 Inbox 事实仍保留。新的主归属是出入队／结算命名空间。
+  同 invocation、同操作重试返回同一回执；改变指令或检查点冲突。创建后、首次 Inbox
+  投递前崩溃，现有 listener 只恢复纠偏消息；历史轮次不重新通知主 Agent。
+- `accepted` 仍只证明纠偏消息入队，不代表模型已纠正；UI 展示原孩子、检查点、新孩子与
+  “仅回推上下文，不回滚文件”，严格核对双方 ID 和检查点回执。
+
+验收分层：受控 Host／DurableLoop 测试验证前缀、工具配对、源历史不变、真实文件标记不变、
+无工具重放、所有权、幂等、停止和冷恢复；真实模型入口为
+`crates/xharness-host-app/examples/subagent_revert_acceptance.rs` 与
+`scripts/experiments/live-subagent-revert.py`，只在 V100 一次性合成目录验收，上游 API Key 留在本机，远端只持有受请求次数限制的临时 relay nonce。
+真实验收是方向变更链路，不把合成故障／模型参数实验当作生产任务质量全面通过。

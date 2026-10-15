@@ -269,29 +269,35 @@ impl crate::BasicHost {
         {
             return Ok(());
         }
-        let request = {
+        let (mut request, sections) = {
             let state = self.state.read().await;
             let record = state
                 .sessions
                 .get(id)
                 .ok_or_else(|| xharness_api::RpcError::internal("session missing"))?;
-            crate::AgentSessionRequest {
-                session_id: id.into(),
-                cwd: record.cwd.clone(),
-                route: crate::ModelRoute {
-                    provider: record.model.provider.clone(),
-                    model: record.model.model.clone(),
-                    reasoning_effort: record.model.reasoning_effort.clone(),
-                    context_window_tokens: record.model.context_window_tokens,
+            (
+                crate::AgentSessionRequest {
+                    session_id: id.into(),
+                    cwd: record.cwd.clone(),
+                    route: crate::ModelRoute {
+                        provider: record.model.provider.clone(),
+                        model: record.model.model.clone(),
+                        reasoning_effort: record.model.reasoning_effort.clone(),
+                        context_window_tokens: record.model.context_window_tokens,
+                    },
+                    permission: record.permission_preset,
+                    prompt: None,
                 },
-                permission: record.permission_preset,
-                prompt: Some(
-                    state
-                        .prompt_assembly(id)
-                        .map_err(xharness_api::RpcError::internal)?,
-                ),
-            }
+                state
+                    .prompt_sections(id)
+                    .map_err(xharness_api::RpcError::internal)?,
+            )
         };
+        request.prompt = Some(
+            self.assemble_prompt(request.cwd.clone(), sections)
+                .await
+                .map_err(xharness_api::RpcError::internal)?,
+        );
         self.agent_runtime
             .resume_session(request)
             .await
@@ -1255,6 +1261,23 @@ mod tests {
             panic!("snapshot failed")
         };
         assert!(!value["header"]["input"].as_array().unwrap().is_empty());
+        let result = host
+            .call_dynamic(
+                xharness_api::RpcId::new("harness-snapshot"),
+                "session.requestSnapshot",
+                json!({"sessionId":"g","seq":seq,"scope":"harness"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let xharness_api::RpcResult::Success {
+            value: Some(surface),
+        } = result
+        else {
+            panic!("Harness snapshot failed")
+        };
+        assert!(surface["header"].get("input").is_none());
+        assert_eq!(surface["header"]["tools"], value["header"]["tools"]);
         assert!(host.state.read().await.sessions["g"].messages.is_empty());
         let exported = host
             .export_session("g", CancellationToken::new())
@@ -1269,6 +1292,8 @@ mod tests {
             json!({"sessionId":"missing","seq":seq}),
             json!({"sessionId":"g","seq":-1}),
             json!({"sessionId":"g","seq":999999}),
+            json!({"sessionId":"g","seq":seq,"scope":"all"}),
+            json!({"sessionId":"g","seq":seq,"scope":true}),
         ] {
             assert!(!host
                 .call_dynamic(

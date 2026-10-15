@@ -4,6 +4,8 @@
 //! This processor receives a detached view and decides reads, collection
 //! mutations and Session selection events without depending on the Host aggregate.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};

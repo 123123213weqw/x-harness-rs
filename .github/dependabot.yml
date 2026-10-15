@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directories: ["/", "/apps/desktop/src-tauri"]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      rust-compatible:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directories: ["/ui", "/.github/actions/desktop-release-service"]
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      js-compatible:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 2

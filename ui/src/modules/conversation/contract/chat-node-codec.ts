@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CompactionEndOutcomeSchema } from '../../shared/compaction-outcome'
 import type { ChatNode, ChatNodeDataMap, ChatNodeKind } from './chat-nodes'
 import type { ChatConversationViewNode, ContentBlock, ToolCallBlock } from '../types/runtime'
 
@@ -25,7 +26,7 @@ const finalAssistant = z.looseObject({ ...base, kind: z.literal('assistant'), tu
   messageId: s.optional(), usage: z.unknown().optional(), interrupted: z.literal(true).optional(),
   provenance: z.object({ provider: s, model: s }).optional(),
   requestConfig: z.looseObject({ provider: s, model: s, purpose: s.optional(), thinking: s.optional(), reasoningEffort: s.optional(), temperature: n.optional(), maxTokens: n.optional(), stop: z.array(s).optional() }).optional(),
-  timing: z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n }).optional(),
+  timing: z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n, receptionMs: n.optional() }).optional(),
 })
 const assistant = z.looseObject({ status: z.enum(['running', 'settled', 'interrupted']), turn: n, step: n, blocks, time: n, usage: z.unknown().optional(), finalNode: finalAssistant.optional() })
 const command = z.looseObject({ ...base, kind: z.literal('command'), commandId: s, name: nullable, args: nullable,
@@ -36,7 +37,7 @@ const progress = z.looseObject({ stage: z.enum(['preparing', 'summarizing', 'spl
 }).optional()
 const compaction = z.union([
   z.looseObject({ ...base, kind: z.literal('compaction'), summary: nullable, summaryEventSeq: n.nullable(), shadowedItemCount: n.nullable(), shadowedTokenCount: n.nullable(), progress, startedAt: n.optional(), endedAt: n.optional() }),
-  z.looseObject({ ...base, kind: z.literal('compaction'), status: z.enum(['running', 'failed']), progress, progressTime: n.optional(), error: nullable, endedAt: n.optional() }),
+  z.looseObject({ ...base, kind: z.literal('compaction'), status: z.enum(['running', 'failed', 'skipped', 'cancelled']), progress, progressTime: n.optional(), error: nullable, outcome: CompactionEndOutcomeSchema.optional(), endedAt: n.optional() }),
 ])
 const retryBase = { ...base, kind: z.literal('model-retry'), turn: n, step: n, retryId: s, retry: n, retryState: z.enum(['scheduled', 'started', 'cancelled']) }
 const retryFacts = { delayMs: n, policyKey: s, provider: s, failure: z.looseObject({ message: s, code: s }) }

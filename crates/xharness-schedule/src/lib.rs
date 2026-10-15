@@ -12,6 +12,10 @@ pub use controls::*;
 mod automation;
 #[cfg(test)]
 mod automation_tests;
+// Isolated architecture experiment: never linked into the production Host.
+#[cfg(test)]
+#[path = "../../../experiments/job-schedule-ablation/lab.rs"]
+mod job_unification_ablation;
 pub use automation::{AutomationCommand, AutomationTargetProvider};
 
 use std::{

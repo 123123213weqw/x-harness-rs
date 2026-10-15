@@ -245,10 +245,7 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
                     );
                 }
             }
-            let context = model
-                .context_window
-                .or(profile.default_context_window)
-                .unwrap_or(32_768);
+            let context = model.context_window.or(profile.default_context_window);
             let output = model.max_tokens.or(profile.max_tokens).unwrap_or(4_096);
             let margin = model.token_safety_margin.unwrap_or(1_024);
             let minimum = model
@@ -257,7 +254,7 @@ pub fn parse_model_settings(value: &Value) -> Result<ModelSettingsDocument, Stri
             if minimum == 0
                 || minimum > output
                 || margin > 1_000_000_000
-                || minimum.saturating_add(margin) >= context
+                || context.is_some_and(|context| minimum.saturating_add(margin) >= context)
             {
                 return Err("Minimum output reserve and safety margin must fit its context window; minimum output must be positive and no greater than maximum output".to_owned());
             }
@@ -408,6 +405,7 @@ pub(crate) fn reconcile_session_model(
         (None, _) => None,
         (Some(selected), Some(maximum)) if selected > 0 => Some(selected.min(maximum)),
         (Some(_), Some(maximum)) => Some(maximum),
+        (Some(selected), None) if selected > 0 => Some(selected),
         (Some(_), None) => None,
     };
     let mut windows = vec![preferred_window];
@@ -476,12 +474,53 @@ impl BasicHost {
     /// recomputed identically from the durable selection on every start, so the
     /// session log keeps recording what the user actually chose.
     pub(crate) async fn reconcile_model_routes(&self) -> Vec<crate::HostRestoreIssue> {
+        let mut issues = Vec::new();
+        // Settings refresh also repairs already hydrated children. Never stop
+        // their tools/current turn: the new selection applies at the next turn
+        // boundary. Normal sessions do not incur full-history reads here.
+        let legacy_ids = self
+            .state
+            .read()
+            .await
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.model.context_window_tokens == Some(32_768))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in legacy_ids {
+            let _guard = self.lock_admission(&id).await;
+            let Ok(Some(snapshot)) = self.agent_runtime.authoritative_session(&id).await else {
+                continue;
+            };
+            let parent = if let Some(parent) = crate::delegation::restored_delegation(&snapshot) {
+                self.agent_runtime
+                    .authoritative_session(&parent)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            if let Some(repair) =
+                crate::context_selection::legacy_repair(&snapshot, parent.as_ref())
+            {
+                // A failed write must not certify migration in process state.
+                if let Err(error) = self.commit_session_events(&id, vec![repair]).await {
+                    issues.push(crate::HostRestoreIssue {
+                        session_id: id.clone(),
+                        message: format!(
+                            "legacy context budget repair was not committed: {}",
+                            error.message
+                        ),
+                    });
+                }
+            }
+        }
         let catalog = self.agent_runtime.model_catalog();
         if catalog.is_empty() {
-            return Vec::new();
+            return issues;
         }
         let can_route = |route: &ModelRoute| self.agent_runtime.can_route(route);
-        let mut issues = Vec::new();
         let mut state = self.state.write().await;
         let ids = state.sessions.keys().cloned().collect::<Vec<_>>();
         for id in ids {

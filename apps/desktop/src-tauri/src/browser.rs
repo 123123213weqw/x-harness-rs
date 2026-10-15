@@ -21,6 +21,10 @@ use url::Url;
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "browser_user_agent.rs"]
+mod user_agent;
+
 /// WebView2 does not deliver fragment changes through Wry's navigation policy.
 /// Listen to the native Source property instead. This is only a resample hint:
 /// guests still have no IPC permission, and no frame-provided URL is trusted.
@@ -352,6 +356,10 @@ pub async fn desktop_browser_navigate(
         return Err("invalid browser tab".into());
     }
     let target = web_url(&url)?;
+    // Complete WKWebView's identity before the very first guest HTTP request.
+    // Failure keeps the system default; it must not block ordinary navigation.
+    #[cfg(target_os = "macos")]
+    let user_agent = user_agent::for_macos(&caller).await;
     // Before a navigation can enter native dispatch, record its admission.
     // Closing/switching the pane after this point must not claim no effect.
     if let Some(lifecycle) = app.try_state::<crate::browser_lifecycle::BrowserLifecycle>() {
@@ -506,6 +514,11 @@ pub async fn desktop_browser_navigate(
             }
             _ => true,
         });
+    #[cfg(target_os = "macos")]
+    let builder = match user_agent {
+        Some(identity) => builder.user_agent(identity),
+        None => builder,
+    };
     let child = window
         .add_child(
             builder,
@@ -570,13 +583,24 @@ pub async fn desktop_browser_activate(
             tab.last_used = clock;
         }
     }
+    // Bounds may have changed while this tab was hidden. The frontend lays
+    // out the pane before selecting its tab; updating only the previously
+    // active view leaves a reselected view at its old rectangle. Hide the old
+    // views first, then apply the current logical rectangle before showing.
     for (id, tab) in &inner.tabs {
-        let result = if inner.active.as_deref() == Some(id.as_str()) && inner.bounds.is_some() {
-            tab.webview.show()
-        } else {
-            tab.webview.hide()
-        };
-        result.map_err(|error| error.to_string())?;
+        if inner.active.as_deref() != Some(id.as_str()) || inner.bounds.is_none() {
+            tab.webview.hide().map_err(|error| error.to_string())?;
+        }
+    }
+    if let (Some(id), Some(bounds)) = (inner.active.as_deref(), inner.bounds) {
+        if let Some(tab) = inner.tabs.get(id) {
+            if let Err(error) = tab.webview.set_bounds(bounds.rect()) {
+                // Never expose a stale rectangle when native layout fails.
+                let _ = tab.webview.hide();
+                return Err(error.to_string());
+            }
+            tab.webview.show().map_err(|error| error.to_string())?;
+        }
     }
     Ok(active.is_some_and(|id| inner.tabs.contains_key(&id)))
 }

@@ -186,12 +186,22 @@ impl BasicHost {
         method: RpcMethod,
         payload: &Value,
     ) -> Result<Option<Value>, RpcError> {
-        let fingerprint = mutation_fingerprint(method.as_str(), payload);
+        self.replay_control_receipt_named(rpc_id, method.as_str(), payload)
+            .await
+    }
+
+    pub(crate) async fn replay_control_receipt_named(
+        &self,
+        rpc_id: &RpcId,
+        method: &str,
+        payload: &Value,
+    ) -> Result<Option<Value>, RpcError> {
+        let fingerprint = mutation_fingerprint(method, payload);
         let state = self.state.read().await;
         let Some(receipt) = state.mutation_receipts.get(rpc_id.as_str()) else {
             return Ok(None);
         };
-        if receipt.method == method.as_str() && receipt.fingerprint == fingerprint {
+        if receipt.method == method && receipt.fingerprint == fingerprint {
             let mut response = receipt.response.clone();
             if response["ns"] == crate::MODEL_SETTINGS_NAMESPACE && response.get("schema").is_none()
             {
@@ -213,10 +223,22 @@ impl BasicHost {
         rpc_id: &RpcId,
         method: RpcMethod,
         payload: &Value,
+        events: Vec<ControlEvent>,
+        response: Value,
+    ) -> Result<Value, RpcError> {
+        self.commit_control_mutation_named(rpc_id, method.as_str(), payload, events, response)
+            .await
+    }
+
+    pub(crate) async fn commit_control_mutation_named(
+        &self,
+        rpc_id: &RpcId,
+        method: &str,
+        payload: &Value,
         mut events: Vec<ControlEvent>,
         response: Value,
     ) -> Result<Value, RpcError> {
-        let fingerprint = mutation_fingerprint(method.as_str(), payload);
+        let fingerprint = mutation_fingerprint(method, payload);
         let revision = self.state.read().await.control_revision;
         let mut receipt_response = response.clone();
         if receipt_response["ns"] == crate::MODEL_SETTINGS_NAMESPACE {
@@ -249,7 +271,7 @@ impl BasicHost {
         events.push(ControlEvent::MutationCommitted {
             receipt: MutationReceipt {
                 rpc_id: rpc_id.as_str().to_owned(),
-                method: method.as_str().to_owned(),
+                method: method.to_owned(),
                 fingerprint,
                 response: receipt_response,
             },
@@ -272,7 +294,7 @@ impl BasicHost {
                 self.reload_control_projection()
                     .await
                     .map_err(control_error)?;
-                self.replay_control_receipt(rpc_id, method, payload)
+                self.replay_control_receipt_named(rpc_id, method, payload)
                     .await?
                     .ok_or_else(|| {
                         control_conflict(

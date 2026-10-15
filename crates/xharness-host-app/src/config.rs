@@ -16,6 +16,8 @@ use xharness_token::{TokenBudget, TokenGuard};
 
 const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4_096;
 const DEFAULT_TOKEN_SAFETY_MARGIN: u64 = 1_024;
+// A temporary request budget, never evidence of the deployment's maximum.
+const UNKNOWN_CONTEXT_WORKING_BUDGET: u64 = 32_768;
 
 pub struct ModelDeployment {
     pub default_route: ModelRoute,
@@ -58,6 +60,7 @@ impl ModelDeployment {
             model
                 .reasoning
                 .as_ref()
+                .and_then(ReasoningSetting::profile)
                 .and_then(|r| r.default_effort.clone())
         });
         default_route.context_window_tokens = file.default.context_window_tokens;
@@ -92,15 +95,34 @@ impl ModelDeployment {
                 default_token_guard: None,
             });
         }
-        // The single-model CLI path has no provider document to declare efforts
-        // in; `--providers-file` is the supported way to describe a route.
-        let provider_config = OpenAiProviderConfig::new(
+        // Unknown/proxied routes still need explicit configuration. Official
+        // routes can use the same curated catalog as editable model settings.
+        let compatibility = crate::reasoning_compat::resolve(
+            &config.base_url,
+            if config.protocol == OpenAiProtocol::Responses {
+                "openai-responses"
+            } else {
+                "openai-completions"
+            },
+            &config.model,
+        );
+        let reasoning: Option<ModelReasoningConfig> = compatibility
+            .as_ref()
+            .map(|c| {
+                serde_json::from_value(c.profile.clone())
+                    .map_err(|_| "Invalid bundled reasoning profile".to_owned())
+            })
+            .transpose()?;
+        let mut provider_config = OpenAiProviderConfig::new(
             config.protocol,
             config.base_url,
             config.api_key,
             &config.model,
         )
         .with_context_window_fallback(config.context_window_tokens);
+        if let Some(reasoning) = &reasoning {
+            provider_config = provider_config.with_reasoning_profile(reasoning.adapter_profile()?);
+        }
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
             .with_debug(debug);
@@ -120,13 +142,19 @@ impl ModelDeployment {
             config.token_safety_margin,
         )?;
         let provider: Arc<dyn ModelProvider> = Arc::new(adapter);
-        let descriptor = ModelDescriptor::new(
+        let mut descriptor = ModelDescriptor::new(
             &config.provider,
             &config.provider,
             &config.model,
             &config.model,
         )
         .with_context_window(capabilities.context_window);
+        if let Some(reasoning) = reasoning {
+            descriptor = descriptor.with_reasoning(reasoning.public());
+        }
+        if let Some(compatibility) = compatibility {
+            descriptor.reasoning_capability = compatibility.provenance;
+        }
         let mut registry = ModelRegistry::new();
         registry
             .register(
@@ -308,7 +336,33 @@ impl ProviderConfig {
                 reasoning_capability,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
-            let reasoning = if reasoning_disabled { None } else { reasoning };
+            let reasoning_disabled =
+                reasoning_disabled || matches!(reasoning, Some(ReasoningSetting::Disabled));
+            let reasoning = reasoning.and_then(ReasoningSetting::into_profile);
+            let compat = if !reasoning_disabled && reasoning.is_none() {
+                crate::reasoning_compat::resolve(
+                    &self.base_url,
+                    if protocol == OpenAiProtocol::Responses {
+                        "openai-responses"
+                    } else {
+                        "openai-completions"
+                    },
+                    &upstream_model,
+                )
+            } else {
+                None
+            };
+            let reasoning = if reasoning_disabled {
+                None
+            } else {
+                reasoning.or_else(|| {
+                    compat
+                        .as_ref()
+                        .and_then(|c| serde_json::from_value(c.profile.clone()).ok())
+                })
+            };
+            let reasoning_capability =
+                reasoning_capability.or_else(|| compat.map(|c| c.provenance));
             let reasoning_state = reasoning_capability.unwrap_or_else(|| serde_json::json!({"state":if reasoning_disabled {"disabled"} else if reasoning.is_some() {"supported"} else {"unknown"},"source":if reasoning_disabled {"explicit"} else {"configured"}}));
             let mut provider_config =
                 OpenAiProviderConfig::new(protocol, &self.base_url, &api_key, upstream_model)
@@ -383,13 +437,15 @@ impl ProviderConfig {
     }
 }
 
-pub(crate) async fn registry_from_resolved_settings(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn registry_from_settings_with_context(
     document: &xharness_host::ModelSettingsDocument,
     keys: &BTreeMap<String, Option<String>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
     observations: &BTreeMap<(String, String), serde_json::Value>,
     calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
+    contexts: &BTreeMap<(String, String), xharness_core::ContextWindowCapability>,
 ) -> Result<ModelRegistry, String> {
     let mut registry = ModelRegistry::new();
     for (id, profile) in &document.providers {
@@ -402,7 +458,7 @@ pub(crate) async fn registry_from_resolved_settings(
         };
         let models = profile.models.iter().map(|m| serde_json::json!({
             "id":m.id,"display_name":m.name,"upstream_model":m.upstream_model,
-            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window).or(Some(32_768)),
+            "fallback_context_window_tokens":m.context_window.or(profile.default_context_window),
             "max_output_tokens":m.max_tokens.or(profile.max_tokens).unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS),
             "minimum_output_tokens":m.minimum_output_tokens,
             "token_safety_margin":m.token_safety_margin.unwrap_or(DEFAULT_TOKEN_SAFETY_MARGIN),
@@ -417,6 +473,12 @@ pub(crate) async fn registry_from_resolved_settings(
         .map_err(|_| "Invalid native model metadata".to_owned())?;
         provider.register_models_with_key(&mut registry, debug.clone(), key, attachments.clone(), calibration.clone()).await
             .map_err(|_| format!("Provider {id} configuration could not be activated; check model metadata and token limits"))?;
+        for model in &profile.models {
+            if let Some(context) = contexts.get(&(id.clone(), model.id.clone())) {
+                registry.replace_context_capability(&ModelRoute::new(id, &model.id), context.clone())
+                    .map_err(|_| format!("Provider {id} discovered context cannot hold the configured output reserve"))?;
+            }
+        }
     }
     Ok(registry)
 }
@@ -449,12 +511,20 @@ pub fn settings_from_file(path: &Path) -> Result<serde_json::Value, String> {
         if profiles.contains_key(id) {
             return Err("Duplicate provider ID in imported configuration".to_owned());
         }
-        let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| serde_json::json!({
+        let models = p["models"].as_array().ok_or_else(|| "Missing models array".to_owned())?.iter().map(|m| {
+            let mut value = serde_json::json!({
             "id":m["id"],"name":m["display_name"],"upstreamModel":m["upstream_model"],
             "contextWindow":m.get("fallback_context_window_tokens").or_else(||m.get("context_window_tokens")),
             "maxTokens":m["max_output_tokens"],"minimumOutputTokens":m["minimum_output_tokens"],
             "tokenSafetyMargin":m["token_safety_margin"],"reasoning":m["reasoning"],"contextWindowCapability":m["context_window_capability"],"imageInput":m["image_input"]
-        })).collect::<Vec<_>>();
+            });
+            if m["reasoning_disabled"] == true {
+                value["reasoning"] = serde_json::Value::Null;
+            } else if m.get("reasoning").is_none() {
+                value.as_object_mut().expect("constructed object").remove("reasoning");
+            }
+            value
+        }).collect::<Vec<_>>();
         profiles.insert(
             id.to_owned(),
             serde_json::json!({"displayName":p["display_name"],"baseURL":p["base_url"],
@@ -490,14 +560,42 @@ struct ModelConfig {
     minimum_output_tokens: Option<u64>,
     #[serde(default = "default_token_safety_margin")]
     token_safety_margin: u64,
-    #[serde(default)]
-    reasoning: Option<ModelReasoningConfig>,
+    #[serde(default, deserialize_with = "present_reasoning_setting")]
+    reasoning: Option<ReasoningSetting>,
     #[serde(default)]
     reasoning_disabled: bool,
     #[serde(default)]
     reasoning_capability: Option<serde_json::Value>,
     #[serde(default)]
     image_input: Option<bool>,
+}
+
+// Preserve missing vs explicit null for imported provider files, just as the
+// editable settings document does. An explicit disable must never auto-enable.
+#[derive(Debug, Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum ReasoningSetting {
+    Profile(ModelReasoningConfig),
+    Disabled,
+}
+impl ReasoningSetting {
+    fn profile(&self) -> Option<&ModelReasoningConfig> {
+        match self {
+            Self::Profile(p) => Some(p),
+            Self::Disabled => None,
+        }
+    }
+    fn into_profile(self) -> Option<ModelReasoningConfig> {
+        match self {
+            Self::Profile(p) => Some(p),
+            Self::Disabled => None,
+        }
+    }
+}
+fn present_reasoning_setting<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<ReasoningSetting>, D::Error> {
+    ReasoningSetting::deserialize(d).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -615,14 +713,19 @@ pub fn token_guard(
     if model == "unconfigured" {
         return Ok(None);
     }
-    let context_window_tokens = context_window_tokens.ok_or_else(|| {
-        "configured models require a Provider/deployment context capability or an explicitly labelled fallback_context_window_tokens value".to_owned()
-    })?;
+    let minimum = minimum_output_tokens
+        .unwrap_or_else(|| xharness_host::automatic_minimum_output_tokens(max_output_tokens));
+    let context_window_tokens = context_window_tokens.unwrap_or_else(|| {
+        UNKNOWN_CONTEXT_WORKING_BUDGET.max(
+            minimum
+                .saturating_add(token_safety_margin)
+                .saturating_add(UNKNOWN_CONTEXT_WORKING_BUDGET),
+        )
+    });
     TokenGuard::conservative(TokenBudget {
         context_window_tokens,
         reserved_output_tokens: max_output_tokens,
-        minimum_output_tokens: minimum_output_tokens
-            .unwrap_or_else(|| xharness_host::automatic_minimum_output_tokens(max_output_tokens)),
+        minimum_output_tokens: minimum,
         safety_margin_tokens: token_safety_margin,
     })
     .map(Some)
@@ -632,6 +735,87 @@ pub fn token_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_file_missing_reasoning_is_not_an_explicit_disable() {
+        let missing: ModelConfig =
+            serde_json::from_value(serde_json::json!({"id":"glm-5.3"})).unwrap();
+        let disabled: ModelConfig =
+            serde_json::from_value(serde_json::json!({"id":"glm-5.3","reasoning":null})).unwrap();
+        assert!(missing.reasoning.is_none());
+        assert!(matches!(
+            disabled.reasoning,
+            Some(ReasoningSetting::Disabled)
+        ));
+    }
+
+    #[test]
+    fn imported_provider_preserves_explicit_disable_over_catalog_and_profile() {
+        let path = std::env::temp_dir().join(format!(
+            "xh-disabled-reasoning-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let profile = crate::reasoning_compat::resolve(
+            "https://api.deepseek.com",
+            "openai-completions",
+            "deepseek-flash",
+        )
+        .unwrap()
+        .profile;
+        for explicit_profile in [false, true] {
+            let mut model = serde_json::json!({
+                "id":"deepseek-flash", "fallback_context_window_tokens":32768,
+                "reasoning_disabled":true,
+            });
+            if explicit_profile {
+                model["reasoning"] = profile.clone();
+            }
+            let file = serde_json::json!({"providers":[{
+                "id":"official", "base_url":"https://api.deepseek.com",
+                "protocol":"chat", "models":[model],
+            }]});
+            fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
+            let settings = settings_from_file(&path);
+            fs::remove_file(&path).unwrap();
+            let settings = settings.unwrap();
+            assert_eq!(
+                settings["providers"]["official"]["models"][0].get("reasoning"),
+                Some(&serde_json::Value::Null)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_file_auto_reasoning_and_explicit_disable_both_reach_registry() {
+        for disabled in [false, true] {
+            let mut m = serde_json::json!({"id":"glm-5.3","fallback_context_window_tokens":32768});
+            if disabled {
+                m["reasoning"] = serde_json::Value::Null;
+            }
+            let provider: ProviderConfig = serde_json::from_value(serde_json::json!({"id":"my-label","base_url":"https://api.z.ai/api/paas/v4","protocol":"chat","models":[m]})).unwrap();
+            let mut registry = ModelRegistry::new();
+            provider
+                .register_models_with_key(
+                    &mut registry,
+                    DebugRecorder::disabled(),
+                    "test".into(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+            let models = registry.models();
+            assert_eq!(models[0].reasoning.is_none(), disabled);
+            assert_eq!(
+                models[0].reasoning_capability["source"],
+                if disabled { "explicit" } else { "documented" }
+            );
+        }
+    }
 
     #[test]
     fn checked_in_remote_example_uses_environment_credentials_and_declared_efforts() {
@@ -658,10 +842,14 @@ mod tests {
         // Effort levels are configuration, not a vendor table baked into the Host.
         assert!(provider.models.iter().all(|model| {
             model.fallback_context_window_tokens == Some(131_072)
-                && model.reasoning.as_ref().is_some_and(|reasoning| {
-                    reasoning.default_effort.as_deref() == Some("high")
-                        && reasoning.efforts.iter().any(|effort| effort.id == "high")
-                })
+                && model
+                    .reasoning
+                    .as_ref()
+                    .and_then(ReasoningSetting::profile)
+                    .is_some_and(|reasoning| {
+                        reasoning.default_effort.as_deref() == Some("high")
+                            && reasoning.efforts.iter().any(|effort| effort.id == "high")
+                    })
         }));
     }
 
@@ -677,7 +865,11 @@ mod tests {
         assert_eq!(provider.base_url, "https://api.deepseek.com");
         assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
         for model in &provider.models {
-            let reasoning = model.reasoning.as_ref().expect("declared reasoning");
+            let reasoning = model
+                .reasoning
+                .as_ref()
+                .and_then(ReasoningSetting::profile)
+                .expect("declared reasoning");
             assert_eq!(reasoning.default_effort.as_deref(), Some("high"));
             assert_eq!(
                 reasoning
@@ -705,9 +897,15 @@ mod tests {
     use xharness_core::CapabilitySource;
 
     #[test]
-    fn configured_model_requires_a_reported_capability_or_labelled_fallback() {
-        let error = token_guard("model", None, 4_096, None, 1_024).unwrap_err();
-        assert!(error.contains("Provider/deployment context capability"));
+    fn unknown_capacity_gets_a_working_budget_not_a_claimed_model_maximum() {
+        let guard = token_guard("model", None, 4_096, None, 1_024)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            guard.budget().available_input_tokens(),
+            UNKNOWN_CONTEXT_WORKING_BUDGET
+        );
+        assert!(guard.with_context_window(262_144).is_ok());
     }
 
     #[test]

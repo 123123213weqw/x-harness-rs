@@ -1,0 +1,1 @@
+{"schema": 1, "source_sha": "5d7b4408786183eb97a46837a4a9fa26f143e400", "candidate": "d189d9bf87f5b3ab85d5abae134395127243f75af5c9bf8beb7d087fe66eb086", "baseline": "64ec18756250c4553c97028eaa341586115b6a7e6706f4bb803b9531bc31d7e4", "baseline_source": "e0a35e4c4b3af36ed0e1b0ef6f348800c298a872:apps/desktop/src-tauri/src/browser.rs; all other sources use source-sha.txt"}

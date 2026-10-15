@@ -1,0 +1,603 @@
+[
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1463,
+    "estimated_cny": 0.0021887200000000003,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 3537
+    },
+    "finish_reason": "tool_calls",
+    "id": 0,
+    "input_bytes": 1136,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 768,
+      "cache_write_tokens": 0,
+      "input_tokens": 227,
+      "output_tokens": 213,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1782,
+    "estimated_cny": 0.01306584,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 18278
+    },
+    "finish_reason": "tool_calls",
+    "id": 1,
+    "input_bytes": 16539,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 896,
+      "cache_write_tokens": 0,
+      "input_tokens": 5459,
+      "output_tokens": 264,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 602,
+    "estimated_cny": 0.000918,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 19495
+    },
+    "finish_reason": "tool_calls",
+    "id": 2,
+    "input_bytes": 17874,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 6400,
+      "cache_write_tokens": 0,
+      "input_tokens": 251,
+      "output_tokens": 20,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 2570,
+    "estimated_cny": 0.0043402399999999995,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 21337
+    },
+    "finish_reason": "stop",
+    "id": 3,
+    "input_bytes": 19829,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 6656,
+      "cache_write_tokens": 0,
+      "input_tokens": 509,
+      "output_tokens": 382,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": true,
+    "elapsed_ms": 4842,
+    "estimated_cny": 0.02041,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:229e7d287e35db3b2e0abd2d6ab9e007d5352931096a551704c292e8b543c759",
+      "inputTokens": 19475
+    },
+    "finish_reason": "stop",
+    "id": 4,
+    "input_bytes": 20385,
+    "max_output": 4096,
+    "tools": [],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "input_tokens": 6465,
+      "output_tokens": 935,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1060,
+    "estimated_cny": 0.00448184,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 9511
+    },
+    "finish_reason": "tool_calls",
+    "id": 5,
+    "input_bytes": 7272,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 896,
+      "cache_write_tokens": 0,
+      "input_tokens": 1623,
+      "output_tokens": 150,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 764,
+    "estimated_cny": 0.00267328,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 13035
+    },
+    "finish_reason": "tool_calls",
+    "id": 6,
+    "input_bytes": 11101,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 2432,
+      "cache_write_tokens": 0,
+      "input_tokens": 988,
+      "output_tokens": 75,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 3104,
+    "estimated_cny": 0.00656624,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 15647
+    },
+    "finish_reason": "tool_calls",
+    "id": 7,
+    "input_bytes": 13926,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 3456,
+      "cache_write_tokens": 0,
+      "input_tokens": 674,
+      "output_tokens": 635,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1089,
+    "estimated_cny": 0.00072432,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 18480
+    },
+    "finish_reason": "tool_calls",
+    "id": 8,
+    "input_bytes": 16989,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 4608,
+      "cache_write_tokens": 0,
+      "input_tokens": 190,
+      "output_tokens": 20,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 2268,
+    "estimated_cny": 0.00302744,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 19046
+    },
+    "finish_reason": "stop",
+    "id": 9,
+    "input_bytes": 17638,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 4736,
+      "cache_write_tokens": 0,
+      "input_tokens": 195,
+      "output_tokens": 306,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": true,
+    "elapsed_ms": 4126,
+    "estimated_cny": 0.012142,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:229e7d287e35db3b2e0abd2d6ab9e007d5352931096a551704c292e8b543c759",
+      "inputTokens": 11210
+    },
+    "finish_reason": "stop",
+    "id": 10,
+    "input_bytes": 12058,
+    "max_output": 4096,
+    "tools": [],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "input_tokens": 2707,
+      "output_tokens": 841,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1192,
+    "estimated_cny": 0.00449128,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 15030
+    },
+    "finish_reason": "tool_calls",
+    "id": 11,
+    "input_bytes": 12955,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 2432,
+      "cache_write_tokens": 0,
+      "input_tokens": 1481,
+      "output_tokens": 179,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 862,
+    "estimated_cny": 0.00428536,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 21170
+    },
+    "finish_reason": "tool_calls",
+    "id": 12,
+    "input_bytes": 19622,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 3584,
+      "cache_write_tokens": 0,
+      "input_tokens": 1935,
+      "output_tokens": 34,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1581,
+    "estimated_cny": 0.00352216,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 23309
+    },
+    "finish_reason": "tool_calls",
+    "id": 13,
+    "input_bytes": 21880,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 5504,
+      "cache_write_tokens": 0,
+      "input_tokens": 551,
+      "output_tokens": 275,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 687,
+    "estimated_cny": 0.00084176,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 24552
+    },
+    "finish_reason": "tool_calls",
+    "id": 14,
+    "input_bytes": 23256,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 6144,
+      "cache_write_tokens": 0,
+      "input_tokens": 218,
+      "output_tokens": 20,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 2475,
+    "estimated_cny": 0.010599840000000001,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 17994
+    },
+    "finish_reason": "stop",
+    "id": 15,
+    "input_bytes": 16570,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 896,
+      "cache_write_tokens": 0,
+      "input_tokens": 3710,
+      "output_tokens": 393,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": true,
+    "elapsed_ms": 5394,
+    "estimated_cny": 0.01491,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:229e7d287e35db3b2e0abd2d6ab9e007d5352931096a551704c292e8b543c759",
+      "inputTokens": 11769
+    },
+    "finish_reason": "stop",
+    "id": 16,
+    "input_bytes": 12648,
+    "max_output": 4096,
+    "tools": [],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "input_tokens": 2883,
+      "output_tokens": 1143,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 1192,
+    "estimated_cny": 0.005403359999999999,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 21614
+    },
+    "finish_reason": "tool_calls",
+    "id": 17,
+    "input_bytes": 19730,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 3584,
+      "cache_write_tokens": 0,
+      "input_tokens": 2086,
+      "output_tokens": 136,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 2171,
+    "estimated_cny": 0.00792384,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 15076
+    },
+    "finish_reason": "stop",
+    "id": 18,
+    "input_bytes": 13296,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 896,
+      "cache_write_tokens": 0,
+      "input_tokens": 2952,
+      "output_tokens": 248,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 823,
+    "estimated_cny": 0.00096384,
+    "estimated_input": {
+      "accuracy": "calibrated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 5867
+    },
+    "finish_reason": "tool_calls",
+    "id": 19,
+    "input_bytes": 15326,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 4096,
+      "cache_write_tokens": 0,
+      "input_tokens": 184,
+      "output_tokens": 54,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 895,
+    "estimated_cny": 0.00841184,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 18187
+    },
+    "finish_reason": "tool_calls",
+    "id": 20,
+    "input_bytes": 16482,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 896,
+      "cache_write_tokens": 0,
+      "input_tokens": 3912,
+      "output_tokens": 69,
+      "reasoning_tokens": 0
+    }
+  },
+  {
+    "auxiliary": false,
+    "elapsed_ms": 677,
+    "estimated_cny": 0.00515616,
+    "estimated_input": {
+      "accuracy": "estimated",
+      "counter": "wire-calibration/v1:c801699292cd7b5ac1eac4faf04516c13effaa1b775b4ab7c811a7f51e99d478",
+      "inputTokens": 16205
+    },
+    "finish_reason": "stop",
+    "id": 21,
+    "input_bytes": 14536,
+    "max_output": 4096,
+    "tools": [
+      "history",
+      "read",
+      "test",
+      "write"
+    ],
+    "unknown_reserve_cny": 0,
+    "usage": {
+      "cache_read_tokens": 2304,
+      "cache_write_tokens": 0,
+      "input_tokens": 2316,
+      "output_tokens": 54,
+      "reasoning_tokens": 0
+    }
+  }
+]

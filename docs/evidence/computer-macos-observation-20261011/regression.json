@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-11",
+  "base_commit": "e0a35e4c4b3af36ed0e1b0ef6f348800c298a872",
+  "regression": "macOS computer observation exceeds 12s watchdog during otherwise successful AX tree traversal",
+  "privacy": "Native records retain counts and timings only; no window titles, node labels or screenshots.",
+  "source_sha256": "fb4ecfd1aea35b3a2a8e7917974bb02263b2f9de8bc0d94a59754d727933ba40",
+  "baseline": [
+    {
+      "case": "windows_without_tree",
+      "seconds": 3.779,
+      "exit": 0,
+      "stderr": "",
+      "nodes": 0,
+      "windows": 10,
+      "visited": 0,
+      "truncated": false
+    },
+    {
+      "case": "exact_low_allow_completion",
+      "seconds": 26.278,
+      "exit": 0,
+      "stderr": "",
+      "nodes": 80,
+      "windows": 4,
+      "visited": 155,
+      "truncated": true
+    }
+  ],
+  "fixed_native_first_run": [
+    {
+      "case": "fixed_windows",
+      "seconds": 2.873,
+      "exit": 0,
+      "stderr": "",
+      "windows": 10,
+      "nodes": 0,
+      "truncated": false,
+      "reasons": [],
+      "elapsed_ms": 2808
+    },
+    {
+      "case": "fixed_low",
+      "seconds": 8.04,
+      "exit": 0,
+      "stderr": "",
+      "windows": 10,
+      "nodes": 20,
+      "truncated": true,
+      "reasons": [
+        "depth_limit",
+        "time_budget"
+      ],
+      "elapsed_ms": 8006
+    },
+    {
+      "case": "fixed_auto",
+      "seconds": 8.049,
+      "exit": 0,
+      "stderr": "",
+      "windows": 10,
+      "nodes": 19,
+      "truncated": true,
+      "reasons": [
+        "depth_limit",
+        "time_budget"
+      ],
+      "elapsed_ms": 8009
+    },
+    {
+      "case": "fixed_semantic",
+      "seconds": 8.052,
+      "exit": 0,
+      "stderr": "",
+      "windows": 10,
+      "nodes": 19,
+      "truncated": true,
+      "reasons": [
+        "depth_limit",
+        "time_budget"
+      ],
+      "elapsed_ms": 8013
+    }
+  ],
+  "fixed_native_repeat": {
+    "script_sha256": "fb4ecfd1aea35b3a2a8e7917974bb02263b2f9de8bc0d94a59754d727933ba40",
+    "scope": "native JXA script only; does not run the Rust Host or capture screenshots",
+    "cases": [
+      {
+        "case": "windows",
+        "exit_code": 0,
+        "windows": 28,
+        "nodes": 0,
+        "truncated": false,
+        "reasons": [],
+        "elapsed_ms": 4292,
+        "passed": true,
+        "seconds": 4.357
+      },
+      {
+        "case": "low",
+        "exit_code": 0,
+        "windows": 28,
+        "nodes": 13,
+        "truncated": true,
+        "reasons": [
+          "depth_limit",
+          "time_budget"
+        ],
+        "elapsed_ms": 8006,
+        "passed": true,
+        "seconds": 8.038
+      },
+      {
+        "case": "auto",
+        "exit_code": 0,
+        "windows": 26,
+        "nodes": 12,
+        "truncated": true,
+        "reasons": [
+          "time_budget"
+        ],
+        "elapsed_ms": 8007,
+        "passed": true,
+        "seconds": 8.039
+      },
+      {
+        "case": "semantic",
+        "exit_code": 0,
+        "windows": 12,
+        "nodes": 18,
+        "truncated": true,
+        "reasons": [
+          "depth_limit",
+          "time_budget"
+        ],
+        "elapsed_ms": 8007,
+        "passed": true,
+        "seconds": 8.039
+      }
+    ],
+    "passed": true
+  },
+  "remote": {
+    "host": "WZU_Server",
+    "project": "~/codex-build/x-harness-rs/macos-computer-timeout-20261011",
+    "rust_tests": {
+      "xharness-computer": 8,
+      "xharness-computer-macos_portable_policy": 5
+    },
+    "macos_all_targets_typecheck": "passed (aarch64-apple-darwin, on V100)",
+    "clippy_linux_and_macos_targets": "passed with -D warnings",
+    "script_fixture_tests": 9,
+    "full_output_sha256": "ced06287db53ea3bb465a252474c750fde8f50faccd676f2bc5755a38ff676e2"
+  },
+  "scope_limits": [
+    "Native measurements execute the actual JXA script, not a newly linked Rust Host binary.",
+    "A single unresponsive Apple Event can still reach the outer 12s watchdog; it is reported as unavailable, not as a complete snapshot.",
+    "Partial observations do not claim a complete tree; the time budget trades complete enumeration for a bounded useful response.",
+    "The desktop changed between runs: timings/counts are not a controlled throughput benchmark.",
+    "No TCC settings were changed and no installed app was replaced or restarted.",
+    "The native Host screenshot/attachment/provider/history chain is now separately tested; see native-media.json for exact scope and remaining limits."
+  ],
+  "native_media_receipt": "native-media.json"
+}
