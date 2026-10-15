@@ -4,10 +4,6 @@
 }
 
 /* src/modules/platform/primitives/StateDot.module.css */
-.StateDot_dot,
-.StateDot_matrix {
-  --dsh-state-ongoing: var(--dsw-static-deepseek-450);
-}
 .StateDot_dot {
   position: relative;
   display: inline-block;
@@ -37,27 +33,59 @@
 .StateDot_dot[data-state=error] {
   color: var(--dsw-alias-state-error-primary);
 }
-.StateDot_matrix {
+.StateDot_ongoing {
   flex: none;
-  color: var(--dsh-state-ongoing);
+  color: var(--dsw-alias-label-primary-bluish);
 }
-.StateDot_cell {
+.StateDot_bracketLeft {
+  animation: StateDot_xh-state-bracket-left 2.6s ease-in-out infinite;
+}
+.StateDot_bracketRight {
+  animation: StateDot_xh-state-bracket-right 2.6s ease-in-out infinite;
+}
+.StateDot_node {
   fill: currentColor;
-  opacity: 0.15;
-  animation: StateDot_dsh-state-dot-chase 1s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: StateDot_xh-state-node-pulse 2.6s ease-in-out infinite;
 }
-@keyframes StateDot_dsh-state-dot-chase {
-  0%, 12.4% {
+@keyframes StateDot_xh-state-node-pulse {
+  0%, 16%, 72%, 100% {
     opacity: 1;
+    transform: scale(1);
   }
-  12.5%, 24.9% {
-    opacity: 0.6;
+  38% {
+    opacity: 0.38;
+    transform: scale(0.8);
   }
-  25%, 37.4% {
-    opacity: 0.35;
+  52% {
+    opacity: 1;
+    transform: scale(1);
   }
-  37.5%, 100% {
-    opacity: 0.15;
+}
+@keyframes StateDot_xh-state-bracket-left {
+  0%, 16%, 52%, 72%, 100% {
+    transform: translateX(0);
+  }
+  38% {
+    transform: translateX(-0.6px);
+  }
+}
+@keyframes StateDot_xh-state-bracket-right {
+  0%, 16%, 52%, 72%, 100% {
+    transform: translateX(0);
+  }
+  38% {
+    transform: translateX(0.6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .StateDot_bracketLeft,
+  .StateDot_bracketRight,
+  .StateDot_node {
+    animation: none;
+    transform: none;
+    opacity: 1;
   }
 }
 
@@ -2974,4 +3002,4 @@ select,
 textarea {
   font-family: inherit;
 }
-/*# sourceMappingURL=platform-HIRLJXKB.css.map */
+/*# sourceMappingURL=platform-Z3C7WZKU.css.map */

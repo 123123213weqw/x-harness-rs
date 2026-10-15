@@ -8,6 +8,7 @@ import {createRequire} from 'node:module'
 import {createHash} from 'node:crypto'
 import vm from 'node:vm'
 import {compilePlatformUi} from './build-platform-ui.mjs'
+import {acceptStateDot} from './fixtures/state-dot-acceptance.mjs'
 import {compileSourceModules} from './build-source-modules.mjs'
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),ui=join(root,'ui')
 const frozen=join(ui,'reference/master-a613970'),html=readFileSync(join(frozen,'index.html'),'utf8')
@@ -248,8 +249,13 @@ for(const engine of engines){
      assert.equal(await page.locator('.md-code-block pre').textContent(),'code value','settling preserves exact code')
     }
    }
+   // A fresh page has no fixture-wide animation suppression. Compare all
+   // settled states exactly; separately assert the reviewed running-icon delta.
+   const statePage=await openPage();await statePage.evaluate(initializeRoot)
+   const settledStateDots=await acceptStateDot({page:statePage,implementation,engine,evidence,ui})
+   await statePage.close()
    assert.deepEqual(errors,[])
-   results.push({keys,singleton,projection,brand,shiki,coreAbi,surfaces,screenshots});await page.close()
+   results.push({keys,singleton,projection,brand,shiki,coreAbi,surfaces,screenshots,settledStateDots});await page.close()
   }
   writeFileSync(join(evidence,`${engine}-results.json`),JSON.stringify(results,null,2)+'\n')
   const {screenshots:expectedPixels,...expected}=results[0],{screenshots:actualPixels,...actual}=results[1]
