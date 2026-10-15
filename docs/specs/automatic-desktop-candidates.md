@@ -60,6 +60,18 @@ an update channel; users keep receiving the last **published** stable release.
 公开签名/计划/依赖审计，不含私钥与用户数据；该名称不满足候选或验收物料契约，不能推广。
 旧失败 tag/Run 保持不变，修复后新建版本，四平台原生验收与唯一 Promote 门禁不变。
 
+### 2026-10-15：独立聚合机的 Windows 运行时依赖
+
+`0.2.48` 已通过 Windows 安装归属/崩溃回收（阶段退出码 `0 / 2 / 0`），
+但 Linux 汇总机未 staging 固定版 PowerShell，独立 NSIS 审计在缺失运行时目录时中止。
+聚合入口现在先从受信源码 lock 的固定供应商 ZIP staging 并验哈希，再审计收到的安装器；
+不相信候选包自报的 manifest，不取消完整 vendor .NET/许可证/PE 校验。
+
+同时固定生成的 runtime `manifest.json` 为 UTF-8/LF。此前 Windows 默认 CRLF 与 Linux
+默认 LF 会产生不同摘要，即使内容相同也不能通过严格的跨平台验证。回归模拟 Windows
+文本换行转换，要求字节一致；依赖 staging 或安装器审计任一失败都不能进入聚合。
+失败版本保持不变，后续新版本仍须完整签名和原生升级验收。
+
 ## Policy and retention
 
 Reuse `XHARNESS_FRIENDS_RELEASE_REPOSITORY` and existing protected signing
