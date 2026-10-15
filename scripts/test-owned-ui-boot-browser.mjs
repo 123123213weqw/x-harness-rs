@@ -160,6 +160,16 @@ try{
   await work.waitFor()
   await work.getByRole('button',{name:'Back to chat',exact:true}).click()
   assert.equal(await composer.inputValue(),'Retain draft across Work center','real Core and generated slots keep the composer mounted')
+  // Opt-in Swarm uses the same fixed conversation slot, not a second chat runtime.
+  // Built-in Host fixture intentionally has no Swarm records; lifecycle RPCs
+  // are covered separately against the typed synthetic adapter and Rust Host.
+  await page.evaluate(()=>window.dispatchEvent(new Event('xharness:swarm:open')))
+  await page.getByRole('heading',{name:'Swarm',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Keep your team together',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Back to chat',exact:true}).click()
+  await page.getByRole('heading',{name:'Swarm',exact:true}).waitFor({state:'detached'})
+  assert.equal(await composer.inputValue(),'Retain draft across Work center','Swarm open/close preserves the original composer draft')
+
  }
  // Built-in fixture has no live HMR SSE server; WebKit may cancel that
  // optional connection after its isolated 404. Do not ignore static failures.

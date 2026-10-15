@@ -75,6 +75,18 @@ const rows = [
       "@xharness/dsh-client-connection",
       "@xharness/dsh-client-locale"
     ]
+  },
+  {
+    "id": "@xlang/xharness-client-ui-swarm",
+    "kind": "source-module",
+    "source": "src/modules/swarm/index.tsx",
+    "inject": [
+      "@xharness/dsh-client-ui-layout",
+      "@xharness/dsh-client-ui-primitives",
+      "@xharness/dsh-client-runtime",
+      "@xharness/dsh-client-connection",
+      "@xharness/dsh-client-ui-commands"
+    ]
   }
 ]
 export function reviewedUiAdditions() {
