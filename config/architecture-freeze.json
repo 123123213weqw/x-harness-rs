@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "layers": [
+    {
+      "id": "native-execution",
+      "paths": [
+        "crates/xharness-process/src/**",
+        "crates/xharness-process/tests/**",
+        "crates/xharness-process/Cargo.toml",
+        "crates/xharness-platform/src/**",
+        "crates/xharness-platform/tests/**",
+        "crates/xharness-platform/Cargo.toml",
+        "crates/xharness-sandbox/src/**",
+        "crates/xharness-sandbox/tests/**",
+        "crates/xharness-sandbox/Cargo.toml",
+        "crates/xharness-win32/src/**",
+        "crates/xharness-win32/tests/**",
+        "crates/xharness-win32/Cargo.toml",
+        "crates/xharness-fs/src/**",
+        "crates/xharness-fs/tests/**",
+        "crates/xharness-fs/Cargo.toml",
+        "crates/xharness-jobs/src/**",
+        "crates/xharness-jobs/tests/**",
+        "crates/xharness-jobs/Cargo.toml",
+        "crates/xharness-terminal/src/**",
+        "crates/xharness-terminal/tests/**",
+        "crates/xharness-terminal/Cargo.toml",
+        ".cargo/config.toml",
+        "runtime/powershell.lock.json",
+        "scripts/powershell-runtime.py"
+      ],
+      "regressions": [
+        "native",
+        "windows"
+      ]
+    },
+    {
+      "id": "tool-execution",
+      "paths": [
+        "crates/xharness-tools/src/**",
+        "crates/xharness-tools/tests/**",
+        "crates/xharness-tools/Cargo.toml"
+      ],
+      "regressions": [
+        "native",
+        "windows"
+      ]
+    },
+    {
+      "id": "host-ui-contract",
+      "paths": [
+        "crates/xharness-api/src/**",
+        "crates/xharness-api/tests/**",
+        "crates/xharness-api/Cargo.toml",
+        "crates/xharness-projection/src/**",
+        "crates/xharness-projection/tests/**",
+        "crates/xharness-projection/Cargo.toml"
+      ],
+      "regressions": [
+        "native",
+        "windows",
+        "wire"
+      ]
+    },
+    {
+      "id": "session-persistence",
+      "paths": [
+        "crates/xharness-session/src/**",
+        "crates/xharness-session/tests/**",
+        "crates/xharness-session/Cargo.toml",
+        "crates/xharness-session-jsonl/src/**",
+        "crates/xharness-session-jsonl/tests/**",
+        "crates/xharness-session-jsonl/Cargo.toml",
+        "crates/xharness-control/src/**",
+        "crates/xharness-control/tests/**",
+        "crates/xharness-control/Cargo.toml"
+      ],
+      "regressions": [
+        "native",
+        "windows",
+        "persistence"
+      ]
+    },
+    {
+      "id": "installation-update",
+      "paths": [
+        "apps/desktop/src-tauri/tauri.conf.json",
+        "apps/desktop/src-tauri/src/updater.rs",
+        "apps/desktop/src-tauri/src/updater/**",
+        "apps/desktop/src-tauri/src/sidecar.rs",
+        "apps/desktop/src-tauri/src/installations.rs",
+        "apps/desktop/src-tauri/windows/**",
+        "ui/src/desktop/updater.ts",
+        "scripts/desktop-release*.py"
+      ],
+      "regressions": [
+        "windows",
+        "updater"
+      ]
+    },
+    {
+      "id": "architecture-policy",
+      "paths": [
+        "config/architecture-freeze.json",
+        "config/architecture-dependencies.json",
+        "config/architecture-host-modules.json",
+        "scripts/regression/check-architecture.py",
+        "scripts/regression/architecture_freeze.py",
+        "scripts/regression/test_architecture_freeze.py",
+        "scripts/regression/test_check_architecture.py",
+        ".github/workflows/ci.yml",
+        "scripts/test-ci-tiering.py",
+        "scripts/regression/run-suite.sh"
+      ],
+      "regressions": [
+        "architecture",
+        "native",
+        "windows"
+      ]
+    }
+  ],
+  "flexible": [
+    "crates/xharness-coding-tools/src/**",
+    "crates/xharness-coding-tools/tests/**",
+    "ui/src/modules/tool/**"
+  ]
+}
