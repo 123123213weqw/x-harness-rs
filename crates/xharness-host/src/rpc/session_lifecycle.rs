@@ -27,13 +27,139 @@ pub(crate) async fn create_with_visibility(
     payload: &Value,
     announce: bool,
 ) -> Result<Value, RpcError> {
-    create_seeded(host, payload, announce, None).await
+    create_inner(host, payload, announce, None, None).await
+}
+
+/// Uses the same admission fence and initial policy as ordinary native creation.
+pub(super) async fn create_scoped(
+    host: &BasicHost,
+    request: xharness_api::ScopedSessionCreate,
+) -> Result<xharness_api::ScopedSessionCreated, RpcError> {
+    if !request.is_bounded() || !host.agent_runtime.has_authoritative_sessions() {
+        return Err(RpcError::internal("durable scoped creation unavailable"));
+    }
+    let payload =
+        serde_json::to_value(&request).map_err(|_| RpcError::internal("invalid creation"))?;
+    let native_payload =
+        json!({"workspaceId": request.workspace, "sessionId": request.session_id()});
+    create_inner(
+        host,
+        &native_payload,
+        true,
+        Some((&request, &payload)),
+        None,
+    )
+    .await?;
+    Ok(request.receipt())
+}
+
+pub(super) async fn creation_receipt(
+    host: &BasicHost,
+    request: &xharness_api::ScopedSessionCreate,
+) -> Result<Option<xharness_api::ScopedSessionCreated>, RpcError> {
+    if !request.is_bounded() || !host.agent_runtime.has_authoritative_sessions() {
+        return Err(RpcError::internal("durable scoped creation unavailable"));
+    }
+    let _guard = host.lock_admission(&request.session_id()).await;
+    checked_creation_receipt(host, request).await
+}
+
+// Caller holds the admission fence. Read only: never hydrate, wake, or adopt an
+// existing session merely because its ID/cwd matches. Partial initialization
+// (a header with no receipt) is ambiguous and cannot be replayed or granted.
+async fn checked_creation_receipt(
+    host: &BasicHost,
+    request: &xharness_api::ScopedSessionCreate,
+) -> Result<Option<xharness_api::ScopedSessionCreated>, RpcError> {
+    let session_id = request.session_id();
+    let state = host.state.read().await;
+    let path = state
+        .workspaces
+        .get(&request.workspace)
+        .ok_or_else(|| RpcError::internal("registered creation workspace unavailable"))?
+        .path
+        .clone();
+    if state.deleted_sessions.contains(&session_id) || state.archived_sessions.contains(&session_id)
+    {
+        return Err(RpcError::internal("creation session unavailable"));
+    }
+    let warm = state.sessions.get(&session_id);
+    let present = warm.is_some();
+    if warm.is_some_and(|s| s.cwd != path || s.delegated || s.parent_session_id.is_some()) {
+        return Err(RpcError::internal("creation session scope conflict"));
+    }
+    drop(state);
+    let session = host
+        .agent_runtime
+        .authoritative_session(&session_id)
+        .await
+        .map_err(agent_runtime_error)?;
+    let Some(session) = session else {
+        if present || host.lazy_headers.read().await.contains_key(&session_id) {
+            return Err(RpcError::internal("creation receipt unavailable"));
+        }
+        return Ok(None);
+    };
+    if session.header().id != session_id || session.header().cwd.as_deref() != Some(path.as_str()) {
+        return Err(RpcError::internal("creation journal scope conflict"));
+    }
+    let payload =
+        serde_json::to_value(request).map_err(|_| RpcError::internal("invalid creation"))?;
+    let fingerprint =
+        xharness_control::mutation_fingerprint(RpcMethod::SessionCreate.as_str(), &payload);
+    let receipts: Vec<_> = session
+        .events()
+        .iter()
+        .filter_map(|e| match e.data() {
+            SessionEventData::SessionMutationCommitted { receipt }
+                if receipt.rpc_id == request.receipt_id() =>
+            {
+                Some(receipt)
+            }
+            _ => None,
+        })
+        .collect();
+    if receipts.len() != 1
+        || receipts[0].method != RpcMethod::SessionCreate.as_str()
+        || receipts[0].fingerprint != fingerprint
+        || receipts[0].response_event_seq_field.is_some()
+        || receipts[0].response
+            != serde_json::to_value(request.receipt())
+                .map_err(|_| RpcError::internal("invalid creation"))?
+    {
+        return Err(RpcError::internal("original creation receipt conflict"));
+    }
+    host.agent_runtime
+        .flush_session_revision(&session_id, session.revision())
+        .await
+        .map_err(agent_runtime_error)?;
+    let state = host.state.read().await;
+    if state
+        .workspaces
+        .get(&request.workspace)
+        .is_none_or(|w| w.path != path)
+        || state.deleted_sessions.contains(&session_id)
+        || state.archived_sessions.contains(&session_id)
+    {
+        return Err(RpcError::internal("creation scope changed"));
+    }
+    Ok(Some(request.receipt()))
 }
 
 pub(crate) async fn create_seeded(
     host: &BasicHost,
     payload: &Value,
     announce: bool,
+    imported: Option<&xharness_session_import::Transcript>,
+) -> Result<Value, RpcError> {
+    create_inner(host, payload, announce, None, imported).await
+}
+
+async fn create_inner(
+    host: &BasicHost,
+    payload: &Value,
+    announce: bool,
+    creation: Option<(&xharness_api::ScopedSessionCreate, &Value)>,
     imported: Option<&xharness_session_import::Transcript>,
 ) -> Result<Value, RpcError> {
     let object = require_object(payload)?;
@@ -51,6 +177,12 @@ pub(crate) async fn create_seeded(
     // so an idempotent concurrent create can never observe a half-created
     // in-memory record and return success before its receipt is durable.
     let _session_guard = host.lock_admission(&session_id).await;
+    if let Some((request, _)) = creation {
+        if let Some(receipt) = checked_creation_receipt(host, request).await? {
+            return serde_json::to_value(receipt)
+                .map_err(|_| RpcError::internal("invalid creation receipt"));
+        }
+    }
     let mut state = host.state.write().await;
     if state.deleted_sessions.contains(&session_id) {
         return Err(rpc_error(
@@ -200,6 +332,24 @@ pub(crate) async fn create_seeded(
                 model: initial_model.model,
                 reasoning_effort: initial_model.reasoning_effort,
                 context_window_tokens: initial_model.context_window_tokens,
+            }
+            .into(),
+        );
+    }
+    if let Some((request, receipt_payload)) = creation {
+        initial_events.push(
+            SessionEventData::SessionMutationCommitted {
+                receipt: xharness_session::SessionMutationReceipt {
+                    rpc_id: request.receipt_id(),
+                    method: RpcMethod::SessionCreate.as_str().into(),
+                    fingerprint: xharness_control::mutation_fingerprint(
+                        RpcMethod::SessionCreate.as_str(),
+                        receipt_payload,
+                    ),
+                    response: serde_json::to_value(request.receipt())
+                        .map_err(|_| RpcError::internal("invalid creation receipt"))?,
+                    response_event_seq_field: None,
+                },
             }
             .into(),
         );

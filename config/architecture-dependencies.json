@@ -80,6 +80,7 @@
     "xharness-agent",
     "xharness-api",
     "xharness-attachments",
+    "xharness-channel-telegram",
     "xharness-cloud",
     "xharness-cloud-app",
     "xharness-coding-tools",
@@ -96,11 +97,13 @@
     "xharness-interaction",
     "xharness-jobs",
     "xharness-mcp",
+    "xharness-mobile",
     "xharness-model-catalog",
     "xharness-platform",
     "xharness-plugins",
     "xharness-process",
     "xharness-provider-openai",
+    "xharness-remote",
     "xharness-sandbox",
     "xharness-schedule",
     "xharness-server",
@@ -184,5 +187,21 @@
   ],
   "xharness-session-import": [
     "xharness-session"
+  ],
+  "xharness-remote": [
+    "xharness-api"
+  ],
+  "xharness-channel-telegram": [
+    "xharness-remote"
+  ],
+  "xharness-mobile": [
+    "xharness-api",
+    "xharness-remote"
+  ],
+  "xharness-relay": [
+    "xharness-mobile"
+  ],
+  "xharness-channel-weixin": [
+    "xharness-remote"
   ]
 }
