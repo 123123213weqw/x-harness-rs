@@ -596,6 +596,7 @@ async fn fallback_clears_review_phase_even_when_human_acknowledgement_is_in_flig
             control,
             reviewing: true,
             reason: "reviewing".into(),
+            scoped_nonce: Arc::new(std::sync::OnceLock::new()),
             deciding: deciding.clone(),
         },
     );

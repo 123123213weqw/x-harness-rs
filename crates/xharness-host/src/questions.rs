@@ -60,6 +60,7 @@ struct PendingQuestion {
     session_id: String,
     invocation: QuestionInvocation,
     settlement: watch::Sender<Option<QuestionSettlement>>,
+    scoped_nonce: std::sync::OnceLock<String>,
     gate: tokio::sync::Mutex<()>,
     deferred: std::sync::atomic::AtomicBool,
 }
@@ -120,11 +121,16 @@ impl DurableQuestionHub {
     }
 
     pub(crate) async fn baseline(&self) -> Vec<ServerRequest> {
+        self.baseline_for(None).await
+    }
+
+    pub(crate) async fn baseline_for(&self, session_id: Option<&str>) -> Vec<ServerRequest> {
         let pending = self
             .pending
             .read()
             .await
             .values()
+            .filter(|pending| session_id.is_none_or(|id| pending.session_id == id))
             .cloned()
             .collect::<Vec<_>>();
         let mut frames = Vec::new();
@@ -213,6 +219,7 @@ impl DurableQuestionHub {
                     session_id: session_id.to_owned(),
                     invocation,
                     settlement,
+                    scoped_nonce: std::sync::OnceLock::new(),
                     gate: tokio::sync::Mutex::new(()),
                     deferred: std::sync::atomic::AtomicBool::new(false),
                 });
@@ -292,6 +299,103 @@ impl DurableQuestionHub {
         }
     }
 
+    pub(crate) async fn scoped_snapshot(
+        &self,
+        session: &str,
+        id: &RpcId,
+    ) -> Result<Option<xharness_api::ScopedInteraction>, xharness_api::RpcError> {
+        let pending = self.pending.read().await.get(id.as_str()).cloned();
+        let Some(pending) = pending.filter(|p| p.session_id == session) else {
+            return Ok(None);
+        };
+        if !self
+            .allows_user_questions(session)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question ownership unavailable"))?
+        {
+            return Ok(None);
+        }
+        let _gate = pending.gate.lock().await;
+        if pending.settlement.borrow().is_some() {
+            return Ok(None);
+        }
+        let state = self
+            .question_state(session, &pending.invocation.interaction_id)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question authority unavailable"))?;
+        if !matches!(state, Some((_, QuestionTerminalState::Pending))) {
+            return Ok(None);
+        }
+        Ok(Some(scoped_question_frame(&pending)?))
+    }
+    pub(crate) async fn respond_scoped(
+        &self,
+        session: &str,
+        expected: xharness_api::ScopedInteraction,
+        answer: xharness_api::ScopedInteractionAnswer,
+    ) -> Result<xharness_api::ScopedInteractionReceipt, xharness_api::RpcError> {
+        use xharness_api::{ScopedInteractionAnswer as A, ScopedInteractionReceipt as R};
+        let pending = self
+            .pending
+            .read()
+            .await
+            .get(expected.frame.rpc_id.as_str())
+            .cloned();
+        let Some(pending) = pending.filter(|p| p.session_id == session) else {
+            return Ok(R::Stale);
+        };
+        if !self
+            .allows_user_questions(session)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question ownership unavailable"))?
+        {
+            return Ok(R::Stale);
+        }
+        let _gate = pending.gate.lock().await;
+        if pending.settlement.borrow().is_some() || scoped_question_frame(&pending)? != expected {
+            return Ok(R::Stale);
+        }
+        if !answer.is_bounded() {
+            return Ok(R::Invalid);
+        }
+        let state = self
+            .question_state(session, &pending.invocation.interaction_id)
+            .await
+            .map_err(|_| xharness_api::RpcError::internal("question authority unavailable"))?;
+        let Some((mut interaction, QuestionTerminalState::Pending)) = state else {
+            return Ok(R::Stale);
+        };
+        let result = match answer {
+            A::Approval { .. } => return Ok(R::Invalid),
+            A::CancelQuestion => {
+                self.cancel_pending_locked(&pending, "remote controller declined question".into())
+                    .await
+            }
+            A::Question { answers } => {
+                let value = json!({"sessionId":session,"answer":{"answers":answers.into_iter().map(|a|{
+                    let mut v=json!({"id":a.id,"selected":a.selected.into_iter().collect::<Vec<_>>()});
+                    if let Some(custom)=a.custom{v["custom"]=Value::String(custom);}v
+                }).collect::<Vec<_>>() }});
+                let parsed = match parse_answers(&pending.invocation, &value) {
+                    Ok(a) => a,
+                    Err(_) => return Ok(R::Invalid),
+                };
+                if interaction
+                    .resolve(ResolveAction::Continue, parsed)
+                    .is_err()
+                {
+                    return Ok(R::Invalid);
+                }
+                self.resolve_response_locked(&pending, value).await
+            }
+        };
+        Ok(if result.is_ok() {
+            R::Accepted
+        } else {
+            R::Uncertain
+        })
+    }
+
     pub(crate) async fn respond(&self, response: ClientResponse) -> RpcReceipt {
         if response.kind != ClientResponseKind::ClientResponse {
             return rejected(ReceiptRejection::BadResponse);
@@ -325,6 +429,13 @@ impl DurableQuestionHub {
         value: Value,
     ) -> Result<(), QuestionHubError> {
         let _gate = pending.gate.lock().await;
+        self.resolve_response_locked(pending, value).await
+    }
+    async fn resolve_response_locked(
+        &self,
+        pending: &Arc<PendingQuestion>,
+        value: Value,
+    ) -> Result<(), QuestionHubError> {
         if value.get("sessionId").and_then(Value::as_str) != Some(&pending.session_id) {
             return Err(QuestionHubError::BadResponse(
                 "sessionId does not own this question".to_owned(),
@@ -373,6 +484,13 @@ impl DurableQuestionHub {
         reason: String,
     ) -> Result<(), QuestionHubError> {
         let _gate = pending.gate.lock().await;
+        self.cancel_pending_locked(pending, reason).await
+    }
+    async fn cancel_pending_locked(
+        &self,
+        pending: &Arc<PendingQuestion>,
+        reason: String,
+    ) -> Result<(), QuestionHubError> {
         let reason = if reason.trim().is_empty() {
             "the user closed this question request".to_owned()
         } else {
@@ -627,6 +745,19 @@ fn parse_answers(
     Ok(answers)
 }
 
+fn scoped_question_frame(
+    pending: &PendingQuestion,
+) -> Result<xharness_api::ScopedInteraction, xharness_api::RpcError> {
+    let mut frame = question_requested_frame(pending);
+    if let Some(payload) = frame.payload.as_object_mut() {
+        payload.remove("deferred");
+        payload.remove("waitTimeoutSeconds");
+    }
+    Ok(xharness_api::ScopedInteraction {
+        nonce: crate::rpc::scoped_interaction::nonce(&pending.scoped_nonce)?,
+        frame,
+    })
+}
 fn question_requested_frame(pending: &PendingQuestion) -> ServerRequest {
     let questions = pending
         .invocation
@@ -1482,5 +1613,180 @@ mod tests {
             .unwrap_err()
             .message
             .contains("用户跳过"));
+    }
+
+    #[tokio::test]
+    async fn scoped_question_restore_nonce_and_missing_continuation_have_no_false_acceptance() {
+        use xharness_api::{
+            ScopedInteractionAnswer as A, ScopedInteractionReceipt as R, ScopedQuestionAnswer,
+        };
+        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+        session_with_question_call(&store, "scoped").await;
+        let mut hub = DurableQuestionHub::new(store.clone());
+        Arc::get_mut(&mut hub).unwrap().wait_timeout = Duration::ZERO;
+        let invocation =
+            QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+        hub.ask("scoped", invocation.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        let id = RpcId::new(&invocation.interaction_id);
+        assert!(hub.scoped_snapshot("other", &id).await.unwrap().is_none());
+        let expected = hub.scoped_snapshot("scoped", &id).await.unwrap().unwrap();
+        let restored = DurableQuestionHub::new(store.clone());
+        restored.restore_detached().await.unwrap();
+        let fresh = restored
+            .scoped_snapshot("scoped", &id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(expected.nonce, fresh.nonce);
+        let answer = A::Question {
+            answers: vec![ScopedQuestionAnswer {
+                id: "target".into(),
+                selected: Some("本机".into()),
+                custom: None,
+            }],
+        };
+        assert_eq!(
+            restored
+                .respond_scoped("scoped", expected, answer.clone())
+                .await
+                .unwrap(),
+            R::Stale
+        );
+        assert_eq!(
+            restored
+                .respond_scoped("scoped", fresh.clone(), A::Approval { allowed: true })
+                .await
+                .unwrap(),
+            R::Invalid
+        );
+        let invalid = A::Question {
+            answers: vec![ScopedQuestionAnswer {
+                id: "other".into(),
+                selected: None,
+                custom: Some("text".into()),
+            }],
+        };
+        assert_eq!(
+            restored
+                .respond_scoped("scoped", fresh.clone(), invalid)
+                .await
+                .unwrap(),
+            R::Invalid
+        );
+        let (one, two) = tokio::join!(
+            restored.respond_scoped("scoped", fresh.clone(), answer.clone()),
+            restored.respond_scoped("scoped", fresh, answer)
+        );
+        assert!(matches!(
+            (one.unwrap(), two.unwrap()),
+            (R::Uncertain, R::Stale) | (R::Stale, R::Uncertain)
+        ));
+        assert!(restored
+            .scoped_snapshot("scoped", &id)
+            .await
+            .unwrap()
+            .is_none());
+        // Resolution was durable, but the deliberately unbound continuation
+        // Host was unavailable. It is not a definitive invalid/non-effect.
+        let session = store.load("scoped").await.unwrap().unwrap();
+        assert!(
+            !session
+                .events()
+                .iter()
+                .any(|event| matches!(event.data(), EventData::QuestionAnswerDelivered { .. })),
+            "a missing continuation Host must not certify answer delivery"
+        );
+        assert_eq!(
+            session
+                .events()
+                .iter()
+                .filter(|e| matches!(e.data(), EventData::QuestionResolved { .. }))
+                .count(),
+            1
+        );
+    }
+    #[tokio::test]
+    async fn scoped_question_complete_answer_and_cancel_settle_once_before_deadline() {
+        use xharness_api::{
+            ScopedInteractionAnswer as A, ScopedInteractionReceipt as R, ScopedQuestionAnswer,
+        };
+        for cancel in [false, true] {
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            session_with_question_call(&store, "normal-scoped").await;
+            let hub = DurableQuestionHub::new(store.clone());
+            let invocation =
+                QuestionInvocation::new("execution-1", request(AnswerDestination::AgentMarkdown));
+            let id = RpcId::new(&invocation.interaction_id);
+            let mut frames = hub.subscribe();
+            let waiting = tokio::spawn({
+                let h = hub.clone();
+                async move {
+                    h.ask("normal-scoped", invocation, CancellationToken::new())
+                        .await
+                }
+            });
+            frames.recv().await.unwrap();
+            let snapshot = hub
+                .scoped_snapshot("normal-scoped", &id)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::from_value::<xharness_api::MuxFrame>(snapshot.frame.payload.clone())
+                    .unwrap()
+                    .into_server_request(snapshot.frame.rpc_id.clone()),
+                snapshot.frame,
+            );
+            let answer = if cancel {
+                A::CancelQuestion
+            } else {
+                A::Question {
+                    answers: vec![ScopedQuestionAnswer {
+                        id: "target".into(),
+                        selected: Some("本机".into()),
+                        custom: None,
+                    }],
+                }
+            };
+            let (one, two) = tokio::join!(
+                hub.respond_scoped("normal-scoped", snapshot.clone(), answer.clone()),
+                hub.respond_scoped("normal-scoped", snapshot, answer)
+            );
+            assert!(matches!(
+                (one.unwrap(), two.unwrap()),
+                (R::Accepted, R::Stale) | (R::Stale, R::Accepted)
+            ));
+            assert_eq!(waiting.await.unwrap().is_err(), cancel);
+            let session = store.load("normal-scoped").await.unwrap().unwrap();
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|e| matches!(
+                        e.data(),
+                        EventData::QuestionResolved { .. } | EventData::QuestionCancelled { .. }
+                    ))
+                    .count(),
+                1
+            );
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.data(), EventData::QuestionResolved { .. }))
+                    .count(),
+                usize::from(!cancel)
+            );
+            assert_eq!(
+                session
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.data(), EventData::QuestionCancelled { .. }))
+                    .count(),
+                usize::from(cancel)
+            );
+        }
     }
 }
