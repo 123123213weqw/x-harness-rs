@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "baseline": {
+    "version": "0.2.51",
+    "sourceSha": "58012c7a9e272b363ad3086053fafb7ed99c3f60",
+    "buildRunId": 38753539488,
+    "serviceRunId": 38753462941,
+    "candidatePreparationSeconds": 2772.0,
+    "publicationSeconds": 94,
+    "cacheMissesConfirmed": [
+      "windows-x86_64",
+      "darwin-x86_64"
+    ],
+    "criticalStages": {
+      "Signed windows-x86_64 candidate": [
+        {
+          "name": "Build and stage native Host and ripgrep",
+          "seconds": 767.0,
+          "startedAt": "2026-10-15T14:42:19Z",
+          "completedAt": "2026-10-15T14:55:06Z"
+        },
+        {
+          "name": "Native desktop regression tests",
+          "seconds": 305.0,
+          "startedAt": "2026-10-15T14:55:37Z",
+          "completedAt": "2026-10-15T15:00:42Z"
+        },
+        {
+          "name": "Build and sign desktop bundle (artifacts only)",
+          "seconds": 623.0,
+          "startedAt": "2026-10-15T15:00:43Z",
+          "completedAt": "2026-10-15T15:11:06Z"
+        },
+        {
+          "name": "Owned Windows profile isolation regression (no installer)",
+          "seconds": 116.0,
+          "startedAt": "2026-10-15T15:11:16Z",
+          "completedAt": "2026-10-15T15:13:12Z"
+        },
+        {
+          "name": "Windows real installer ownership and crash cleanup acceptance",
+          "seconds": 72.0,
+          "startedAt": "2026-10-15T15:13:12Z",
+          "completedAt": "2026-10-15T15:14:24Z"
+        },
+        {
+          "name": "Fetch complete immutable Windows candidate on the signing worker",
+          "seconds": 258.0,
+          "startedAt": "2026-10-15T15:15:07Z",
+          "completedAt": "2026-10-15T15:19:25Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 256.0,
+          "startedAt": "2026-10-15T15:20:25Z",
+          "completedAt": "2026-10-15T15:24:41Z"
+        }
+      ],
+      "Signed darwin-x86_64 candidate": [
+        {
+          "name": "Install native macOS ripgrep",
+          "seconds": 121.0,
+          "startedAt": "2026-10-15T14:43:06Z",
+          "completedAt": "2026-10-15T14:45:07Z"
+        },
+        {
+          "name": "Build and stage native Host and ripgrep",
+          "seconds": 823.0,
+          "startedAt": "2026-10-15T14:45:07Z",
+          "completedAt": "2026-10-15T14:58:50Z"
+        },
+        {
+          "name": "Native desktop regression tests",
+          "seconds": 502.0,
+          "startedAt": "2026-10-15T14:58:50Z",
+          "completedAt": "2026-10-15T15:07:12Z"
+        },
+        {
+          "name": "Build and sign ad-hoc Mac preview bundle (artifacts only)",
+          "seconds": 571.0,
+          "startedAt": "2026-10-15T15:07:13Z",
+          "completedAt": "2026-10-15T15:16:44Z"
+        },
+        {
+          "name": "Build Unix BASE using the already staged Host and hot native target",
+          "seconds": 159.0,
+          "startedAt": "2026-10-15T15:17:16Z",
+          "completedAt": "2026-10-15T15:19:55Z"
+        },
+        {
+          "name": "Three production updater rounds against the exact signed Unix target",
+          "seconds": 169.0,
+          "startedAt": "2026-10-15T15:20:10Z",
+          "completedAt": "2026-10-15T15:22:59Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 162.0,
+          "startedAt": "2026-10-15T15:23:00Z",
+          "completedAt": "2026-10-15T15:25:42Z"
+        }
+      ]
+    }
+  },
+  "optimizedBenchmark": {
+    "status": "pending",
+    "diagnosticOnly": true,
+    "releaseEligible": false
+  },
+  "policy": {
+    "automaticCandidateBuilds": "remain-paused",
+    "productionWorkspaceCache": false,
+    "releaseDebugSymbols": "unchanged",
+    "nativeAcceptance": "unchanged"
+  }
+}

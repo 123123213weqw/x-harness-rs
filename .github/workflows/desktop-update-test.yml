@@ -56,6 +56,7 @@ jobs:
         run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: aarch64-apple-darwin
           components: clippy
       # Reuse the existing macOS CI job key, rather than cold-building a new cache.
@@ -65,6 +66,12 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Restore pinned portable ripgrep cache
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
       - name: Regression tests and native Host
         run: |
           node scripts/test-desktop-updater.mjs
@@ -148,3 +155,9 @@ jobs:
           test "$(gh release view "$TEST_TAG" --json isDraft --jq '.isDraft')" = true
           gh release upload "$TEST_TAG" dist/desktop-update-test/* --clobber
           gh release edit "$TEST_TAG" --draft=false --prerelease --latest=false --notes-file "$RUNNER_TEMP/update-notes.md"
+      - name: Save verified portable ripgrep cache
+        if: success() && github.ref == 'refs/heads/master' && steps.portable-rg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
