@@ -151,6 +151,27 @@ entry, not a second build with an already-reserved version.
 
 ## Validation
 
+### Windows-first diagnostic replay
+
+While automatic candidates are paused, manually dispatch `Windows installer process probe`
+with `source_release_run_id`, `expected_source_sha`, and `expected_version` to replay
+an existing signed Windows target. Leave `source_ci_run_id` empty. This path builds
+no Rust and signs or publishes nothing. It verifies the exact immutable tag/run/
+attempt, successful aggregation and producer safety steps, the complete signed
+candidate, the current stable trust key, and the extracted Windows runtime before
+executing the existing native upgrade driver on a disposable Windows runner.
+
+Failed candidates are eligible only when their sole producer failure was Windows
+upgrade acceptance. The original failure is
+never erased or converted into successful release provenance. The updated harness
+source and original package source are recorded separately. Evidence is uploaded
+as `windows-upgrade-replay`, with `diagnosticOnly=true` and `releaseEligible=false`;
+no formal `acceptance.json` is issued and Promote cannot consume this result.
+The real signed download, corruption rejection, consent barrier, Host stop, native
+installation/restart and unchanged session/config/key/workspace checks still run.
+Automatic candidate preparation must be disabled at staging and reporting, and
+the diagnostic never re-enables it, including after a successful replay.
+
 ```sh
 python3 -B scripts/test-desktop-candidates.py
 python3 -B scripts/test-release-orchestrator.py
