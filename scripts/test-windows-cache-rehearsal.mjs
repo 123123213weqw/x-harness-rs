@@ -12,15 +12,33 @@ for(const patch of [{GITHUB_ACTIONS:'false'},{RUNNER_ENVIRONMENT:'self-hosted'},
 assert.throws(()=>validateRehearsal(stage,env,'darwin'));cases++
 const local=spawnSync(process.execPath,['scripts/windows-migration-acceptance.mjs','run'],{env:{...process.env,GITHUB_ACTIONS:'false'},encoding:'utf8'})
 assert.notEqual(local.status,0);assert.match(local.stderr,/CI only/);cases++
-const healthy={version:'0.0.902',hostRunning:true,updaterConfigured:true,startup:{frontendHydratedMs:100,firstFrameMs:110}}
+const healthy={version:'0.0.902',hostRunning:true,updaterConfigured:true,startup:{hostReadyMs:90,frontendHydratedMs:100,firstFrameMs:110}}
 for(const [status,hydration,want] of [
  [healthy,true,{ready:true,retired:false}],
- [{...healthy,startup:{frontendHydratedMs:null,firstFrameMs:null}},true,{ready:false,retired:false}],
+ [healthy,false,{ready:true,retired:false}],
+ [{...healthy,startup:{hostReadyMs:90,frontendHydratedMs:null,firstFrameMs:null}},true,{ready:false,retired:false}],
  [{...healthy,startup:undefined},false,{ready:true,retired:false}],
  [{...healthy,version:'0.0.901'},true,{ready:false,retired:false}],
  [{...healthy,version:'0.0.901',hostRunning:false},true,{ready:false,retired:true}],
  [{...healthy,hostRunning:false},true,{ready:false,retired:false}],
 ]){assert.deepEqual(attachmentState('0.0.902',status,hydration),want);cases++}
+for(const hostReadyMs of [null,undefined,-1,NaN,Infinity,'90']){
+ for(const hydration of [false,true]){
+  const status={...healthy,startup:{...healthy.startup,hostReadyMs}}
+  assert.deepEqual(attachmentState('0.0.902',status,hydration),{ready:false,retired:false});cases++
+ }
+}
+for(const hydration of [false,true]){
+ assert.deepEqual(attachmentState('0.0.902',{...healthy,startupError:'restore failed'},hydration),{ready:false,retired:false});cases++
+ assert.deepEqual(attachmentState('0.0.902',{...healthy,startup:{...healthy.startup,hostReadyMs:0}},hydration),{ready:true,retired:false});cases++
+}
+// Replay the production failure: matching version + live Host during restore
+// must not reach the first session RPC, even when hydration is not required.
+const restoring={...healthy,startup:{hostReadyMs:null,frontendHydratedMs:null,firstFrameMs:null}}
+const productReady={...healthy,startup:{hostReadyMs:90,frontendHydratedMs:null,firstFrameMs:null}}
+const restoreSequence=[restoring,restoring,productReady]
+assert.equal(restoreSequence.findIndex(status=>attachmentState('0.0.902',status,false).ready),2);cases++
+assert.equal(restoreSequence.some(status=>attachmentState('0.0.902',status,true).ready),false);cases++
 const js=readFileSync('scripts/windows-migration-acceptance.mjs','utf8'),wf=readFileSync('.github/workflows/desktop-windows-cache-rehearsal.yml','utf8')
 assert.ok(js.includes('nativeDirectLatest: cacheRehearsal ? false : directLatest'),'Formal promotion must reject rehearsal evidence')
 assert.ok(js.includes('cachedTamperRejectedBeforeHostStop: true'))
