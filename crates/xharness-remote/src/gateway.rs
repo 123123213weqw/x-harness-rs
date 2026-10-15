@@ -285,6 +285,24 @@ impl Gateway {
             .await
     }
 
+    /// Trusted transport composition can recover an original admission after a
+    /// lost acknowledgement, including after its binding generation changed.
+    /// Identity is verified transport metadata, never controller JSON. This is
+    /// not an authenticated read endpoint: the caller must still authorize the
+    /// returned principal/binding before disclosing any result.
+    pub async fn inspect_request(
+        &self,
+        sender: Sender,
+        conversation: String,
+        request_id: String,
+    ) -> Result<Option<Delivery>, Error> {
+        for id in [&sender.account, &sender.user, &conversation, &request_id] {
+            valid_id(id)?;
+        }
+        let key = request_key(&self.host_id, &sender, &conversation, &request_id);
+        self.inspect(&key).await
+    }
+
     pub async fn pending(&self) -> Result<Vec<Delivery>, Error> {
         self.store.transaction(|tx| {
             let mut q = tx.prepare("SELECT body FROM inbox AS current WHERE state IN ('queued','dispatching')
@@ -627,6 +645,9 @@ pub(crate) fn digest(value: &Value) -> String {
     let bytes = serde_json::to_vec(value).expect("JSON serialization");
     format!("remote-v1-{:x}", Sha256::digest(bytes))
 }
+fn request_key(host: &str, sender: &Sender, conversation: &str, request_id: &str) -> String {
+    digest(&json!([1, host, sender, conversation, request_id]))
+}
 fn rpc(d: &Delivery) -> Result<(RpcMethod, Value), Error> {
     Ok(match &d.inbound.command {
         Command::Prompt {
@@ -738,7 +759,7 @@ pub(crate) fn admit(
     {
         return Err(Error::Unauthorized);
     }
-    let key = digest(&json!([1, host, sender, conversation, inbound.request_id]));
+    let key = request_key(host, &sender, &conversation, &inbound.request_id);
     if let Some(previous) = store::delivery(tx, &key)? {
         if previous.principal != principal || previous.inbound != inbound {
             return Err(Error::IdentityConflict);

@@ -25,6 +25,9 @@ pub struct RemoteControl {
     stop: CancellationToken,
     worker: Option<JoinHandle<Result<(), xharness_remote::Error>>>,
     status: watch::Receiver<SupervisorStatus>,
+    mobile: Option<Arc<xharness_mobile::MobileHost>>,
+    mobile_worker: Option<JoinHandle<Result<(), xharness_mobile::protocol::ErrorCode>>>,
+    mobile_public_url: Option<String>,
 }
 impl RemoteControl {
     /// Caller holds the product's state-directory owner lock. This service is
@@ -32,12 +35,63 @@ impl RemoteControl {
     /// disabled configuration performs no provider HTTP/credential reads. No
     /// controller listener, model credential or pairing credential is created.
     pub fn start(state_dir: &Path, backend: Arc<dyn ApiBackend>) -> Result<Self, String> {
-        Self::start_with_accounts(
+        let mut service = Self::start_with_accounts(
             state_dir,
             backend,
             Arc::new(NativeCredentialStore::for_channels(state_dir)?),
             Arc::new(TelegramConnector),
-        )
+        )?;
+        if let Some(url) = std::env::var_os("XHARNESS_MOBILE_RELAY_URL") {
+            let url = url.into_string().map_err(|_| "Invalid mobile relay URL")?;
+            let key = std::env::var("XHARNESS_MOBILE_HOST_KEY")
+                .map_err(|_| "Mobile relay requires a separate Host registration key")?;
+            let key = xharness_mobile::protocol::Secret::try_from(key)
+                .map_err(|_| "Invalid mobile Host registration key")?;
+            let allow_loopback_ws = std::env::var("XHARNESS_MOBILE_ALLOW_LOOPBACK")
+                .is_ok_and(|value| value == "enabled");
+            let mobile = xharness_mobile::MobileHost::open(
+                service.gateway(),
+                &state_dir.join("mobile-devices"),
+            )
+            .map_err(|_| "Cannot open private mobile device journal")?;
+            let config = xharness_mobile::OutboundConfig {
+                url: url.clone(),
+                key,
+                allow_loopback_ws,
+            };
+            config
+                .validate()
+                .map_err(|_| "Invalid mobile relay transport configuration")?;
+            if let Some(public) = std::env::var_os("XHARNESS_MOBILE_PUBLIC_URL") {
+                let public = public
+                    .into_string()
+                    .map_err(|_| "Invalid mobile public URL")?;
+                let parsed =
+                    reqwest::Url::parse(&public).map_err(|_| "Invalid mobile public URL")?;
+                if parsed.scheme() != "https"
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                    || parsed.query().is_some()
+                    || parsed.fragment().is_some()
+                {
+                    return Err(
+                        "Mobile public URL requires HTTPS without credentials/query/fragment"
+                            .into(),
+                    );
+                }
+                service.mobile_public_url = Some(public);
+            }
+            let worker_host = mobile.clone();
+            let worker_stop = service.stop.clone();
+            service.mobile_worker = Some(tokio::spawn(xharness_mobile::run_outbound(
+                worker_host,
+                config,
+                worker_stop,
+            )));
+            service.mobile = Some(mobile);
+            // Public page location only, never a launch token or registration key.
+        }
+        Ok(service)
     }
     /// Injectable local composition, not a controller-selectable connector or
     /// credential fallback. Production start always uses native channel keys.
@@ -77,6 +131,9 @@ impl RemoteControl {
             stop,
             worker: Some(worker),
             status,
+            mobile: None,
+            mobile_worker: None,
+            mobile_public_url: None,
         })
     }
     /// Trusted composition/admin access only. No arbitrary network Gateway proxy.
@@ -86,11 +143,24 @@ impl RemoteControl {
     pub fn accounts(&self) -> Arc<AccountManager> {
         self.accounts.clone()
     }
+    pub fn mobile(&self) -> Option<Arc<xharness_mobile::MobileHost>> {
+        self.mobile.clone()
+    }
+    pub fn mobile_public_url(&self) -> Option<String> {
+        self.mobile_public_url.clone()
+    }
     pub fn status(&self) -> SupervisorStatus {
         *self.status.borrow()
     }
     pub async fn stop(mut self) -> Result<(), String> {
         self.stop.cancel();
+        let mobile_failure = match self.mobile_worker.take() {
+            Some(worker) => worker
+                .await
+                .map_err(|_| "Mobile transport worker failed".to_owned())
+                .and_then(|r| r.map_err(|_| "Mobile transport stopped with a failure".to_owned())),
+            None => Ok(()),
+        };
         let channels = self
             .account_worker
             .take()
@@ -117,7 +187,7 @@ impl RemoteControl {
             .close()
             .await
             .map_err(|_| "Remote control journal close failed".to_owned())?;
-        channels.and(drained)
+        mobile_failure.and(channels).and(drained)
     }
 }
 impl Drop for RemoteControl {

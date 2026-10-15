@@ -33,6 +33,8 @@ pub struct RemoteAdminState {
 struct Admin {
     gateway: Arc<Gateway>,
     accounts: Arc<AccountManager>,
+    mobile: Option<Arc<xharness_mobile::MobileHost>>,
+    mobile_public_url: Option<String>,
 }
 impl RemoteAdminState {
     pub fn new(desktop_token: &str) -> Result<Self, String> {
@@ -62,6 +64,8 @@ impl RemoteAdminState {
             .map_err(|_| "Remote administration unavailable")? = Some(Admin {
             gateway: service.gateway(),
             accounts: service.accounts(),
+            mobile: service.mobile(),
+            mobile_public_url: service.mobile_public_url(),
         });
         Ok(())
     }
@@ -206,6 +210,19 @@ enum Action {
         principal: String,
     },
     CleanupCredentials,
+    MobileStatus,
+    MobilePair {
+        workspaces: BTreeSet<String>,
+        sessions: BTreeSet<String>,
+        workspace: String,
+        session: String,
+        #[serde(default)]
+        create_workspaces: BTreeSet<String>,
+        ttl_seconds: u16,
+    },
+    MobileRevoke {
+        device: String,
+    },
     UncertainInbox {
         after: i64,
     },
@@ -267,6 +284,17 @@ fn remote_error(error: Error) -> (StatusCode, &'static str) {
         _ => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     }
 }
+fn mobile_error(error: xharness_mobile::protocol::ErrorCode) -> (StatusCode, &'static str) {
+    use xharness_mobile::protocol::ErrorCode;
+    match error {
+        ErrorCode::Unauthorized => (StatusCode::FORBIDDEN, "scope_denied"),
+        ErrorCode::InvalidRequest => (StatusCode::BAD_REQUEST, "invalid_input"),
+        ErrorCode::Conflict | ErrorCode::PairConsumed => (StatusCode::CONFLICT, "conflict"),
+        ErrorCode::PairExpired => (StatusCode::GONE, "pair_expired"),
+        ErrorCode::Capacity => (StatusCode::TOO_MANY_REQUESTS, "capacity"),
+        _ => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+    }
+}
 fn channel_error(error: ChannelFailure) -> (StatusCode, &'static str) {
     match error {
         ChannelFailure::SettingConflict => (StatusCode::CONFLICT, "conflict"),
@@ -287,6 +315,80 @@ async fn execute(admin: Admin, action: Action) -> Result<Value, (StatusCode, &'s
     let g = &admin.gateway;
     let a = &admin.accounts;
     match action {
+        Action::MobileStatus => {
+            let devices = match &admin.mobile {
+                Some(mobile) => mobile.devices().await.map_err(mobile_error)?,
+                None => Vec::new(),
+            };
+            Ok(
+                json!({"available":admin.mobile.is_some(),"host":g.host_id(),"relay_url":admin.mobile_public_url,"devices":devices}),
+            )
+        }
+        Action::MobilePair {
+            workspaces,
+            sessions,
+            workspace,
+            session,
+            create_workspaces,
+            ttl_seconds,
+        } => {
+            let mobile = admin
+                .mobile
+                .as_ref()
+                .ok_or((StatusCode::SERVICE_UNAVAILABLE, "mobile_not_configured"))?;
+            let offer = mobile
+                .create_pairing(
+                    xharness_mobile::PairingScopes {
+                        workspaces,
+                        sessions,
+                        workspace,
+                        session,
+                        create_workspaces,
+                    },
+                    ttl_seconds,
+                )
+                .await
+                .map_err(mobile_error)?;
+            let link = admin
+                .mobile_public_url
+                .as_ref()
+                .map(|base| {
+                    let mut url = reqwest::Url::parse(base)
+                        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_input"))?;
+                    // Pair secrets are fragments, never HTTP query parameters.
+                    let encoded = reqwest::Url::parse_with_params(
+                        "https://pair.invalid/",
+                        [("host", g.host_id()), ("code", offer.code.expose())],
+                    )
+                    .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_input"))?;
+                    url.set_fragment(encoded.query());
+                    Ok::<_, (StatusCode, &'static str)>(url.to_string())
+                })
+                .transpose()?;
+            let qr_svg = link
+                .as_ref()
+                .map(|link| {
+                    qrcode::QrCode::new(link.as_bytes())
+                        .map(|qr| {
+                            qr.render::<qrcode::render::svg::Color>()
+                                .min_dimensions(256, 256)
+                                .build()
+                        })
+                        .map_err(|_| (StatusCode::BAD_REQUEST, "invalid_input"))
+                })
+                .transpose()?;
+            Ok(
+                json!({"host":g.host_id(),"code":offer.code,"expires_at_ms":offer.expires_at_ms,"relay_url":admin.mobile_public_url,"link":link,"qr_svg":qr_svg}),
+            )
+        }
+        Action::MobileRevoke { device } => {
+            let mobile = admin
+                .mobile
+                .as_ref()
+                .ok_or((StatusCode::SERVICE_UNAVAILABLE, "mobile_not_configured"))?;
+            mobile.revoke(&device).await.map_err(mobile_error)?;
+            Ok(json!({"device":device,"revoked":true}))
+        }
         Action::Status => {
             let settings = g.account_settings().await.map_err(remote_error)?;
             let statuses = a.status().await;
