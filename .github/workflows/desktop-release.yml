@@ -321,6 +321,21 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path 'dist/desktop-package/windows-x86_64/XHarness_${{ needs.plan.outputs.version }}_x64-setup.exe').Path -RuntimeAudit dist/windows-runtime-audit/collect.json
+      # Diagnostic bytes only, not desktop-package / candidate / native evidence.
+      # A failed run still cannot be promoted. Preserve the exact failed package
+      # so investigating a lock never requires rebuilding or reusing its version.
+      - name: Retain unaccepted Windows installer only when the worker fails
+        if: failure() && matrix.platform == 'windows-x86_64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows-unaccepted-diagnostic
+          path: |
+            dist/desktop-package/windows-x86_64/*.exe
+            dist/desktop-package/windows-x86_64/*.sig
+            dist/windows-runtime-audit/collect.json
+            dist/desktop-plan/plan.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Verify and archive exact EXE/PDB pairs separately from installers
         if: matrix.platform == 'windows-x86_64'
         run: python -B scripts/archive-desktop-symbols.py --target '${{ matrix.target }}' --output dist/desktop-symbols-windows

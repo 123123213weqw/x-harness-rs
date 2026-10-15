@@ -2,10 +2,22 @@ name: Windows installer process probe
 
 on:
   workflow_dispatch:
+    inputs:
+      source_ci_run_id:
+        description: Optional successful master CI installer to diagnose (no build or publication)
+        type: string
+        default: ''
+      expected_source_sha:
+        description: Exact source SHA bound to the reused CI installer
+        type: string
+        default: ''
   pull_request:
     paths:
       - 'apps/desktop/src-tauri/windows/**'
       - 'scripts/test-install-process-*.ps1'
+      - 'scripts/test-install-file-availability.ps1'
+      - 'scripts/test-windows-install-ownership.ps1'
+      - 'scripts/diagnose-install-file-probe.ps1'
       - 'scripts/test-install-ownership-contract.mjs'
       - '.github/workflows/installer-process-probe.yml'
 
@@ -24,6 +36,91 @@ jobs:
       - name: PowerShell 7 fault injection and exclusive-file regression
         shell: pwsh
         run: ./scripts/test-install-process-probe.ps1
+      - name: Windows PowerShell 5.1 transient sharing recovery and refusal
+        shell: powershell
+        run: ./scripts/test-install-file-availability.ps1
+      - name: PowerShell 7 transient sharing recovery and refusal
+        shell: pwsh
+        run: ./scripts/test-install-file-availability.ps1
       - name: Installer wiring and safety contracts
         shell: pwsh
         run: node scripts/test-install-ownership-contract.mjs
+
+  reuse-installer-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.source_ci_run_id != ''
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Authenticate immutable source CI before executing its installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_ci_run_id }}
+          SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          if ($env:SOURCE_RUN -cnotmatch '^[1-9][0-9]*$' -or $env:SOURCE_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'Exact source run and SHA required' }
+          $metadata = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:SOURCE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -or $metadata.status -ne 'completed' -or $metadata.conclusion -ne 'success' -or $metadata.path -ne '.github/workflows/ci.yml' -or $metadata.event -ne 'push' -or $metadata.head_branch -ne 'master' -or $metadata.head_repository.full_name -cne $env:GITHUB_REPOSITORY -or $metadata.head_sha -cne $env:SOURCE_SHA) { throw 'Untrusted source installer CI' }
+      - uses: actions/download-artifact@v7
+        with:
+          name: XHarness-windows-x64
+          path: diagnostic-installer
+          run-id: ${{ inputs.source_ci_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: installation-ownership-evidence
+          path: diagnostic-audit
+          run-id: ${{ inputs.source_ci_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact package and extract inert PE for file-lock observations
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem diagnostic-installer -Filter '*.exe' -Recurse)
+          if ($installers.Count -ne 1) { throw 'Ambiguous installer' }
+          $installer = $installers[0].FullName
+          $audit = Get-Content diagnostic-audit/windows-runtime-audit/installer.json -Raw | ConvertFrom-Json
+          if ($audit.schema -ne 1 -or $audit.passed -ne $true -or $audit.installer_sha256 -cne (Get-FileHash -LiteralPath $installer).Hash.ToLowerInvariant()) { throw 'Package differs from authenticated audit' }
+          & "$env:ProgramFiles/7-Zip/7z.exe" x -y -bd "-o$env:RUNNER_TEMP/installer-pe-probe" $installer | Out-Null
+          if ($LASTEXITCODE) { throw 'Cannot extract inert payload' }
+          $desktop = @(Get-ChildItem "$env:RUNNER_TEMP/installer-pe-probe" -Filter xharness-desktop.exe -Recurse)
+          if ($desktop.Count -ne 1) { throw 'Ambiguous desktop payload' }
+          "DIAGNOSTIC_DESKTOP=$($desktop[0].FullName)" >> $env:GITHUB_ENV
+          "DIAGNOSTIC_INSTALLER=$installer" >> $env:GITHUB_ENV
+      - name: Observe fresh PE and VersionInfo file-sharing behavior in Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/diagnose-install-file-probe.ps1 -DesktopBinary $env:DIAGNOSTIC_DESKTOP -ReportPath dist/install-probe-ps51.json
+      - name: Fetch immutable pre-fix function for causal file-lock A/B (not a package rebuild)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $old = gh api "repos/$env:GITHUB_REPOSITORY/contents/apps/desktop/src-tauri/windows/install-ownership.ps1?ref=2ae6b85f5c37e4043136e7b6fc2bf36029fb6a54" | ConvertFrom-Json
+          if ($LASTEXITCODE -or $old.encoding -ne 'base64') { throw 'Cannot authenticate pre-fix function' }
+          $path = Join-Path $env:RUNNER_TEMP 'known-pre-fix-install-ownership.ps1'
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($old.content))
+          "DIAGNOSTIC_LEGACY=$path" >> $env:GITHUB_ENV
+      - name: Same real sharing lock against original and fixed production function
+        shell: powershell
+        run: ./scripts/test-install-file-availability.ps1 -LegacySource $env:DIAGNOSTIC_LEGACY
+      - name: Observe same PE in PowerShell 7
+        shell: pwsh
+        run: ./scripts/diagnose-install-file-probe.ps1 -DesktopBinary $env:DIAGNOSTIC_DESKTOP -ReportPath dist/install-probe-ps7.json
+      - name: Run phased ownership acceptance against reused installer (not release evidence)
+        shell: pwsh
+        run: ./scripts/test-windows-install-ownership.ps1 -Installer $env:DIAGNOSTIC_INSTALLER -RuntimeAudit diagnostic-audit/windows-runtime-audit/installer.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: installer-lock-diagnostic
+          path: |
+            dist/install-probe-*.json
+            dist/install-ownership-evidence/
+          if-no-files-found: warn
+          retention-days: 7
