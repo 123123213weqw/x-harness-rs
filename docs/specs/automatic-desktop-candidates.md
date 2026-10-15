@@ -172,6 +172,18 @@ installation/restart and unchanged session/config/key/workspace checks still run
 Automatic candidate preparation must be disabled at staging and reporting, and
 the diagnostic never re-enables it, including after a successful replay.
 
+The first real replay passed on 2026-10-15: signed stable `0.2.44` to the unchanged
+signed `0.2.50` installer, [run 38709926712](https://github.com/123123213weqw/x-harness-rs/actions/runs/38709926712),
+Windows native job 126 seconds including staging. The test observed background
+`checking`, real corrupt rejection, and `downloaded` without ever requiring an
+`available` snapshot. Exactly one corrupt package and one valid package were
+requested. Confirmation, signature/runtime verification, native installation,
+restart, product readiness, and unchanged journal/config/credential/workspace
+fixtures passed. Script hashes and scope are recorded in
+[`windows-upgrade-replay-20261015.json`](../evidence/windows-upgrade-replay-20261015.json).
+This is diagnostic proof for those package bytes, not authorization to publish
+the original failed candidate or skip a fresh release's formal acceptance.
+
 ```sh
 python3 -B scripts/test-desktop-candidates.py
 python3 -B scripts/test-release-orchestrator.py
