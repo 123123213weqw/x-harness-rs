@@ -299,6 +299,30 @@ class WebviewTests(unittest.TestCase):
             Contract(call).observe()
         self.assertLessEqual(call.call_count,11)
 
+    def test_navigation_invalidated_observation_is_reobserved_with_the_same_scope(self):
+        message = 'browser navigation changed during inspection; observe again'
+        page = {'source': {'engine': 'tauri-webview'}, 'nodes': []}
+        call = Mock(side_effect=[RuntimeError(message), page])
+        checks = Contract(call)
+        with patch('scripts.gui_bench.webview_contract.time.sleep'):
+            self.assertEqual(checks.observe('dialog', node_offset=20), page)
+        self.assertEqual(checks.readiness_denials, [message])
+        self.assertEqual([item.args for item in call.call_args_list],
+                         [('observe', {'scope': 'dialog', 'node_offset': 20})] * 2)
+        clock = itertools.count(0, .5)
+        call = Mock(side_effect=RuntimeError(message))
+        with patch('scripts.gui_bench.webview_contract.time.sleep'), \
+             patch('scripts.gui_bench.webview_contract.time.monotonic', side_effect=lambda: next(clock)), \
+             self.assertRaisesRegex(RuntimeError, 'navigation changed'):
+            Contract(call).observe()
+        self.assertLessEqual(call.call_count, 11)
+        for message in ['browser tab changed during inspection', 'native observation exceeds output budget',
+                        'unauthorized origin', 'browser navigation changed during inspection; different error']:
+            call = Mock(side_effect=RuntimeError(message))
+            with self.subTest(message=message), self.assertRaises(RuntimeError):
+                Contract(call).observe()
+            self.assertEqual(call.call_count, 1)
+
     def test_failed_action_retains_diagnostic_without_replay_or_private_transport(self):
         for effect in ('not_started', 'unknown', 'applied'):
             call = Mock(return_value={'ok':False, 'effect':effect,
