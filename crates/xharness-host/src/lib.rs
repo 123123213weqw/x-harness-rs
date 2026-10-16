@@ -131,6 +131,10 @@ pub struct HostConfig {
     /// event larger than this budget is delivered live and remains durable,
     /// but is not pinned in Host memory.
     pub session_event_cache_bytes: usize,
+    /// Shared encoded-byte ceiling across durable display tails. This is not
+    /// an RSS limit; snapshots, running tools and provider inputs are separate.
+    /// Zero disables resident display tails without deleting durable history.
+    pub session_event_cache_total_bytes: usize,
 }
 
 impl HostConfig {
@@ -161,6 +165,7 @@ impl HostConfig {
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,
+            session_event_cache_total_bytes: 64 * 1024 * 1024,
         }
     }
 }
