@@ -3982,7 +3982,7 @@
       "weight": 90
     },
     {
-      "id": "browser-230",
+      "id": "browser-232",
       "suite": "browser",
       "argv": [
         "node",
@@ -3994,7 +3994,7 @@
       "weight": 60
     },
     {
-      "id": "browser-231",
+      "id": "browser-233",
       "suite": "browser",
       "argv": [
         "node",
