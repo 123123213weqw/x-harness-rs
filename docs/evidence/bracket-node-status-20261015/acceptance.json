@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-15",
+  "base": "df3c273aa378fe7ef8fa3211b41b175ae88c2be8",
+  "scope": "UI-only shared ongoing state; no runtime/RPC/status mapping changes",
+  "checks": {
+    "platform_engines": [
+      "chromium",
+      "webkit"
+    ],
+    "full_boot_engines": [
+      "chromium",
+      "webkit"
+    ],
+    "contract_and_owned_type_tests_passed": 37,
+    "strict_ui_build_and_freshness": "passed",
+    "architecture": "passed: 41 crates, 8 processors",
+    "format_and_whitespace": "passed",
+    "local_rust_compilation": false
+  },
+  "source_sha256": {
+    "ui/src/modules/platform/primitives/StateDot.tsx": "b20eb532e80554f28279c04b7d93de079df3e15b89c55555e37372b23fd05401",
+    "ui/src/modules/platform/primitives/StateDot.module.css": "5e76dea08f8cba963b2b9e7e803e0fd9ff07c9f6d6891cecb61c94cf61a62982",
+    "ui/src/modules/platform/primitives/TerminalBlock.tsx": "5be13b3abb43bfeac0e5712424fde8960c1c04e7a69e323784dd953d6189b066",
+    "scripts/test-platform-source-browser.mjs": "91a9d3ff135c4d0d404b23edde123631ef48d21f2654a4a11f4d96cc0adf464e",
+    "scripts/fixtures/state-dot-acceptance.mjs": "65fa478297ab6aa023501c07b49d3e81b9a08228ffb32aea3d13904b1c17b2b4",
+    "ui/dist/asset-manifest.json": "cb76137b327a6adad3d6673b9ac8532588e1aaa9fbbcddcd7b51c06569e25340"
+  },
+  "log_sha256": {
+    "/tmp/xharness-bracket-platform-browser-20261015.log": "8830a7b044a6813037e331f53d713a510838beea5bf270b35d6b7474d15dcb65",
+    "/tmp/xharness-bracket-full-boot-20261015.log": "41bdd58ad1cd059d8597eca095728f8655aa0d883f539002f358d71a195886e7",
+    "/tmp/xharness-bracket-contracts-20261015.log": "73d20c30e3ec81220875d226655c3a002ea1aad130bd2e006d32e9e5309f9889"
+  },
+  "asset_sha256": {
+    "README.md": "3c8b4703462f656b3a65cfcf2b737ca21388905f03143a92bd038c0729f2728d",
+    "state-dot-chromium-dark.png": "e4a33699563d116e726461d480c2c4f4c3ac02df6b61332b3b9533f962229b96",
+    "state-dot-chromium-frozen.json": "0c8d5e26fadf9eb9e668e5c17468a07e1cd9355b6ff375b8bae146c695134d9a",
+    "state-dot-chromium-light.png": "316f55ad26eaaaf2f43336c313db6c0dc0b7ed6dc9d38a204db2437e1d2d4a33",
+    "state-dot-chromium-source.json": "9275ac78c8ae384b97651d72c7b346892db3dc5fb405665d648f83c06c3057c9",
+    "state-dot-webkit-dark.png": "944c7866b98cb0a21b1202875891f496a67822c4f4103d8a0b804282154d30ae",
+    "state-dot-webkit-frozen.json": "0c8d5e26fadf9eb9e668e5c17468a07e1cd9355b6ff375b8bae146c695134d9a",
+    "state-dot-webkit-light.png": "f6a3ab46b9b88df494fbee4a15e92cf05a1b3c08511411e0d75f32046c2c1e08",
+    "state-dot-webkit-source.json": "9275ac78c8ae384b97651d72c7b346892db3dc5fb405665d648f83c06c3057c9"
+  },
+  "limitations": [
+    "Synthetic production-primitive UI fixtures, not a live user session or OS-native desktop capture",
+    "Static PNGs show the artwork; motion assertions are in the browser test",
+    "CI status must be checked after PR creation; not claimed green here"
+  ]
+}

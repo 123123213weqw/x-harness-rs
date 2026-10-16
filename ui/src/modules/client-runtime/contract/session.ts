@@ -26,6 +26,9 @@ export interface ProjectionsFace {
   faceOf(key: string): ObservableSnapshot<unknown>
 }
 
+/** Presentation-only reopen intent; never changes the Host history or model context. */
+export type HistoryOpenTarget = { readonly kind: 'latest' } | { readonly kind: 'anchor'; readonly seq: number }
+
 /** Identity plus the behavior verbs features may invoke on a session. */
 export interface ISession {
   /** The session's host identity (agent id — same axis). */
@@ -77,6 +80,10 @@ export interface ISession {
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
   loadOlder(): Promise<void>
+  /** Remember the reader's reopen target. Undefined retains the legacy loaded
+   * range when an older presentation provider cannot supply an event anchor.
+   * Optional for source-plugin compatibility; the production runtime provides it. */
+  setHistoryOpenTarget?(target: HistoryOpenTarget | undefined): void
   /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle).

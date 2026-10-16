@@ -498,6 +498,7 @@ pub struct AgentSessionRequest {
 /// Durable work attached during one startup-resume operation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentResumeReport {
+    /// Ordinary pending input observers, including user-authored next-step steering.
     pub pending_turns: usize,
     pub pending_next_step: usize,
     /// Stable internal work id for one open approval turn that was attached
@@ -811,6 +812,13 @@ pub trait AgentRuntime: Send + Sync + 'static {
     /// `start_turn`; durable runtimes must flush the input before returning.
     async fn admit_turn(&self, _request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
         Ok(())
+    }
+
+    /// Admit user steering through the Agent actor, not a possibly stale Host
+    /// RunningTurn. Durable adapters subscribe before the actor can wake and
+    /// retain an input-scoped observer for either current- or next-turn use.
+    async fn admit_steering(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        self.admit_turn(request).await
     }
 
     /// Remove a still-pending input. The default is a no-op for ephemeral
@@ -1182,11 +1190,14 @@ pub struct DurableLoopAgentRuntime {
     supervisor: AgentSupervisor,
     tool_factory: Arc<dyn SessionToolFactory>,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
+    input_admission: InputAdmissionGates,
     next_control_id: Arc<AtomicU64>,
     debug: Arc<StdRwLock<DebugRecorder>>,
     compaction: Arc<StdRwLock<Option<CompactionConfig>>>,
     schedules: Option<Arc<ScheduleManager>>,
 }
+
+type InputAdmissionGates = Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>;
 
 pub(crate) struct PreparedDurableTurn {
     pub(crate) handle: DurableAgentHandle,
@@ -1303,6 +1314,7 @@ impl DurableLoopAgentRuntime {
             goals,
             tool_factory,
             prepared: Mutex::new(HashMap::new()),
+            input_admission: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
             debug,
             compaction,
@@ -1468,6 +1480,14 @@ impl DurableLoopAgentRuntime {
         &self,
         request: AgentTurnRequest,
     ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
+        self.prepare_input(request, false).await
+    }
+
+    async fn prepare_input(
+        &self,
+        request: AgentTurnRequest,
+        steer: bool,
+    ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
         let (input, input_id) = self.validate_turn_input(&request)?;
         let mut header = SessionHeader::new(&request.session_id);
         header.cwd = Some(request.cwd.clone());
@@ -1486,26 +1506,64 @@ impl DurableLoopAgentRuntime {
             },
         );
         let events = handle.subscribe();
-        handle
-            .inbox()
-            .append(
-                xharness_session::InboxTarget::NextTurn,
-                InboxMessage {
-                    id: input_id.clone(),
-                    message: input,
-                    source: request.input_metadata,
-                },
-            )
-            .await
-            .map_err(|e| AgentRuntimeError::Preparation {
-                message: e.to_string(),
-            })?;
+        let input = InboxMessage {
+            id: input_id.clone(),
+            message: input,
+            source: request.input_metadata,
+        };
+        if steer {
+            // The actor atomically promotes an existing queue item or admits
+            // fresh steering, and suppresses delivery of already used IDs.
+            handle.steer(input).await.map_err(agent_command_error)?;
+        } else {
+            handle
+                .inbox()
+                .append(xharness_session::InboxTarget::NextTurn, input)
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })?;
+        }
         self.attach_schedules(&handle).await?;
         Ok(PreparedDurableTurn {
             handle,
             events,
             input_id,
         })
+    }
+
+    async fn lock_input_admission(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self.input_admission.lock().await;
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            match gates.get(id).and_then(std::sync::Weak::upgrade) {
+                Some(gate) => gate,
+                None => {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(id.to_owned(), Arc::downgrade(&gate));
+                    gate
+                }
+            }
+        };
+        gate.lock_owned().await
+    }
+
+    async fn admit_input(
+        &self,
+        request: AgentTurnRequest,
+        steer: bool,
+    ) -> Result<(), AgentRuntimeError> {
+        let (_, input_id) = self.validate_turn_input(&request)?;
+        let key = (request.session_id.clone(), input_id);
+        let _admission = self.lock_input_admission(&request.session_id).await;
+        if self.prepared.lock().await.contains_key(&key) && !steer {
+            return Ok(());
+        }
+        // Waiting for one actor must not hold the global observer-map lock
+        // and stall admission/control in unrelated conversations.
+        let prepared = self.prepare_input(request, steer).await?;
+        self.prepared.lock().await.entry(key).or_insert(prepared);
+        Ok(())
     }
 
     fn running_from_prepared(&self, prepared: PreparedDurableTurn) -> Box<dyn RunningTurn> {
@@ -1747,6 +1805,18 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         if self.execution.check().is_err() {
             return Ok(false);
         }
+        let inbox = xharness_agent::InboxProjection::from_session(session).map_err(|error| {
+            AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            }
+        })?;
+        if inbox.dispatch_inputs().next().is_some()
+            && xharness_agent::DispatchState::from_session(session)
+                .decide(&inbox)
+                .can_run()
+        {
+            return Ok(true);
+        }
         if pending_manual_compaction(session).is_some()
             || crate::job_continuation::has_pending(session)
         {
@@ -1940,6 +2010,10 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
+        // Startup reconciliation must finish before inspecting the inbox.
+        // Activation remains ahead of cache insertion so a failed activation
+        // cannot retain a configuration entry for a nonexistent session.
+        handle.when_ready().await.map_err(agent_command_error)?;
         if handle.status() == xharness_agent::AgentStatus::Idle {
             xharness_agent::GoalController::new(Arc::clone(&self.store), &request.session_id)
                 .recover_abandoned()
@@ -1956,11 +2030,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 .map_err(|error| AgentRuntimeError::Preparation {
                     message: error.to_string(),
                 })?;
-        let pending_turns = snapshot
-            .next_turn()
-            .iter()
-            .filter(|m| !xharness_agent::is_goal_message(m))
-            .count();
+        let pending_turns = snapshot.dispatch_inputs().count();
         let pending_next_step = snapshot.next_step().len();
         let session = self
             .store
@@ -2014,7 +2084,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         // TurnStarted frame names that input ID, even if the Agent completes
         // several turns before the browser reconnects.
         let mut prepared = self.prepared.lock().await;
-        for input in snapshot.next_turn() {
+        for input in snapshot.dispatch_inputs() {
             if input
                 .source
                 .as_ref()
@@ -2078,9 +2148,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         }
         self.attach_schedules(&handle).await?;
         if handle.status() == xharness_agent::AgentStatus::Idle
-            && (!snapshot.next_turn().is_empty()
-                || xharness_session::goal::execution_state(&session)
-                    .is_some_and(|s| s.definition.execution_enabled))
+            && xharness_agent::DispatchState::from_session(&session)
+                .decide(&snapshot)
+                .can_run()
         {
             handle.wake().await.map_err(agent_command_error)?;
         }
@@ -2155,17 +2225,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
-        let (_, input_id) = self.validate_turn_input(&request)?;
-        let key = (request.session_id.clone(), input_id);
-        let mut prepared_turns = self.prepared.lock().await;
-        if prepared_turns.contains_key(&key) {
-            // Retried HTTP admission with the same stable RPC/message ID is
-            // idempotent while the prepared turn remains attached.
-            return Ok(());
-        }
-        let prepared = self.prepare_turn(request).await?;
-        prepared_turns.insert(key, prepared);
-        Ok(())
+        self.admit_input(request, false).await
+    }
+
+    async fn admit_steering(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        self.admit_input(request, true).await
     }
 
     async fn remove_pending_input(
@@ -2245,11 +2309,14 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         request: AgentTurnRequest,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
         let (_, input_id) = self.validate_turn_input(&request)?;
+        let admission = self.lock_input_admission(&request.session_id).await;
         let key = (request.session_id.clone(), input_id.clone());
-        let prepared = match self.prepared.lock().await.remove(&key) {
+        let prepared = self.prepared.lock().await.remove(&key);
+        let prepared = match prepared {
             Some(prepared) => prepared,
             None => self.prepare_turn(request).await?,
         };
+        drop(admission);
         self.require_execution()?;
         prepared.handle.wake().await.map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
@@ -2331,6 +2398,7 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    mod dispatch_tests;
     use std::{
         collections::VecDeque,
         sync::{

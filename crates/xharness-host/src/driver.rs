@@ -795,7 +795,10 @@ impl BasicHost {
                     json!({"provider": route.provider, "model": route.model}),
                 ));
             }
-            if mode == "steer" && session.running {
+            if mode == "steer"
+                && session.running
+                && !self.agent_runtime.has_authoritative_sessions()
+            {
                 (session.control.clone(), None)
             } else {
                 let mut messages = session.messages.clone();
@@ -892,19 +895,27 @@ impl BasicHost {
         }
 
         if let Some((mut admission_request, sections)) = admission_request {
-            admission_request.prompt = Some(
-                self.assemble_prompt(admission_request.cwd.clone(), sections)
-                    .await
-                    .map_err(RpcError::internal)?,
-            );
+            // A live steer keeps the current turn's immutable prompt. If the
+            // actor has already finished, its new-turn factory captures fresh
+            // rules before any provider I/O. Do not reload workspace files just
+            // to decide which side of that actor boundary receives this input.
+            if mode != "steer" || !self.agent_runtime.has_authoritative_sessions() {
+                admission_request.prompt = Some(
+                    self.assemble_prompt(admission_request.cwd.clone(), sections)
+                        .await
+                        .map_err(RpcError::internal)?,
+                );
+            }
             // A durable runtime flushes this input before returning. Only
             // after that receipt may the Web API acknowledge session.prompt.
             // Ephemeral runtimes implement this as a no-op and retain the
             // legacy Host-owned queue behavior.
-            self.agent_runtime
-                .admit_turn(admission_request)
-                .await
-                .map_err(agent_runtime_error)?;
+            if mode == "steer" {
+                self.agent_runtime.admit_steering(admission_request).await
+            } else {
+                self.agent_runtime.admit_turn(admission_request).await
+            }
+            .map_err(agent_runtime_error)?;
         }
 
         let mut start_driver = None;
