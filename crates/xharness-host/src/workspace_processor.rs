@@ -5,6 +5,8 @@
 //! commits the returned control events atomically and publishes the returned
 //! host events only after durability succeeds.
 
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 

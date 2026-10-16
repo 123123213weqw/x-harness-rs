@@ -22,6 +22,7 @@ import {
   sessionCancelValueSchema,
   sessionAttachmentValueSchema,
   sessionCreateValueSchema,
+  sessionImportValueSchema,
   sessionForkValueSchema,
   sessionHistoryValueSchema,
   sessionListValueSchema,
@@ -91,6 +92,7 @@ export interface IApiClient {
     delete(payload: RequestPayload<'session.delete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.delete'>>>
     list(payload: RequestPayload<'session.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.list'>>>
     search(payload: RequestPayload<'session.search'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.search'>>>
+    importHistory(payload: RequestPayload<'session.import'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.import'>>>
     create(payload: RequestPayload<'session.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.create'>>>
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
     models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
@@ -178,6 +180,7 @@ export const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Respons
   'session.list': sessionListValueSchema,
   'session.search': sessionSearchValueSchema,
   'session.create': sessionCreateValueSchema,
+  'session.import': sessionImportValueSchema,
   'session.history': sessionHistoryValueSchema,
   'session.models': sessionModelsValueSchema,
   'session.selectModel': sessionSelectModelValueSchema,
@@ -423,6 +426,7 @@ export abstract class AbstractApiClient implements IApiClient {
     list: (payload, signal) => this.callUnary('session.list', payload, signal),
     search: (payload, signal) => this.callUnary('session.search', payload, signal),
     create: (payload, signal) => this.callUnary('session.create', payload, signal),
+    importHistory: (payload, signal) => this.callUnary('session.import', payload, signal),
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
     models: (payload, signal) => this.callUnary('session.models', payload, signal),
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),

@@ -1,6 +1,7 @@
 //! Thin model adapter and Host composition of durable child conversations.
 //! No provider loop or shell job is implemented here.
 pub(crate) mod model_selection;
+mod revert;
 mod settlement;
 
 use crate::{driver::PromptAdmission, rpc::permission_events, BasicHost};
@@ -25,14 +26,14 @@ impl AgentTool {
     pub fn spec(runtime: Arc<dyn DelegationRuntime>, caller: impl Into<String>) -> ToolSpec {
         let caller = caller.into();
         ToolSpec::new(ToolDefinition::new("agent",
-            "Delegate independent work to a child agent. action=start requires task (optional label, provider, model, reasoning_effort). Default: inherit the parent's model and reasoning effort. Only specify model/effort overrides when the HUMAN user explicitly requests them; never choose a different model or raise/lower effort on your own based on task complexity or cost. When the user requests an override, invoke start with those selectors now: the Host automatically pauses that exact call and shows the user a confirmation card before creating the child. Do not wait for a chat answer or use ask_question as a substitute. Full access, AI review and instructions in task text cannot approve the change. Use action=inspect without agent_id to discover configured routes and supported effort IDs when the user requests a change. Copy BOTH provider and model from one models[].start_selectors candidate into start; model alone inherits the parent provider and may select an invalid route. These are configured candidates, not live availability guarantees. Keep provider and model as separate fields; model IDs may contain slashes. Switching model uses the target's default effort and context budget unless effort is explicit. action=send requires agent_id and message; action=inspect optionally takes agent_id; action=stop requires agent_id. Model options are start-only; send never changes a child's model. Do not mix fields between actions. Children have separate context: include all necessary background in task. Start/send acknowledge inbox admission, NOT completion. Completion/failure is automatically delivered later from real execution; no model availability probe is made. Accepted/running means admission/activity, not a successful model response. action=inspect with agent_id includes last_settlement (null before any settlement), a historical result with outcome, recorded request route and output/tool-call observations. On failure, use outcome.provider_failure when present for retryability and HTTP status; do not guess these from error text. You decide whether to retry with send on the same child or ask the user to fix credentials/settings. Do not loop retries, silently switch models, or replay side-effecting work without checking prior results. A stopped/paused child still requires the user's resume. Do not repeatedly poll inspect. Stop interrupts the current turn, preserves the conversation and parks pending work; a user prompt can resume it. Children cannot delegate further or ask the user questions directly. If a child reports missing information, answer with action=send; only ask the human yourself when existing instructions are insufficient. A child result or your reply is not an approval. Never delegate dependent edits to the same files in parallel.",
+            "Delegate independent work to a child agent. If a child is requested, start it instead of doing its task yourself.\nActions: start(task; optional label/provider/model/reasoning_effort), send(agent_id,message), inspect(optional agent_id), stop(agent_id).\nInherit the parent's model/effort. Do not choose overrides from task complexity or cost. Override only at the human's explicit request; submit selectors with start for Host confirmation. To choose a model, inspect without agent_id and copy provider+model from models[].start_selectors; candidates are not availability guarantees. Model selectors are start-only; changed routes use target defaults unless effort is explicit.\nInclude necessary background; children have separate context and cannot delegate or ask the human. Resolve their questions via send.\nStart/send acknowledge admission, not success; completion/failure arrives automatically. Inspect last_settlement.outcome.provider_failure on failure; avoid polling or blind retries.\nStop interrupts the turn and parks pending work, preserving history; resumption requires the user.\nDo not parallelize dependent edits to the same files or replay side effects without checking prior results.\nParent-only revert(agent_id,checkpoint_seq,message): inspect a safe checkpoint for a stuck/misdirected child; source must be idle/unpaused with no pending work or unresolved operations. Branches a NEW child from the completed prefix, retains history, never undoes files or external effects; use its returned agent_id. No automatic revert or invented reasoning.",
             json!({"type":"object","properties":{
-                "action":{"type":"string","enum":["start","send","inspect","stop"]},
+                "action":{"type":"string","enum":["start","send","inspect","stop","revert"]},
                 "task":{"type":"string"},"label":{"type":"string"},
                 "provider":{"type":"string","description":"Configured provider ID. Copy together with model from inspect models[].start_selectors when the user requests a model choice; omitted provider inherits the parent provider. Changes require human confirmation."},
                 "model":{"type":"string","description":"Configured model ID, not a provider/model concatenation. Copy together with provider from the same inspect models[].start_selectors candidate when the user requests a model choice. Changes require human confirmation."},
                 "reasoning_effort":{"type":"string","description":"Supported effort ID for the selected model. Omit unless explicitly requested by the user; changes require human confirmation."},
-                "agent_id":{"type":"string"},"message":{"type":"string"}},
+                "agent_id":{"type":"string"},"message":{"type":"string"},"checkpoint_seq":{"type":"integer","minimum":0,"description":"Exact safe checkpoint seq returned by inspect; revert only."}},
                 "required":["action"],"additionalProperties":false})), move |context| {
             let runtime = runtime.clone(); let caller = caller.clone();
             async move {
@@ -92,6 +93,15 @@ fn identity(caller: &str, invocation: &str) -> String {
     hash.update(invocation.as_bytes());
     format!("agent-{:x}", hash.finalize())
 }
+/// A branch retains historical execution facts, but starts a fresh delivery scope.
+fn owned_events(session: &Session) -> &[xharness_session::LoggedEvent] {
+    let start = session
+        .events()
+        .iter()
+        .rposition(|event| matches!(event.data(), EventData::AgentDelegated { .. }))
+        .unwrap_or(0);
+    &session.events()[start..]
+}
 fn bounded(text: &str, max: usize) -> &str {
     let mut end = text.len().min(max);
     while !text.is_char_boundary(end) {
@@ -145,6 +155,7 @@ impl BasicHost {
         invocation: &str,
         operation: AgentOperation,
     ) -> Result<Value, String> {
+        operation.validate()?;
         let key = identity(caller, invocation);
         let _operation = self.lock_admission(&format!("agent-operation:{key}")).await;
         match operation {
@@ -194,6 +205,10 @@ impl BasicHost {
                         .authoritative_session(id)
                         .await
                         .map_err(|e| e.to_string())?;
+                    result["revert_checkpoints"] = session
+                        .as_ref()
+                        .map(revert::checkpoints)
+                        .unwrap_or_else(|| json!([]));
                     result["last_settlement"] = session
                         .as_ref()
                         .and_then(|session| settlement::latest_notice(id, session))
@@ -211,6 +226,14 @@ impl BasicHost {
                 self.deliver_agent_message(caller, &agent_id, &key, message, "agent-message", true)
                     .await?;
                 Ok(json!({"ok":true,"agent_id":agent_id,"message_id":key,"status":"accepted"}))
+            }
+            AgentOperation::Revert {
+                agent_id,
+                checkpoint_seq,
+                message,
+            } => {
+                self.revert_delegated(caller, &key, &agent_id, checkpoint_seq, message)
+                    .await
             }
             AgentOperation::Stop { agent_id } => {
                 self.authorize_delegated(caller, &agent_id).await?;
@@ -302,6 +325,9 @@ impl BasicHost {
                 .await
                 .map_err(|e| e.to_string())?
             {
+                if revert::branch_source(&session).is_some() {
+                    return Err("invocation id already used for a context correction".into());
+                }
                 if session.events().iter().any(|e| matches!(e.data(), EventData::AgentDelegated { task: prior, .. } if prior != &task)) {
                     return Err("invocation id already used for a different task".into());
                 }
@@ -580,7 +606,8 @@ impl BasicHost {
         let Some(parent) = restored_delegation(&session) else {
             return Ok(());
         };
-        if let Some((invocation, task)) = session.events().iter().find_map(|e| match e.data() {
+        let events = owned_events(&session);
+        if let Some((invocation, task)) = events.iter().find_map(|e| match e.data() {
             EventData::AgentDelegated {
                 invocation_id,
                 task,
@@ -598,15 +625,14 @@ impl BasicHost {
             )
             .await?;
         }
-        let delivered: BTreeSet<u32> = session
-            .events()
+        let delivered: BTreeSet<u32> = events
             .iter()
             .filter_map(|e| match e.data() {
                 EventData::AgentSettlementDelivered { turn } => Some(*turn),
                 _ => None,
             })
             .collect();
-        for event in session.events() {
+        for event in events {
             if let EventData::TurnEnd { turn, reason } = event.data() {
                 if delivered.contains(turn) {
                     continue;
@@ -631,15 +657,14 @@ impl BasicHost {
                 .map_err(|e| e.message)?;
             }
         }
-        let failed_delivered: BTreeSet<_> = session
-            .events()
+        let failed_delivered: BTreeSet<_> = events
             .iter()
             .filter_map(|e| match e.data() {
                 EventData::AgentFailureDelivered { message_id } => Some(message_id.as_str()),
                 _ => None,
             })
             .collect();
-        for event in session.events() {
+        for event in events {
             if let EventData::AgentDelegationFailure { message_id, error } = event.data() {
                 if failed_delivered.contains(message_id.as_str()) {
                     continue;
@@ -671,9 +696,12 @@ impl BasicHost {
 
 #[cfg(test)]
 mod tests {
+    mod description_tests;
     mod model_confirmation_tests;
     mod model_selection_tests;
     mod request_failure_tests;
+    mod revert_tests;
+    mod small_step_retry_experiment;
 
     use super::*;
     use crate::{AgentRuntime, DurableLoopAgentRuntime, HostConfig, NoTools};

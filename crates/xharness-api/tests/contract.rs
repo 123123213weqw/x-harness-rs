@@ -11,6 +11,7 @@ const SUPPORTED_METHODS: &[&str] = &[
     "session.list",
     "session.search",
     "session.create",
+    "session.import",
     "session.history",
     "session.models",
     "session.selectModel",
@@ -73,7 +74,7 @@ fn method_directory_matches_upstream_plus_session_lifecycle_extensions() {
         .map(|method| method.as_str())
         .collect::<Vec<_>>();
     assert_eq!(actual, SUPPORTED_METHODS);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 55);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 56);
     for name in SUPPORTED_METHODS {
         assert_eq!(name.parse::<RpcMethod>().unwrap().as_str(), *name);
     }
@@ -101,6 +102,20 @@ fn mux_and_host_discriminants_match_frontend_frames() {
     .into_server_request(RpcId::new("h1"));
     assert_eq!(host.method, "host/session-status");
     assert_eq!(host.payload["sessionId"], "s");
+}
+
+#[test]
+fn question_stream_retains_deferred_wait_metadata_and_accepts_legacy_shape() {
+    let legacy = json!({"type":"question/requested","sessionId":"s","questions":[]});
+    let decoded: MuxFrame = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), legacy);
+    let current = json!({"type":"question/requested","sessionId":"s","questions":[],"deferred":true,"waitTimeoutSeconds":60});
+    let decoded: MuxFrame = serde_json::from_value(current.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), current);
+    assert!(serde_json::from_value::<MuxFrame>(
+        json!({"type":"question/requested","sessionId":"s","questions":[],"deferred":"true"})
+    )
+    .is_err());
 }
 
 #[test]
@@ -163,6 +178,7 @@ fn canonical_request(method: RpcMethod) -> Value {
     match method {
         RpcMethod::SessionList => json!({}),
         RpcMethod::SessionSearch => json!({"query":"needle"}),
+        RpcMethod::SessionImport => json!({"source":"codex","jsonl":"{}\n","preview":true}),
         RpcMethod::SessionCreate => json!({"workspaceId":"workspace","agentPreset":"coding"}),
         RpcMethod::SessionHistory => json!({"sessionId":"session","beforeSeq":42,"maxMessages":50}),
         RpcMethod::SessionModels => json!({"sessionId":"session"}),
@@ -294,4 +310,315 @@ fn working_plan_contract_has_typed_items_and_a_plan_not_a_goal_ref() {
     )
     .is_err());
     assert!(TypedRpcParams::decode(RpcMethod::GoalUpdatePlan,&json!({"sessionId":"s","planRevision":0,"items":[{"id":"a","title":"Verify","status":"unknown"}]})).is_err());
+}
+
+#[test]
+fn scoped_interaction_capabilities_are_not_rpc_directory_or_default_fallbacks() {
+    futures::executor::block_on(async {
+        use xharness_api::{
+            ApiBackend, ScopedInteraction, ScopedInteractionAnswer, UnavailableBackend,
+        };
+        let host = UnavailableBackend;
+        assert!(host
+            .session_interaction("w", "s", &RpcId::new("request"))
+            .await
+            .is_err());
+        let expected = ScopedInteraction {
+            nonce: "fixture".into(),
+            frame: xharness_api::ServerRequest::new(
+                RpcId::new("request"),
+                "approval/requested",
+                json!({}),
+            ),
+        };
+        assert!(host
+            .answer_session_interaction(
+                "w",
+                "s",
+                expected,
+                ScopedInteractionAnswer::Approval { allowed: true }
+            )
+            .await
+            .is_err());
+        assert!(RpcMethod::ALL
+            .iter()
+            .all(|m| !m.as_str().contains("interaction")));
+    });
+}
+#[test]
+fn scoped_interaction_answer_is_closed_typed_and_bounded() {
+    use xharness_api::ScopedInteractionAnswer as A;
+    assert!(serde_json::from_value::<A>(
+        json!({"type":"approval","allowed":true,"rpcId":"forged"})
+    )
+    .is_err());
+    assert!(serde_json::from_value::<A>(json!({"type":"question","answers":[{"id":"q","selected":null,"custom":"text","sessionId":"other"}]})).is_err());
+    assert!(!A::Question { answers: vec![] }.is_bounded());
+    assert!(A::Approval { allowed: false }.is_bounded());
+}
+
+#[test]
+fn scoped_catalogue_closed_pages_do_not_grant_ids_paths_or_unbounded_metadata() {
+    use xharness_api::*;
+    let query = ScopedCatalogueQuery {
+        workspaces: ["w".into()].into(),
+        sessions: ["s".into()].into(),
+        after: None,
+    };
+    let page = ScopedCataloguePage {
+        workspaces: vec![CatalogueWorkspace {
+            id: "w".into(),
+            title: "Workspace".into(),
+        }],
+        sessions: vec![CatalogueSession {
+            workspace: "w".into(),
+            id: "s".into(),
+            title: None,
+            running: false,
+            restoring: false,
+        }],
+        next: None,
+    };
+    assert!(query.admits(&page));
+    let mut malformed = page.clone();
+    malformed.sessions[0].id = "other".into();
+    assert!(!query.admits(&malformed));
+    malformed = page.clone();
+    malformed.sessions.push(page.sessions[0].clone());
+    assert!(!query.admits(&malformed));
+    malformed = page.clone();
+    malformed.workspaces[0].id = "foreign".into();
+    assert!(!query.admits(&malformed));
+    malformed = page.clone();
+    malformed.sessions[0].title = Some("x".repeat(4097));
+    assert!(!query.admits(&malformed));
+    malformed = page.clone();
+    malformed.next = Some(page.sessions[0].cursor());
+    assert!(!query.admits(&malformed));
+    let mut wire = serde_json::to_value(&page).unwrap();
+    wire["sessions"][0]["cwd"] = json!("/secret");
+    assert!(serde_json::from_value::<ScopedCataloguePage>(wire).is_err());
+    let mut bad_query = query.clone();
+    bad_query.after = Some(CatalogueCursor {
+        workspace: "w".into(),
+        session: "other".into(),
+    });
+    assert!(!bad_query.is_bounded());
+    bad_query = query.clone();
+    bad_query.workspaces.insert("bad\n".into());
+    assert!(!bad_query.is_bounded());
+    bad_query = query;
+    bad_query.sessions = (0..4097).map(|i| format!("s-{i}")).collect();
+    assert!(!bad_query.is_bounded());
+}
+
+#[test]
+fn scoped_catalogue_has_no_default_or_public_rpc_directory_fallback() {
+    use xharness_api::{ApiBackend, ScopedCatalogueQuery, UnavailableBackend};
+    futures::executor::block_on(async {
+        assert!(UnavailableBackend
+            .scoped_catalogue(ScopedCatalogueQuery {
+                workspaces: ["w".into()].into(),
+                sessions: ["s".into()].into(),
+                after: None
+            })
+            .await
+            .is_err());
+    });
+    assert!(RpcMethod::ALL
+        .iter()
+        .all(|m| !m.as_str().contains("catalogue")));
+}
+
+#[test]
+fn durable_forward_event_page_is_contiguous_scoped_bounded_and_has_no_default_fallback() {
+    use xharness_api::*;
+    let frame = MuxFrame::SessionEvent {
+        session_id: "s".into(),
+        event: json!({"seq":5,"type":"assistant/chunk","data":{}}),
+        view: None,
+    }
+    .into_server_request(RpcId::new("e"));
+    let page = ScopedEventPage {
+        start_seq: 5,
+        next_seq: 6,
+        head_seq: 9,
+        events: vec![frame],
+    };
+    assert!(page.is_scoped("s", Some(5)));
+    assert!(page.has_more());
+    assert!(!page.is_scoped("foreign", Some(5)));
+    assert!(!page.is_scoped("s", Some(4)));
+    assert!(!page.is_scoped("s", None));
+    let mut bad = page.clone();
+    bad.events[0].payload["event"]["seq"] = json!(6);
+    assert!(!bad.is_scoped("s", Some(5)));
+    bad = page.clone();
+    bad.events.clear();
+    bad.next_seq = 5;
+    assert!(!bad.is_scoped("s", Some(5)));
+    let probe = ScopedEventPage {
+        start_seq: 9,
+        next_seq: 9,
+        head_seq: 9,
+        events: vec![],
+    };
+    assert!(probe.is_scoped("s", None));
+    assert!(
+        futures::executor::block_on(UnavailableBackend.session_event_page("w", "s", Some(0)))
+            .is_err()
+    );
+    let mut wire = serde_json::to_value(&page).unwrap();
+    wire["rawSession"] = json!({});
+    assert!(serde_json::from_value::<ScopedEventPage>(wire).is_err());
+}
+
+#[test]
+fn event_attachment_capability_is_fail_closed_not_a_public_rpc_and_redacts_bytes() {
+    use xharness_api::*;
+    assert!(
+        futures::executor::block_on(UnavailableBackend.session_event_attachment(
+            "w",
+            "s",
+            0,
+            &"a".repeat(64)
+        ))
+        .is_err()
+    );
+    assert!(!RpcMethod::ALL
+        .iter()
+        .any(|m| m.as_str() == "session.event_attachment"));
+    let media = ScopedAttachment {
+        id: "a".repeat(64),
+        kind: ScopedAttachmentKind::File,
+        media_type: "text/plain".into(),
+        width: 0,
+        height: 0,
+        data: b"PRIVATE_ATTACHMENT_BYTES".to_vec(),
+    };
+    assert!(!format!("{media:?}").contains("PRIVATE_ATTACHMENT_BYTES"));
+    assert_eq!(MAX_SCOPED_ATTACHMENT_BYTES, 4 * 1024 * 1024);
+}
+
+#[test]
+fn scoped_creation_identity_is_closed_deterministic_and_no_default_or_public_rpc() {
+    use xharness_api::*;
+    let request = ScopedSessionCreate {
+        workspace: "registered".into(),
+        request_key: "a".repeat(64),
+    };
+    assert!(request.is_bounded());
+    assert_eq!(request.session_id(), format!("remote-{}", "a".repeat(64)));
+    assert_eq!(request.receipt().session, request.session_id());
+    for key in ["A".repeat(64), "a".repeat(63), "g".repeat(64)] {
+        let bad = ScopedSessionCreate {
+            request_key: key,
+            ..request.clone()
+        };
+        assert!(!bad.is_bounded());
+    }
+    let mut wire = serde_json::to_value(&request).unwrap();
+    wire["cwd"] = json!("/secret");
+    assert!(serde_json::from_value::<ScopedSessionCreate>(wire).is_err());
+    futures::executor::block_on(async {
+        assert!(UnavailableBackend
+            .create_scoped_session(request.clone())
+            .await
+            .is_err());
+        assert!(UnavailableBackend
+            .scoped_session_creation_receipt(request)
+            .await
+            .is_err());
+    });
+    assert!(RpcMethod::ALL
+        .iter()
+        .all(|m| !m.as_str().contains("scoped") && !m.as_str().contains("creation_receipt")));
+}
+
+#[test]
+fn saved_automation_capabilities_are_closed_scoped_and_fail_closed_by_default() {
+    use xharness_api::*;
+    let read = ScopedAutomationRead {
+        workspace: "w".into(),
+        session: "s".into(),
+        read: AutomationRead::List { after: None },
+    };
+    let mutation = ScopedAutomationMutation {
+        workspace: "w".into(),
+        session: "s".into(),
+        request_key: "a".repeat(64),
+        control: AutomationControl::Pause {
+            id: "id with spaces".into(),
+        },
+    };
+    assert!(read.is_bounded() && mutation.is_bounded());
+    for v in [
+        json!({"action":"create","prompt":"PRIVATE"}),
+        json!({"action":"pause","id":"s","session":"other"}),
+        json!({"action":"update","id":"s"}),
+    ] {
+        assert!(serde_json::from_value::<AutomationControl>(v).is_err());
+    }
+    let mut wire = serde_json::to_value(&mutation).unwrap();
+    wire["fingerprint"] = json!("user-controlled");
+    assert!(serde_json::from_value::<ScopedAutomationMutation>(wire).is_err());
+    futures::executor::block_on(async {
+        assert!(UnavailableBackend
+            .scoped_automation_read(read)
+            .await
+            .is_err());
+        assert!(UnavailableBackend
+            .scoped_automation_control(mutation.clone())
+            .await
+            .is_err());
+        assert!(UnavailableBackend
+            .scoped_automation_receipt(mutation)
+            .await
+            .is_err());
+    });
+    assert!(!RpcMethod::ALL
+        .iter()
+        .any(|m| m.as_str().contains("automation")));
+}
+#[test]
+fn saved_automation_pages_and_control_receipts_cannot_adopt_other_scope_or_generic_ok() {
+    use xharness_api::*;
+    let read = ScopedAutomationRead {
+        workspace: "w".into(),
+        session: "s".into(),
+        read: AutomationRead::List {
+            after: Some("a".into()),
+        },
+    };
+    let mut page = ScopedAutomationPage {
+        workspace: "w".into(),
+        session: "s".into(),
+        read: read.read.clone(),
+        entries: vec![],
+        next: None,
+        detail: None,
+    };
+    assert!(read.admits(&page));
+    page.next = Some("invented".into());
+    assert!(!read.admits(&page));
+    page.next = None;
+    page.session = "other".into();
+    assert!(!read.admits(&page));
+    let request = ScopedAutomationMutation {
+        workspace: "w".into(),
+        session: "s".into(),
+        request_key: "a".repeat(64),
+        control: AutomationControl::Pause { id: "rule".into() },
+    };
+    let mut result = ScopedAutomationApplied {
+        workspace: "w".into(),
+        session: "s".into(),
+        request_key: request.request_key.clone(),
+        control: request.control.clone(),
+        state: AutomationControlState::Paused,
+    };
+    assert!(request.admits(&result));
+    result.state = AutomationControlState::Enabled;
+    assert!(!request.admits(&result));
+    assert!(serde_json::from_value::<ScopedAutomationApplied>(json!({"accepted":true})).is_err());
 }

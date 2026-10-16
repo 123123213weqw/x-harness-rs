@@ -1,0 +1,1058 @@
+2026-10-13T03:44:05Z
+wzu-SYS-4029GP-TRT
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+
+=== A/B/C contracts ===
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.189
+   Compiling serde_core v1.0.229
+   Compiling cfg-if v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling memchr v2.8.3
+   Compiling syn v3.0.3
+   Compiling version_check v0.9.5
+   Compiling bytes v1.12.1
+   Compiling errno v0.3.14
+   Compiling signal-hook-registry v1.4.8
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling generic-array v0.14.7
+   Compiling zmij v1.0.23
+   Compiling typenum v1.20.1
+   Compiling serde_json v1.0.151
+   Compiling futures-core v0.3.34
+   Compiling itoa v1.0.18
+   Compiling futures-sink v0.3.34
+   Compiling futures-channel v0.3.34
+   Compiling syn v2.0.119
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling futures-task v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling slab v0.4.12
+   Compiling sha2 v0.10.9
+   Compiling stable_deref_trait v1.2.1
+   Compiling autocfg v1.5.1
+   Compiling simd-adler32 v0.3.10
+   Compiling num-traits v0.2.19
+   Compiling crc32fast v1.5.1
+   Compiling adler2 v2.0.1
+   Compiling getrandom v0.4.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.53.1
+   Compiling futures-macro v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling async-trait v0.1.92
+   Compiling xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-diagnostics)
+   Compiling synstructure v0.13.2
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerovec-derive v0.11.5
+   Compiling tokio-util v0.7.19
+   Compiling xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-debug)
+   Compiling zerofrom v0.1.8
+   Compiling displaydoc v0.2.7
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.7
+   Compiling xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-tools)
+   Compiling tinystr v0.8.4
+   Compiling miniz_oxide v0.9.1
+   Compiling xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-interaction)
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling flate2 v1.1.10
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session)
+   Compiling zerotrie v0.2.5
+   Compiling tokio-stream v0.1.19
+   Compiling xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-token)
+   Compiling xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-prompt)
+   Compiling uuid v1.27.0
+   Compiling fs2 v0.4.3
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling siphasher v1.0.3
+   Compiling icu_properties_data v2.3.0
+   Compiling phf_shared v0.12.1
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.0
+   Compiling iana-time-zone v0.1.65
+   Compiling chrono-tz v0.10.4
+   Compiling bitflags v2.13.1
+   Compiling chrono v0.4.45
+   Compiling phf v0.12.1
+   Compiling xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-jobs)
+   Compiling smallvec v1.15.2
+   Compiling base64 v0.22.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-compaction)
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-context)
+   Compiling xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-goal)
+   Compiling miniz_oxide v0.8.9
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-core)
+   Compiling fdeflate v0.3.7
+   Compiling pxfm v0.1.30
+   Compiling cfg_aliases v0.2.2
+   Compiling weezl v0.1.12
+   Compiling byteorder-lite v0.1.0
+   Compiling zune-core v0.5.3
+   Compiling quick-error v2.0.1
+   Compiling color_quant v1.1.0
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.2
+   Compiling moxcms v0.8.1
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-agent)
+   Compiling zune-jpeg v0.5.15
+   Compiling nix v0.30.1
+   Compiling png v0.18.1
+   Compiling idna_adapter v1.2.2
+   Compiling percent-encoding v2.3.2
+   Compiling bytemuck v1.25.2
+   Compiling image v0.25.10
+   Compiling form_urlencoded v1.2.2
+   Compiling idna v1.1.0
+   Compiling xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-schedule)
+   Compiling xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session-jsonl)
+   Compiling async-stream-impl v0.3.6
+   Compiling async-stream v0.3.6
+   Compiling xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-attachments)
+   Compiling url v2.5.8
+   Compiling xharness-projection v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-projection)
+   Compiling xharness-control v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-control)
+   Compiling xharness-api v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-api)
+   Compiling tower-service v0.3.3
+   Compiling sync_wrapper v1.0.2
+   Compiling tower-layer v0.3.3
+   Compiling tower v0.5.3
+   Compiling xharness-process v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-process)
+   Compiling xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-host)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 30s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_host-10ece5955f3a5a02)
+
+running 301 tests
+test approval_review::tests::durable_ai_allow_and_deny_use_original_loop_and_journal ... ok
+test approval_review::tests::empty_latest_user_request_does_not_reuse_older_authorization ... ok
+test approval_review::tests::fallback_clears_review_phase_even_when_human_acknowledgement_is_in_flight ... ok
+test approval_review::tests::incomplete_transport_tool_call_and_oversize_never_allow ... ok
+test approval_review::tests::input_binding_and_oversize_do_not_truncate_authorization ... ok
+test approval_review::tests::invalid_verdict_falls_back_to_manual_without_execution ... ok
+test approval_review::tests::manual_mode_never_calls_reviewer ... ok
+test approval_review::tests::permission_change_discards_old_verdict_without_escalating_sandbox ... ok
+test approval_review::tests::review_timeout_returns_same_request_to_manual_and_cancels_provider ... ok
+test approval_review::tests::stop_cancels_review_and_late_allow_cannot_execute ... ok
+test approval_review::tests::strict_verdict_complete_only_and_one_request ... ok
+test approval_review::tests::user_reject_and_duplicate_response_win_over_late_ai_allow ... ok
+test automation::tests::independent_task_uses_real_host_projection_and_jsonl_restart_without_reexecution ... ok
+test bootstrap::tests::bootstrap_is_one_goal_batch_without_user_message_and_replays_after_edit ... ok
+test bootstrap::tests::bootstrap_schema_and_bounds_are_strict ... ok
+test bootstrap::tests::conflicting_bootstrap_does_not_modify_journal ... ok
+test bootstrap::tests::empty_header_recovery_requires_reserved_identity_and_exact_header ... ok
+test bootstrap::tests::foreign_nonempty_journal_is_never_adopted ... ok
+test credential_processor::tests::describe_exposes_only_configuration_metadata ... ok
+test credential_processor::tests::environment_shadow_rejects_set_and_unset_without_secret_echo ... ok
+test credential_processor::tests::memory_mutations_are_explicit_and_responses_carry_no_values ... ok
+test credential_processor::tests::reference_validation_preserves_the_public_contract ... ok
+test delegation::model_selection::tests::newer_or_settled_approval_cannot_reuse_an_older_grant ... ok
+test delegation::model_selection::tests::observed_catalog_and_binding_text_do_not_grant_permission ... ok
+test delegation::model_selection::tests::only_exact_allowed_once_can_admit_a_changed_route ... ok
+test delegation::model_selection::tests::original_model_receipt_ignores_later_user_changes_and_legacy_absence ... ok
+test delegation::model_selection::tests::route_defaults_and_custom_efforts_remain_provider_owned ... ok
+test delegation::tests::archived_parent_deletion_cleans_real_cold_subagent_and_replays_receipt ... ok
+test delegation::tests::archived_parent_deletion_rejects_pending_cold_child_without_activating_it ... ok
+test delegation::tests::cancelled_before_admission_does_not_create_child ... ok
+test delegation::tests::concurrent_history_refresh_and_child_control_never_regress_cursor ... ok
+test delegation::tests::configured_capacity_is_shared_and_primary_turns_bypass_child_slots ... ok
+test delegation::tests::default_capacity_is_four_real_model_turns_and_results_deliver_once ... ok
+test delegation::tests::duplicate_start_authority_depth_and_followup ... ok
+test delegation::tests::model_confirmation_tests::a_pending_confirmation_survives_jsonl_restart_without_auto_execution ... ok
+test delegation::tests::model_confirmation_tests::changed_selection_waits_for_manual_confirmation_even_in_full_access_and_ai_review ... ok
+test delegation::tests::model_confirmation_tests::changing_parent_settings_while_waiting_invalidates_the_confirmation ... ok
+test delegation::tests::model_confirmation_tests::effort_only_model_default_and_provider_only_each_confirm_the_resolved_selection ... ok
+test delegation::tests::model_confirmation_tests::inherited_starts_do_not_ask_and_a_pending_override_does_not_lock_other_sessions ... ok
+test delegation::tests::model_confirmation_tests::invalid_routes_and_efforts_fail_before_a_confirmation_or_child_is_created ... ok
+test delegation::tests::model_confirmation_tests::rejection_cancel_and_approval_timeout_never_create_a_child ... ok
+test delegation::tests::model_selection_tests::configured_routes_task_claims_and_effort_changes_do_not_authorize_overrides ... ok
+test delegation::tests::model_selection_tests::inspect_shows_configured_capabilities_and_user_settings_without_granting_selection ... ok
+test delegation::tests::model_selection_tests::invalid_selection_fails_before_creating_or_running_any_child ... ok
+test delegation::tests::model_selection_tests::legacy_child_without_model_admission_still_accepts_inherited_retry ... ok
+test delegation::tests::model_selection_tests::reopened_jsonl_preserves_child_model_without_duplicate_initial_work ... ok
+test delegation::tests::model_selection_tests::restart_preserves_selected_route_and_followup_uses_it ... ok
+test delegation::tests::model_selection_tests::retry_after_parent_or_child_selection_changes_is_deduplicated ... ok
+test delegation::tests::model_selection_tests::tool_inherits_user_selected_routes_and_effort_without_overrides ... ok
+test delegation::tests::model_selection_tests::user_model_rpc_can_change_a_child_and_send_preserves_that_selection ... ok
+test delegation::tests::preparation_failure_is_durable_notified_once_and_not_auto_replayed ... ok
+test delegation::tests::registry_has_one_tool_and_invalid_action_never_reaches_runtime ... ok
+test delegation::tests::stop_parks_pending_work_until_explicit_user_prompt ... ok
+test delegation::tests::stop_while_waiting_for_capacity_never_claims_input_or_hangs ... ok
+test delegation_concurrency::tests::default_is_four_and_only_bounded_choices_are_accepted ... ok
+test display::tests::cancellation_after_admission_wins_before_ready_runtime_is_polled ... ok
+test display::tests::cancellation_inside_ready_runtime_cannot_return_preview_bytes ... ok
+test display::tests::precancelled_preview_never_calls_ready_runtime ... ok
+test display::tests::resource_parent_is_lexical_and_no_root_escape ... ok
+test display::tests::uncancelled_ready_runtime_returns_preview_bytes ... ok
+test driver::listener_lifetime_tests::dropping_one_value_clone_does_not_stop_another_owner ... ok
+test driver::listener_lifetime_tests::explicit_stop_wakes_idle_receivers_without_dropping_host ... ok
+test driver::listener_lifetime_tests::idle_drop_releases_host_and_both_receivers_with_runtime_alive ... ok
+test driver::listener_lifetime_tests::in_flight_notification_releases_host_after_settling ... ok
+test driver::listener_lifetime_tests::lagged_and_queued_events_cannot_keep_a_dropped_host_alive ... ok
+test driver::projection_publication_tests::automatic_compaction_views_match_live_history_and_restart ... ok
+test driver::projection_publication_tests::concurrent_projection_sync_publishes_each_new_event_once ... ok
+test driver::projection_publication_tests::edit_fork_cuts_before_selected_user_message_including_the_first_message ... ok
+test driver::projection_publication_tests::edit_fork_restores_the_settings_at_the_historical_boundary ... ok
+test driver::projection_publication_tests::export_fork_wire_contract ... ok
+test driver::projection_publication_tests::fork_of_subagent_does_not_restore_as_a_delegated_child ... ok
+test driver::projection_publication_tests::live_refresh_restart_and_fork_use_the_same_durable_projection ... ok
+test driver::projection_publication_tests::prepared_tool_views_keep_durable_sequence_and_original_arguments ... ok
+test driver::projection_publication_tests::projection_inputs_reject_stale_cursor_identity_and_each_route_field ... ok
+test driver::projection_publication_tests::projection_preparation_checks_cursor_boundaries ... ok
+test driver::projection_publication_tests::projection_preparation_needs_no_global_write_lock ... ok
+test driver::projection_publication_tests::schedule_catalog_hydrates_without_new_events_and_updates_live ... ok
+test driver::projection_publication_tests::schedule_catalog_survives_paged_history_and_restart ... ok
+test event_gateway::tests::channel_selection_does_not_cross_publish ... ok
+test event_gateway::tests::session_frame_vocabulary_is_shared_and_view_is_optional ... ok
+test execution::tests::active_tool_runs_normally_through_gate ... ok
+test execution::tests::final_gate_preserves_old_middleware_and_blocks_handler_after_wait ... ok
+test execution::tests::held_provider_checks_authority_for_every_request_and_auxiliary_operation ... ok
+test execution::tests::unset_local_boundary_returns_same_provider_and_gate_cannot_be_replaced ... ok
+test failed_turn_projection_tests::a_prompt_after_a_failed_turn_is_still_projected_to_the_browser ... ok
+test failed_turn_projection_tests::a_prompt_queued_during_a_failing_turn_is_still_projected_to_the_browser ... ok
+test gate_tests::gate_tables_do_not_grow_for_sessions_that_do_not_exist ... ok
+test gate_tests::live_gate_waiters_share_one_lock_until_the_last_guard_is_dropped ... ok
+test github_review::tests::account_or_head_change_prevents_paid_call ... ok
+test github_review::tests::actual_provider_stream_isolated_persisted_and_fenced ... ok
+test github_review::tests::cross_scope_status_cannot_read_existing_run ... ok
+test github_review::tests::duplicate_active_pr_is_rejected_and_user_cancel_settles ... ok
+test github_review::tests::malformed_truncated_eof_never_become_clean_reports ... ok
+test github_review::tests::optional_counter_fallback_respects_route_policy_and_fatal_errors ... ok
+test github_review::tests::panicking_provider_reader_or_store_cannot_strand_running_slots ... ok
+test github_review::tests::restart_running_receipt_is_reported_interrupted ... ok
+test github_review::tests::retired_chat_binding_is_rejected_before_backend_or_model ... ok
+test goal_processor::tests::clear_returns_only_the_next_fenced_reference ... ok
+test goal_processor::tests::create_validates_session_existing_goal_objective_and_budget ... ok
+test goal_processor::tests::edit_is_revision_fenced_and_monotonic ... ok
+test goal_processor::tests::transition_matrix_preserves_budget_and_clears_block_reason ... ok
+test goals::report_reference_tests::actual_host_loop_delivers_reference_error_and_accepts_correction_without_pausing ... ok
+test goals::report_reference_tests::all_report_statuses_reject_annotated_unknown_and_foreign_resource_ids_without_mutation ... ok
+test goals::report_reference_tests::cold_restore::cold_host_does_not_resume_successful_user_confirmation_report ... ok
+test goals::report_reference_tests::cold_restore::cold_host_restores_retry_after_complete_report_in_failed_turn ... ok
+test goals::report_reference_tests::host_agent_reference_validation_checks_exact_identity_and_parent_not_running_state ... ok
+test goals::report_reference_tests::progress_and_blocked_reports_validate_identity_not_readiness_or_artifact_text ... ok
+test goals::report_reference_tests::registered_goal_tool_can_correct_a_bad_reference_in_the_same_active_turn ... ok
+test goals::report_reference_tests::resilience::actual_host_watcher_resumes_after_exhausted_core_retries_without_user_input ... ok
+test goals::report_reference_tests::resilience::blocking_and_nonblocking_questions_remain_answerable_but_only_required_ones_gate_goal ... ok
+test goals::report_reference_tests::resilience::cold_start_admits_unreconciled_agent_completion_and_failed_completion_report ... ok
+test goals::report_reference_tests::resilience::permanent_and_legacy_failures_never_retry_even_if_text_says_network ... ok
+test goals::report_reference_tests::resilience::repeated_failures_back_off_then_pause_with_reason_and_keep_round_accounting ... ok
+test goals::report_reference_tests::resilience::retry_deadline_survives_jsonl_restart_and_only_enqueues_once ... ok
+test goals::report_reference_tests::resilience::unknown_tool_outcome_prevents_provider_recovery ... ok
+test goals::report_reference_tests::resilience::user_pause_and_user_input_take_priority_over_an_expired_retry ... ok
+test goals::report_reference_tests::unsupported_factories_fail_closed_only_for_resource_references ... ok
+test goals::tests::blocked_visible_resume_preserves_rounds_and_stale_ref_rejected ... ok
+test goals::tests::completion_requires_a_report_and_a_normally_settled_turn ... ok
+test goals::tests::dependency_settlement_wakes_same_runtime_without_another_user_message ... ok
+test goals::tests::goal_remote_receipts_replay_original_state_after_edit_clear_and_replacement ... ok
+test goals::tests::namespaced_goal_remotes_serve_every_goal_bar_action ... ok
+test goals::tests::ordinary_goal_tool_creates_reads_updates_replays_and_fences_user_changes ... ok
+test goals::tests::ordinary_goal_tool_rejects_invalid_actions_identity_and_cancel_without_mutation ... ok
+test goals::tests::ordinary_provider_turn_sees_goal_and_can_create_then_auto_report ... ok
+test goals::tests::pause_atomically_discards_queued_goal_before_resume ... ok
+test goals::tests::pause_during_preparation_settles_live_host_without_phantom_running ... ok
+test goals::tests::persisted_user_confirmation_still_waits_and_can_be_confirmed ... ok
+test goals::tests::product_three_rounds_auto_complete_clear_and_live_history ... ok
+test goals::tests::report_registry_rejects_unknown_fields_missing_evidence_and_stale_goal ... ok
+test goals::tests::request_snapshot_is_on_demand_scoped_and_durable_host_does_not_cache_messages ... ok
+test goals::tests::slash_command_uses_real_goal_rpc_and_budget_stops_without_fake_completion ... ok
+test goals::tests::startup_queued_goal_uses_background_bridge_once_not_user_queue ... ok
+test history_tool::tests::actual_tool_executor_enforces_session_boundary_and_schema ... ok
+test history_tool::tests::history_search_and_read_work_after_jsonl_store_restart ... ok
+test history_tool::tests::media_identity_and_archived_content_survive_restart_without_private_metadata ... ok
+test history_tool::tests::page_limits_and_untrusted_selector_fields_are_rejected ... ok
+test history_tool::tests::search_finds_archived_middle_and_pages_exact_utf8_without_mutation ... ok
+test history_tool::tests::search_keeps_cross_boundary_matches_and_bounds_escaped_hits ... ok
+test model_processor::tests::failure_precedence_is_activation_then_credential_then_route ... ok
+test model_processor::tests::fallback_providers_are_deduplicated_in_catalog_order ... ok
+test model_processor::tests::groups_preserve_capabilities_and_reasoning ... ok
+test model_processor::tests::live_provider_has_no_failure_and_no_secret_is_projected ... ok
+test model_settings::automatic_output_tests::maximum_target_is_not_a_mandatory_minimum_reserve ... ok
+test model_settings::capability_inheritance_tests::never_inherits_across_endpoint_protocol_or_model_changes ... ok
+test model_settings::capability_inheritance_tests::omitted_metadata_survives_array_replacement_but_explicit_null_does_not_inherit ... ok
+test model_settings::tests::preserves_legacy_dotted_provider_routes ... ok
+test model_settings::tests::reconciliation_preserves_a_valid_user_context_when_only_effort_drifted ... ok
+test model_settings::tests::schema_exposes_only_supported_protocols ... ok
+test model_settings::tests::validates_profiles_without_accepting_plaintext_secrets ... ok
+test model_settings_layers::output_default_tests::only_matching_output_defaults_inherit_without_resurrecting_rows ... ok
+test permission_tests::failed_permission_commit_does_not_change_selection_or_active_snapshot ... ok
+test permission_tests::permission_snapshot_and_selection_are_serialized_without_control_lock_deadlock ... ok
+test permission_tests::running_permission_selection_uses_latest_at_next_real_turn_in_both_runtimes ... ok
+test preference_settings::tests::preference_sections_match_shipped_enums_and_allow_unset ... ok
+test preset_processor::tests::copy_is_deterministic_and_conflicts_before_any_state_change ... ok
+test preset_processor::tests::list_marks_only_the_effective_default_without_mutating_snapshot ... ok
+test preset_processor::tests::remove_rejects_system_and_plans_user_removal_without_mutating ... ok
+test preset_processor::tests::selection_validates_preset_session_and_running_state ... ok
+test questions::tests::answer_before_deadline_and_deadline_race_do_not_double_settle ... ok
+test questions::tests::cancellation_does_not_trigger_timeout_continuation ... ok
+test questions::tests::deferred_wait_is_not_an_answer_replays_once_and_survives_restore ... ok
+test questions::tests::delegated_question_gate_allows_normal_forks_and_fails_closed_without_identity ... ok
+test questions::tests::delegated_question_gate_does_not_restore_old_child_question_dialogs ... ok
+test questions::tests::delegated_question_gate_preserves_previously_accepted_answer_without_dialog ... ok
+test questions::tests::delegated_question_gate_rejects_before_ui_or_persistence_even_after_restart ... ok
+test questions::tests::durable_provider_observes_a_resolution_committed_outside_its_process_channel ... ok
+test questions::tests::durable_provider_projects_web_frame_persists_answer_and_replays_resolution ... ok
+test questions::tests::live_core_tool_batch_continues_without_restarting_after_the_web_answer ... ok
+test questions::tests::live_loop_deferred_question_keeps_question_without_restricting_tools ... ok
+test questions::tests::managed_agent_markdown_upsert_is_idempotent_and_preserves_user_content ... ok
+test questions::tests::web_cancel_is_durable_and_unblocks_the_tool_with_an_error ... ok
+test restore::dynamic_projection_tests::offline_dynamic_projection_stress ... ignored, bounded dynamic replay; explicit CI/local incident investigation only
+test restore::tests::an_unreadable_session_is_reported_without_blocking_restore ... ok
+test restore::tests::approval_and_retry_events_project_with_frozen_wire_names ... ok
+test restore::tests::authoritative_history_pages_are_independent_of_the_bounded_live_tail ... ok
+test restore::tests::authoritative_input_is_published_before_provider_ttft ... ok
+test restore::tests::authoritative_stream_checkpoint_is_published_before_model_completion ... ok
+test restore::tests::bash_call_and_foreground_result_project_expandable_terminal_views ... ok
+test restore::tests::compaction_projects_a_replace_surface_operation_with_source_evidence ... ok
+test restore::tests::completed_stream_chunks_are_folded_for_tail_and_omitted_from_history ... ok
+test restore::tests::corrupt_tail_is_reported_when_startup_load_validates_candidate ... ok
+test restore::tests::dangling_legacy_id_is_never_adopted_by_new_discovery ... ok
+test restore::tests::discovered_workspace_identity_survives_unrelated_workspace_changes ... ok
+test restore::tests::durable_history_remains_complete_after_tail_eviction_and_restart ... ok
+test restore::tests::execution_checkpoint_projection_is_shared_and_internal_snapshots_are_hidden ... ok
+test restore::tests::explicit_model_selection_survives_a_later_request_header ... ok
+test restore::tests::failed_or_cancelled_compaction_keeps_surface_and_never_publishes_checkpoint ... ok
+test restore::tests::goal_snapshot_revisions_and_projection_survive_a_host_restart ... ok
+test restore::tests::inbox_splice_projection_always_uses_the_web_camel_case_shape ... ok
+test restore::tests::indexed_history_keeps_cross_page_tool_prompt_compaction_and_chunk_context ... ok
+test restore::tests::indexed_history_rpc_equals_full_replay_and_all_invalid_indices_fall_back ... ok
+test restore::tests::legacy_live_mux_and_history_both_carry_terminal_views ... ok
+test restore::tests::legacy_log_with_dangling_workspace_ids_still_restores ... ok
+test restore::tests::live_and_restarted_history_use_the_same_authoritative_projection ... ok
+test restore::tests::max_tokens_is_projected_as_the_upstream_first_class_turn_reason ... ok
+test restore::tests::mux_queue_baseline_is_folded_from_both_durable_inbox_lists ... ok
+test restore::tests::offline_authoritative_restore_100_cold_starts ... ignored, explicit isolated cold-start acceptance; run in diagnostics CI
+test restore::tests::offline_journal_projection_stress ... ignored, explicit offline projection experiment; private journals stay local
+test restore::tests::offline_reasoning_projection_stress ... ignored, offline crash-reproduction stress; run explicitly in CI
+test restore::tests::pause_policy_does_not_resume_an_incomplete_tool_call ... ok
+test restore::tests::permission_command_and_receipt_survive_a_host_restart ... ok
+test restore::tests::profile_metrics_survive_cold_restart_and_legacy_catalogue_migration ... ok
+test restore::tests::pwsh_call_and_foreground_result_use_the_same_terminal_view_contract ... ok
+test restore::tests::queue_sources_survive_partial_and_legacy_metadata ... ok
+test restore::tests::reasoning_text_and_tools_have_disjoint_live_and_restored_blocks ... ok
+test restore::tests::restore_persists_orphan_approval_cancellation_once_without_resuming_tools ... ok
+test restore::tests::restore_reattaches_and_runs_pending_input_exactly_once ... ok
+test restore::tests::restore_reattaches_pending_approval_and_executes_only_after_web_response ... ok
+test restore::tests::restore_reattaches_pending_question_and_reuses_the_web_composer_protocol ... ok
+test restore::tests::restore_rebuilds_history_events_messages_and_workspace_projection ... ok
+test restore::tests::restore_rebuilds_prompt_receipts_before_runtime_resume ... ok
+test restore::tests::restored_log_defines_every_referenced_workspace ... ok
+test restore::tests::startup_catalog_lists_without_replaying_legacy_and_hydrates_on_open ... ok
+test restore::tests::terminal_result_view_restores_legacy_json_content_without_metadata ... ok
+test restore::tests::terminal_view_projection_is_fail_closed_for_non_foreground_or_bad_shapes ... ok
+test restore::tests::workspace_order_survives_unrelated_insert_and_delete ... ok
+test restore::tests::workspace_settings_and_mutation_receipts_survive_a_host_restart ... ok
+test restore_checkpoint::tests::cold_restart_matches_full_restore_without_any_authoritative_load ... ok
+test restore_checkpoint::tests::incomplete_tool_tail_remains_paused_and_is_never_reexecuted ... ok
+test restore_checkpoint::tests::inherited_default_route_is_resolved_using_current_configuration ... ok
+test restore_checkpoint::tests::metadata_tail_and_exact_mutation_receipts_match_full_replay ... ok
+test restore_checkpoint::tests::model_turn_tail_and_corrupt_checkpoint_take_full_validation_path ... ok
+test restore_checkpoint::tests::non_opted_in_runtime_cannot_use_or_publish_idle_checkpoint ... ok
+test restore_checkpoint::tests::recovery_checkpoint_performance_acceptance ... ignored, explicit remote cold-recovery performance acceptance
+test restore_checkpoint::tests::semantically_invalid_metadata_tail_is_reported_not_hidden_by_checkpoint ... ok
+test restore_checkpoint::tests::terminal_auto_title_does_not_rematerialize_checkpoint_restored_history ... ok
+test restore_checkpoint::tests::unsupported_work_tail_always_rejects_the_fast_reducer ... ok
+test rpc::automation::tests::automation_cards_archived_chat_can_pause_but_cannot_resume ... ok
+test rpc::automation::tests::automation_cards_cannot_control_another_chat_or_fabricate_sessions ... ok
+test rpc::automation::tests::automation_cards_reject_creation_and_extra_command_fields ... ok
+test rpc::automation::tests::automation_cards_restore_deleted_truth_after_host_restart ... ok
+test rpc::automation::tests::automation_cards_share_tool_state_and_publish_projection ... ok
+test rpc::edit_admission_tests::edit_admission_rejects_running_invalid_flags_and_text_only_models ... ok
+test rpc::interaction::tests::accepted_decision_stays_claimed_for_stale_pending_clones ... ok
+test rpc::interaction::tests::cancelled_ack_wait_releases_decision_claim ... ok
+test rpc::interaction::tests::cancelled_response_does_not_lock_out_a_later_manual_answer ... ok
+test rpc::jobs::tests::cancel_future_is_not_cancel_run_and_cancellation_ack_is_not_completion ... ok
+test rpc::jobs::tests::catalog_and_output_are_owned_and_generation_fenced ... ok
+test rpc::jobs::tests::finished_plan_does_not_claim_agent_execution_success_or_actual_start_time ... ok
+test rpc::session_delete::tests::delete_owned_tree_in_one_receipt_and_replay_after_records_disappear ... ok
+test rpc::session_delete::tests::historical_admission_receipts_do_not_block_idle_deletion ... ok
+test rpc::session_delete::tests::independent_forks_and_non_archived_roots_are_preserved ... ok
+test rpc::session_delete::tests::named_session_matching_creation_fence_does_not_deadlock ... ok
+test rpc::session_delete::tests::owned_tree_with_active_or_queued_child_is_rejected_atomically ... ok
+test runtime::tests::durable_queue_replace_and_remove_update_the_inbox_before_web_projection ... ok
+test runtime::tests::durable_registry_routes_each_turn_and_journals_public_route_identity ... ok
+test runtime::tests::durable_runtime_exposes_due_schedule_as_a_background_running_turn ... ok
+test runtime::tests::durable_runtime_replays_journal_history_across_host_turns ... ok
+test runtime::tests::durable_runtime_resumes_pending_input_without_appending_a_duplicate ... ok
+test runtime::tests::inactive_execution_gate_rejects_admission_resume_compaction_and_auxiliary_model ... ok
+test runtime::tests::max_tokens_diagnostic::diagnostic_max_tokens_notice_survives_next_turn_start ... ignored, diagnostic of known notice mismatch; run explicitly, remove when fixed
+test runtime::tests::multiple_pre_admitted_turns_keep_their_own_buffered_event_streams ... ok
+test runtime::tests::observer_tests::concurrent_stop_is_not_overwritten_by_resume_commit ... ok
+test runtime::tests::observer_tests::deleting_last_queued_user_before_handoff_keeps_internal_work_paused ... ok
+test runtime::tests::observer_tests::deployment_policy_fences_host_injected_history_and_goal_tools ... ok
+test runtime::tests::observer_tests::host_flood_steer_stop_clears_running_and_parks_internal_followup ... ok
+test runtime::tests::observer_tests::idle_driver_acknowledges_steering_while_waiting_for_admission_lock ... ok
+test runtime::tests::observer_tests::lagged_queue_and_steering_observers_finish_after_user_stop ... ok
+test runtime::tests::observer_tests::late_observer_recovers_only_its_turn_without_reexecuting_input ... ok
+test runtime::tests::observer_tests::queue_removal_cannot_overtake_resume_commit_and_user_handoff ... ok
+test runtime::tests::observer_tests::queued_prompt_waits_for_in_flight_model_to_finish ... ok
+test runtime::tests::observer_tests::queued_prompt_waits_for_in_flight_tool_to_finish ... ok
+test runtime::tests::observer_tests::removed_queue_observer_finishes_after_user_stop ... ok
+test runtime::tests::observer_tests::restart_resumes_a_queued_user_prompt_despite_the_persisted_stop ... ok
+test runtime::tests::observer_tests::user_stop_lets_the_already_queued_prompt_start_the_next_turn ... ok
+test runtime::tests::registry_validates_reasoning_per_exact_model_route ... ok
+test runtime::tests::restart_recovers_one_open_manual_compaction_as_a_maintenance_turn ... ok
+test runtime::tests::unavailable_runtime_rejects_before_turn_construction ... ok
+test session_processor::tests::history_window_counts_only_visible_message_events ... ok
+test session_processor::tests::list_is_newest_first_and_missing_time_is_oldest ... ok
+test session_processor::tests::search_is_bounded_case_insensitive_and_unicode_safe ... ok
+test settings_processor::tests::permission_namespace_rejects_unknown_fields_and_unset ... ok
+test settings_processor::tests::rejected_mutation_does_not_change_snapshot ... ok
+test settings_processor::tests::replace_and_mutate_preserve_model_base ... ok
+test settings_processor::tests::update_is_deterministic_and_checks_revision ... ok
+test statecheck::an_in_flight_tool_cannot_be_finished_by_ordinary_queue_admission ... ok
+test statecheck::bounded_reachable_enumeration_reports_undefined_instead_of_guessing ... ok
+test statecheck::decision_table_in_spec_matches_the_executable_profiles ... ok
+test statecheck::future_user_input_preserves_in_flight_work_until_its_own_resolution ... ok
+test statecheck::named_profiles_have_reviewable_rules ... ok
+test subagent_processor::tests::authorization_distinguishes_all_failure_classes ... ok
+test subagent_processor::tests::list_projects_only_direct_children_and_nested_status ... ok
+test subagent_processor::tests::missing_parent_list_is_a_valid_empty_view ... ok
+test titles::tests::backfill_is_once_persisted_and_separate_from_main_reasoning_and_history ... ok
+test titles::tests::excerpts_skip_trivial_followup_and_roundtrip_metadata ... ok
+test titles::tests::fallback_commit_during_model_stream_does_not_break_loop_journal ... ok
+test titles::tests::greeting_and_running_agent_do_not_start_auxiliary_model ... ok
+test titles::tests::invalid_output_retries_are_bounded_across_restart ... ok
+test titles::tests::legacy_completed_contract_does_not_require_a_finish_reason ... ok
+test titles::tests::manual_title_wins_before_and_during_request ... ok
+test titles::tests::new_prompt_runs_loop_and_emits_existing_title_projection ... ok
+test titles::tests::pending_crash_reservation_is_not_reset ... ok
+test titles::tests::protocol_errors_incomplete_stream_and_retry_after ... ok
+test titles::tests::route_change_or_deletion_discards_inflight_title ... ok
+test titles::tests::shutdown_cancels_request_and_leaves_durable_reservation ... ok
+test titles::tests::timeout_cancels_transport_without_losing_fallback ... ok
+test titles::tests::title_validation_and_unicode_excerpt_are_bounded ... ok
+test workspace_processor::tests::create_duplicate_is_a_receipted_noop_without_consuming_identity_or_time ... ok
+test workspace_processor::tests::reorder_plan_is_deterministic_and_does_not_mutate_the_input_snapshot ... ok
+test workspace_processor::tests::session_move_validates_before_producing_durable_or_host_events ... ok
+
+test result: ok. 295 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 66.37s
+
+     Running tests/basic_host.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/basic_host-3ee82692c6159a71)
+
+running 22 tests
+test archived_session_restores_same_identity_and_delete_rejects_live_or_parent ... ok
+test compact_command_rejects_arguments_and_settles_its_durable_lifecycle ... ok
+test concurrent_named_session_create_waits_for_the_initial_event_flush ... ok
+test concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts ... ok
+test configured_cwd_is_always_available_as_the_boot_workspace ... ok
+test directory_browser_creates_unicode_folder_and_reuses_workspace ... ok
+test directory_browser_lists_locations_without_adopting_the_virtual_root ... ok
+test directory_browser_rejects_non_child_names_without_writes ... ok
+test every_upstream_rpc_has_baseline_behavior ... ok
+test fixtures_with_the_same_clock_tick_do_not_share_or_remove_each_others_files ... ok
+test full_access_is_advertised_confirmed_once_and_applied_to_current_and_future_sessions ... ok
+test generic_upload_reuses_prompt_history_reference_and_download_authority ... ok
+test host_injects_the_configured_context_policy_into_each_turn ... ok
+test idle_plan_command_is_log_backed_and_unsupported_payloads_fail_without_flipping ... ok
+test legacy_driver_preserves_reasoning_in_stream_and_settled_history ... ok
+test saved_default_preset_applies_to_new_sessions_but_not_explicit_choices ... ok
+test selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_prompt ... ok
+test session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_id ... ok
+test unroutable_session_model_is_rejected_before_prompt_queueing ... ok
+test uploaded_image_reaches_model_as_reference_and_is_session_scoped ... ok
+test web_model_catalog_exposes_and_selects_multiple_runtime_routes ... ok
+test web_response_resumes_a_real_tool_approval ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_jobs-a8efc27087c6badf)
+
+running 1 test
+test protocol::tests::agent_dispatch_and_unknown_states_never_mean_success ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/jobs.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/jobs-2a1487051319a0fb)
+
+running 15 tests
+test all_terminal_states_are_first_wins_and_release_capacity ... ok
+test dropping_a_producer_lease_force_fails_instead_of_hanging ... ok
+test dynamic_configuration_rejects_every_zero_limit_without_panicking ... ok
+test independent_cursors_replay_output_and_report_eviction ... ok
+test kill_is_idempotent_and_a_throwing_cancel_mutates_nothing ... ok
+test lifecycle_events_are_ordered_and_contained_by_broadcast_lag ... ok
+test registry_generations_fence_stale_ids_and_output_cursors ... ok
+test reservation_preflights_capacity_and_failed_start_does_not_consume_an_id ... ok
+test retention_prunes_only_old_terminal_records_for_the_same_owner ... ok
+test shutdown_cancels_jobs_and_bounds_noncompliant_producers ... ok
+test shutdown_contains_cancel_hook_failures_and_preserves_first_terminal_state ... ok
+test stream_cursor_reads_are_incremental_bounded_and_preserve_split_unicode ... ok
+test terminal_cursor_reads_validate_before_reporting_and_remain_replayable ... ok
+test validates_identity_and_hides_foreign_predictable_ids ... ok
+test wait_timeout_is_live_and_settlement_is_reported ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_schedule-447b4fef6e96f810)
+
+running 39 tests
+test automation_tests::busy_current_chat_does_not_starve_an_independent_due_task ... ok
+test automation_tests::concurrent_creates_replay_once_and_key_conflicts_fail_closed ... ok
+test automation_tests::control_after_restart_reconciles_already_admitted_run_before_deleting ... ok
+test automation_tests::failed_target_is_backed_off_without_starving_other_targets_and_can_be_deleted ... ok
+test automation_tests::fork_keeps_history_without_rearming_the_sources_automation ... ok
+test automation_tests::invalid_time_and_unavailable_independent_target_never_create_work ... ok
+test automation_tests::new_chat_reservation_survives_long_outage_and_prevents_overlapping_runs ... ok
+test automation_tests::provider_failure_is_not_reported_as_completed ... ok
+test automation_tests::restart_after_admission_before_receipt_does_not_repeat_a_task ... ok
+test automation_tests::single_tool_schema_is_closed_and_owner_is_not_model_controlled ... ok
+test automation_tests::task_waits_for_idle_then_has_a_real_terminal_outcome ... ok
+test automation_tests::unavailable_source_does_not_trigger_or_reserve_a_task ... ok
+test automation_tests::update_pause_resume_recover_without_changing_time_phase_or_legacy_semantics ... ok
+test job_unification_ablation::ab_busy_chat_waits_for_idle_without_blocking_process_admission ... ok
+test job_unification_ablation::ab_cancel_run_and_cancel_future_have_independent_scope ... ok
+test job_unification_ablation::ab_completion_event_is_available_without_model_polling ... ok
+test job_unification_ablation::ab_deleting_plan_does_not_cancel_an_already_admitted_agent_run ... ok
+test job_unification_ablation::ab_future_rules_do_not_consume_process_capacity ... ok
+test job_unification_ablation::ab_jsonl_reopen_preserves_paused_rule_phase_and_idempotency ... ok
+test job_unification_ablation::ab_missed_ticks_coalesce_instead_of_replaying_every_interval ... ok
+test job_unification_ablation::ab_periodic_occurrences_have_distinct_ids_and_preserve_prior_results ... ok
+test job_unification_ablation::ab_schedule_admission_is_not_a_success_receipt ... ok
+test job_unification_ablation::ab_stream_cursor_and_nonzero_exit_smoke_use_real_linux_shell ... ok
+test job_unification_ablation::ab_wait_timeout_is_not_failure_or_cancellation ... ok
+test job_unification_ablation::b_unified_owner_and_kind_are_not_inferred_from_untrusted_ids ... ok
+test job_unification_ablation::c_remove_durable_schedule_loses_future_rule_on_registry_restart ... ok
+test job_unification_ablation::c_remove_run_identity_alias_overwrites_previous_output ... ok
+test job_unification_ablation::c_remove_trigger_execution_split_exhausts_real_process_quota ... ok
+test job_unification_ablation::diagnostic_in_memory_adapter_cost_is_reported_not_a_release_sla ... ok
+test job_unification_ablation::regression_restart_never_resolves_an_old_run_to_a_new_producer ... ok
+test tests::a_transient_append_contention_does_not_disable_future_timers ... ok
+test tests::an_unrecoverable_worker_does_not_spin_the_schedule_owner ... ok
+test tests::local_time_rejects_dst_gap_and_selects_first_overlap ... ok
+test tests::lost_worker_does_not_strand_a_due_schedule ... ok
+test tests::overdue_rule_enters_one_ordinary_followup_and_dispatches ... ok
+test tests::recurring_dispatch_skips_backlog_and_keeps_creation_alignment ... ok
+test tests::retry_after_dispatch_flush_failure_does_not_duplicate_marker ... ok
+test tests::tools_create_list_delete_without_reusing_ids ... ok
+test tests::tools_return_closed_selector_and_frequency_errors_as_values ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+   Doc-tests xharness_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xharness_jobs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests xharness_schedule
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+=== Existing lifecycle regression ===
+   Compiling smallvec v1.15.2
+   Compiling slab v0.4.12
+   Compiling futures-channel v0.3.34
+   Compiling tokio-util v0.7.19
+   Compiling phf_shared v0.11.3
+   Compiling futures-util v0.3.34
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.11
+   Compiling rand_core v0.6.4
+   Compiling rand v0.8.7
+   Compiling cc v1.4.3
+   Compiling once_cell v1.21.4
+   Compiling phf_generator v0.11.3
+   Compiling http v1.5.0
+   Compiling percent-encoding v2.3.2
+   Compiling parking_lot_core v0.9.12
+   Compiling new_debug_unreachable v1.0.6
+   Compiling scopeguard v1.2.0
+   Compiling zeroize v1.9.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling ring v0.17.14
+   Compiling http-body v1.1.0
+   Compiling lock_api v0.4.14
+   Compiling phf_codegen v0.11.3
+   Compiling string_cache_codegen v0.5.4
+   Compiling tracing-core v0.1.36
+   Compiling getrandom v0.2.17
+   Compiling futures-executor v0.3.34
+   Compiling untrusted v0.9.0
+   Compiling futures v0.3.34
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling httparse v1.10.1
+   Compiling log v0.4.33
+   Compiling mac v0.1.1
+   Compiling futf v0.1.5
+   Compiling xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-tools)
+   Compiling tracing v0.1.44
+   Compiling indexmap v2.14.0
+   Compiling markup5ever v0.12.1
+   Compiling parking_lot v0.12.5
+   Compiling icu_normalizer v2.3.0
+   Compiling fnv v1.0.7
+   Compiling try-lock v0.2.5
+   Compiling precomputed-hash v0.1.1
+   Compiling atomic-waker v1.1.2
+   Compiling rustls v0.23.43
+   Compiling utf-8 v0.7.6
+   Compiling tendril v0.4.3
+   Compiling nix v0.30.1
+   Compiling h2 v0.4.16
+   Compiling idna_adapter v1.2.2
+   Compiling string_cache v0.8.9
+   Compiling want v0.3.1
+   Compiling form_urlencoded v1.2.2
+   Compiling phf v0.11.3
+   Compiling subtle v2.6.1
+   Compiling idna v1.1.0
+   Compiling rustls-webpki v0.103.14
+   Compiling xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-interaction)
+   Compiling hyper v1.11.0
+   Compiling sync_wrapper v1.0.2
+   Compiling html5ever v0.27.0
+   Compiling ipnet v2.12.1
+   Compiling hyper-util v0.1.20
+   Compiling tower v0.5.3
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session)
+   Compiling url v2.5.8
+   Compiling tokio-rustls v0.26.4
+   Compiling webpki-roots v1.0.9
+   Compiling aho-corasick v1.1.5
+   Compiling ryu v1.0.23
+   Compiling regex-syntax v0.8.11
+   Compiling regex-automata v0.4.18
+   Compiling serde_urlencoded v0.7.1
+   Compiling hyper-rustls v0.27.9
+   Compiling tower-http v0.6.11
+   Compiling xml5ever v0.18.1
+   Compiling http-body-util v0.1.5
+   Compiling markup5ever_rcdom v0.3.0
+   Compiling reqwest v0.12.28
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-compaction)
+   Compiling regex v1.13.1
+   Compiling xharness-process v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-process)
+   Compiling lazy_static v1.5.0
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-context)
+   Compiling html2md v0.2.15
+   Compiling xharness-sandbox v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-sandbox)
+   Compiling xharness-fs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-fs)
+   Compiling tokio-stream v0.1.19
+   Compiling xharness-platform v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-platform)
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-core)
+   Compiling xharness-web v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-web)
+   Compiling xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-attachments)
+   Compiling httpdate v1.0.3
+   Compiling xharness-coding-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-coding-tools)
+   Compiling xharness-provider-openai v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-provider-openai)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.28s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/xharness_coding_tools-7df2514cff54b764)
+
+running 6 tests
+test tests::direct_program_does_not_require_a_shell_and_rejects_nul_args ... ok
+test tests::managed_environment_preserves_runtime_state_without_credentials ... ok
+test tests::managed_path_keeps_system_and_package_search_locations ... ok
+test tests::repetition_process_observation_ignores_pid_not_failure_or_truncation ... ok
+test tests::search_process_exit_matrix_preserves_diagnostics ... ok
+test tests::shell_description_prefers_managed_jobs_without_banning_native_sessions ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test background_bash_kill_settles_and_invalid_option_combinations_fail_before_spawn ... ok
+test background_bash_streams_to_job_output_and_preserves_nonzero_exit_status ... ok
+test bash_propagates_pipeline_failures_and_allows_explicit_recovery ... ok
+test cancelled_bash_result_is_published_only_after_the_process_tree_is_dead ...      Running tests/bundle.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/bundle-cbb49274b7954e07)
+ok
+test copied_history_arguments_cannot_create_overwrite_or_edit_files ... ok
+test search_tools_distinguish_no_matches_and_real_errors ... ok
+test standard_tools_register_and_basic_file_shell_flow_runs ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.18s
+
+     Running tests/job_output_timeout_contract.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/job_output_timeout_contract-48480ae24ae431aa)
+
+running 6 tests
+test cancelling_wait_does_not_cancel_background_job ... ok
+test completed_jobs_accept_omitted_default_and_valid_boundaries ... ok
+test invalid_wait_values_are_not_silently_defaulted_even_for_completed_jobs ... ok
+test job_completion_wakes_wait_and_does_not_block_other_job ... ok
+test ownership_cursor_and_wait_option_errors_remain_errors ... ok
+test running_wait_timeout_preserves_job_and_cursor_is_incremental ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+
+running 4 tests
+test live_model_calls_real_tool_and_finishes_the_loop ... ignored, requires a live OpenAI-compatible model endpoint
+test live_model_continues_coding_across_execution_checkpoints ... ignored, requires an explicitly configured live model endpoint
+test live_model_repairs_code_and_emits_complete_debug_evidence ... ignored, requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)
+test live_model_uses_managed_jobs_instead_of_pty_or_nohup ... ignored, requires a live OpenAI-compatible endpoint (XHARNESS_LIVE_BASE_URL/_API_KEY)
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test absolute_symlink_file_and_directory_cannot_escape ... ok
+test authorized_absolute_read_matches_relative_and_keeps_mutation_contract ... ok
+test bytes_and_lines_keep_distinct_legacy_semantics ...      Running tests/live_loop.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/live_loop-1c193d8eb0e28811)
+     Running tests/read_contract.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/read_contract-7671c34b944904c9)
+ok
+test cancelled_read_does_not_become_a_success ... ok
+test conflicting_selectors_and_stale_cursors_fail_explicitly ... ok
+test empty_missing_and_past_eof_stay_distinguishable ... ok
+test field_descriptions_expose_units_and_ranges ... ok
+test invalid_numeric_arguments_never_silently_default ... ok
+test long_line_pages_reconstruct_without_truncation_loss ... ok
+test outside_component_prefix_and_parent_traversal_are_denied ... ok
+test utf8_small_pages_reconstruct_every_byte_with_forward_progress ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 6 tests
+test ambiguous_invocations_are_rejected_before_spawn ... ok
+test direct_argv_preserves_unicode_spaces_and_failure_without_replay ... ok
+test direct_process_timeout_cancel_and_background_use_existing_lifecycle ...      Running tests/shell_resolution.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/shell_resolution-b2acc83178c212a6)
+ok
+test shell_native_failure_fixture ... ignored
+test shell_native_success_fixture ... ignored
+test shell_native_wait_fixture ... ignored
+
+test result: ok. 3 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/shell_timeout_contract.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/shell_timeout_contract-6667247526c948a5)
+
+running 2 tests
+test invalid_timeout_never_spawns_a_command ... ok
+test omitted_and_valid_timeouts_keep_command_behavior ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests xharness_coding_tools
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking cfg-if v1.0.4
+    Checking libc v0.2.189
+   Compiling serde_core v1.0.229
+    Checking pin-project-lite v0.2.17
+    Checking memchr v2.8.3
+    Checking itoa v1.0.18
+    Checking bytes v1.12.1
+   Compiling serde v1.0.229
+    Checking typenum v1.20.1
+    Checking subtle v2.6.1
+    Checking futures-core v0.3.34
+    Checking thiserror v2.0.20
+    Checking futures-sink v0.3.34
+   Compiling serde_json v1.0.151
+    Checking zmij v1.0.23
+    Checking cpufeatures v0.2.17
+    Checking slab v0.4.12
+    Checking generic-array v0.14.7
+    Checking futures-channel v0.3.34
+    Checking errno v0.3.14
+    Checking socket2 v0.6.5
+    Checking signal-hook-registry v1.4.8
+    Checking mio v1.2.2
+    Checking futures-task v0.3.34
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking futures-io v0.3.34
+    Checking digest v0.10.7
+    Checking tokio v1.53.1
+    Checking futures-util v0.3.34
+    Checking sha2 v0.10.9
+    Checking log v0.4.33
+    Checking smallvec v1.15.2
+    Checking bitflags v2.13.1
+    Checking once_cell v1.21.4
+    Checking zerofrom v0.1.8
+    Checking xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-diagnostics)
+    Checking stable_deref_trait v1.2.1
+    Checking yoke v0.8.3
+   Compiling num-traits v0.2.19
+    Checking zerovec v0.11.7
+    Checking tracing-core v0.1.36
+   Compiling tracing-attributes v0.1.31
+    Checking futures-executor v0.3.34
+    Checking futures v0.3.34
+    Checking http v1.5.0
+    Checking hashbrown v0.17.1
+    Checking percent-encoding v2.3.2
+    Checking tracing v0.1.44
+    Checking equivalent v1.0.2
+    Checking tinystr v0.8.4
+    Checking indexmap v2.14.0
+    Checking writeable v0.6.4
+    Checking litemap v0.8.3
+    Checking potential_utf v0.1.6
+    Checking icu_locale_core v2.3.0
+    Checking zerotrie v0.2.5
+    Checking utf8_iter v1.0.4
+    Checking siphasher v1.0.3
+    Checking icu_collections v2.3.0
+    Checking tokio-util v0.7.19
+    Checking xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-debug)
+    Checking http-body v1.1.0
+   Compiling zeroize_derive v1.5.0
+    Checking icu_provider v2.3.0
+    Checking httparse v1.10.1
+    Checking icu_properties_data v2.3.0
+    Checking icu_normalizer_data v2.3.0
+    Checking xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-tools)
+    Checking form_urlencoded v1.2.2
+    Checking simd-adler32 v0.3.10
+    Checking zeroize v1.9.0
+    Checking base64 v0.22.1
+    Checking tower-service v0.3.3
+   Compiling phf_shared v0.11.3
+    Checking icu_normalizer v2.3.0
+    Checking icu_properties v2.3.0
+    Checking fnv v1.0.7
+    Checking httpdate v1.0.3
+    Checking atomic-waker v1.1.2
+    Checking try-lock v0.2.5
+    Checking h2 v0.4.16
+    Checking want v0.3.1
+   Compiling phf_generator v0.11.3
+    Checking sync_wrapper v1.0.2
+    Checking adler2 v2.0.1
+    Checking xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-interaction)
+    Checking mime v0.3.17
+    Checking tower-layer v0.3.3
+   Compiling pkg-config v0.3.34
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session)
+    Checking crc32fast v1.5.1
+    Checking rustls-pki-types v1.15.1
+    Checking http-body-util v0.1.5
+    Checking getrandom v0.2.17
+   Compiling zerocopy v0.8.56
+    Checking untrusted v0.9.0
+    Checking scopeguard v1.2.0
+    Checking new_debug_unreachable v1.0.6
+   Compiling getrandom v0.3.4
+    Checking ipnet v2.12.1
+   Compiling unicase v2.9.0
+    Checking lock_api v0.4.14
+   Compiling mime_guess v2.0.5
+    Checking ring v0.17.14
+    Checking parking_lot_core v0.9.12
+    Checking url v2.5.8
+    Checking tower v0.5.3
+    Checking miniz_oxide v0.9.1
+   Compiling phf_codegen v0.11.3
+   Compiling string_cache_codegen v0.5.4
+    Checking hyper v1.11.0
+   Compiling nix v0.30.1
+    Checking ryu v1.0.23
+    Checking mac v0.1.1
+    Checking futf v0.1.5
+    Checking serde_urlencoded v0.7.1
+   Compiling markup5ever v0.12.1
+    Checking flate2 v1.1.10
+    Checking rustls-webpki v0.103.14
+    Checking parking_lot v0.12.5
+    Checking hyper-util v0.1.20
+    Checking tokio-stream v0.1.19
+    Checking precomputed-hash v0.1.1
+    Checking utf-8 v0.7.6
+    Checking tendril v0.4.3
+    Checking string_cache v0.8.9
+    Checking xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-compaction)
+    Checking rand_core v0.9.5
+    Checking rustls v0.23.43
+    Checking phf v0.11.3
+    Checking http-range-header v0.4.2
+    Checking tower-http v0.6.11
+    Checking xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-context)
+    Checking webpki-roots v1.0.9
+    Checking num-integer v0.1.47
+    Checking xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-token)
+    Checking xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-prompt)
+    Checking ppv-lite86 v0.2.21
+    Checking tokio-rustls v0.26.4
+    Checking block-padding v0.3.3
+    Checking fs2 v0.4.3
+    Checking iana-time-zone v0.1.65
+    Checking xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-core)
+    Checking inout v0.1.4
+    Checking chrono v0.4.45
+    Checking rand_chacha v0.9.0
+    Checking hyper-rustls v0.27.9
+    Checking rand v0.9.5
+    Checking xharness-process v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-process)
+   Compiling libdbus-sys v0.2.7
+    Checking miniz_oxide v0.8.9
+    Checking fdeflate v0.3.7
+   Compiling nix v0.31.3
+    Checking sha1 v0.10.7
+    Checking aho-corasick v1.1.5
+   Compiling vcpkg v0.2.15
+    Checking quick-error v2.0.1
+    Checking byteorder-lite v0.1.0
+    Checking zune-core v0.5.3
+    Checking color_quant v1.1.0
+    Checking data-encoding v2.11.1
+    Checking regex-syntax v0.8.11
+    Checking weezl v0.1.12
+    Checking pxfm v0.1.30
+    Checking gif v0.14.2
+    Checking tungstenite v0.29.0
+   Compiling libsqlite3-sys v0.35.0
+    Checking zune-jpeg v0.5.15
+    Checking image-webp v0.2.4
+    Checking regex-automata v0.4.18
+    Checking png v0.18.1
+    Checking moxcms v0.8.1
+    Checking reqwest v0.12.28
+    Checking cipher v0.4.4
+    Checking html5ever v0.27.0
+    Checking getrandom v0.4.3
+    Checking num-bigint v0.4.8
+    Checking xml5ever v0.18.1
+    Checking phf_shared v0.12.1
+    Checking bytemuck v1.25.2
+    Checking foldhash v0.1.5
+    Checking num-rational v0.4.2
+    Checking hashbrown v0.15.5
+    Checking phf v0.12.1
+    Checking markup5ever_rcdom v0.3.0
+    Checking uuid v1.27.0
+    Checking regex v1.13.1
+    Checking image v0.25.10
+    Checking tokio-tungstenite v0.29.0
+    Checking num-iter v0.1.46
+    Checking xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-goal)
+    Checking axum-core v0.5.6
+    Checking num-complex v0.4.6
+    Checking serde_path_to_error v0.1.20
+    Checking hmac v0.12.1
+   Compiling zip v2.4.2
+    Checking bumpalo v3.20.3
+    Checking matchit v0.8.4
+   Compiling rmcp v3.5.0
+    Checking lazy_static v1.5.0
+    Checking html2md v0.2.15
+    Checking axum v0.8.9
+    Checking zopfli v0.8.3
+    Checking dbus v0.9.12
+    Checking async-stream v0.3.6
+    Checking hkdf v0.12.4
+    Checking num v0.4.3
+    Checking xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-attachments)
+    Checking xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-agent)
+    Checking process-wrap v10.0.1
+    Checking xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-jobs)
+    Checking hashlink v0.10.0
+    Checking chrono-tz v0.10.4
+    Checking cbc v0.1.2
+    Checking aes v0.8.4
+    Checking xharness-sandbox v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-sandbox)
+    Checking xharness-fs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-fs)
+    Checking xharness-api v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-api)
+    Checking fastrand v2.5.0
+    Checking fallible-iterator v0.3.0
+    Checking fallible-streaming-iterator v0.1.9
+    Checking dbus-secret-service v4.1.0
+    Checking xharness-platform v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-platform)
+    Checking rusqlite v0.37.0
+    Checking xharness-web v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-web)
+    Checking xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-schedule)
+    Checking xharness-projection v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-projection)
+    Checking xharness-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-terminal)
+    Checking xharness-control v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-control)
+    Checking xharness-cloud v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-cloud)
+    Checking xharness-web-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-web-terminal)
+    Checking xharness-coding-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-coding-tools)
+    Checking xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-host)
+    Checking xharness-plugins v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-plugins)
+    Checking xharness-cloud-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-cloud-app)
+    Checking xharness-server v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-server)
+    Checking keyring v3.6.3
+    Checking xharness-provider-openai v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-provider-openai)
+    Checking xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session-jsonl)
+    Checking xharness-mcp v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-mcp)
+    Checking xharness-model-catalog v0.1.1 (https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585ab)
+    Checking xharness-computer v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-computer)
+    Checking xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-host-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 52.33s
+
+=== Strict Clippy ===
+    Checking tokio v1.53.1
+    Checking xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-diagnostics)
+    Checking xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-prompt)
+    Checking xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-token)
+    Checking xharness-cloud v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-cloud)
+    Checking tokio-util v0.7.19
+    Checking xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-debug)
+    Checking tower v0.5.3
+    Checking xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-jobs)
+    Checking tokio-rustls v0.26.4
+    Checking tokio-stream v0.1.19
+    Checking h2 v0.4.16
+    Checking xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-tools)
+    Checking xharness-process v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-process)
+    Checking tower-http v0.6.11
+    Checking xharness-sandbox v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-sandbox)
+    Checking xharness-fs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-fs)
+    Checking xharness-api v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-api)
+    Checking xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-interaction)
+    Checking xharness-platform v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-platform)
+    Checking xharness-control v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-control)
+    Checking xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session)
+    Checking tokio-tungstenite v0.29.0
+    Checking process-wrap v10.0.1
+    Checking rmcp v3.5.0
+    Checking hyper v1.11.0
+    Checking xharness-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-terminal)
+    Checking hyper-util v0.1.20
+    Checking xharness-computer v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-computer)
+    Checking xharness-cloud-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-cloud-app)
+    Checking hyper-rustls v0.27.9
+    Checking axum v0.8.9
+    Checking reqwest v0.12.28
+    Checking xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-compaction)
+    Checking xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-attachments)
+    Checking xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-context)
+    Checking xharness-web v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-web)
+    Checking xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-core)
+    Checking xharness-coding-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-coding-tools)
+    Checking xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-goal)
+    Checking xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-session-jsonl)
+    Checking xharness-mcp v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-mcp)
+    Checking xharness-plugins v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-plugins)
+    Checking xharness-web-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-web-terminal)
+    Checking xharness-server v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-server)
+    Checking xharness-provider-openai v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-provider-openai)
+    Checking xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-agent)
+    Checking xharness-projection v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-projection)
+    Checking xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-schedule)
+    Checking xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-host)
+    Checking xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/unified-jobs-20261013/crates/xharness-host-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 39.31s

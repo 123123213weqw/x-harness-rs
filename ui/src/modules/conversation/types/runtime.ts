@@ -33,6 +33,7 @@ export interface SessionFace extends ObservableSnapshot<ConversationSnapshot> {
  command(line: string): Promise<RpcResult<{ matched: boolean }>>
  cancel(): Promise<RpcResult<{ accepted: true }>>
  loadOlder(): Promise<void>
+ setHistoryOpenTarget?(target: import('../../client-runtime/index').HistoryOpenTarget | undefined): void
  readAttachment(id: string): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
  updateQueue(id: string, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
 }

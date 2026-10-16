@@ -92,11 +92,17 @@ pub(super) fn failure_notice(child: &str, work: &str, error: &str) -> Value {
 }
 
 pub(super) fn latest_notice(child: &str, session: &Session) -> Option<Value> {
+    let ownership_start = session
+        .events()
+        .iter()
+        .rposition(|event| matches!(event.data(), EventData::AgentDelegated { .. }))
+        .unwrap_or(0);
     session
         .events()
         .iter()
         .enumerate()
         .rev()
+        .filter(|(index, _)| *index >= ownership_start)
         .find_map(|(index, event)| match event.data() {
             EventData::TurnEnd { turn, reason } => {
                 Some(observed_turn(child, session, index, *turn, reason))

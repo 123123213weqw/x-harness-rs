@@ -1,0 +1,19 @@
+✔ Committed v1 fixture is shared with the Rust DTO roundtrip regression (1.586666ms)
+✔ Job contract: plan completion is not run completion; actual start is not due time (0.116917ms)
+✔ Job contract: unsupported versions, foreign owners, duplicate IDs and invalid states fail (0.146291ms)
+✔ Job output: both cursor and execution identity must match the requested run (0.10325ms)
+✔ Tool history supplies only an ID hint, never a trusted execution state (0.103334ms)
+✔ Shared session readers coalesce one request and stop after last unsubscribe (0.782958ms)
+✔ Unsubscribe and identity reset fence even an RPC that ignores AbortSignal (0.2175ms)
+✔ Host disconnect clears old state and reconnect rebuilds a new generation (0.216334ms)
+✔ cancel_run is an acknowledgement, then stopping, not optimistic completed (0.566875ms)
+✔ cancel_future never sends cancel_run, and invalid receipts remain failures (0.463041ms)
+✔ Listener reentrancy and listener exceptions do not duplicate reads or abort projection (0.166208ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7.959875

@@ -268,6 +268,30 @@ impl BasicHost {
             let mut cancellations =
                 xharness_session::stale_approval_cancellations(session.events());
             cancellations.extend(crate::questions::delegated_question_cancellations(&session));
+            // Append-only, flushed and idempotent repair before worker resume.
+            // Parent history is read at the child's creation cut, not at now.
+            let parent = if let Some(parent_id) = crate::delegation::restored_delegation(&session)
+                .filter(|_| crate::context_selection::needs_legacy_check(&session))
+            {
+                match store.load(&parent_id).await {
+                    Ok(parent) => parent,
+                    Err(error) => {
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message: format!(
+                                "could not verify inherited legacy context budget: {error}"
+                            ),
+                        });
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            if let Some(repair) = crate::context_selection::legacy_repair(&session, parent.as_ref())
+            {
+                cancellations.push(repair);
+            }
             if !cancellations.is_empty() {
                 store
                     .append(&session_id, session.revision(), cancellations)
@@ -292,9 +316,7 @@ impl BasicHost {
                 .unwrap_or_else(|| self.config.cwd.to_string_lossy().into_owned());
             let route = restored_route(&session, &self.config);
             let queue = inbox
-                .next_turn()
-                .iter()
-                .filter(|m| !xharness_agent::is_goal_message(m))
+                .recovery_inputs(&session)
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
             let projected_queue = restored_queue(&inbox);
@@ -516,15 +538,20 @@ impl BasicHost {
                     || recoverable_question_count > 0
                     || runtime_background_work)
             {
-                let prompt = self
-                    .state
-                    .read()
-                    .await
-                    .prompt_assembly(&session_id)
-                    .map_err(|message| HostRestoreError::Prompt {
-                        session_id: session_id.clone(),
-                        message,
-                    })?;
+                let prompt = match self.prompt_assembly(&session_id).await {
+                    Ok(prompt) => prompt,
+                    Err(message) => {
+                        // One invalid project file must not block startup or
+                        // healthy workspaces. Keep its inbox intact and expose
+                        // the failure through the existing recovery issue path.
+                        failed_resumes.insert(session_id.clone());
+                        report.issues.push(HostRestoreIssue {
+                            session_id: session_id.clone(),
+                            message,
+                        });
+                        continue;
+                    }
+                };
                 resumable.push((
                     session_id,
                     cwd,
@@ -598,6 +625,14 @@ impl BasicHost {
                         && runtime_report.recovered_question_work_id.is_none()
                         && runtime_report.recovered_compaction_work_id.is_none()
                     {
+                        // Startup may have removed already-consumed steering.
+                        // Publish that cleanup even when no observer must run.
+                        self.sync_authoritative_session(&session_id)
+                            .await
+                            .map_err(|error| HostRestoreError::InvalidInbox {
+                                session_id: session_id.clone(),
+                                message: error.message,
+                            })?;
                         // Timer-only activation is driven by the runtime's
                         // background-turn notice. Starting an empty Host queue
                         // driver here would race and clear its running state.
@@ -5363,6 +5398,38 @@ mod tests {
         let report = host.restore_from_store(Arc::clone(&store)).await.unwrap();
         assert_eq!(report.restored_sessions, 1);
         assert_eq!(report.issues.len(), 1);
+
+        // The control gateway reconciles admission without replaying a prompt
+        // or relying on the bounded public message projection.
+        let payload = json!({
+            "sessionId": "receipt-session", "mode": "queue",
+            "content": [{"type": "text", "text": "admitted before crash"}],
+        });
+        assert!(matches!(
+            host.prompt_receipt("receipt-session", &RpcId::new("receipt-rpc"), &payload)
+                .await
+                .unwrap(),
+            Some(RpcResult::Success { .. })
+        ));
+        assert!(host
+            .prompt_receipt("receipt-session", &RpcId::new("not-admitted"), &payload)
+            .await
+            .unwrap()
+            .is_none());
+        let mut conflict_payload = payload.clone();
+        conflict_payload["content"][0]["text"] = json!("changed");
+        assert!(host
+            .prompt_receipt(
+                "receipt-session",
+                &RpcId::new("receipt-rpc"),
+                &conflict_payload
+            )
+            .await
+            .is_err());
+        assert!(host
+            .prompt_receipt("another-session", &RpcId::new("receipt-rpc"), &payload)
+            .await
+            .is_err());
 
         let replay = host
             .call(

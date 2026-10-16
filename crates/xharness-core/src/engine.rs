@@ -2910,6 +2910,7 @@ impl Runner {
                             !matches!(
                                 event.data(),
                                 SessionEventData::AgentInboxSpliced { .. }
+                                    | SessionEventData::JobContinuation { .. }
                                     | SessionEventData::AgentDispatchPaused { .. }
                                     | SessionEventData::AgentSettlementDelivered { .. }
                                     | SessionEventData::AgentFailureDelivered { .. }

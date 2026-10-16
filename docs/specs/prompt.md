@@ -70,3 +70,26 @@ Session Export 应能回答“这一轮模型实际看到了什么”，而不�
 测试必须直接解析真实 Provider 请求体，断言 System Message、Section 顺序、选择的 Preset、工具
 子集和版本；切换 Preset 后下一 Turn 生效；不存在或超预算 Section 明确失败；Session Export
 能够重建相同模型可见 Prompt；任何测试不得用“Host 状态里有字符串”代替网络请求断言。
+
+## Default task-agent persona
+
+- The built-in default persona is owned by
+  `crates/xharness-host/prompts/default-agent.txt` and compiled into the Host.
+  It is English, task-neutral, rational and exploration-oriented. The display
+  name is `XHarness Agent`; the historical preset id `coding` and section id
+  `agent-preset/coding` remain unchanged for existing-session compatibility.
+- The persona encourages thorough reasoning, counterexamples, evidence,
+  runnable code and mathematical explanations where useful. It asks for
+  emotionally neutral, concise communication rather than verbosity or flattery.
+- It replaces only the default preset content. Permission, workspace, workflow,
+  job guidance, plan mode and workspace instructions remain separate runtime sections.
+  A user-selected custom preset remains a replacement, not a forced persona append.
+- The content-addressed preset version and final system hash reflect the new
+  bytes. Identical runtime inputs keep producing an identical prefix; no time,
+  random variation or model-name-dependent persona is introduced.
+- This is a reasoning/communication preference, not a model-capability claim.
+  It neither sets `reasoning_effort` nor overrides permission, approval, token
+  budgets, tool availability or tool descriptions.
+- Provider-boundary regression must verify the exact English persona is the
+  first system section, keeps the existing runtime rules, preserves custom
+  preset copying/selection and does not silently change model call options.

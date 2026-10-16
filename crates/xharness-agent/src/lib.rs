@@ -5,6 +5,8 @@
 //! restart. The session event log is the only authoritative history.
 
 mod activation;
+mod dispatch;
+pub use dispatch::*;
 mod driver;
 mod inbox;
 mod lease;

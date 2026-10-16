@@ -1,0 +1,32 @@
+   Compiling xharness-host-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.70s
+     Running tests/job_continuation.rs (/home/wzu/codex-build/x-harness-rs/target-unified-jobs-20261013/debug/deps/job_continuation-484797d1b3c33191)
+
+running 10 tests
+test live_deepseek_uses_production_defer_and_automatic_continuation ... ignored, Requires explicitly authorized official DeepSeek key; no credentials in the repository
+test action_schema_validation_rejects_ambiguous_wait_and_unavailable_actions ... ok
+test registry_loss_recovers_interrupted_and_archive_has_explicit_no_cursor_contract ... ok
+test same_registration_races_are_idempotent_and_cancel_does_not_kill_producer ... ok
+test receipt_queued_before_failure_is_parked_by_actor_before_claim ... ok
+test receipt_during_active_user_turn_queues_without_parallel_model_execution ... ok
+test stopped_session_retains_receipt_until_explicit_user_resume ... ok
+test nonreducing_compaction_is_not_retriggered_by_terminal_receipt ... ok
+
+thread 'finish_before_registration_failed_producer_is_not_reported_as_success' (2331019) panicked at crates/xharness-host-app/tests/job_continuation.rs:364:13:
+production fixture condition: deadline has elapsed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test finish_before_registration_failed_producer_is_not_reported_as_success ... FAILED
+
+thread 'release_user_turn_and_auto_resume_through_native_production_factory' (2331024) panicked at crates/xharness-host-app/tests/job_continuation.rs:364:13:
+production fixture condition: deadline has elapsed
+test release_user_turn_and_auto_resume_through_native_production_factory ... FAILED
+
+failures:
+
+failures:
+    finish_before_registration_failed_producer_is_not_reported_as_success
+    release_user_turn_and_auto_resume_through_native_production_factory
+
+test result: FAILED. 7 passed; 2 failed; 1 ignored; 0 measured; 0 filtered out; finished in 15.44s
+
+error: test failed, to rerun pass `-p xharness-host-app --test job_continuation`

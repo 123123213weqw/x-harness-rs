@@ -59,6 +59,9 @@ const AutomationNavigation_css_1 = __importDefault(require("./AutomationNavigati
 const AutomationToolCard_css_1 = __importDefault(require("./AutomationToolCard.css"));
 const AutomationToolCard_1 = require("./AutomationToolCard");
 const automation_card_client_1 = require("./automation-card-client");
+const client_1 = require("../jobs/client");
+const RunPanel_1 = require("../jobs/RunPanel");
+const ToolCard_1 = require("../jobs/ToolCard");
 const React = __importStar(require("react"));
 const ReactDOM = __importStar(require("react-dom"));
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
@@ -482,6 +485,7 @@ function apply(ctx) {
     if (!connection)
         throw Error('schedule: Connection service unavailable');
     const cardClient = new automation_card_client_1.AutomationCardClient(connection.rpc);
+    const jobs = connection.jobs ?? new client_1.JobClient(connection.rpc);
     const service = ctx.get('workCatalog');
     if (service === undefined)
         throw Error('schedule: Work catalog service unavailable');
@@ -512,7 +516,10 @@ function apply(ctx) {
     }, 'xharness-ui-schedule: tool card styles');
     ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
         name: 'tool.call.toolview', key: 'automation', locale: NS,
-    }, (props) => h(AutomationToolCard_1.AutomationToolCard, { ...props, client: cardClient })));
+    }, (props) => h(AutomationToolCard_1.AutomationToolCard, { ...props, client: cardClient, jobs })));
+    for (const name of ['job_output', 'job_kill', 'job_list'])
+        ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: name, locale: NS }, (props) => h(ToolCard_1.JobToolCard, { ...props, toolName: name, client: jobs })));
+    ctx.slots.inject('work.center.executions', () => ctx.slots.register({ name: 'work.center.executions', id: 'executions', order: 30 }, (props) => h(RunPanel_1.ExecutionsPage, { ...props, service, client: jobs })));
     ctx.slots.inject('work.center.automations', () => ctx.slots.register({
         name: 'work.center.automations', id: 'automations', order: 20,
     }, (props) => h(AutomationNavigation_1.AutomationPage, { ...props, service })));
@@ -727,7 +734,7 @@ exports.default = ".xhauto-page{display:flex;flex-direction:column;min-width:0;c
 // source: src/modules/schedule/AutomationToolCard.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".xhauto-card{border:1px solid var(--dsw-alias-border-l1);border-radius:14px;margin:8px 0;padding:12px 14px;max-width:100%;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-background-primary,transparent)}\n.xhauto-card header{display:flex;align-items:center;gap:8px}.xhauto-card header>span:first-of-type{font-weight:500}.xhauto-card header>span:last-child{margin-left:auto}\n.xhauto-card-task{padding-top:10px}.xhauto-card-task+.xhauto-card-task{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}\n.xhauto-card-title{line-height:1.5;font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n.xhauto-card-meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12px;color:var(--dsw-alias-label-tertiary)}\n.xhauto-card-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-top:9px;font-size:12px}.xhauto-card-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}\n.xhauto-card button{border:1px solid var(--dsw-alias-border-l1);padding:4px 9px;border-radius:7px;cursor:pointer;background:transparent;color:inherit;font:inherit}.xhauto-card button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhauto-card button:disabled{opacity:.5;cursor:default}.xhauto-card button:focus-visible,.xhauto-card summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhauto-card-muted,.xhauto-card details{font-size:12px;color:var(--dsw-alias-label-tertiary)}.xhauto-card-error{margin-top:8px;color:var(--dsw-alias-state-danger-primary,#ba3939);overflow-wrap:anywhere}.xhauto-card details{margin-top:10px}.xhauto-card summary{cursor:pointer;width:fit-content}.xhauto-card pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}\n";
+exports.default = ".xhauto-card{border:1px solid var(--dsw-alias-border-l1);border-radius:14px;margin:8px 0;padding:12px 14px;max-width:100%;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-background-primary,transparent)}\n.xhauto-card header{display:flex;align-items:center;gap:8px}.xhauto-card header>span:first-of-type{font-weight:500}.xhauto-card header>span:last-child{margin-left:auto}\n.xhauto-card-task{padding-top:10px}.xhauto-card-task+.xhauto-card-task{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}\n.xhauto-card-title{line-height:1.5;font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n.xhauto-card-meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12px;color:var(--dsw-alias-label-tertiary)}\n.xhauto-card-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-top:9px;font-size:12px}.xhauto-card-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}\n.xhauto-card button{border:1px solid var(--dsw-alias-border-l1);padding:4px 9px;border-radius:7px;cursor:pointer;background:transparent;color:inherit;font:inherit}.xhauto-card button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhauto-card button:disabled{opacity:.5;cursor:default}.xhauto-card button:focus-visible,.xhauto-card summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhauto-card-muted,.xhauto-card details{font-size:12px;color:var(--dsw-alias-label-tertiary)}.xhauto-card-error{margin-top:8px;color:var(--dsw-alias-state-danger-primary,#ba3939);overflow-wrap:anywhere}.xhauto-card details{margin-top:10px}.xhauto-card summary{cursor:pointer;width:fit-content}.xhauto-card pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}\n.xhjob-panel{overflow-wrap:anywhere}.xhjob-panel header{justify-content:space-between}.xhjob-run,.xhjob-plan{padding:12px 0;border-top:1px solid var(--dsw-alias-border-l1);margin-top:8px}.xhjob-run code{font-size:11px}.xhjob-panel .xhauto-card-muted{margin-top:6px}.xhjob-panel .xhauto-card-actions{min-width:0}.xhjob-panel select{font:inherit;color:inherit;background:var(--dsw-alias-background-primary);border:1px solid var(--dsw-alias-border-l1)}\n";
 
 },
 "src/modules/schedule/AutomationToolCard.js": function(module, exports, require) {
@@ -772,6 +779,7 @@ exports.AutomationToolCard = AutomationToolCard;
 const jsx_runtime_1 = require("react/jsx-runtime");
 const React = __importStar(require("react"));
 const automation_card_model_1 = require("./automation-card-model");
+const RunPanel_1 = require("../jobs/RunPanel");
 function Clock() { return (0, jsx_runtime_1.jsxs)("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", "aria-hidden": "true", children: [(0, jsx_runtime_1.jsx)("circle", { cx: "12", cy: "12", r: "9" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 7v5l3 2" })] }); }
 function SavedAutomation({ id, initial, sessionId, client, projection, t }) {
     const [view, setView] = React.useState(), [loadError, setLoadError] = React.useState('');
@@ -850,10 +858,10 @@ function SavedAutomation({ id, initial, sessionId, client, projection, t }) {
     return (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-task", children: [(0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-title", children: current?.prompt ?? t('card.savedTask') }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-meta", children: [(0, jsx_runtime_1.jsx)("span", { children: current?.automation?.mode === 'task' ? t('card.task') : t('card.reminder') }), (0, jsx_runtime_1.jsx)("span", { children: current?.automation?.target === 'new_chat' ? t('card.newChat') : t('card.currentChat') }), current && (0, jsx_runtime_1.jsxs)("span", { children: [current.kind === 'every' ? t('card.every', { minutes: (current.everySeconds ?? 0) / 60 }) : t('card.once'), " \u00B7 ", new Date(current.scheduledAt).toLocaleString(t('card.locale'))] })] }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-bottom", children: [(0, jsx_runtime_1.jsxs)("span", { className: "xhauto-card-state", children: [state ? t(`card.state.${state}`) : t('card.record'), run ? ` · ${t(`card.run.${run}`)}` : ''] }), manageable && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-actions", children: confirmDelete ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { children: t('card.confirmDelete') }), (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void mutate('delete'), children: t('card.delete') }), (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => setConfirmDelete(false), children: t('card.cancel') })] })
                             : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void mutate(state === 'paused' ? 'resume' : 'pause'), children: pending ? t('card.saving') : t(state === 'paused' ? 'card.resume' : 'card.pause') }), (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => setConfirmDelete(true), children: t('card.delete') })] }) })] }), loadError && (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-muted", children: [t('card.syncFailed'), " \u00B7 ", loadError] }), actionError && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-error", role: "alert", children: actionError })] });
 }
-function AutomationToolCard({ block, sessionId, useProjection, client, inspect, t }) {
+function AutomationToolCard({ block, sessionId, useProjection, client, inspect, t, jobs }) {
     const model = React.useMemo(() => (0, automation_card_model_1.automationCardModel)(block), [block]);
     const projection = useProjection('schedules');
-    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-card", "aria-label": t('card.title'), children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)(Clock, {}), (0, jsx_runtime_1.jsx)("span", { children: t(`card.action.${model.action}`) }), (0, jsx_runtime_1.jsx)("span", { className: "xhauto-card-muted", children: !model.settled ? t('card.working') : model.error ? t('card.failed') : model.recognized ? t('card.receipt') : t('card.unknownResult') })] }), model.error ? (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-error", role: "alert", children: model.error }) : model.ids.slice(0, 20).map(id => (0, jsx_runtime_1.jsx)(SavedAutomation, { id: id, initial: model.values.find(v => v.id === id), sessionId: sessionId, client: client, projection: projection, t: t }, `${sessionId}:${id}`)), model.action === 'list' && model.settled && model.recognized && !model.error && model.ids.length === 0 && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: t('card.empty') }), model.ids.length > 20 && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: t('card.more', { count: model.ids.length - 20 }) }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: t('card.details') }), (0, jsx_runtime_1.jsxs)("pre", { children: [model.argsRaw, model.raw ? `\n\n${model.raw}` : ''] }), inspect && (0, jsx_runtime_1.jsx)("button", { onClick: inspect, children: t('card.inspect') })] })] });
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-card", "aria-label": t('card.title'), children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)(Clock, {}), (0, jsx_runtime_1.jsx)("span", { children: t(`card.action.${model.action}`) }), (0, jsx_runtime_1.jsx)("span", { className: "xhauto-card-muted", children: !model.settled ? t('card.working') : model.error ? t('card.failed') : model.recognized ? t('card.receipt') : t('card.unknownResult') })] }), model.error ? (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-error", role: "alert", children: model.error }) : model.ids.slice(0, 20).map(id => jobs ? (0, jsx_runtime_1.jsx)(RunPanel_1.JobRunPanel, { client: jobs, sessionId: sessionId, planId: id }, `${sessionId}:${id}`) : (0, jsx_runtime_1.jsx)(SavedAutomation, { id: id, initial: model.values.find(v => v.id === id), sessionId: sessionId, client: client, projection: projection, t: t }, `${sessionId}:${id}`)), model.action === 'list' && model.settled && model.recognized && !model.error && model.ids.length === 0 && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: t('card.empty') }), model.ids.length > 20 && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: t('card.more', { count: model.ids.length - 20 }) }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: t('card.details') }), (0, jsx_runtime_1.jsxs)("pre", { children: [model.argsRaw, model.raw ? `\n\n${model.raw}` : ''] }), inspect && (0, jsx_runtime_1.jsx)("button", { onClick: inspect, children: t('card.inspect') })] })] });
 }
 
 },
@@ -939,6 +947,249 @@ function refreshDelay(view) {
 }
 
 },
+"src/modules/jobs/RunPanel.js": function(module, exports, require) {
+// source: src/modules/jobs/RunPanel.tsx
+
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.JobRunPanel = JobRunPanel;
+exports.JobToolPanel = JobToolPanel;
+exports.ExecutionsPage = ExecutionsPage;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const React = __importStar(require("react"));
+const RunPanel_css_1 = __importDefault(require("./RunPanel.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)('@xharness/jobs/RunPanel.css', '@xharness/jobs', RunPanel_css_1.default);
+const model_1 = require("./model");
+const zh = () => typeof document !== 'undefined' && document.documentElement.lang.startsWith('zh');
+const labels = { preparing: ['准备中', 'Preparing'], queued: ['排队中', 'Queued'], running: ['运行中', 'Running'], waiting: ['等待中', 'Waiting'], stopping: ['停止中', 'Stopping'], completed: ['已完成', 'Completed'], failed: ['失败', 'Failed'], cancelled: ['已取消', 'Cancelled'], interrupted: ['已中断', 'Interrupted'], incomplete: ['未完成', 'Incomplete'], unavailable: ['不可用', 'Unavailable'], scheduled: ['等待触发', 'Scheduled'], overdue: ['等待调度', 'Overdue'], paused: ['未来触发已暂停', 'Future triggers paused'], finished: ['触发已结束', 'Trigger finished'], deleted: ['未来触发已取消', 'Future triggers cancelled'], inherited: ['继承记录', 'Inherited'], inactive: ['未启用', 'Inactive'] };
+const label = (state) => labels[state]?.[zh() ? 0 : 1] ?? state;
+function RunRow({ run, client, openSession }) {
+    const [pending, setPending] = React.useState(false), [error, setError] = React.useState(''), [output, setOutput] = React.useState('');
+    const controller = React.useRef(), alive = React.useRef(true), mutation = React.useRef(false);
+    React.useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); }; }, [run.id, run.sourceSessionId]);
+    async function act(kind) {
+        if (mutation.current)
+            return;
+        mutation.current = true;
+        setPending(true);
+        setError('');
+        controller.current?.abort();
+        controller.current = new AbortController();
+        try {
+            if (kind === 'cancel')
+                await client.control(run.sourceSessionId, { action: 'cancel_run', reference: run.reference });
+            else {
+                const value = await client.output(run.sourceSessionId, run.reference, controller.current.signal);
+                if (alive.current)
+                    setOutput(`${value.stdout}${value.stderr ? `\n${value.stderr}` : ''}${value.stdoutTruncated || value.stderrTruncated ? `\n${zh() ? '[较早输出已被清理]' : '[Earlier output was evicted]'}` : ''}`);
+            }
+        }
+        catch (e) {
+            if (alive.current)
+                setError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            mutation.current = false;
+            if (alive.current)
+                setPending(false);
+        }
+    }
+    return (0, jsx_runtime_1.jsxs)("article", { className: "xhjob-run", "data-run-id": run.id, "data-run-state": run.state, children: [(0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-title", children: run.label }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-bottom", children: [(0, jsx_runtime_1.jsxs)("span", { children: [run.reference.kind === 'process' ? (zh() ? '命令' : 'Command') : (zh() ? 'Agent' : 'Agent'), " \u00B7 ", label(run.state)] }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-actions", children: [run.capabilities.readOutput && (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void act('output'), children: zh() ? '读取输出' : 'Read output' }), run.capabilities.cancelRun && (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void act('cancel'), children: zh() ? '取消本次执行' : 'Cancel this run' }), run.capabilities.openSession && openSession && (0, jsx_runtime_1.jsx)("button", { onClick: () => openSession(run.targetSessionId), children: zh() ? '查看对话' : 'Open conversation' })] })] }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: zh() ? '运行详情' : 'Run details' }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-muted", children: [(0, jsx_runtime_1.jsx)("code", { children: run.id }), run.startedAtMs !== null && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [" \u00B7 ", zh() ? '开始' : 'Started', " ", new Date(run.startedAtMs).toLocaleString()] })] })] }), run.detail && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-muted", children: run.detail }), output && (0, jsx_runtime_1.jsx)("pre", { "aria-label": zh() ? '运行输出' : 'Run output', children: output }), error && (0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-error", role: "alert", children: error })] });
+}
+function JobRunPanel({ client, sessionId, planId, runId, openSession }) {
+    const subscribe = React.useCallback((f) => client.subscribe(sessionId, f), [client, sessionId]), snapshot = React.useCallback(() => client.snapshot(sessionId), [client, sessionId]);
+    const state = React.useSyncExternalStore(subscribe, snapshot);
+    const [pending, setPending] = React.useState(false), [error, setError] = React.useState(''), [confirm, setConfirm] = React.useState();
+    const gate = React.useRef(false), alive = React.useRef(true);
+    React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, [sessionId, planId]);
+    async function control(id, action) {
+        if (gate.current)
+            return;
+        gate.current = true;
+        setPending(true);
+        setError('');
+        try {
+            await client.control(sessionId, { action, planId: id });
+            if (alive.current)
+                setConfirm(undefined);
+        }
+        catch (e) {
+            if (alive.current)
+                setError(e instanceof Error ? e.message : String(e));
+        }
+        finally {
+            gate.current = false;
+            if (alive.current)
+                setPending(false);
+        }
+    }
+    const plans = runId === undefined ? state.catalog?.plans.filter(p => planId === undefined || p.id === planId) ?? [] : [], runs = state.catalog?.runs.filter(r => (planId === undefined || r.planId === planId) && (runId === undefined || r.id === runId)) ?? [];
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-card xhjob-panel", "aria-label": zh() ? '执行记录' : 'Execution records', children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("span", { children: zh() ? '执行记录' : 'Execution records' }), (0, jsx_runtime_1.jsx)("button", { disabled: state.loading, onClick: () => void client.refresh(sessionId), children: zh() ? '刷新' : 'Refresh' })] }), state.loading && !state.catalog && (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh() ? '读取中…' : 'Loading…' }), (state.error || error) && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-card-error", role: "alert", children: state.error ?? error }), !state.error && plans.map(p => (0, jsx_runtime_1.jsxs)("div", { className: "xhjob-plan", children: [(0, jsx_runtime_1.jsx)("div", { className: "xhauto-card-title", children: p.label }), (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-bottom", children: [(0, jsx_runtime_1.jsxs)("span", { children: [zh() ? '计划' : 'Plan', " \u00B7 ", label(p.state)] }), ['scheduled', 'overdue', 'paused'].includes(p.state) && (0, jsx_runtime_1.jsxs)("div", { className: "xhauto-card-actions", children: [(0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void control(p.id, p.state === 'paused' ? 'resume_plan' : 'pause_plan'), children: p.state === 'paused' ? (zh() ? '恢复未来触发' : 'Resume future triggers') : (zh() ? '暂停未来触发' : 'Pause future triggers') }), confirm === p.id ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("span", { children: zh() ? '取消后不再触发，正在运行的任务不受影响。' : 'Stop future triggers, without cancelling admitted runs?' }), (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => void control(p.id, 'cancel_future'), children: zh() ? '确认' : 'Confirm' }), (0, jsx_runtime_1.jsx)("button", { onClick: () => setConfirm(undefined), children: zh() ? '返回' : 'Back' })] }) : (0, jsx_runtime_1.jsx)("button", { disabled: pending, onClick: () => setConfirm(p.id), children: zh() ? '取消未来触发' : 'Cancel future triggers' })] })] })] }, p.id)), !state.error && runs.map(run => (0, jsx_runtime_1.jsx)(RunRow, { run: run, client: client, openSession: openSession }, JSON.stringify([sessionId, run.id]))), state.catalog && !state.error && runs.length === 0 && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-card-muted", children: runId ? (zh() ? '此运行已失效或已被清理；不会关联到新的同名任务。' : 'This run expired or was evicted; it will not resolve to another job.') : (zh() ? '暂无执行记录。等待触发不代表执行成功。' : 'No runs yet. A scheduled trigger is not execution success.') })] });
+}
+function JobToolPanel({ client, sessionId, block }) {
+    const id = (0, model_1.processHint)(block);
+    return id ? (0, jsx_runtime_1.jsx)(JobRunPanel, { client: client, sessionId: sessionId, runId: id }) : null;
+}
+function ExecutionsPage({ client, service, openSession }) {
+    const snapshot = React.useSyncExternalStore(service.subscribe, service.getSnapshot), [selected, setSelected] = React.useState('');
+    const sessions = snapshot.sessions;
+    const current = sessions.some(s => s.sessionId === selected) ? selected : sessions[0]?.sessionId;
+    React.useEffect(() => { const c = new AbortController(); void service.refresh(c.signal).catch(() => { }); return () => c.abort(); }, [service]);
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-page", children: [(0, jsx_runtime_1.jsx)("h2", { children: zh() ? '任务执行' : 'Executions' }), snapshot.error && (0, jsx_runtime_1.jsx)("p", { role: "alert", children: snapshot.error }), (0, jsx_runtime_1.jsxs)("label", { children: [zh() ? '对话' : 'Chat', " ", (0, jsx_runtime_1.jsx)("select", { "aria-label": zh() ? '执行记录所属对话' : 'Execution chat', value: current ?? '', onChange: e => setSelected(e.target.value), children: sessions.map(s => (0, jsx_runtime_1.jsx)("option", { value: s.sessionId, children: s.sessionId }, s.sessionId)) })] }), current ? (0, jsx_runtime_1.jsx)(JobRunPanel, { client: client, sessionId: current, openSession: openSession }, current) : snapshot.loading || snapshot.phase === 'pending' ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: zh() ? '读取对话中…' : 'Loading chats…' }) : (0, jsx_runtime_1.jsx)("p", { children: zh() ? '暂无对话' : 'No chats' })] });
+}
+
+},
+"src/modules/jobs/RunPanel.css": function(module, exports, require) {
+// source: src/modules/jobs/RunPanel.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xhauto-card{border:1px solid var(--dsw-alias-border-l1);border-radius:14px;margin:8px 0;padding:12px 14px;max-width:100%;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-background-primary,transparent)}\n.xhauto-card header{display:flex;align-items:center;gap:8px}.xhauto-card header>span:first-of-type{font-weight:500}.xhauto-card header>span:last-child{margin-left:auto}\n.xhauto-card-task{padding-top:10px}.xhauto-card-task+.xhauto-card-task{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l1)}\n.xhauto-card-title{line-height:1.5;font-weight:500;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}\n.xhauto-card-meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:5px;font-size:12px;color:var(--dsw-alias-label-tertiary)}\n.xhauto-card-bottom{display:flex;align-items:center;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-top:9px;font-size:12px}.xhauto-card-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}\n.xhauto-card button{border:1px solid var(--dsw-alias-border-l1);padding:4px 9px;border-radius:7px;cursor:pointer;background:transparent;color:inherit;font:inherit}.xhauto-card button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhauto-card button:disabled{opacity:.5;cursor:default}.xhauto-card button:focus-visible,.xhauto-card summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhauto-card-muted,.xhauto-card details{font-size:12px;color:var(--dsw-alias-label-tertiary)}.xhauto-card-error{margin-top:8px;color:var(--dsw-alias-state-danger-primary,#ba3939);overflow-wrap:anywhere}.xhauto-card details{margin-top:10px}.xhauto-card summary{cursor:pointer;width:fit-content}.xhauto-card pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}\n.xhjob-panel{overflow-wrap:anywhere}.xhjob-panel header{justify-content:space-between}.xhjob-run,.xhjob-plan{padding:12px 0;border-top:1px solid var(--dsw-alias-border-l1);margin-top:8px}.xhjob-run code{font-size:11px}.xhjob-panel .xhauto-card-muted{margin-top:6px}.xhjob-panel .xhauto-card-actions{min-width:0}.xhjob-panel select{font:inherit;color:inherit;background:var(--dsw-alias-background-primary);border:1px solid var(--dsw-alias-border-l1)}\n";
+
+},
+"src/modules/views-types.js": function(module, exports, require) {
+// source: src/modules/views-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.classNames = classNames;
+exports.installStyles = installStyles;
+function classNames(...values) { return values.filter(Boolean).join(' '); }
+/** Exact legacy style identity, but editable source rather than compiled input. */
+function installStyles(id, plugin, css) {
+    if (typeof document === 'undefined' || document.querySelector(`style[data-plugin-css=${JSON.stringify(id)}]`) !== null)
+        return;
+    const tag = document.createElement('style');
+    tag.dataset.plugin = plugin;
+    tag.dataset.pluginCss = id;
+    tag.textContent = css;
+    document.head.appendChild(tag);
+}
+
+},
+"src/modules/jobs/model.js": function(module, exports, require) {
+// source: src/modules/jobs/model.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ACTIVE = exports.PLAN_STATES = exports.RUN_STATES = void 0;
+exports.parseRun = parseRun;
+exports.parseCatalog = parseCatalog;
+exports.parseOutput = parseOutput;
+exports.processHint = processHint;
+/** Version 1 execution contract. Tool results only supply lookup hints. */
+exports.RUN_STATES = ['preparing', 'queued', 'running', 'waiting', 'stopping', 'completed', 'failed', 'cancelled', 'interrupted', 'incomplete', 'unavailable'];
+exports.PLAN_STATES = ['scheduled', 'overdue', 'paused', 'finished', 'deleted', 'inherited', 'inactive'];
+exports.ACTIVE = new Set(['preparing', 'queued', 'running', 'waiting', 'stopping']);
+function isObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+function object(v) { return isObject(v) ? v : {}; }
+function list(v) { return Array.isArray(v) ? v : []; }
+function text(v) { return typeof v === 'string' && v.length > 0; }
+function timestamp(v) { return v === null || typeof v === 'number' && Number.isSafeInteger(v) && v >= 0; }
+function runState(v) { return exports.RUN_STATES.some(s => s === v); }
+function planState(v) { return exports.PLAN_STATES.some(s => s === v); }
+function parseRef(raw) {
+    const r = object(raw);
+    if (r.kind === 'process' && text(r.id))
+        return { kind: 'process', id: r.id };
+    if (r.kind === 'automation' && text(r.planId) && text(r.inputId))
+        return { kind: 'automation', planId: r.planId, inputId: r.inputId };
+    throw Error('Invalid Job execution reference');
+}
+function parseRun(raw, session) {
+    const v = object(raw), reference = parseRef(v.reference), c = object(v.capabilities);
+    if (!text(v.id) || !text(v.label) || v.sourceSessionId !== session || !text(v.targetSessionId)
+        || !runState(v.state) || !(v.planId === null || text(v.planId))
+        || typeof c.cancelRun !== 'boolean' || typeof c.readOutput !== 'boolean' || typeof c.openSession !== 'boolean'
+        || !timestamp(v.startedAtMs) || !timestamp(v.scheduledAtMs) || !timestamp(v.finishedAtMs)
+        || !(v.detail === null || typeof v.detail === 'string'))
+        throw Error('Invalid Job execution projection');
+    if (reference.kind === 'process' ? reference.id !== v.id : reference.inputId !== v.id || reference.planId !== v.planId)
+        throw Error('Job reference identity mismatch');
+    return { id: v.id, label: v.label, sourceSessionId: session, targetSessionId: v.targetSessionId, planId: v.planId, state: v.state, reference, capabilities: { cancelRun: c.cancelRun, readOutput: c.readOutput, openSession: c.openSession }, startedAtMs: v.startedAtMs, scheduledAtMs: v.scheduledAtMs, finishedAtMs: v.finishedAtMs, detail: v.detail };
+}
+function parseCatalog(raw, session) {
+    const v = object(raw);
+    if (v.version !== 1 || v.sessionId !== session || !Array.isArray(v.runs) || !Array.isArray(v.plans))
+        throw Error('Unsupported or foreign Job contract');
+    const runs = list(v.runs).map(run => parseRun(run, session)), plans = list(v.plans).map((raw) => {
+        const p = object(raw);
+        if (!text(p.id) || !text(p.label) || !planState(p.state) || !text(p.nextAt) || !Number.isFinite(Date.parse(p.nextAt)) || !(p.everySeconds === null || typeof p.everySeconds === 'number' && Number.isSafeInteger(p.everySeconds) && p.everySeconds > 0))
+            throw Error('Invalid Job plan projection');
+        return { id: p.id, label: p.label, state: p.state, nextAt: p.nextAt, everySeconds: p.everySeconds };
+    });
+    if (new Set(runs.map(r => r.id)).size !== runs.length || new Set(plans.map(p => p.id)).size !== plans.length)
+        throw Error('Duplicate Job identity');
+    return { version: 1, sessionId: session, runs, plans };
+}
+function parseOutput(raw, session, ref) {
+    const v = object(raw), c = object(v.nextCursor);
+    if (v.version !== 1 || ref.kind !== 'process' || typeof v.stdout !== 'string' || typeof v.stderr !== 'string' || typeof v.stdoutTruncated !== 'boolean' || typeof v.stderrTruncated !== 'boolean' || c.job_id !== ref.id || typeof c.stdout !== 'number' || !Number.isSafeInteger(c.stdout) || c.stdout < 0 || typeof c.stderr !== 'number' || !Number.isSafeInteger(c.stderr) || c.stderr < 0)
+        throw Error('Invalid Job output projection');
+    const run = parseRun(v.run, session);
+    if (run.id !== ref.id)
+        throw Error('Job output identity changed');
+    return { stdout: v.stdout, stderr: v.stderr, stdoutTruncated: v.stdoutTruncated, stderrTruncated: v.stderrTruncated, nextCursor: { job_id: ref.id, stdout: c.stdout, stderr: c.stderr }, run };
+}
+/** Nested legacy envelopes are ID hints only, never executable instructions. */
+function processHint(block) {
+    const b = object(block), call = object(b.call);
+    const parse = (value) => { if (typeof value !== 'string' || value.length > 1048576)
+        return undefined; try {
+        return JSON.parse(value);
+    }
+    catch {
+        return undefined;
+    } };
+    const args = object(parse(call.argsRaw ?? b.argsRaw));
+    if (text(args.job_id))
+        return args.job_id;
+    let out = object(parse(list(b.content).map(p => { const o = object(p); return o.type === 'text' && typeof o.text === 'string' ? o.text : ''; }).join('\n')));
+    if (out.ok === false || b.isError === true)
+        return undefined;
+    if (typeof out.content === 'string')
+        out = object(parse(out.content));
+    const snapshot = object(out.snapshot);
+    return text(out.job_id) ? out.job_id : text(snapshot.id) ? snapshot.id : undefined;
+}
+
+},
 "src/modules/schedule/automation-card-client.js": function(module, exports, require) {
 // source: src/modules/schedule/automation-card-client.ts
 
@@ -983,9 +1234,413 @@ class AutomationCardClient {
 }
 exports.AutomationCardClient = AutomationCardClient;
 
+},
+"src/modules/jobs/client.js": function(module, exports, require) {
+// source: src/modules/jobs/client.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.JobClient = void 0;
+const model_1 = require("./model");
+/** One owner per connection, one in-flight read per observed session. Polls are
+ * transport reads, not model calls. Idle/unmounted/hidden scopes stop polling. */
+class JobClient {
+    constructor(rpc) {
+        this.rpc = rpc;
+        this.nodes = new Map();
+        this.connected = true;
+    }
+    node(session) { let n = this.nodes.get(session); if (!n) {
+        n = { snapshot: { loading: false }, listeners: new Set(), seq: 0 };
+        this.nodes.set(session, n);
+    } return n; }
+    snapshot(session) { return this.node(session).snapshot; }
+    publish(n, snapshot) { n.snapshot = snapshot; for (const listener of [...n.listeners]) {
+        try {
+            listener();
+        }
+        catch (error) {
+            console.error('Job projection listener failed', error);
+        }
+    } }
+    subscribe(session, listener) {
+        const n = this.node(session);
+        n.listeners.add(listener);
+        if (n.listeners.size === 1)
+            void this.refresh(session);
+        const visible = () => { if (!document.hidden)
+            void this.refresh(session); };
+        if (typeof document !== 'undefined')
+            document.addEventListener('visibilitychange', visible);
+        return () => { n.listeners.delete(listener); if (typeof document !== 'undefined')
+            document.removeEventListener('visibilitychange', visible); if (!n.listeners.size) {
+            clearTimeout(n.timer);
+            n.controller?.abort();
+            n.seq++;
+            n.request = undefined;
+            n.controller = undefined;
+            n.snapshot = { loading: false };
+        } };
+    }
+    reset(connected) {
+        this.connected = connected;
+        for (const [id, n] of this.nodes) {
+            clearTimeout(n.timer);
+            n.controller?.abort();
+            n.seq++;
+            n.request = undefined;
+            n.controller = undefined;
+            this.publish(n, { loading: false, ...(connected ? {} : { error: 'Host connection unavailable' }) });
+            if (connected && n.listeners.size)
+                void this.refresh(id);
+        }
+    }
+    async call(session, command, signal) {
+        const controller = new AbortController(), abort = () => controller.abort();
+        if (signal?.aborted)
+            controller.abort();
+        else
+            signal?.addEventListener('abort', abort, { once: true });
+        const timeout = setTimeout(abort, 15000);
+        try {
+            const result = await this.rpc.call('/api', 'job/manage', { sessionId: session, command }, controller.signal);
+            if (!result.ok)
+                throw Error(result.error.message);
+            return result.value;
+        }
+        finally {
+            clearTimeout(timeout);
+            signal?.removeEventListener('abort', abort);
+        }
+    }
+    refresh(session) {
+        const n = this.node(session);
+        if (n.request)
+            return n.request;
+        if (!this.connected || typeof document !== 'undefined' && document.hidden)
+            return Promise.resolve();
+        clearTimeout(n.timer);
+        const seq = ++n.seq, controller = new AbortController();
+        n.controller = controller;
+        const request = Promise.resolve().then(() => this.call(session, { action: 'list' }, controller.signal)).then(raw => {
+            if (seq !== n.seq)
+                return;
+            const catalog = (0, model_1.parseCatalog)(raw, session);
+            this.publish(n, { catalog, loading: false });
+        }).catch((error) => { if (seq === n.seq)
+            this.publish(n, { loading: false, error: error instanceof Error ? error.message : String(error) }); }).finally(() => {
+            if (seq !== n.seq)
+                return;
+            n.request = undefined;
+            n.controller = undefined;
+            const c = n.snapshot.catalog;
+            const delay = n.snapshot.error ? 15000 : c?.runs.some(r => model_1.ACTIVE.has(r.state)) ? 1500 : c?.plans.some(p => p.state === 'scheduled' || p.state === 'overdue') ? 15000 : undefined;
+            if (delay !== undefined && n.listeners.size && this.connected)
+                n.timer = setTimeout(() => void this.refresh(session), delay);
+        });
+        n.request = request;
+        this.publish(n, { ...n.snapshot, loading: true });
+        return request;
+    }
+    async control(session, command) {
+        const receipt = await this.call(session, command);
+        if (receipt === null || typeof receipt !== 'object' || !('version' in receipt) || receipt.version !== 1 || !('accepted' in receipt) || receipt.accepted !== true)
+            throw Error('Invalid Job control receipt');
+        const n = this.node(session);
+        clearTimeout(n.timer);
+        n.controller?.abort();
+        n.seq++;
+        n.request = undefined;
+        if (n.listeners.size)
+            await this.refresh(session);
+        else
+            n.snapshot = { loading: false };
+    }
+    async output(session, reference, signal, cursor) { return (0, model_1.parseOutput)(await this.call(session, { action: 'output', reference, ...(cursor ? { cursor } : {}) }, signal), session, reference); }
+}
+exports.JobClient = JobClient;
+
+},
+"src/modules/jobs/ToolCard.js": function(module, exports, require) {
+// source: src/modules/jobs/ToolCard.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.JobToolCard = JobToolCard;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const tool_call_model_1 = require("../tool/tool/models/tool-call-model");
+const RunPanel_1 = require("./RunPanel");
+function JobToolCard({ client, sessionId, block, toolName, inspect }) {
+    const model = (0, tool_call_model_1.toolRowModel)(toolName, block);
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhauto-card", children: [(0, jsx_runtime_1.jsxs)("header", { children: [(0, jsx_runtime_1.jsx)("span", { children: toolName }), inspect && (0, jsx_runtime_1.jsx)("button", { onClick: inspect, children: "Inspect" })] }), model.state === 'running' && (0, jsx_runtime_1.jsx)("p", { role: "status", children: document.documentElement.lang.startsWith('zh') ? '工具执行中…' : 'Tool in progress…' }), model.state === 'error' && (0, jsx_runtime_1.jsx)("p", { className: "xhauto-card-error", role: "alert", children: model.errorSummary ?? 'Tool failed' }), toolName === 'job_list' ? (0, jsx_runtime_1.jsx)(RunPanel_1.JobRunPanel, { client: client, sessionId: sessionId }) : (0, jsx_runtime_1.jsx)(RunPanel_1.JobToolPanel, { client: client, sessionId: sessionId, block: block })] });
+}
+
+},
+"src/modules/tool/tool/models/tool-call-model.js": function(module, exports, require) {
+// source: src/modules/tool/tool/models/tool-call-model.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.VARIANT_TITLES = void 0;
+exports.classifyTool = classifyTool;
+exports.resultText = resultText;
+exports.relativizeToCwd = relativizeToCwd;
+exports.toolRowModel = toolRowModel;
+/**
+ * Pure row-model derivation for tool summary rows: variant classification,
+ * one-line summary, expanded-body text, and flattened result output from the
+ * frozen call slice. Input material comes from the call ARGUMENTS; output and
+ * error material from the settled result node. A call whose render intent is
+ * a terminal card gets its expanded body from the views instead, through
+ * `terminalCardModel` in terminal-card-model.ts.
+ */
+// The block union's defining home is runtime (fold-product types); this
+// contract only forwards it (type-definition authority stays with the layer
+// that produces the values).
+const value_guards_1 = require("../../value-guards");
+const runtime_1 = require("../../runtime");
+/** Figma row titles per variant (design literals, not translatable copy). */
+exports.VARIANT_TITLES = {
+    search: 'Search', read: 'Read', bash: 'Bash',
+    write: 'Write', edit: 'Edit', code: 'Code', others: 'Tool call',
+};
+/**
+ * Known tool name -> variant.
+ *
+ * `cordis_define` is deliberately absent: ui-cordis registers a keyed
+ * `tool.call.toolview` entry for it, and a keyed hit REPLACES the generic row
+ * (this table is only reached through GenericToolCard, the dispatch fallback in
+ * ToolCallTree). An entry here would be unreachable, and a second title for the
+ * same call would be a second answer to a question the card already owns.
+ */
+const TOOL_VARIANTS = {
+    bash: 'bash',
+    // The PowerShell twin is a shell tool: the bash row family (icon, colors)
+    // with its own title from TOOL_TITLES, not the generic `others` row.
+    pwsh: 'bash',
+    read: 'read',
+    web_fetch: 'read',
+    web_search: 'search',
+    grep: 'search',
+    glob: 'search',
+    write: 'write',
+    edit: 'edit',
+    run_code: 'code',
+    cordis_package_inspect: 'read',
+    cordis_runtime_inspect: 'read',
+    // The three run-control verbs take one package id and produce a receipt, so
+    // the generic row is the decided intent, not an unclassified default: there is
+    // no program to show (that is `cordis_define`'s card) and no file to open. The
+    // id lands in the summary slot, and the titles below name the act.
+    cordis_run: 'others',
+    cordis_stop: 'others',
+    cordis_undefine: 'others',
+};
+/** Tool-owned titles that refine a generic row variant without replacing it. */
+const TOOL_TITLES = {
+    cordis_package_inspect: 'Inspect',
+    cordis_runtime_inspect: 'Inspect',
+    cordis_run: 'Run Cordis Plugin',
+    cordis_stop: 'Stop Cordis Plugin',
+    cordis_undefine: 'Remove Cordis Plugin',
+    pwsh: 'Pwsh',
+};
+/**
+ * Classify a tool name into its row variant.
+ * @param toolName - wire tool name.
+ * @returns matching variant, others when unknown.
+ */
+function classifyTool(toolName) {
+    return TOOL_VARIANTS[toolName] ?? 'others';
+}
+/**
+ * Flatten a settled result's content blocks to display text: text blocks
+ * verbatim, other block shapes as pretty JSON. Empty content on a failed call
+ * falls back to the structured error's `name: code` line.
+ * @param node - the settled result node.
+ * @returns the flattened result text (may be empty).
+ */
+function resultText(node) {
+    const parts = [];
+    for (const block of node.content) {
+        if ((0, value_guards_1.isRecord)(block) && block.type === 'text' && typeof block.text === 'string')
+            parts.push(block.text);
+        else {
+            const text = JSON.stringify(block, null, 2);
+            if (text !== undefined)
+                parts.push(text);
+        }
+    }
+    if (parts.length === 0 && node.error !== undefined) {
+        parts.push(`${node.error.name}: ${node.error.code}`);
+    }
+    return parts.join('\n');
+}
+function parseArgs(argsRaw) {
+    try {
+        const parsed = JSON.parse(argsRaw);
+        return parsed;
+    }
+    catch {
+        // Non-JSON args (mid-stream truncation): summary/body fall back to the raw string.
+        return undefined;
+    }
+}
+function firstLine(text) {
+    const nl = text.indexOf('\n');
+    return nl === -1 ? text : text.slice(0, nl);
+}
+function pickString(args, keys) {
+    for (const key of keys) {
+        const v = args[key];
+        if (typeof v === 'string' && v !== '')
+            return v;
+    }
+    return undefined;
+}
+/** Summary key preference per variant (args-derived; result-derived summaries are a ledger item). */
+const SUMMARY_KEYS = {
+    bash: ['description', 'command'],
+    read: ['path', 'file_path', 'url'],
+    search: ['query', 'pattern', 'url'],
+    write: ['path', 'file_path'],
+    edit: ['path', 'file_path'],
+    code: ['description'],
+    others: [],
+};
+/**
+ * Strip the workspace root from a workspace-rooted absolute path (display only).
+ * @param text - the path to shorten.
+ * @param cwd - session workspace root; absent or empty leaves the path unchanged.
+ * @returns the path relative to the workspace root, or unchanged when it is not rooted there.
+ */
+function relativizeToCwd(text, cwd) {
+    if (cwd === undefined || cwd === '')
+        return text;
+    const root = cwd.replace(/[/\\]+$/, '');
+    if (text.startsWith(`${root}/`) || text.startsWith(`${root}\\`))
+        return text.slice(root.length + 1);
+    return text;
+}
+function deriveSummary(variant, argsRaw) {
+    const parsed = parseArgs(argsRaw);
+    if (!(0, value_guards_1.isRecord)(parsed))
+        return firstLine(argsRaw);
+    const args = parsed;
+    if (variant === 'search' && (0, value_guards_1.isUnknownArray)(args.queries)) {
+        const queries = args.queries.filter((query) => typeof query === 'string' && query !== '');
+        if (queries.length > 0)
+            return queries.map(firstLine).join(', ');
+    }
+    const picked = pickString(args, SUMMARY_KEYS[variant]);
+    if (picked !== undefined)
+        return firstLine(picked);
+    for (const v of Object.values(args)) {
+        if (typeof v === 'string' && v !== '')
+            return firstLine(v);
+    }
+    return firstLine(argsRaw);
+}
+/** Path keys only — never `url` (web_fetch lands on the read variant). */
+const FILE_PATH_KEYS = ['path', 'file_path'];
+/** File-tool variants whose summary may be an openable workspace path. */
+const FILE_PATH_VARIANTS = new Set(['read', 'write', 'edit']);
+function deriveFilePath(variant, argsRaw) {
+    if (!FILE_PATH_VARIANTS.has(variant))
+        return undefined;
+    const parsed = parseArgs(argsRaw);
+    if (!(0, value_guards_1.isRecord)(parsed))
+        return undefined;
+    const picked = pickString(parsed, FILE_PATH_KEYS);
+    return picked === undefined ? undefined : firstLine(picked);
+}
+function deriveBody(variant, argsRaw) {
+    if (argsRaw === '')
+        return null;
+    const parsed = parseArgs(argsRaw);
+    if (parsed === undefined)
+        return argsRaw;
+    // The code row's expanded body IS the program (monospace via the row's
+    // variant styling), not the args JSON envelope around it.
+    if (variant === 'code' && (0, value_guards_1.isRecord)(parsed)) {
+        const code = parsed.code;
+        if (typeof code === 'string' && code !== '')
+            return code;
+    }
+    return JSON.stringify(parsed, null, 2) ?? null;
+}
+/**
+ * Derive the full row model from a frozen call slice.
+ * @param toolName - wire tool name (dispatch-supplied; survives windowless results).
+ * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
+ * @param cwd - session workspace root; workspace-rooted path summaries display relative to it.
+ * @param home - host account home; a leftover POSIX home path displays as `~`.
+ * @returns the row model.
+ */
+function toolRowModel(toolName, block, cwd, home) {
+    const variant = classifyTool(toolName);
+    const done = 'kind' in block;
+    const argsRaw = (done ? block.call?.argsRaw : block.argsRaw) ?? '';
+    const state = !done ? argsRaw === '' ? 'preparing' : 'running'
+        : block.error?.code === 'interrupted' ? 'stopped'
+            : block.isError ? 'error' : 'ok';
+    const base = argsRaw === ''
+        ? ''
+        : (0, runtime_1.abbreviateHomePath)(relativizeToCwd(deriveSummary(variant, argsRaw), cwd), home);
+    const toolTitle = TOOL_TITLES[toolName];
+    // Others keeps the static "Tool call" title (figma literal); the real tool
+    // name rides the mutable summary slot unless the tool owns a specific title.
+    const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
+        ? `${toolName} · ${base}`
+        : base;
+    // The empty string is "no text" for both derived result fields: a settled
+    // call with blank content has nothing to expand, and a blank first line
+    // would erase the collapsed error row's summary slot.
+    const output = done ? (resultText(block) || null) : null;
+    const errorSummary = state === 'error' && output !== null ? firstLine(output) : null;
+    return {
+        variant,
+        title: toolTitle ?? exports.VARIANT_TITLES[variant],
+        summary,
+        filePath: deriveFilePath(variant, argsRaw),
+        body: deriveBody(variant, argsRaw),
+        output,
+        errorSummary,
+        state,
+    };
+}
+
+},
+"src/modules/tool/value-guards.js": function(module, exports, require) {
+// source: src/modules/tool/value-guards.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isRecord = isRecord;
+exports.isUnknownArray = isUnknownArray;
+/** Object/array admission does not assign unverified fields a domain type. */
+function isRecord(value) {
+    return typeof value === 'object' && value !== null;
+}
+function isUnknownArray(value) {
+    return Array.isArray(value);
+}
+
+},
+"src/modules/tool/runtime.js": function(module, exports, require) {
+// source: src/modules/tool/runtime.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveWorkspacePath = exports.abbreviateHomePath = void 0;
+/** Display-only path helpers; no filesystem operation runs here. */
+var client_1 = require("@xharness/dsh-client-runtime/client");
+Object.defineProperty(exports, "abbreviateHomePath", { enumerable: true, get: function () { return client_1.abbreviateHomePath; } });
+Object.defineProperty(exports, "resolveWorkspacePath", { enumerable: true, get: function () { return client_1.resolveWorkspacePath; } });
+
 }
 };
-const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js","./AutomationNavigation":"src/modules/schedule/AutomationNavigation.js","./AutomationNavigation.css":"src/modules/schedule/AutomationNavigation.css","./AutomationToolCard.css":"src/modules/schedule/AutomationToolCard.css","./AutomationToolCard":"src/modules/schedule/AutomationToolCard.js","./automation-card-client":"src/modules/schedule/automation-card-client.js"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{},"src/modules/schedule/automation-data.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/AutomationNavigation.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/AutomationNavigation.css":{},"src/modules/schedule/AutomationToolCard.css":{},"src/modules/schedule/AutomationToolCard.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js"},"src/modules/schedule/automation-card-model.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/automation-card-client.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js"}};
+const __dependencies = {"src/modules/schedule/index.js":{"./Schedule.css":"src/modules/schedule/Schedule.css","../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js","./AutomationNavigation":"src/modules/schedule/AutomationNavigation.js","./AutomationNavigation.css":"src/modules/schedule/AutomationNavigation.css","./AutomationToolCard.css":"src/modules/schedule/AutomationToolCard.css","./AutomationToolCard":"src/modules/schedule/AutomationToolCard.js","./automation-card-client":"src/modules/schedule/automation-card-client.js","../jobs/client":"src/modules/jobs/client.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js","../jobs/ToolCard":"src/modules/jobs/ToolCard.js"},"src/modules/schedule/Schedule.css":{},"src/modules/shared/runtime-types.js":{},"src/modules/schedule/automation-data.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/schedule/AutomationNavigation.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/schedule/AutomationNavigation.css":{},"src/modules/schedule/AutomationToolCard.css":{},"src/modules/schedule/AutomationToolCard.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js","../jobs/RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/schedule/automation-card-model.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","./automation-data":"src/modules/schedule/automation-data.js"},"src/modules/jobs/RunPanel.js":{"./RunPanel.css":"src/modules/jobs/RunPanel.css","../views-types":"src/modules/views-types.js","./model":"src/modules/jobs/model.js"},"src/modules/jobs/RunPanel.css":{},"src/modules/views-types.js":{},"src/modules/jobs/model.js":{},"src/modules/schedule/automation-card-client.js":{"./automation-card-model":"src/modules/schedule/automation-card-model.js"},"src/modules/jobs/client.js":{"./model":"src/modules/jobs/model.js"},"src/modules/jobs/ToolCard.js":{"../tool/tool/models/tool-call-model":"src/modules/tool/tool/models/tool-call-model.js","./RunPanel":"src/modules/jobs/RunPanel.js"},"src/modules/tool/tool/models/tool-call-model.js":{"../../value-guards":"src/modules/tool/value-guards.js","../../runtime":"src/modules/tool/runtime.js"},"src/modules/tool/value-guards.js":{},"src/modules/tool/runtime.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

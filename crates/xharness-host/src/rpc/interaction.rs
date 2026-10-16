@@ -56,7 +56,7 @@ pub(crate) async fn respond_review(
     .await
 }
 
-async fn respond_approval(
+pub(super) async fn respond_approval(
     host: &BasicHost,
     response: ClientResponse,
     pending: PendingResponse,
@@ -119,6 +119,19 @@ async fn respond_approval(
                     reason: ReceiptRejection::NotPending,
                 };
             };
+            // A stale cloned record must never send to a replaced pending
+            // instance, even when its RPC/approval/call strings are reused.
+            let current = host.state.read().await.pending.get(&rpc_id).cloned();
+            let still_owned = current.is_some_and(|current| match current {
+                PendingResponse::Approval { deciding, .. } => {
+                    Arc::ptr_eq(&deciding, &claim.deciding)
+                }
+            });
+            if !still_owned {
+                return RpcReceipt::Rejected {
+                    reason: ReceiptRejection::NotPending,
+                };
+            }
             let (acknowledgement, accepted) = oneshot::channel();
             if control
                 .send(DriverCommand {
@@ -201,6 +214,7 @@ mod tests {
                 control,
                 reviewing: false,
                 reason: "manual".into(),
+                scoped_nonce: Arc::new(std::sync::OnceLock::new()),
                 deciding: deciding.clone(),
             },
         );

@@ -1,0 +1,13 @@
+[package]
+name = "xharness-session-import"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Read-only external transcript adapters; never executable tool state"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+xharness-session = { path = "../xharness-session" }

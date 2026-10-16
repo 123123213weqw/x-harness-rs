@@ -36,6 +36,7 @@ try {
     ['Archived chats', '.xhtask-settings-root'],
     ['Display & shortcuts', '.xhe-root'],
   ]
+  if (existsSync(resolve('ui/src/modules/settings-remote-control/index.ts'))) sections.push(['Remote control & channels', '.xr_remoteRoot'])
   const dialog = page.getByRole('dialog', {name:'Settings',exact:true})
   const geometry = () => page.evaluate(() => {
     const surface = document.querySelector('dialog:modal')
@@ -69,6 +70,9 @@ try {
       ['General','general'],['Models','models'],['Account & model service','account'],['Profile','usage'],
       ['Archived chats','archive'],['Display & shortcuts','display'],['Installation statistics & privacy','installation'],
     ])
+    if (existsSync(resolve('ui/src/modules/memory/index.tsx'))) expectedIcons.set('Memory','memory')
+    if (existsSync(resolve('ui/src/modules/session-import/index.ts'))) expectedIcons.set('Import session','import')
+    if (existsSync(resolve('ui/src/modules/settings-remote-control/index.ts'))) expectedIcons.set('Remote control & channels','remote')
     for(const [label,kind] of expectedIcons) {
       const icon=icons.find(item=>item.label===label)
       assert.ok(icon,`${theme}: registered settings row ${label}`)

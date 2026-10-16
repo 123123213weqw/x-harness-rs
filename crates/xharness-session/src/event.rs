@@ -693,6 +693,10 @@ pub enum EventData {
     /// Independent working-plan snapshot; not provider text or a Goal transition.
     #[serde(rename = "session/plan-updated")]
     SessionPlanUpdated { plan: crate::SessionPlan },
+    #[serde(rename = "job/continuation")]
+    JobContinuation {
+        record: Box<crate::JobContinuationRecord>,
+    },
     /// Versioned durable Goal controller state, never model conversation text.
     #[serde(rename = "goal/execution")]
     GoalExecution {

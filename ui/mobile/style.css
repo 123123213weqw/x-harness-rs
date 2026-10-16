@@ -1,0 +1,167 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --fg: #171717;
+  --muted: #686868;
+  --line: #dedede;
+  --surface: #fff;
+  --accent: #171717;
+  --inverse: #fff;
+  --app-height: 100vh;
+  --app-top: 0px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+}
+@supports (height: 100dvh) { :root { --app-height: 100dvh; } }
+* { box-sizing: border-box; }
+html { height: 100%; overflow: hidden; background: var(--bg); }
+body {
+  position: fixed;
+  top: var(--app-top);
+  inset-inline: 0;
+  height: 100vh;
+  height: var(--app-height);
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+}
+[hidden] { display: none !important; }
+header {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 12px;
+  min-height: 52px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+header strong { flex-shrink: 0; font-size: 18px; }
+header span { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+header button { flex-shrink: 0; font-size: 13px; padding-inline: 10px; }
+main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 900px;
+  min-height: 0;
+  min-width: 0;
+  margin-inline: auto;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+h1 { margin: 0 0 12px; font-size: 24px; letter-spacing: -.6px; }
+p { line-height: 1.6; overflow-wrap: anywhere; }
+label { display: grid; gap: 6px; min-width: 0; }
+form { display: grid; gap: 16px; min-width: 0; }
+input, select, textarea, button {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 44px;
+  min-width: 0;
+  max-width: 100%;
+}
+input, select, textarea { width: 100%; font-size: 16px; }
+button { cursor: pointer; white-space: nowrap; min-width: 44px; }
+button[type=submit] { background: var(--accent); color: var(--inverse); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .file:focus-within, #conversation:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+.muted, small, footer { color: var(--muted); font-size: 12px; }
+.experiment-note { flex-shrink: 0; margin: 0; }
+#pair { flex-shrink: 0; width: 100%; max-width: 480px; margin: 12px auto; }
+#reconnect { margin-top: 8px; }
+#control { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+:root[data-view="control"] main { overflow: hidden; }
+:root[data-view="control"] #control { flex: 1; }
+:root[data-view="control"] footer { display: none; }
+nav { display: flex; flex-shrink: 0; align-items: end; gap: 8px; min-width: 0; }
+nav label { flex: 1; font-size: 12px; }
+nav select { text-overflow: ellipsis; }
+#scope { flex-shrink: 0; margin: 0; font-size: 11px; }
+#conversation {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  overflow-wrap: anywhere;
+}
+#timeline { min-width: 0; }
+.message { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.message strong { font-size: 13px; }
+.message pre { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin: 8px 0; }
+#prompt-form { flex-shrink: 0; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+#prompt-form > label { font-size: 12px; }
+#prompt { height: 68px; min-height: 44px; resize: none; overflow: auto; }
+.composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px; align-items: center; min-width: 0; }
+.composer button, .file { font-size: 13px; padding: 10px 8px; }
+.composer select { font-size: 16px; padding: 10px 8px; text-overflow: ellipsis; }
+.file { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; min-height: 44px; min-width: 44px; align-content: center; }
+.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+#file-status:empty { display: none; }
+#file-status { max-height: 40px; overflow: auto; overflow-wrap: anywhere; }
+#interactions > section, #unknown { border-left: 3px solid var(--fg); padding: 10px 12px; margin: 10px 0; background: var(--surface); }
+#interactions button, #unknown button { margin-right: 6px; margin-top: 6px; white-space: normal; }
+#error { flex-shrink: 0; max-height: 100px; overflow: auto; border-left: 3px solid var(--fg); padding: 10px 12px; margin: 0; background: var(--surface); }
+details { margin: 16px 0; border-top: 1px solid var(--line); padding-top: 12px; }
+summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
+#automation-list pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+footer { flex-shrink: 0; padding: 8px 16px max(8px, env(safe-area-inset-bottom, 0px)); text-align: center; line-height: 1.5; }
+/* Sealed devices may still inspect their original unknown request; keep both
+   pairing and recovery reachable without reviving an authorized chat layout. */
+:root[data-view="recovery"] #control { flex: 0 0 auto; }
+:root[data-view="recovery"] #conversation { flex: none; overflow: visible; }
+:root[data-view="recovery"] #prompt-form { display: none; }
+:root[data-compact="true"] .experiment-note,
+:root[data-compact="true"] footer { display: none; }
+:root[data-compact="true"] main { padding-top: 8px; gap: 6px; }
+:root[data-compact="true"] header { padding-top: calc(4px + env(safe-area-inset-top, 0px)); padding-bottom: 4px; }
+:root[data-compact="true"] nav label { font-size: 0; gap: 0; }
+:root[data-compact="true"] #scope { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root[data-compact="true"] #prompt-form > label { display: none; }
+:root[data-compact="true"] #prompt { height: 44px; }
+:root[data-compact="true"] #prompt-form { padding-top: 6px; gap: 6px; }
+@media (max-width: 360px) {
+  header { gap: 8px; }
+  header strong { font-size: 16px; }
+  header button { padding-inline: 6px; font-size: 12px; }
+  .composer { gap: 4px; }
+  .composer button, .file { padding-inline: 6px; font-size: 12px; }
+  .composer select { padding-inline: 6px; }
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111; --fg: #eee; --muted: #aaa; --line: #333; --surface: #191919; --accent: #eee; --inverse: #111; }
+}
+
+/* Pending decisions are reachable independently of the conversation scroll. */
+#review-interactions { flex-shrink: 0; font-weight: 600; }
+#interaction-dialog {
+  position: fixed;
+  top: calc(var(--app-top) + 12px);
+  bottom: auto;
+  margin: 0 auto;
+  width: min(600px, calc(100% - 24px));
+  max-height: calc(var(--app-height) - 24px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--fg);
+  overflow: hidden;
+}
+#interaction-dialog[open] { display: flex; flex-direction: column; }
+#interaction-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.interaction-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; padding: 12px; border-bottom: 1px solid var(--line); }
+#interactions { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
+#interactions > section { margin-bottom: 0; }

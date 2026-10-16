@@ -237,6 +237,10 @@ async fn restored_settings_activate_before_queued_input_reaches_real_http_adapte
                 }
             }
             let request = String::from_utf8(bytes).unwrap();
+            if request.starts_with("GET /v1/models ") || request.starts_with("GET /props ") {
+                socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+                continue;
+            }
             assert!(request.starts_with("POST /v1/chat/completions"));
             assert!(request
                 .to_ascii_lowercase()
@@ -637,10 +641,18 @@ async fn capability_refresh_rpc_updates_native_levels_and_keeps_last_good_on_fai
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
         for level in [Some("brief"), Some("deep"), None] {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = vec![0; 8192];
-            let n = socket.read(&mut request).await.unwrap();
-            assert!(String::from_utf8_lossy(&request[..n]).starts_with("GET /capabilities "));
+            let mut socket = loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![0; 8192];
+                let n = socket.read(&mut request).await.unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if request.starts_with("GET /models ") {
+                    socket.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").await.unwrap();
+                    continue;
+                }
+                assert!(request.starts_with("GET /capabilities "));
+                break socket;
+            };
             let (status, body) = match level {
                 Some(level) => (
                     "200 OK",
@@ -1333,4 +1345,119 @@ async fn official_reasoning_catalog_never_overwrites_explicit_disable_custom_pro
             document
         );
     }
+}
+
+/// Read-only metadata server: it never receives a generation request.
+async fn context_metadata_fixture() -> (
+    String,
+    Arc<AtomicU64>,
+    Arc<AtomicU64>,
+    tokio::task::JoinHandle<()>,
+) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+    let window = Arc::new(AtomicU64::new(0));
+    let requests = Arc::new(AtomicU64::new(0));
+    let w = window.clone();
+    let r = requests.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            while !bytes.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                if socket.read(&mut byte).await.unwrap() == 0 {
+                    break;
+                }
+                bytes.push(byte[0]);
+            }
+            let request = String::from_utf8(bytes).unwrap();
+            assert!(
+                request.starts_with("GET "),
+                "discovery must not generate tokens"
+            );
+            r.fetch_add(1, Ordering::SeqCst);
+            let body = if request.starts_with("GET /v1/models ") {
+                json!({"data":[{"id":"coder","meta":{"n_ctx":w.load(Ordering::SeqCst),"n_ctx_train":1000000}}]})
+            } else {
+                assert!(request.starts_with("GET /props "));
+                json!({})
+            }.to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
+        }
+    });
+    (endpoint, window, requests, task)
+}
+
+#[tokio::test]
+async fn unknown_context_is_not_a_32k_ceiling_and_refresh_preserves_explicit_selection() {
+    let (endpoint, window, _, server) = context_metadata_fixture().await;
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    add(
+        &host,
+        json!({"baseURL":endpoint,"api":"openai-completions","models":[{"id":"coder"}]}),
+    )
+    .await;
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        None
+    );
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    let id = created["sessionId"].as_str().unwrap();
+    rpc(
+        &host,
+        RpcMethod::SessionSelectModel,
+        json!({"sessionId":id,"provider":"test-gateway","model":"coder"}),
+    )
+    .await;
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert!(
+        catalog["current"]["contextWindowTokens"].is_null(),
+        "automatic selection must not freeze a temporary guard"
+    );
+    rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":65536})).await;
+    window.store(262144, Ordering::SeqCst);
+    host.refresh_model_settings().await.unwrap();
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(262144)
+    );
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(catalog["current"]["contextWindowTokens"], 65536);
+    // An explicit 32K preference must never be mistaken for the old default.
+    rpc(&host, RpcMethod::SessionSelectModel, json!({"sessionId":id,"provider":"test-gateway","model":"coder","contextWindowTokens":32768})).await;
+    host.refresh_model_settings().await.unwrap();
+    let catalog = rpc(&host, RpcMethod::SessionModels, json!({"sessionId":id})).await;
+    assert_eq!(catalog["current"]["contextWindowTokens"], 32768);
+    server.abort();
+}
+
+#[tokio::test]
+async fn explicit_capacity_refresh_can_replace_a_configured_fallback_without_startup_probes() {
+    let (endpoint, window, requests, server) = context_metadata_fixture().await;
+    window.store(262144, Ordering::SeqCst);
+    let dir = TempDir::new();
+    let (host, runtime) = fixture(&dir, Arc::new(TestCredentials::default())).await;
+    add(&host, json!({"baseURL":endpoint,"api":"openai-completions","models":[{"id":"coder","contextWindow":32768}]})).await;
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(32768)
+    );
+    host.refresh_model_settings().await.unwrap();
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        runtime.model_catalog()[0]
+            .context_window
+            .effective_hard_max(),
+        Some(262144)
+    );
+    server.abort();
 }
