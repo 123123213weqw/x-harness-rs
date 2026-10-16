@@ -293,7 +293,7 @@ mod tests {
         // This exercises real JSONL flushes and actor startup, not a timer SLA.
         // Slow Windows runners must still prove a completed durable receipt;
         // admission or a failed terminal result must never satisfy the wait.
-        let mut last_view = Value::Null;
+        let mut last_view = serde_json::Value::Null;
         let view = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let view = schedules
