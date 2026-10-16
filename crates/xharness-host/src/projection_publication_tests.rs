@@ -1084,3 +1084,6 @@ async fn automatic_compaction_views_match_live_history_and_restart() {
         }
     }
 }
+
+#[path = "projection_working_set_tests.rs"]
+mod working_set_tests;

@@ -309,6 +309,8 @@ pub(crate) fn restore(host: &BasicHost, tail: &SessionRecoveryTail) -> Option<Se
         events: Vec::new(),
         event_base_seq: tail.next_seq,
         event_cache_bytes: 0,
+        event_cache_weights: Vec::new(),
+        event_cache_touched: 0,
         projected_model: None,
         metrics: state.metrics,
         catalog_metrics: None,

@@ -255,6 +255,12 @@ fn event_weight(event: &LoggedEvent) -> usize {
     }
     n.0.saturating_mul(3)
         .saturating_add(std::mem::size_of::<LoggedEvent>())
+        // EventData moved out of the vector into a shared allocation. Keep
+        // charging its fixed storage and ownership counters, not just the
+        // smaller pointer-bearing LoggedEvent. Shared cuts are conservatively
+        // over-accounted rather than making the LRU appear artificially cheap.
+        .saturating_add(std::mem::size_of_val(event.data()))
+        .saturating_add(2 * std::mem::size_of::<usize>())
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct FileFingerprint {
@@ -325,7 +331,9 @@ impl JsonlSessionStore {
                 .map_err(|e| backend_message(e.to_string()))?;
             for event in record.events {
                 if event.seq == seq {
-                    if let xharness_session::EventData::RequestHeader { header } = event.event.0 {
+                    if let xharness_session::EventData::RequestHeader { header } =
+                        event.event.into_data()
+                    {
                         return if harness_only {
                             harness_snapshot::expand(&root, &owned, header)
                         } else {
@@ -2133,4 +2141,28 @@ fn corrupt(path: &Path, line: usize, message: impl AsRef<str>) -> StoreError {
         path.display(),
         message.as_ref()
     ))
+}
+
+#[cfg(test)]
+mod shared_payload_weight_tests {
+    #![forbid(unsafe_code)]
+    use super::*;
+
+    #[test]
+    fn snapshot_budget_charges_the_shared_payload_outside_the_event_vector() {
+        let event = LoggedEvent {
+            seq: 0,
+            revision: Revision(1),
+            timestamp_ms: 1,
+            event: xharness_session::EventData::StepStart { turn: 1, step: 1 }.into(),
+        };
+        let encoded = serde_json::to_vec(&event).unwrap();
+        assert_eq!(
+            event_weight(&event),
+            encoded.len() * 3
+                + std::mem::size_of::<LoggedEvent>()
+                + std::mem::size_of::<xharness_session::EventData>()
+                + 2 * std::mem::size_of::<usize>()
+        );
+    }
 }

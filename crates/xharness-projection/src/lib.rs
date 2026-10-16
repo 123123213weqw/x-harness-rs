@@ -12,8 +12,10 @@ use xharness_session::{
 
 pub mod metrics;
 pub mod performance;
+mod tail_update;
 pub mod wire;
 use metrics::web_token_usage;
+pub use tail_update::{prepare_session_tail_update, ProjectedTailUpdate, TailReplacement};
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
 
@@ -57,6 +59,8 @@ pub fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
 /// stay identical to the append-only Session log, so eviction never changes a
 /// browser cursor.
 pub struct ProjectedEventTail {
+    /// Encoded weights computed once while preparing each event.
+    pub event_bytes: Vec<usize>,
     pub base_seq: u64,
     pub next_seq: u64,
     pub bytes: usize,
@@ -68,6 +72,7 @@ impl ProjectedEventTail {
     /// cursor. Cold history is loaded through `session.history` on demand.
     pub fn empty_at(next_seq: u64) -> Self {
         Self {
+            event_bytes: Vec::new(),
             base_seq: next_seq,
             next_seq,
             bytes: 0,
@@ -690,6 +695,7 @@ pub fn project_session_event_tail_from(
     let max_events = max_events.max(1);
     let max_bytes = max_bytes.max(1);
     let mut reversed = Vec::new();
+    let mut weights = Vec::new();
     let mut bytes = 0usize;
 
     for event in session.events()[floor..end].iter().rev().take(max_events) {
@@ -712,11 +718,14 @@ pub fn project_session_event_tail_from(
             break;
         }
         bytes = bytes.saturating_add(event_bytes);
+        weights.push(event_bytes);
         reversed.push(projected);
     }
     reversed.reverse();
+    weights.reverse();
     let start = end.saturating_sub(reversed.len());
     ProjectedEventTail {
+        event_bytes: weights,
         base_seq: u64::try_from(start).unwrap_or(u64::MAX),
         next_seq: session.next_seq(),
         bytes,

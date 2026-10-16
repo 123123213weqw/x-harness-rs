@@ -1,6 +1,8 @@
 use std::sync::{atomic::Ordering, Arc};
 use xharness_projection::metrics::web_token_usage_from_core;
-use xharness_projection::{project_session_event_range, project_session_event_tail_from};
+#[cfg(test)]
+use xharness_projection::project_session_event_tail_from;
+use xharness_projection::{prepare_session_tail_update, project_session_event_range};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -67,7 +69,10 @@ impl ProjectionInputs {
 
     fn matches(&self, record: &crate::state::SessionRecord) -> bool {
         self.cursor == record.authoritative_seq
-            && self.cache_base_seq == record.event_base_seq
+            // Another session may evict this display prefix while preparation
+            // runs. The journal cursor still certifies the delta; applying it
+            // to a shorter suffix is safe, but never resurrect a stale cursor.
+            && self.cache_base_seq <= record.event_base_seq
             && self.created_at == record.created_at
             && self.schedules_hydrated == record.schedules_hydrated
             && self.restoring == record.restoring
@@ -82,12 +87,16 @@ impl ProjectionInputs {
         self.cursor == Some(next_seq)
             && self.schedules_hydrated
             && !self.restoring
-            && self.projected_model.as_ref().is_some_and(|model| {
-                model.provider == self.route.provider
-                    && model.model == self.route.model
-                    && model.reasoning_effort == self.route.reasoning_effort
-                    && model.context_window_tokens == self.route.context_window_tokens
-            })
+            && self.reusable_route()
+    }
+
+    fn reusable_route(&self) -> bool {
+        self.projected_model.as_ref().is_some_and(|model| {
+            model.provider == self.route.provider
+                && model.model == self.route.model
+                && model.reasoning_effort == self.route.reasoning_effort
+                && model.context_window_tokens == self.route.context_window_tokens
+        })
     }
 }
 
@@ -428,10 +437,12 @@ impl BasicHost {
                     .sessions
                     .get(session_id)
                     .is_some_and(|record| record.running));
-            let tail = project_session_event_tail_from(
+            let tail = prepare_session_tail_update(
                 &session,
                 route,
                 inputs.cache_base_seq,
+                inputs.cursor,
+                inputs.reusable_route(),
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
@@ -477,11 +488,10 @@ impl BasicHost {
                             updates.push(update);
                         }
                     }
-                    record.replace_authoritative_tail(
-                        tail.base_seq,
-                        tail.next_seq,
-                        tail.events,
-                        tail.bytes,
+                    record.apply_tail_update(
+                        tail,
+                        self.config.session_event_cache_capacity,
+                        self.config.session_event_cache_bytes,
                     );
                     record.projected_model = Some(record.model.clone());
                     // Durable Runtime derives provider messages from the journal on demand.
@@ -522,6 +532,10 @@ impl BasicHost {
                 } else {
                     state.goals.remove(session_id);
                 }
+                state.enforce_projection_budget(
+                    session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 (
                     new_events,
                     queue_changed,

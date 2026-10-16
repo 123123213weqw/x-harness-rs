@@ -236,7 +236,11 @@ impl BasicHost {
                             } else {
                                 state.goals.remove(&session_id);
                             }
-                            state.sessions.insert(session_id, record);
+                            state.sessions.insert(session_id.clone(), record);
+                            state.enforce_projection_budget(
+                                &session_id,
+                                self.config.session_event_cache_total_bytes,
+                            );
                             report.restored_sessions += 1;
                             report.checkpoint_restored_sessions += 1;
                             report.checkpoint_tail_events += tail.events.len();
@@ -462,6 +466,8 @@ impl BasicHost {
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
+                event_cache_weights: tail.event_bytes,
+                event_cache_touched: 0,
                 projected_model: None,
                 metrics,
                 catalog_metrics: None,
@@ -518,6 +524,10 @@ impl BasicHost {
                 let mut state = self.state.write().await;
                 attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
                 state.sessions.insert(session_id.clone(), record);
+                state.enforce_projection_budget(
+                    &session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 if let Some(goal) = goal {
                     state.goals.insert(session_id.clone(), goal);
                 }
@@ -893,6 +903,8 @@ impl BasicHost {
                 events: Vec::new(),
                 event_base_seq: 0,
                 event_cache_bytes: 0,
+                event_cache_weights: Vec::new(),
+                event_cache_touched: 0,
                 projected_model: None,
                 metrics: MetricsProjectionState::default(),
                 catalog_metrics: indexed.and_then(|e| {
@@ -916,6 +928,10 @@ impl BasicHost {
             }
             attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
             state.sessions.insert(session_id.clone(), record);
+            state.enforce_projection_budget(
+                &session_id,
+                self.config.session_event_cache_total_bytes,
+            );
             drop(state);
             if indexed.is_some_and(|e| e.needs_recovery) {
                 necessary.push(header.id);
