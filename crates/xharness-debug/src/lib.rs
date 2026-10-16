@@ -456,6 +456,25 @@ impl DebugRecorder {
         }
     }
 
+    /// Build a full-trace payload only when its sink is enabled. Lightweight
+    /// runtime diagnostics still receive metadata when full tracing is off.
+    /// Writer failures retain the same deferred-flush semantics as
+    /// [`Self::record_lossy`].
+    pub async fn record_lossy_with(
+        &self,
+        layer: &str,
+        event: &str,
+        scope: DebugScope,
+        payload: impl FnOnce() -> Value,
+    ) {
+        if self.enabled() {
+            self.record_lossy(DebugEvent::new(layer, event, payload()).with_scope(scope))
+                .await;
+        } else if let Some(observer) = &self.observer {
+            observer.record_metadata(layer, event, &scope);
+        }
+    }
+
     pub async fn flush(&self) -> Result<(), DebugError> {
         self.sink.flush().await?;
         if let Some(error) = self
@@ -806,8 +825,111 @@ mod tests {
             .record(DebugEvent::new("host", "ignored", json!({"x": 1})))
             .await
             .unwrap();
+        recorder
+            .record_lossy_with("host", "ignored", DebugScope::default(), || {
+                panic!("disabled tracing must not construct the payload")
+            })
+            .await;
         recorder.flush().await.unwrap();
         assert!(!expected.exists());
+    }
+
+    #[tokio::test]
+    async fn lazy_payload_is_evaluated_once_and_preserves_the_full_event() {
+        let sink = Arc::new(MemoryDebugSink::default());
+        let (observer, receiver) = diagnostics::Observer::test_channel(1);
+        let mut recorder = DebugRecorder::new(sink.clone());
+        recorder.observer = Some(Arc::new(observer));
+        let evaluated = AtomicU64::new(0);
+        let scope = DebugScope::default()
+            .with_session("session-1")
+            .with_run("run-2")
+            .with_turn_step(3, 4);
+        let payload = json!({"messages": [{"content": "original text"}], "tokens": 12});
+        recorder
+            .record_lossy_with("core", "context.prepared", scope.clone(), || {
+                evaluated.fetch_add(1, Ordering::Relaxed);
+                payload.clone()
+            })
+            .await;
+        recorder.flush().await.unwrap();
+        assert_eq!(evaluated.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            sink.events().await,
+            vec![DebugEvent::new("core", "context.prepared", payload).with_scope(scope)]
+        );
+        assert_eq!(receiver.try_recv().unwrap().sequence, Some(4));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn lazy_disabled_trace_still_emits_payload_free_runtime_metadata() {
+        let (observer, receiver) = diagnostics::Observer::test_channel(2);
+        let mut recorder = DebugRecorder::disabled();
+        recorder.observer = Some(Arc::new(observer));
+        assert!(!recorder.enabled());
+        for (layer, event) in [("core", "tool.result"), ("provider.openai", "stream.event")] {
+            recorder
+                .record_lossy_with(
+                    layer,
+                    event,
+                    DebugScope::default()
+                        .with_session("private-session")
+                        .with_turn_step(3, 7),
+                    || panic!("metadata observation must not construct the payload"),
+                )
+                .await;
+        }
+        for expected in [
+            xharness_diagnostics::Activity::Tool,
+            xharness_diagnostics::Activity::Model,
+        ] {
+            let record = receiver.try_recv().unwrap();
+            assert_eq!(
+                serde_json::to_value(record.activity).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+            assert_eq!(record.sequence, Some(7));
+            assert_eq!(record.pid, Some(std::process::id()));
+            assert!(!serde_json::to_string(&record)
+                .unwrap()
+                .contains("private-session"));
+        }
+        assert!(receiver.try_recv().is_err());
+        recorder.flush().await.unwrap();
+    }
+
+    struct FailingSink(AtomicU64);
+
+    #[async_trait]
+    impl DebugSink for FailingSink {
+        fn enabled(&self) -> bool {
+            true
+        }
+
+        async fn record(&self, _: DebugEvent) -> Result<(), DebugError> {
+            let index = self.0.fetch_add(1, Ordering::Relaxed);
+            Err(DebugError::Writer(format!("failure {index}")))
+        }
+
+        async fn flush(&self) -> Result<(), DebugError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn lazy_lossy_trace_defers_the_first_sink_failure_until_flush() {
+        let sink = Arc::new(FailingSink(AtomicU64::new(0)));
+        let recorder = DebugRecorder::new(sink.clone());
+        for _ in 0..2 {
+            recorder
+                .record_lossy_with("core", "loop.event", DebugScope::default(), || json!({}))
+                .await;
+        }
+        assert_eq!(sink.0.load(Ordering::Relaxed), 2);
+        assert!(
+            matches!(recorder.flush().await, Err(DebugError::Writer(message)) if message == "failure 0")
+        );
     }
 
     #[tokio::test]
@@ -819,24 +941,21 @@ mod tests {
         let (recorder, info) = DebugRecorder::open(config).await.unwrap();
         let info = info.unwrap();
         recorder
-            .record(DebugEvent::new(
+            .record_lossy_with(
                 "provider",
                 "request",
-                json!({"authorization":"Bearer no", "input_tokens":7}),
-            ))
-            .await
-            .unwrap();
-        recorder
-            .record(
-                DebugEvent::new(
-                    "tool",
-                    "completed",
-                    json!({"output":"x".repeat(256), "api_key":"do-not-store"}),
-                )
-                .with_scope(DebugScope::default().with_session("session-1")),
+                DebugScope::default(),
+                || json!({"authorization":"Bearer no", "input_tokens":7}),
             )
-            .await
-            .unwrap();
+            .await;
+        recorder
+            .record_lossy_with(
+                "tool",
+                "completed",
+                DebugScope::default().with_session("session-1"),
+                || json!({"output":"x".repeat(256), "api_key":"do-not-store"}),
+            )
+            .await;
         recorder.flush().await.unwrap();
 
         let lines = fs::read_to_string(&info.events_path).await.unwrap();
