@@ -54,7 +54,8 @@ impl ApiBackend for BasicHost {
         cancellation: CancellationToken,
     ) -> RpcResult {
         // A catalogue entry is not a recovered Agent. Hydrate exactly once
-        // before any session-scoped read or mutation can observe partial state.
+        // before mutations or runtime reads. Presentation-only reads own a
+        // source-validated fast path and fall back to this same recovery gate.
         let target = if matches!(
             method,
             RpcMethod::SubagentHistory | RpcMethod::SubagentPrompt | RpcMethod::SubagentInterrupt
@@ -65,7 +66,12 @@ impl ApiBackend for BasicHost {
         };
         // Permanent deletion verifies cold work read-only before recovery can
         // activate it; its owner hydrates only the verified idle closure.
-        if let Some(session_id) = target.filter(|_| method != RpcMethod::SessionDelete) {
+        let display_read = matches!(method, RpcMethod::SessionHistory | RpcMethod::SkillList)
+            || (method == RpcMethod::SessionModels
+                && payload.get("refreshCapabilities").and_then(Value::as_bool) != Some(true));
+        if let Some(session_id) =
+            target.filter(|_| method != RpcMethod::SessionDelete && !display_read)
+        {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
@@ -191,7 +197,27 @@ impl ApiBackend for BasicHost {
                 Err(error) => RpcResult::failure(error),
             });
         }
-        if let Some(session_id) = payload.get("sessionId").and_then(Value::as_str) {
+        // Namespaced mutations carry the session under args.agentId rather
+        // than sessionId. Viewing a cold page must not bypass their recovery.
+        let nested_mutation = matches!(
+            endpoint,
+            "commands/execute"
+                | "goals/create"
+                | "goals/edit"
+                | "goals/pause"
+                | "goals/resume"
+                | "goals/complete"
+                | "goals/clear"
+        );
+        let target = if nested_mutation {
+            payload
+                .get("args")
+                .and_then(|args| args.get("agentId"))
+                .and_then(Value::as_str)
+        } else {
+            payload.get("sessionId").and_then(Value::as_str)
+        };
+        if let Some(session_id) = target {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return Some(RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,

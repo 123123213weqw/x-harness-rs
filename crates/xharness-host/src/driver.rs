@@ -605,7 +605,30 @@ impl BasicHost {
         if let Some(checkpoint) = checkpoint {
             let _ = store.publish_recovery_checkpoint(checkpoint).await;
         }
-        if let Err(error) = store.publish_catalog_entry(entry).await {
+        let presentation = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session.header().id)
+                .filter(|record| {
+                    !entry.needs_recovery
+                        && !record.restoring
+                        && record.next_event_seq() == session.next_seq()
+                })
+                .map(|record| xharness_session::HistoryPresentation {
+                    schema: crate::state::HISTORY_PRESENTATION_SCHEMA.to_owned(),
+                    values: record.history_presentation_values(),
+                })
+        };
+        let published = match presentation {
+            Some(presentation) => {
+                store
+                    .publish_catalog_presentation(entry, presentation)
+                    .await
+            }
+            None => store.publish_catalog_entry(entry).await,
+        };
+        if let Err(error) = published {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
             eprintln!("xharness catalogue update skipped: {error}");
