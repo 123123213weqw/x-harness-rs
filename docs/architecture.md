@@ -97,6 +97,24 @@ Turn 输入同 Revision 提交、进程内 Registry、AgentSupervisor、多 Turn
 以及 macOS/Linux 文件 Lease。Web Queue 已从完整 Durable Inbox 历史折叠；BasicHost 的 FIFO
 只保存运行 Turn 的 Attachment/投影关系，不再是输入真源。
 
+## 消息调度与轮次交接
+
+`xharness-agent::DispatchState` 从已有 Session、收件箱和维护请求推导一次调度决定，
+不持久化另一份状态。实时 Wake、轮次结算后的继续调度和 Host 恢复使用同一规则：
+用户主动输入（包括仅有 next-step 的 Steering）可被调度；被动 next-step Context 不会
+自行启动任务；关闭的自动执行门禁只允许用户输入或显式维护通过，维护不解除门禁。
+
+正式 Durable Runtime 的 Steering 由 Agent actor 判断当前轮是否仍可接入，不依赖
+Host `running` 展示快照。Runtime 在投递前订阅事件，以原输入 ID 保存观察器；Host FIFO
+只追踪这些观察器。当 Steering 已在旧轮消费，观察器通过日志结算旧轮；当旧轮关闭后
+才接收消息，则跟踪新轮。两条路径都不得重新追加或重放输入。队列项转 Steering
+由 Durable Inbox 在同一 CAS Revision 中移除旧位置并插入新位置，不先取消再重新发送；
+重复、已消费或已取消身份不再向 Core 重复投递。跨会话只短暂访问观察器索引，等待某个
+Agent 接收命令时不持有全局观察器锁。
+
+恢复时同样为 next-turn 普通输入及用户来源的 next-step 输入安装观察器，再允许 Wake；
+被动 Context 保留在原收件箱中。现有 RPC、事件格式和消息 ID 不变。
+
 ## 模块职责
 
 ### `xharness-session`
