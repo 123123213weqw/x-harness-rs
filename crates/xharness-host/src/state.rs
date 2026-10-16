@@ -110,7 +110,7 @@ pub(crate) fn iso_now() -> String {
     now_ms().to_string()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSelection {
     pub provider: String,
@@ -313,6 +313,10 @@ pub struct SessionRecord {
     pub(crate) event_base_seq: u64,
     #[serde(skip)]
     pub(crate) event_cache_bytes: usize,
+    /// Route used to build this resident tail. A matching journal cursor alone
+    /// cannot certify the cache after a model selection or cold restoration.
+    #[serde(skip)]
+    pub(crate) projected_model: Option<ModelSelection>,
     /// Rebuildable whole-log Token/Timing projection. The append-only Session
     /// remains authoritative; this cache only serves Web summaries and live
     /// projection frames.

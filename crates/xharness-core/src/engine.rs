@@ -3848,12 +3848,15 @@ impl Runner {
             .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
     }
 
-    async fn debug(&self, event: &str, payload: impl FnOnce() -> Value) {
+    fn debug(
+        &self,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         let scope = self.debug_scope();
         self.request
             .debug
             .record_lossy_with("core", event, scope, payload)
-            .await;
     }
 
     fn debug_scope(&self) -> DebugScope {

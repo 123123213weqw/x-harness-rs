@@ -257,6 +257,12 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         Ok(false)
     }
 
+    /// Release session-scoped caches after its actor has been permanently
+    /// retired. Do not shut down shared services or unrelated conversations.
+    async fn release_session(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Release factory-owned resources that outlive one Tool batch, such as
     /// persistent PTYs. Stateless factories keep the default no-op.
     async fn shutdown(&self) -> Result<(), String> {

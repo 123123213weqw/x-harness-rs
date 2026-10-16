@@ -462,6 +462,7 @@ impl BasicHost {
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
+                projected_model: None,
                 metrics,
                 catalog_metrics: None,
                 messages,
@@ -892,6 +893,7 @@ impl BasicHost {
                 events: Vec::new(),
                 event_base_seq: 0,
                 event_cache_bytes: 0,
+                projected_model: None,
                 metrics: MetricsProjectionState::default(),
                 catalog_metrics: indexed.and_then(|e| {
                     xharness_projection::metrics::catalog_metric_values(

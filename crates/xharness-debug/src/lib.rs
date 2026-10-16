@@ -458,21 +458,39 @@ impl DebugRecorder {
 
     /// Build a full-trace payload only when its sink is enabled. Lightweight
     /// runtime diagnostics still receive metadata when full tracing is off.
-    /// Writer failures retain the same deferred-flush semantics as
-    /// [`Self::record_lossy`].
-    pub async fn record_lossy_with(
+    /// Preparation is synchronous: disabled captures are dropped before the
+    /// returned future exists. Async callers therefore never embed an arbitrary
+    /// payload closure in their own state machine. Enabled payloads are owned
+    /// before the first sink await, just like [`Self::record_lossy`]. Writer
+    /// failures retain the same deferred-flush semantics.
+    pub fn record_lossy_with(
         &self,
         layer: &str,
         event: &str,
         scope: DebugScope,
         payload: impl FnOnce() -> Value,
-    ) {
-        if self.enabled() {
-            self.record_lossy(DebugEvent::new(layer, event, payload()).with_scope(scope))
-                .await;
-        } else if let Some(observer) = &self.observer {
-            observer.record_metadata(layer, event, &scope);
-        }
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
+        // Only opt-in full tracing allocates its asynchronous sink state. The
+        // normal path returns a small, allocation-free ready future; neither
+        // the event nor the closure enlarges every enclosing stream future.
+        let mut pending: Option<
+            std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>,
+        > = if self.enabled() {
+            let event = DebugEvent::new(layer, event, payload()).with_scope(scope);
+            Some(Box::pin(self.record_lossy(event)))
+        } else {
+            if let Some(observer) = &self.observer {
+                observer.record_metadata(layer, event, &scope);
+            }
+            None
+        };
+        std::future::poll_fn(move |context| {
+            if let Some(future) = pending.as_mut() {
+                future.as_mut().poll(context)
+            } else {
+                std::task::Poll::Ready(())
+            }
+        })
     }
 
     pub async fn flush(&self) -> Result<(), DebugError> {
