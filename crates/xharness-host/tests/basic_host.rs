@@ -913,7 +913,13 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].messages[0].role, Role::System);
     let system = &requests[0].messages[0].content;
-    assert!(system.contains("You are a coding agent."));
+    let persona = include_str!("../prompts/default-agent.txt").trim();
+    assert!(system.starts_with(&format!("{persona}\n\n")));
+    assert!(!system.contains("You are a coding agent."));
+    assert!(system.contains("Do not substitute confidence for evidence."));
+    assert!(system.contains("runnable code, equations, and state transitions"));
+    assert!(system.contains("emotionally neutral"));
+    assert!(system.contains("do not confuse reasoning length with reasoning quality"));
     assert!(system.contains("workspace-write isolation"));
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
@@ -933,6 +939,95 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");
     drop(requests);
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn english_task_persona_is_compatible_and_stable_at_the_provider_boundary() {
+    let mut fx = Fixture::new();
+    let mut config = HostConfig::new(&fx.root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let persona = include_str!("../prompts/default-agent.txt").trim();
+    let preset = fx
+        .value(RpcMethod::AgentPresetRead, json!({"agentPreset":"coding"}))
+        .await;
+    assert_eq!(preset["content"], persona);
+    assert_eq!(preset["name"], "XHarness Agent");
+    fx.value(
+        RpcMethod::AgentPresetCopy,
+        json!({"from":"coding","agentPreset":"my-persona","name":"My agent"}),
+    )
+    .await;
+    let copied = fx
+        .value(
+            RpcMethod::AgentPresetRead,
+            json!({"agentPreset":"my-persona"}),
+        )
+        .await;
+    assert_eq!(copied["content"], persona);
+    assert_eq!(copied["name"], "My agent");
+    fx.value(RpcMethod::SettingsMutate, json!({"ns":"permission","expectedRevision":0,"ops":[{"op":"set","path":["defaultPreset"],"value":"danger-full-access"}]})).await;
+    let created = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+    for (index, text) in [
+        "Explain how to verify a measurement.",
+        "Compare two alternative hypotheses.",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        fx.value(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":session_id,"mode":"queue","content":[{"type":"text","text":text}]}),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if provider.requests.lock().unwrap().len() > index {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        fx.wait_for_assistant(&session_id).await;
+    }
+    let requests = provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let system = &requests[0].messages[0].content;
+    assert!(system.starts_with(&format!("{persona}\n\n")));
+    assert_eq!(system.matches(persona).count(), 1);
+    assert!(system.contains("The user selected danger-full-access"));
+    assert!(!system.contains("workspace-write isolation"));
+    assert!(system.contains("Inspect before editing"));
+    assert!(system.contains("Never create schedules unless the user requested them."));
+    assert!(!system.contains("You are a coding agent."));
+    for request in requests.iter() {
+        assert_eq!(request.messages[0].role, Role::System);
+        assert_eq!(&request.messages[0].content, system);
+        assert_eq!(
+            request
+                .messages
+                .iter()
+                .filter(|m| m.role == Role::System)
+                .count(),
+            1
+        );
+        assert_eq!(
+            request.reasoning_effort, None,
+            "persona text cannot select a model effort"
+        );
+    }
+    // Optional test-only export is the actual captured provider input, not a
+    // second hand-maintained prompt renderer or any production session body.
+    if let Some(path) = std::env::var_os("XHARNESS_PERSONA_PREVIEW") {
+        std::fs::write(path, system).unwrap();
+    }
 }
 
 #[tokio::test]

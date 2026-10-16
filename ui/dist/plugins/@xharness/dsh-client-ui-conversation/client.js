@@ -143,7 +143,11 @@ function apply(ctx) {
     // Chat semantic reader positions by session, surviving view switches and
     // width reflow when the tab ring remounts the view. Deliberately not
     // persisted: a fresh page load keeps the open-jump-to-bottom default.
-    const chatScrollMemory = new scroll_memory_1.ChatScrollMemory();
+    const chatScrollMemory = new scroll_memory_1.ChatScrollMemory((sessionId, position) => {
+        const seq = position?.anchorSeq;
+        sessions.binding(sessionId)?.session.setHistoryOpenTarget?.(position === null ? { kind: 'latest' }
+            : seq !== undefined && Number.isSafeInteger(seq) && seq >= 0 ? { kind: 'anchor', seq } : undefined);
+    });
     ctx.effect(() => () => { chatScrollMemory.dispose(); }, 'conversation reader memory');
     const viewTabs = () => {
         const tabs = [];
@@ -21590,8 +21594,10 @@ function scrollPosition(list, scrollport) {
     const anchorKey = row?.dataset.chatAnchorKey;
     if (row === null || anchorKey === undefined)
         return null;
+    const seq = row.dataset.chatAnchorSeq === undefined ? NaN : Number(row.dataset.chatAnchorSeq);
     return {
         anchorKey,
+        ...(Number.isSafeInteger(seq) && seq >= 0 ? { anchorSeq: seq } : {}),
         anchorTop: flowTop(row, scrollport),
         scrollTop: scrollport.scrollTop,
     };
@@ -21707,8 +21713,8 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     const [railHost, setRailHost] = (0, react_1.useState)(null);
     const [activeMarker, setActiveMarker] = (0, react_1.useState)(null);
     const columnRef = (0, react_1.useRef)(null);
-    const atBottomRef = (0, react_1.useRef)(true);
-    const [atBottom, setAtBottom] = (0, react_1.useState)(true);
+    const atBottomRef = (0, react_1.useRef)(chatScroll.read() === null);
+    const [atBottom, setAtBottom] = (0, react_1.useState)(atBottomRef.current);
     /** Last position delivered or written on the main thread. */
     const observedTopRef = (0, react_1.useRef)(0);
     const readerScrollUntilRef = (0, react_1.useRef)(0);
@@ -21864,6 +21870,10 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         if (local === null)
             return;
         const el = scrollerOf(local);
+        // A cold view has no flow to follow yet. In particular, its empty first
+        // layout must not turn an older reading bookmark into a latest-page hint.
+        if (openState !== 'open' && order.length === 0)
+            return;
         // Open completed: jump to the bottom once — unless a scroll position
         // survives from a previous mount (view-tab switch away and back), which
         // is restored instead of snapping the reader back to the floor.
@@ -21918,6 +21928,10 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     });
     const onScrollRef = (0, react_1.useRef)(() => { });
     onScrollRef.current = () => {
+        // Empty loading/retry layouts are not reader intent and must not erase a
+        // bookmark before its required history window has been restored.
+        if (openState !== 'open' && order.length === 0)
+            return;
         const local = listRef.current;
         /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
         if (local === null)
@@ -22073,6 +22087,8 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     // initializer a function initial value would need never exists.
     const followRef = (0, react_1.useRef)(null);
     followRef.current = () => {
+        if (openState !== 'open' && order.length === 0)
+            return;
         const local = listRef.current;
         if (local !== null && atBottomRef.current) {
             const el = scrollerOf(local);
@@ -23762,7 +23778,7 @@ function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, foldedTool
         return null;
     if (tail === undefined && (currentTurn.status !== 'open' || foldedCount === 0))
         return null;
-    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, children: tail === undefined ? (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.AdaptiveToolSummary, { turn: currentTurn.turn, count: foldedCount, t: t, expanded: expandedTurns?.has(currentTurn.turn) ?? false, onToggle: () => { toggleTurnProcess(currentTurn.turn); } })
+    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, "data-chat-anchor-seq": currentTurn.start?.seq ?? node?.anchorSeq, children: tail === undefined ? (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.AdaptiveToolSummary, { turn: currentTurn.turn, count: foldedCount, t: t, expanded: expandedTurns?.has(currentTurn.turn) ?? false, onToggle: () => { toggleTurnProcess(currentTurn.turn); } })
             : (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.TurnProcessSummary, { turn: currentTurn, data: tail, t: t, collapsed: !(expandedTurns?.has(currentTurn.turn) ?? false), onToggle: () => { toggleTurnProcess(currentTurn.turn); } }) });
 }
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
@@ -23816,7 +23832,7 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
     // keyed-slot entry passed alongside that same Node. TypeScript does not
     // distribute an object containing a union into a union of objects itself.
     const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode);
-    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
+    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-anchor-seq": node.anchorSeq, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
             (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined ? turn : undefined, "data-chat-auto-fold-eligible": autoFoldable ? 'true' : 'false', children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
             entryKey: routedOwner.node.kind,
             hookContext: nodeKey,
@@ -24409,12 +24425,25 @@ exports.ChatScrollMemory = void 0;
 /** Session-local reader memory and explicit local submit intent. No wire event
  * can request following; a hidden view only clears its stale reader bookmark. */
 class ChatScrollMemory {
-    constructor() {
+    constructor(onPosition) {
+        this.onPosition = onPosition;
         this.positions = new Map();
         this.listeners = new Map();
         this.disposed = false;
     }
+    publish(sessionId, position) {
+        if (this.disposed)
+            return;
+        try {
+            this.onPosition?.(sessionId, position);
+        }
+        catch (error) {
+            console.error('[conversation] reading target listener failed:', error);
+        }
+    }
     forSession(sessionId) {
+        // Slot injection may run in a discarded concurrent render. Only committed
+        // position saves and explicit follow intents may publish a runtime hint.
         return {
             read: () => this.positions.get(sessionId) ?? null,
             save: position => {
@@ -24424,6 +24453,7 @@ class ChatScrollMemory {
                     this.positions.delete(sessionId);
                 else
                     this.positions.set(sessionId, position);
+                this.publish(sessionId, position);
             },
             subscribeFollow: listener => {
                 if (this.disposed)
@@ -24444,6 +24474,7 @@ class ChatScrollMemory {
         if (this.disposed)
             return;
         this.positions.delete(sessionId);
+        this.publish(sessionId, null);
         const listeners = this.listeners.get(sessionId);
         for (const listener of [...listeners ?? []]) {
             if (!listeners?.has(listener))

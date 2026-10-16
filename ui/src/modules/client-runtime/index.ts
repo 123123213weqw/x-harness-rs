@@ -56,7 +56,7 @@ export type {
   SettingsScope, SettingsScopeSnapshot, SettingsScopeSpec,
 } from './contract/settings-scope'
 export type { Session } from './sessions/session'
-export type { ISession, ProjectionsFace, SessionFace } from './contract/session'
+export type { HistoryOpenTarget, ISession, ProjectionsFace, SessionFace } from './contract/session'
 export type { AgentContext, ISessions } from './contract/sessions'
 export type { IWorkspaces } from './contract/workspaces'
 export type {

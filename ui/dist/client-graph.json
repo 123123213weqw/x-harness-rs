@@ -1,5 +1,5 @@
 {
-  "rev": "ea26289e7ea5ef14",
+  "rev": "173a2d6690f5905a",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -26,8 +26,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=8d8ac21840d63920",
-      "rev": "8d8ac21840d63920",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=18ab2b255a1da7db",
+      "rev": "18ab2b255a1da7db",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -202,8 +202,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-settings-general",
-      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=92262a036aa1d5aa",
-      "rev": "92262a036aa1d5aa",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=d76346872866d60c",
+      "rev": "d76346872866d60c",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-settings",
@@ -238,6 +238,21 @@
       ]
     },
     {
+      "id": "@xharness/dsh-client-ui-settings-remote-control",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-remote-control/client.js?rev=7ec467cb5a853cdf",
+      "rev": "7ec467cb5a853cdf",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-settings-plugin-inventory",
       "url": "/plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js?rev=7ab5dab9511d05a8",
       "rev": "7ab5dab9511d05a8",
@@ -255,8 +270,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=8d4a6dec7bce9b76",
-      "rev": "8d4a6dec7bce9b76",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=0b973aace239253d",
+      "rev": "0b973aace239253d",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
