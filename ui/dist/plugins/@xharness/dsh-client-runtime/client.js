@@ -5668,16 +5668,47 @@ class Session {
             return ordered;
         });
     }
+    /** A reader hint is lightweight and remains resident when history is evicted. */
+    setHistoryOpenTarget(target) {
+        if (target?.kind === 'anchor' && (!Number.isSafeInteger(target.seq) || target.seq < 0)) {
+            throw new Error('History reading anchor must be a non-negative safe event sequence');
+        }
+        this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
+            : target === undefined ? undefined : { kind: 'latest' };
+    }
+    historyRestoreTarget() {
+        // Reconnect/gap repair owns an already committed window: keep it atomic and
+        // never shrink it to a tail page, regardless of a later presentation hint.
+        if (this.events.length > 0)
+            return this.xhRestoreBaseSeq;
+        if (this.historyOpenTarget?.kind === 'latest')
+            return undefined;
+        return this.historyOpenTarget?.kind === 'anchor' ? this.historyOpenTarget.seq : this.xhRestoreBaseSeq;
+    }
     async restoreHistoryRange(value, generation) {
-        const target = this.xhRestoreBaseSeq;
+        let target = this.historyRestoreTarget();
         if (target === undefined)
             return value;
         let entries = value.events, hasMore = value.hasMore;
         const pages = [entries];
         while (hasMore && entries[0] !== undefined && entries[0].event.seq > target) {
             const beforeSeq = entries[0].event.seq;
-            const { result } = await this.history({ beforeSeq, maxMessages: exports.PAGE_MESSAGES });
+            let response;
+            try {
+                response = await this.history({ beforeSeq, maxMessages: exports.PAGE_MESSAGES });
+            }
+            catch (error) {
+                if (generation !== this.openGeneration || this.historyRestoreTarget() === undefined)
+                    return value;
+                throw error;
+            }
             if (generation !== this.openGeneration)
+                return value;
+            const { result } = response;
+            // An explicit send/jump can supersede a cold bookmark while this RPC is
+            // in flight. Discard unused pages, not the initial validated tail page.
+            target = this.historyRestoreTarget();
+            if (target === undefined)
                 return value;
             if (!result.ok)
                 throw new Error('History restore failed: ' + (result.error.message ?? 'request rejected'));
@@ -5690,7 +5721,7 @@ class Session {
         if (generation !== this.openGeneration)
             return value;
         if (entries[0] === undefined || entries[0].event.seq > target)
-            throw new Error('History restore failed: saved range is no longer available');
+            throw new Error('History restore failed: saved reading position is no longer available');
         return { ...value, events: pages.reverse().flat(), hasMore };
     }
     historyResidencyCold() { return this.openState === 'cold'; }
