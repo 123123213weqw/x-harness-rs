@@ -633,6 +633,33 @@ pub trait AgentRuntime: Send + Sync + 'static {
         })
     }
 
+    async fn saved_automation_control(
+        &self,
+        _session: &str,
+        _request: xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<xharness_schedule::SavedAutomationApplied, xharness_schedule::SavedAutomationError>
+    {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+    async fn saved_automation_receipt(
+        &self,
+        _session: &str,
+        _request: &xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<
+        Option<xharness_schedule::SavedAutomationApplied>,
+        xharness_schedule::SavedAutomationError,
+    > {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+    async fn saved_automation_read(
+        &self,
+        _session: &str,
+        _command: xharness_schedule::AutomationCommand,
+        _after: Option<String>,
+    ) -> Result<Value, xharness_schedule::SavedAutomationError> {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+
     fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
         None
     }
@@ -669,6 +696,18 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _session_id: &str,
     ) -> Result<Option<Session>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Certify an original creation receipt across its durability barrier.
+    /// Logical read visibility alone is not proof after a failed flush.
+    async fn flush_session_revision(
+        &self,
+        _session_id: &str,
+        _minimum: xharness_session::Revision,
+    ) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "session durability certification unavailable".into(),
+        })
     }
 
     /// Read the inspector surface without exposing full request inputs.
@@ -1537,6 +1576,45 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         Ok(schedules.execute(session_id, invocation, command).await)
     }
 
+    async fn saved_automation_control(
+        &self,
+        session: &str,
+        request: xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<xharness_schedule::SavedAutomationApplied, xharness_schedule::SavedAutomationError>
+    {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_control_once(session, request)
+            .await
+    }
+    async fn saved_automation_receipt(
+        &self,
+        session: &str,
+        request: &xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<
+        Option<xharness_schedule::SavedAutomationApplied>,
+        xharness_schedule::SavedAutomationError,
+    > {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_control_receipt(session, request)
+            .await
+    }
+    async fn saved_automation_read(
+        &self,
+        session: &str,
+        command: xharness_schedule::AutomationCommand,
+        after: Option<String>,
+    ) -> Result<Value, xharness_schedule::SavedAutomationError> {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_read(session, command, after)
+            .await
+    }
+
     async fn process_runs(
         &self,
         session_id: &str,
@@ -1694,6 +1772,26 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
             })
+    }
+
+    async fn flush_session_revision(
+        &self,
+        session_id: &str,
+        minimum: xharness_session::Revision,
+    ) -> Result<(), AgentRuntimeError> {
+        let revision =
+            self.store
+                .flush(session_id)
+                .await
+                .map_err(|_| AgentRuntimeError::Preparation {
+                    message: "creation receipt durability barrier failed".into(),
+                })?;
+        if revision < minimum {
+            return Err(AgentRuntimeError::Preparation {
+                message: "creation receipt durability revision regressed".into(),
+            });
+        }
+        Ok(())
     }
 
     async fn harness_header(
