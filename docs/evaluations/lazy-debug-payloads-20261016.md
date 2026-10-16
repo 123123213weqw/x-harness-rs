@@ -1,4 +1,5 @@
 # Lazy debug payload construction — 2026-10-16
+**Later acceptance update:** broader Host resource checks failed; see `docs/evaluations/lazy-debug-stability-20261016.md`. The initial benchmark below is not a memory stability certificate.
 
 ## Change
 
