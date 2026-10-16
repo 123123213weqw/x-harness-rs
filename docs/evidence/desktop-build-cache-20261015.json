@@ -1,0 +1,273 @@
+{
+  "schema": 1,
+  "baseline": {
+    "version": "0.2.51",
+    "sourceSha": "58012c7a9e272b363ad3086053fafb7ed99c3f60",
+    "buildRunId": 38753539488,
+    "serviceRunId": 38753462941,
+    "candidatePreparationSeconds": 2772.0,
+    "publicationSeconds": 94,
+    "cacheMissesConfirmed": [
+      "windows-x86_64",
+      "darwin-x86_64"
+    ],
+    "criticalStages": {
+      "Signed windows-x86_64 candidate": [
+        {
+          "name": "Build and stage native Host and ripgrep",
+          "seconds": 767.0,
+          "startedAt": "2026-10-15T14:42:19Z",
+          "completedAt": "2026-10-15T14:55:06Z"
+        },
+        {
+          "name": "Native desktop regression tests",
+          "seconds": 305.0,
+          "startedAt": "2026-10-15T14:55:37Z",
+          "completedAt": "2026-10-15T15:00:42Z"
+        },
+        {
+          "name": "Build and sign desktop bundle (artifacts only)",
+          "seconds": 623.0,
+          "startedAt": "2026-10-15T15:00:43Z",
+          "completedAt": "2026-10-15T15:11:06Z"
+        },
+        {
+          "name": "Owned Windows profile isolation regression (no installer)",
+          "seconds": 116.0,
+          "startedAt": "2026-10-15T15:11:16Z",
+          "completedAt": "2026-10-15T15:13:12Z"
+        },
+        {
+          "name": "Windows real installer ownership and crash cleanup acceptance",
+          "seconds": 72.0,
+          "startedAt": "2026-10-15T15:13:12Z",
+          "completedAt": "2026-10-15T15:14:24Z"
+        },
+        {
+          "name": "Fetch complete immutable Windows candidate on the signing worker",
+          "seconds": 258.0,
+          "startedAt": "2026-10-15T15:15:07Z",
+          "completedAt": "2026-10-15T15:19:25Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 256.0,
+          "startedAt": "2026-10-15T15:20:25Z",
+          "completedAt": "2026-10-15T15:24:41Z"
+        }
+      ],
+      "Signed darwin-x86_64 candidate": [
+        {
+          "name": "Install native macOS ripgrep",
+          "seconds": 121.0,
+          "startedAt": "2026-10-15T14:43:06Z",
+          "completedAt": "2026-10-15T14:45:07Z"
+        },
+        {
+          "name": "Build and stage native Host and ripgrep",
+          "seconds": 823.0,
+          "startedAt": "2026-10-15T14:45:07Z",
+          "completedAt": "2026-10-15T14:58:50Z"
+        },
+        {
+          "name": "Native desktop regression tests",
+          "seconds": 502.0,
+          "startedAt": "2026-10-15T14:58:50Z",
+          "completedAt": "2026-10-15T15:07:12Z"
+        },
+        {
+          "name": "Build and sign ad-hoc Mac preview bundle (artifacts only)",
+          "seconds": 571.0,
+          "startedAt": "2026-10-15T15:07:13Z",
+          "completedAt": "2026-10-15T15:16:44Z"
+        },
+        {
+          "name": "Build Unix BASE using the already staged Host and hot native target",
+          "seconds": 159.0,
+          "startedAt": "2026-10-15T15:17:16Z",
+          "completedAt": "2026-10-15T15:19:55Z"
+        },
+        {
+          "name": "Three production updater rounds against the exact signed Unix target",
+          "seconds": 169.0,
+          "startedAt": "2026-10-15T15:20:10Z",
+          "completedAt": "2026-10-15T15:22:59Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "seconds": 162.0,
+          "startedAt": "2026-10-15T15:23:00Z",
+          "completedAt": "2026-10-15T15:25:42Z"
+        }
+      ]
+    }
+  },
+  "optimizedBenchmark": {
+    "status": "passed",
+    "diagnosticOnly": true,
+    "releaseEligible": false,
+    "runId": 38769449509,
+    "runUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/38769449509",
+    "sourceSha": "2e0e72ffe56d6e25c2a9e8e085e0218fe063ce93",
+    "testedFileSha256": {
+      "scripts/benchmark-desktop-build.py": "14f66dc02233ac8998aef606affe91188e78af338b4cb37baee7bafa8334993b",
+      "scripts/portable-rg-cache.py": "d61d3c25332e2f3336e31e5511e2704a1e2de377bdb98838d683c5f27f1be611",
+      "scripts/install-portable-rg.sh": "8918ccf6ca501e4f644e022c6dd2ce06dad25d9a9136606a956ee0ab0e9a637a",
+      ".github/workflows/desktop-build-benchmark-pass.yml": "7e5eec8331ad76471da284bc5b2d46e465f8ef84195a2d0288a891edeeea9c41",
+      ".github/workflows/desktop-build-benchmark.yml": "bd5ae30fcdcaa39fdd82e918fd236dc42575bf39bac7cc233713362188637c75",
+      "rust-toolchain.toml": "2ad6f15416572b4836585087f1d4abc53b8fa2dbd616f8dacfaa587ed6714228"
+    },
+    "samples": [
+      {
+        "target": "x86_64-apple-darwin",
+        "workspaceCache": "dependencies",
+        "phase": "populate",
+        "seconds": 1707.427,
+        "exactCacheHit": false,
+        "runAttempt": "1",
+        "artifact": "build-cache-populate-x86_64-apple-darwin-dependencies",
+        "metricsSha256": "1cf5780e69c5a35ab579bc44765af692110387a84cda362371d11319c595840b"
+      },
+      {
+        "target": "x86_64-apple-darwin",
+        "workspaceCache": "workspace",
+        "phase": "populate",
+        "seconds": 1594.906,
+        "exactCacheHit": false,
+        "runAttempt": "1",
+        "artifact": "build-cache-populate-x86_64-apple-darwin-workspace",
+        "metricsSha256": "fed5ace9df5d18b938db0d00e52318b4a5d8a6c43e0479644b5321bd4a963302"
+      },
+      {
+        "target": "x86_64-pc-windows-msvc",
+        "workspaceCache": "dependencies",
+        "phase": "populate",
+        "seconds": 1503.735,
+        "exactCacheHit": false,
+        "runAttempt": "1",
+        "artifact": "build-cache-populate-x86_64-pc-windows-msvc-dependencies",
+        "metricsSha256": "4d59f0af5738f885951d44f45cf75d7318bdbfe4d58fb9efa49586cf534deaeb"
+      },
+      {
+        "target": "x86_64-apple-darwin",
+        "workspaceCache": "dependencies",
+        "phase": "warm",
+        "seconds": 605.899,
+        "exactCacheHit": true,
+        "runAttempt": "1",
+        "artifact": "build-cache-warm-x86_64-apple-darwin-dependencies",
+        "metricsSha256": "957128d6f852dbde1e2723973987340d0485a6b690c06e8e82412f743b4d9904"
+      },
+      {
+        "target": "x86_64-apple-darwin",
+        "workspaceCache": "workspace",
+        "phase": "warm",
+        "seconds": 658.314,
+        "exactCacheHit": true,
+        "runAttempt": "2",
+        "artifact": "build-cache-warm-x86_64-apple-darwin-workspace",
+        "metricsSha256": "74ebc3213a83f5dc2805276b940e3fe133ad1fdae46c40a1c3e5716d6fd6a2fe"
+      },
+      {
+        "target": "x86_64-pc-windows-msvc",
+        "workspaceCache": "dependencies",
+        "phase": "warm",
+        "seconds": 783.844,
+        "exactCacheHit": true,
+        "runAttempt": "1",
+        "artifact": "build-cache-warm-x86_64-pc-windows-msvc-dependencies",
+        "metricsSha256": "fb632adf325cf8f4a3ef02279049285d2de9b8cad8084aa2b1f6ef2c3421b1be"
+      }
+    ],
+    "cacheStepTimings": [
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-pc-windows-msvc / dependencies",
+        "step": "Run Swatinem/rust-cache@v2",
+        "seconds": 9.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-pc-windows-msvc / dependencies",
+        "step": "Restore pinned portable ripgrep cache",
+        "seconds": 0.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-pc-windows-msvc / dependencies",
+        "step": "Post Run Swatinem/rust-cache@v2",
+        "seconds": 129.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / dependencies",
+        "step": "Run Swatinem/rust-cache@v2",
+        "seconds": 5.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / dependencies",
+        "step": "Restore pinned portable ripgrep cache",
+        "seconds": 1.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / dependencies",
+        "step": "Post Run Swatinem/rust-cache@v2",
+        "seconds": 114.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / workspace",
+        "step": "Run Swatinem/rust-cache@v2",
+        "seconds": 4.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / workspace",
+        "step": "Restore pinned portable ripgrep cache",
+        "seconds": 2.0
+      },
+      {
+        "job": "build-cache-benchmark / populate / populate / x86_64-apple-darwin / workspace",
+        "step": "Post Run Swatinem/rust-cache@v2",
+        "seconds": 305.0
+      }
+    ],
+    "cacheSizes": [
+      {
+        "key": "v0-rust-benchmark-native-x86_64-apple-darwin-workspace-2e0e72ffe56d6e25c2a9e8e085e0218fe063ce93-Darwin-x64-d451dbdc-2d332ccf",
+        "ref": "refs/heads/perf/desktop-build-cache-20261015",
+        "size_in_bytes": 1453420589
+      },
+      {
+        "key": "v0-rust-benchmark-native-x86_64-pc-windows-msvc-dependencies-2e0e72ffe56d6e25c2a9e8e085e0218fe063ce93-Windows_NT-x64-7425a119-2d65ce6c",
+        "ref": "refs/heads/perf/desktop-build-cache-20261015",
+        "size_in_bytes": 1998685456
+      },
+      {
+        "key": "v0-rust-benchmark-native-x86_64-apple-darwin-dependencies-2e0e72ffe56d6e25c2a9e8e085e0218fe063ce93-Darwin-x64-d451dbdc-2d332ccf",
+        "ref": "refs/heads/perf/desktop-build-cache-20261015",
+        "size_in_bytes": 1329612503
+      }
+    ],
+    "warmWorkspaceExperimentDecision": "Keep production dependency-only: Intel workspace retention was slower in this sample (658.314s vs 605.899s) and cache save took 305s vs 114s. This is not a statistical result.",
+    "excludedFailures": [
+      {
+        "runId": 38764243602,
+        "sourceSha": "53f01f22a3226a0ea783d92040c9e2533807fc40",
+        "reason": "Benchmark omitted Windows sandbox-runner staging; fixed in tested source. No failed sample used as performance proof."
+      },
+      {
+        "runId": 38769449509,
+        "attempt": 1,
+        "jobId": 116557076163,
+        "reason": "npm Exit handler never called before Rust/cache initialization. Only this warm job retried once on unchanged source; attempt 2 passed."
+      }
+    ],
+    "caveats": [
+      "Compilation-only timings; not a signed-package or end-to-end release benchmark.",
+      "One sample per variant on separate hosted runners; no performance guarantee.",
+      "Cache compression step timings are observational, not an isolated compression-only A/B.",
+      "The successful retry preserves attempts and failed logs; it does not rewrite acceptance or publication evidence."
+    ]
+  },
+  "policy": {
+    "automaticCandidateBuilds": "remain-paused",
+    "productionWorkspaceCache": false,
+    "releaseDebugSymbols": "unchanged",
+    "nativeAcceptance": "unchanged"
+  }
+}

@@ -5,7 +5,9 @@ The first decoupling phase permits deleting dependencies but not adding more.
 Intentional new edges require an explicit architecture-baseline review.
 """
 
+import argparse
 import json
+import runpy
 import re
 from pathlib import Path
 
@@ -18,6 +20,92 @@ HOST_POLICY = ROOT / "config" / "architecture-host-modules.json"
 # this list deliberately small: it guards only processors that have completed
 # the staged extraction and therefore must not regain transport/Host coupling.
 SOURCE_BOUNDARIES = {
+    "crates/xharness-remote/src/creation.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/media.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/media.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+
+    "crates/xharness-remote/src/command_replies.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/commands.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/projection.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/output.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/catalogue.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/interactions.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/routing.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/tickets.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+
+    "crates/xharness-remote/src/administration.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-host-app/src/remote_admin.rs": {
+        "xharness_host::", "xharness_core::", "xharness_agent::", "NativeModelSettings",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/accounts.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-host-app/src/channel_accounts.rs": {
+        "xharness_host::", "xharness_core::", "xharness_agent::", "NativeModelSettings",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/outbox.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/replies.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/intake.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/subscription.rs": {
+        "BasicHost", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/client.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        "call_dynamic(", "std::process::",
+    },
+    "crates/xharness-remote/src/gateway.rs": {
+        "BasicHost", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".host_events(",
+    },
     "crates/xharness-host/src/credential_processor.rs": {
         "BasicHost",
         "RpcId",
@@ -83,6 +171,37 @@ FORBIDDEN_SOURCE_FRAGMENTS = {
 }
 
 
+def has_forbid_unsafe_prologue(text: str) -> bool:
+    """Require an unconditional module-wide guard before code/other attributes.
+
+    The compiler enforces the body, including nested modules and unsafe fns.
+    This check only protects the guard against deletion/downgrade. Comments
+    and strings cannot pretend to be an effective Rust inner attribute.
+    """
+    tail = text.lstrip()
+    while tail.startswith(("//", "/*")):
+        if tail.startswith("//"):
+            newline = tail.find("\n")
+            if newline < 0:
+                return False
+            tail = tail[newline + 1:].lstrip()
+            continue
+        depth, index = 1, 2
+        while index < len(tail) and depth:
+            if tail.startswith("/*", index):
+                depth += 1
+                index += 2
+            elif tail.startswith("*/", index):
+                depth -= 1
+                index += 2
+            else:
+                index += 1
+        if depth:
+            return False
+        tail = tail[index:].lstrip()
+    return re.match(r"^#!\[\s*forbid\s*\(\s*unsafe_code\s*\)\s*\]", tail) is not None
+
+
 def check_managed_host_modules(root: Path, policy: dict) -> list[str]:
     """Enforce the declared owner, dependency and integration seams of extracted Host policy."""
     errors: list[str] = []
@@ -117,7 +236,10 @@ def check_managed_host_modules(root: Path, policy: dict) -> list[str]:
             errors.append(f"managed Host module not declared in lib.rs: {source_name}")
         if f"{stem}::" not in entrypoint.read_text():
             errors.append(f"managed Host entrypoint does not use {source_name}")
-        production = source.read_text().split("#[cfg(test)]", 1)[0]
+        source_text = source.read_text()
+        if not has_forbid_unsafe_prologue(source_text):
+            errors.append(f"{source_name}: requires unconditional #![forbid(unsafe_code)] at module prologue")
+        production = source_text.split("#[cfg(test)]", 1)[0]
         actual_crates = set(re.findall(r"\bxharness_\w+(?=::)", production))
         unexpected = actual_crates - set(module["allowedCrates"])
         if unexpected:
@@ -152,6 +274,9 @@ def production_dependencies(manifest: Path) -> set[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base", help="Full trusted comparison commit for the stabilization freeze")
+    args = parser.parse_args()
     expected = {key: set(value) for key, value in json.loads(BASELINE.read_text()).items()}
     manifests = sorted((ROOT / "crates").glob("*/Cargo.toml"))
     actual = {}
@@ -218,7 +343,8 @@ def main() -> int:
     )
     for crate, dependencies in removed.items():
         print(f"- improved {crate}: removed {', '.join(dependencies)}")
-    return 0
+    freeze = runpy.run_path(str(Path(__file__).with_name("architecture_freeze.py")))
+    return freeze["run"](ROOT, args.base)
 
 
 if __name__ == "__main__":

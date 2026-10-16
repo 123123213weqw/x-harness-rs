@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Update the Tauri CI action while preserving all existing build-only installer and release conditions.",
+  "compatibility": "All action inputs, target architectures, bundles, unsigned candidate settings and master-only publish guards remain unchanged. PR CI validates portable contracts; run Windows build-only workflow on this branch to exercise the action without creating a Release.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "d7644bf1a32fa5825a13727cd8878e78e813aecc42f33f71b4f2e14c0c998d8a",
+      "after": "28f26abeea16c121ca348ad30ffdc8c9ef235665a4feef5655aa317534e31fc9"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

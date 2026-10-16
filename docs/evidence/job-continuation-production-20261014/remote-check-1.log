@@ -1,0 +1,77 @@
+    Checking xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-debug)
+    Checking xharness-jobs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-jobs)
+    Checking xharness-fs v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-fs)
+    Checking xharness-api v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-api)
+    Checking xharness-control v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-control)
+    Checking xharness-cloud-app v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-cloud-app)
+    Checking xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-tools)
+    Checking xharness-process v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-process)
+    Checking xharness-web v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-web)
+    Checking xharness-sandbox v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-sandbox)
+    Checking xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-interaction)
+    Checking xharness-platform v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-platform)
+    Checking xharness-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-terminal)
+    Checking xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-session)
+    Checking xharness-coding-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-coding-tools)
+    Checking xharness-web-terminal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-web-terminal)
+    Checking xharness-computer v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-computer)
+    Checking xharness-plugins v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-plugins)
+    Checking xharness-mcp v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-mcp)
+    Checking xharness-server v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-server)
+    Checking xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-compaction)
+    Checking xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-goal)
+    Checking xharness-attachments v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-attachments)
+    Checking xharness-session-jsonl v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-session-jsonl)
+    Checking xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-context)
+    Checking xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-core)
+    Checking xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-agent)
+    Checking xharness-projection v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-projection)
+    Checking xharness-provider-openai v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-provider-openai)
+    Checking xharness-schedule v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-schedule)
+    Checking xharness-host v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/job-continuation-prod-20261014/crates/xharness-host)
+error[E0277]: the trait bound `std::string::String: From<InboxError>` is not satisfied
+   --> crates/xharness-host/src/driver.rs:715:25
+    |
+715 |             let inbox = InboxProjection::from_session(&cut).map_err(RpcError::internal)?;
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `From<InboxError>` is not implemented for `std::string::String`
+    |
+    = help: `std::string::String` implements trait `From<T>`:
+              From<&mut str>
+              From<&std::string::String>
+              From<&str>
+              From<Box<str>>
+              From<Cow<'_, str>>
+              From<Url>
+              From<char>
+              From<uuid::Uuid>
+    = note: required for `InboxError` to implement `Into<std::string::String>`
+note: required by a bound in `RpcError::internal`
+   --> crates/xharness-api/src/lib.rs:162:35
+    |
+162 |     pub fn internal(message: impl Into<String>) -> Self {
+    |                                   ^^^^^^^^^^^^ required by this bound in `RpcError::internal`
+
+error[E0277]: the trait bound `std::string::String: From<InboxError>` is not satisfied
+   --> crates/xharness-host/src/driver.rs:715:69
+    |
+715 |             let inbox = InboxProjection::from_session(&cut).map_err(RpcError::internal)?;
+    |                                                                     ^^^^^^^^^^^^^^^^^^ the trait `From<InboxError>` is not implemented for `std::string::String`
+    |
+    = help: `std::string::String` implements trait `From<T>`:
+              From<&mut str>
+              From<&std::string::String>
+              From<&str>
+              From<Box<str>>
+              From<Cow<'_, str>>
+              From<Url>
+              From<char>
+              From<uuid::Uuid>
+    = note: required for `InboxError` to implement `Into<std::string::String>`
+note: required by a bound in `RpcError::internal`
+   --> crates/xharness-api/src/lib.rs:162:35
+    |
+162 |     pub fn internal(message: impl Into<String>) -> Self {
+    |                                   ^^^^^^^^^^^^ required by this bound in `RpcError::internal`
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `xharness-host` (lib) due to 2 previous errors

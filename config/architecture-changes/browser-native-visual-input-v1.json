@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add scoped browser-native screenshots and balanced input using existing desktop adapters and attachment service.",
+  "compatibility": "Preserve the existing tool namespace and DOM tools, journal and RPC encodings, updater identity and process policy. New browser operations require the current visible owner, origin, navigation epoch and one-shot frame; no global OS input or guest IPC capability is added. Retain image allocation and size bounds, cancellation guards and no automatic replay after uncertain input. Validate native adapters, Host media projection, existing desktop/update contracts, and Windows CI before merge.",
+  "paths": {
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "265cff590d632b5e4a56a9fd58475b82269e4343570a00831b48d4e9f1475243",
+      "after": "76f13c2ab28868e2ea3e1626e2d9d2fcca2b584eaf2724cf92d71cfeaa1217ac"
+    }
+  },
+  "regressions": [
+    "updater",
+    "windows"
+  ]
+}

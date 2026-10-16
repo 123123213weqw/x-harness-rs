@@ -6,7 +6,7 @@
 //! implementations.
 
 mod builtin_ui;
-#[cfg(any(target_os = "macos", windows, test))]
+pub mod channel_accounts;
 mod computer_media;
 mod file_display;
 mod git_display;
@@ -20,6 +20,8 @@ pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
 mod read_media;
+pub mod remote_admin;
+pub mod remote_control;
 pub mod tool_allowlist;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_compat;
@@ -31,6 +33,7 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use xharness_coding_tools::CodingToolBundle;
+mod workspace_memory;
 use xharness_debug::DebugRecorder;
 use xharness_host::{
     DurableQuestionHub, DurableQuestionProvider, PermissionPreset, SessionToolFactory,
@@ -67,6 +70,8 @@ pub struct NativeToolFactory {
     debug: DebugRecorder,
     questions: Option<Arc<DurableQuestionHub>>,
     schedules: Option<Arc<ScheduleManager>>,
+    job_continuations:
+        std::sync::OnceLock<Arc<xharness_host::job_continuation::JobContinuationController>>,
     agent_host: std::sync::OnceLock<std::sync::Weak<xharness_host::BasicHost>>,
     plugins: std::sync::OnceLock<Arc<xharness_plugins::PluginManager>>,
     mcp: std::sync::OnceLock<Arc<xharness_mcp::McpRuntime>>,
@@ -95,6 +100,7 @@ impl NativeToolFactory {
             questions: None,
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -116,6 +122,7 @@ impl NativeToolFactory {
             questions: Some(questions),
             schedules: None,
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -138,6 +145,7 @@ impl NativeToolFactory {
             questions: Some(questions),
             schedules: Some(schedules),
             agent_host: std::sync::OnceLock::new(),
+            job_continuations: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             mcp: std::sync::OnceLock::new(),
             native_browser: std::sync::OnceLock::new(),
@@ -149,6 +157,24 @@ impl NativeToolFactory {
         self.agent_host
             .set(Arc::downgrade(host))
             .map_err(|_| "agent host already bound".into())
+    }
+
+    /// Bind the deployment-owned durable outbox before creating any executor.
+    /// Start/recover it only after Host configuration and session readiness.
+    pub fn enable_job_continuations(
+        &self,
+        store: Arc<dyn xharness_session::Store>,
+        host: &Arc<xharness_host::BasicHost>,
+    ) -> Result<Arc<xharness_host::job_continuation::JobContinuationController>, String> {
+        let controller = xharness_host::job_continuation::JobContinuationController::new(
+            self.jobs.clone(),
+            store,
+            host,
+        );
+        self.job_continuations
+            .set(controller.clone())
+            .map_err(|_| "Job continuations already bound".to_owned())?;
+        Ok(controller)
     }
 
     /// Configure once during deployment startup, before creating executors.
@@ -322,6 +348,34 @@ impl SessionToolFactory for NativeToolFactory {
         Ok(pending)
     }
 
+    async fn process_runs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(self
+            .jobs
+            .list(session_id)
+            .into_iter()
+            .map(xharness_jobs::protocol::JobRun::process)
+            .collect())
+    }
+    async fn process_output(
+        &self,
+        session_id: &str,
+        id: &str,
+        cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        self.jobs
+            .read_since(session_id, id, &cursor)
+            .map_err(|e| e.to_string())
+    }
+    async fn cancel_process_run(&self, session_id: &str, id: &str) -> Result<(), String> {
+        self.jobs
+            .kill(session_id, id, Some("cancel_run from UI"))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     async fn read_display_diff(
         &self,
         _session_id: &str,
@@ -374,7 +428,15 @@ impl SessionToolFactory for NativeToolFactory {
             session_id,
             session_id,
         );
+        if let Some(port) = self.job_continuations.get() {
+            bundle = bundle.with_job_continuation(port.clone());
+        }
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
+            bundle = bundle.with_file_mount(Arc::new(workspace_memory::Mount {
+                host: Arc::downgrade(&host),
+                session: session_id.into(),
+                filesystems: tokio::sync::Mutex::new([None, None]),
+            }));
             bundle = bundle.with_media_reader(Arc::new(read_media::Reader {
                 host: Arc::downgrade(&host),
                 platform: platform.clone(),
@@ -385,6 +447,7 @@ impl SessionToolFactory for NativeToolFactory {
         let mut guards = Vec::new();
         let mut builtin_ui = None;
         if let Some(read) = specs.iter_mut().find(|s| s.definition.name == "read") {
+            read.definition.description.push_str(" When memory is enabled, memory://MEMORY.md reads only this workspace; memory://global/MEMORY.md reads profile-global notes. Use normal file pagination; scope modes and write approvals still apply.");
             read.definition.description.push_str(" PNG/JPEG/WebP/GIF files return image content when the selected model explicitly supports vision; no separate read_image tool is needed. Recent uploaded images are provided directly; an earlier deferred image can be inspected with read(path=\"attachment://<image id>\") as shown in its history marker. Image reads do not accept text pagination options.");
         }
         project_tools(&mut specs, &readiness);
@@ -484,6 +547,12 @@ impl SessionToolFactory for NativeToolFactory {
                 builtin_ui,
                 session_id.into(),
                 permission == PermissionPreset::DangerFullAccess,
+                self.agent_host.get().map(|host| {
+                    Arc::new(computer_media::Sink {
+                        host: host.clone(),
+                        session: session_id.into(),
+                    }) as Arc<dyn xharness_computer::ComputerMediaSink>
+                }),
             );
             specs.push(binding.spec);
             guards.push(binding.guard);
@@ -530,17 +599,31 @@ impl SessionToolFactory for NativeToolFactory {
     }
 
     async fn shutdown(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+        if let Some(controller) = self.job_continuations.get() {
+            if let Err(error) = controller.shutdown().await {
+                errors.push(error);
+            }
+        }
         if let Some(mcp) = self.mcp.get() {
             mcp.shutdown().await;
         }
         let report = self.jobs.shutdown(std::time::Duration::from_secs(8)).await;
-        if report.is_graceful() {
-            Ok(())
-        } else {
-            Err(format!(
+        if let Some(controller) = self.job_continuations.get() {
+            if let Err(error) = controller.shutdown().await {
+                errors.push(error);
+            }
+        }
+        if !report.is_graceful() {
+            errors.push(format!(
                 "job shutdown handled {} jobs with {} cancellation failures and {} timeouts",
                 report.jobs, report.cancellation_failures, report.timed_out
-            ))
+            ));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
         }
     }
 }
@@ -623,6 +706,56 @@ mod tests {
 
     static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 
+    #[tokio::test]
+    async fn execution_api_uses_the_same_owned_registry_as_native_tools() {
+        let factory = NativeToolFactory::new(
+            configured_web_runtime(None, DebugRecorder::disabled()).unwrap(),
+        );
+        let (id, lease) = factory
+            .jobs
+            .reserve("owned", "bash", "fixture process", None)
+            .unwrap()
+            .commit(None, Arc::new(|_| Ok(())))
+            .unwrap();
+        lease.publish_stdout("owned result");
+        let runs = factory.process_runs("owned").await.unwrap();
+        assert_eq!(runs[0].id, id.as_str());
+        assert!(factory.process_runs("other").await.unwrap().is_empty());
+        assert!(factory
+            .process_output(
+                "other",
+                id.as_str(),
+                xharness_jobs::JobOutputCursor::start(id.as_str())
+            )
+            .await
+            .is_err());
+        assert_eq!(
+            factory
+                .process_output(
+                    "owned",
+                    id.as_str(),
+                    xharness_jobs::JobOutputCursor::start(id.as_str())
+                )
+                .await
+                .unwrap()
+                .stdout,
+            "owned result"
+        );
+        factory
+            .cancel_process_run("owned", id.as_str())
+            .await
+            .unwrap();
+        assert_eq!(
+            factory.process_runs("owned").await.unwrap()[0].state,
+            xharness_jobs::protocol::RunState::Stopping
+        );
+        lease.finish(xharness_jobs::JobOutcome::killed("producer acknowledged"));
+        assert_eq!(
+            factory.process_runs("owned").await.unwrap()[0].state,
+            xharness_jobs::protocol::RunState::Cancelled
+        );
+    }
+
     #[cfg(unix)]
     const NATIVE_SHELL_TOOL: &str = "bash";
     #[cfg(windows)]
@@ -634,7 +767,7 @@ mod tests {
     const BACKGROUND_COMMAND: &str =
         r#"{"command":"Start-Sleep -Seconds 30","run_in_background":true}"#;
 
-    struct TempWorkspace(std::path::PathBuf);
+    pub(crate) struct TempWorkspace(pub(crate) std::path::PathBuf);
 
     #[tokio::test]
     async fn exa_search_is_projected_only_with_an_explicit_key() {
@@ -778,7 +911,7 @@ mod tests {
     }
 
     impl TempWorkspace {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "xharness-host-app-permission-{}-{}",
                 std::process::id(),
@@ -1257,4 +1390,5 @@ mod tests {
     }
 }
 pub mod config;
+mod context_discovery;
 pub mod model_settings;

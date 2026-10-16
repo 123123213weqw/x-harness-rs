@@ -6,7 +6,7 @@ import unittest
 import zlib
 
 from scripts.gui_bench.native_png import pixel, SIGNATURE, MAX_PIXELS
-from scripts.gui_bench.run_native_probe import native_api_evidence
+from scripts.gui_bench.run_native_probe import native_api_evidence, production_native_evidence
 
 
 def chunk(kind, value):
@@ -61,6 +61,25 @@ class PngTests(unittest.TestCase):
             data = (SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',2,1,8,2,0,0,0))
                     +chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b''))
             with self.assertRaises(ValueError): pixel(data,0,0)
+
+    def test_production_mapping_rejects_titlebar_offset_stale_and_missing_pixels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'native-api').mkdir()
+            w,h=140,260
+            line='PRODUCTION_NATIVE_EVIDENCE '+json.dumps(dict(passed=True,viewport=dict(width=w,height=h)))
+            def marker(top):
+                rows=[b'\0'+b''.join(bytes((255,0,0) if 20<=x<120 and top<=y<top+100 else (255,255,255)) for x in range(w)) for y in range(h)]
+                return SIGNATURE+chunk(b'IHDR',struct.pack('!IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b''.join(rows)))+chunk(b'IEND',b'')
+            path=root/'native-api'/'production.png'
+            path.write_bytes(marker(120))
+            self.assertTrue(production_native_evidence(line,root)['passed'])
+            path.write_bytes(marker(148))
+            self.assertFalse(production_native_evidence(line,root)['passed'])
+            path.write_bytes(png(size=(w,h)))
+            self.assertFalse(production_native_evidence(line,root)['passed'])
+            path.unlink()
+            self.assertFalse(production_native_evidence(line,root)['passed'])
+            self.assertFalse(production_native_evidence(line+'\n'+line,root)['passed'])
 
     def test_native_evidence_verifies_pixels_not_merely_callback_success(self):
         with tempfile.TemporaryDirectory() as directory:

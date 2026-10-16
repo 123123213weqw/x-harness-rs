@@ -27,7 +27,7 @@ import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'review.center' | 'assistant.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -325,7 +325,7 @@ export function AppFrame({
             aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
           {renderSlot('plugins.center', {})}
         </main>}
-        {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} />}
+        {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} renderExecutions={()=>renderSlot('work.center.executions',{openSession:openWorkSession})}/>}
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}

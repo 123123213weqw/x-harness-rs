@@ -14,6 +14,9 @@ pub(super) async fn call(
     payload: &Value,
 ) -> Option<Result<Option<Value>, RpcError>> {
     let result = match endpoint {
+        "job/manage" => super::jobs::manage(host_backend, rpc_id, payload)
+            .await
+            .map(Some),
         "automation/manage" => automation::manage(host_backend, rpc_id, payload)
             .await
             .map(Some),

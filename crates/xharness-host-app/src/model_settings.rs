@@ -24,13 +24,20 @@ pub struct NativeCredentialStore {
 
 impl NativeCredentialStore {
     pub fn new(state_dir: &Path) -> Result<Self, String> {
+        Self::namespace(state_dir, "models")
+    }
+    /// Separate namespace: model credential RPCs cannot read/write bot secrets.
+    pub fn for_channels(state_dir: &Path) -> Result<Self, String> {
+        Self::namespace(state_dir, "channels")
+    }
+    fn namespace(state_dir: &Path, namespace: &'static str) -> Result<Self, String> {
         std::fs::create_dir_all(state_dir)
             .map_err(|_| "Cannot create model state directory".to_owned())?;
         let path = std::fs::canonicalize(state_dir)
             .map_err(|_| "Cannot resolve model state directory".to_owned())?;
         let digest = Sha256::digest(path.to_string_lossy().as_bytes());
         Ok(Self {
-            service: format!("com.xlang.xharness.models.{digest:x}"),
+            service: format!("com.xlang.xharness.{namespace}.{digest:x}"),
             gate: Arc::new(std::sync::Mutex::new(())),
         })
     }
@@ -96,6 +103,7 @@ pub struct NativeModelSettings {
     /// persisted; they remain read-only, just like environment overrides.
     process_keys: BTreeMap<String, String>,
     discovery: crate::reasoning_discovery::ReasoningDiscovery,
+    contexts: crate::context_discovery::ContextDiscovery,
     execution_gate: Option<Arc<dyn xharness_host::ExecutionGate>>,
     calibration: Option<Arc<xharness_provider_openai::CalibrationStore>>,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
@@ -113,6 +121,7 @@ impl NativeModelSettings {
             debug,
             process_keys: BTreeMap::new(),
             discovery: Default::default(),
+            contexts: Default::default(),
             execution_gate: None,
             calibration: None,
             attachments: None,
@@ -198,8 +207,44 @@ impl NativeModelSettings {
             }
         }
         let mut observations = BTreeMap::new();
+        let mut contexts = BTreeMap::new();
         let discovery_deadline = std::time::Instant::now() + Duration::from_secs(10);
         for (id, profile) in &mut doc.providers {
+            let active = self
+                .execution_gate
+                .as_ref()
+                .is_none_or(|gate| gate.require_active().is_ok());
+            if active
+                && profile.models.iter().any(|model| {
+                    model.context_window_capability.is_none()
+                        && (force_discovery
+                            || (model.context_window.is_none()
+                                && profile.default_context_window.is_none()))
+                })
+            {
+                let limits = self
+                    .contexts
+                    .get(
+                        &profile.base_url,
+                        profile
+                            .api_key_env
+                            .as_ref()
+                            .and_then(|r| keys.get(r))
+                            .and_then(|v| v.as_deref()),
+                        force_discovery,
+                        discovery_deadline.saturating_duration_since(std::time::Instant::now()),
+                    )
+                    .await;
+                for model in &profile.models {
+                    if model.context_window_capability.is_none() {
+                        if let Some(limit) =
+                            limits.get(model.upstream_model.as_deref().unwrap_or(&model.id))
+                        {
+                            contexts.insert((id.clone(), model.id.clone()), limit.clone());
+                        }
+                    }
+                }
+            }
             let (discovered, provenance) = if let Some(spec) = &profile.reasoning_discovery {
                 let spec = serde_json::from_value(spec.clone())
                     .map_err(|_| "Invalid reasoningDiscovery configuration")?;
@@ -243,13 +288,14 @@ impl NativeModelSettings {
         }
         tokio::time::timeout(
             Duration::from_secs(20),
-            crate::config::registry_from_resolved_settings(
+            crate::config::registry_from_settings_with_context(
                 &doc,
                 &keys,
                 self.debug.clone(),
                 self.attachments.clone(),
                 &observations,
                 self.calibration.clone(),
+                &contexts,
             ),
         )
         .await
@@ -409,5 +455,24 @@ impl ModelSettingsBackend for NativeModelSettings {
             .take(512)
             .collect::<Vec<_>>();
         Ok(json!({"models":models}))
+    }
+}
+
+#[cfg(test)]
+mod channel_namespace_tests {
+    use super::*;
+    #[test]
+    fn channel_credentials_are_not_in_the_model_rpc_namespace() {
+        let path = std::env::temp_dir().join(format!("xh-key-namespace-{}", std::process::id()));
+        std::fs::create_dir(&path).unwrap();
+        let models = NativeCredentialStore::new(&path).unwrap();
+        let channels = NativeCredentialStore::for_channels(&path).unwrap();
+        assert_ne!(models.service, channels.service);
+        assert!(channels.service.starts_with("com.xlang.xharness.channels."));
+        assert_eq!(
+            channels.service,
+            NativeCredentialStore::for_channels(&path).unwrap().service
+        );
+        std::fs::remove_dir_all(path).unwrap();
     }
 }
