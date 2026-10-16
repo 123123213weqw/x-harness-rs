@@ -1,5 +1,5 @@
 {
-  "rev": "2963fd7fe1d23aad",
+  "rev": "015c0ec7a9bf0804",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -26,8 +26,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=8d8ac21840d63920",
-      "rev": "8d8ac21840d63920",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=18ab2b255a1da7db",
+      "rev": "18ab2b255a1da7db",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -202,8 +202,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-settings-general",
-      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=92262a036aa1d5aa",
-      "rev": "92262a036aa1d5aa",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-general/client.js?rev=d76346872866d60c",
+      "rev": "d76346872866d60c",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-ui-settings",
@@ -238,6 +238,21 @@
       ]
     },
     {
+      "id": "@xharness/dsh-client-ui-settings-remote-control",
+      "url": "/plugins/@xharness/dsh-client-ui-settings-remote-control/client.js?rev=7ec467cb5a853cdf",
+      "rev": "7ec467cb5a853cdf",
+      "inject": [
+        "@xharness/dsh-client-runtime",
+        "@xharness/dsh-client-ui-settings",
+        "@xharness/dsh-client-locale",
+        "@xharness/dsh-client-connection"
+      ],
+      "external": [
+        "react",
+        "react/jsx-runtime"
+      ]
+    },
+    {
       "id": "@xharness/dsh-client-ui-settings-plugin-inventory",
       "url": "/plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js?rev=7ab5dab9511d05a8",
       "rev": "7ab5dab9511d05a8",
@@ -255,8 +270,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-conversation",
-      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=b15060ebbe3a1d5a",
-      "rev": "b15060ebbe3a1d5a",
+      "url": "/plugins/@xharness/dsh-client-ui-conversation/client.js?rev=5d80fec8aae79fdc",
+      "rev": "5d80fec8aae79fdc",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-locale",
@@ -516,8 +531,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-goal",
-      "url": "/plugins/@xharness/dsh-client-ui-goal/client.js?rev=909f5cbbadbb127b",
-      "rev": "909f5cbbadbb127b",
+      "url": "/plugins/@xharness/dsh-client-ui-goal/client.js?rev=aed041b89e229b18",
+      "rev": "aed041b89e229b18",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-api-remotes",

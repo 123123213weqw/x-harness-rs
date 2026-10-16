@@ -10,3 +10,8 @@
 ._7yzX1q_modelSeat{flex:none}._7yzX1q_footer{flex:none}
 ._7yzX1q_add{width:32px;height:32px;background:transparent}
 ._7yzX1q_add svg{width:20px;height:20px}
+
+/* Composer-owned integration leaves the standalone Goal lifecycle styles intact. */
+[data-composer-card] [data-goal-bar]{width:100%;margin:0}
+[data-composer-card] [data-goal-bar]>div{max-width:none;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);border-radius:0;background:transparent;margin:0;padding:0 0 8px;gap:8px}
+[data-composer-card] [data-goal-bar]>div>:last-child{gap:2px;margin-left:auto}

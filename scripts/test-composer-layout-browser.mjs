@@ -113,6 +113,15 @@ try {
   assert.equal(await summary.getAttribute('aria-expanded'),'false')
   assert.equal(await page.locator('[data-composer-stats] > div').isVisible(),false)
   await input.click()
+  // Both supported locales label the actual disclosure and its region.
+  for (const [locale, label] of [['zh', '对话统计'], ['en', 'Conversation statistics']]) {
+    await set({locale})
+    assert.equal(await summary.getAttribute('aria-label'), label)
+    assert.equal(await summary.getAttribute('title'), label)
+    await summary.click()
+    await page.getByRole('region', {name: label, exact: true}).waitFor()
+    await summary.press('Escape')
+  }
   // Existing Goal editing and budget forms still fit the integrated header.
   await page.getByRole('button',{name:'Resume goal',exact:true}).click()
   assert.equal(await page.evaluate(()=>__composerFixture.calls.at(-1).goal),'resume')

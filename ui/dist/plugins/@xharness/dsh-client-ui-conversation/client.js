@@ -143,7 +143,11 @@ function apply(ctx) {
     // Chat semantic reader positions by session, surviving view switches and
     // width reflow when the tab ring remounts the view. Deliberately not
     // persisted: a fresh page load keeps the open-jump-to-bottom default.
-    const chatScrollMemory = new scroll_memory_1.ChatScrollMemory();
+    const chatScrollMemory = new scroll_memory_1.ChatScrollMemory((sessionId, position) => {
+        const seq = position?.anchorSeq;
+        sessions.binding(sessionId)?.session.setHistoryOpenTarget?.(position === null ? { kind: 'latest' }
+            : seq !== undefined && Number.isSafeInteger(seq) && seq >= 0 ? { kind: 'anchor', seq } : undefined);
+    });
     ctx.effect(() => () => { chatScrollMemory.dispose(); }, 'conversation reader memory');
     const viewTabs = () => {
         const tabs = [];
@@ -1522,7 +1526,7 @@ exports.StatsLine = (0, react_1.memo)(function StatsLine({ useSession, useProjec
         return null;
     // Explicit disclosure keeps off-card content accessible in WebKit as well
     // as Chromium. It owns only open state, never token accounting.
-    return ((0, jsx_runtime_1.jsxs)("div", { ref: disclosureRef, className: StatsLine_styles_1.default.root, "data-composer-stats": true, "data-expanded": open || undefined, children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: StatsLine_styles_1.default.summary, "aria-label": "Conversation statistics", title: "Conversation statistics", "aria-expanded": open, "aria-controls": open ? panelId : undefined, onClick: () => { setOpen(!open); }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconChecklistOutline14, {}) }), open && (0, jsx_runtime_1.jsx)("div", { id: panelId, className: StatsLine_styles_1.default.details, role: "region", "aria-label": "Conversation statistics", children: groups.map(group => (0, jsx_runtime_1.jsx)("div", { children: group }, group)) })] }));
+    return ((0, jsx_runtime_1.jsxs)("div", { ref: disclosureRef, className: StatsLine_styles_1.default.root, "data-composer-stats": true, "data-expanded": open || undefined, children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: StatsLine_styles_1.default.summary, "aria-label": t('stats.title'), title: t('stats.title'), "aria-expanded": open, "aria-controls": open ? panelId : undefined, onClick: () => { setOpen(!open); }, children: (0, jsx_runtime_1.jsx)(primitives_1.IconChecklistOutline14, {}) }), open && (0, jsx_runtime_1.jsx)("div", { id: panelId, className: StatsLine_styles_1.default.details, role: "region", "aria-label": t('stats.title'), children: groups.map(group => (0, jsx_runtime_1.jsx)("div", { children: group }, group)) })] }));
 });
 
 },
@@ -2092,7 +2096,7 @@ if (typeof document !== 'undefined' && document.querySelector('style[data-plugin
 // source: src/modules/conversation/skeleton/InputBar.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "._7yzX1q_root{padding:0 var(--dsh-composer-side-clearance) 8px;flex-direction:column;align-items:center;display:flex}._7yzX1q_hero{padding:0 var(--dsh-composer-side-clearance)}._7yzX1q_notice{width:100%;max-width:var(--dsh-composer-card-max-width);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:8px;margin-bottom:6px;padding:4px 8px;font-size:12px;line-height:18px}._7yzX1q_card{box-sizing:border-box;width:100%;max-width:var(--dsh-composer-card-max-width);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);background:var(--dsw-specific-input-major);box-shadow:var(--dsw-shadow-lv2);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:22px;flex-direction:column;gap:8px;padding-top:10px;font-size:16px;line-height:24px;display:flex;position:relative}._7yzX1q_cardWorkspaceTrigger{cursor:pointer;border-color:#0000}._7yzX1q_cardWorkspaceTrigger:after{content:\"\";background:var(--dsw-alias-border-l4);pointer-events:none;border-radius:22px;transition:background-color .1s;position:absolute;inset:-1px;-webkit-mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E\");mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E\")}._7yzX1q_cardWorkspaceTrigger :disabled{pointer-events:none}._7yzX1q_cardWorkspaceTrigger:hover:after{background:var(--dsw-alias-state-business-primary)}._7yzX1q_accessory{flex-direction:column;align-items:stretch;gap:6px;padding:0 12px;display:flex}._7yzX1q_accessory:empty,._7yzX1q_footer:empty,._7yzX1q_accessory:has(>[data-slot]:only-child:empty),._7yzX1q_footer:has(>[data-slot]:only-child:empty){display:none}._7yzX1q_overlayAnchor{height:0;position:absolute;inset:0 0 auto}._7yzX1q_scroll{max-height:var(--dsh-composer-text-max-height);overflow-y:auto}._7yzX1q_grow{position:relative}._7yzX1q_backdrop{color:var(--dsw-alias-label-primary);pointer-events:none;position:absolute;inset:0;overflow:hidden}._7yzX1q_backdropDisabled,._7yzX1q_backdropDisabled :is(._7yzX1q_hlToken,._7yzX1q_hint,._7yzX1q_textRef,._7yzX1q_chip,._7yzX1q_chipInvalid){color:var(--dsw-alias-label-tertiary)}._7yzX1q_hlToken{color:var(--dsw-alias-state-warn-label);background-color:#0000}._7yzX1q_hlSegment{color:#0000;background-color:#0000;border-radius:4px}._7yzX1q_hint{color:var(--dsw-alias-label-caption)}._7yzX1q_pending{background:var(--dsw-alias-state-business-primary);border-radius:50%;width:8px;height:8px;animation:1s ease-in-out infinite alternate _7yzX1q_input-pending}@keyframes _7yzX1q_input-pending{0%{opacity:.35}to{opacity:1}}._7yzX1q_input{resize:none;color:#0000;-webkit-text-fill-color:transparent;width:100%;height:100%;caret-color:var(--dsw-alias-state-business-primary);background:0 0;border:none;outline:none;position:absolute;inset:0;overflow:hidden}._7yzX1q_input,._7yzX1q_mirror,._7yzX1q_backdrop{box-sizing:border-box;font-family:var(--dsw-font-family);font-size:inherit;line-height:inherit;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;padding:4px 12px 0 16px}._7yzX1q_input::placeholder{color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);user-select:none}._7yzX1q_input:disabled{color:#0000;-webkit-text-fill-color:transparent;cursor:not-allowed}._7yzX1q_input[aria-haspopup=menu]{cursor:pointer}._7yzX1q_mirror{visibility:hidden;pointer-events:none}._7yzX1q_hero ._7yzX1q_mirror{min-height:52px}._7yzX1q_row{flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;padding:2px 10px 8px;display:flex;container-type:inline-size}._7yzX1q_tools,._7yzX1q_modes,._7yzX1q_trailing{align-items:center;min-width:0;display:flex}._7yzX1q_tools{flex:0 1 auto;gap:6px}._7yzX1q_modes{gap:6px}._7yzX1q_trailing{flex:1 1 0;gap:6px;margin-left:auto}._7yzX1q_add{background:var(--dsw-specific-selector);width:28px;height:28px;color:var(--dsw-alias-label-primary);cursor:pointer;border:none;border-radius:999px;flex:none;place-items:center;display:grid}._7yzX1q_add:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}._7yzX1q_add:disabled{opacity:.5;cursor:default}._7yzX1q_select{max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);white-space:nowrap;cursor:pointer;appearance:none;background-color:#0000;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 4px center;background-repeat:no-repeat;background-size:12px 12px;border:none;border-radius:8px;outline:none;padding:0 20px 0 8px;font-size:13px;font-weight:500;line-height:20px}._7yzX1q_select:hover:not(:disabled){background-color:var(--dsw-alias-interactive-bg-hover)}._7yzX1q_select:disabled{opacity:.5;cursor:default}._7yzX1q_primary{background:var(--dsw-alias-button-info-fill);color:var(--dsw-alias-label-primary-foreground);cursor:pointer;border:none;border-radius:999px;flex:none;place-items:center;width:34px;height:34px;transition:background-color .1s;display:grid}._7yzX1q_primary:hover:not(:disabled){background:var(--dsw-alias-button-info-hover)}._7yzX1q_primary:disabled{opacity:.4;cursor:default}._7yzX1q_retry{color:inherit;cursor:pointer;background:0 0;border:1px solid;border-radius:4px;margin-left:8px;padding:1px 8px;font-size:12px}._7yzX1q_textRef{color:var(--dsw-alias-state-business-primary);-webkit-box-decoration-break:clone;box-decoration-break:clone;background-color:#0000}._7yzX1q_textRef:after{display:none}._7yzX1q_textRefTrigger{position:relative}._7yzX1q_textRefTriggerGlyph{color:#0000}._7yzX1q_textRefIcon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7yzX1q_chip{color:var(--dsw-alias-state-business-primary);-webkit-box-decoration-break:clone;box-decoration-break:clone;background:0 0;position:relative}._7yzX1q_chipTrigger{position:relative}._7yzX1q_chipTriggerGlyph{color:#0000}._7yzX1q_chipIcon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7yzX1q_chipInvalid{opacity:.7;color:var(--dsw-alias-state-error-primary);text-decoration:line-through}\n/* One card, with stable action seats instead of intrinsic-width toolbar wrapping. */\n._7yzX1q_modelSeat{display:flex;justify-content:flex-end;flex:1 1 0;min-width:0}\n._7yzX1q_actions{display:flex;align-items:center;flex:none;gap:6px}\n._7yzX1q_footer{display:flex;min-width:0;flex:none;padding:0}\n\n/* Icon controls keep a single baseline even in a narrow side panel. */\n._7yzX1q_row{position:relative;flex-wrap:wrap;gap:8px;padding:4px 12px 12px}\n._7yzX1q_tools{flex:0 1 auto;gap:6px}._7yzX1q_trailing{flex:1 0 auto;justify-content:flex-end;gap:8px}\n._7yzX1q_modelSeat{flex:none}._7yzX1q_footer{flex:none}\n._7yzX1q_add{width:32px;height:32px;background:transparent}\n._7yzX1q_add svg{width:20px;height:20px}\n";
+exports.default = "._7yzX1q_root{padding:0 var(--dsh-composer-side-clearance) 8px;flex-direction:column;align-items:center;display:flex}._7yzX1q_hero{padding:0 var(--dsh-composer-side-clearance)}._7yzX1q_notice{width:100%;max-width:var(--dsh-composer-card-max-width);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);border-radius:8px;margin-bottom:6px;padding:4px 8px;font-size:12px;line-height:18px}._7yzX1q_card{box-sizing:border-box;width:100%;max-width:var(--dsh-composer-card-max-width);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);background:var(--dsw-specific-input-major);box-shadow:var(--dsw-shadow-lv2);--dsh-scrollbar-thumb:var(--dsw-alias-scrollbar-bg-l2);--dsh-scrollbar-thumb-hover:var(--dsw-alias-scrollbar-hover-l2);border-radius:22px;flex-direction:column;gap:8px;padding-top:10px;font-size:16px;line-height:24px;display:flex;position:relative}._7yzX1q_cardWorkspaceTrigger{cursor:pointer;border-color:#0000}._7yzX1q_cardWorkspaceTrigger:after{content:\"\";background:var(--dsw-alias-border-l4);pointer-events:none;border-radius:22px;transition:background-color .1s;position:absolute;inset:-1px;-webkit-mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E\");mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100%25' height='100%25' fill='none' rx='22' ry='22' stroke='black' stroke-width='2' stroke-dasharray='4 4'/%3E%3C/svg%3E\")}._7yzX1q_cardWorkspaceTrigger :disabled{pointer-events:none}._7yzX1q_cardWorkspaceTrigger:hover:after{background:var(--dsw-alias-state-business-primary)}._7yzX1q_accessory{flex-direction:column;align-items:stretch;gap:6px;padding:0 12px;display:flex}._7yzX1q_accessory:empty,._7yzX1q_footer:empty,._7yzX1q_accessory:has(>[data-slot]:only-child:empty),._7yzX1q_footer:has(>[data-slot]:only-child:empty){display:none}._7yzX1q_overlayAnchor{height:0;position:absolute;inset:0 0 auto}._7yzX1q_scroll{max-height:var(--dsh-composer-text-max-height);overflow-y:auto}._7yzX1q_grow{position:relative}._7yzX1q_backdrop{color:var(--dsw-alias-label-primary);pointer-events:none;position:absolute;inset:0;overflow:hidden}._7yzX1q_backdropDisabled,._7yzX1q_backdropDisabled :is(._7yzX1q_hlToken,._7yzX1q_hint,._7yzX1q_textRef,._7yzX1q_chip,._7yzX1q_chipInvalid){color:var(--dsw-alias-label-tertiary)}._7yzX1q_hlToken{color:var(--dsw-alias-state-warn-label);background-color:#0000}._7yzX1q_hlSegment{color:#0000;background-color:#0000;border-radius:4px}._7yzX1q_hint{color:var(--dsw-alias-label-caption)}._7yzX1q_pending{background:var(--dsw-alias-state-business-primary);border-radius:50%;width:8px;height:8px;animation:1s ease-in-out infinite alternate _7yzX1q_input-pending}@keyframes _7yzX1q_input-pending{0%{opacity:.35}to{opacity:1}}._7yzX1q_input{resize:none;color:#0000;-webkit-text-fill-color:transparent;width:100%;height:100%;caret-color:var(--dsw-alias-state-business-primary);background:0 0;border:none;outline:none;position:absolute;inset:0;overflow:hidden}._7yzX1q_input,._7yzX1q_mirror,._7yzX1q_backdrop{box-sizing:border-box;font-family:var(--dsw-font-family);font-size:inherit;line-height:inherit;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;padding:4px 12px 0 16px}._7yzX1q_input::placeholder{color:var(--dsw-alias-label-caption);-webkit-text-fill-color:var(--dsw-alias-label-caption);user-select:none}._7yzX1q_input:disabled{color:#0000;-webkit-text-fill-color:transparent;cursor:not-allowed}._7yzX1q_input[aria-haspopup=menu]{cursor:pointer}._7yzX1q_mirror{visibility:hidden;pointer-events:none}._7yzX1q_hero ._7yzX1q_mirror{min-height:52px}._7yzX1q_row{flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;padding:2px 10px 8px;display:flex;container-type:inline-size}._7yzX1q_tools,._7yzX1q_modes,._7yzX1q_trailing{align-items:center;min-width:0;display:flex}._7yzX1q_tools{flex:0 1 auto;gap:6px}._7yzX1q_modes{gap:6px}._7yzX1q_trailing{flex:1 1 0;gap:6px;margin-left:auto}._7yzX1q_add{background:var(--dsw-specific-selector);width:28px;height:28px;color:var(--dsw-alias-label-primary);cursor:pointer;border:none;border-radius:999px;flex:none;place-items:center;display:grid}._7yzX1q_add:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover-solid)}._7yzX1q_add:disabled{opacity:.5;cursor:default}._7yzX1q_select{max-width:220px;height:28px;color:var(--dsw-alias-label-secondary);white-space:nowrap;cursor:pointer;appearance:none;background-color:#0000;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\");background-position:right 4px center;background-repeat:no-repeat;background-size:12px 12px;border:none;border-radius:8px;outline:none;padding:0 20px 0 8px;font-size:13px;font-weight:500;line-height:20px}._7yzX1q_select:hover:not(:disabled){background-color:var(--dsw-alias-interactive-bg-hover)}._7yzX1q_select:disabled{opacity:.5;cursor:default}._7yzX1q_primary{background:var(--dsw-alias-button-info-fill);color:var(--dsw-alias-label-primary-foreground);cursor:pointer;border:none;border-radius:999px;flex:none;place-items:center;width:34px;height:34px;transition:background-color .1s;display:grid}._7yzX1q_primary:hover:not(:disabled){background:var(--dsw-alias-button-info-hover)}._7yzX1q_primary:disabled{opacity:.4;cursor:default}._7yzX1q_retry{color:inherit;cursor:pointer;background:0 0;border:1px solid;border-radius:4px;margin-left:8px;padding:1px 8px;font-size:12px}._7yzX1q_textRef{color:var(--dsw-alias-state-business-primary);-webkit-box-decoration-break:clone;box-decoration-break:clone;background-color:#0000}._7yzX1q_textRef:after{display:none}._7yzX1q_textRefTrigger{position:relative}._7yzX1q_textRefTriggerGlyph{color:#0000}._7yzX1q_textRefIcon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7yzX1q_chip{color:var(--dsw-alias-state-business-primary);-webkit-box-decoration-break:clone;box-decoration-break:clone;background:0 0;position:relative}._7yzX1q_chipTrigger{position:relative}._7yzX1q_chipTriggerGlyph{color:#0000}._7yzX1q_chipIcon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}._7yzX1q_chipInvalid{opacity:.7;color:var(--dsw-alias-state-error-primary);text-decoration:line-through}\n/* One card, with stable action seats instead of intrinsic-width toolbar wrapping. */\n._7yzX1q_modelSeat{display:flex;justify-content:flex-end;flex:1 1 0;min-width:0}\n._7yzX1q_actions{display:flex;align-items:center;flex:none;gap:6px}\n._7yzX1q_footer{display:flex;min-width:0;flex:none;padding:0}\n\n/* Icon controls keep a single baseline even in a narrow side panel. */\n._7yzX1q_row{position:relative;flex-wrap:wrap;gap:8px;padding:4px 12px 12px}\n._7yzX1q_tools{flex:0 1 auto;gap:6px}._7yzX1q_trailing{flex:1 0 auto;justify-content:flex-end;gap:8px}\n._7yzX1q_modelSeat{flex:none}._7yzX1q_footer{flex:none}\n._7yzX1q_add{width:32px;height:32px;background:transparent}\n._7yzX1q_add svg{width:20px;height:20px}\n\n/* Composer-owned integration leaves the standalone Goal lifecycle styles intact. */\n[data-composer-card] [data-goal-bar]{width:100%;margin:0}\n[data-composer-card] [data-goal-bar]>div{max-width:none;border:0;border-bottom:1px solid var(--dsw-alias-border-l1);border-radius:0;background:transparent;margin:0;padding:0 0 8px;gap:8px}\n[data-composer-card] [data-goal-bar]>div>:last-child{gap:2px;margin-left:auto}\n";
 
 },
 "src/modules/conversation/skeleton/ComposerAddMenu.js": function(module, exports, require) {
@@ -21606,8 +21610,10 @@ function scrollPosition(list, scrollport) {
     const anchorKey = row?.dataset.chatAnchorKey;
     if (row === null || anchorKey === undefined)
         return null;
+    const seq = row.dataset.chatAnchorSeq === undefined ? NaN : Number(row.dataset.chatAnchorSeq);
     return {
         anchorKey,
+        ...(Number.isSafeInteger(seq) && seq >= 0 ? { anchorSeq: seq } : {}),
         anchorTop: flowTop(row, scrollport),
         scrollTop: scrollport.scrollTop,
     };
@@ -21723,8 +21729,8 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     const [railHost, setRailHost] = (0, react_1.useState)(null);
     const [activeMarker, setActiveMarker] = (0, react_1.useState)(null);
     const columnRef = (0, react_1.useRef)(null);
-    const atBottomRef = (0, react_1.useRef)(true);
-    const [atBottom, setAtBottom] = (0, react_1.useState)(true);
+    const atBottomRef = (0, react_1.useRef)(chatScroll.read() === null);
+    const [atBottom, setAtBottom] = (0, react_1.useState)(atBottomRef.current);
     /** Last position delivered or written on the main thread. */
     const observedTopRef = (0, react_1.useRef)(0);
     const readerScrollUntilRef = (0, react_1.useRef)(0);
@@ -21880,6 +21886,10 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         if (local === null)
             return;
         const el = scrollerOf(local);
+        // A cold view has no flow to follow yet. In particular, its empty first
+        // layout must not turn an older reading bookmark into a latest-page hint.
+        if (openState !== 'open' && order.length === 0)
+            return;
         // Open completed: jump to the bottom once — unless a scroll position
         // survives from a previous mount (view-tab switch away and back), which
         // is restored instead of snapping the reader back to the floor.
@@ -21934,6 +21944,10 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     });
     const onScrollRef = (0, react_1.useRef)(() => { });
     onScrollRef.current = () => {
+        // Empty loading/retry layouts are not reader intent and must not erase a
+        // bookmark before its required history window has been restored.
+        if (openState !== 'open' && order.length === 0)
+            return;
         const local = listRef.current;
         /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
         if (local === null)
@@ -22089,6 +22103,8 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     // initializer a function initial value would need never exists.
     const followRef = (0, react_1.useRef)(null);
     followRef.current = () => {
+        if (openState !== 'open' && order.length === 0)
+            return;
         const local = listRef.current;
         if (local !== null && atBottomRef.current) {
             const el = scrollerOf(local);
@@ -23778,7 +23794,7 @@ function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, foldedTool
         return null;
     if (tail === undefined && (currentTurn.status !== 'open' || foldedCount === 0))
         return null;
-    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, children: tail === undefined ? (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.AdaptiveToolSummary, { turn: currentTurn.turn, count: foldedCount, t: t, expanded: expandedTurns?.has(currentTurn.turn) ?? false, onToggle: () => { toggleTurnProcess(currentTurn.turn); } })
+    return (0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { estimatedHeight: 32, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": `turn-process:${currentTurn.turn}`, "data-chat-anchor-seq": currentTurn.start?.seq ?? node?.anchorSeq, children: tail === undefined ? (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.AdaptiveToolSummary, { turn: currentTurn.turn, count: foldedCount, t: t, expanded: expandedTurns?.has(currentTurn.turn) ?? false, onToggle: () => { toggleTurnProcess(currentTurn.turn); } })
             : (0, jsx_runtime_1.jsx)(TurnTailNodeView_1.TurnProcessSummary, { turn: currentTurn, data: tail, t: t, collapsed: !(expandedTurns?.has(currentTurn.turn) ?? false), onToggle: () => { toggleTurnProcess(currentTurn.turn); } }) });
 }
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
@@ -23832,7 +23848,7 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
     // keyed-slot entry passed alongside that same Node. TypeScript does not
     // distribute an object containing a union into a union of objects itself.
     const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode);
-    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
+    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState.current, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-anchor-seq": node.anchorSeq, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
             (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined ? turn : undefined, "data-chat-auto-fold-eligible": autoFoldable ? 'true' : 'false', children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
             entryKey: routedOwner.node.kind,
             hookContext: nodeKey,
@@ -24425,12 +24441,25 @@ exports.ChatScrollMemory = void 0;
 /** Session-local reader memory and explicit local submit intent. No wire event
  * can request following; a hidden view only clears its stale reader bookmark. */
 class ChatScrollMemory {
-    constructor() {
+    constructor(onPosition) {
+        this.onPosition = onPosition;
         this.positions = new Map();
         this.listeners = new Map();
         this.disposed = false;
     }
+    publish(sessionId, position) {
+        if (this.disposed)
+            return;
+        try {
+            this.onPosition?.(sessionId, position);
+        }
+        catch (error) {
+            console.error('[conversation] reading target listener failed:', error);
+        }
+    }
     forSession(sessionId) {
+        // Slot injection may run in a discarded concurrent render. Only committed
+        // position saves and explicit follow intents may publish a runtime hint.
         return {
             read: () => this.positions.get(sessionId) ?? null,
             save: position => {
@@ -24440,6 +24469,7 @@ class ChatScrollMemory {
                     this.positions.delete(sessionId);
                 else
                     this.positions.set(sessionId, position);
+                this.publish(sessionId, position);
             },
             subscribeFollow: listener => {
                 if (this.disposed)
@@ -24460,6 +24490,7 @@ class ChatScrollMemory {
         if (this.disposed)
             return;
         this.positions.delete(sessionId);
+        this.publish(sessionId, null);
         const listeners = this.listeners.get(sessionId);
         for (const listener of [...listeners ?? []]) {
             if (!listeners?.has(listener))
@@ -24865,6 +24896,7 @@ exports.en = {
     "context.system": "System prompt",
     "context.tools": "Tools",
     "context.messages": "Messages", "context.user": "User", "context.assistant": "Assistant", "context.toolResults": "Tool results", "context.mcp": "MCP tools", "context.protocol": "Protocol overhead", "context.distributionEstimate": "Category shares are estimated",
+    "stats.title": "Conversation statistics",
     "stats.counts": "{turns} turns · {steps} steps",
     "stats.llm": "LLM {duration}",
     "stats.toolCall": "Tool call {duration}",
@@ -25086,6 +25118,7 @@ exports.zh = {
     "context.system": "系统提示词",
     "context.tools": "工具",
     "context.messages": "对话消息", "context.user": "用户", "context.assistant": "助手", "context.toolResults": "工具结果", "context.mcp": "MCP 工具", "context.protocol": "协议开销", "context.distributionEstimate": "颜色分布为估算",
+    "stats.title": "对话统计",
     "stats.counts": "{turns} 轮 · {steps} 步",
     "stats.llm": "LLM {duration}",
     "stats.toolCall": "工具调用 {duration}",

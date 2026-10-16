@@ -235,11 +235,11 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection, t 
   // as Chromium. It owns only open state, never token accounting.
   return (
     <div ref={disclosureRef} className={css.root} data-composer-stats data-expanded={open || undefined}>
-      <button type="button" className={css.summary} aria-label="Conversation statistics" title="Conversation statistics"
+      <button type="button" className={css.summary} aria-label={t('stats.title')} title={t('stats.title')}
         aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={() => {setOpen(!open)}}>
         <IconChecklistOutline14 />
       </button>
-      {open && <div id={panelId} className={css.details} role="region" aria-label="Conversation statistics">
+      {open && <div id={panelId} className={css.details} role="region" aria-label={t('stats.title')}>
         {groups.map(group => <div key={group}>{group}</div>)}
       </div>}
     </div>

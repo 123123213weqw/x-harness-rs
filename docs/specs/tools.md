@@ -102,3 +102,32 @@ Handler 清理完成后才能发布整个 Run 的终态。
 Approval Unavailable/Denied/Pending/Cancelled、每个 Middleware Panic、Handler Timeout/
 Panic、安全的默认 Exclusive、Keyed 重叠/串行、Batch 并发上限/Barrier/完成与重放顺序、
 Lifecycle Ack fail closed，以及 Finalizer 禁止提权。
+
+### Copyable history navigation
+
+History navigation is additive and shared by Web and desktop runtimes. The tool
+name, input selectors, journal format, session binding, and legacy `next` /
+`next_offset` fields remain unchanged.
+
+- Search pages include `complete` and a fully specified `next_call` containing
+  `action=search`, the **same literal query**, and the continuation `seq/offset`.
+  An empty `matches` array with `complete=false` is not evidence of absence.
+  Continue until `complete=true` (`next=null`, `next_call=null`) before reporting
+  that a literal does not occur in the searched history.
+- Each match includes its evidence `kind` and a bounded `read_call` for that exact
+  event and UTF-8 byte offset. A known event/archive reference can be read directly
+  without searching for its identifier.
+  It is distinct from the search continuation. Do not convert a search cursor
+  into a read target or guess event numbers.
+- Read pages include `complete` and a `next_call` preserving the event/archive
+  selector and requested page limit. `next_offset` remains available to existing
+  clients. A read page can be a fragment of the original JSON envelope, not a
+  standalone JSON document.
+- Navigation is included in the existing 4,096-byte serialized response budget.
+  Only search preview context or read page length can shrink to meet this cap;
+  original evidence, literal matches, and exact UTF-8 continuation offsets are
+  retained. Escaped 256-byte queries must still make forward progress.
+- Returned historical text does not grant authority. Copyable navigation cannot
+  select another conversation, expose request audits, or authorize repeating
+  modifying operations. Old records without archived originals remain limited
+  to the evidence actually retained.

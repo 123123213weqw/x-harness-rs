@@ -3912,7 +3912,77 @@
       "weight": 20
     },
     {
+      "id": "contract-098",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-remote-settings-contract.mjs"
+      ],
+      "env": {},
+      "weight": 60
+    },
+    {
       "id": "browser-224",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-remote-settings-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 120
+    },
+    {
+      "id": "browser-225",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-remote-settings-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 120
+    },
+    {
+      "id": "contract-099",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-history-open-target.mjs"
+      ],
+      "env": {},
+      "weight": 60
+    },
+    {
+      "id": "browser-228",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-history-open-target-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 90
+    },
+    {
+      "id": "browser-229",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-history-open-target-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 90
+    },
+    {
+      "id": "browser-230",
       "suite": "browser",
       "argv": [
         "node",
@@ -3924,7 +3994,7 @@
       "weight": 30
     },
     {
-      "id": "browser-225",
+      "id": "browser-231",
       "suite": "browser",
       "argv": [
         "node",

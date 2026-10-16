@@ -110,6 +110,7 @@ impl BasicHost {
                     control,
                     reviewing,
                     reason: reason.clone(),
+                    scoped_nonce: Arc::new(std::sync::OnceLock::new()),
                     deciding: Arc::new(AtomicBool::new(false)),
                 },
             );

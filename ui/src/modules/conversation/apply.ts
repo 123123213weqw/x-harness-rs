@@ -147,7 +147,11 @@ export function apply(ctx: Context): void {
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not
   // persisted: a fresh page load keeps the open-jump-to-bottom default.
-  const chatScrollMemory = new ChatScrollMemory()
+  const chatScrollMemory = new ChatScrollMemory((sessionId, position) => {
+    const seq = position?.anchorSeq
+    sessions.binding(sessionId)?.session.setHistoryOpenTarget?.(position === null ? { kind: 'latest' }
+      : seq !== undefined && Number.isSafeInteger(seq) && seq >= 0 ? { kind: 'anchor', seq } : undefined)
+  })
   ctx.effect(() => () => { chatScrollMemory.dispose() }, 'conversation reader memory')
 
   const viewTabs = (): ViewTab[] => {

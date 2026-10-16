@@ -9,7 +9,7 @@ import { StatsLine } from '../../ui/src/modules/conversation/chat/StatsLine'
 import { TodoDock } from '../../ui/src/modules/conversation/skeleton/TodoPanel'
 import { GoalDock } from '../../ui/src/modules/goal/GoalBar'
 import { XHarnessModelSelect } from '../../ui/src/modules/model-selection/ModelSelect'
-import { en as conversationEn } from '../../ui/src/modules/conversation/locales'
+import { en as conversationEn, zh as conversationZh } from '../../ui/src/modules/conversation/locales'
 import { en as modelEn } from '../../ui/src/modules/model-selection/locales'
 import { en as goalEn } from '../../ui/src/modules/goal/locales'
 import theme from '../../ui/src/modules/theme/design-platform.css'
@@ -26,6 +26,7 @@ const store = initial => {
 const hook = state => select => select(useSyncExternalStore(state.subscribe, state.getSnapshot))
 const translate = dictionary => (key, args) => Object.entries(args ?? {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), dictionary[key] ?? key)
 const t = translate(conversationEn), modelT = translate(modelEn), goalT = translate(goalEn)
+const language = store('en')
 const calls = []
 const snapshot = store({openState:'open', composerPhase:'active', running:true, removed:false, promptError:null, subagent:null, queue:[], pending:[], chat:{legacy:{nodes:[]}}})
 const sessions = store({byId:{fixture:{cwd:'/isolated-preview',blank:false}}})
@@ -54,6 +55,8 @@ const inputProps = {sessionId:'fixture',useSession,useInput,inputActions:shell.a
   renderSlot:(key,owner)=>slot(key,key==='conversation.input.model'?<XHarnessModelSelect compact={owner.compact} locked={owner.locked} available directory={directory} load={loadModels} select={selectModel} t={modelT}/>:null)}
 const root = createRoot(document.getElementById('root'))
 function App() {
+  const locale = useSyncExternalStore(language.subscribe, language.getSnapshot)
+  const t = translate(locale === 'zh' ? conversationZh : conversationEn)
   const state = useSession(value=>value)
   return <ConversationRoot sessionId="fixture" useSession={useSession} useInput={useInput} useSessions={hook(sessions)} useWorkspaces={hook(workspaces)} useComposerBlock={()=>undefined} selectWorkspace={async()=>{}} t={t}
     renderSlotChain={(_name,_owner,options)=>options.fallback}
@@ -65,6 +68,7 @@ function App() {
 const render = () => flushSync(()=>root.render(<App/>))
 window.__composerFixture = { calls, shell, snapshot, projection, directory, render,
   set: changes => flushSync(()=>{
+    if ('locale' in changes) language.set(changes.locale)
     if('running' in changes || 'hero' in changes || 'removed' in changes || 'subagent' in changes) snapshot.set({...snapshot.getSnapshot(),...('running' in changes?{running:changes.running}:{}),...('removed' in changes?{removed:changes.removed}:{}),...('subagent' in changes?{subagent:changes.subagent}:{}),...('hero' in changes?{composerPhase:changes.hero?'blank':'active'}:{})})
     if('goal' in changes) projection.set({...projection.getSnapshot(),goal:changes.goal?{goal,roundsStarted:11,execution:{state:'paused',enabled:true,roundsStarted:11,maxGoalRounds:256}}:null})
     if('todos' in changes) projection.set({...projection.getSnapshot(),todos:changes.todos})
