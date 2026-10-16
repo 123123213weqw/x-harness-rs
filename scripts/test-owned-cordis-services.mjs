@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 // Real Cordis tracker/fiber integration over frozen/source Settings + Gateway.
 // The fixture replaces only Host transport, not Service/Context/lifecycle.
 import assert from 'node:assert/strict'
@@ -11,7 +12,7 @@ const rows=[{id:'@xharness/dsh-client-ui-settings',source:'src/modules/settings/
 const source=compileSourceModules(ui,rows)
 function modules(implementation){
   const result={}
-  const globals={console,Promise,Date,AbortController,AbortSignal,URL,Error,TypeError,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval,fetch,Response,Headers,Request,crypto:globalThis.crypto,location:{origin:'http://cordis-fixture.test'},window:{__ModuleLoader__:{load(row){result[row.id]=row.factory(name=>{
+  const globals={console,Promise,Date,AbortController,AbortSignal,URL,Error,TypeError,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval,fetch,Response,Headers,Request,crypto:globalThis.crypto,location:{origin:'http://cordis-fixture.test'},window:{__ModuleLoader__:{load(row){result[row.id]=row.factory(name=>{if(name==='zod')return sharedVendors.zod;
     if(name==='@xharness/cordis')return Core
     if(name==='@xharness/dsh-client-runtime/client')return snapshot
     throw Error('Unexpected external '+name)

@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
@@ -13,6 +14,7 @@ try {
  const page=await browser.newPage({viewport:{width:1000,height:780}});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(`http://127.0.0.1:${server.address().port}`);
  for(const file of ['react/umd/react.development.js','react-dom/umd/react-dom.development.js'])await page.addScriptTag({path:resolve(deps,'node_modules',file)});
  await page.addStyleTag({content:':root{--dsh-composer-side-clearance:0px;--dsh-chat-content-width:760px;--dsh-composer-card-max-width:800px;--dsh-composer-text-max-height:240px;--dsh-composer-dock-inset:4px;--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#777;--dsw-alias-label-caption:#999;--dsw-alias-bg-base:#fff;--dsw-specific-input-major:#fafafa;--dsw-alias-border-l2:#ddd;--dsw-alias-border-l3:#bbb;--dsw-alias-markdown-code-block:#f4f4f4;--ds-font-family-code:monospace;--dsw-alias-state-business-primary:#4577e5;}body{font:14px sans-serif}button{font:inherit}'});
+ await installSharedSourceVendors(page)
  await page.addScriptTag({content:'window.__ModuleLoader__={load:r=>window.registration=r}'});await page.addScriptTag({content:source});
  await page.evaluate(()=>{
   const jsx=(type,props,key)=>React.createElement(type,key===undefined?props:{...props,key});
@@ -25,7 +27,7 @@ try {
   const RiskConfirmation=props=>props.open?jsx('div',{role:'dialog','aria-label':props.title,children:[jsx('input',{type:'checkbox','aria-label':props.acknowledgeLabel,checked:props.acknowledged,onChange:event=>props.onAcknowledgedChange(event.target.checked)}),jsx('button',{disabled:props.disabled||!props.acknowledged,onClick:props.onConfirm,children:props.confirmLabel}),jsx('button',{onClick:props.onCancel,children:props.cancelLabel})]}):null;
   const primitives=new Proxy({Button,Tooltip,Menu,Modal,DisclosureRow,RiskConfirmation,MarkdownText:({text})=>jsx('div',{'data-markdown':'',children:text}),MessageText:({text})=>jsx('div',{children:text}),JsonBlock:({label,payload})=>jsx('pre',{children:label+JSON.stringify(payload)}),StateDot:()=>jsx('span',{}),writeClipboard:async text=>{window.copied=text;return true},Toast:({text})=>jsx('div',{role:'alert',children:text})},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))});
   const runtime={publishChatSnapshot:value=>value,createSnapshotStore:makeStore,defineStore:spec=>({spec}),workspaceTitleOf:cwd=>cwd.split('/').filter(Boolean).at(-1)||'',sessionRecallLabels:s=>s?.labels??[],isAppendSurfaceEvent:e=>e.type==='user/message'&&e.surfaceOp?.op!=='replace',isReplacementSurfaceEvent:e=>e.surfaceOp?.op==='replace',shallowEqual:(a,b)=>a===b,resolveWorkspacePath:(cwd,p)=>p.startsWith('/')?p:cwd+'/'+p,displayFailureMessage:e=>e.message};
-  window.plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
+  window.plugin=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/cordis'?{Service:class{constructor(ctx){this.ctx=ctx}},Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>x}:runtime);
   window.root=ReactDOM.createRoot(document.getElementById('root'));window.renderComponent=(name,props)=>ReactDOM.flushSync(()=>root.render(jsx(plugin[name],props)));
   window.t=(key,args)=>{let value=plugin.en[key]??key;for(const[k,v]of Object.entries(args??{}))value=value.replaceAll('{'+k+'}',String(v));return value};
   window.setMode=name=>{window.mode=name;ReactDOM.flushSync(()=>root.render(jsx(App,{})))};

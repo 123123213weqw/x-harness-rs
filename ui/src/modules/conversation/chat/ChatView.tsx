@@ -19,16 +19,16 @@ import { useProcessMode } from './process-mode'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ConversationTimelineSnapshot } from "../types/runtime"
-import { Button, IconChevronDownOutline14, Modal, Tooltip } from '../primitives'
+import { Button, IconChevronDownOutline14, Modal } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
 import { isChatNode } from '../contract/chat-node-codec'
-import { messagePreview } from './message-preview'
+import { MessageMarkerCache } from './message-preview'
 import css from './ChatView.styles'
-import railCss from './MessageRail.styles'
+import { MessageRail } from './MessageRail'
 import { HistoryPageIntent } from './history-page-intent'
 
 const FOLLOW_THRESHOLD = 24
@@ -191,12 +191,16 @@ export function ChatView({
   if (processState.sessionId !== sessionId || processState.mode !== processMode) {
     setProcessState({ sessionId, mode: processMode, choices: new Map() })
   }
+  const expandedTurnsCache = useRef<ReadonlySet<number> | null>(null)
   const expandedTurns = useMemo(() => {
     const result = new Set<number>()
     const choices = processState.sessionId === sessionId && processState.mode === processMode ? processState.choices : undefined
     for (const turn of timeline.turns.keys()) {
       if (choices?.get(turn) ?? processMode === 'expanded') result.add(turn)
     }
+    const previous = expandedTurnsCache.current
+    if (previous !== null && previous.size === result.size && [...result].every(turn => previous.has(turn))) return previous
+    expandedTurnsCache.current = result
     return result
   }, [timeline, processState, sessionId, processMode])
   // Close/retry must ignore a settlement that started before the latest
@@ -236,11 +240,14 @@ export function ChatView({
     () => inbox.filter(item => item.placement === 'steering'),
     [inbox],
   )
-  const messageMarkers = useMemo(() => order.flatMap(key => {
+  const [markerCache] = useState(() => new MessageMarkerCache())
+  const messageMarkers = useMemo(() => markerCache.read(order, key => {
     const node = nodeStore.get(key)
-    if (!isChatNode(node) || (node.kind !== 'user' && node.kind !== 'steering')) return []
-    return [{ key, preview: messagePreview(node.data.content) }]
-  }), [order, nodeStore])
+    // Do not recursively validate every assistant/tool payload merely to find
+    // user markers. Candidate user payloads still cross the same codec.
+    if (node?.kind !== 'user' && node?.kind !== 'steering') return undefined
+    return isChatNode(node) && (node.kind === 'user' || node.kind === 'steering') ? node.data.content : undefined
+  }), [order, nodeStore, markerCache])
   const renderMessageImages = useCallback<RenderMessageImages>(
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
@@ -311,7 +318,7 @@ export function ChatView({
   }
   const { foldedTools, invalidateFoldedTool } = useAdaptiveToolFold(sessionId, listRef, expandedTurns, captureAutoFoldAnchor, nodeStore)
 
-  const toggleTurnProcess = (turn: number): void => {
+  const toggleTurnProcess = useCallback((turn: number): void => {
     pageIntent.cancel()
     const local = listRef.current
     if (local !== null) {
@@ -331,7 +338,7 @@ export function ChatView({
       choices.set(turn, !(choices.get(turn) ?? processMode === 'expanded'))
       return { sessionId, mode: processMode, choices }
     })
-  }
+  }, [pageIntent, sessionId, processMode])
 
   useLayoutEffect(() => {
     const local = listRef.current
@@ -648,7 +655,7 @@ export function ChatView({
     }
   }
 
-  const scrollToMessage = (key: string): void => {
+  const scrollToMessage = useCallback((key: string): void => {
     pageIntent.cancel()
     const local = listRef.current
     if (local === null) return
@@ -664,28 +671,12 @@ export function ChatView({
     setActiveMarker(key)
     const position = scrollPosition(local, scrollport)
     if (position !== null) chatScroll.save(position)
-  }
+  }, [pageIntent, chatScroll])
 
   return (
     <div className={css.root} data-chat-view-root="">
       {railHost !== null && messageMarkers.length > 1 && createPortal(
-        <nav className={railCss.root} aria-label={t('chat.messageRail')}>
-          {messageMarkers.map((marker, index) => {
-            const label = marker.preview === ''
-              ? t('chat.messageRail.message', { n: index + 1 })
-              : `${t('chat.messageRail.message', { n: index + 1 })}: ${marker.preview}`
-            return <Tooltip key={marker.key} label={label} side="right" delayMs={300}>
-              <button
-                type="button"
-                className={railCss.item}
-                data-message-key={marker.key}
-                aria-label={label}
-                aria-current={activeMarker === marker.key ? 'location' : undefined}
-                onClick={() => { scrollToMessage(marker.key) }}
-              ><span className={railCss.mark} aria-hidden="true" /></button>
-            </Tooltip>
-          })}
-        </nav>,
+        <MessageRail markers={messageMarkers} active={activeMarker} select={scrollToMessage} t={t} />,
         railHost,
       )}
       <div ref={listRef} className={css.scroll}>

@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import {assertRebuildInput} from './fixtures/repository-ui-input.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -12,7 +13,7 @@ function createSnapshotStore(snapshot) {
   const listeners = new Set()
   return { getSnapshot:()=>snapshot, subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)}, update:fn=>{snapshot=structuredClone(snapshot);fn(snapshot);listeners.forEach(fn=>fn())} }
 }
-const api = registration.factory(id => {
+const api = registration.factory(id => {if(id==='zod')return sharedVendors.zod;
   if(id==='@xharness/cordis')return {Service:class{}}
   if(id==='@xharness/dsh-client-runtime/client')return {createSnapshotStore}
   if(['react','react/jsx-runtime','@xharness/dsh-client-ui-primitives'].includes(id))return {}
@@ -66,7 +67,7 @@ const connectionBundle=verifyConnectionArtifact()
 let connectionFactory
 const sandbox={window:{__ModuleLoader__:{load(x){connectionFactory=x.factory}}},console,URL,AbortController,setTimeout,clearTimeout}
 vm.runInNewContext(exposeConnection(connectionBundle,['sessionModelsValueSchema','sessionSelectModelValueSchema']), sandbox)
-const wire=connectionFactory(id=>{if(id==='@xharness/cordis')return {Service:class{}};return {}})
+const wire=connectionFactory(id=>{if(id==='zod')return sharedVendors.zod;if(id==='@xharness/cordis')return {Service:class{}};return {}})
 const input={current,groups:[{id:'test',name:'Test',models:[{id:'large',name:'Large',contextWindow:131072,contextWindowSource:'provider_reported',contextWindowCapability:{providerLimit:{tokens:131072,source:'provider_reported'}},reasoning:{defaultEffort:'max',efforts:[{id:'max',name:'Max'}]}}]}],failures:[],routable:true}
 const decoded=wire.sessionModelsValueSchema.parse(input)
 assert.equal(decoded.current.contextWindowTokens,65536)
