@@ -12,6 +12,8 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_native/mod.rs"]
+mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 
@@ -449,6 +451,155 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// Exercise the production private bridge, not just the feasibility adapters.
+async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    use base64::Engine;
+    let main = app.get_webview("main").ok_or("main unavailable")?;
+    let (guest, inspector) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let origin = guest
+        .url()
+        .map_err(|_| "guest URL unavailable")?
+        .origin()
+        .ascii_serialization();
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("production-probe".into()),
+        true,
+        Some(origin),
+    )
+    .await?;
+    let bridge = app.state::<browser_bridge::BrowserBridge>();
+    let connection = bridge.start(app).await?;
+    let status = bridge_call(connection, "production-probe", "list", json!({})).await?;
+    if status["result"]["capabilities"]["native_input"] != true
+        || status["result"]["capabilities"]["screenshot"] != true
+    {
+        return Err("production capabilities missing".into());
+    }
+    evidence(&guest,"(() => {document.querySelector('#native-marker').style.background='rgb(255,0,0)';return true})()").await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    let frame = capture["result"]["frame_id"]
+        .as_str()
+        .ok_or("missing screenshot frame")?;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(
+            capture["result"]["png_base64"]
+                .as_str()
+                .ok_or("missing production PNG")?,
+        )
+        .map_err(|_| "invalid production PNG")?;
+    if png.len() < 24 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("production snapshot was not native PNG".into());
+    }
+    if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+        std::fs::write(std::path::PathBuf::from(root).join("production.png"), &png)
+            .map_err(|_| "production PNG write failed")?;
+    }
+    let captured_viewport = capture["result"]["viewport"].clone();
+    if bridge_call(connection, "other-owner", "screenshot", json!({})).await?["ok"] != false {
+        return Err("screenshot leaked across owners".into());
+    }
+    let click = json!({"action":"click","frame_id":frame,"x":60,"y":35});
+    let receipt = bridge_call(connection, "production-probe", "input", click.clone()).await?;
+    if receipt["result"]["effect"] != "applied" {
+        return Err(format!("production pointer not applied: {receipt}"));
+    }
+    if bridge_call(connection, "production-probe", "input", click).await?["result"]["effect"]
+        != "not_started"
+    {
+        return Err("native input allowed duplicate frame".into());
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while evidence(&guest, "document.activeElement?.id==='answer'").await? != true {
+        if tokio::time::Instant::now() > deadline {
+            return Err("native input focus not observed".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    evidence(
+        &guest,
+        "(() => {document.querySelector('#answer').value='';nativeEvents=[];return true})()",
+    )
+    .await?;
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let key = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"key","frame_id":observation["result"]["frame_id"],"key":"z"}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if key["result"]["effect"] != "applied"
+        || evidence(&guest, "document.querySelector('#answer').value").await? != "z"
+        || evidence(&guest,"nativeEvents.some(e=>e.type==='keydown'&&e.trusted)&&nativeEvents.some(e=>e.type==='keyup'&&e.trusted)").await?!=true
+    {
+        return Err("production key did not affect actual field".into());
+    }
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let shifted=bridge_call(connection,"production-probe","input",json!({"action":"key","frame_id":observation["result"]["frame_id"],"key":"z","modifiers":["Shift"]})).await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if shifted["result"]["effect"] != "applied"
+        || evidence(&guest, "document.querySelector('#answer').value").await? != "zZ"
+    {
+        return Err("production shifted key did not affect field".into());
+    }
+    evidence(&guest,"(() => {window.hovered=false;document.querySelector('#native-probe').addEventListener('mousemove',e=>window.hovered=e.isTrusted);return true})()").await?;
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let moved = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"move","frame_id":observation["result"]["frame_id"],"x":450,"y":120}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if moved["result"]["effect"] != "applied" || evidence(&guest, "hovered").await? != true {
+        return Err("production hover did not produce trusted event".into());
+    }
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    evidence(&guest, "(() => {nativeChild=null;return true})()").await?;
+    let child = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"click","frame_id":capture["result"]["frame_id"],"x":450,"y":190}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if child["result"]["effect"] != "applied" || evidence(&guest, "nativeChild").await? != true {
+        return Err("production cross-origin pointer failed".into());
+    }
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    inspector.invalidate();
+    if bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"click","frame_id":capture["result"]["frame_id"],"x":450,"y":120}),
+    )
+    .await?["result"]["effect"]
+        != "not_started"
+    {
+        return Err("native input accepted stale epoch".into());
+    }
+    browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+    if bridge_call(connection, "production-probe", "screenshot", json!({})).await?["ok"] != false {
+        return Err("hidden native snapshot accepted".into());
+    }
+    browser::desktop_browser_activate(main, app.state(), Some("probe".into())).await?;
+    println!(
+        "PRODUCTION_NATIVE_EVIDENCE {}",
+        json!({"passed":true,"screenshot":"native_png","viewport":captured_viewport,"input":"actual_field_zZ","hover":"trusted_mousemove","cross_origin_pointer":"trusted_child_click","duplicate_frame":"denied","stale_epoch":"denied","hidden":"denied","wrong_owner":"denied"})
+    );
+    Ok(())
+}
+
 async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
     let (guest, _) = app
         .state::<browser::BrowserState>()
@@ -481,11 +632,11 @@ async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
         "HARD_CAPABILITY_EVIDENCE {}",
         json!({
           "platform":std::env::consts::OS,"engine":"native-tauri-system-webview",
-          "trusted_input":{"status":"not_implemented","observed_dom_events":events},
+          "trusted_input":{"status":"production_input; perform remains DOM-only","observed_dom_events":events},
           "cross_origin_frames":{"status":"not_implemented","top_document_probe":observed["frameError"]},
-          "screenshot":{"status":"not_implemented"},"recording":{"status":"not_implemented"},
+          "screenshot":{"status":"production_native_viewport"},"recording":{"status":"not_implemented"},
           "hidden_tab_actions":{"status":"unsupported_by_current_policy","verified_by_hidden_tab_guard":true},
-          "parity_gate":"blocked; DOM actions are not native input; no claim of full ZCode parity"
+          "parity_gate":"partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim"
         })
     );
     Ok(())
@@ -552,7 +703,13 @@ async fn bridge_call(
         .read_u32()
         .await
         .map_err(|_| "bridge response failed")? as usize;
-    if length > 65536 {
+    if length
+        > if op == "screenshot" {
+            12 * 1024 * 1024
+        } else {
+            65536
+        }
+    {
         return Err("bridge reply was not bounded".into());
     }
     let mut reply = vec![0; length];
@@ -1287,6 +1444,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     }
     hard_capability_probe(app).await?;
     native_api_probe(app).await?;
+    production_native_probe(app).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
