@@ -28,6 +28,8 @@ $owned = [Collections.Generic.List[object]]::new()
 $profiles = [Collections.Generic.List[object]]::new()
 $archives = [Collections.Generic.List[object]]::new()
 $testError = $null; $cleanupError = $null; $result = $null; $fixtureCreated = $false
+$script:installPhase = 'fixture-preparation'
+$script:installTrace = [Collections.Generic.List[object]]::new()
 function Assert-That($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function Assert-FixtureNoRedirect([string]$Path, [switch]$Recurse) {
     $cursor = [IO.Path]::GetFullPath($Path)
@@ -227,11 +229,15 @@ function Wait-Until([scriptblock]$Check, [string]$Message) {
     do { if (& $Check) { return }; Start-Sleep -Milliseconds 200 } while ([DateTime]::UtcNow -lt $deadline)
     throw $Message
 }
-function Install-TestCopy([bool]$ExpectedSuccess) {
+function Install-TestCopy([bool]$ExpectedSuccess, [string]$Phase) {
+    $script:installPhase = $Phase
+    Write-Output ("INSTALL_PHASE begin: $Phase; expectedSuccess=$ExpectedSuccess")
     $process = Start-Process -FilePath $Installer -ArgumentList @('/S', "/D=$canonical") -WindowStyle Hidden -PassThru
     Add-OwnedFixtureProcess $process $Installer
     if (-not $process.WaitForExit(90000)) { throw 'NSIS installation timed out' }
-    Assert-That (($process.ExitCode -eq 0) -eq $ExpectedSuccess) "Unexpected installer exit: $($process.ExitCode)"
+    $script:installTrace.Add(@{ phase = $Phase; expectedSuccess = $ExpectedSuccess; exitCode = $process.ExitCode })
+    Write-Output ("INSTALL_PHASE end: $Phase; exitCode=$($process.ExitCode)")
+    Assert-That (($process.ExitCode -eq 0) -eq $ExpectedSuccess) "Unexpected installer exit in ${Phase}: $($process.ExitCode)"
 }
 function Assert-InstalledPayload {
     foreach ($module in $audit.modules) {
@@ -345,7 +351,7 @@ try {
     # Refuse an existing root; never consume/delete/claim another test's data.
     foreach ($path in @($data, $cache)) { $profiles.Add((New-FixtureClaim $path $nonce)) }
     foreach ($path in $archivePaths) { $archives.Add((New-FixtureClaim $path $nonce)) }
-    Install-TestCopy $true
+    Install-TestCopy $true 'initial-install'
     Assert-InstalledPayload
     Assert-That (Test-Path -LiteralPath (Join-Path $canonical 'xharness-desktop.exe')) 'Custom installation path changed'
     # Inspect installed payload: Start-Process -WindowStyle Hidden alone would
@@ -377,7 +383,7 @@ try {
     Assert-That (-not $first.HasExited) 'Duplicate launch terminated the owner'
     Assert-That (@(Host-Children $first.Id).Count -eq 1) 'Duplicate launch changed Host count'
 
-    Install-TestCopy $false
+    Install-TestCopy $false 'live-install-must-refuse'
     Assert-That (-not $first.HasExited) 'Installer killed a live old desktop'
     Assert-That ((Get-FileHash -LiteralPath $sentinel).Hash -eq $before) 'Blocked install changed data'
     # Exact process created in this fixture. Deliberately simulate an App crash,
@@ -386,7 +392,7 @@ try {
     Assert-That ($first.WaitForExit(15000)) 'Desktop crash fixture failed to stop'
     Wait-Until { $firstHost.FixtureProcess.HasExited } 'Host survived desktop crash'
 
-    Install-TestCopy $true
+    Install-TestCopy $true 'after-crash-reinstall'
     Assert-InstalledPayload
     Assert-That ([XHarnessInstaller.Shortcuts]::Read($legacyLink).TargetPath -ieq (Join-Path $canonical 'xharness-desktop.exe')) 'Old shortcut was not reconciled'
     foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe')) {
@@ -404,6 +410,7 @@ try {
        legacyRetiredRecoverably = $true; retainedHash = $before }
 } catch {
     $testError = $_
+    Write-Output ("INSTALL_FAILURE phase=$script:installPhase; " + $_.ScriptStackTrace)
 } finally {
     if (Test-Path -LiteralPath (Join-Path $env:TEMP 'XHarness-installation.log')) {
         Get-Content -LiteralPath (Join-Path $env:TEMP 'XHarness-installation.log')
@@ -415,6 +422,11 @@ try {
     if ($fixtureCreated -and (Test-Path -LiteralPath $fixture -PathType Container)) {
         Assert-FixtureNoRedirect $fixture
         $result = New-FixtureReceipt $result $testError $cleanupError
+        $result.installTrace = $script:installTrace.ToArray()
+        if ($testError) {
+            $result.failurePhase = $script:installPhase
+            $result.failureStack = $testError.ScriptStackTrace
+        }
         $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $evidence
         New-Item -ItemType Directory -Force -Path 'dist/install-ownership-evidence' | Out-Null
         Copy-Item -LiteralPath $evidence -Destination 'dist/install-ownership-evidence/result.json'

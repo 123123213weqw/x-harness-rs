@@ -3,7 +3,7 @@ import {
   IconPersonalizationOutline16, IconSettingsOutline16, IconUserOutline16,
 } from '@xharness/dsh-client-ui-primitives'
 
-type Glyph = 'general' | 'models' | 'account' | 'usage' | 'archive' | 'display' | 'installation' | 'agent' | 'plugins'
+type Glyph = 'general' | 'models' | 'account' | 'usage' | 'archive' | 'display' | 'installation' | 'agent' | 'plugins' | 'memory' | 'import' | 'remote'
 function glyphFor(section: string): Glyph {
   switch (section) {
     case 'models': return 'models'
@@ -14,6 +14,9 @@ function glyphFor(section: string): Glyph {
     case 'installation-statistics': return 'installation'
     case 'agent-presets': return 'agent'
     case 'plugins': return 'plugins'
+    case 'memory': return 'memory'
+    case 'session-import': return 'import'
+    case 'remote-control': return 'remote'
     default: return 'general'
   }
 }
@@ -24,6 +27,14 @@ function GlyphImage({ kind }: { kind: Glyph }) {
     case 'archive': return <IconArchiveOutline20 size={16} />
     case 'agent': return <IconAgentPresetOutline16 size={16} />
     case 'plugins': return <IconPersonalizationOutline16 size={16} />
+    case 'remote': return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1.5" y="2.5" width="9" height="7" rx="1.5" />
+        <path d="M6 9.5v3M3.5 12.5h5" />
+        <rect x="10" y="6.5" width="4.5" height="7.5" rx="1" />
+        <path d="M12 12h.5" />
+      </svg>
+    )
     case 'usage': return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 13.5h12" />
@@ -43,6 +54,18 @@ function GlyphImage({ kind }: { kind: Glyph }) {
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
         <path d="m8 1.5 5.5 3.25v6.5L8 14.5l-5.5-3.25v-6.5L8 1.5Z" />
         <path d="m2.5 4.75 5.5 3.25 5.5-3.25M8 8v6.5M5.25 3.125l5.5 3.25v3" />
+      </svg>
+    )
+    case 'memory': return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2.5" y="1.5" width="11" height="13" rx="1.5" />
+        <path d="M5.5 1.5v13M8 5h3M8 8h3M8 11h2" />
+      </svg>
+    )
+    case 'import': return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.5 1.5H4A1.5 1.5 0 0 0 2.5 3v10A1.5 1.5 0 0 0 4 14.5h8a1.5 1.5 0 0 0 1.5-1.5V5.5L9.5 1.5Z" />
+        <path d="M9.5 1.5v4h4M8 7v5M5.5 9.5 8 12l2.5-2.5" />
       </svg>
     )
     default: return <IconSettingsOutline16 size={16} />

@@ -11,6 +11,8 @@ pub mod goal;
 mod goal_validation;
 pub use checkpoint::*;
 mod event;
+mod job_continuation;
+pub use job_continuation::*;
 mod message;
 mod reception;
 mod recovery;

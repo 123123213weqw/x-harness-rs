@@ -40,26 +40,82 @@ function Get-XHarnessDirectory([string]$Directory) {
     return $item.FullName
 }
 
-function Assert-XHarnessFilesAvailable([string[]]$Directories) {
+function Get-XHarnessProbeMilliseconds {
+    return [long]([Diagnostics.Stopwatch]::GetTimestamp() * 1000.0 / [Diagnostics.Stopwatch]::Frequency)
+}
+
+function Invoke-XHarnessFileWriteProbe([string]$Path) {
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try { } finally { $stream.Dispose() }
+}
+
+function Assert-XHarnessFilesAvailable([string[]]$Directories, [ValidateRange(0, 10000)][int]$TimeoutMilliseconds = 10000) {
     if (-not $Directories -or @($Directories | Where-Object { -not $_ }).Count) {
         throw 'An explicit installation directory is required for process recovery'
     }
+    # Snapshot all names, including first-install absences. Only transient Win32
+    # sharing/lock conflicts may wait; a changed file or redirect never may.
+    $files = @()
     foreach ($directory in $Directories) {
         $full = [IO.Path]::GetFullPath($directory)
         Assert-XHarnessRecoveryPath $full
         foreach ($name in @('xharness-desktop.exe', 'xharness-host.exe', 'xharness-windows-sandbox-runner.exe', 'rg.exe')) {
             $path = Join-Path $full $name
-            try { $file = Get-Item -LiteralPath $path -Force -ErrorAction Stop }
-            catch [System.Management.Automation.ItemNotFoundException] { continue } # First installation.
-            if ($file.PSIsContainer) { throw "Invalid application binary: $path" }
-            Assert-XHarnessNoRedirect $file
-            try {
-                $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
-                $stream.Dispose()
-            } catch {
-                throw "Application file is busy or not writable: $path. Close the application using this directory and retry; do not remove its locks."
+            $item = $null
+            try { $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop }
+            catch [System.Management.Automation.ItemNotFoundException] { }
+            if ($null -ne $item) {
+                if ($item.PSIsContainer) { throw "Invalid application binary: $path" }
+                Assert-XHarnessNoRedirect $item
+            }
+            $files += [pscustomobject]@{ Path = $path; Exists = ($null -ne $item);
+                Length = $(if ($item) { $item.Length } else { $null });
+                Created = $(if ($item) { $item.CreationTimeUtc.Ticks } else { $null });
+                Written = $(if ($item) { $item.LastWriteTimeUtc.Ticks } else { $null }) }
+        }
+    }
+    # One monotonic budget for the entire set, not ten seconds per binary.
+    $deadline = (Get-XHarnessProbeMilliseconds) + $TimeoutMilliseconds
+    $pendingFailure = $null
+    while ($true) {
+        if ($pendingFailure -and (Get-XHarnessProbeMilliseconds) -ge $deadline) { throw $pendingFailure }
+        $blocked = $null
+        foreach ($file in $files) {
+            Assert-XHarnessRecoveryPath $file.Path
+            $item = $null
+            try { $item = Get-Item -LiteralPath $file.Path -Force -ErrorAction Stop }
+            catch [System.Management.Automation.ItemNotFoundException] { }
+            if (($null -ne $item) -ne $file.Exists) { throw "Application binary changed while waiting: $($file.Path)" }
+            if (-not $file.Exists) { continue }
+            if ($item.PSIsContainer) { throw "Invalid application binary: $($file.Path)" }
+            Assert-XHarnessNoRedirect $item
+            if ($item.Length -ne $file.Length -or $item.CreationTimeUtc.Ticks -ne $file.Created -or
+                $item.LastWriteTimeUtc.Ticks -ne $file.Written) { throw "Application binary changed while waiting: $($file.Path)" }
+        }
+        # Validate the WHOLE namespace before attempting a writer. Otherwise a
+        # lock on the first binary could hide a changed/missing later binary.
+        foreach ($file in $files) {
+            if (-not $file.Exists) { continue }
+            Assert-XHarnessRecoveryPath $file.Path
+            try { Invoke-XHarnessFileWriteProbe $file.Path }
+            catch {
+                $failure = $_.Exception.GetBaseException()
+                $code = '0x{0:X8}' -f $failure.HResult
+                # HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION).
+                # Access denied, ACL/I/O failures and unknown errors fail immediately.
+                $transient = $failure -is [IO.IOException] -and $failure.HResult -in @(-2147024864, -2147024863)
+                $pendingFailure = "Application file is busy or not writable: $($file.Path) ($($failure.GetType().FullName), $code; wait budget ${TimeoutMilliseconds}ms). Close the application using this directory and retry; do not remove its locks."
+                if (-not $transient -or (Get-XHarnessProbeMilliseconds) -ge $deadline) {
+                    throw $pendingFailure
+                }
+                $blocked = $file.Path
+                break
             }
         }
+        if (-not $blocked) { return }
+        $remaining = $deadline - (Get-XHarnessProbeMilliseconds)
+        if ($remaining -le 0) { throw $pendingFailure }
+        Start-Sleep -Milliseconds ([int][Math]::Min(200, $remaining))
     }
 }
 
@@ -83,6 +139,11 @@ function Test-XHarnessRetiredProcess($Process, [string[]]$Directories) {
     # thread yet. Require exclusive write access to all binaries being replaced.
     # This does not hold a lock across NSIS; file replacement still fails closed.
     Assert-XHarnessFilesAvailable $Directories
+    $latest = @(Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop)
+    if ($latest.Count -gt 0 -and ($latest.Count -ne 1 -or $null -eq $latest[0].CreationDate -or
+        $latest[0].CreationDate -ne $Process.CreationDate -or $latest[0].Name -ine $Process.Name -or
+        $null -eq $latest[0].ThreadCount -or $null -eq $latest[0].HandleCount -or
+        $latest[0].ThreadCount -ne 0 -or $latest[0].HandleCount -ne 0)) { return $false }
     Write-Warning "Ignoring stable threadless/handleless process entry PID $processId after checking target files. No process was terminated."
     return $true
 }
@@ -140,6 +201,7 @@ function Invoke-XHarnessPreflight([string]$Inventory, [string]$Directory) {
     }
     # Also protect target binaries held by a known foreign-user process.
     Assert-XHarnessFilesAvailable @($Directory)
+    if (@(Get-XHarnessProcesses -Directories @($Directory)).Count) { throw 'XHarness started during file availability wait' }
     # Capture old targets BEFORE NSIS replaces its normal shortcuts.
     ConvertTo-Json -InputObject @(Get-XHarnessLinks) | Set-Content -LiteralPath $Inventory -Encoding UTF8
 }
@@ -244,6 +306,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
     $canonical = Get-XHarnessDirectory $Directory
     if (@(Get-XHarnessProcesses -Directories @($canonical)).Count) { throw 'An XHarness process started during installation; close it and retry' }
     Assert-XHarnessFilesAvailable @($canonical)
+    if (@(Get-XHarnessProcesses -Directories @($canonical)).Count) { throw 'XHarness started during file availability wait' }
     # Windows PowerShell 5.1 can wrap an empty JSON array as one pipeline item
     # inside @(...). Keep the parsed array itself, so a first install has no links.
     $records = Get-Content -LiteralPath $Inventory -Raw | ConvertFrom-Json
@@ -288,6 +351,7 @@ function Invoke-XHarnessReconcile([string]$Directory, [string]$Inventory) {
         try {
             if (@(Get-XHarnessProcesses -Directories @($canonical, $verified)).Count) { throw 'XHarness restarted during migration' }
             Assert-XHarnessFilesAvailable @($canonical, $verified)
+            if (@(Get-XHarnessProcesses -Directories @($canonical, $verified)).Count) { throw 'XHarness restarted during file availability wait' }
             foreach ($name in $retireNames) {
                 $binary = Join-Path $verified $name
                 Move-Item -LiteralPath $binary -Destination ($binary + '.before-xharness-update')

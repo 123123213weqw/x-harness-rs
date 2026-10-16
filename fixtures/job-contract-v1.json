@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "sessionId": "fixture-owner",
+  "plans": [{"id":"schedule-1","label":"周期检查","state":"paused","nextAt":"2026-10-13T00:00:00Z","everySeconds":300}],
+  "runs": [
+    {
+      "id":"bash-fixture-generation-1","label":"后台编译",
+      "sourceSessionId":"fixture-owner","targetSessionId":"fixture-owner","planId":null,
+      "state":"stopping","reference":{"kind":"process","id":"bash-fixture-generation-1"},
+      "capabilities":{"cancelRun":false,"readOutput":true,"openSession":false},
+      "startedAtMs":1791849600000,"scheduledAtMs":null,"finishedAtMs":null,"detail":null
+    },
+    {
+      "id":"schedule:fixture-owner:schedule-1:2026-10-13T00:00:00Z","label":"Agent 检查",
+      "sourceSessionId":"fixture-owner","targetSessionId":"fixture-child","planId":"schedule-1",
+      "state":"running","reference":{"kind":"automation","planId":"schedule-1","inputId":"schedule:fixture-owner:schedule-1:2026-10-13T00:00:00Z"},
+      "capabilities":{"cancelRun":false,"readOutput":false,"openSession":true},
+      "startedAtMs":null,"scheduledAtMs":1791849600000,"finishedAtMs":null,"detail":null
+    }
+  ]
+}

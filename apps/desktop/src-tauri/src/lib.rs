@@ -4,6 +4,7 @@ mod browser_bridge;
 mod browser_delegation;
 mod browser_inspect;
 mod browser_lifecycle;
+mod browser_native;
 mod browser_perform;
 mod computer_activity;
 mod diagnostics;

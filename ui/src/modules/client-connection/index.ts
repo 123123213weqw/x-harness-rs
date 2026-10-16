@@ -11,6 +11,7 @@ import { WebApiClient } from './web-api-client'
 import { createWebConnectionRpc } from './rpc'
 import { isLoopbackHostname } from './loopback-hostname'
 import type { ClientConnectionRpc } from './rpc-contracts'
+import {JobClient} from '../jobs/client'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
@@ -66,6 +67,7 @@ export interface ConnectionHandle {
   readonly hostDescription: HostDescriptionSource
   /** Generic logical RPC channels over the same Connection transport. */
   readonly rpc: ClientConnectionRpc
+  readonly jobs?: JobClient | undefined
   /**
    * Start the connect/pump/reconnect loop with the consumer's frame sinks.
    * One consumer owns the streams (the runtime object layer); a second call
@@ -87,12 +89,14 @@ export function apply(ctx: Context): void {
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
   const api: IApiClient = fixtureClient ?? new WebApiClient()
   const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const jobs = new JobClient(rpc)
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()
   const publishDescription = (next: HostDescription | undefined): void => {
     if (Object.is(description, next)) return
     description = next
+    jobs.reset(next !== undefined)
     for (const listener of [...descriptionListeners]) {
       try {
         listener()
@@ -112,6 +116,7 @@ export function apply(ctx: Context): void {
       },
     },
     rpc,
+    jobs,
     start(sinks, config) {
       if (started) throw new Error('connection: the stream loop is already owned by another consumer')
       started = true

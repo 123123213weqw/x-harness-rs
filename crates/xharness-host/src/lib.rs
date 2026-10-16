@@ -24,13 +24,19 @@ mod goal_processor;
 mod goal_tool;
 mod goals;
 mod history_tool;
+mod instructions;
+mod memory;
+
+pub mod job_continuation;
 pub use delegation::AgentTool;
 pub use delegation_concurrency::DelegationConcurrency;
+pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};
 mod display;
 mod driver;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;
+mod context_selection;
 #[cfg(test)]
 mod failed_turn_projection_tests;
 mod github_backend;
@@ -99,6 +105,8 @@ pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, Workspa
 /// Host process configuration visible at the browser boundary.
 #[derive(Clone, Debug)]
 pub struct HostConfig {
+    /// Local profile-global and workspace memory, outside Git. Embeddings opt in explicitly.
+    pub memory_dir: Option<PathBuf>,
     pub cwd: PathBuf,
     pub home: PathBuf,
     pub version: String,
@@ -109,6 +117,8 @@ pub struct HostConfig {
     pub reasoning_effort: Option<String>,
     /// Provider/model context admission configured by the product host.
     pub token_guard: Option<TokenGuard>,
+    /// Explicit default-route soft window (not inferred from a token guard).
+    pub selected_context_window_tokens: Option<u64>,
     /// Enabled by the native app composition; embeddings opt in explicitly.
     pub auto_titles: bool,
     pub attachment_store: Arc<dyn xharness_attachments::AttachmentStore>,
@@ -136,6 +146,7 @@ impl HostConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| cwd.clone());
         Self {
+            memory_dir: None,
             cwd,
             home,
             version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -144,6 +155,7 @@ impl HostConfig {
             model_id: "unconfigured".to_owned(),
             reasoning_effort: None,
             token_guard: None,
+            selected_context_window_tokens: None,
             auto_titles: false,
             attachment_store: Arc::new(xharness_attachments::MemoryAttachmentStore::default()),
             event_capacity: 2_048,
@@ -155,6 +167,25 @@ impl HostConfig {
 
 #[async_trait]
 pub trait SessionToolFactory: Send + Sync + 'static {
+    /// Execution inspection is separate from tool/model admission. Factories
+    /// expose only jobs owned by the authenticated session.
+    async fn process_runs(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(Vec::new())
+    }
+    async fn process_output(
+        &self,
+        _session_id: &str,
+        _id: &str,
+        _cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        Err("process output unavailable".into())
+    }
+    async fn cancel_process_run(&self, _session_id: &str, _id: &str) -> Result<(), String> {
+        Err("process cancellation unavailable".into())
+    }
     async fn executor(
         &self,
         session_id: &str,
@@ -264,6 +295,9 @@ pub struct BasicHost {
         Arc<Mutex<std::collections::HashMap<String, std::sync::Weak<Mutex<()>>>>>,
     pub(crate) event_gateway: event_gateway::EventGateway,
     pub(crate) questions: Arc<DurableQuestionHub>,
+    instructions: instructions::InstructionLoader,
+    memory: Arc<memory::MemoryStore>,
+    memory_slots: Arc<tokio::sync::Semaphore>,
     pub(crate) model_settings: Arc<std::sync::OnceLock<Arc<dyn ModelSettingsBackend>>>,
     pub(crate) plugins: Arc<std::sync::OnceLock<Arc<dyn PluginBackend>>>,
     pub(crate) github: Arc<std::sync::OnceLock<Arc<dyn GitHubBackend>>>,
@@ -365,6 +399,9 @@ impl BasicHost {
             lazy_restore_gates: Arc::new(Mutex::new(std::collections::HashMap::new())),
             event_gateway,
             questions,
+            instructions: instructions::InstructionLoader::default(),
+            memory: Arc::new(memory::MemoryStore::default()),
+            memory_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             model_settings: Arc::new(std::sync::OnceLock::new()),
             plugins: Arc::new(std::sync::OnceLock::new()),
             github: Arc::new(std::sync::OnceLock::new()),

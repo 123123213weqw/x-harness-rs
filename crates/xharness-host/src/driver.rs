@@ -126,11 +126,12 @@ impl BasicHost {
         session_id: &str,
     ) -> Result<(crate::PermissionPreset, xharness_prompt::PromptAssembly), RpcError> {
         let _gate = self.lock_permission_selection(session_id).await;
+        let prompt = self
+            .prompt_assembly(session_id)
+            .await
+            .map_err(RpcError::internal)?;
         let (permission, prompt, view) = {
             let mut state = self.state.write().await;
-            let prompt = state
-                .prompt_assembly(session_id)
-                .map_err(RpcError::internal)?;
             let session = state
                 .sessions
                 .get_mut(session_id)
@@ -706,6 +707,27 @@ impl BasicHost {
         // Only an explicit user prompt resumes a stopped admission gate.
         if source.get("kind").and_then(Value::as_str) == Some("user") {
             self.set_dispatch_paused(session_id, false).await?;
+        } else if matches!(
+            source.get("kind").and_then(Value::as_str),
+            Some("job-settlement" | "agent-settlement")
+        ) {
+            if let Some(cut) = self
+                .agent_runtime
+                .authoritative_session(session_id)
+                .await
+                .map_err(agent_runtime_error)?
+            {
+                let inbox = InboxProjection::from_session(&cut)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                if cut.dispatch_paused()
+                    && !inbox
+                        .next_turn()
+                        .iter()
+                        .any(xharness_session::InboxMessage::is_user_authored)
+                {
+                    self.set_dispatch_paused(session_id, true).await?;
+                }
+            }
         }
         let mode = mode.as_str();
         let (steer_control, admission_request) = {
@@ -733,30 +755,35 @@ impl BasicHost {
                     json!({"provider": route.provider, "model": route.model}),
                 ));
             }
-            let prompt = state
-                .prompt_assembly(session_id)
-                .map_err(RpcError::internal)?;
-            if mode == "steer" && session.running {
+            if mode == "steer"
+                && session.running
+                && !self.agent_runtime.has_authoritative_sessions()
+            {
                 (session.control.clone(), None)
             } else {
                 let mut messages = session.messages.clone();
                 messages.push(prompt_message(rpc_id.as_str(), &text, &content)?);
                 (
                     None,
-                    Some(AgentTurnRequest {
-                        session_id: session_id.to_owned(),
-                        cwd: session.cwd.clone(),
-                        route,
-                        permission: session.permission_preset,
-                        prompt: Some(prompt),
-                        messages,
-                        input_metadata: Some(json!({
-                            "content": content.clone(),
-                            "source": source.clone(),
-                            "rpcFingerprint": fingerprint.clone(),
-                            "rpcSessionId": session_id,
-                        })),
-                    }),
+                    Some((
+                        AgentTurnRequest {
+                            session_id: session_id.to_owned(),
+                            cwd: session.cwd.clone(),
+                            route,
+                            permission: session.permission_preset,
+                            prompt: None,
+                            messages,
+                            input_metadata: Some(json!({
+                                "content": content.clone(),
+                                "source": source.clone(),
+                                "rpcFingerprint": fingerprint.clone(),
+                                "rpcSessionId": session_id,
+                            })),
+                        },
+                        state
+                            .prompt_sections(session_id)
+                            .map_err(RpcError::internal)?,
+                    )),
                 )
             }
         };
@@ -827,15 +854,28 @@ impl BasicHost {
             return Ok(());
         }
 
-        if let Some(admission_request) = admission_request {
+        if let Some((mut admission_request, sections)) = admission_request {
+            // A live steer keeps the current turn's immutable prompt. If the
+            // actor has already finished, its new-turn factory captures fresh
+            // rules before any provider I/O. Do not reload workspace files just
+            // to decide which side of that actor boundary receives this input.
+            if mode != "steer" || !self.agent_runtime.has_authoritative_sessions() {
+                admission_request.prompt = Some(
+                    self.assemble_prompt(admission_request.cwd.clone(), sections)
+                        .await
+                        .map_err(RpcError::internal)?,
+                );
+            }
             // A durable runtime flushes this input before returning. Only
             // after that receipt may the Web API acknowledge session.prompt.
             // Ephemeral runtimes implement this as a no-op and retain the
             // legacy Host-owned queue behavior.
-            self.agent_runtime
-                .admit_turn(admission_request)
-                .await
-                .map_err(agent_runtime_error)?;
+            if mode == "steer" {
+                self.agent_runtime.admit_steering(admission_request).await
+            } else {
+                self.agent_runtime.admit_turn(admission_request).await
+            }
+            .map_err(agent_runtime_error)?;
         }
 
         let mut start_driver = None;
@@ -1100,14 +1140,10 @@ impl BasicHost {
                 .sessions
                 .get(session_id)
                 .ok_or_else(|| RpcError::internal("session disappeared"))?;
-            (
-                session.permission_preset,
-                state
-                    .prompt_assembly(session_id)
-                    .map_err(RpcError::internal)?,
-            )
+            (session.permission_preset, None)
         } else {
-            self.capture_turn_permission(session_id).await?
+            let (permission, prompt) = self.capture_turn_permission(session_id).await?;
+            (permission, Some(prompt))
         };
         let (turn, cwd, route, messages) = {
             let mut state = self.state.write().await;
@@ -1163,7 +1199,7 @@ impl BasicHost {
                 cwd,
                 route,
                 permission,
-                prompt: Some(assembled_prompt),
+                prompt: assembled_prompt,
                 messages,
                 input_metadata: None,
             })

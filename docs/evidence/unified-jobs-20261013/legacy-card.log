@@ -1,0 +1,20 @@
+✔ automation card: production nested envelope and direct domain JSON decode (1.335625ms)
+✔ automation card: domain rejection is not transport success (0.139125ms)
+✔ automation card: partial arguments, malformed / oversized results stay inspectable (0.086833ms)
+✔ automation card: list / delete receipts and invalid list are distinguished (0.107208ms)
+✔ automation card: finished trigger is not completed task; refresh actual nonterminal runs (0.129167ms)
+✔ automation card client: bound session and existing connection RPC, no extra model calls (0.424583ms)
+✔ automation card client: backend / network failures remain errors, not fake saved state (0.249875ms)
+✔ automation card registration and effects fence late results and disposable listeners (0.22175ms)
+✔ automation card lifecycle: unmount aborts view and ignores late old-chat replies (23.800666ms)
+✔ automation card lifecycle: hidden page makes no reads; visibility resumes and terminal states stop polling (3.646416ms)
+✔ automation card lifecycle: same-render double click admits only one mutation (3.526792ms)
+✔ automation card client: timed-out mutation aborts transport without a success receipt (2.290958ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 38.178084

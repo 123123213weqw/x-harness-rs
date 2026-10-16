@@ -2,6 +2,7 @@
 """不编译 Rust，只在临时副本中测试版本和签名公钥的打包投影。"""
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -44,11 +45,23 @@ class PortableSearch(unittest.TestCase):
                                 ('rust-windows', 'Install pinned ripgrep'),
                                 ('rust-macos-arm64', 'Install portable search')]:
             body = source.split('  ' + job + ':', 1)[1]
-            self.assertLess(body.index(dependency), body.index('cargo test --workspace'))
+            body = re.split(r'\n  [a-z][a-z0-9_-]*:', body, maxsplit=1)[0]
+            test = re.search(r'\bcargo test(?: --locked)? --workspace --all-targets\b', body)
+            self.assertIsNotNone(test, f'{job}: full workspace test must remain present')
+            self.assertLess(body.index(dependency), test.start())
         source = (ROOT / '.github/workflows/desktop-update-test.yml').read_text()
         self.assertLess(source.index('bash scripts/install-portable-rg.sh'), source.index('cargo test --locked --workspace'))
         source = (ROOT / '.github/workflows/friends-release.yml').read_text()
         self.assertLess(source.index('Install pinned ripgrep'), source.index('cargo test --locked --workspace'))
+
+    def test_workspace_dependency_guard_accepts_locked_and_rejects_lost_coverage(self):
+        pattern = r'\bcargo test(?: --locked)? --workspace --all-targets\b'
+        for command in ('cargo test --workspace --all-targets',
+                        'cargo test --locked --workspace --all-targets'):
+            self.assertIsNotNone(re.search(pattern, command))
+        for command in ('cargo test --locked -p xharness-host',
+                        'cargo test --locked --workspace', 'cargo check --workspace --all-targets'):
+            self.assertIsNone(re.search(pattern, command))
 
     def test_all_mac_packaging_paths_use_portable_rg(self):
         for name in ('ci.yml', 'desktop-release.yml', 'desktop-update-test.yml',

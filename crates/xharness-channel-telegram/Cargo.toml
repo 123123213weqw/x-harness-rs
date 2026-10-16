@@ -1,0 +1,25 @@
+[package]
+name = "xharness-channel-telegram"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Telegram official Bot API transport and normalization, no Agent runtime"
+
+[dependencies]
+xharness-remote = { path = "../xharness-remote" }
+reqwest = { workspace = true, features = ["rustls-tls", "multipart"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+sha2.workspace = true
+base64 = "0.22"
+async-trait.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+xharness-api = { path = "../xharness-api" }
+tempfile = "3"

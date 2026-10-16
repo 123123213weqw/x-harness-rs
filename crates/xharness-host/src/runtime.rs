@@ -162,7 +162,7 @@ impl ModelDescriptor {
             Some(selected) => self
                 .context_window
                 .effective_hard_max()
-                .is_some_and(|maximum| selected <= maximum),
+                .is_none_or(|maximum| selected <= maximum),
         }
     }
 
@@ -176,6 +176,7 @@ impl ModelDescriptor {
 pub struct RegisteredModel {
     descriptor: ModelDescriptor,
     provider: Arc<dyn ModelProvider>,
+    inner_provider: Arc<dyn ModelProvider>,
     token_guard: Option<TokenGuard>,
 }
 
@@ -183,7 +184,8 @@ impl RegisteredModel {
     pub fn new(descriptor: ModelDescriptor, provider: Arc<dyn ModelProvider>) -> Self {
         Self {
             descriptor,
-            provider,
+            provider: Arc::clone(&provider),
+            inner_provider: provider,
             token_guard: None,
         }
     }
@@ -289,7 +291,8 @@ impl ModelRegistry {
         model.provider = Arc::new(RouteBoundProvider {
             provider_id: descriptor.provider.clone(),
             model_id: descriptor.model.clone(),
-            inner: model.provider,
+            inner: Arc::clone(&model.inner_provider),
+            context_override: None,
         });
         self.order.push(key.clone());
         self.entries.insert(key, model);
@@ -321,6 +324,36 @@ impl ModelRegistry {
             .filter_map(|key| self.entries.get(key))
             .map(|model| model.descriptor.clone())
             .collect()
+    }
+
+    /// Replace deployment evidence and its request guard atomically. An unknown
+    /// capacity may have a temporary guard, but must not advertise that guard
+    /// as a model maximum. Existing automatic routes (None) use the new guard.
+    pub fn replace_context_capability(
+        &mut self,
+        route: &ModelRoute,
+        capability: ContextWindowCapability,
+    ) -> Result<(), xharness_token::TokenBudgetError> {
+        if let Some(model) = self
+            .entries
+            .get_mut(&(route.provider.clone(), route.model.clone()))
+        {
+            if let (Some(maximum), Some(guard)) =
+                (capability.effective_hard_max(), model.token_guard.as_ref())
+            {
+                model.token_guard = Some(guard.with_context_window(maximum)?);
+            }
+            // Replace the immutable route binding rather than mutating the
+            // adapter held by an in-flight turn or an older registry snapshot.
+            model.provider = Arc::new(RouteBoundProvider {
+                provider_id: model.descriptor.provider.clone(),
+                model_id: model.descriptor.model.clone(),
+                inner: Arc::clone(&model.inner_provider),
+                context_override: Some(capability.clone()),
+            });
+            model.descriptor.context_window = capability;
+        }
+        Ok(())
     }
 
     pub fn token_guard(&self, route: &ModelRoute) -> Option<TokenGuard> {
@@ -361,6 +394,7 @@ struct RouteBoundProvider {
     provider_id: String,
     model_id: String,
     inner: Arc<dyn ModelProvider>,
+    context_override: Option<ContextWindowCapability>,
 }
 
 #[async_trait]
@@ -394,6 +428,11 @@ impl ModelProvider for RouteBoundProvider {
         &self,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<xharness_core::ModelCapabilities, xharness_core::ProviderError> {
+        if let Some(context) = &self.context_override {
+            return Ok(xharness_core::ModelCapabilities {
+                context_window: context.clone(),
+            });
+        }
         self.inner.capabilities(cancellation).await
     }
 
@@ -459,6 +498,7 @@ pub struct AgentSessionRequest {
 /// Durable work attached during one startup-resume operation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentResumeReport {
+    /// Ordinary pending input observers, including user-authored next-step steering.
     pub pending_turns: usize,
     pub pending_next_step: usize,
     /// Stable internal work id for one open approval turn that was attached
@@ -528,6 +568,23 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    async fn process_runs(
+        &self,
+        _session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        Ok(Vec::new())
+    }
+    async fn process_output(
+        &self,
+        _session_id: &str,
+        _id: &str,
+        _cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        Err("process output unavailable".into())
+    }
+    async fn cancel_process_run(&self, _session_id: &str, _id: &str) -> Result<(), String> {
+        Err("process cancellation unavailable".into())
+    }
     /// Fixed read-only Git operation; no shell or model-selected argv.
     async fn read_display_diff(
         &self,
@@ -577,6 +634,33 @@ pub trait AgentRuntime: Send + Sync + 'static {
         })
     }
 
+    async fn saved_automation_control(
+        &self,
+        _session: &str,
+        _request: xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<xharness_schedule::SavedAutomationApplied, xharness_schedule::SavedAutomationError>
+    {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+    async fn saved_automation_receipt(
+        &self,
+        _session: &str,
+        _request: &xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<
+        Option<xharness_schedule::SavedAutomationApplied>,
+        xharness_schedule::SavedAutomationError,
+    > {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+    async fn saved_automation_read(
+        &self,
+        _session: &str,
+        _command: xharness_schedule::AutomationCommand,
+        _after: Option<String>,
+    ) -> Result<Value, xharness_schedule::SavedAutomationError> {
+        Err(xharness_schedule::SavedAutomationError::Unavailable)
+    }
+
     fn auxiliary_model(&self, _route: &ModelRoute) -> Option<AuxiliaryModel> {
         None
     }
@@ -613,6 +697,18 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _session_id: &str,
     ) -> Result<Option<Session>, AgentRuntimeError> {
         Ok(None)
+    }
+
+    /// Certify an original creation receipt across its durability barrier.
+    /// Logical read visibility alone is not proof after a failed flush.
+    async fn flush_session_revision(
+        &self,
+        _session_id: &str,
+        _minimum: xharness_session::Revision,
+    ) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "session durability certification unavailable".into(),
+        })
     }
 
     /// Read the inspector surface without exposing full request inputs.
@@ -716,6 +812,13 @@ pub trait AgentRuntime: Send + Sync + 'static {
     /// `start_turn`; durable runtimes must flush the input before returning.
     async fn admit_turn(&self, _request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
         Ok(())
+    }
+
+    /// Admit user steering through the Agent actor, not a possibly stale Host
+    /// RunningTurn. Durable adapters subscribe before the actor can wake and
+    /// retain an input-scoped observer for either current- or next-turn use.
+    async fn admit_steering(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        self.admit_turn(request).await
     }
 
     /// Remove a still-pending input. The default is a no-op for ephemeral
@@ -984,6 +1087,14 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .map_err(|e| e.message)?;
             config.permission = permission;
             config.prompt = Some(prompt);
+            if let Some(session) = host.state.read().await.sessions.get(agent_id) {
+                config.route = ModelRoute {
+                    provider: session.model.provider.clone(),
+                    model: session.model.model.clone(),
+                    reasoning_effort: session.model.reasoning_effort.clone(),
+                    context_window_tokens: session.model.context_window_tokens,
+                };
+            }
         }
         let (provider, token_guard, compaction_reasoning_effort) = {
             let models = self.models.read().expect("model registry lock poisoned");
@@ -1079,11 +1190,14 @@ pub struct DurableLoopAgentRuntime {
     supervisor: AgentSupervisor,
     tool_factory: Arc<dyn SessionToolFactory>,
     prepared: Mutex<HashMap<(String, String), PreparedDurableTurn>>,
+    input_admission: InputAdmissionGates,
     next_control_id: Arc<AtomicU64>,
     debug: Arc<StdRwLock<DebugRecorder>>,
     compaction: Arc<StdRwLock<Option<CompactionConfig>>>,
     schedules: Option<Arc<ScheduleManager>>,
 }
+
+type InputAdmissionGates = Mutex<HashMap<String, std::sync::Weak<Mutex<()>>>>;
 
 pub(crate) struct PreparedDurableTurn {
     pub(crate) handle: DurableAgentHandle,
@@ -1200,6 +1314,7 @@ impl DurableLoopAgentRuntime {
             goals,
             tool_factory,
             prepared: Mutex::new(HashMap::new()),
+            input_admission: Mutex::new(HashMap::new()),
             next_control_id: Arc::new(AtomicU64::new(1)),
             debug,
             compaction,
@@ -1363,6 +1478,14 @@ impl DurableLoopAgentRuntime {
         &self,
         request: AgentTurnRequest,
     ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
+        self.prepare_input(request, false).await
+    }
+
+    async fn prepare_input(
+        &self,
+        request: AgentTurnRequest,
+        steer: bool,
+    ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
         let (input, input_id) = self.validate_turn_input(&request)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
@@ -1381,26 +1504,64 @@ impl DurableLoopAgentRuntime {
             .await
             .map_err(registry_error)?;
         let events = handle.subscribe();
-        handle
-            .inbox()
-            .append(
-                xharness_session::InboxTarget::NextTurn,
-                InboxMessage {
-                    id: input_id.clone(),
-                    message: input,
-                    source: request.input_metadata,
-                },
-            )
-            .await
-            .map_err(|e| AgentRuntimeError::Preparation {
-                message: e.to_string(),
-            })?;
+        let input = InboxMessage {
+            id: input_id.clone(),
+            message: input,
+            source: request.input_metadata,
+        };
+        if steer {
+            // The actor atomically promotes an existing queue item or admits
+            // fresh steering, and suppresses delivery of already used IDs.
+            handle.steer(input).await.map_err(agent_command_error)?;
+        } else {
+            handle
+                .inbox()
+                .append(xharness_session::InboxTarget::NextTurn, input)
+                .await
+                .map_err(|error| AgentRuntimeError::Preparation {
+                    message: error.to_string(),
+                })?;
+        }
         self.attach_schedules(&handle).await?;
         Ok(PreparedDurableTurn {
             handle,
             events,
             input_id,
         })
+    }
+
+    async fn lock_input_admission(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self.input_admission.lock().await;
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            match gates.get(id).and_then(std::sync::Weak::upgrade) {
+                Some(gate) => gate,
+                None => {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(id.to_owned(), Arc::downgrade(&gate));
+                    gate
+                }
+            }
+        };
+        gate.lock_owned().await
+    }
+
+    async fn admit_input(
+        &self,
+        request: AgentTurnRequest,
+        steer: bool,
+    ) -> Result<(), AgentRuntimeError> {
+        let (_, input_id) = self.validate_turn_input(&request)?;
+        let key = (request.session_id.clone(), input_id);
+        let _admission = self.lock_input_admission(&request.session_id).await;
+        if self.prepared.lock().await.contains_key(&key) && !steer {
+            return Ok(());
+        }
+        // Waiting for one actor must not hold the global observer-map lock
+        // and stall admission/control in unrelated conversations.
+        let prepared = self.prepare_input(request, steer).await?;
+        self.prepared.lock().await.entry(key).or_insert(prepared);
+        Ok(())
     }
 
     fn running_from_prepared(&self, prepared: PreparedDurableTurn) -> Box<dyn RunningTurn> {
@@ -1471,6 +1632,65 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 message: "automation management is unavailable".into(),
             })?;
         Ok(schedules.execute(session_id, invocation, command).await)
+    }
+
+    async fn saved_automation_control(
+        &self,
+        session: &str,
+        request: xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<xharness_schedule::SavedAutomationApplied, xharness_schedule::SavedAutomationError>
+    {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_control_once(session, request)
+            .await
+    }
+    async fn saved_automation_receipt(
+        &self,
+        session: &str,
+        request: &xharness_schedule::SavedAutomationInvocation,
+    ) -> Result<
+        Option<xharness_schedule::SavedAutomationApplied>,
+        xharness_schedule::SavedAutomationError,
+    > {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_control_receipt(session, request)
+            .await
+    }
+    async fn saved_automation_read(
+        &self,
+        session: &str,
+        command: xharness_schedule::AutomationCommand,
+        after: Option<String>,
+    ) -> Result<Value, xharness_schedule::SavedAutomationError> {
+        self.schedules
+            .as_ref()
+            .ok_or(xharness_schedule::SavedAutomationError::Unavailable)?
+            .saved_read(session, command, after)
+            .await
+    }
+
+    async fn process_runs(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<xharness_jobs::protocol::JobRun>, String> {
+        self.tool_factory.process_runs(session_id).await
+    }
+    async fn process_output(
+        &self,
+        session_id: &str,
+        id: &str,
+        cursor: xharness_jobs::JobOutputCursor,
+    ) -> Result<xharness_jobs::JobRead, String> {
+        self.tool_factory
+            .process_output(session_id, id, cursor)
+            .await
+    }
+    async fn cancel_process_run(&self, session_id: &str, id: &str) -> Result<(), String> {
+        self.tool_factory.cancel_process_run(session_id, id).await
     }
 
     async fn prepare_automation_worker(
@@ -1554,7 +1774,21 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         if self.execution.check().is_err() {
             return Ok(false);
         }
-        if pending_manual_compaction(session).is_some() {
+        let inbox = xharness_agent::InboxProjection::from_session(session).map_err(|error| {
+            AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            }
+        })?;
+        if inbox.dispatch_inputs().next().is_some()
+            && xharness_agent::DispatchState::from_session(session)
+                .decide(&inbox)
+                .can_run()
+        {
+            return Ok(true);
+        }
+        if pending_manual_compaction(session).is_some()
+            || crate::job_continuation::has_pending(session)
+        {
             return Ok(true);
         }
         if xharness_session::goal::execution_state(session).is_some_and(|s| {
@@ -1608,6 +1842,26 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .map_err(|error| AgentRuntimeError::Preparation {
                 message: format!("could not load durable session {session_id:?}: {error}"),
             })
+    }
+
+    async fn flush_session_revision(
+        &self,
+        session_id: &str,
+        minimum: xharness_session::Revision,
+    ) -> Result<(), AgentRuntimeError> {
+        let revision =
+            self.store
+                .flush(session_id)
+                .await
+                .map_err(|_| AgentRuntimeError::Preparation {
+                    message: "creation receipt durability barrier failed".into(),
+                })?;
+        if revision < minimum {
+            return Err(AgentRuntimeError::Preparation {
+                message: "creation receipt durability revision regressed".into(),
+            });
+        }
+        Ok(())
     }
 
     async fn harness_header(
@@ -1725,6 +1979,10 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .activate(header)
             .await
             .map_err(registry_error)?;
+        // Ready is published only after startup reconcile_consumed finishes.
+        // Reading the inbox while Starting can count an already-consumed steer
+        // that the worker is concurrently deleting and fail Host reattachment.
+        handle.when_ready().await.map_err(agent_command_error)?;
         if handle.status() == xharness_agent::AgentStatus::Idle {
             xharness_agent::GoalController::new(Arc::clone(&self.store), &request.session_id)
                 .recover_abandoned()
@@ -1741,11 +1999,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 .map_err(|error| AgentRuntimeError::Preparation {
                     message: error.to_string(),
                 })?;
-        let pending_turns = snapshot
-            .next_turn()
-            .iter()
-            .filter(|m| !xharness_agent::is_goal_message(m))
-            .count();
+        let pending_turns = snapshot.dispatch_inputs().count();
         let pending_next_step = snapshot.next_step().len();
         let session = self
             .store
@@ -1799,7 +2053,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         // TurnStarted frame names that input ID, even if the Agent completes
         // several turns before the browser reconnects.
         let mut prepared = self.prepared.lock().await;
-        for input in snapshot.next_turn() {
+        for input in snapshot.dispatch_inputs() {
             if input
                 .source
                 .as_ref()
@@ -1863,9 +2117,9 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         }
         self.attach_schedules(&handle).await?;
         if handle.status() == xharness_agent::AgentStatus::Idle
-            && (!snapshot.next_turn().is_empty()
-                || xharness_session::goal::execution_state(&session)
-                    .is_some_and(|s| s.definition.execution_enabled))
+            && xharness_agent::DispatchState::from_session(&session)
+                .decide(&snapshot)
+                .can_run()
         {
             handle.wake().await.map_err(agent_command_error)?;
         }
@@ -1940,17 +2194,11 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn admit_turn(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
-        let (_, input_id) = self.validate_turn_input(&request)?;
-        let key = (request.session_id.clone(), input_id);
-        let mut prepared_turns = self.prepared.lock().await;
-        if prepared_turns.contains_key(&key) {
-            // Retried HTTP admission with the same stable RPC/message ID is
-            // idempotent while the prepared turn remains attached.
-            return Ok(());
-        }
-        let prepared = self.prepare_turn(request).await?;
-        prepared_turns.insert(key, prepared);
-        Ok(())
+        self.admit_input(request, false).await
+    }
+
+    async fn admit_steering(&self, request: AgentTurnRequest) -> Result<(), AgentRuntimeError> {
+        self.admit_input(request, true).await
     }
 
     async fn remove_pending_input(
@@ -2030,11 +2278,14 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         request: AgentTurnRequest,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
         let (_, input_id) = self.validate_turn_input(&request)?;
+        let admission = self.lock_input_admission(&request.session_id).await;
         let key = (request.session_id.clone(), input_id.clone());
-        let prepared = match self.prepared.lock().await.remove(&key) {
+        let prepared = self.prepared.lock().await.remove(&key);
+        let prepared = match prepared {
             Some(prepared) => prepared,
             None => self.prepare_turn(request).await?,
         };
+        drop(admission);
         self.require_execution()?;
         prepared.handle.wake().await.map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
@@ -2116,6 +2367,7 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    mod dispatch_tests;
     use std::{
         collections::VecDeque,
         sync::{
@@ -2145,6 +2397,120 @@ mod tests {
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,
+    }
+
+    #[test]
+    fn automatic_budget_refreshes_but_explicit_small_windows_are_preserved() {
+        let mut models = ModelRegistry::new();
+        let provider = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::new()),
+        });
+        let guard = TokenGuard::conservative(TokenBudget::new(34_816, 4_096)).unwrap();
+        models
+            .register(
+                RegisteredModel::new(
+                    ModelDescriptor::new("p", "Provider", "m", "Model"),
+                    provider,
+                )
+                .with_token_guard(Some(guard)),
+            )
+            .unwrap();
+        let auto = ModelRoute::new("p", "m");
+        let mut manual = auto.clone();
+        manual.context_window_tokens = Some(8_192);
+        let mut large = auto.clone();
+        large.context_window_tokens = Some(262_144);
+        assert!(
+            models.can_route(&large),
+            "unknown capacity must not treat the temporary guard as a maximum"
+        );
+        assert_eq!(models.models()[0].context_window.effective_hard_max(), None);
+        models
+            .replace_context_capability(
+                &auto,
+                ContextWindowCapability::deployment_reported(262_144),
+            )
+            .unwrap();
+        assert_eq!(
+            models
+                .token_guard(&auto)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            262_144
+        );
+        assert_eq!(
+            models
+                .token_guard(&manual)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            8_192
+        );
+        models
+            .replace_context_capability(&auto, ContextWindowCapability::deployment_reported(65_536))
+            .unwrap();
+        assert_eq!(
+            models
+                .token_guard(&auto)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            65_536
+        );
+        assert!(models.can_route(&manual));
+        assert!(!models.can_route(&large));
+    }
+
+    #[tokio::test]
+    async fn discovered_capabilities_match_the_guard_without_mutating_older_bindings() {
+        let mut models = ModelRegistry::new();
+        let provider = Arc::new(ScriptProvider {
+            answers: Mutex::new(VecDeque::new()),
+        });
+        models
+            .register(
+                RegisteredModel::new(
+                    ModelDescriptor::new("p", "Provider", "m", "Model"),
+                    provider,
+                )
+                .with_token_guard(Some(
+                    TokenGuard::conservative(TokenBudget::new(34_816, 4_096)).unwrap(),
+                )),
+            )
+            .unwrap();
+        let route = ModelRoute::new("p", "m");
+        let previous = models.clone();
+        models
+            .replace_context_capability(
+                &route,
+                ContextWindowCapability::deployment_reported(262_144),
+            )
+            .unwrap();
+        let live = models
+            .resolve(&route)
+            .unwrap()
+            .provider
+            .capabilities(CancellationToken::new())
+            .await
+            .unwrap();
+        let old = previous
+            .resolve(&route)
+            .unwrap()
+            .provider
+            .capabilities(CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(live.context_window.effective_hard_max(), Some(262_144));
+        assert_eq!(old.context_window.effective_hard_max(), None);
+        assert_eq!(
+            previous
+                .token_guard(&route)
+                .unwrap()
+                .budget()
+                .context_window_tokens,
+            34_816
+        );
     }
 
     struct BlockingFirstProvider {

@@ -71,7 +71,11 @@ try {
   await main.getByRole('tab',{name:'Automations',exact:true}).click();await main.getByText(records.items[0].projections.values.schedules[0].prompt,{exact:true}).waitFor()
   assert.equal(await main.locator('img').count(),0,'prompt remains escaped text');assert.equal(await main.getByText(/Every 60s/).count(),1)
   await main.getByRole('tab',{name:'Automations',exact:true}).press('ArrowLeft');await main.getByRole('button',{name:'Test chat',exact:true}).waitFor();assert.equal(await main.getByRole('tab',{name:'Tasks',exact:true}).evaluate(node=>node===document.activeElement),true)
-  await main.getByRole('tab',{name:'Tasks',exact:true}).press('End');await main.getByText(/Every 60s/).waitFor()
+  await main.getByRole('tab',{name:'Tasks',exact:true}).press('End');
+  const executions=main.getByRole('tab',{name:'Executions',exact:true});
+  assert.equal(await executions.getAttribute('aria-selected'),'true');
+  assert.equal(await executions.evaluate(node=>node===document.activeElement),true);
+  await executions.press('ArrowLeft');await main.getByText(/Every 60s/).waitFor()
   const beforeLive=requests.length
   await page.evaluate(seq=>workManagers.sessions.handleMuxEnvelope({rpcId:'live',payload:{type:'session/projection',sessionId:'chat-1',key:'schedules',seq,value:[]}}),++projectionSeq)
   await main.getByText('No automations yet',{exact:true}).waitFor()
@@ -99,6 +103,7 @@ try {
   await main.getByRole('button',{name:'Back to chat',exact:true}).click();assert.equal(await page.getByRole('textbox',{name:'Chat draft'}).inputValue(),'Keep this draft')
   await clock.click();await page.getByRole('button',{name:'Other chat',exact:true}).click();assert.equal(await main.count(),0)
   await page.setViewportSize({width:390,height:664});await clock.click();await main.waitFor();const box=await main.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=390);assert.equal(await page.locator('.xhtask-scrim,.xhtask-panel-wrap,.xhauto-scrim,.xhauto-panel').count(),0)
-  assert.ok(requests.every(row=>['session.list','workspace.list'].includes(row.method)),'navigation never mutates runtime');assert.deepEqual(errors,[])
-  console.log(JSON.stringify({engine,fullPage:true,twoTabs:true,keyboardTabs:true,noDrawers:true,taskSessionRouting:true,scheduleSessionRouting:true,draftRetained:true,unknownAndErrorStates:true,abortAndStaleFence:true,exclusiveNavigation:true,mobile:true,readOnly:true,liveTasks:true,liveSchedules:true,reconnectRecovery:true,timeoutLateSuccess:true,pageErrors:errors}))
+  assert.ok(requests.every(row=>['session.list','workspace.list','job/manage'].includes(row.method)),'navigation never mutates runtime');assert.deepEqual(errors,[])
+  assert.ok(requests.filter(row=>row.method==='job/manage').every(row=>row.params.command.action==='catalog'),'execution navigation is catalog-only')
+  console.log(JSON.stringify({engine,fullPage:true,threeTabs:true,keyboardTabs:true,noDrawers:true,taskSessionRouting:true,scheduleSessionRouting:true,draftRetained:true,unknownAndErrorStates:true,abortAndStaleFence:true,exclusiveNavigation:true,mobile:true,readOnly:true,liveTasks:true,liveSchedules:true,reconnectRecovery:true,timeoutLateSuccess:true,pageErrors:errors}))
 }finally{await browser.close()}

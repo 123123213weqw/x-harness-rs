@@ -39,14 +39,15 @@ pub enum ControlReply {
 }
 
 pub fn descriptor(state: &BrowserState, owner: &str) -> Value {
-    json!({"available":true,"bound":state.delegated_tab(owner).is_ok(),"version":1,
+    json!({"available":true,"bound":state.delegated_tab(owner).is_ok(),"version":2,
         "engine":"tauri-webview","capabilities":{
-            "open":true,"observe":true,"dom_actions":true,
-            "native_input":false,"cross_origin_frames":false,
-            "screenshot":false,"recording":false,"hidden_tab_actions":false
+            "open":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"cross_origin_pointer":true,"global_os_input":false,
+            "native_input":true,"cross_origin_frames":false,
+            "screenshot":true,"screenshot_scope":"system WebView viewport snapshot; accelerated media may be omitted","recording":false,"hidden_tab_actions":false
         },"constraints":["open requires the requesting chat to be visible; no focus stealing",
-            "observe/perform require a loaded, visible, chat-bound tab",
-            "DOM actions are not browser-level trusted mouse or keyboard input"]})
+            "observe/perform/screenshot/input require a loaded, visible, chat-bound tab",
+            "perform uses DOM actions; input uses browser-owned native events, not global OS input",
+            "cross-origin iframe pixels/pointer input supported; cross-origin DOM traversal and recording unsupported"]})
 }
 
 struct Guard {
@@ -196,16 +197,17 @@ mod tests {
         .is_err());
     }
     #[test]
-    fn empty_browser_is_discoverable_without_claiming_hard_capabilities() {
+    fn empty_browser_is_discoverable_with_precise_native_capability_limits() {
         let status = descriptor(&BrowserState::default(), "chat");
         assert_eq!(status["available"], true);
+        assert_eq!(status["capabilities"]["native_input"], true);
+        assert_eq!(status["capabilities"]["screenshot"], true);
         assert_eq!(status["bound"], false);
         for capability in [
-            "native_input",
             "cross_origin_frames",
-            "screenshot",
             "recording",
             "hidden_tab_actions",
+            "global_os_input",
         ] {
             assert_eq!(status["capabilities"][capability], false);
         }

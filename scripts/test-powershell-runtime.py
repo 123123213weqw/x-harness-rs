@@ -88,6 +88,31 @@ class ArchiveTests(unittest.TestCase):
         self.assertIn('-p xharness-process', source)
         self.assertIn('--all-targets', source)
 
+    def test_manifest_bytes_are_identical_under_windows_text_newline_translation(self):
+        lock = self.make()
+        original_open = Path.open
+
+        def windows_open(path, mode='r', buffering=-1, encoding=None, errors=None, newline=None):
+            if path.name == 'manifest.json' and 'w' in mode and newline is None:
+                newline = '\r\n'
+            return original_open(path, mode, buffering, encoding, errors, newline)
+
+        with patch.object(Path, 'open', windows_open):
+            self.stage(lock)
+        manifest = self.output / 'manifest.json'
+        canonical = (json.dumps(json.loads(manifest.read_text()), indent=2) + '\n').encode('utf-8')
+        self.assertEqual(manifest.read_bytes(), canonical)
+
+    def test_existing_crlf_staging_is_rejected_without_rewriting_it(self):
+        lock = self.make()
+        self.stage(lock)
+        manifest = self.output / 'manifest.json'
+        previous = manifest.read_bytes().replace(b'\n', b'\r\n')
+        manifest.write_bytes(previous)
+        with self.assertRaisesRegex(ValueError, 'Non-canonical runtime manifest newline'):
+            self.stage(lock)
+        self.assertEqual(manifest.read_bytes(), previous)
+
     def test_bad_digest_and_size_cannot_publish_partial_output(self):
         for field in ['sha256', 'size']:
             lock = self.make()

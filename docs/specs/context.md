@@ -73,7 +73,8 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 - 只有模型理论 Ceiling 不能证明当前端点可用；端点没有能力接口时，只能使用带
   `deployment_declared_fallback` 来源的显式兼容值，禁止按模型名猜测。
 - `context_window_tokens`：当前 Session 在硬上限内选择的软窗口；省略时使用当前硬上限。它可调小，
-  不能调大，且必须持久化并供 Token Guard、Compact 和恢复链路共同使用。
+  不能超过已知上限；未知时标注为用户请求预算。自动模式不保存容量数字，明确选择才持久化，
+  并供 Token Guard、Compact 和恢复链路共同使用。圆环分母是请求预算，不是模型最大容量的证明。
 - `reserved_output_tokens`：本轮首选/目标输出上限。
 - `minimum_output_tokens`：允许发请求的最小输出保留；低于该值必须先压缩或拒绝。
 - `selected_output_tokens`：结合本次真实输入后实际下发给 Provider 的动态上限。
@@ -88,7 +89,7 @@ System Prompt、消息历史、工具定义、Provider 模板开销和本轮最�
 input_tokens + minimum_output_tokens + safety_margin_tokens
     <= context_window_tokens
 
-context_window_tokens <= effective_hard_max(capability evidence)
+context_window_tokens <= effective_hard_max(capability evidence)  # only when the maximum is known
 
 selected_output_tokens = min(
     reserved_output_tokens,

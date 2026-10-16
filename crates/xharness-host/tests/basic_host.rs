@@ -851,7 +851,7 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     std::fs::write(
         root.join("AGENTS.md"),
         concat!(
-            "# Repository instructions\n\nDo not promote this whole file.\n\n",
+            "# Repository instructions\n\nRun the project tests before submitting.\n\n",
             "<!-- XHARNESS:USER-MEMORY:BEGIN -->\n",
             "## XHarness 持久目标\n\n- 发布到东京\n",
             "<!-- XHARNESS:USER-MEMORY:END -->\n",
@@ -913,7 +913,13 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].messages[0].role, Role::System);
     let system = &requests[0].messages[0].content;
-    assert!(system.contains("You are a coding agent."));
+    let persona = include_str!("../prompts/default-agent.txt").trim();
+    assert!(system.starts_with(&format!("{persona}\n\n")));
+    assert!(!system.contains("You are a coding agent."));
+    assert!(system.contains("Do not substitute confidence for evidence."));
+    assert!(system.contains("runnable code, equations, and state transitions"));
+    assert!(system.contains("emotionally neutral"));
+    assert!(system.contains("do not confuse reasoning length with reasoning quality"));
     assert!(system.contains("workspace-write isolation"));
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
@@ -926,12 +932,102 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     );
     assert!(!system.contains("Do not emulate managed jobs with shell &"));
     assert!(system.contains("Plan mode is active."));
-    assert!(system.contains("User-approved persistent goals for this workspace:"));
-    assert!(system.contains("发布到东京"));
-    assert!(!system.contains("Do not promote this whole file."));
+    assert!(system.contains("Project instructions from AGENTS.md"));
+    assert!(system.contains("Run the project tests before submitting."));
+    assert!(!system.contains("User-approved persistent goals for this workspace:"));
+    assert!(!system.contains("发布到东京"));
     assert_eq!(requests[0].messages[1].content, "show the exact prompt");
     drop(requests);
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn english_task_persona_is_compatible_and_stable_at_the_provider_boundary() {
+    let mut fx = Fixture::new();
+    let mut config = HostConfig::new(&fx.root);
+    config.provider_id = "capture".to_owned();
+    config.model_id = "capture-model".to_owned();
+    let provider = Arc::new(CapturingProvider::default());
+    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let persona = include_str!("../prompts/default-agent.txt").trim();
+    let preset = fx
+        .value(RpcMethod::AgentPresetRead, json!({"agentPreset":"coding"}))
+        .await;
+    assert_eq!(preset["content"], persona);
+    assert_eq!(preset["name"], "XHarness Agent");
+    fx.value(
+        RpcMethod::AgentPresetCopy,
+        json!({"from":"coding","agentPreset":"my-persona","name":"My agent"}),
+    )
+    .await;
+    let copied = fx
+        .value(
+            RpcMethod::AgentPresetRead,
+            json!({"agentPreset":"my-persona"}),
+        )
+        .await;
+    assert_eq!(copied["content"], persona);
+    assert_eq!(copied["name"], "My agent");
+    fx.value(RpcMethod::SettingsMutate, json!({"ns":"permission","expectedRevision":0,"ops":[{"op":"set","path":["defaultPreset"],"value":"danger-full-access"}]})).await;
+    let created = fx
+        .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap().to_owned();
+    for (index, text) in [
+        "Explain how to verify a measurement.",
+        "Compare two alternative hypotheses.",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        fx.value(
+            RpcMethod::SessionPrompt,
+            json!({"sessionId":session_id,"mode":"queue","content":[{"type":"text","text":text}]}),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if provider.requests.lock().unwrap().len() > index {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        fx.wait_for_assistant(&session_id).await;
+    }
+    let requests = provider.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    let system = &requests[0].messages[0].content;
+    assert!(system.starts_with(&format!("{persona}\n\n")));
+    assert_eq!(system.matches(persona).count(), 1);
+    assert!(system.contains("The user selected danger-full-access"));
+    assert!(!system.contains("workspace-write isolation"));
+    assert!(system.contains("Inspect before editing"));
+    assert!(system.contains("Never create schedules unless the user requested them."));
+    assert!(!system.contains("You are a coding agent."));
+    for request in requests.iter() {
+        assert_eq!(request.messages[0].role, Role::System);
+        assert_eq!(&request.messages[0].content, system);
+        assert_eq!(
+            request
+                .messages
+                .iter()
+                .filter(|m| m.role == Role::System)
+                .count(),
+            1
+        );
+        assert_eq!(
+            request.reasoning_effort, None,
+            "persona text cannot select a model effort"
+        );
+    }
+    // Optional test-only export is the actual captured provider input, not a
+    // second hand-maintained prompt renderer or any production session body.
+    if let Some(path) = std::env::var_os("XHARNESS_PERSONA_PREVIEW") {
+        std::fs::write(path, system).unwrap();
+    }
 }
 
 #[tokio::test]
@@ -1073,7 +1169,10 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         other => panic!("default model effort selection failed: {other:?}"),
     };
     assert_eq!(selected_default["selected"]["reasoningEffort"], "high");
-    assert_eq!(selected_default["selected"]["contextWindowTokens"], 53_248);
+    assert!(
+        selected_default["selected"]["contextWindowTokens"].is_null(),
+        "automatic selection must resolve the live model guard, not persist a numeric maximum"
+    );
     let selected = host
         .call(
             RpcId::new("catalog-select-max"),
@@ -1145,9 +1244,9 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching to the larger model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_larger_model["selected"]["contextWindowTokens"], 131_072,
-        "a model switch must materialize the destination maximum instead of inheriting 32K"
+    assert!(
+        switched_to_larger_model["selected"]["contextWindowTokens"].is_null(),
+        "a model switch must use the destination's live automatic capacity, not inherit 32K"
     );
 
     let switched_to_smaller_model = host
@@ -1166,8 +1265,8 @@ async fn web_model_catalog_exposes_and_selects_multiple_runtime_routes() {
         RpcResult::Success { value: Some(value) } => value,
         other => panic!("switching back to the smaller model failed: {other:?}"),
     };
-    assert_eq!(
-        switched_to_smaller_model["selected"]["contextWindowTokens"], 53_248,
+    assert!(
+        switched_to_smaller_model["selected"]["contextWindowTokens"].is_null(),
         "a model switch must never carry the previous model's 131K window into a 53K route"
     );
     assert_eq!(
@@ -1468,6 +1567,19 @@ async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_upstream_rpc_has_baseline_behavior() {
     let mut fx = Fixture::new();
+
+    let preview = fx
+        .value(
+            RpcMethod::SessionImport,
+            json!({
+                "source": "claude-code",
+                "jsonl": format!("{}\n", json!({"type":"user","message":{"content":"baseline transcript"}})),
+                "preview": true,
+            }),
+        )
+        .await;
+    assert_eq!(preview["messages"], 1);
+    assert!(preview.get("sessionId").is_none());
 
     fx.value(RpcMethod::HostDescribe, json!({})).await;
     fx.value(RpcMethod::HostPickDirectory, json!({})).await;
