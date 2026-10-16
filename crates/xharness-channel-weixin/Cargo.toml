@@ -1,0 +1,23 @@
+[package]
+name = "xharness-channel-weixin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Weixin iLink protocol transport, no Host or Agent runtime"
+
+[dependencies]
+xharness-remote = { path = "../xharness-remote" }
+reqwest = { workspace = true, features = ["rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+base64 = "0.22"
+aes = "0.8"
+md-5 = "0.10"
+getrandom = "0.2"
+
+[dev-dependencies]
+axum.workspace = true

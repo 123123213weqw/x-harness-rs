@@ -5,6 +5,10 @@
 //! rule or delivers an overdue rule. Delivery enters the ordinary durable
 //! Agent inbox only at an idle actor boundary.
 
+mod controls;
+#[cfg(test)]
+mod controls_tests;
+pub use controls::*;
 mod automation;
 #[cfg(test)]
 mod automation_tests;
@@ -140,6 +144,8 @@ pub struct PreparedScheduleDelivery {
 /// Shared Schedule service. One instance is used by the Tool factory and the
 /// durable Agent runtime so every session gets one serialized owner/runtime.
 pub struct ScheduleManager {
+    saved_control_slots: Arc<tokio::sync::Semaphore>,
+    control_lifetime: Arc<RwLock<()>>,
     store: Arc<dyn Store>,
     clock: Arc<dyn Clock>,
     owners: Mutex<HashMap<String, Arc<ScheduleOwner>>>,
@@ -172,6 +178,8 @@ impl ScheduleManager {
     pub fn new(store: Arc<dyn Store>) -> Arc<Self> {
         let (delivery_tx, _) = broadcast::channel(64);
         Arc::new(Self {
+            saved_control_slots: Arc::new(tokio::sync::Semaphore::new(32)),
+            control_lifetime: Arc::new(RwLock::new(())),
             store,
             clock: Arc::new(SystemClock),
             owners: Mutex::new(HashMap::new()),
@@ -186,6 +194,8 @@ impl ScheduleManager {
     fn with_clock(store: Arc<dyn Store>, clock: Arc<dyn Clock>) -> Arc<Self> {
         let (delivery_tx, _) = broadcast::channel(64);
         Arc::new(Self {
+            saved_control_slots: Arc::new(tokio::sync::Semaphore::new(32)),
+            control_lifetime: Arc::new(RwLock::new(())),
             store,
             clock,
             owners: Mutex::new(HashMap::new()),
@@ -269,6 +279,7 @@ impl ScheduleManager {
     /// and are rearmed or marked overdue on the next Host activation.
     pub async fn shutdown(&self) -> Result<(), String> {
         self.closed.store(true, Ordering::Release);
+        self.saved_control_slots.close();
         let owners = self
             .owners
             .lock()
@@ -280,6 +291,8 @@ impl ScheduleManager {
             owner.stop.cancel();
             owner.notify.notify_waiters();
         }
+        // Stop timer admission first, then drain the independent owned controls.
+        let _controls = self.control_lifetime.write().await;
         for owner in owners {
             if let Some(task) = owner.task.lock().await.take() {
                 task.await
