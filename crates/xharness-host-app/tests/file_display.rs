@@ -429,7 +429,11 @@ async fn real_host_http_display_route_reads_a_file_and_preserves_rpc_envelope() 
         .spawn()
         .unwrap();
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
+        // Session creation initializes the real tool/runtime graph and can take
+        // longer than two seconds on a contended Windows runner. Never retry
+        // its write; retain one finite request deadline and exact assertions.
+        .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
         .build()
         .unwrap();
     async fn rpc(
