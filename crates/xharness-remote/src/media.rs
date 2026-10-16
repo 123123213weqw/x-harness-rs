@@ -75,7 +75,7 @@ fn native_media_id(media: &ScopedAttachment) -> String {
         h.update([0]);
     }
     h.update(&media.data);
-    format!("{:x}", h.finalize())
+    hex::encode(h.finalize())
 }
 #[cfg(test)]
 mod tests {
@@ -91,7 +91,7 @@ mod tests {
             data: b"fixture".to_vec(),
         };
         let image = native_media_id(&media);
-        assert_eq!(image, format!("{:x}", Sha256::digest(b"fixture")));
+        assert_eq!(image, hex::encode(Sha256::digest(b"fixture")));
         media.kind = ScopedAttachmentKind::File;
         assert_eq!(
             native_media_id(&media),

@@ -628,8 +628,8 @@ impl OpenAiProvider {
         for k in ["messages", "input", "max_tokens", "max_output_tokens"] {
             controls.as_object_mut().unwrap().remove(k);
         }
-        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2","usageSemantics":self.config.usage_input_semantics})).unwrap()));
-        let request_id = format!("{:x}", Sha256::digest(serde_json::to_vec(&body).unwrap()));
+        let scope=hex::encode(Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2","usageSemantics":self.config.usage_input_semantics})).unwrap()));
+        let request_id = hex::encode(Sha256::digest(serde_json::to_vec(&body).unwrap()));
         let messages = request
             .messages
             .iter()

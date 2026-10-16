@@ -323,7 +323,7 @@ impl PluginManager {
         bytes: &[u8],
         state: &mut State,
     ) -> Result<InstalledPlugin, PluginError> {
-        let digest = format!("{:x}", Sha256::digest(bytes));
+        let digest = hex::encode(Sha256::digest(bytes));
         if !digest.eq_ignore_ascii_case(&entry.source.sha256) {
             return Err(PluginError::Invalid(
                 "archive SHA-256 does not match catalog".into(),
@@ -338,10 +338,9 @@ impl PluginManager {
             let package_root = find_package_root(&staging)?;
             let capabilities = inspect_capabilities(&package_root, name)?;
             let mcp_config_sha256 = if package_root.join(".mcp.json").is_file() {
-                Some(format!(
-                    "{:x}",
-                    Sha256::digest(fs::read(package_root.join(".mcp.json"))?)
-                ))
+                Some(hex::encode(Sha256::digest(fs::read(
+                    package_root.join(".mcp.json"),
+                )?)))
             } else {
                 None
             };
@@ -478,7 +477,7 @@ impl PluginManager {
             ));
         }
         let bytes = fs::read(&file)?;
-        if format!("{:x}", Sha256::digest(&bytes)) != *expected {
+        if hex::encode(Sha256::digest(&bytes)) != *expected {
             return Err(PluginError::Invalid(
                 "installed MCP config changed after verification".into(),
             ));
@@ -550,7 +549,7 @@ impl PluginManager {
         if bytes.len() as u64 > MAX_SKILL {
             return Err(PluginError::Invalid("Skill exceeds 64 KiB".into()));
         }
-        if format!("{:x}", Sha256::digest(&bytes)) != record.sha256 {
+        if hex::encode(Sha256::digest(&bytes)) != record.sha256 {
             return Err(PluginError::Invalid(
                 "installed Skill content changed after verification".into(),
             ));
@@ -885,7 +884,7 @@ fn discover_skills(root: &Path) -> Result<Vec<SkillRecord>, PluginError> {
             name,
             description,
             relative_path: relative.to_string_lossy().into_owned(),
-            sha256: format!("{:x}", Sha256::digest(content.as_bytes())),
+            sha256: hex::encode(Sha256::digest(content.as_bytes())),
         });
     }
     found.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1126,7 +1125,7 @@ mod tests {
             zip.finish().unwrap();
         }
         let bytes = output.into_inner();
-        let digest = format!("{:x}", Sha256::digest(&bytes));
+        let digest = hex::encode(Sha256::digest(&bytes));
         let entry = CatalogEntry {
             name: "demo".into(),
             scope: "public".into(),

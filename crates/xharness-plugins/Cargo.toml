@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Durable, capability-scoped user plugin catalog and skill store"
 
 [dependencies]
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -105,7 +105,7 @@ fn file_id(media: &str, data: &[u8]) -> String {
     h.update(media.as_bytes());
     h.update([0]);
     h.update(data);
-    format!("{:x}", h.finalize())
+    hex::encode(h.finalize())
 }
 fn validate_file(session: &str, upload: Upload) -> Result<ResolvedAttachment, AttachmentError> {
     if session.is_empty()
@@ -168,7 +168,7 @@ fn validate(session: &str, upload: Upload) -> Result<ResolvedAttachment, Attachm
         .decode()
         .map_err(|e| AttachmentError::Invalid(e.to_string()))?;
     let reference = AttachmentRef {
-        id: format!("{:x}", Sha256::digest(&upload.data)),
+        id: hex::encode(Sha256::digest(&upload.data)),
         session_id: session.into(),
         media_type: media.into(),
         bytes: upload.data.len() as u64,
@@ -270,7 +270,7 @@ impl FileAttachmentStore {
         }
         Ok(self
             .root
-            .join(format!("{:x}", Sha256::digest(session.as_bytes())))
+            .join(hex::encode(Sha256::digest(session.as_bytes())))
             .join(id))
     }
     fn read(&self, session: &str, id: &str) -> Result<ResolvedAttachment, AttachmentError> {
@@ -314,7 +314,7 @@ impl FileAttachmentStore {
             || (if reference.width == 0 {
                 file_id(&reference.media_type, &data)
             } else {
-                format!("{:x}", Sha256::digest(&data))
+                hex::encode(Sha256::digest(&data))
             }) != id
         {
             return Err(AttachmentError::Unavailable);
@@ -396,7 +396,7 @@ impl AttachmentStore for FileAttachmentStore {
             let _gate = this.gate.lock().map_err(storage)?;
             let dir = this
                 .root
-                .join(format!("{:x}", Sha256::digest(session_id.as_bytes())));
+                .join(hex::encode(Sha256::digest(session_id.as_bytes())));
             match std::fs::symlink_metadata(&dir) {
                 Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
                     std::fs::remove_dir_all(&dir).map_err(storage)
@@ -426,7 +426,7 @@ impl AttachmentStore for FileAttachmentStore {
         }
         let dir = self
             .root
-            .join(format!("{:x}", Sha256::digest(session.as_bytes())));
+            .join(hex::encode(Sha256::digest(session.as_bytes())));
         private_dir(&dir)?;
         Ok(Some(dir))
     }
@@ -672,7 +672,7 @@ mod file_tests {
             .await
             .unwrap();
         assert_ne!(image.id, file.id);
-        assert_eq!(image.id, format!("{:x}", Sha256::digest(png)));
+        assert_eq!(image.id, hex::encode(Sha256::digest(png)));
         assert_eq!(
             reopened.resolve("a", &image.id).await.unwrap().reference,
             image

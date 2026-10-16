@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Telegram official Bot API transport and normalization, no Agent runtime"
 
 [dependencies]
+hex.workspace = true
 xharness-remote = { path = "../xharness-remote" }
 reqwest = { workspace = true, features = ["rustls-tls", "multipart"] }
 serde.workspace = true

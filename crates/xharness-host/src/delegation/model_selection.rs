@@ -99,10 +99,9 @@ pub(super) fn same_selection(a: &ModelSelection, b: &ModelSelection) -> bool {
         && a.context_window_tokens == b.context_window_tokens
 }
 fn fingerprint(operation: &AgentOperation) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(operation).expect("typed agent operation serializes"))
-    )
+    hex::encode(Sha256::digest(
+        serde_json::to_vec(operation).expect("typed agent operation serializes"),
+    ))
 }
 
 #[derive(Serialize, Deserialize)]

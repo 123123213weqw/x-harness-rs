@@ -103,10 +103,9 @@ impl AutomationTargetProvider for HostAutomationTargets {
                     receipt: SessionMutationReceipt {
                         rpc_id: receipt_id,
                         method: "host.automation-target/v1".into(),
-                        fingerprint: format!(
-                            "{:x}",
-                            Sha256::digest(json!([source, target]).to_string().as_bytes())
-                        ),
+                        fingerprint: hex::encode(Sha256::digest(
+                            json!([source, target]).to_string().as_bytes(),
+                        )),
                         response: json!({"sessionId":target,"sourceSessionId":source}),
                         response_event_seq_field: None,
                     },

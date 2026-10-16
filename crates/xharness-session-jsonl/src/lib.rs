@@ -202,7 +202,7 @@ impl ValidatedStamp {
             revision: loaded.session.revision(),
             valid_len: loaded.valid_len,
             needs_separator: loaded.needs_separator,
-            sha256: format!("{:x}", loaded.journal_hash.clone().finalize()),
+            sha256: hex::encode(loaded.journal_hash.clone().finalize()),
         }
     }
 }
@@ -1769,7 +1769,7 @@ fn decode_batch_line(line: &[u8], format_version: u32) -> Result<BatchRecord, Ba
     let compressed = BASE64
         .decode(record.data.as_bytes())
         .map_err(|e| BatchDecodeError::Invalid(format!("invalid compressed batch base64: {e}")))?;
-    if format!("{:x}", Sha256::digest(&compressed)) != record.compressed_sha256 {
+    if hex::encode(Sha256::digest(&compressed)) != record.compressed_sha256 {
         return Err(BatchDecodeError::Invalid(
             "compressed batch digest mismatch".to_owned(),
         ));
@@ -1782,7 +1782,7 @@ fn decode_batch_line(line: &[u8], format_version: u32) -> Result<BatchRecord, Ba
         .read_to_end(&mut expanded)
         .map_err(|e| BatchDecodeError::Invalid(format!("decompress batch: {e}")))?;
     if expanded.len() as u64 != record.uncompressed_len
-        || format!("{:x}", Sha256::digest(&expanded)) != record.sha256
+        || hex::encode(Sha256::digest(&expanded)) != record.sha256
     {
         return Err(BatchDecodeError::Invalid(
             "uncompressed batch size or digest mismatch".to_owned(),
@@ -1806,8 +1806,8 @@ fn encode_compressed_batch(line: &[u8], path: &Path) -> Result<Option<Vec<u8>>, 
     let record = CompressedBatchRecord {
         record: COMPRESSED_BATCH_RECORD.to_owned(),
         uncompressed_len: line.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(line)),
-        compressed_sha256: format!("{:x}", Sha256::digest(&compressed)),
+        sha256: hex::encode(Sha256::digest(line)),
+        compressed_sha256: hex::encode(Sha256::digest(&compressed)),
         data: BASE64.encode(compressed),
     };
     let encoded = encode_line(&record, path)?;

@@ -65,7 +65,7 @@ fn digest() -> String {
     hash.update(b"text/plain");
     hash.update([0]);
     hash.update(bytes());
-    format!("{:x}", hash.finalize())
+    hex::encode(hash.finalize())
 }
 fn account() -> Account {
     Account {

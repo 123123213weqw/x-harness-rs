@@ -105,7 +105,7 @@ impl Builder {
             first,
             end,
             revision: batch.revision,
-            sha256: format!("{:x}", Sha256::digest(line)),
+            sha256: hex::encode(Sha256::digest(line)),
         });
         for event in &batch.events {
             let compaction_id = match event.data() {
@@ -200,7 +200,7 @@ impl Builder {
                 return Ok(());
             }
             let bytes = serde_json::to_vec(&Envelope {
-                sha256: format!("{:x}", Sha256::digest(&body)),
+                sha256: hex::encode(Sha256::digest(&body)),
                 index,
             })
             .map_err(|e| backend_message(e.to_string()))?;
@@ -312,7 +312,7 @@ fn read_batch(
     let mut bytes = vec![0; usize::try_from(r.len).map_err(|e| backend_message(e.to_string()))?];
     file.read_exact(&mut bytes)
         .map_err(|e| backend_error("read history", journal, e))?;
-    if format!("{:x}", Sha256::digest(&bytes)) != r.sha256 {
+    if hex::encode(Sha256::digest(&bytes)) != r.sha256 {
         return Ok(None);
     }
     let expanded = if index.format_version == COMPRESSED_FILE_FORMAT_VERSION {
@@ -403,7 +403,7 @@ pub(super) fn read(
     };
     let body = serde_json::to_vec(&envelope.index).map_err(|e| backend_message(e.to_string()))?;
     let index = envelope.index;
-    if format!("{:x}", Sha256::digest(&body)) != envelope.sha256
+    if hex::encode(Sha256::digest(&body)) != envelope.sha256
         || !valid(&index, id, fingerprint, next)
     {
         return Ok(None);
@@ -617,7 +617,7 @@ mod tests {
         index.format_version = COMPRESSED_FILE_FORMAT_VERSION;
         index.data.records[0].offset = 0;
         index.data.records[0].len = bytes.len() as u64;
-        index.data.records[0].sha256 = format!("{:x}", Sha256::digest(&bytes));
+        index.data.records[0].sha256 = hex::encode(Sha256::digest(&bytes));
         let mut file = File::open(&path).unwrap();
         let mut budget = MAX_WINDOW_BYTES;
         assert!(read_batch(&mut file, &path, &index, 0, &mut budget)

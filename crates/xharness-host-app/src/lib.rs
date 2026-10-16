@@ -817,7 +817,7 @@ mod tests {
             writer.finish().unwrap();
         }
         let archive = archive.into_inner();
-        let digest = format!("{:x}", sha2::Sha256::digest(&archive));
+        let digest = hex::encode(sha2::Sha256::digest(&archive));
         manager.import_catalog(&serde_json::json!({"plugins":[{"name":"demo","version":"1.0",
             "source":{"source":"url","type":"zip","url":"https://example.com/demo.zip","sha256":digest}}]}).to_string()).await.unwrap();
         manager

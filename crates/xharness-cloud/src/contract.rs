@@ -113,7 +113,7 @@ impl CloudTaskSpec {
         let mut hash = Sha256::new();
         hash.update(b"xharness-cloud-task-spec/v1\n");
         hash.update(canonical);
-        Sha256Digest::new(format!("{:x}", hash.finalize()))
+        Sha256Digest::new(hex::encode(hash.finalize()))
     }
 }
 
@@ -273,7 +273,7 @@ impl Command {
         hash.update(canonical);
         Ok(PayloadFingerprint {
             version: FINGERPRINT_VERSION.into(),
-            sha256: Sha256Digest::new(format!("{:x}", hash.finalize()))?,
+            sha256: Sha256Digest::new(hex::encode(hash.finalize()))?,
         })
     }
 }

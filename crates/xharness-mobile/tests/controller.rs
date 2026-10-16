@@ -936,11 +936,11 @@ async fn shared_request_lookup_keeps_legacy_key_exact_and_never_has_native_effec
         user: p.device.clone(),
     };
     let legacy = format!(
-        "remote-v1-{:x}",
-        Sha256::digest(
+        "remote-v1-{}",
+        hex::encode(Sha256::digest(
             serde_json::to_vec(&json!([1, gateway.host_id(), sender, p.device, request_id]))
                 .unwrap()
-        )
+        ))
     );
     assert_eq!(key, legacy);
     let recovered = gateway

@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Durable scheduled reminders and authorized tasks for XHarness"
 
 [dependencies]
+hex.workspace = true
 async-trait.workspace = true
 sha2.workspace = true
 chrono.workspace = true

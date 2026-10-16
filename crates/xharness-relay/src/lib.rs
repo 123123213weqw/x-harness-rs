@@ -696,7 +696,7 @@ fn authenticate_host(state: &RelayState, host: &str, key: &Secret) -> bool {
     let Some(registered) = state.0.config.registered.hosts.get(host) else {
         return false;
     };
-    let actual = format!("{:x}", Sha256::digest(key.expose().as_bytes()));
+    let actual = hex::encode(Sha256::digest(key.expose().as_bytes()));
     registered
         .key_sha256
         .as_bytes()

@@ -14,7 +14,7 @@ fn directory(root: &std::path::Path, target: &Value) -> Result<PathBuf, RpcError
         .filter(|n| *n > 0)
         .ok_or_else(bad)?;
     let hash = Sha256::digest(serde_json::to_vec(&(account, repo, number)).map_err(|_| invalid())?);
-    Ok(root.join(format!("{hash:x}")))
+    Ok(root.join(hex::encode(hash)))
 }
 impl NativeGitHub {
     pub fn with_review_directory(mut self, path: PathBuf) -> Self {

@@ -1364,7 +1364,7 @@ pub(crate) fn restored_session_mutation_receipts(
 /// `workspace_order_set` written earlier then replayed that id against the
 /// wrong workspace, permanently reordering the user's sidebar.
 fn discovered_workspace_id(cwd: &str) -> String {
-    let digest = format!("{:x}", Sha256::digest(cwd.as_bytes()));
+    let digest = hex::encode(Sha256::digest(cwd.as_bytes()));
     format!("workspace-path-{}", &digest[..16])
 }
 

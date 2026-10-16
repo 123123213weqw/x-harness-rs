@@ -91,7 +91,7 @@ fn identity(caller: &str, invocation: &str) -> String {
     hash.update(caller.as_bytes());
     hash.update([0]);
     hash.update(invocation.as_bytes());
-    format!("agent-{:x}", hash.finalize())
+    format!("agent-{}", hex::encode(hash.finalize()))
 }
 /// A branch retains historical execution facts, but starts a fresh delivery scope.
 fn owned_events(session: &Session) -> &[xharness_session::LoggedEvent] {

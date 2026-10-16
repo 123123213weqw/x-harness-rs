@@ -437,7 +437,13 @@ mod tests {
         .unwrap();
         assert!(retained);
         assert_eq!(pending_epoch, before);
+        // SQL completion can become observable just before the detached worker
+        // drops its policy guard. Synchronize on that guard, as real readers do.
+        let read_guard = tokio::time::timeout(Duration::from_secs(3), gate.read())
+            .await
+            .expect("selection policy writer was not released after commit");
         assert!(gate.epoch() > before);
+        drop(read_guard);
         let scope = Subscription {
             principal: "p".into(),
             sender,

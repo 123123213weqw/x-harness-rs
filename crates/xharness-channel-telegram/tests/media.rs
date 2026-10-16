@@ -258,7 +258,7 @@ async fn actual_multipart_gateway_unknown_receipt_persists_and_never_resends_aft
     hash.update(b"text/plain");
     hash.update([0]);
     hash.update(b"fixture binary payload");
-    let id = format!("{:x}", hash.finalize());
+    let id = hex::encode(hash.finalize());
     let plan = ReplyPlan {
         id: "actual-multipart-uncertainty".into(),
         body: ReplyBody {

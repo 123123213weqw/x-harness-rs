@@ -7,6 +7,7 @@ repository.workspace = true
 description = "OpenAI-compatible streaming provider for XHarness"
 
 [dependencies]
+hex.workspace = true
 xharness-attachments = { path = "../xharness-attachments" }
 sha2.workspace = true
 xharness-token = { path = "../xharness-token" }
