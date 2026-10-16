@@ -284,7 +284,17 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
+        // Resolve Tauri resources, not PATH or a guessed ProgramFiles location.
+        // Validate before starting Host; broken packaging is visible at startup.
+        let shell_root = app
+            .path()
+            .resolve("runtime/powershell", BaseDirectory::Resource)
+            .map_err(|error| format!("无法定位内置 PowerShell：{error}"))?;
+        if env::var_os("XHARNESS_SHELL").is_none() {
+            xharness_process::powershell::program(&shell_root)?;
+        }
         command = command
+            .env(xharness_process::powershell::ROOT_ENV, &shell_root)
             .env("XHARNESS_CRASH_CONTEXT", &state.crash_context)
             .env("XHARNESS_CRASH_EVENT", &state.crash_event);
         // Host cannot restore work/spawn children until assigned to our Job.

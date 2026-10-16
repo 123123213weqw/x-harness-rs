@@ -181,6 +181,34 @@ def native_api_evidence(log_text: str, evidence_dir: Path) -> dict:
         return {"status": "unverified", "reason": "malformed API probe evidence"}
 
 
+def production_native_evidence(log_text: str, evidence_dir: Path) -> dict:
+    """Independently verify production screenshot-to-CSS coordinate mapping."""
+    from scripts.gui_bench.native_png import pixel
+    prefix='PRODUCTION_NATIVE_EVIDENCE '
+    lines=[line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    try:
+        if len(lines)!=1: raise ValueError('missing production receipt')
+        result=json.loads(lines[0])
+        if not isinstance(result,dict) or result.get('passed') is not True: raise ValueError('failed production receipt')
+        viewport=result['viewport']
+        width,height=viewport['width'],viewport['height']
+        if any(type(v) not in (int,float) or not math.isfinite(v) or not 0<v<=10000 for v in (width,height)): raise ValueError('invalid viewport')
+        data=(evidence_dir/'native-api'/'production.png').read_bytes()
+        _,size=pixel(data,0,0)
+        samples=[]
+        # Narrow edge checks catch e.g. a 28px WKWebView titlebar inset that a
+        # center-only red-pixel check would miss. Image ratios must map to CSS.
+        for x,y,inside in [(60,125,True),(60,115,False),(60,215,True),(60,225,False),(25,160,True),(15,160,False)]:
+            rgb,_=pixel(data,round(x*size[0]/width),round(y*size[1]/height))
+            samples.append(dict(css=[x,y],rgb=rgb,expected_inside=inside,matched=(rgb==(255,0,0))==inside))
+        result['geometry_samples']=samples
+        result['snapshot_geometry_passed']=all(sample['matched'] for sample in samples)
+        result['passed']=result['snapshot_geometry_passed']
+        return result
+    except (ValueError,KeyError,TypeError,OSError,zlib.error) as error:
+        return dict(passed=False,reason=str(error))
+
+
 def native_coordinates_verified(api: dict) -> bool:
     observed = api.get('observed')
     if not isinstance(observed, dict) or not isinstance(observed.get('pointers'), list):
@@ -241,6 +269,8 @@ def main() -> int:
     parser.add_argument("binary", type=Path)
     parser.add_argument("--evidence-dir", type=Path, required=True)
     parser.add_argument("--macos-titlebar", choices=["standard", "overlay"], default="standard")
+    parser.add_argument("--ready-delay-ms", type=int, choices=[0, 6000], default=0,
+                        help="Delay only the test adapter's Ready acknowledgement; never replay navigation")
     args = parser.parse_args()
     if args.macos_titlebar != "standard" and sys.platform != "darwin":
         parser.error("macOS titlebar variants require a macOS probe")
@@ -252,7 +282,7 @@ def main() -> int:
             digest.update(chunk)
     receipt = {"kind": "native_tauri_dom_contract", "platform": sys.platform,
                "model_calls": 0, "os_input": False,
-               "titlebar": args.macos_titlebar,
+               "titlebar": args.macos_titlebar, "ready_delay_ms": args.ready_delay_ms,
                "binary_sha256": digest.hexdigest()}
     start = time.monotonic()
     directory = Path(tempfile.mkdtemp(prefix="xh-native-dom-"))
@@ -262,6 +292,7 @@ def main() -> int:
             try:
                 env = environment(directory)
                 env['XHARNESS_NATIVE_PROBE_TITLEBAR'] = args.macos_titlebar
+                env['XHARNESS_NATIVE_PROBE_READY_DELAY_MS'] = str(args.ready_delay_ms)
                 env['XHARNESS_NATIVE_API_EVIDENCE'] = str(args.evidence_dir.resolve() / 'native-api')
                 code = run_probe(binary, env, log)
             except OSError:
@@ -276,10 +307,11 @@ def main() -> int:
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')
     receipt['native_api_prototype_tested'] = api.get('status') == 'tested'
     receipt['native_api_core_passed'] = core_native_apis_passed(api)
-    completed = completed and receipt['native_api_core_passed']
+    production=production_native_evidence(log_text,args.evidence_dir)
+    (args.evidence_dir/'production-native-evidence.json').write_text(json.dumps(production,indent=2)+'\n')
+    receipt['production_native_passed']=production.get('passed') is True
+    completed = completed and receipt['native_api_core_passed'] and receipt['production_native_passed']
     (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
-    # Passing the bounded DOM/lifecycle contract is NOT full Browser Use parity.
-    receipt["browser_parity_passed"] = False
     receipt["hard_capability_status"] = capabilities.get("parity_gate", capabilities.get("status", "unverified"))
     receipt["cleanup_passed"] = cleaned
     receipt.update(exit_code=code, seconds=round(time.monotonic() - start, 3), passed=code == 0 and cleaned and completed, contract_completed=completed)

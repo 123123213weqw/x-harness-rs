@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Integrate Windows per-user update migration with the latest file-lock diagnostics and native installation ownership checks.",
+  "compatibility": "Retain existing signature validation, release guards, preservation of user data and explicit cancellation behavior. Preserve every installer probe and add the native Shell Link step without replacing current diagnostics. Keep this PR draft until signed protected-install migration, next non-admin update and UAC-cancel acceptance pass on disposable Windows hosts.",
+  "paths": {
+    "apps/desktop/src-tauri/src/sidecar.rs": {
+      "before": "9497976cc053f23d05dee831c5f39c0e3e56bf6cc88d6dee55b5df6363694c7e",
+      "after": "d8a132f89b191672eff69ea829fefdad685da5b66f947bbdaa9bab1465745a2c"
+    },
+    "apps/desktop/src-tauri/src/updater.rs": {
+      "before": "db0e9a35b3685a30cbfdcc99b1dadd13eca4d7db02b24d174b63221566faeab0",
+      "after": "d9d29375e951194a0697ca0a83e51e24e7d9f96abfad291b11d3bec10f8ddbdd"
+    },
+    "apps/desktop/src-tauri/src/updater/windows.rs": {
+      "before": null,
+      "after": "97cd5c6d863090ee6b026c42afcd4ada287f621e87d3efc07d0785426c915720"
+    },
+    "apps/desktop/src-tauri/src/updater/windows_plan.rs": {
+      "before": null,
+      "after": "a6ecf6603ad66d0d958b8e50c898be4da0783a85f7744693ed950a536f7a3897"
+    },
+    "apps/desktop/src-tauri/windows/hooks.nsh": {
+      "before": "ca870d871850294adfe229cf2bb2e8028ee4d0e5e0a1570538ecfe5ea9d06e7a",
+      "after": "6878a6b7d3f14fa1bafc8da1ba3ed7daa53431491efcfeccf214b53dd2ae5518"
+    },
+    "apps/desktop/src-tauri/windows/install-ownership.ps1": {
+      "before": "1b745a4a3711f54ac0e064f20e1059459d2a73c1d325240633fda342d85fc88f",
+      "after": "7ad785a3b16ac5a9a8e23f5da817c3b6ab98e3d29be1d1062c3db8ad4e2a70e6"
+    },
+    "crates/xharness-win32/Cargo.toml": {
+      "before": "5556c5d2cacdb304cf4b240bcce080d806d7d6110f487b1f191d0e7b8e7e1cbc",
+      "after": "471fe77f06ddcb2b8fa755d5fd6783598d506ec36e5c88f43529ae6bc472c975"
+    },
+    "crates/xharness-win32/src/acl.rs": {
+      "before": "a53a114db0a6805e0088eec6efb842710431a6bb01f0f59bd113f7619601781d",
+      "after": "16f0278525eda4496f157366564d178d58d34e9c609452c4515bf0e97598c16e"
+    },
+    "crates/xharness-win32/src/installation.rs": {
+      "before": null,
+      "after": "cf5ec6ddb396e736ed14b0497dad468ec3b97d5463d24559e2852c79edc8a78b"
+    },
+    "crates/xharness-win32/src/lib.rs": {
+      "before": "08048e252ced0886e6496da0dd7e442f0a988970a3b08d466e70fc135ff43689",
+      "after": "25840e5cecac572ede844c49297e57e7279243848ab206f30e00fd2701c9f4cb"
+    },
+    "ui/src/desktop/updater.ts": {
+      "before": "df4c71ec0f31dafc3d8cbe4f170fcf7d4daa871015a8b9a54310f743630ae08c",
+      "after": "b6c9b88b88f28f740554fedc6b17a1c553e86322ee5859ec41a1d9d1d22d962e"
+    }
+  },
+  "regressions": [
+    "native",
+    "updater",
+    "windows"
+  ]
+}

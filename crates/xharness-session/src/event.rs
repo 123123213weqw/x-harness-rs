@@ -9,6 +9,18 @@ use xharness_interaction::{QuestionAnswer, QuestionInvocation, QuestionResolutio
 /// Monotonic position in a session log.
 pub type Sequence = u64;
 
+/// Typed terminal result of one compaction attempt. Legacy logs omit this
+/// field and retain the original error-versus-committed-replacement contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionEndOutcome {
+    Applied,
+    NoBenefit,
+    NoEligibleSource,
+    Interrupted,
+    Failed,
+}
+
 /// Work stages, not percentages: splitting discovers more work dynamically.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -116,7 +128,8 @@ impl Revision {
 }
 
 /// Request routing and accounting fact. The full model-visible envelope is
-/// optional diagnostics and may be retained separately when capture is on.
+/// optional diagnostics. System/tool inspection is retained independently in
+/// a lightweight sidecar referenced by options.harnessSnapshot.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RequestHeader {
     pub provider: String,
@@ -150,6 +163,30 @@ impl RequestHeader {
             input: Vec::new(),
             options: BTreeMap::new(),
         }
+    }
+
+    /// A read-only Harness view, never the full request body. Legacy inline
+    /// system messages are supported without returning any user/tool messages.
+    pub fn harness_view(&self) -> Self {
+        let system = self.system.clone().or_else(|| {
+            let text = self
+                .input
+                .iter()
+                .filter(|m| m.role == crate::MessageRole::System)
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            (!text.is_empty()).then_some(text)
+        });
+        let mut view = self.metadata_only(
+            self.options
+                .get("auditSnapshot")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"kind":"harness_only"})),
+        );
+        view.system = system;
+        view.tools = self.tools.clone();
+        view
     }
 
     /// Preserve routing, accounting and prompt fingerprints without retaining
@@ -218,9 +255,21 @@ pub enum TurnEndReason {
     LimitReached,
     Failed {
         error: String,
+        /// Only the provider boundary may classify recovery; absent in legacy logs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_failure: Option<ProviderFailure>,
     },
     /// Used by recovery when a stored lifecycle ended without a closer.
     Interrupted,
+}
+
+/// Content-free provider classification, not inferred from human-readable error text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderFailure {
+    pub retryable: bool,
+    pub http_status: Option<u16>,
+    pub retry_after_ms: Option<u64>,
 }
 
 /// Classification carried beside one model-facing tool result.
@@ -641,6 +690,10 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    #[serde(rename = "job/continuation")]
+    JobContinuation {
+        record: Box<crate::JobContinuationRecord>,
+    },
     /// Versioned durable Goal controller state, never model conversation text.
     #[serde(rename = "goal/execution")]
     GoalExecution {
@@ -953,8 +1006,9 @@ pub enum EventData {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         usage: Option<Value>,
     },
-    /// Closing marker. `error=None` commits the preceding summary + surface
-    /// replacement; an error closes a failed attempt without changing surface.
+    /// Closing marker. Explicit skipped outcomes close without a summary or
+    /// replacement. Legacy events without `outcome` retain the original rule:
+    /// `error=None` commits summary + replacement; an error is surface-neutral.
     #[serde(rename = "compaction/end")]
     CompactionEnd {
         #[serde(rename = "compactionId")]
@@ -969,6 +1023,11 @@ pub enum EventData {
         turn: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outcome: Option<CompactionEndOutcome>,
+        /// Constant-size signature for deterministic no-benefit retry suppression.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
     },
     /// Deterministic model-free replacement of oversized tool observations.
     #[serde(rename = "compaction/prune")]
@@ -1003,6 +1062,13 @@ pub enum EventData {
         turn: u32,
         step: u32,
         chunk: AssistantChunk,
+    },
+    /// Observed before retry-prefix buffering; not conversation content.
+    #[serde(rename = "model/reception")]
+    ModelReception {
+        turn: u32,
+        step: u32,
+        reception: crate::ModelReception,
     },
     #[serde(rename = "assistant/message")]
     AssistantMessage {
@@ -1078,5 +1144,32 @@ pub struct LoggedEvent {
 impl LoggedEvent {
     pub const fn data(&self) -> &EventData {
         self.event.data()
+    }
+}
+
+#[cfg(test)]
+mod harness_view_tests {
+    use super::*;
+    #[test]
+    fn surface_view_strips_body_and_supports_legacy_system_without_overriding_explicit_empty() {
+        let mut header = RequestHeader::new("test", "model");
+        header.input = vec![
+            Message::system("legacy system"),
+            Message::user("PRIVATE BODY"),
+        ];
+        header.tools = vec![serde_json::json!({"name":"read"})];
+        header.options.insert(
+            "context".into(),
+            serde_json::json!({"edits":[{"message":"PRIVATE EDIT"}]}),
+        );
+        let surface = header.harness_view();
+        assert_eq!(surface.system.as_deref(), Some("legacy system"));
+        assert_eq!(surface.tools, header.tools);
+        assert!(surface.input.is_empty());
+        let encoded = serde_json::to_string(&surface).unwrap();
+        assert!(!encoded.contains("PRIVATE BODY") && !encoded.contains("PRIVATE EDIT"));
+        header.system = Some(String::new());
+        assert_eq!(header.harness_view().system, Some(String::new()));
+        assert_eq!(header.input.len(), 2, "the actual request is not mutated");
     }
 }

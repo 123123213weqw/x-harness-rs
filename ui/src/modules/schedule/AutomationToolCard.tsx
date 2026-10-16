@@ -3,8 +3,10 @@ import type {ToolCallBlock} from '../client-runtime/index'
 import type {Translation} from '../shared/runtime-types'
 import {automationCardModel, latestRunState, refreshDelay, type AutomationView} from './automation-card-model'
 import type {AutomationCardClient} from './automation-card-client'
+import type {JobClient} from '../jobs/client'
+import {JobRunPanel} from '../jobs/RunPanel'
 
-interface Props {sessionId: string; block: ToolCallBlock; t: Translation; useProjection(name: string): unknown; inspect?: (() => void) | undefined; client: AutomationCardClient}
+interface Props {sessionId: string; block: ToolCallBlock; t: Translation; useProjection(name: string): unknown; inspect?: (() => void) | undefined; client: AutomationCardClient;jobs?:JobClient|undefined}
 function Clock() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> }
 function SavedAutomation({id, initial, sessionId, client, projection, t}: {id: string; initial: AutomationView | undefined; sessionId: string; client: AutomationCardClient; projection: unknown; t: Translation}) {
   const [view, setView] = React.useState<AutomationView>(), [loadError, setLoadError] = React.useState('')
@@ -64,12 +66,12 @@ function SavedAutomation({id, initial, sessionId, client, projection, t}: {id: s
     {actionError && <div className="xhauto-card-error" role="alert">{actionError}</div>}
   </div>
 }
-export function AutomationToolCard({block, sessionId, useProjection, client, inspect, t}: Props) {
+export function AutomationToolCard({block, sessionId, useProjection, client, inspect, t, jobs}: Props) {
   const model = React.useMemo(() => automationCardModel(block), [block])
   const projection = useProjection('schedules')
   return <section className="xhauto-card" aria-label={t('card.title')}>
     <header><Clock/><span>{t(`card.action.${model.action}`)}</span><span className="xhauto-card-muted">{!model.settled ? t('card.working') : model.error ? t('card.failed') : model.recognized ? t('card.receipt') : t('card.unknownResult')}</span></header>
-    {model.error ? <div className="xhauto-card-error" role="alert">{model.error}</div> : model.ids.slice(0,20).map(id => <SavedAutomation key={`${sessionId}:${id}`} id={id} initial={model.values.find(v => v.id === id)} sessionId={sessionId} client={client} projection={projection} t={t}/>)}
+    {model.error ? <div className="xhauto-card-error" role="alert">{model.error}</div> : model.ids.slice(0,20).map(id => jobs ? <JobRunPanel key={`${sessionId}:${id}`} client={jobs} sessionId={sessionId} planId={id}/> : <SavedAutomation key={`${sessionId}:${id}`} id={id} initial={model.values.find(v => v.id === id)} sessionId={sessionId} client={client} projection={projection} t={t}/>)}
     {model.action === 'list' && model.settled && model.recognized && !model.error && model.ids.length === 0 && <div className="xhauto-card-muted">{t('card.empty')}</div>}
     {model.ids.length > 20 && <div className="xhauto-card-muted">{t('card.more', {count: model.ids.length - 20})}</div>}
     <details><summary>{t('card.details')}</summary><pre>{model.argsRaw}{model.raw ? `\n\n${model.raw}` : ''}</pre>{inspect && <button onClick={inspect}>{t('card.inspect')}</button>}</details>

@@ -21,7 +21,10 @@ impl DurableQuestionHub {
         let _ = self.host.set(host);
     }
 
-    async fn snapshot(&self, id: &str) -> Result<xharness_session::Session, QuestionHubError> {
+    pub(super) async fn snapshot(
+        &self,
+        id: &str,
+    ) -> Result<xharness_session::Session, QuestionHubError> {
         self.store
             .as_ref()
             .ok_or_else(|| QuestionHubError::Persistence("question store unavailable".into()))?
@@ -113,11 +116,7 @@ impl DurableQuestionHub {
         };
         let outcome = match question.terminal {
             QuestionTerminalState::Pending => return Ok(()),
-            QuestionTerminalState::Resolved(answer) => {
-                self.persist_agent_markdown(&pending.workspace, &pending.invocation, &answer)
-                    .await?;
-                json!({"answer":answer})
-            }
+            QuestionTerminalState::Resolved(answer) => json!({"answer":answer.into_context_only()}),
             QuestionTerminalState::Cancelled(reason) => {
                 json!({"cancelled":true,"reason":reason,"notice":"The user dismissed the question without granting permission. Do not assume an answer."})
             }
@@ -147,6 +146,7 @@ impl DurableQuestionHub {
 
     /// Reuse the Host's existing startup scan, never reread every conversation.
     pub(crate) async fn restore_snapshot(&self, session: &xharness_session::Session) {
+        let delegated = crate::delegation::restored_delegation(session).is_some();
         if !session
             .events()
             .iter()
@@ -156,6 +156,11 @@ impl DurableQuestionHub {
         }
         let header = session.header();
         for q in xharness_session::all_user_questions(session.events()) {
+            // Preserve delivery of human answers already accepted before the
+            // upgrade. Obsolete child waits/cancellations cannot open a dialog.
+            if delegated && !matches!(q.terminal, QuestionTerminalState::Resolved(_)) {
+                continue;
+            }
             if !xharness_session::question_is_deferred(session.events(), &q.invocation.interaction_id)
                 || session.events().iter().any(|e| matches!(e.data(), EventData::QuestionAnswerDelivered { interaction_id } if interaction_id == &q.invocation.interaction_id)) {continue}
             let mut all = self.pending.write().await;
@@ -163,8 +168,8 @@ impl DurableQuestionHub {
                 .entry(q.invocation.interaction_id.clone())
                 .or_insert_with(|| {
                     Arc::new(PendingQuestion {
+                        scoped_nonce: std::sync::OnceLock::new(),
                         session_id: header.id.clone(),
-                        workspace: header.cwd.clone().unwrap_or_default(),
                         invocation: q.invocation,
                         settlement: watch::channel(None).0,
                         gate: tokio::sync::Mutex::new(()),

@@ -1,0 +1,58 @@
+name: Windows Browser Bounds Lab
+on:
+  push:
+    branches: ['fix/windows-browser-bounds-20261012']
+    paths:
+      - 'apps/desktop/src-tauri/**'
+      - '.github/workflows/windows-browser-bounds-lab.yml'
+permissions:
+  contents: read
+concurrency:
+  group: browser-bounds-lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate:
+    runs-on: windows-2025
+    timeout-minutes: 35
+    env:
+      # A probe has no Host or sidecars. This only removes bundle metadata for
+      # this non-packaging build; no placeholder product executables are used.
+      TAURI_CONFIG: '{"bundle":{"externalBin":[]}}'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - name: Compile exact production browser command fixture (no packaging)
+        shell: pwsh
+        run: |
+          cargo build --locked --target x86_64-pc-windows-msvc --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          if ($LASTEXITCODE) { throw 'Native bounds candidate build failed' }
+          New-Item -ItemType Directory -Force dist/browser-bounds | Out-Null
+          Copy-Item apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe dist/browser-bounds/
+          git rev-parse HEAD | Set-Content -Encoding ascii dist/browser-bounds/source-sha.txt
+          (Get-FileHash dist/browser-bounds/browser-inspect-probe.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii dist/browser-bounds/executable-sha256.txt
+      - name: Compile old production geometry with the identical new oracle
+        shell: pwsh
+        run: |
+          git fetch --depth=1 origin e0a35e4c4b3af36ed0e1b0ef6f348800c298a872
+          if ($LASTEXITCODE) { throw 'Baseline source unavailable' }
+          git restore --source=e0a35e4c4b3af36ed0e1b0ef6f348800c298a872 --worktree -- apps/desktop/src-tauri/src/browser.rs
+          if ($LASTEXITCODE) { throw 'Baseline geometry unavailable' }
+          cargo build --locked --target x86_64-pc-windows-msvc --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
+          if ($LASTEXITCODE) { throw 'Baseline probe build failed' }
+          Copy-Item apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/browser-inspect-probe.exe dist/browser-bounds/browser-bounds-baseline.exe
+          (Get-FileHash dist/browser-bounds/browser-bounds-baseline.exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Encoding ascii dist/browser-bounds/baseline-sha256.txt
+          'e0a35e4c4b3af36ed0e1b0ef6f348800c298a872:apps/desktop/src-tauri/src/browser.rs; all other sources use source-sha.txt' | Set-Content -Encoding ascii dist/browser-bounds/baseline-source.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-browser-bounds-candidate
+          path: dist/browser-bounds/
+          if-no-files-found: error
+          retention-days: 7

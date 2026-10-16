@@ -1,0 +1,10 @@
+{
+  "verified_media_count": 12,
+  "checks": [
+    "receipt sha256",
+    "bytes",
+    "PNG decode",
+    "dimensions"
+  ],
+  "frame_age_diagnostic_input_count": 11
+}

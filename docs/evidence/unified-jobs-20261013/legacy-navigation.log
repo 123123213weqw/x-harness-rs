@@ -1,0 +1,16 @@
+✔ automation: hydrated empty and unknown catalog are distinct (1.637584ms)
+✔ automation: exact schedule projection, sorting and per-chat identity (0.337041ms)
+✔ automation: malformed rows cannot become fabricated records or falsely empty data (0.262459ms)
+✔ automation: malformed repeat intervals remain visible but explicitly incomplete (0.277166ms)
+✔ automation: additional provider fields ignored, missing title falls back without reading bodies (0.242ms)
+✔ automation: projection codec has no transport or request id authority (0.202ms)
+✔ automation: approved clock geometry is exact and legacy Tasks footer registration removed (0.519709ms)
+✔ automation: explicit mode, chat target and pause survive the catalogue projection (0.349583ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7.183708

@@ -52,6 +52,8 @@ pub struct Shell {
 pub enum ShellError {
     #[error("configured shell {0:?} is unavailable or unsupported; configure XHARNESS_SHELL with an executable bash, zsh, sh, pwsh, powershell or cmd path")]
     InvalidConfiguration(OsString),
+    #[error("{0}")]
+    InvalidBundle(String),
     #[error("no supported shell is available; install a shell or configure XHARNESS_SHELL")]
     Unavailable,
 }
@@ -138,6 +140,7 @@ impl Shell {
 #[derive(Clone, Debug)]
 pub struct ShellSearch {
     pub configured: Option<OsString>,
+    pub bundled_root: Option<PathBuf>,
     pub user_shell: Option<OsString>,
     pub paths: Vec<PathBuf>,
     pub windows: bool,
@@ -149,6 +152,19 @@ impl ShellSearch {
     pub fn from_environment() -> Self {
         Self {
             configured: std::env::var_os("XHARNESS_SHELL"),
+            bundled_root: if cfg!(windows) {
+                std::env::var_os(crate::powershell::ROOT_ENV)
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        let root = std::env::current_exe()
+                            .ok()?
+                            .parent()?
+                            .join("runtime/powershell");
+                        root.exists().then_some(root)
+                    })
+            } else {
+                None
+            },
             user_shell: std::env::var_os("SHELL"),
             paths: std::env::split_paths(&executable_search_path()).collect(),
             windows: cfg!(windows),
@@ -188,6 +204,22 @@ impl ShellSearch {
         if let Some(configured) = &self.configured {
             return find(configured)
                 .ok_or_else(|| ShellError::InvalidConfiguration(configured.clone()));
+        }
+        // Desktop and portable distributions choose their versioned runtime
+        // before SHELL/PATH. A damaged bundle must not silently become PS5/CMD.
+        if self.windows {
+            if let Some(root) = &self.bundled_root {
+                let program =
+                    crate::powershell::program(root).map_err(ShellError::InvalidBundle)?;
+                return available(&program)
+                    .then_some(Shell {
+                        kind: ShellKind::PowerShellCore,
+                        program,
+                    })
+                    .ok_or_else(|| {
+                        ShellError::InvalidBundle("bundled pwsh is not executable".into())
+                    });
+            }
         }
         if let Some(user) = &self.user_shell {
             if let Some(shell) = find(user) {
@@ -257,6 +289,24 @@ pub fn executable_search_path() -> OsString {
             push(parent.to_owned());
         }
     }
+    #[cfg(windows)]
+    {
+        let root = std::env::var_os(crate::powershell::ROOT_ENV)
+            .map(PathBuf::from)
+            .or_else(|| {
+                Some(
+                    std::env::current_exe()
+                        .ok()?
+                        .parent()?
+                        .join("runtime/powershell"),
+                )
+            });
+        if let Some(program) = root.and_then(|root| crate::powershell::program(&root).ok()) {
+            if let Some(parent) = program.parent() {
+                push(parent.to_owned());
+            }
+        }
+    }
     if let Some(inherited) = std::env::var_os("PATH") {
         for path in std::env::split_paths(&inherited) {
             push(path);
@@ -300,12 +350,37 @@ mod tests {
     fn search() -> ShellSearch {
         ShellSearch {
             configured: None,
+            bundled_root: None,
             user_shell: None,
             paths: vec![root().join("helpers")],
             windows: true,
             system_root: root().join("windows"),
             program_files: root().join("programs"),
         }
+    }
+    #[test]
+    fn bundled_runtime_wins_over_path_and_user_shell_but_not_explicit_override() {
+        let fixture = crate::powershell::tests::fixture();
+        let mut search = search();
+        search.bundled_root = Some(fixture.0.clone());
+        search.user_shell = Some("powershell.exe".into());
+        let shell = search.resolve(|_| true).unwrap();
+        assert_eq!(shell.kind, ShellKind::PowerShellCore);
+        assert!(shell.program.starts_with(fixture.0.canonicalize().unwrap()));
+        search.configured = Some("cmd.exe".into());
+        assert_eq!(search.resolve(|_| true).unwrap().kind, ShellKind::Cmd);
+        search.configured = None;
+        std::fs::remove_file(
+            fixture
+                .0
+                .join(crate::powershell::version())
+                .join("pwsh.exe"),
+        )
+        .unwrap();
+        assert!(matches!(
+            search.resolve(|_| true),
+            Err(ShellError::InvalidBundle(_))
+        ));
     }
     #[test]
     fn relative_search_roots_pin_shell_to_discovery_directory() {

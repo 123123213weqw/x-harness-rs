@@ -35,6 +35,34 @@ def assert_step_guarded(test: unittest.TestCase, body: str, step: str) -> None:
 
 
 class CiTieringContract(unittest.TestCase):
+    def test_stabilization_freeze_is_unconditional_and_does_not_skip_windows(self) -> None:
+        source = workflow_source()
+        body = job(source, "architecture-freeze")
+        self.assertNotIn("\n    if:", body)
+        self.assertIn("fetch-depth: 0", body)
+        self.assertIn("github.event.pull_request.base.sha || github.event.before", body)
+        self.assertIn('check-architecture.py --base "$base"', body)
+        self.assertIn("test_architecture_freeze.py", body)
+        self.assertIn("set -euo pipefail", body)
+        self.assertNotIn("continue-on-error", body)
+        windows = job(source, "rust-windows")
+        self.assertNotIn("\n    if:", windows)
+        self.assertIn("runs-on: windows-2025", windows)
+        self.assertIn("test_architecture_freeze.py", windows)
+        self.assertIn("test-bundled-powershell.ps1", windows)
+        self.assertIn("cargo test --locked --workspace --all-targets", windows)
+        self.assertIn("cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets\n", windows)
+        self.assertIn("test-desktop-updater.mjs", windows)
+        self.assertNotIn("continue-on-error", windows)
+        for name in ("Stabilization policy mutations on native Windows (no Rust build)",
+                     "Stage and execute pinned portable PowerShell without system PATH",
+                     "Run workspace tests and export native wire fixtures once",
+                     "Check native Tauri desktop shell"):
+            step = re.search(rf"(?ms)^      - name: {re.escape(name)}\n(.*?)(?=^      - |\Z)", windows)
+            self.assertIsNotNone(step)
+            header = step.group(1).split("run:", 1)[0]
+            self.assertNotIn("if:", header, f"Windows regression may not be conditional: {name}")
+
     def test_superseded_runs_are_cancelled(self) -> None:
         source = workflow_source()
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}", source)
@@ -53,6 +81,29 @@ class CiTieringContract(unittest.TestCase):
                 script_calls = list(re.finditer(r"(?m)^\s+(?:- run: )?node scripts/", body))
                 for call in script_calls:
                     self.assertLess(install, call.start(), "typed contract cannot use an absent toolchain")
+
+    def test_linux_native_sandbox_is_installed_and_probed_before_tests(self) -> None:
+        body = job(workflow_source(), "rust-linux")
+        self.assertIn("runs-on: ubuntu-22.04", body)
+        self.assertIn("prefix-key: native-ubuntu-22.04-v1", body)
+        install = body.index("sudo apt-get install -y ripgrep bubblewrap")
+        probe = body.index("bwrap --unshare-user --unshare-pid --unshare-net")
+        tests = body.index("cargo test --locked --workspace --all-targets")
+        self.assertLess(install, probe)
+        self.assertLess(probe, tests)
+        self.assertNotIn("/bin/true ||", body)
+
+    def test_mobile_contracts_run_in_the_required_ui_build(self) -> None:
+        body = job(workflow_source(), "ui-build")
+        block = (
+            "      - name: Mobile UI and isolated deployment contracts (no live account or service)\n"
+            "        run: |\n"
+            "          node scripts/test-mobile-ui-contract.mjs\n"
+            "          python3 -B scripts/test_deploy_mobile_experiment.py\n"
+        )
+        self.assertEqual(body.count(block), 1)
+        self.assertNotIn("continue-on-error:", body)
+        self.assertLess(body.index("test-mobile-ui-contract.mjs"), body.index("Seal same-run UI artifact"))
 
     def test_ui_required_check_aggregates_all_shards_fail_closed(self) -> None:
         source = workflow_source()

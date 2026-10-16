@@ -47,7 +47,7 @@ export function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, fol
   })
   if (currentTurn === undefined || toggleTurnProcess === undefined) return null
   if (tail === undefined && (currentTurn.status !== 'open' || foldedCount === 0)) return null
-  return <TranscriptWindowRow estimatedHeight={32} className={css.flowItem} data-chat-anchor-key={`turn-process:${currentTurn.turn}`}>
+  return <TranscriptWindowRow estimatedHeight={32} className={css.flowItem} data-chat-anchor-key={`turn-process:${currentTurn.turn}`} data-chat-anchor-seq={currentTurn.start?.seq ?? node?.anchorSeq}>
     {tail === undefined ? <AdaptiveToolSummary turn={currentTurn.turn} count={foldedCount} t={t}
       expanded={expandedTurns?.has(currentTurn.turn) ?? false} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />
       : <TurnProcessSummary turn={currentTurn} data={tail} t={t}
@@ -113,6 +113,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       presentationState={presentationState.current}
       className={css.flowItem}
       data-chat-anchor-key={node.key}
+      data-chat-anchor-seq={node.anchorSeq}
       data-chat-flow-key={node.key}
       data-chat-flow-kind={node.kind}
       data-chat-auto-fold-turn={node.kind === 'tool-call' &&

@@ -18,9 +18,7 @@ use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::hosted::{HostedBackend, HostedExecution};
 use xharness_host_app::hosted_bootstrap::HostedGoalBootstrap;
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
-use xharness_host_app::{
-    configured_web_runtime, ManagedAgentMarkdownSink, NativePluginBackend, NativeToolFactory,
-};
+use xharness_host_app::{configured_web_runtime, NativePluginBackend, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
@@ -29,8 +27,26 @@ use xharness_session_jsonl::{JsonlSessionStore, RequestAuditMode};
 use xharness_terminal::TerminalRegistry;
 use xharness_web_terminal::terminal_routes;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    if env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--computer-worker")
+    {
+        // Private, bounded stdin/stdout protocol. Runs before config, leases,
+        // providers and the server. This process never owns a Host workspace.
+        xharness_computer_windows::run_worker()?;
+        return Ok(());
+    }
+    // Same runtime configuration as #[tokio::main], but isolated Computer
+    // workers never allocate the Host executor's thread pool.
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(host_main())
+}
+
+async fn host_main() -> Result<(), Box<dyn std::error::Error>> {
     // The desktop passes a unique private path for this process generation.
     // Only a closed failure code is written: never stderr, paths or secrets.
     let receipt_path = env::var_os("XHARNESS_STARTUP_FAILURE_FILE").map(PathBuf::from);
@@ -192,6 +208,7 @@ async fn run(
         }
     };
     let mut config = HostConfig::new(&workspace);
+    config.memory_dir = Some(args.state_dir.join("memory"));
     config.auto_titles = true;
     config.attachment_store = attachments.clone();
     config.provider_id = deployment.default_route.provider.clone();
@@ -199,6 +216,7 @@ async fn run(
     config.model_id = deployment.default_route.model.clone();
     config.reasoning_effort = deployment.default_route.reasoning_effort.clone();
     config.token_guard = deployment.default_token_guard.clone();
+    config.selected_context_window_tokens = deployment.default_route.context_window_tokens;
     let sessions_dir = args.state_dir.join("sessions");
     let leases_dir = args.state_dir.join("leases");
     let control_dir = args.state_dir.join("control");
@@ -213,7 +231,7 @@ async fn run(
             .with_request_audit_mode(audit_mode)
             .for_runtime(),
     );
-    let questions = DurableQuestionHub::new(store.clone(), ManagedAgentMarkdownSink::new());
+    let questions = DurableQuestionHub::new(store.clone());
     let schedules = ScheduleManager::new(Arc::clone(&store));
     let web = configured_web_runtime(env::var("EXA_API_KEY").ok(), debug.clone())?;
     let tools = NativeToolFactory::new_with_questions_and_schedules(
@@ -282,6 +300,7 @@ async fn run(
         host.install_plugins(Arc::new(NativePluginBackend::new(plugins, mcp)))?;
     }
     tools.bind_agent_host(&host)?;
+    let job_continuations = tools.enable_job_continuations(store.clone(), &host)?;
     *failure_code = Some(StartupFailureCode::ProviderConfiguration);
     let model_settings_base = match &args.providers_file {
         Some(path) => config::settings_from_file(path)?,
@@ -350,24 +369,44 @@ async fn run(
         Some(execution) => HostedBackend::new(host.clone(), execution.clone()),
         None => host.clone(),
     };
+    let remote_admin = if args.remote_control && hosted.is_none() && args.bind.ip().is_loopback() {
+        args.desktop_token
+            .as_deref()
+            .map(xharness_host_app::remote_admin::RemoteAdminState::new)
+            .transpose()?
+    } else {
+        None
+    };
+    let mut extensions = terminal_routes(xharness_web_terminal::TerminalRouterState::new(
+        if hosted.is_none() {
+            Some(terminal_registry.clone())
+        } else {
+            None
+        },
+    ));
+    if let Some(admin) = &remote_admin {
+        extensions = extensions.merge(xharness_host_app::remote_admin::remote_admin_routes(
+            admin.clone(),
+        ));
+    } else {
+        extensions =
+            extensions.merge(xharness_host_app::remote_admin::remote_admin_disabled_routes());
+    }
     let router = web_router_full(
-        backend,
+        backend.clone(),
         args.static_dir,
         debug.clone(),
         args.desktop_token.clone(),
         readiness.clone(),
-        terminal_routes(xharness_web_terminal::TerminalRouterState::new(
-            if hosted.is_none() {
-                Some(terminal_registry.clone())
-            } else {
-                None
-            },
-        )),
+        extensions,
     );
     *failure_code = Some(StartupFailureCode::NetworkBind);
     startup_progress.stage(StartupStage::NetworkBind);
     let listener = TcpListener::bind(args.bind).await?;
     let local_addr = listener.local_addr()?;
+    if let Some(admin) = &remote_admin {
+        admin.bind_address(local_addr)?;
+    }
     *failure_code = Some(StartupFailureCode::Readiness);
     publish_ready_file(args.ready_file.as_deref(), local_addr).await?;
     let (server_stop_tx, server_stop_rx) = tokio::sync::oneshot::channel::<()>();
@@ -437,8 +476,23 @@ async fn run(
         }
     }
     host.start_delegation_listener();
+    job_continuations.start();
     if let Some(execution) = &hosted {
         execution.record_ready()?;
+    }
+    // Opt-in remote admission starts only after authoritative startup basics
+    // are ready. Hosted Prepared/cloud workloads do not silently enable this
+    // local controller surface or bypass their existing execution permit.
+    let remote_control = if args.remote_control && hosted.is_none() {
+        Some(xharness_host_app::remote_control::RemoteControl::start(
+            &args.state_dir,
+            backend,
+        )?)
+    } else {
+        None
+    };
+    if let (Some(admin), Some(service)) = (&remote_admin, &remote_control) {
+        admin.install(service)?;
     }
     readiness.mark_ready();
     startup_progress.stage(StartupStage::Ready);
@@ -509,6 +563,9 @@ async fn run(
             }
             tokio::task::yield_now().await;
         }
+        if let Err(error) = job_continuations.recover().await {
+            eprintln!("xharness Job continuation recovery failed: {error}");
+        }
         hydration_host.backfill_startup_metrics().await;
     });
     let mut signal_error = None;
@@ -528,7 +585,17 @@ async fn run(
     let _ = server_stop_tx.send(());
     hydration_task.abort();
     let _ = (&mut hydration_task).await;
+    if let Some(admin) = &remote_admin {
+        admin.clear();
+    }
+    let remote_shutdown = match remote_control {
+        Some(remote) => remote.stop().await.err(),
+        None => None,
+    };
     let mut shutdown = drain_host(&host, &runtime, &terminal_registry).await;
+    if let Some(error) = remote_shutdown {
+        shutdown.cleanup_errors.push(error);
+    }
     // Upgraded WebSockets are not terminated by Hyper's graceful shutdown.
     // After backend quiescence, bound transport drain and then abort only the
     // carrier task; no Provider, Tool, Process or PTY remains owned by it.
@@ -698,6 +765,7 @@ struct Args {
     debug_trace: DebugTraceMode,
     debug_dir: PathBuf,
     desktop_token: Option<String>,
+    remote_control: bool,
     shutdown_file: Option<PathBuf>,
     ready_file: Option<PathBuf>,
     startup_progress_file: Option<PathBuf>,
@@ -745,6 +813,8 @@ impl Args {
             .map_err(|error| error.to_string())?;
         let mut debug_dir = env::var_os("XHARNESS_DEBUG_DIR").map(PathBuf::from);
         let mut desktop_token = env::var("XHARNESS_DESKTOP_TOKEN").ok();
+        let mut remote_control =
+            parse_remote_control(&env_value("XHARNESS_REMOTE_CONTROL", "disabled"))?;
         let mut shutdown_file = env::var_os("XHARNESS_SHUTDOWN_FILE").map(PathBuf::from);
         let mut ready_file = env::var_os("XHARNESS_READY_FILE").map(PathBuf::from);
         let mut startup_progress_file =
@@ -800,6 +870,7 @@ impl Args {
                 }
                 "--debug-dir" => debug_dir = Some(PathBuf::from(value)),
                 "--desktop-token" => desktop_token = Some(value),
+                "--remote-control" => remote_control = parse_remote_control(&value)?,
                 "--shutdown-file" => shutdown_file = Some(PathBuf::from(value)),
                 "--ready-file" => ready_file = Some(PathBuf::from(value)),
                 "--startup-progress-file" => startup_progress_file = Some(PathBuf::from(value)),
@@ -851,6 +922,7 @@ impl Args {
             debug_trace,
             debug_dir,
             desktop_token,
+            remote_control,
             shutdown_file,
             ready_file,
             startup_progress_file,
@@ -1031,6 +1103,14 @@ fn diagnostic_base_url(value: &str) -> String {
         &without_query[..authority_start],
         &without_query[authority_start + at + 1..]
     )
+}
+
+fn parse_remote_control(value: &str) -> Result<bool, String> {
+    match value {
+        "enabled" => Ok(true),
+        "disabled" => Ok(false),
+        _ => Err("remote control must be enabled or disabled".into()),
+    }
 }
 
 #[cfg(test)]

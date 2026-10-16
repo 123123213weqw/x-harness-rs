@@ -171,6 +171,20 @@ pub fn has_unanswered_deferred_question(events: &[LoggedEvent]) -> bool {
     })
 }
 
+/// Pending deferred questions only block Goal continuation when explicitly required.
+/// Their answer/cancellation delivery and tool permissions remain unchanged.
+pub fn has_unanswered_blocking_deferred_question(events: &[LoggedEvent]) -> bool {
+    all_user_questions(events).iter().any(|q| {
+        matches!(q.terminal, QuestionTerminalState::Pending)
+            && question_is_deferred(events, &q.invocation.interaction_id)
+            && q.invocation
+                .request
+                .questions
+                .iter()
+                .any(|question| question.blocks_goal)
+    })
+}
+
 pub fn pending_user_questions(events: &[LoggedEvent]) -> Vec<PendingUserQuestion> {
     all_user_questions(events)
         .into_iter()
@@ -390,6 +404,8 @@ pub fn interrupted_compaction_recovery(events: &[LoggedEvent]) -> Vec<SessionEve
                     source_command_id: source_command_id.clone(),
                     turn: *turn,
                     error: Some(COMPACTION_INTERRUPTED_ERROR.to_owned()),
+                    outcome: Some(crate::CompactionEndOutcome::Interrupted),
+                    fingerprint: None,
                 }
                 .into(),
             ),

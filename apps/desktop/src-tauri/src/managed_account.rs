@@ -28,8 +28,10 @@ fn main_only(window: &WebviewWindow) -> Result<(), String> {
         Err("account_access_denied".into())
     }
 }
+// Dedicated account edge; the download site on 443 is not an account backend.
+const DEFAULT_ACCOUNT_ORIGIN: &str = "https://engine.xxdevs.com:8443";
 fn origin() -> Result<Url, String> {
-    let raw = option_env!("XHARNESS_ACCOUNT_ORIGIN").unwrap_or("https://engine.xxdevs.com");
+    let raw = option_env!("XHARNESS_ACCOUNT_ORIGIN").unwrap_or(DEFAULT_ACCOUNT_ORIGIN);
     let u = Url::parse(raw).map_err(|_| "account_origin_invalid")?;
     if u.scheme() != "https"
         || u.host_str().is_none()
@@ -350,6 +352,7 @@ mod tests {
     use super::*;
     #[test]
     fn callback_is_bound_to_a_live_initiated_flow() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let expected = secret().unwrap();
         let uri = format!(
             "{}?code={}&state={}",
@@ -359,7 +362,7 @@ mod tests {
         );
         let mut flow = Flow {
             client: reqwest::Client::new(),
-            origin: Url::parse("https://engine.xxdevs.com").unwrap(),
+            origin: Url::parse(DEFAULT_ACCOUNT_ORIGIN).unwrap(),
             device: secret().unwrap(),
             verifier: secret().unwrap(),
             next: Instant::now(),
@@ -384,11 +387,13 @@ mod tests {
     }
     #[test]
     fn rejects_credentials_pointing_at_another_origin() {
-        let u = Url::parse("https://engine.xxdevs.com").unwrap();
+        let u = Url::parse(DEFAULT_ACCOUNT_ORIGIN).unwrap();
         let v = json!({"accessToken":"a".repeat(43),"baseURL":"https://evil.invalid/api/inference/v1","models":[{"id":"m","contextWindow":1000,"maxTokens":100}]});
         assert!(validate_access(&v, &u).is_err());
         let mut good = v;
         good["baseURL"] = json!("https://engine.xxdevs.com/api/inference/v1");
+        assert!(validate_access(&good, &u).is_err());
+        good["baseURL"] = json!("https://engine.xxdevs.com:8443/api/inference/v1");
         assert!(validate_access(&good, &u).is_ok());
         good["models"][0]["maxTokens"] = json!(1001);
         assert!(validate_access(&good, &u).is_err())

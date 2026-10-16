@@ -1,0 +1,103 @@
+{
+  "scope": "real native Host/ComputerTool/attachment/provider-wire/history, deterministic local SSE provider (no external model)",
+  "host_sha256": "f51ca3350a7a15073536b677eab56c22543a61b8f53d5172a9c2707284207a03",
+  "cases": [
+    {
+      "case": "screenshot_only",
+      "seconds": 0.232,
+      "image": {
+        "sha256": "6c4029648e3aa59586f47de1a07c1910baea5ec0fc3143dc5632e649378fceed",
+        "bytes": 23050,
+        "width": 128,
+        "height": 128
+      },
+      "accessibility_status": "not_requested",
+      "ax_error_code": null,
+      "nodes": 0,
+      "truncation_reasons": [],
+      "permissions": {
+        "accessibility": true,
+        "screen_recording": true
+      },
+      "history_text_reduced": false,
+      "passed": true
+    },
+    {
+      "case": "ax_auto",
+      "seconds": 8.452,
+      "image": {
+        "sha256": "6c4029648e3aa59586f47de1a07c1910baea5ec0fc3143dc5632e649378fceed",
+        "bytes": 23050,
+        "width": 128,
+        "height": 128
+      },
+      "accessibility_status": "partial",
+      "ax_error_code": null,
+      "nodes": 14,
+      "truncation_reasons": [
+        "depth_limit",
+        "time_budget"
+      ],
+      "permissions": {
+        "accessibility": true,
+        "screen_recording": true
+      },
+      "history_text_reduced": true,
+      "passed": true
+    },
+    {
+      "case": "ax_semantic",
+      "seconds": 8.26,
+      "image": {
+        "sha256": "6c4029648e3aa59586f47de1a07c1910baea5ec0fc3143dc5632e649378fceed",
+        "bytes": 23050,
+        "width": 128,
+        "height": 128
+      },
+      "accessibility_status": "partial",
+      "ax_error_code": null,
+      "nodes": 14,
+      "truncation_reasons": [
+        "depth_limit",
+        "time_budget"
+      ],
+      "permissions": {
+        "accessibility": true,
+        "screen_recording": true
+      },
+      "history_text_reduced": true,
+      "passed": true
+    }
+  ],
+  "passed": true,
+  "cross_session_denied": true,
+  "restart_history_and_image": true,
+  "restart_without_tool_replay": true,
+  "date": "2026-10-11",
+  "host_runtime_head": "1038b7719e492b5fce3d7624315ab8a20ee23771",
+  "artifact_source_sha": "c46a6283ee3b1da86f8fae4e55ee8e773961f355",
+  "artifact_merge_parents": [
+    "e0a35e4c4b3af36ed0e1b0ef6f348800c298a872",
+    "1038b7719e492b5fce3d7624315ab8a20ee23771"
+  ],
+  "artifact_run": "https://github.com/123123213weqw/x-harness-rs/actions/runs/38145111273",
+  "artifact_name": "gui-bench-host-macos-arm64",
+  "native_scope": "macOS 26.5 arm64, isolated downloaded native Host, existing TCC unchanged",
+  "probe_source_sha256": "450d432447b527960326a814aa68b32a8b54ae51f9563c07224a9973526ad1eb",
+  "external_model_requests": 0,
+  "external_model_cost": 0,
+  "remote_host_app_media_tests": {
+    "host": "WZU_Server",
+    "passed": 5,
+    "full_output_sha256": "abf14d3af5e2e6610da8036dffc141f89eb34584ab610325548f316a017ca530"
+  },
+  "scope_limits": [
+    "Local deterministic SSE provider validates actual image transport, not real LLM vision quality.",
+    "Only a real 64x64 logical-point crop was captured; no private image or AX text is retained in evidence.",
+    "AX time-budget partial observation plus screenshot passed natively; a single-call 12s hard timeout was not reproduced through the native Host. Portable Rust covers hard-timeout recovery and cancellation policy.",
+    "An offscreen slow AX fixture did not trigger the native watchdog (System Events reported visible:false); this attempt is not counted as passing hard-timeout acceptance.",
+    "Frontend visual image rendering was not accepted: the browser tool blocked the temporary loopback tab with ERR_BLOCKED_BY_CLIENT. Attachment RPC and provider-wire bytes passed.",
+    "The asynchronous session-title worker can append events after turn/end. The probe waits for stable final pre-shutdown history before testing restart equality.",
+    "No installed app was replaced/restarted and no TCC settings were changed."
+  ]
+}

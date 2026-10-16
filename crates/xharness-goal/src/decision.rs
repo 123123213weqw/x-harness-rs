@@ -78,7 +78,29 @@ pub fn decide(o: &GoalObservation) -> Result<GoalDecision, GoalContractError> {
         let pause = match t.outcome {
             GoalTurnOutcome::Completed => None,
             GoalTurnOutcome::Cancelled => Some(PauseReason::Cancelled),
-            GoalTurnOutcome::Failed => Some(PauseReason::ExecutionError),
+            GoalTurnOutcome::Failed => {
+                match o.retry.as_ref().filter(|r| {
+                    r.failed_turn == t.turn
+                        && r.attempts > 0
+                        && r.attempts <= MAX_GOAL_PROVIDER_RETRIES
+                }) {
+                    Some(retry) => {
+                        if o.rounds_started == g.snapshot.max_goal_rounds {
+                            return Ok(GoalDecision::Pause {
+                                fence,
+                                reason: PauseReason::RoundBudget,
+                            });
+                        }
+                        if o.now_ms < retry.retry_at_ms {
+                            return Ok(GoalDecision::Wait {
+                                reason: WaitReason::NetworkBackoff,
+                            });
+                        }
+                        None
+                    }
+                    None => Some(PauseReason::ExecutionError),
+                }
+            }
             GoalTurnOutcome::StepLimit => Some(PauseReason::StepLimit),
             GoalTurnOutcome::OutputLimit => Some(PauseReason::OutputLimit),
             GoalTurnOutcome::OutcomeUnknown => Some(PauseReason::OutcomeUnknown),
@@ -94,7 +116,9 @@ pub fn decide(o: &GoalObservation) -> Result<GoalDecision, GoalContractError> {
         }
         cause = ContinuationCause::AfterTurn { turn: t.turn };
         reason = ContinueReason::MissingReport;
-        if let Some(r) = &t.report {
+        if t.outcome == GoalTurnOutcome::Failed {
+            reason = ContinueReason::ProviderRecovery;
+        } else if let Some(r) = &t.report {
             if r.goal_id != g.snapshot.id
                 || r.definition_revision != g.definition_revision
                 || r.turn != t.turn

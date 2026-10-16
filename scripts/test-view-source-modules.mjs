@@ -144,13 +144,14 @@ for (const name of modules) {
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
     }
     if (name === 'settings-general') {
-      // Reviewed account-menu addition; all pre-existing copy remains frozen.
+      // Reviewed account-menu addition minus its redundant visual caption.
+      // Accessible trigger/menu copy and all other dictionary entries remain frozen.
       Object.assign(namespaces[0].dictionaries.zh, {
-        'account.trigger':'账号与设置','account.name':'XHarness','account.caption':'账号与设置',
+        'account.trigger':'账号与设置','account.name':'XHarness',
         'account.local':'本机工作区','account.menu':'账号与额度','account.profile':'使用档案',
       })
       Object.assign(namespaces[0].dictionaries.en, {
-        'account.trigger':'Account & settings','account.name':'XHarness','account.caption':'Account & settings',
+        'account.trigger':'Account & settings','account.name':'XHarness',
         'account.local':'Local workspace','account.menu':'Account & allowance','account.profile':'Usage profile',
       })
     }
@@ -159,6 +160,7 @@ for (const name of modules) {
     if (name === 'layout') Object.assign(expected[0].children, {
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
+      'work.center.executions': {kind: 'single', scope: 'root'},
       'review.center': {kind: 'single', scope: 'root'},
       'assistant.center': {kind: 'single', scope: 'root'},
     })

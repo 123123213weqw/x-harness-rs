@@ -1,0 +1,97 @@
+{
+  "artifact": "VERIFIED_OK",
+  "calls": [
+    {
+      "arguments": "{\"command\": \"ls -la /tmp/xh-job-prod-2338388-0\"}",
+      "name": "bash"
+    },
+    {
+      "arguments": "{\"command\": \"cd /tmp/xh-job-prod-2338388-0 && head -50 producer.py; echo \\\"=== consume ===\\\"; head -50 consume.py\"}",
+      "name": "bash"
+    },
+    {
+      "arguments": "{\"command\": \"python3 producer.py\", \"run_in_background\": true}",
+      "name": "bash"
+    },
+    {
+      "arguments": "{\"job_id\": \"bash-3202d43404384795bf855fcbe3d8b74b-1\", \"action\": \"defer\", \"continuation\": \"producer.py 后台任务已结束，检查其退出状态与输出；随后运行 python3 consume.py 验证产物，并报告验证结果。\"}",
+      "name": "job_output"
+    },
+    {
+      "arguments": "{\"job_id\": \"bash-3202d43404384795bf855fcbe3d8b74b-1\"}",
+      "name": "job_output"
+    },
+    {
+      "arguments": "{\"command\": \"python3 consume.py\"}",
+      "name": "bash"
+    }
+  ],
+  "elapsed_ms": 10113,
+  "endpoint": "https://api.deepseek.com",
+  "model": "deepseek-flash",
+  "model_requests": 8,
+  "passed": true,
+  "production_native_factory": true,
+  "receipt_count": 1,
+  "released_turn_ms": 5521,
+  "scripted_provider": false,
+  "thinking": "disabled",
+  "usage": [
+    {
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "input_tokens": 1754,
+      "output_tokens": 122,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 1792,
+      "cache_write_tokens": 0,
+      "input_tokens": 206,
+      "output_tokens": 125,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 2048,
+      "cache_write_tokens": 0,
+      "input_tokens": 161,
+      "output_tokens": 181,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 2304,
+      "cache_write_tokens": 0,
+      "input_tokens": 231,
+      "output_tokens": 200,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 2560,
+      "cache_write_tokens": 0,
+      "input_tokens": 203,
+      "output_tokens": 4,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 2688,
+      "cache_write_tokens": 0,
+      "input_tokens": 206,
+      "output_tokens": 70,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 2944,
+      "cache_write_tokens": 0,
+      "input_tokens": 266,
+      "output_tokens": 61,
+      "reasoning_tokens": 0
+    },
+    {
+      "cache_read_tokens": 3200,
+      "cache_write_tokens": 0,
+      "input_tokens": 200,
+      "output_tokens": 120,
+      "reasoning_tokens": 0
+    }
+  ]
+}

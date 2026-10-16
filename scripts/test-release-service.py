@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+"""Offline hosted/pipelined release regression. No signing secrets or Rust."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import call, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+def module(name, file):
+    spec = importlib.util.spec_from_file_location(name, ROOT / 'scripts' / file)
+    result = importlib.util.module_from_spec(spec); spec.loader.exec_module(result)
+    return result
+service = module('service', 'desktop-release-service.py')
+release = service.release
+build = module('build_service', 'desktop-release-build.py')
+old = module('old_tests', 'test-release-orchestrator.py')
+SHA, REPO = old.SHA, old.REPO
+
+
+class HostedPolicyTests(unittest.TestCase):
+    def environment(self, folder, scope='all-macos-preview', pin=''):
+        return dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
+            GITHUB_REF='refs/heads/master', GITHUB_EVENT_NAME='workflow_dispatch',
+            GITHUB_WORKFLOW_REF=REPO + '/.github/workflows/' + service.WORKFLOW + '@refs/heads/master',
+            GITHUB_REPOSITORY=REPO, GITHUB_SHA=SHA, EXPECTED_SOURCE_SHA=SHA,
+            RELEASE_VERSION='0.2.20', RELEASE_SCOPE=scope, PUBLISH_AFTER_ACCEPTANCE='true',
+            XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, XHARNESS_MACOS_PREVIEW_CERT_SHA1=pin,
+            RUNNER_TEMP=folder, GITHUB_RUN_ID='77', GITHUB_RUN_ATTEMPT='1',
+            GITHUB_STEP_SUMMARY=str(Path(folder) / 'summary'))
+
+    def test_missing_or_wrong_trusted_repository_stops_before_state_or_network(self):
+        for configured in (None, '', 'someone/fork', REPO.upper(), REPO + '\n'):
+            with self.subTest(configured=configured), tempfile.TemporaryDirectory() as folder:
+                env = self.environment(folder)
+                if configured is None:
+                    del env['XHARNESS_FRIENDS_RELEASE_REPOSITORY']
+                else:
+                    env['XHARNESS_FRIENDS_RELEASE_REPOSITORY'] = configured
+                with patch.dict(os.environ, env, clear=True), patch.object(service, 'restore') as restore, \
+                        patch.object(release, 'gh') as gh, patch('sys.stderr'):
+                    self.assertEqual(service.main(), 2)
+                restore.assert_not_called(); gh.assert_not_called()
+                self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_fixed_scope_requires_strict_pin_but_canonicalizes_case(self):
+        scope = release.contract.MACOS_SELFSIGNED_SCOPE
+        self.assertEqual(service.HostedGitHub(REPO, scope, REPO, 'C' * 40).publisher_pin(), 'c' * 40)
+        for pin in (None, '', 'c' * 39, 'c' * 41, 'g' * 40, ' c' + 'c' * 39, 'c' * 40 + '\n', True, 123):
+            with self.subTest(pin=pin), self.assertRaises((release.TaskError, ValueError)):
+                service.HostedGitHub(REPO, scope, REPO, pin)
+        for scope in ('windows-linux', 'all-macos-preview', 'all'):
+            client = service.HostedGitHub(REPO, scope, REPO, 'unrelated-invalid-pin')
+            self.assertTrue(client.opted_in())
+
+    def test_fixed_pin_failure_in_main_precedes_any_checkpoint_or_dispatch(self):
+        for pin in ('', 'not-a-fingerprint'):
+            with self.subTest(pin=pin), tempfile.TemporaryDirectory() as folder:
+                env = self.environment(folder, 'all-macos-selfsigned', pin)
+                with patch.dict(os.environ, env, clear=True), patch.object(service, 'restore') as restore, \
+                        patch.object(release, 'gh') as gh, patch('sys.stderr'):
+                    self.assertEqual(service.main(), 2)
+                restore.assert_not_called(); gh.assert_not_called()
+                self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_hosted_snapshot_reaches_pipeline_without_variables_api(self):
+        for scope, pin in [('all-macos-preview', ''), ('all-macos-selfsigned', 'C' * 40)]:
+            with self.subTest(scope=scope):
+                fake = old.FakeGitHub()
+                client = service.HostedGitHub(REPO, scope, REPO, pin)
+                for method in ('master', 'ci', 'releases', 'jobs', 'dispatch', 'find', 'run'):
+                    setattr(client, method, getattr(fake, method))
+                state = release.new_task(REPO, '0.2.20', scope, SHA,
+                    client.publisher_pin() if scope == 'all-macos-selfsigned' else None, pipeline=True)
+                task = release.ReleaseTask(client, state, lambda _: None)
+                with patch.object(client, 'get', side_effect=AssertionError('Variables API forbidden')) as get:
+                    self.assertEqual(task.advance(), 'build_running')
+                    get.assert_not_called()
+                self.assertEqual(fake.posts[0][1]['expected_sha'], SHA)
+                self.assertEqual(fake.posts[0][1]['release_scope'], scope)
+                self.assertTrue(fake.posts[0][1]['integrated_acceptance'])
+                if pin:
+                    self.assertEqual(state['macos_signing_fingerprint'], 'c' * 40)
+                    self.assertEqual(fake.posts[0][1]['expected_macos_signing_fingerprint'], 'c' * 40)
+
+    def test_main_uses_trusted_snapshot_after_context_guards(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = self.environment(folder, 'all-macos-selfsigned', 'C' * 40)
+            with patch.dict(os.environ, env, clear=True), patch.object(service, 'restore', return_value=None), \
+                    patch.object(service, 'Checkpoints') as checkpoints, \
+                    patch.object(service, 'advance_until_done', return_value='awaiting_confirmation') as advance, \
+                    patch.object(release, 'gh') as gh:
+                self.assertEqual(service.main(), 0)
+            task = advance.call_args.args[0]
+            self.assertIsInstance(task.client, service.HostedGitHub)
+            self.assertEqual(task.state['macos_signing_fingerprint'], 'c' * 40)
+            self.assertTrue(task.state['pipeline'])
+            self.assertTrue(advance.call_args.args[1])
+            checkpoints.return_value.assert_called_once()
+            gh.assert_not_called()
+        for changes in ({'GITHUB_WORKFLOW_REF': 'someone/fork/.github/workflows/evil.yml@master'},
+                        {'GITHUB_REF': 'refs/heads/topic'}, {'RUNNER_ENVIRONMENT': 'self-hosted'},
+                        {'GITHUB_EVENT_NAME': 'pull_request'}, {'GITHUB_SHA': 'b' * 40}):
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as folder:
+                with patch.dict(os.environ, {**self.environment(folder), **changes}, clear=True), \
+                        patch.object(service, 'HostedGitHub') as client, patch('sys.stderr'):
+                    self.assertEqual(service.main(), 2)
+                client.assert_not_called()
+
+    def test_restored_pin_cannot_rotate_before_persist_or_dispatch(self):
+        for restored_pin in (None, 'd' * 40):
+            with self.subTest(restored_pin=restored_pin), tempfile.TemporaryDirectory() as folder:
+                state = release.new_task(REPO, '0.2.20', 'all-macos-selfsigned', SHA, 'c' * 40, pipeline=True)
+                state['stages']['build'] = {'dispatch': 'unknown', 'token': 'old-intent'}
+                state['macos_signing_fingerprint'] = restored_pin
+                original = copy.deepcopy(state)
+                env = self.environment(folder, 'all-macos-selfsigned', 'C' * 40)
+                with patch.dict(os.environ, env, clear=True), patch.object(service, 'restore', return_value=state), \
+                        patch.object(service, 'Checkpoints') as checkpoints, \
+                        patch.object(service, 'advance_until_done') as advance, patch.object(release, 'gh') as gh, patch('sys.stderr'):
+                    self.assertEqual(service.main(), 2)
+                checkpoints.assert_not_called(); advance.assert_not_called(); gh.assert_not_called()
+                self.assertEqual(state, original)
+        client = service.HostedGitHub(REPO, 'all-macos-selfsigned', REPO, 'C' * 40)
+        state = release.new_task(REPO, '0.2.20', 'all-macos-selfsigned', SHA, 'c' * 40, pipeline=True)
+        service.validate_restored_policy(state, client, '0.2.20', 'all-macos-selfsigned', SHA)
+
+
+def plan(pipeline=True):
+    value = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.20', SHA, '123', '2', [], [old.ci()], 'all-macos-preview')
+    if pipeline: value['acceptance_mode'] = 'in-build'
+    return value
+
+
+class Pipeline(unittest.TestCase):
+    def test_build_failure_cannot_skip_native_tests_or_publish(self):
+        client = old.FakeGitHub()
+        state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pipeline=True)
+        task = release.ReleaseTask(client, state, lambda _: None)
+        task.advance()
+        self.assertTrue(client.posts[0][1]['integrated_acceptance'])
+        client.runs[10].update(status='completed', conclusion='failure')
+        with self.assertRaises(release.TaskError): task.advance()
+        self.assertEqual(len(client.posts), 1)
+
+    def test_one_build_contains_all_native_gates_then_one_promotion(self):
+        client = old.FakeGitHub()
+        state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pipeline=True)
+        task = release.ReleaseTask(client, state, lambda _: None)
+        task.advance()
+        client.runs[10].update(status='completed', conclusion='success')
+        self.assertEqual(task.advance(), 'awaiting_confirmation')
+        self.assertEqual(len(client.posts), 1)
+        task.advance(confirm='0.2.20')
+        self.assertEqual(client.posts[1][0], 'desktop-promote.yml')
+        self.assertEqual(client.posts[1][1]['release_run_id'], '10')
+        self.assertEqual(client.posts[1][1]['unix_acceptance_run_id'], '10')
+        self.assertEqual(client.posts[1][1]['windows_acceptance_run_id'], '10')
+        client.runs[11].update(status='completed', conclusion='success')
+        self.assertEqual(task.advance(), 'published')
+
+    def test_legacy_task_cannot_be_silently_changed_to_pipeline(self):
+        client = old.FakeGitHub()
+        state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA)
+        task = release.ReleaseTask(client, state, lambda _: None)
+        task.advance(); state['pipeline'] = True
+        with self.assertRaisesRegex(release.TaskError, 'inputs changed'): task.advance()
+        self.assertEqual(len(client.posts), 1)
+
+    def test_unknown_modes_are_rejected_and_receipts_bind_mode(self):
+        build._contract.validate_plan(plan())
+        self.assertEqual(build._contract.acceptance_workflow(plan(), 'darwin-aarch64'), '.github/workflows/desktop-release.yml')
+        self.assertEqual(build._contract.acceptance_workflow(plan(False), 'darwin-aarch64'), '.github/workflows/desktop-unix-update-acceptance.yml')
+        for bad in ['', None, False, 'rehearsal', 'skip']:
+            value = plan(); value['acceptance_mode'] = bad
+            with self.subTest(bad=bad), self.assertRaises(ValueError): build._contract.validate_plan(value)
+
+    def test_current_build_handoff_rejects_foreign_run_attempt_source_and_trigger(self):
+        p = plan()
+        env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', GITHUB_REPOSITORY=REPO,
+                   XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, GITHUB_SHA=SHA, GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2')
+        good = dict(id=123, path='.github/workflows/desktop-release.yml', head_repository={'full_name': REPO},
+                    head_sha=SHA, run_attempt=2, status='in_progress', conclusion=None, event='workflow_dispatch', head_branch='master')
+        with patch.dict(os.environ, env), patch.object(build, 'api', return_value=good):
+            self.assertEqual(build.current_build(p), good)
+        for change in [{'head_sha': 'b'*40}, {'run_attempt': 1}, {'status': 'completed'}, {'conclusion': 'failure'},
+                       {'event': 'pull_request'}, {'head_branch': 'dev'}, {'path': '.github/workflows/evil.yml'},
+                       {'head_repository': {'full_name': 'someone/fork'}}]:
+            with self.subTest(change=change), patch.dict(os.environ, env), patch.object(build, 'api', return_value={**good, **change}), self.assertRaises(ValueError):
+                build.current_build(p)
+        with patch.dict(os.environ, env), self.assertRaises(ValueError): build.current_build(plan(False))
+
+    def test_missing_failed_or_ambiguous_artifacts_never_form_a_candidate(self):
+        value = dict(id=123, run_attempt=2, run_started_at='2026-10-06T00:00:00Z')
+        a = dict(name='desktop-candidate', expired=False, created_at='2026-10-06T01:00:00Z', workflow_run={'head_sha': SHA})
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for rows, jobs in [([a, a], []), ([{**a, 'expired': True}], []), ([{**a, 'workflow_run': {'head_sha':'b'*40}}], []),
+                               ([], [{'status':'completed','conclusion':'failure'}])]:
+                def response(*args, **kwargs):
+                    return json.dumps([{'artifacts': rows}]) if '/artifacts?' in ' '.join(map(str,args)) else json.dumps([{'jobs': jobs}])
+                with self.subTest(rows=rows), patch.object(build, 'current_build', return_value=value), patch.object(build, 'run', side_effect=response), self.assertRaises(ValueError):
+                    build.wait_build_artifacts(plan(), ['desktop-candidate'], root / 'output', timeout=1, interval=1)
+                self.assertFalse((root / 'output').exists())
+
+    def test_get_retries_are_bounded_but_dispatch_is_never_wrapped(self):
+        import subprocess
+        error = subprocess.CalledProcessError(1, ['gh', 'api'])
+        with patch.object(build, 'run', side_effect=[error, error, '{"ok":true}']) as calls, patch.object(build.time, 'sleep'):
+            self.assertEqual(build.api('repos/owner/project/actions/runs/1'), {'ok':True})
+            self.assertEqual(calls.call_count, 3)
+        with patch.object(build, 'run', side_effect=error) as calls, patch.object(build.time, 'sleep'), self.assertRaises(ValueError):
+            build.api('repos/owner/project/actions/runs/1')
+        self.assertEqual(calls.call_count, 3)
+        with patch.object(release, 'gh', side_effect=release.TransportError('offline')) as calls:
+            with self.assertRaises(release.TransportError):
+                release.GitHub(REPO).dispatch('desktop-release.yml', {})
+            self.assertEqual(calls.call_count, 1)
+
+    def test_artifact_wait_is_bounded_and_cannot_merge_an_existing_candidate(self):
+        value = dict(id=123, run_attempt=2, run_started_at='2026-10-06T00:00:00Z')
+        with tempfile.TemporaryDirectory() as folder, patch.object(build, 'current_build', return_value=value), \
+                patch.object(build, 'run', side_effect=[json.dumps([{'artifacts':[]}]), json.dumps([{'jobs':[]}])]), \
+                patch.object(build.time, 'monotonic', side_effect=[0, 2]), self.assertRaisesRegex(ValueError, 'Timed out'):
+            build.wait_build_artifacts(plan(), ['desktop-candidate'], Path(folder)/'output', timeout=1)
+        with tempfile.TemporaryDirectory() as folder, self.assertRaisesRegex(ValueError, 'fresh'):
+            build.wait_build_artifacts(plan(), ['desktop-candidate'], Path(folder))
+
+
+class InBuildRunVisibility(unittest.TestCase):
+    """A worker can start before the aggregate REST run status leaves queued."""
+
+    def environment(self):
+        return dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', GITHUB_REPOSITORY=REPO,
+                    XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, GITHUB_SHA=SHA,
+                    GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2')
+
+    def workflow_run(self, status='in_progress'):
+        return dict(id=123, path='.github/workflows/desktop-release.yml', head_repository={'full_name': REPO},
+                    head_sha=SHA, run_attempt=2, status=status, conclusion=None,
+                    event='workflow_dispatch', head_branch=plan()['tag'])
+
+    def test_queued_tag_run_converges_before_artifact_handoff(self):
+        queued, running = self.workflow_run('queued'), self.workflow_run()
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', side_effect=[queued, queued, running]) as read, \
+                patch.object(build, 'verify_candidate_tag') as tag, patch.object(build.time, 'sleep') as sleep:
+            self.assertEqual(build.current_build(plan()), running)
+        self.assertEqual(read.call_args_list, [call(f'repos/{REPO}/actions/runs/123')] * 3)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 2)
+        self.assertEqual(tag.call_args_list, [call(REPO, plan()['tag'], SHA)] * 3)
+
+    def test_last_visibility_read_can_converge_without_an_extra_sleep(self):
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', side_effect=[self.workflow_run('queued')] * 8 + [self.workflow_run()]) as read, \
+                patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep:
+            self.assertEqual(build.current_build(plan()), self.workflow_run())
+        self.assertEqual(read.call_count, 9)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 8)
+
+    def test_queued_run_visibility_timeout_is_bounded_and_never_accepted(self):
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', return_value=self.workflow_run('queued')) as read, \
+                patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep, \
+                self.assertRaisesRegex(ValueError, 'still queued after bounded visibility wait'):
+            build.current_build(plan())
+        self.assertEqual(read.call_count, 9)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 8)
+
+    def test_every_queued_read_reauthenticates_identity_and_trigger_before_waiting(self):
+        changes = [{'id': 124}, {'head_sha': 'b' * 40}, {'run_attempt': 1},
+                   {'head_repository': {'full_name': 'someone/fork'}},
+                   {'path': '.github/workflows/evil.yml'}, {'event': 'pull_request'}, {'head_branch': 'dev'},
+                   {'conclusion': 'failure'}, {'conclusion': 'success'}, {'status': 'completed'}, {'status': 'waiting'},
+                   {'status': 'requested'}, {'status': 'unknown'}]
+        for change in changes:
+            for initial_queued in (False, True):
+                values = ([self.workflow_run('queued')] if initial_queued else []) + [{**self.workflow_run('queued'), **change}]
+                with self.subTest(change=change, initial_queued=initial_queued), \
+                        patch.dict(os.environ, self.environment(), clear=True), \
+                        patch.object(build, 'api', side_effect=values) as read, \
+                        patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep, \
+                        self.assertRaises(ValueError):
+                    build.current_build(plan())
+                self.assertEqual(read.call_count, len(values))
+                self.assertEqual(sleep.call_count, int(initial_queued))
+
+    def test_visibility_wait_does_not_accept_queued_or_running_as_publication_proof(self):
+        for status in ('queued', 'in_progress'):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                build.check_run(self.workflow_run(status), REPO, SHA, '.github/workflows/desktop-release.yml')
+
+
+class CheckpointTests(unittest.TestCase):
+    def test_revision_order_not_api_order_and_reject_ambiguous_expired_or_wrong_source(self):
+        def row(n, attempt=1):
+            return {'name':service.artifact_prefix('0.2.20','77') + f'{attempt}-{n:06d}', 'expired':False, 'workflow_run':{'head_sha':SHA}}
+        a,b,c = row(3),row(9),row(1,2)
+        self.assertEqual(service.latest_checkpoint([c,b,a],'0.2.20','77',SHA),c)
+        self.assertIsNone(service.latest_checkpoint([{'name':'unrelated'}],'0.2.20','77',SHA))
+        for rows in [[a,a],[{**a,'expired':True}],[{**a,'workflow_run':{'head_sha':'b'*40}}],[{**a,'name':a['name']+'bad'}]]:
+            with self.assertRaises(release.TaskError): service.latest_checkpoint(rows,'0.2.20','77',SHA)
+
+    def test_upload_is_write_ahead_and_deduplicated(self):
+        saved=[]
+        with tempfile.TemporaryDirectory() as folder:
+            cp=service.Checkpoints(Path(folder),'0.2.20','77','1',lambda name,path:saved.append(json.loads(path.read_text())))
+            client=old.FakeGitHub()
+            state=release.new_task(REPO,'0.2.20','all-macos-preview',SHA,pipeline=True)
+            # FakeGitHub raises its own module's transport class only in the
+            # handoff-specific tests below; here the dispatch itself succeeds.
+            client.on_dispatch=lambda *_:self.assertEqual(saved[-1]['stages']['build']['dispatch'],'unknown')
+            task=release.ReleaseTask(client,state,cp); task.advance()
+            count=len(saved); task.advance(); task.advance()
+            self.assertLessEqual(len(saved),count+1)
+
+    def test_checkpoint_upload_failure_prevents_dispatch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def fail(*_): raise release.TaskError('upload failed')
+            cp=service.Checkpoints(Path(folder),'0.2.20','77','1',fail)
+            client=old.FakeGitHub()
+            task=release.ReleaseTask(client,release.new_task(REPO,'0.2.20','all-macos-preview',SHA,pipeline=True),cp)
+            with self.assertRaises(release.TaskError): task.advance()
+            self.assertEqual(client.posts,[])
+
+    def test_failed_build_is_not_transport_retried(self):
+        class Task:
+            state={'version':'0.2.20','phase':'build_failed'}
+            def advance(self,**kwargs): raise release.TaskError('native failed')
+        with self.assertRaises(release.TaskError): service.advance_until_done(Task(),True,sleep=lambda _:self.fail('must not retry'))
+
+    def test_transport_recovery_is_bounded(self):
+        class Task:
+            state={'version':'0.2.20','phase':'build_running'}
+            calls=0
+            def advance(self,**kwargs): self.calls+=1; raise release.TransportError('read failed')
+        task=Task(); delays=[]
+        with self.assertRaisesRegex(release.TaskError,'bounded'):
+            service.advance_until_done(task,True,sleep=delays.append,clock=lambda:0)
+        self.assertEqual(task.calls,7); self.assertEqual(delays,[5,10,20,40,60,60])
+
+    def test_permanent_get_error_has_no_coordinator_backoff(self):
+        class Task:
+            state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pipeline=True)
+            calls = 0
+            def advance(self, **kwargs):
+                self.calls += 1
+                raise release.TaskError('GitHub GET failed: GitHub API (HTTP 403)')
+        task = Task()
+        with self.assertRaisesRegex(release.TaskError, 'HTTP 403'):
+            service.advance_until_done(task, True, sleep=lambda _: self.fail('must not retry'))
+        self.assertEqual(task.calls, 1)
+
+    def test_transient_get_can_recover_without_new_dispatch(self):
+        class Task:
+            state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pipeline=True)
+            calls = 0
+            def advance(self, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    raise release.TransportError('GitHub GET failed: GitHub API (HTTP 503)')
+                self.state['phase'] = 'awaiting_confirmation'
+                return self.state['phase']
+        task = Task(); delays = []
+        with patch('sys.stderr'), patch('sys.stdout'):
+            self.assertEqual(service.advance_until_done(task, False, sleep=delays.append, clock=lambda: 0), 'awaiting_confirmation')
+        self.assertEqual(task.calls, 2); self.assertEqual(delays, [5])
+
+    def test_post_403_still_saves_unknown_intent_and_never_reposts(self):
+        import subprocess
+        client = old.FakeGitHub(); saved = []; posts = []
+        state = release.new_task(REPO, '0.2.20', 'all-macos-preview', SHA, pipeline=True)
+        task = release.ReleaseTask(client, state, lambda value: saved.append(copy.deepcopy(value)))
+        def dispatch(workflow, inputs):
+            self.assertEqual(saved[-1]['stages']['build']['dispatch'], 'unknown')
+            self.assertEqual(saved[-1]['stages']['build']['token'], inputs['orchestration_id'])
+            posts.append(workflow)
+            release.GitHub(REPO).dispatch(workflow, inputs)
+        client.dispatch = dispatch
+        result = subprocess.CompletedProcess([], 1, '', 'PRIVATE TOKEN (HTTP 403)')
+        with patch.object(release.subprocess, 'run', return_value=result) as run:
+            self.assertEqual(task.advance(), 'build_dispatch_unknown')
+            for _ in range(5):
+                self.assertEqual(task.advance(retry=True), 'build_dispatch_unknown')
+        self.assertEqual(posts, ['desktop-release.yml']); self.assertEqual(run.call_count, 1)
+        self.assertEqual(state['stages']['build']['dispatch'], 'unknown')
+
+    def test_hosted_handoff_lost_response_does_not_post_twice(self):
+        client=old.FakeGitHub()
+        original=client.dispatch
+        def lost(workflow,inputs): original(workflow,inputs); raise release.TransportError('reply lost')
+        client.dispatch=lost
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'task.json'
+            service.handoff(client,path,'0.2.20','all-macos-preview',True)
+            result=service.handoff(client,path,'0.2.20','all-macos-preview',True)
+            self.assertEqual(result['status'],'queued'); self.assertEqual(len(client.posts),1)
+            with self.assertRaises(release.TaskError): service.handoff(client,path,'0.2.20','windows-linux',True)
+            with self.assertRaises(release.TaskError): service.handoff(client,path,'0.2.20','all-macos-preview',False)
+
+    def test_rerun_without_a_checkpoint_cannot_blindly_start(self):
+        class Client:
+            repo=REPO
+            def pages(self,*_):return []
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'GITHUB_RUN_ATTEMPT':'2'}), self.assertRaises(release.TaskError):
+            service.restore(Client(),Path(folder),'0.2.20','77',SHA)
+
+
+class GraphTests(unittest.TestCase):
+    def test_no_worker_aggregate_cycle_and_candidate_upload_precedes_native_work(self):
+        text=(ROOT/'.github/workflows/desktop-release.yml').read_text()
+        build=text.split('  build:',1)[1].split('  aggregate:',1)[0]
+        aggregate=text.split('  aggregate:',1)[1]
+        self.assertIn('needs: plan',aggregate); self.assertNotIn('needs: [plan, build]',aggregate)
+        self.assertLess(build.index('path: dist/desktop-package/'),build.index('prepare-in-build'))
+        self.assertLess(aggregate.index('wait-packages'),aggregate.index('stage-draft'))
+        self.assertIn('fetch-in-build',build); self.assertIn('native-run',build)
+        self.assertIn('windows-migration-acceptance.ps1',build)
+        self.assertEqual(build.count('cargo build --locked --release -p xharness-host-app'),1)
+        self.assertIn('cache-on-failure: true',build)
+        self.assertNotIn('contents: write',build)
+
+    def test_coordinator_never_holds_child_publication_lock_or_has_signing_secrets(self):
+        text=(ROOT/'.github/workflows/desktop-release-service.yml').read_text()
+        self.assertIn('group: desktop-release-service',text)
+        self.assertNotIn('group: desktop-stable-release',text)
+        self.assertNotIn('PRIVATE_KEY',text); self.assertIn('persist-credentials: false',text)
+        self.assertIn('default: false',text)
+        self.assertIn('XHARNESS_FRIENDS_RELEASE_REPOSITORY: ${{ vars.XHARNESS_FRIENDS_RELEASE_REPOSITORY }}', text)
+        self.assertIn('XHARNESS_MACOS_PREVIEW_CERT_SHA1: ${{ vars.XHARNESS_MACOS_PREVIEW_CERT_SHA1 }}', text)
+        self.assertNotIn('inputs.XHARNESS_', text)
+        permissions = text.split('permissions:', 1)[1].split('env:', 1)[0]
+        self.assertEqual([line.strip() for line in permissions.splitlines() if line.strip()], ['contents: write', 'actions: write'])
+
+
+if __name__=='__main__':unittest.main()

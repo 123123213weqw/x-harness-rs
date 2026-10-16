@@ -26,6 +26,7 @@ jobs:
       - run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
@@ -47,6 +48,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Native sidecar compilation failed' }
           python scripts/stage-tauri-sidecar.py target/release/xharness-host.exe x86_64-pc-windows-msvc
           if ($LASTEXITCODE) { throw 'Host staging failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py $env:XHARNESS_RG x86_64-pc-windows-msvc --name rg
           if ($LASTEXITCODE) { throw 'Search staging failed' }
           python scripts/stage-tauri-sidecar.py target/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner

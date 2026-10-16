@@ -8,13 +8,38 @@ const compiled=compile(),apis=[harness(legacyTest),harness(compiled.test)];
 const event=(type,data,seq=1)=>({type,data,seq,time:100+seq});
 const match=e=>({event:e,role:'start',location:{kind:'session'}});
 const text=value=>[{type:'text',text:value}];
-// Intentional product-copy delta; preserve the frozen reference and compare
-// every other locale field unchanged. The new value is checked, not ignored.
-function baselineWorkingCopy(language, locale) {
+// Intentional product-copy deltas; preserve the frozen reference and compare
+// every other locale field unchanged. Each new value is checked, not ignored.
+const compactionTerminalLocales = {
+ en: {'xh.compact.skipped': 'Compaction skipped', 'xh.compact.cancelled': 'Compaction interrupted'},
+ zh: {'xh.compact.skipped': '压缩已跳过', 'xh.compact.cancelled': '压缩已中断'},
+};
+function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
- return {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
+  assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ return normalized;
 }
 function stateContext(def,state,matches){return{key:def.kind+':c',id:'c',state,matches,start:matches.find(m=>m.role==='start'),locations:[],target:'chat'}}
+
+test('reviewed compaction locale additions reject missing or changed labels without hiding unrelated deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current = json(apis[1].plugin[language]);
+  const normalized = baselineProductCopy(language,current);
+  for(const key of Object.keys(compactionTerminalLocales[language])) {
+   const missing = {...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/terminal label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect terminal label'}),/terminal label/);
+  }
+  const unexpected = baselineProductCopy(language,{...current,'xh.compact.unreviewed':'Unreviewed'});
+  assert.equal(unexpected['xh.compact.unreviewed'],'Unreviewed');
+  assert.notDeepEqual(unexpected,normalized,'unreviewed additions must remain visible to the strict dictionary comparison');
+ }
+});
 
 test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards',()=>{
  const list={byId:{parent:{id:'parent',displayTitle:'Parent',origin:'user'},fork:{id:'fork',displayTitle:'Fork',origin:'fork',parentId:'parent'},agent:{id:'agent',displayTitle:'Agent',origin:'subagent',parentId:'fork'}}};
@@ -61,7 +86,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const argumentLocales={"en": {"tool.arguments.generating": "Generating tool input", "tool.arguments.received": "{size} received", "tool.arguments.elapsed": "{seconds}s", "tool.arguments.notExecuted": "The model is still generating input. The tool has not executed yet.", "tool.arguments.preview": "Input preview", "tool.arguments.raw": "Raw JSON", "tool.arguments.showPreview": "Show preview", "tool.arguments.showRaw": "Show raw JSON", "tool.arguments.waiting": "Waiting for input…", "tool.arguments.truncated": "Preview limited to {count} characters. The actual tool input is not truncated."}, "zh": {"tool.arguments.generating": "正在生成工具参数", "tool.arguments.received": "已接收 {size}", "tool.arguments.elapsed": "{seconds} 秒", "tool.arguments.notExecuted": "模型仍在生成参数，工具尚未执行。", "tool.arguments.preview": "内容预览", "tool.arguments.raw": "原始 JSON", "tool.arguments.showPreview": "查看内容预览", "tool.arguments.showRaw": "查看原始 JSON", "tool.arguments.waiting": "等待参数内容…", "tool.arguments.truncated": "仅预览前 {count} 个字符，实际工具参数未被截断。"}};
  const newKeys=[...Object.keys(argumentLocales.en),'approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'];
  const withoutNew=locale=>Object.fromEntries(Object.entries(json(locale)).filter(([key])=>!newKeys.includes(key)));
- for(const language of ['en','zh']){assert.deepEqual(Object.fromEntries(Object.keys(argumentLocales[language]).map(key=>[key,apis[1].plugin[language][key]])),argumentLocales[language]);assert.deepEqual(withoutNew(baselineWorkingCopy(language, apis[1].plugin[language])),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
+ for(const language of ['en','zh']){assert.deepEqual(Object.fromEntries(Object.keys(argumentLocales[language]).map(key=>[key,apis[1].plugin[language][key]])),argumentLocales[language]);assert.deepEqual(withoutNew(baselineProductCopy(language, apis[1].plugin[language])),json(apis[0].plugin[language]));for(const key of newKeys)assert.equal(typeof apis[1].plugin[language][key],'string')}
  for(const [language,expected] of [['en','Reviewing on your behalf…'],['zh','正在代你审核…']])assert.equal(apis[1].plugin[language]['approval.reviewing'],expected);
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
@@ -73,7 +98,9 @@ test('complete apply registration: keyed nodes, resident shell, overlays, docks,
  const ctx={effect:fn=>{const off=fn();if(typeof off==='function')effects.push(off)},locale:{register:(...args)=>dicts.push(args),bind:()=>k=>k},sessions:{provide:spec=>{events.push(['provide',spec.hooks,spec.props]);return()=>{}},list:{getSnapshot:()=>({byId:{}})},scope(){},on:()=>()=>{}},workspaces:{},layout:{},settingsScope:{bind:()=>host},conversationEvents:{register:d=>defs.push({kind:d.kind,target:d.target}),registerFallback:d=>defs.push({kind:d.kind,target:d.target,fallback:true})},conversationViews:{register:d=>views.push({target:d.target})},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component}),entries:()=>[],subscribe:()=>()=>{},getVersion:()=>0},get:n=>ctx[n],on:(n)=>{events.push(n);return()=>{}},plugin:(plugin,config)=>{if(typeof plugin==='function')new plugin(ctx,config);else plugin.apply(ctx)}};
  api.apply(ctx);
  const normalize=slots.map(({spec})=>json({...spec,inject:undefined,select:undefined,store:undefined,label:typeof spec.label==='function'?spec.label():spec.label})).sort((a,b)=>(a.name+':'+(a.key??a.id??'')).localeCompare(b.name+':'+(b.key??b.id??'')));
- const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(api === apis[1].plugin ? baselineWorkingCopy(language, values) : values).filter(([key])=>!key.startsWith('tool.arguments.')&&!['approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);
+ // Explicit additive environment slot, while old registrations remain unchanged.
+ if(api===apis[1].plugin){const root=normalize.find(spec=>spec.name==='conversation');assert.deepEqual(root.children['conversation.hero.runtimeEnvironment'],{kind:'single',scope:'root'});delete root.children['conversation.hero.runtimeEnvironment'];}
+ const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(api === apis[1].plugin ? baselineProductCopy(language, values) : values).filter(([key])=>!key.startsWith('tool.arguments.')&&!['approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);
  receipts.push({slots:normalize,defs,views,dicts:baselineDicts,events});}
  assert.deepEqual(json(receipts[1]),json(receipts[0]));assert.equal(receipts[1].defs.length,13);
 });

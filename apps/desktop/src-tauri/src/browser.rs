@@ -21,6 +21,10 @@ use url::Url;
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "browser_user_agent.rs"]
+mod user_agent;
+
 /// WebView2 does not deliver fragment changes through Wry's navigation policy.
 /// Listen to the native Source property instead. This is only a resample hint:
 /// guests still have no IPC permission, and no frame-provided URL is trusted.
@@ -65,7 +69,7 @@ fn watch_native_location(
         .map_err(|_| "could not schedule native address observer".to_string())
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserBounds {
     x: f64,
@@ -134,16 +138,32 @@ impl BrowserState {
         owner: &str,
         tab_id: &str,
     ) -> Result<serde_json::Value, String> {
-        if self.delegated_tab(owner)? != tab_id {
-            return Err("browser owner changed".into());
-        }
-        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
-        let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
-        if inner.active.as_deref() != Some(tab_id) || !tab.loaded.load(Ordering::SeqCst) {
-            return Err("browser page is not ready".into());
-        }
-        let url = tab.webview.url().map_err(|_| "browser URL unavailable")?;
-        if !tab.inspector.delegation.permits(owner, &url, false) {
+        // Native getters can rendezvous with the UI thread. Never hold the
+        // registry mutex while waiting for one: the UI may be validating input.
+        let (view, inspector, loaded) = {
+            let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
+            if inner.active.as_deref() != Some(tab_id)
+                || inner.bounds.is_none()
+                || !tab.loaded.load(Ordering::SeqCst)
+            {
+                return Err("browser page is not ready".into());
+            }
+            (
+                tab.webview.clone(),
+                Arc::clone(&tab.inspector),
+                Arc::clone(&tab.loaded),
+            )
+        };
+        let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);
+        let url = view.url().map_err(|_| "browser URL unavailable")?;
+        let (current, other) = self.inspection_target(tab_id)?;
+        if current.label() != view.label()
+            || !Arc::ptr_eq(&inspector, &other)
+            || !loaded.load(Ordering::SeqCst)
+            || inspector.navigation_epoch.load(Ordering::SeqCst) != epoch
+            || !inspector.delegation.permits(owner, &url, false)
+        {
             return Err("browser binding changed".into());
         }
         Ok(
@@ -151,19 +171,47 @@ impl BrowserState {
         )
     }
     pub(super) fn delegated_tab(&self, owner: &str) -> Result<String, String> {
-        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
-        let id = inner.active.as_ref().ok_or("native browser is hidden")?;
-        let tab = inner.tabs.get(id).ok_or("native browser is not open")?;
-        if inner.bounds.is_none()
-            || !tab.inspector.delegation.permits(
-                owner,
-                &tab.webview.url().map_err(|_| "browser URL unavailable")?,
-                false,
-            )
+        let (id, view, inspector) = {
+            let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            let id = inner.active.as_ref().ok_or("native browser is hidden")?;
+            let tab = inner.tabs.get(id).ok_or("native browser is not open")?;
+            if inner.bounds.is_none() {
+                return Err("native browser is not laid out".into());
+            }
+            (id.clone(), tab.webview.clone(), Arc::clone(&tab.inspector))
+        };
+        let url = view.url().map_err(|_| "browser URL unavailable")?;
+        let (current, other) = self.inspection_target(&id)?;
+        if current.label() != view.label()
+            || !Arc::ptr_eq(&inspector, &other)
+            || !inspector.delegation.permits(owner, &url, false)
         {
             return Err("native browser is not delegated to this session".into());
         }
-        Ok(id.clone())
+        Ok(id)
+    }
+    /// Main-thread dispatch guard must never wait for a registry lock held by
+    /// a worker awaiting native UI creation/getters. A busy registry rejects
+    /// dispatch rather than freezing the event loop. No native call under lock.
+    pub(super) fn native_dispatch_target(
+        &self,
+        label: &str,
+        inspector: &Arc<crate::browser_inspect::Inspector>,
+    ) -> Result<(), String> {
+        let inner = self
+            .0
+            .try_lock()
+            .map_err(|_| "browser state busy before native dispatch")?;
+        let id = inner.active.as_ref().ok_or("native browser hidden")?;
+        let tab = inner.tabs.get(id).ok_or("native browser closed")?;
+        if inner.bounds.is_none()
+            || !tab.loaded.load(Ordering::SeqCst)
+            || tab.webview.label() != label
+            || !Arc::ptr_eq(inspector, &tab.inspector)
+        {
+            return Err("browser binding changed before native dispatch".into());
+        }
+        Ok(())
     }
 }
 
@@ -352,6 +400,10 @@ pub async fn desktop_browser_navigate(
         return Err("invalid browser tab".into());
     }
     let target = web_url(&url)?;
+    // Complete WKWebView's identity before the very first guest HTTP request.
+    // Failure keeps the system default; it must not block ordinary navigation.
+    #[cfg(target_os = "macos")]
+    let user_agent = user_agent::for_macos(&caller).await;
     // Before a navigation can enter native dispatch, record its admission.
     // Closing/switching the pane after this point must not claim no effect.
     if let Some(lifecycle) = app.try_state::<crate::browser_lifecycle::BrowserLifecycle>() {
@@ -506,6 +558,11 @@ pub async fn desktop_browser_navigate(
             }
             _ => true,
         });
+    #[cfg(target_os = "macos")]
+    let builder = match user_agent {
+        Some(identity) => builder.user_agent(identity),
+        None => builder,
+    };
     let child = window
         .add_child(
             builder,
@@ -570,13 +627,24 @@ pub async fn desktop_browser_activate(
             tab.last_used = clock;
         }
     }
+    // Bounds may have changed while this tab was hidden. The frontend lays
+    // out the pane before selecting its tab; updating only the previously
+    // active view leaves a reselected view at its old rectangle. Hide the old
+    // views first, then apply the current logical rectangle before showing.
     for (id, tab) in &inner.tabs {
-        let result = if inner.active.as_deref() == Some(id.as_str()) && inner.bounds.is_some() {
-            tab.webview.show()
-        } else {
-            tab.webview.hide()
-        };
-        result.map_err(|error| error.to_string())?;
+        if inner.active.as_deref() != Some(id.as_str()) || inner.bounds.is_none() {
+            tab.webview.hide().map_err(|error| error.to_string())?;
+        }
+    }
+    if let (Some(id), Some(bounds)) = (inner.active.as_deref(), inner.bounds) {
+        if let Some(tab) = inner.tabs.get(id) {
+            if let Err(error) = tab.webview.set_bounds(bounds.rect()) {
+                // Never expose a stale rectangle when native layout fails.
+                let _ = tab.webview.hide();
+                return Err(error.to_string());
+            }
+            tab.webview.show().map_err(|error| error.to_string())?;
+        }
     }
     Ok(active.is_some_and(|id| inner.tabs.contains_key(&id)))
 }
@@ -592,6 +660,11 @@ pub async fn desktop_browser_bounds(
         return Err("invalid browser pane bounds".into());
     }
     let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.bounds != Some(bounds) {
+        for tab in inner.tabs.values() {
+            tab.inspector.invalidate();
+        }
+    }
     inner.bounds = Some(bounds);
     if let Some(id) = inner.active.as_deref() {
         if let Some(tab) = inner.tabs.get(id) {
@@ -657,6 +730,25 @@ pub fn close_all(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{safe_download_name, valid_tab_id, validate_tab_snapshot, web_url, BrowserBounds};
+
+    #[test]
+    fn main_thread_native_guard_never_waits_for_worker_registry_lock() {
+        use super::{Arc, BrowserState};
+        let state = Arc::new(BrowserState::default());
+        let held = state.0.lock().unwrap();
+        let copy = state.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _ = sender.send(copy.native_dispatch_target(
+                "unused",
+                &Arc::new(crate::browser_inspect::Inspector::default()),
+            ));
+        });
+        let result = receiver.recv_timeout(std::time::Duration::from_millis(200));
+        drop(held);
+        worker.join().unwrap();
+        assert!(result.unwrap().unwrap_err().contains("state busy"));
+    }
 
     #[test]
     fn only_web_pages_and_safe_tab_ids() {

@@ -198,3 +198,20 @@ tree=draw({input:[{role:'system',content:[{type:'text',text:'Structured prompt'}
 assert.match(text(tree),/Structured prompt/)
 assert.doesNotMatch(text(tree),/\[object Object\]|NaN/)
 console.log('Harness minimal view: payload, omitted vs empty, malformed, multi-system, bilingual labels passed')
+
+for (const reason of ['capture_disabled','archive_failed']) {
+  tree=draw({system:'Independent Harness system',tools:[{name:'read',description:'Independent tool'}],
+    options:{harnessSnapshot:{kind:'archive',version:1,sha256:'fixture'},auditSnapshot:{kind:'omitted',reason}}})
+  assert.match(text(tree),/Independent Harness system/)
+  assert.match(text(tree),/Independent tool/)
+  assert.doesNotMatch(text(tree),/未记录|未开启完整诊断|捕获失败/)
+}
+tree=draw({system:null,tools:[],options:{harnessSnapshot:{kind:'archive',version:1,sha256:'fixture'},auditSnapshot:{kind:'omitted',reason:'capture_disabled'}}})
+assert.match(text(tree),/此请求没有系统提示词/)
+assert.match(text(tree),/此请求没有工具/)
+assert.doesNotMatch(text(tree),/未开启完整诊断/)
+tree=draw({tools:[],options:{harnessSnapshot:{kind:'omitted',reason:'archive_failed'},auditSnapshot:{kind:'omitted',reason:'capture_disabled'},toolCount:18}})
+assert.match(text(tree),/Harness 快照保存失败/)
+assert.match(text(tree),/18 个工具/)
+assert.doesNotMatch(text(tree),/未开启完整诊断|此请求没有/)
+console.log('Harness surface independent of full diagnostics: populated, empty, save failure passed')

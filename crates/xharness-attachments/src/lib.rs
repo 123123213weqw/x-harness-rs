@@ -128,6 +128,12 @@ fn validate_file(session: &str, upload: Upload) -> Result<ResolvedAttachment, At
         data: Arc::new(upload.data),
     })
 }
+/// Validate ephemeral image bytes using the same bounded decoder as attachments.
+/// Does not persist bytes or insert an attachment reference into a conversation.
+pub fn validate_preview_image(upload: Upload) -> Result<ResolvedAttachment, AttachmentError> {
+    validate("file-preview", upload)
+}
+
 fn validate(session: &str, upload: Upload) -> Result<ResolvedAttachment, AttachmentError> {
     if session.is_empty() || upload.data.is_empty() || upload.data.len() > MAX_IMAGE_BYTES {
         return Err(AttachmentError::Invalid("empty or oversized upload".into()));

@@ -1,12 +1,98 @@
-//! One lazy model tool bridges explicitly enabled plugin stdio servers.
+//! One lazy model tool bridges built-in Host UI and enabled plugin servers.
 //! Schemas are discovered on demand rather than injected into every request.
 
 use std::{sync::Arc, time::Duration};
 
+use crate::builtin_ui::{self, BuiltinUi};
 use serde_json::{json, Map, Value};
 use xharness_mcp::{McpRuntime, StdioServerConfig};
 use xharness_plugins::{McpServerSpec, PluginManager};
-use xharness_tools::{ToolDefinition, ToolHandlerError, ToolOutput, ToolSpec};
+use xharness_tools::{
+    GuardDecision, MiddlewareError, MonotonicGuard, ToolDefinition, ToolExecutionContext,
+    ToolHandlerError, ToolOutput, ToolSpec,
+};
+
+/// Register this spec and its invocation guard together. Built-in read-only UI
+/// retains display's original no-approval policy; foreign MCP/native browser
+/// invocations retain the existing approval policy. Other guards and durable
+/// per-request approval requirements remain monotonic and authoritative.
+pub(crate) struct Binding {
+    pub(crate) spec: ToolSpec,
+    pub(crate) guard: Arc<dyn MonotonicGuard>,
+}
+
+struct InvocationPolicy {
+    full_access: bool,
+    builtin_ui_available: bool,
+}
+
+fn is_builtin_ui_request(args: &Value) -> bool {
+    let action = args.get("action").and_then(Value::as_str);
+    // The compact top-level index cannot start an external MCP server or
+    // perform browser actions. Keep lazy UI discovery approval-free too.
+    if action == Some("list") && args.get("plugin").is_none() {
+        return true;
+    }
+    if args.get("plugin").and_then(Value::as_str) != Some(builtin_ui::PLUGIN) {
+        return false;
+    }
+    let server = args.get("server").and_then(Value::as_str);
+    match (action, server) {
+        (Some("list"), None | Some(builtin_ui::SERVER)) => true,
+        (Some("describe" | "call"), Some(builtin_ui::SERVER)) => {
+            args.get("tool").and_then(Value::as_str) == Some("display")
+        }
+        _ => false,
+    }
+}
+
+#[async_trait::async_trait]
+impl MonotonicGuard for InvocationPolicy {
+    async fn evaluate(
+        &self,
+        context: &ToolExecutionContext,
+    ) -> Result<GuardDecision, MiddlewareError> {
+        // An invalid reserved target is not a foreign operation to approve.
+        // Reject it before the durable approval path can block a model turn.
+        if context.tool_name() == "plugin_mcp"
+            && context.arguments.get("plugin").and_then(Value::as_str) == Some(builtin_ui::PLUGIN)
+            && (!self.builtin_ui_available || !is_builtin_ui_request(&context.arguments))
+        {
+            return Ok(GuardDecision::deny(
+                "unknown or unavailable builtin UI invocation",
+            ));
+        }
+        if context.tool_name() != "plugin_mcp"
+            || self.full_access
+            || self.builtin_ui_available && is_builtin_ui_request(&context.arguments)
+        {
+            Ok(GuardDecision::Allow)
+        } else {
+            Ok(GuardDecision::require_approval(
+                "MCP invocation requires the existing tool approval",
+            ))
+        }
+    }
+}
+
+pub(crate) fn bind(
+    manager: Option<Arc<PluginManager>>,
+    runtime: Option<Arc<McpRuntime>>,
+    native: Option<Arc<crate::native_browser::NativeBrowser>>,
+    ui: Option<Arc<BuiltinUi>>,
+    owner: String,
+    full_access: bool,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
+) -> Binding {
+    let guard = Arc::new(InvocationPolicy {
+        full_access,
+        builtin_ui_available: ui.is_some(),
+    });
+    Binding {
+        spec: spec(manager, runtime, native, ui, owner, media),
+        guard,
+    }
+}
 
 fn error(error: impl ToString) -> ToolHandlerError {
     ToolHandlerError::new(error.to_string())
@@ -36,16 +122,18 @@ fn config(spec: McpServerSpec) -> Result<StdioServerConfig, ToolHandlerError> {
     })
 }
 
-pub fn spec(
+fn spec(
     manager: Option<Arc<PluginManager>>,
-    runtime: Arc<McpRuntime>,
+    runtime: Option<Arc<McpRuntime>>,
     native: Option<Arc<crate::native_browser::NativeBrowser>>,
+    ui: Option<Arc<BuiltinUi>>,
     owner: String,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> ToolSpec {
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use user-enabled local MCP servers and, when running in the desktop, its native browser (discoverable with zero tabs; use control to open a page) under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+            "Use built-in UI display (plugin=builtin, server=ui, tool=display) on Web or desktop, user-enabled local MCP servers and, when running in the desktop, its native browser (discoverable with zero tabs; use control to open a page) under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -55,20 +143,48 @@ pub fn spec(
         move |context| {
             let manager = manager.clone();
             let native = native.clone();
-            let runtime = Arc::clone(&runtime);
+            let runtime = runtime.clone();
+            let ui = ui.clone();
             let owner = owner.clone();
+            let media = media.clone();
             async move {
                 let args = &context.arguments;
                 let action = args.get("action").and_then(Value::as_str).ok_or_else(|| error("action required"))?;
                 let plugin = args.get("plugin").and_then(Value::as_str);
                 if action == "list" && plugin.is_none() {
                     let mut plugins = match &manager { Some(manager) => manager.enabled_mcp_plugins().await, None => Vec::new() };
+                    // Reserved host namespace cannot be impersonated by an installed plugin.
+                    plugins.retain(|plugin| plugin != builtin_ui::PLUGIN);
+                    if ui.is_some() { plugins.push(builtin_ui::PLUGIN.into()); }
                     if let Some(native) = &native {
                         if native.available(&owner, &context.cancellation).await { plugins.push(crate::native_browser::PLUGIN.into()); }
                     }
                     return Ok(ToolOutput::text(json!({"plugins":plugins}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
+                if plugin == builtin_ui::PLUGIN {
+                    let ui = ui.ok_or_else(|| error("builtin UI is unavailable"))?;
+                    if action == "list" && args.get("server").is_none() {
+                        return Ok(ToolOutput::text(json!({"servers":[builtin_ui::SERVER]}).to_string()));
+                    }
+                    if args.get("server").and_then(Value::as_str) != Some(builtin_ui::SERVER) {
+                        return Err(error("unknown builtin UI server"));
+                    }
+                    let definition = BuiltinUi::definition();
+                    if action == "list" {
+                        return Ok(ToolOutput::text(json!({"tools":[{"name":definition.name,
+                            "description":definition.description.chars().take(160).collect::<String>()}]}).to_string()));
+                    }
+                    let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
+                    if tool != definition.name { return Err(error("unknown builtin UI tool")); }
+                    if action == "describe" {
+                        return Ok(ToolOutput::text(json!({"tool":{"name":definition.name,
+                            "description":definition.description,"inputSchema":definition.parameters}}).to_string()));
+                    }
+                    if action != "call" { return Err(error("action must be list, describe or call")); }
+                    let parameters = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                    return ui.call(tool, parameters, &context.cancellation).await;
+                }
                 if plugin == crate::native_browser::PLUGIN {
                     let native = native.ok_or_else(|| error("native browser is unavailable"))?;
                     if action == "list" && args.get("server").is_none() {
@@ -79,6 +195,10 @@ pub fn spec(
                     if action == "call" {
                         let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                         let parameters = match args.get("arguments") { None => Map::new(), Some(Value::Object(parameters)) => parameters.clone(), _ => return Err(error("native arguments must be an object")) };
+                        if tool=="screenshot" {
+                            let media=media.ok_or_else(||error("browser attachment service unavailable"))?;
+                            return native.screenshot(&owner,parameters,media.as_ref(),&context.cancellation).await;
+                        }
                         return call_output(native.call(&owner, tool, parameters, &context.cancellation).await.map_err(error)?);
                     }
                     if !native.available(&owner, &context.cancellation).await { return Err(error("native browser bridge unavailable")); }
@@ -91,6 +211,7 @@ pub fn spec(
                     return Ok(ToolOutput::text(json!({"tools":tools.iter().map(|tool| json!({"name":tool["name"],"description":tool["description"]})).collect::<Vec<_>>()}).to_string()));
                 }
                 let manager = manager.ok_or_else(|| error("plugin store unavailable"))?;
+                let runtime = runtime.ok_or_else(|| error("MCP runtime unavailable"))?;
                 // Capture the runtime lease before reading enabled state. A
                 // concurrent disable revokes this exact lease even if the
                 // configuration lookup has already succeeded.
@@ -136,7 +257,6 @@ pub fn spec(
             }
         },
     )
-    .requiring_approval(true)
     .with_timeout(Duration::from_secs(90))
 }
 
@@ -145,10 +265,27 @@ mod tests {
     use super::*;
     use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
 
-    #[test]
-    fn automatic_browser_binding_does_not_bypass_tool_approval() {
-        let tool = spec(None, Arc::new(McpRuntime::default()), None, "owner".into());
-        assert!(tool.requires_approval);
+    #[tokio::test]
+    async fn automatic_browser_binding_does_not_bypass_tool_approval() {
+        let binding = bind(
+            None,
+            Some(Arc::new(McpRuntime::default())),
+            None,
+            None,
+            "owner".into(),
+            false,
+            None,
+        );
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(binding.spec).await.unwrap();
+        let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
+        let result = executor
+            .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
+            .await;
+        assert_eq!(
+            result.failure.unwrap().kind,
+            xharness_tools::ToolFailureKind::ApprovalUnavailable
+        );
     }
 
     #[test]

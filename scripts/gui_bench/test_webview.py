@@ -1,5 +1,6 @@
 """No model/native input: fixture isolation and transport/ledger contract."""
 import json
+import copy
 import itertools
 from pathlib import Path
 import tempfile
@@ -16,6 +17,268 @@ from scripts.terminal_bench.broker import Broker
 
 
 class WebviewTests(unittest.TestCase):
+    def unknown_select(self):
+        node = dict(ref='n1', tag='select', type='', role='', label='Chosen mode', disabled=False,
+            value='', options=[dict(label='Choose', value=''), dict(label='Strict', value='strict')],
+            option_offset=0, option_count=2, next_option_offset=None)
+        before = dict(frame_id='a'*32, scope='dialog', url='https://fixture.invalid/settings', title='Fixture',
+            source=dict(engine='tauri-webview', tab_id='browser:fixture', native_origin='https://fixture.invalid',
+                        untrusted=True), nodes=[node], next_node_offset=None, next_text_offset=None,
+            source_text_truncated=False, truncated=False, text_offset=0)
+        fresh = copy.deepcopy(before); fresh['frame_id'] = 'b'*32; fresh['nodes'][0]['value'] = 'strict'
+        receipt = dict(ok=False, effect='unknown', frame_id='a'*32,
+                       message='browser changed during action; effect may have occurred; observe again')
+        denied = dict(ok=False, effect='not_started', frame_id='a'*32, message='stale_frame: observe again')
+        call = Mock(side_effect=[receipt, fresh, denied])
+        checks = Contract(call); checks.target = Mock(return_value=(before, node))
+        return checks, call, before, fresh, receipt
+
+    def test_opted_in_unknown_select_verifies_state_without_claiming_applied_or_replaying(self):
+        checks, call, before, fresh, receipt = self.unknown_select()
+        checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+        self.assertEqual([item.args[0] for item in call.call_args_list], ['perform', 'observe', 'perform'])
+        # Two perform invocations: one uncertain action and one deliberate
+        # old-frame denial proving not_started / zero newly scheduled effects.
+        self.assertEqual(call.call_args_list[0].args[1], call.call_args_list[2].args[1])
+        self.assertEqual(checks.actions, [])
+        self.assertEqual(checks.denials, ['consumed_frame'])
+        evidence = checks.observed_postconditions[0]
+        self.assertEqual(evidence['original_receipt'], receipt)
+        self.assertEqual(evidence['fresh'], fresh)
+        self.assertEqual(evidence['verification'], 'matched_observed_state_not_applied_receipt')
+        self.assertEqual(evidence['consumed_frame_denial']['effect'], 'not_started')
+        self.assertNotIn('verify_unknown_select', call.call_args_list[0].args[1])
+
+    def test_unknown_select_default_and_nonselect_opt_in_remain_failures(self):
+        for action, opt_in in [('select', False), ('click', True), ('fill', True), ('scroll', True)]:
+            checks, call, *_ = self.unknown_select()
+            with self.subTest(action=action, opt_in=opt_in), self.assertRaises(AssertionError):
+                checks.act(action, 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=opt_in)
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(checks.observed_postconditions, [])
+
+    def test_not_started_and_inconsistent_receipts_are_not_postcondition_success(self):
+        for patch_value in [dict(effect='not_started'), dict(effect='applied'), dict(ok=True)]:
+            checks, call, before, fresh, receipt = self.unknown_select(); receipt.update(patch_value)
+            with self.subTest(patch_value=patch_value), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(checks.actions, [])
+
+    def test_unknown_select_rejects_invalid_receipt_without_exposing_private_transport(self):
+        for patch_value in [dict(frame_id='c'*32), dict(token='private-transport'), dict(message=['invalid']),
+                            dict(message='\ud800'), dict(message='\U0001f600'*126)]:
+            checks, call, before, fresh, receipt = self.unknown_select(); receipt.update(patch_value)
+            with self.subTest(patch_value=patch_value), self.assertRaises(AssertionError) as failure:
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertNotIn('private-transport', str(failure.exception))
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(checks.observed_postconditions, [])
+
+    def test_unknown_select_rejects_already_matched_or_unavailable_original_goal(self):
+        for change in ['matched', 'tag', 'option', 'duplicate', 'partial-options', 'partial-page']:
+            checks, call, before, fresh, receipt = self.unknown_select(); node = before['nodes'][0]
+            if change == 'matched': node['value'] = 'strict'
+            if change == 'tag': node['tag'] = 'input'
+            if change == 'option': node['options'][1]['value'] = 'other'
+            if change == 'duplicate': before['nodes'].append(copy.deepcopy(node))
+            if change == 'partial-options': node['next_option_offset'] = 2
+            if change == 'partial-page': checks._target_page_offset = 60
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 1)
+
+    def test_unknown_select_requires_known_string_original_value(self):
+        for value in [None, 123, False, [], {'value': 'other'}, 'missing-field']:
+            checks, call, before, fresh, receipt = self.unknown_select()
+            if value == 'missing-field': del before['nodes'][0]['value']
+            else: before['nodes'][0]['value'] = value
+            with self.subTest(value=value), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(checks.actions, [])
+
+    def test_unknown_select_rejects_truncated_original_or_fresh_value(self):
+        for page in ['before', 'fresh']:
+            checks, call, before, fresh, receipt = self.unknown_select()
+            (before if page == 'before' else fresh)['nodes'][0]['value_truncated'] = True
+            with self.subTest(page=page), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 1 if page == 'before' else 2)
+            self.assertEqual(checks.actions, [])
+
+    def test_unknown_select_rejects_real_native_slice_boundaries_in_utf16_units(self):
+        for field, cap in [('url', 2048), ('title', 240), ('label', 240), ('value', 500),
+                           ('option-label', 120), ('option-value', 120), ('expected', 120)]:
+            for content in ['x'*cap, '\U0001f600'*(cap//2)]:
+                checks, call, before, fresh, receipt = self.unknown_select()
+                expected = 'strict'
+                if field in ('url', 'title'):
+                    before[field] = fresh[field] = content
+                elif field == 'label':
+                    before['nodes'][0]['label'] = fresh['nodes'][0]['label'] = content
+                elif field == 'value': before['nodes'][0]['value'] = content
+                elif field == 'option-label':
+                    before['nodes'][0]['options'][1]['label'] = fresh['nodes'][0]['options'][1]['label'] = content
+                else:
+                    expected = content
+                    before['nodes'][0]['options'][1]['value'] = fresh['nodes'][0]['options'][1]['value'] = content
+                    fresh['nodes'][0]['value'] = content
+                with self.subTest(field=field, units=cap, codepoints=len(content)), self.assertRaises(AssertionError):
+                    checks.act('select', before['nodes'][0]['label'], scope='dialog', value=expected,
+                               verify_unknown_select=True)
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(checks.actions, [])
+        # Fresh boundary fields also fail even without a truncation flag.
+        for field, cap in [('value', 500), ('option-label', 120), ('option-value', 120)]:
+            checks, call, before, fresh, receipt = self.unknown_select()
+            if field == 'value': fresh['nodes'][0]['value'] = '\U0001f600'*(cap//2)
+            else: fresh['nodes'][0]['options'][1][field.split('-')[1]] = '\U0001f600'*(cap//2)
+            with self.subTest(fresh_field=field), self.assertRaisesRegex(AssertionError, 'native slice boundary'):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 2)
+
+    def test_unknown_select_proves_url_was_not_silently_trimmed_by_native_byte_budget(self):
+        def initial(page):
+            # These are exactly the pre-paging/pre-native-source JS fields.
+            return dict(frame_id=page['frame_id'], scope=page['scope'], url=page['url'],
+                        title=page['title'], text_offset=0, text='', nodes=[],
+                        next_node_offset=None, next_text_offset=None, source_text_truncated=False)
+        def size(page):
+            return len(json.dumps(initial(page), ensure_ascii=False, separators=(',', ':')).encode('utf-8'))
+        for extra, allowed in [(70, True), (71, False)]:
+            checks, call, before, fresh, receipt = self.unknown_select()
+            before['url'] = fresh['url'] = 'https://fixture.invalid/' + '界'*1700 + 'x'*extra
+            self.assertEqual(size(before), 5330 + extra)
+            self.assertLess(len(before['url'].encode('utf-16-le')) // 2, 2048)
+            if allowed:
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+                self.assertEqual(call.call_count, 3)
+                self.assertEqual(checks.observed_postconditions[0]['original_receipt'], receipt)
+            else:
+                with self.assertRaisesRegex(AssertionError, 'byte-budget'):
+                    checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+                self.assertEqual(call.call_count, 1)
+        # Exercise the real JS while-condition/slice size: the original URL is
+        # BELOW 2048 units, but metadata exceeds 6000 bytes. After its last
+        # 100-unit trim the apparently complete prefix is still >5400 bytes.
+        checks, call, before, fresh, receipt = self.unknown_select()
+        before['url'] = 'https://fixture.invalid/' + '界'*2000
+        self.assertEqual(size(before), 6230)
+        while size(before) > 6000: before['url'] = before['url'][:-100]
+        self.assertEqual(size(before), 5930)
+        fresh['url'] = before['url']
+        with self.assertRaisesRegex(AssertionError, 'byte-budget'):
+            checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+        self.assertEqual(call.call_count, 1)
+
+    def test_unknown_select_budget_json_preserves_native_unicode_and_escape_encoding(self):
+        checks, call, before, fresh, receipt = self.unknown_select()
+        before['url'] = fresh['url'] = 'https://fixture.invalid/' + 'x'*1900
+        before['title'] = fresh['title'] = 'line\n\t"\\\u2028😀'
+        # Unicode JSON leaves emoji and U+2028 literal; quotes/backslashes and
+        # C0 characters use the same escapes as modern JSON.stringify.
+        sample = dict(title='line\n\t"\\\u2028😀', enabled=False, next=None, offset=0)
+        encoded = json.dumps(sample, ensure_ascii=False, separators=(',', ':'))
+        self.assertEqual(encoded, '{"title":"line\\n\\t\\"\\\\\u2028😀","enabled":false,"next":null,"offset":0}')
+        checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+        self.assertEqual(call.call_count, 3)  # No arbitrary URL length/ASCII-only restriction.
+
+    def test_unknown_select_allows_complete_unicode_evidence_below_source_caps(self):
+        checks, call, before, fresh, receipt = self.unknown_select()
+        before['title'] = fresh['title'] = '\U0001f600'*119 + 'a'  # 239 UTF-16 units, not 120.
+        before['nodes'][0]['label'] = fresh['nodes'][0]['label'] = before['title']
+        before['nodes'][0]['options'][1]['label'] = fresh['nodes'][0]['options'][1]['label'] = '\U0001f600'*59 + 'a'
+        checks.act('select', before['nodes'][0]['label'], scope='dialog', value='strict', verify_unknown_select=True)
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(checks.actions, [])
+        self.assertEqual(checks.observed_postconditions[0]['original_receipt']['effect'], 'unknown')
+
+    def test_unknown_select_rejects_illegal_surrogates_in_compared_strings(self):
+        for field in ['url', 'title', 'label', 'value', 'option-label', 'expected', 'type', 'native_origin']:
+            for bad in ['\ud800', '\udfff']:
+                checks, call, before, fresh, receipt = self.unknown_select(); expected = 'strict'
+                if field in ('url', 'title'): before[field] = fresh[field] = bad
+                elif field in ('label', 'type'): before['nodes'][0][field] = fresh['nodes'][0][field] = bad
+                elif field == 'value': before['nodes'][0]['value'] = bad
+                elif field == 'option-label':
+                    before['nodes'][0]['options'][1]['label'] = fresh['nodes'][0]['options'][1]['label'] = bad
+                elif field == 'native_origin': before['source'][field] = fresh['source'][field] = bad
+                else:
+                    expected = bad
+                    before['nodes'][0]['options'][1]['value'] = fresh['nodes'][0]['options'][1]['value'] = bad
+                    fresh['nodes'][0]['value'] = bad
+                with self.subTest(field=field, bad=repr(bad)), self.assertRaises(AssertionError):
+                    checks.act('select', before['nodes'][0]['label'], scope='dialog', value=expected,
+                               verify_unknown_select=True)
+                self.assertEqual(call.call_count, 1)
+
+    def test_unknown_select_rejects_changed_page_even_when_value_matches(self):
+        for key, value in [('url', 'https://fixture.invalid/settings#changed'), ('title', 'Other'), ('scope', 'page')]:
+            checks, call, before, fresh, receipt = self.unknown_select(); fresh[key] = value
+            with self.subTest(key=key), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 2)
+            self.assertEqual(checks.observed_postconditions[0]['original_receipt'], receipt)
+
+    def test_unknown_select_rejects_native_source_or_binding_mismatch(self):
+        for key, value in [('engine', 'playwright'), ('tab_id', 'browser:other'),
+                           ('native_origin', 'https://other.invalid'), ('untrusted', False), ('owner', 'other-session')]:
+            checks, call, before, fresh, receipt = self.unknown_select(); fresh['source'][key] = value
+            with self.subTest(key=key), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 2)
+
+    def test_unknown_select_requires_distinct_canonical_fresh_frame(self):
+        for value in ['a'*32, 'invalid', None]:
+            checks, call, before, fresh, receipt = self.unknown_select(); fresh['frame_id'] = value
+            with self.subTest(value=value), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 2)
+
+    def test_unknown_select_rejects_every_incomplete_observation(self):
+        changes = [('truncated', True), ('source_text_truncated', True), ('next_node_offset', 60),
+                   ('next_text_offset', 100), ('text_offset', 100)]
+        for page in ['before', 'fresh']:
+            for key, value in changes:
+                checks, call, before, fresh, receipt = self.unknown_select()
+                (before if page == 'before' else fresh)[key] = value
+                with self.subTest(page=page, key=key), self.assertRaises(AssertionError):
+                    checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+                self.assertEqual(call.call_count, 1 if page == 'before' else 2)
+
+    def test_unknown_select_requires_one_enabled_identical_target_and_expected_value(self):
+        for change in ['missing', 'ambiguous', 'disabled', 'value', 'ref', 'tag', 'type', 'role', 'options']:
+            checks, call, before, fresh, receipt = self.unknown_select(); target = fresh['nodes'][0]
+            if change == 'missing': fresh['nodes'] = []
+            elif change == 'ambiguous': fresh['nodes'].append(copy.deepcopy(target))
+            elif change == 'disabled': target['disabled'] = True
+            elif change == 'value': target['value'] = 'other'
+            elif change == 'options': target['options'][1]['label'] = 'Changed meaning'
+            else: target[change] = 'changed'
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 2)
+            self.assertEqual(checks.actions, [])
+
+    def test_unknown_select_fresh_read_failure_never_replays_or_matches(self):
+        checks, call, before, fresh, receipt = self.unknown_select()
+        call.side_effect = [receipt, RuntimeError('native bridge interrupted')]
+        with self.assertRaises(RuntimeError):
+            checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+        self.assertEqual([item.args[0] for item in call.call_args_list], ['perform', 'observe'])
+        self.assertEqual(checks.observed_postconditions[0]['verification'], 'unverified')
+
+    def test_unknown_select_still_requires_old_frame_zero_effect_negative_control(self):
+        for effect in ['unknown', 'applied']:
+            checks, call, before, fresh, receipt = self.unknown_select()
+            call.side_effect = [receipt, fresh, dict(ok=effect=='applied', effect=effect)]
+            with self.subTest(effect=effect), self.assertRaises(AssertionError):
+                checks.act('select', 'Chosen mode', scope='dialog', value='strict', verify_unknown_select=True)
+            self.assertEqual(call.call_count, 3)
+            self.assertEqual(checks.actions, [])
+            self.assertEqual(checks.observed_postconditions[0]['verification'], 'unverified')
+
     def test_contract_retries_only_readiness_reads_and_never_an_action(self):
         call=Mock(side_effect=[RuntimeError('native browser is hidden'),
                               {'source':{'engine':'tauri-webview'},'nodes':[]}])
@@ -35,6 +298,23 @@ class WebviewTests(unittest.TestCase):
              self.assertRaises(RuntimeError):
             Contract(call).observe()
         self.assertLessEqual(call.call_count,11)
+
+    def test_failed_action_retains_diagnostic_without_replay_or_private_transport(self):
+        for effect in ('not_started', 'unknown', 'applied'):
+            call = Mock(return_value={'ok':False, 'effect':effect,
+                                      'message':'stale_target: observe again',
+                                      'token':'private-transport'})
+            checks = Contract(call)
+            checks.target = Mock(return_value=({'frame_id':'observed'},
+                                               {'ref':'n1', 'disabled':False}))
+            with self.subTest(effect=effect), self.assertRaises(AssertionError) as failure:
+                checks.act('select', 'Reasoning level', value='low')
+            self.assertIn('"effect": "' + effect + '"', str(failure.exception))
+            self.assertIn('stale_target', str(failure.exception))
+            self.assertNotIn('private-transport', str(failure.exception))
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(call.call_args.args[0], 'perform')
+            self.assertEqual(checks.actions, [])
 
     def test_zero_tab_fixture_loads_canonical_appframe_without_opening_a_page(self):
         html = zero_tab_html('owned-session')

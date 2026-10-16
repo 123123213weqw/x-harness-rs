@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import {scriptAsset,scriptAssetDist} from './fixtures/script-asset-test.mjs'
+import {preparationAction} from './native-desktop-attachment.mjs'
 
 const source = scriptAsset('desktop-updater.js')
 const window = {}
@@ -12,6 +13,44 @@ let assertions = 0
 function test(name, fn) { return Promise.resolve().then(fn).then(() => { assertions++; console.log('ok - ' + name) }) }
 function deferred() { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
 const snapshot = (seq, phase, fields = {}) => ({ seq, phase, ...fields })
+
+await test('background download has one owner; acceptance observes busy and cached states without duplicate commands', async () => {
+  const started = deferred(), finish = deferred(), calls = []
+  let remote = snapshot(0, 'idle'), busy = false, cached = false
+  const invoke = async command => {
+    calls.push(command)
+    if (command === 'desktop_update_status') return { ...remote }
+    if (busy) throw Error('Native updater busy guard')
+    busy = true
+    try {
+      if (command === 'desktop_check_update') {
+        if (!cached) remote = snapshot(remote.seq + 1, 'available', { version: '9.9.9' })
+      } else if (command === 'desktop_download_update') {
+        remote = snapshot(remote.seq + 1, 'downloading', { version: '9.9.9' })
+        started.resolve()
+        await finish.promise
+        cached = true
+        remote = snapshot(remote.seq + 1, 'downloaded', { version: '9.9.9' })
+      } else throw Error('Unexpected command: ' + command)
+      return { ...remote }
+    } finally { busy = false }
+  }
+  const controller = createController(invoke)
+  await controller.restore()
+  const preparing = controller.prepare()
+  await started.promise
+  for (let poll = 0; poll < 3; poll++) {
+    assert.equal(preparationAction('9.9.9', await invoke('desktop_update_status')), 'wait')
+  }
+  assert.equal(calls.filter(command => command === 'desktop_check_update').length, 1)
+  finish.resolve()
+  await preparing
+  assert.equal(preparationAction('9.9.9', await invoke('desktop_update_status')), 'ready')
+  await controller.prepare()
+  assert.equal(calls.filter(command => command === 'desktop_check_update').length, 1)
+  assert.equal(calls.filter(command => command === 'desktop_download_update').length, 1)
+  assert.ok(!calls.includes('desktop_install_update'))
+})
 
 await test('all phases and bounded/unknown progress', () => {
   assert.equal(updateView({}).action, '检查更新')

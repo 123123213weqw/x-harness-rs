@@ -1,0 +1,28 @@
+test_aggregate (test_hidden_v1.Hidden) ... ok
+test_amounts (test_hidden_v1.Hidden) ... ok
+test_bad_revision (test_hidden_v1.Hidden) ... ok
+test_case_sensitive (test_hidden_v1.Hidden) ... ok
+test_dedup_highest (test_hidden_v1.Hidden) ... ok
+test_empty (test_hidden_v1.Hidden) ... ok
+test_invalid_amounts (test_hidden_v1.Hidden) ... ok
+test_invalid_id (test_hidden_v1.Hidden) ... ok
+test_invalid_time (test_hidden_v1.Hidden) ... ok
+test_naive (test_hidden_v1.Hidden) ... ok
+test_no_mutation (test_hidden_v1.Hidden) ... ok
+test_no_shared_state (test_hidden_v1.Hidden) ... ok
+test_tied_last (test_hidden_v1.Hidden) ... ok
+test_unicode (test_hidden_v1.Hidden) ... ok
+test_utc_negative (test_hidden_v1.Hidden) ... ok
+test_utc_positive (test_hidden_v1.Hidden) ... ok
+test_balance_no_mutation (test_hidden_v2.HiddenV2) ... ok
+test_balance_no_state (test_hidden_v2.HiddenV2) ... ok
+test_dedup_and_utc (test_hidden_v2.HiddenV2) ... ok
+test_invalid_opening (test_hidden_v2.HiddenV2) ... ok
+test_metadata_not_frozen (test_hidden_v2.HiddenV2) ... ok
+test_metadata_uses_current_file (test_hidden_v2.HiddenV2) ... ok
+test_sorted_balance (test_hidden_v2.HiddenV2) ... ok
+
+----------------------------------------------------------------------
+Ran 23 tests in 0.002s
+
+OK

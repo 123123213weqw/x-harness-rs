@@ -81,9 +81,9 @@ function cardHarness(client, documentHidden=false) {
   let cursor=0
   const react={useMemo:fn=>fn(),useState(initial){const i=cursor++;if(!(i in values)) values[i]=initial;return [values[i],v=>{writes.push(i);values[i]=v}]},useReducer(fn,initial){const i=cursor++;if(!(i in values)) values[i]=initial;return [values[i],()=>{writes.push(i);values[i]=fn(values[i])}]},useRef(initial){const i=cursor++;if(!refs[i])refs[i]={current:initial};return refs[i]},useEffect:fn=>effects.push(fn)}
   const jsx=(type,props,key)=>({type,props,key})
-  const document={hidden:documentHidden,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)}
+  const document={querySelector:()=>null,createElement:()=>({dataset:{},textContent:''}),head:{appendChild(){}},hidden:documentHidden,addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:name=>listeners.delete(name)}
   const module={exports:{}}
-  const code=buildSync({entryPoints:[new URL('../ui/src/modules/schedule/AutomationToolCard.tsx',import.meta.url).pathname],bundle:true,write:false,format:'cjs',platform:'node',jsx:'automatic',external:['react','react/jsx-runtime']}).outputFiles[0].text
+  const code=buildSync({entryPoints:[new URL('../ui/src/modules/schedule/AutomationToolCard.tsx',import.meta.url).pathname],bundle:true,write:false,format:'cjs',platform:'node',loader:{'.css':'text'},jsx:'automatic',external:['react','react/jsx-runtime']}).outputFiles[0].text
   vm.runInNewContext(code,{module,exports:module.exports,require:id=>id==='react'?react:{jsx,jsxs:jsx},document,AbortController,setTimeout:(fn,ms)=>{timeouts.set(fn,ms);return fn},clearTimeout:fn=>timeouts.delete(fn),Date,JSON,Number,Array,Set,Error})
   const parent=module.exports.AutomationToolCard({block:block(view()),sessionId:'chat-a',useProjection:()=>[],client,t:key=>key==='card.locale'?'en':key})
   function find(node,predicate) {if(!node||typeof node!=='object')return undefined;if(Array.isArray(node)){for(const x of node){const r=find(x,predicate);if(r)return r}return} if(predicate(node))return node;return find(node.props?.children,predicate)}

@@ -27,7 +27,7 @@ import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'review.center' | 'assistant.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -164,8 +164,9 @@ export function AppFrame({
     const id=kind==='tool'?'tool':`${kind}:${++nextWorkspaceId.current}`
     const source=kind==='file'?detail.source:kind
     if(source===undefined)return
-    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,title:kind==='tool'?'工具详情':kind==='file'?(detail.title||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
-    updateSpace(value=>xhWorkspaceOpen(value,item,!fresh))
+    const item:WorkspaceItem={id,kind,source,sessionId:detail.sessionId,relativeTo:detail.relativeTo,gitDiff:detail.gitDiff,title:kind==='tool'?'工具详情':kind==='file'?(detail.title||(detail.gitDiff?'Diff · '+detail.gitDiff:undefined)||source.split(/[\\/]/).at(-1)||''):'新标签页',entries:detail.url?[detail.url]:[],position:detail.url?0:-1}
+    const key=detail.sessionId??spaceKeyRef.current
+    setSpaces(all=>({...all,[key]:xhWorkspaceOpen(all[key]??xhWorkspaceEmpty,item,!fresh)}))
   }
   const closeWorkspace=(id:string|null):void=>{
     if(id==='tool')actions.closeDetails()
@@ -324,7 +325,7 @@ export function AppFrame({
             aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>
           {renderSlot('plugins.center', {})}
         </main>}
-        {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} />}
+        {centerPage === 'work' && <WorkCenter close={closeCenterPage} renderTasks={() => renderSlot('work.center.tasks', {openSession: openWorkSession})} renderAutomations={() => renderSlot('work.center.automations', {openSession: openWorkSession})} renderExecutions={()=>renderSlot('work.center.executions',{openSession:openWorkSession})}/>}
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}

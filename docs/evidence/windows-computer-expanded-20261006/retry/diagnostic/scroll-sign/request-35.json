@@ -1,0 +1,9 @@
+{
+  "action": "scroll",
+  "frame_id": "win:9444:1791242811299434700:34",
+  "x": 600,
+  "y": 600,
+  "delta_y": -360,
+  "include_accessibility": false,
+  "include_screenshot": false
+}

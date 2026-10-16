@@ -117,7 +117,7 @@ impl AutomationTargetProvider for HostAutomationTargets {
                 .await
                 .map_err(|e| e.message)?;
         }
-        let request = {
+        let (mut request, sections) = {
             let mut state = host.state.write().await;
             let record = state
                 .sessions
@@ -132,15 +132,18 @@ impl AutomationTargetProvider for HostAutomationTargets {
             };
             let permission = record.execution_permission();
             let cwd = record.cwd.clone();
-            let prompt = state.prompt_assembly(target)?;
-            AgentSessionRequest {
-                session_id: target.into(),
-                cwd,
-                route,
-                permission,
-                prompt: Some(prompt),
-            }
+            (
+                AgentSessionRequest {
+                    session_id: target.into(),
+                    cwd,
+                    route,
+                    permission,
+                    prompt: None,
+                },
+                state.prompt_sections(target)?,
+            )
         };
+        request.prompt = Some(host.assemble_prompt(request.cwd.clone(), sections).await?);
         host.start_background_turn_listener();
         let handle = host
             .agent_runtime
@@ -287,19 +290,35 @@ mod tests {
             })
             .await
             .unwrap();
-        let view = tokio::time::timeout(Duration::from_secs(4), async {
+        // This exercises real JSONL flushes and actor startup, not a timer SLA.
+        // Slow Windows runners must still prove a completed durable receipt;
+        // admission or a failed terminal result must never satisfy the wait.
+        let mut last_view = serde_json::Value::Null;
+        let view = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let view = schedules
                     .execute("source", "view", AutomationCommand::View { id: id.into() })
                     .await;
-                if view["runs"][0]["state"] == "completed" {
-                    break view;
+                match view["runs"][0]["state"].as_str() {
+                    Some("completed") => break view,
+                    Some("cancelled" | "failed" | "interrupted" | "incomplete") => {
+                        panic!("automation settled unsuccessfully: {view}");
+                    }
+                    _ => {}
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                last_view = view;
+                // Do not contend with the worker by replaying its real journal
+                // and taking the schedule transaction gate every ten milliseconds.
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         })
         .await
-        .unwrap();
+        .unwrap_or_else(|_| {
+            panic!(
+                "automation did not complete; provider_calls={}, last_view={last_view}",
+                provider.0.load(Ordering::SeqCst)
+            )
+        });
         let target = view["runs"][0]["sessionId"].as_str().unwrap();
         let added = loop {
             let frame = announcements

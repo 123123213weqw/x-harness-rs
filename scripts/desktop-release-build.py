@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import unquote, urlsplit
 from urllib.request import Request, urlopen
@@ -75,7 +76,8 @@ def require(condition, message):
 
 def run(*args, capture=False):
     result = subprocess.run([str(a) for a in args], check=True, text=True, encoding='utf-8',
-                            stdout=subprocess.PIPE if capture else None)
+                            stdout=subprocess.PIPE if capture else None,
+                            timeout=90 if args[:2] == ('gh', 'api') and '--method' not in args else None)
     return result.stdout.strip() if capture else None
 
 
@@ -102,7 +104,23 @@ def digest(path):
 
 
 def api(path):
-    return json.loads(run('gh', 'api', path, capture=True))
+    return read_api(path)
+
+
+def api_pages(path):
+    return read_api(path, paginate=True)
+
+
+def read_api(path, *, paginate=False):
+    # GET only. Never apply transport retries to a dispatch, tag, upload or PATCH.
+    command = ['gh', 'api', *(['--paginate', '--slurp'] if paginate else []), path]
+    for attempt in range(3):
+        try:
+            return json.loads(run(*command, capture=True))
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+    raise ValueError('GitHub read failed after three bounded attempts; no network mutation was retried')
 
 
 def contract(*args):
@@ -182,6 +200,8 @@ def stage(platform, target):
     require(rg and Path(rg).is_file(), 'Native ripgrep is not available')
     for source, name in [(ROOT / 'target' / target / 'release' / ('xharness-host' + suffix), 'xharness-host'), (rg, 'rg')]:
         run(sys.executable, '-B', ROOT / 'scripts/stage-tauri-sidecar.py', source, target, '--name', name)
+    if suffix:
+        run(sys.executable, '-B', ROOT / 'scripts/powershell-runtime.py', 'stage', '--target', target)
 
 
 def collect(args):
@@ -387,7 +407,16 @@ def check_run(run_data, repo, sha, path, *, event=None):
     else:
         require(run_data['event'] in {'push', 'workflow_dispatch'}, 'Unsupported release trigger')
         if run_data['event'] == 'workflow_dispatch':
-            require(run_data['head_branch'] == 'master', 'Release dispatch was not on master')
+            if run_data['head_branch'] != 'master':
+                require(path == '.github/workflows/desktop-release.yml', 'Only candidate builds may use a tag dispatch')
+                verify_candidate_tag(repo, run_data['head_branch'], run_data['head_sha'])
+
+
+def verify_candidate_tag(repo, tag, sha):
+    require(isinstance(tag, str) and re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag),
+            'Candidate dispatch requires an immutable desktop version tag')
+    verify_tag(repo, tag, sha)
+    ancestor(repo, sha, api(f'repos/{repo}/git/ref/heads/master')['object']['sha'])
 
 
 def successful_run(repo, run_id, sha, path, *, event=None, unix_platforms=None):
@@ -396,8 +425,7 @@ def successful_run(repo, run_id, sha, path, *, event=None, unix_platforms=None):
     check_run(value, repo, sha, path, event=event)
     if event:
         ancestor(repo, value['head_sha'], api(f'repos/{repo}/git/ref/heads/master')['object']['sha'])
-    pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
-                          f'repos/{repo}/actions/runs/{run_id}/attempts/{value["run_attempt"]}/jobs?per_page=100', capture=True))
+    pages = api_pages(f'repos/{repo}/actions/runs/{run_id}/attempts/{value["run_attempt"]}/jobs?per_page=100')
     jobs = [job for page in pages for job in page['jobs']]
     require(_contract.passing_workflow_jobs(jobs, path, unix_platforms),
             'Every native/matrix gate in the latest attempt must pass; skipped gates do not count')
@@ -407,14 +435,26 @@ def successful_run(repo, run_id, sha, path, *, event=None, unix_platforms=None):
 def download_artifact(repo, run_data, name, destination):
     destination = Path(destination)
     require(not destination.exists(), 'Refusing to merge or overwrite artifacts')
-    pages = json.loads(run('gh', 'api', '--paginate', '--slurp',
-                          f'repos/{repo}/actions/runs/{run_data["id"]}/artifacts?per_page=100', capture=True))
+    pages = api_pages(f'repos/{repo}/actions/runs/{run_data["id"]}/artifacts?per_page=100')
     matches = [a for page in pages for a in page['artifacts'] if a['name'] == name]
     require(len(matches) == 1 and not matches[0]['expired'], 'Missing, ambiguous or expired immutable artifact')
     artifact = matches[0]
     require(artifact.get('workflow_run', {}).get('head_sha') == run_data['head_sha'], 'Artifact source differs from run')
     require(artifact['created_at'] >= run_data['run_started_at'], 'Artifact is from an older run attempt')
-    run('gh', 'run', 'download', run_data['id'], '--repo', repo, '--name', name, '--dir', destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory(prefix='.artifact-', dir=destination.parent) as folder:
+            partial = Path(folder) / 'download'
+            try:
+                subprocess.run(['gh', 'run', 'download', str(run_data['id']), '--repo', repo,
+                    '--name', name, '--dir', str(partial)], check=True, timeout=300,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            except (OSError, subprocess.SubprocessError):
+                require(attempt < 2, 'Artifact download failed after three bounded reads')
+                time.sleep(2 ** attempt)
+            else:
+                partial.rename(destination)
+                break
     return {key: artifact.get(key) for key in ['id', 'name', 'digest', 'created_at', 'updated_at']}
 
 
@@ -426,12 +466,102 @@ def fetch_candidate(run_id, destination):
     plan = load(candidate / 'plan.json')
     require(plan['repository'] == repo and plan['sha'] == sha and plan['release_run_id'] == str(run_id)
             and plan['release_run_attempt'] == str(build['run_attempt']), 'Candidate plan is not from this exact build attempt')
-    if build['event'] == 'push':
+    if build['event'] == 'push' or build['head_branch'] != 'master':
         require(build['head_branch'] == plan['tag'], 'Tag build provenance mismatch')
     key = candidate.parent / 'trusted-updater.pub'
     public_key(key)
     contract('verify-release', '--plan', candidate / 'plan.json', '--release-dir', candidate / 'release', '--public-key', key)
     return build, artifact
+
+
+def current_build(plan, *, require_pipeline=True):
+    """Only a worker of this exact hosted build may consume unfinished artifacts.
+
+    This is NOT a passing-run check. Publication still requires the entire run
+    (including every native test) to succeed through successful_run().
+    """
+    hosted()
+    repo = repository()
+    _contract.validate_plan(plan)
+    if require_pipeline:
+        require(_contract.platform_pipeline(plan), 'In-build mode must be locked into the plan')
+    require(plan['repository'] == repo and plan['sha'] == os.environ.get('GITHUB_SHA')
+            and plan['release_run_id'] == os.environ.get('GITHUB_RUN_ID')
+            and plan['release_run_attempt'] == os.environ.get('GITHUB_RUN_ATTEMPT'),
+            'Only the exact candidate build attempt may wait for its artifacts')
+    # REST's aggregate run status can remain queued after this hosted worker
+    # starts (observed in the first immutable automatic candidate). Only retry
+    # this transient read: reauthenticate every response, keep the same attempt,
+    # and never consume artifacts until the run is actually in_progress.
+    for visibility_attempt in range(9):
+        value = api(f"repos/{repo}/actions/runs/{plan['release_run_id']}")
+        require(value['id'] == int(plan['release_run_id'])
+                and value['path'] == '.github/workflows/desktop-release.yml'
+                and value.get('head_repository', {}).get('full_name') == repo
+                and value['head_sha'] == plan['sha'] and value['run_attempt'] == int(plan['release_run_attempt'])
+                and value.get('conclusion') is None,
+                'In-build artifacts require the authenticated running workflow')
+        if value['event'] == 'workflow_dispatch' and value['head_branch'] != 'master':
+            require(value['head_branch'] == plan['tag'], 'Candidate tag differs from its immutable plan')
+            verify_candidate_tag(repo, value['head_branch'], plan['sha'])
+        require((value['event'] == 'workflow_dispatch' and value['head_branch'] in ('master', plan['tag']))
+                or (value['event'] == 'push' and value['head_branch'] == plan['tag']), 'Untrusted build trigger')
+        if value['status'] == 'in_progress':
+            return value
+        require(value['status'] == 'queued', 'In-build artifacts require the authenticated running workflow')
+        require(visibility_attempt < 8, 'Candidate workflow is still queued after bounded visibility wait')
+        time.sleep(15)
+
+
+def wait_build_artifacts(plan, names, destination, *, timeout=4500, interval=60, require_pipeline=True):
+    """Bounded intra-run handoff; artifacts are uploaded before native acceptance.
+
+    Aggregate depends on plan, not on workers waiting for its complete manifest.
+    No signature, unfinished job or partial manifest is treated as acceptance.
+    """
+    require(timeout > 0 and interval > 0, 'Invalid artifact wait bounds')
+    require(not destination.exists(), 'Artifact handoff destination must be fresh')
+    deadline = time.monotonic() + timeout
+    repo = plan['repository']
+    value = current_build(plan, require_pipeline=require_pipeline)
+    polls = 0
+    while True:
+        pages = api_pages(f"repos/{repo}/actions/runs/{value['id']}/artifacts?per_page=100")
+        rows = [a for page in pages for a in page['artifacts'] if a['name'] in names
+                and a['created_at'] >= value['run_started_at']]
+        for name in names:
+            require(len([a for a in rows if a['name'] == name]) <= 1, 'Ambiguous current-attempt artifact')
+        if {a['name'] for a in rows} == set(names):
+            # Reauthenticate the attempt at the handoff; polling immutable run
+            # metadata every minute adds no information and burns API quota.
+            value = current_build(plan, require_pipeline=require_pipeline)
+            require(all(not a['expired'] and a.get('workflow_run', {}).get('head_sha') == plan['sha']
+                        for a in rows), 'Unsafe build artifact identity')
+            destination.mkdir(parents=True)
+            for name in names:
+                download_artifact(repo, value, name, destination / name)
+            return
+        # Detect a failed producer rather than spending another hour waiting.
+        if polls % 3 == 0:
+            jobs = api_pages(f"repos/{repo}/actions/runs/{value['id']}/attempts/{value['run_attempt']}/jobs?per_page=100")
+            require(not any(j.get('status') == 'completed' and j.get('conclusion') != 'success'
+                            for page in jobs for j in page['jobs']), 'Candidate producer failed or was cancelled')
+        polls += 1
+        require(time.monotonic() < deadline, 'Timed out waiting for current build artifacts')
+        time.sleep(interval)
+
+
+def fetch_in_build(args):
+    plan = load(args.plan)
+    temporary = args.output.parent / (args.output.name + '-handoff')
+    wait_build_artifacts(plan, ['desktop-candidate'], temporary)
+    require(load(temporary / 'desktop-candidate/plan.json') == plan, 'Candidate plan changed during handoff')
+    require(not args.output.exists(), 'Refusing to overwrite a candidate')
+    temporary.joinpath('desktop-candidate').rename(args.output)
+    key = args.output.parent / (args.output.name + '-trusted.pub')
+    public_key(key)
+    contract('verify-release', '--plan', args.output / 'plan.json', '--release-dir', args.output / 'release', '--public-key', key)
+    key.unlink()
 
 
 def download_release(repo, tag, destination, names=None):
@@ -468,8 +598,13 @@ def fetch_promotion(args):
     runs = {'release': {'run': build, 'artifact': build_artifact}}
     for kind, run_id in [('unix', args.unix_run_id), ('windows', args.windows_run_id)]:
         platforms = [p for p in release_platforms(plan) if (p == 'windows-x86_64') == (kind == 'windows')]
-        value = successful_run(repo, run_id, None, ACCEPTANCE_WORKFLOWS[kind], event='workflow_dispatch',
-                               unix_platforms=platforms if kind == 'unix' else None)
+        if _contract.platform_pipeline(plan):
+            require(str(run_id) == str(build['id']), 'In-build native evidence must use the candidate run')
+            value, workflow = build, '.github/workflows/desktop-release.yml'
+        else:
+            workflow = ACCEPTANCE_WORKFLOWS[kind]
+            value = successful_run(repo, run_id, None, workflow, event='workflow_dispatch',
+                                   unix_platforms=platforms if kind == 'unix' else None)
         artifacts = []
         for platform in platforms:
             dest = root / 'native-evidence' / platform
@@ -477,7 +612,7 @@ def fetch_promotion(args):
             receipt = dest / 'acceptance.json'
             require(receipt.is_file() and not receipt.is_symlink(), 'Native acceptance receipt missing')
             binding = load(receipt).get('provenance', {})
-            require(binding == {'workflow': ACCEPTANCE_WORKFLOWS[kind], 'run_id': str(value['id']),
+            require(binding == {'workflow': workflow, 'run_id': str(value['id']),
                                 'run_attempt': str(value['run_attempt']), 'source_sha': sha},
                     'Native receipt is not from this exact authenticated attempt/source')
             compact = root / 'acceptance' / platform
@@ -490,10 +625,29 @@ def fetch_promotion(args):
     live = api(f'repos/{repo}/releases/latest')
     require(not live['draft'] and not live['prerelease'], 'No public stable channel to preserve')
     download_release(repo, live['tag_name'], root / 'live-manifest', ['latest.json', 'updater.pub'])
+    if build['event'] == 'workflow_dispatch' and build['head_branch'] == plan['tag']:
+        # Automatic candidates can finish out of source order. A higher reserved
+        # version does not authorize rolling code backwards, nor does an old
+        # Windows base receipt prove an upgrade from a newly published version.
+        check_reuse_live_base(repo, sha, live, load(root / 'live-manifest/latest.json'),
+                              load(root / 'acceptance/windows-x86_64/acceptance.json'))
     names = live_names(load(root / 'live-manifest/latest.json'), repo, live['tag_name'])
     download_release(repo, live['tag_name'], root / 'live', names)
     write(root / 'live-snapshot.json', snapshot(live))
     write(root / 'provenance.json', runs)
+
+
+def check_reuse_live_base(repo, sha, live, manifest, windows):
+    tag = live['tag_name']
+    if tag.startswith('desktop-v'):
+        live_sha = _contract.remote_tag_commit(repo, tag)
+    else:
+        live_sha = live.get('target_commitish')
+        require(isinstance(live_sha, str) and re.fullmatch(r'[0-9a-f]{40}', live_sha),
+                'Legacy live source must be pinned before automatic candidate promotion')
+    ancestor(repo, live_sha, sha)
+    require(windows.get('base_version') == manifest.get('version'),
+            'Stable Windows base changed after candidate acceptance; select a freshly accepted candidate, never bypass or silently rebuild')
 
 
 def publish(args):
@@ -503,9 +657,10 @@ def publish(args):
     provenance = load(root / 'provenance.json')
     require(plan['sha'] == sha and plan['repository'] == repo, 'Promotion checkout changed')
     for kind, entry in provenance.items():
-        path = '.github/workflows/desktop-release.yml' if kind == 'release' else ACCEPTANCE_WORKFLOWS[kind]
+        inline = _contract.platform_pipeline(plan)
+        path = '.github/workflows/desktop-release.yml' if kind == 'release' or inline else ACCEPTANCE_WORKFLOWS[kind]
         fresh = successful_run(repo, entry['run']['id'], sha if kind == 'release' else None, path,
-                               event=None if kind == 'release' else 'workflow_dispatch',
+                               event=None if kind == 'release' or inline else 'workflow_dispatch',
                                unix_platforms=[p for p in release_platforms(plan) if p != 'windows-x86_64'] if kind == 'unix' else None)
         require(fresh['run_attempt'] == entry['run']['run_attempt'] and fresh['updated_at'] == entry['run']['updated_at'],
                 'A build/acceptance run changed or was rerun during promotion')
@@ -695,6 +850,18 @@ def prepare_native(args):
     export_environment({**load(args.root / 'build-env.json'), 'CARGO_TARGET_DIR': str(target)})
 
 
+def prepare_in_build(args):
+    plan = load(args.plan)
+    current_build(plan)
+    key = args.output / 'release/updater.pub'
+    public_key(key)
+    _contract.validate_receipt(plan, args.platform, args.package, key)
+    write(args.output / 'plan.json', plan)
+    # Only BASE preparation uses this minimal context. It is never an install
+    # target, aggregate, published manifest or substitute for fetch-in-build.
+    prepare_native(argparse.Namespace(candidate=args.output, platform=args.platform, root=args.root))
+
+
 def native_run(args):
     config = load(args.root / 'rehearsal.json')
     platform = config['platform']
@@ -805,6 +972,11 @@ def main():
     p = sub.add_parser('stage-draft'); p.add_argument('--candidate', type=Path, required=True)
     p = sub.add_parser('resolve-source'); p.add_argument('--release-run-id', required=True)
     p = sub.add_parser('fetch-candidate'); p.add_argument('--release-run-id', required=True); p.add_argument('--output', type=Path, required=True)
+    p = sub.add_parser('fetch-in-build'); p.add_argument('--plan', required=True, type=Path); p.add_argument('--output', required=True, type=Path)
+    p = sub.add_parser('wait-packages'); p.add_argument('--plan', required=True, type=Path); p.add_argument('--output', required=True, type=Path)
+    p = sub.add_parser('prepare-in-build')
+    for name in ['plan', 'package', 'output', 'root']: p.add_argument('--' + name, required=True, type=Path)
+    p.add_argument('--platform', required=True, choices=PLATFORMS)
     p = sub.add_parser('fetch-promotion')
     for name in ['release-run-id', 'unix-run-id', 'windows-run-id']: p.add_argument('--' + name, required=True)
     p.add_argument('--output', type=Path, required=True)
@@ -824,9 +996,27 @@ def main():
         require(sha == os.environ.get('GITHUB_SHA'), 'Release planning must use the exact workflow source')
         tag = os.environ.get('RELEASE_TAG_INPUT', '')
         require(re.fullmatch(r'desktop-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', tag), 'Invalid release tag')
+        if os.environ.get('AUTOMATIC_CANDIDATE') == 'true':
+            require(os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+                    and os.environ.get('GITHUB_REF') == 'refs/tags/' + tag
+                    and os.environ.get('EXPECTED_SOURCE_SHA') == sha
+                    and os.environ.get('INTEGRATED_ACCEPTANCE') == 'true'
+                    and os.environ.get('RELEASE_SCOPE_INPUT') in ('all', 'all-macos-preview', 'all-macos-selfsigned'),
+                    'Automatic candidate must pin an integrated four-platform tag build')
+            verify_candidate_tag(repository(), tag, sha)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         publisher_pin()
         contract('plan', tag, '--release-scope', os.environ.get('RELEASE_SCOPE_INPUT', 'all'), '--output', args.output)
+        if os.environ.get('INTEGRATED_ACCEPTANCE') == 'true':
+            plan = load(args.output)
+            plan['acceptance_mode'] = 'in-build'
+            _contract.validate_plan(plan)
+            args.output.write_text(json.dumps(plan, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+        if os.environ.get('AUTOMATIC_CANDIDATE') == 'true':
+            ci = load(args.output)['ci']
+            require(str(ci['id']) == os.environ.get('EXPECTED_CI_RUN_ID')
+                    and str(ci['run_attempt']) == os.environ.get('EXPECTED_CI_ATTEMPT'),
+                    'CI changed before candidate planning; never substitute another attempt')
         write_matrix(load(args.output))
     elif args.command == 'signing-plan': signing_plan(load(args.plan))
     elif args.command == 'acceptance-matrix':
@@ -851,6 +1041,10 @@ def main():
         for platform in release_platforms(plan):
             shutil.copytree(args.artifacts / f'desktop-package-{platform}', normalized / platform, symlinks=True)
             if platform == 'windows-x86_64':
+                # The independent Linux aggregator has no Windows worker's
+                # resource directory. Recreate it from the canonical vendor pin,
+                # never from the candidate's self-declared manifest.
+                run(sys.executable, '-B', ROOT / 'scripts/powershell-runtime.py', 'stage', '--target', PLATFORMS[platform])
                 run(sys.executable, '-B', ROOT / 'scripts/audit-windows-runtime.py',
                     '--installer', normalized / platform / _contract.package_name(plan, platform),
                     '--output', args.output.parent / 'windows-runtime-audit/aggregate.json')
@@ -868,6 +1062,12 @@ def main():
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
             output.write('source_sha=' + value['head_sha'] + '\n')
     elif args.command == 'fetch-candidate': fetch_candidate(args.release_run_id, args.output)
+    elif args.command == 'fetch-in-build': fetch_in_build(args)
+    elif args.command == 'prepare-in-build': prepare_in_build(args)
+    elif args.command == 'wait-packages':
+        plan = load(args.plan)
+        wait_build_artifacts(plan, [f'desktop-package-{p}' for p in release_platforms(plan)] +
+                             ['desktop-symbols-windows-' + plan['version']], args.output, require_pipeline=False)
     elif args.command == 'fetch-promotion': fetch_promotion(args)
     elif args.command == 'publish': publish(args)
     elif args.command == 'rehearsal-init': rehearsal_init(args.output)

@@ -33,6 +33,7 @@ export interface SessionFace extends ObservableSnapshot<ConversationSnapshot> {
  command(line: string): Promise<RpcResult<{ matched: boolean }>>
  cancel(): Promise<RpcResult<{ accepted: true }>>
  loadOlder(): Promise<void>
+ setHistoryOpenTarget?(target: import('../../client-runtime/index').HistoryOpenTarget | undefined): void
  readAttachment(id: string): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
  updateQueue(id: string, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
 }
@@ -54,7 +55,7 @@ export interface ProjectionMap {
  tokenUsage: TokenUsageProjection
  contextPressure: ContextPressureProjection
  contextBreakdown: { systemTokens: number; toolsTokens: number; messageTokens: number }
- sessionStats: { turns: number; steps: number; llmMs: number; toolMs: number; ttftMs: number; ttftSteps: number; decodeMs: number; decodeTokens: number }
+ sessionStats: { turns: number; steps: number; llmMs: number; toolMs: number; ttftMs: number; ttftSteps: number; decodeMs: number; decodeTokens: number; activeThroughput?: {provider:string; model:string; decodeTokens:number; decodeMs:number} }
  imageLimits: import('./wire').ImageAttachmentLimits
  attachmentLimits: { images: { maxCount: number; maxBytes: number } }
 }

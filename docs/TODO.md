@@ -1,5 +1,66 @@
 # XHarness 总任务清单
 
+## Stabilization freeze (2026-10-15)
+
+- [x] Protect execution, tool machinery, wire, persistence and installation boundaries with base-policy, content-bound change records; keep tool handlers/schemas flexible.
+- [x] Retain existing crate/Host dependency guards; reject app identity/install-mode drift and removal of existing RPC names.
+- [x] Enroll an unconditional lightweight freeze CI check and native Windows policy mutations; preserve the existing full Windows/native/desktop regressions.
+- [ ] Complete V100 and exact-head Windows CI acceptance; do not infer release/upgrade acceptance or change repository rulesets.
+
+
+## 本机全局与工作区记忆（2026-10-14）
+
+- [x] `WMEM-01` 与 AGENTS/Goal 分离；应用数据目录按 canonical cwd 隔离，跨会话/模型复用，不写入项目 Git。
+- [x] `WMEM-02` 默认仅明确要求时保存；设置可关闭或选择自动整理。不重新接入 question sink，不保证模型每轮整理。
+- [x] `WMEM-03` 复用 read/edit/write 的精确 memory URI，保留审批、分页、观察版本与原子 CAS；关闭后旧 executor 的新调用也拒绝。
+- [x] `WMEM-04` 索引 2048 UTF-8 字节/24 行、正文 64 KiB，有界锁外读取；同轮固定、下一轮刷新。
+- [x] `WMEM-05` 双语设置、独立草稿、版本冲突、确认清空/自动模式；RPC 的工作区范围只接受已知会话/工作区 ID，全局范围使用固定 scope，不复制正文到控制收据/RPC 调试日志。
+- [x] `WMEM-09` 设置默认进入全局记忆，无工作区也可定义；同一本机配置下跨工作区/模型共用，全局/工作区模式、文件、草稿和 CAS 分开，不自动提升项目事实，不新增模型工具或承诺账号/设备同步。
+- [x] `WMEM-06` V100 全局/工作区记忆相关四包全量回归：584 项通过、16 个既有辅助/环境测试忽略；四包 all-targets 严格 Clippy。Chromium/WebKit 源码/产物四组合通过。
+- [ ] `WMEM-08` GitHub 跨平台 CI 验收；不自动合并、发版或替换本机应用。
+- [ ] `WMEM-07` 真实模型记忆选择质量另做授权评测，不把脚本 provider 或浏览器 mock 当模型自主效果。
+
+设计：[workspace-memory.md](design/workspace-memory.md)。
+
+## 工作区项目规则（2026-10-14）
+
+- [x] `AGENTS-01` 根 AGENTS.md 以 Session cwd 为范围锁外有界加载，复用受限 FsService；不创建/修改文件。
+- [x] `AGENTS-02` 实际新轮次刷新，排队输入不锁旧规则；同一 Loop 保持快照，沿用 Prompt/Harness 哈希审计。
+- [x] `AGENTS-03` 排除旧问答托管区、不升级为项目规则；普通文件工具显式维护，问答无写入端口。
+- [x] `AGENTS-04` 根规则与子目录作用域指导分离；子目录使用现有工具按需读取，不递归扫描，不声称自动 Guard。
+- [ ] `AGENTS-05` V100 Rust/Host 两运行时/JSONL 回归与跨平台 CI 验收。
+- [ ] `AGENTS-06` 如需确定性子目录规则发现/已读 Guard、跨进程未完成轮次旧规则正文恢复，另行设计，不伪装成已实现。
+
+## Job 执行协议与 UI 统一（2026-10-13）
+
+- [x] `JOB-RUN-01` Registry generation + opaque 进程 ID，旧运行、旧 cursor 和旧数字短名失败关闭，不再复用新 producer。
+- [x] `JOB-RUN-02` v1 Plan/Run DTO、owner 绑定、显式取消范围、取消 ack 与 terminal settlement 分离；复用原 Schedule/进程驱动。
+- [x] `JOB-RUN-03` 原生 ToolFactory 共享 Registry 接口，Job RPC 查询/输出/控制；原工具与 automation/manage 保持兼容。
+- [x] `JOB-RUN-04` Rust/TS 共用 fixture、JobClient 单连接/单 scope 请求、迟到回包/断线/卸载回归；共用执行卡片与工作中心执行页。
+- [x] `JOB-RUN-05` 黑白灰主题 Token、双击/深浅色/窄屏/键盘/文本转义浏览器回归，新增测试加入既有 CI 分片计划。
+- [ ] `JOB-RUN-06` PR 审核、GitHub 完整 CI、正式安装包与实际 Host 的端到端验收；当前开发分支不等于已部署。
+- [ ] `JOB-RUN-07` Agent occurrence 精确取消、进程记录持久化、catalog 分页/增量事件、统一创建入口与真实模型选工具 A/B。
+- [ ] `JOB-RUN-08` 完成事件→持久化 Inbox 桥接；必须遵守 terminal-failure gate，避免回执重复唤醒。
+
+规格：`docs/specs/unified-jobs.md`；验收：`docs/evidence/unified-jobs-20261013.md`。
+
+## 后台 Job 自动续跑（2026-10-14）
+
+- [x] `JOB-CONT-01` 正式 Native Host 接入 defer/cancel_defer、版本化持久 outbox、稳定 Inbox 回执去重、终态归档读取、启动恢复与有界 Shutdown；未绑定的嵌入方不广告新 action。
+- [x] `JOB-CONT-02` 复用 Session::dispatch_paused 和 InboxMessage::is_user_authored，Actor 用户恢复/claim 原子 CAS；移除重复门禁投影；保留原 Goal 的授权退避重试策略，不重写 Loop。
+- [x] `JOB-CONT-03` 新增 13 个 Native/JSONL 回归；WZU_Server 扩展测试合计 782 通过、全 workspace 检查与严格 Clippy 通过。
+- [x] `JOB-CONT-04` 官方 DeepSeek 成功续跑得到 VERIFIED_OK；失败用例读取真实 exit 7 并报告失败。已记录模型一次尝试重跑失败脚本（被夹具拒绝），不承诺模型严格服从所有指令。
+- [ ] `JOB-CONT-05` 发布与已安装软件升级；当前提交用于 PR 审阅，未替换当前软件。
+
+规范：[后台 Job 自动续跑](specs/job-continuation.md)。证据：[正式链路验收](evidence/job-continuation-production-20261014.md)。
+
+## 压缩失败后的回执派发门禁（2026-10-12）
+
+- [x] `FAIL-ADMISSION-01` Host 与 Actor 从权威终态共用自动派发门禁；压缩／上下文不可重试失败后，内部回执保留、去重、落盘，但不再次启动计数／模型／压缩。旧日志与重启生效，不清空历史、不重写架构。
+- [x] `FAIL-ADMISSION-02` 按可信 Source 区分真实用户与内部上下文，兼容 Host admission 包装；直接 Actor 用户恢复和 Claim 原子 CAS。保留正常通知与 Goal 已分类网络退避，手动 Compact 不隐式解锁，失败停车不覆盖 Goal 原错误原因。
+- [x] `FAIL-ADMISSION-03` 新增 11 项回归（含旧检查点回退）；V100 同步当前源码后相关四模块 428 项通过、0 失败，6 项既有诊断用例保持忽略；严格 Clippy 通过。2026-10-13 同步最新 master 后 434 项通过、0 失败、6 项既有诊断忽略，严格 Clippy 通过；集成源码与原始验收分别绑定哈希。隔离恢复旧门禁时，回归正确捕获额外计数调用。证据见 `docs/evidence/compaction-settlement-admission-20261012/verification.json`。
+- [ ] `FAIL-ADMISSION-04` PR 审核、当前 SHA 的跨平台 CI 与正式部署；PR 提交阶段不自动合并、发布或重启应用。
+
 ## 前端 CI 并行优化（2026-10-06）
 
 - [x] `CI-UI-01` 单 job 拆为严格构建、四契约分片、两引擎各四浏览器分片和独立构建前后像素检查；保留原 290 次 argv／env 调用，含重复次数。
@@ -82,7 +143,7 @@
 - [ ] `CLOUD-06` TLS/任务归属 Gateway、短期连接授权、根/子 Session 访问范围、持久 cursor 校准、有界多观察者和断线不取消回归；不复制第二套 Session/Goal 状态。
 - [ ] `CLOUD-07` 客户端 RuntimeConnection 与原 Web/Tauri UI：托管入口、远程徽标、原 GoalBar、问题回答与 Steering；明确本机/VM 路径与附件映射，不新增常驻诊断页面。
   - [x] `CLOUD-07a-ui` 新任务工作区旁的执行环境入口：按原 Slot/Locale/主题注册，产品源码、生成包、重建与 CI 单元测试一致；菜单始终可打开查看，绑定锁仅限制选项；可信空会话可选本机，旧/运行中/加载失败/未知会话保持原环境。当前仅本机可用，统一 Cloud 选项禁用且说明待接入，不展示机器名称，不伪造环境目录或云端提交。2026-10-02 已在本机独立 3083 Web 更新静态资源，未替换桌面软件；这是旧工作区的历史 UI 验收，本 PR 不携带旧 JS 补丁或生成包，迁移最新 TS 接口仍待完成。
-  - [ ] `CLOUD-07a-ts` 按最新 owned TypeScript / Slot 契约迁移已验收的环境入口；不得用旧 JS 补丁或生成包覆盖当前前端。
+  - [x] `CLOUD-07a-ts` 将环境入口迁移为 owned TypeScript `runtime-environment` source-module，使用新的类型化 Slot owner 与工作区样式契约，重建并提交当前生成图/包，不携带旧 JS 补丁。Cloud 尚未接线，明确禁用；不发云端 RPC、不本机回退。加入状态组合、伪造选择、双语、真实 Chromium/WebKit 全图和键盘回归；详见[迁移记录](reports/cloud-runtime-picker-ts-20261011.md)。CI 以该 PR 的新提交为准，不宣称完整托管可用。
   - [ ] `CLOUD-07a-routing` 接真实环境目录与 RuntimeConnection/Gateway，在新任务提交边界持久绑定环境、按环境加载工作区，并验证断线/切换/旧响应与目录缓存隔离。不能将 UI 入口已显示计为托管可用。
 - [ ] `CLOUD-08` 完成 CLOUD-T01～T24 的确定性/真实适配器对照、跨平台客户端 CI，以及专用 VM 和真实 DeepSeek 多轮验收；共享服务器不能充当 Full Access VM 边界。
   - [x] `CLOUD-LAB-02` 专属 VM-1 内原 Host + DeepSeek 两轮真实编程：唯一 Goal、Prepared 零请求/重启、独立 unittest/语义验证、等待确认后重启不重放、seal/外部停止 7 项通过。最新全工作区 1060 passed / 19 ignored / 0 failed，六模块 Clippy、40 项实验 guard 与 5 项架构 guard 通过。仅受限私有 fixture，不是完整生产 Submit 或跨平台桌面验收。
@@ -1660,3 +1721,13 @@ macOS 签名/公证与发布验证**。手动 `/compact` 已完成；独立摘�
 - [ ] 原生图像／录制结果复用附件与预算链路并验证有界资源、取消和导航失效；不将截图塞入现有 64 KiB 文本桥，也不静默降级成 DOM 点击。
 - [x] 新零标签页真实 DeepSeek、仅 `plugin_mcp`、自然提示：4 类任务各完整执行 2 次，8 次全部通过状态／账本／清理验收；另 4 次受测试器 80-call 上限阻塞，保留失败而不算模型失败。续跑沿用同一 USD 1 上限及旧记录，最终 160 请求、费用保守上界 USD 0.2628189、pending 0、账本关闭。见 `docs/acceptance/native-browser-zero-tab-20261006.json`。
 - [ ] 打包及安装版验证；未替换、重启本机软件或发布。Mac AX Computer Use 失败是另一个边界，不由本次 Browser 修改冒充修复。
+
+## PERF-01：TPS 接收时间线
+
+- [x] 内容无关、有界 Host reducer；真实日志检查点采样，估算与接口平均值分开。
+- [x] owned TS 性能页注册在 Harness 后；原始/平滑曲线、状态带、键盘/悬停与懒加载数据表。
+- [x] 共享 wire fixture、严格 TS、Chromium/WebKit 与原冻结开屏差分回归。
+- [x] V100 远程 Rust projection 28 项、Host 282 项通过（6 项原有 ignored 未执行）；projection/Host all-targets Clippy `-D warnings` 通过。
+- [ ] 部署新 Host 与前端到实际 Web，实机流式任务验收。
+
+详见 [性能时间线设计与口径](performance-timeline.md)。

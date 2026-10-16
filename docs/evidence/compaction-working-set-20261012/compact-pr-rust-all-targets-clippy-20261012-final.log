@@ -1,0 +1,4 @@
+    Checking xharness-core v0.1.0 (<isolated-source>/crates/xharness-core)
+    Checking xharness-host v0.1.0 (<isolated-source>/crates/xharness-host)
+    Checking xharness-host-app v0.1.0 (<isolated-source>/crates/xharness-host-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.61s

@@ -7,6 +7,7 @@ This is a loader-dependency gate, not a substitute for clean-VM execution.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -152,12 +153,23 @@ def system(name):
     return name in SYSTEM or name.startswith(('api-ms-win-', 'ext-ms-win-'))
 
 
-def audit(root, *, desktop_required=True, expected=None, installer_tools=False):
+def audit(root, *, desktop_required=True, expected=None, installer_tools=False, runtime_manifest=None):
     root = Path(root)
     require(root.is_dir() and not root.is_symlink(), 'Missing payload directory')
     modules, tools, by_path = [], [], {}
+    runtime = None
+    if runtime_manifest is not None:
+        # Vendor .NET contains AnyCPU/managed PE images, not just x64 native
+        # executables. Verify the entire official payload against the staged
+        # manifest instead of weakening the owned-native import/CRT gate.
+        spec = importlib.util.spec_from_file_location('powershell_runtime', Path(__file__).with_name('powershell-runtime.py'))
+        bundled = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bundled)
+        runtime = bundled.verify(root / 'runtime/powershell', expected_manifest=runtime_manifest)
     for path in sorted(root.rglob('*')):
         require(not path.is_symlink(), 'Symlink in extracted payload')
+        if runtime is not None and path.is_relative_to(root / 'runtime/powershell'):
+            continue
         if not path.is_file() or path.suffix.lower() not in ('.exe', '.dll'):
             continue
         require(path.stat().st_size <= MAX_MODULE, 'Oversized PE module')
@@ -197,7 +209,7 @@ def audit(root, *, desktop_required=True, expected=None, installer_tools=False):
         require(required <= set(expected), 'Incomplete expected build manifest')
         for name in required:
             require(by_path[name]['sha256'] == expected[name], 'Stale or mixed installer payload: ' + name)
-    return {'schema': 1, 'passed': True, 'modules': modules, 'installer_modules': tools}
+    return {'schema': 1, 'passed': True, 'modules': modules, 'installer_modules': tools, 'powershell': runtime}
 
 
 def expected_build(desktop, sidecars, target):
@@ -220,7 +232,7 @@ def expected_build(desktop, sidecars, target):
     return result
 
 
-def installer_audit(installer, expected=None, seven_zip=None):
+def installer_audit(installer, expected=None, seven_zip=None, runtime_manifest=None):
     installer = Path(installer)
     require(installer.is_file() and not installer.is_symlink(), 'Missing installer')
     tool = seven_zip or shutil.which('7z') or shutil.which('7zz')
@@ -234,7 +246,7 @@ def installer_audit(installer, expected=None, seven_zip=None):
                        check=True, stdout=subprocess.DEVNULL, timeout=180)
         desktops = [p for p in Path(temp).rglob('*') if p.name.lower() == 'xharness-desktop.exe']
         require(len(desktops) == 1, 'Expected exactly one desktop executable in NSIS')
-        report = audit(desktops[0].parent, expected=expected, installer_tools=True)
+        report = audit(desktops[0].parent, expected=expected, installer_tools=True, runtime_manifest=runtime_manifest)
     report['installer_sha256'] = digest(installer)
     return report
 
@@ -250,11 +262,17 @@ def main():
     p.add_argument('--target', default='x86_64-pc-windows-msvc')
     p.add_argument('--output', type=Path, required=True)
     args = p.parse_args()
+    spec = importlib.util.spec_from_file_location('powershell_staging', Path(__file__).with_name('powershell-runtime.py'))
+    bundled = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bundled)
+    # Production packaging always requires a pinned runtime. Synthetic parser
+    # unit tests may still use audit() without a vendor fixture.
+    runtime_manifest = bundled.verify(bundled.STAGED)['manifest_sha256']
     require(not args.expected_desktop or args.sidecars, 'Expected desktop requires staged sidecars')
     require(not args.installer or not args.portable_host, 'NSIS must include desktop')
     expected = expected_build(args.expected_desktop, args.sidecars, args.target) if args.sidecars else None
-    report = (installer_audit(args.installer, expected) if args.installer else
-              audit(args.directory, desktop_required=not args.portable_host, expected=expected))
+    report = (installer_audit(args.installer, expected, runtime_manifest=runtime_manifest) if args.installer else
+              audit(args.directory, desktop_required=not args.portable_host, expected=expected, runtime_manifest=runtime_manifest))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     print('Windows runtime dependency audit passed: ' + str(len(report['modules'])) + ' PE modules')

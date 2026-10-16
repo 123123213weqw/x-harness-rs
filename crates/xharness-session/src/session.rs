@@ -3,8 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole, Revision, Sequence,
-    SessionEvent,
+    CompactionEndOutcome, EventData, InboxMessage, InboxTarget, LoggedEvent, Message, MessageRole,
+    Revision, Sequence, SessionEvent,
 };
 use xharness_interaction::{
     AskUserQuestionRequest, QuestionAnswer, QuestionInteraction, QuestionStateError,
@@ -539,6 +539,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
     }
 
     let mut current_logged_revision = Revision::ZERO;
+    let mut job_continuations = HashMap::<String, crate::JobContinuationRecord>::new();
     let mut calls: HashMap<String, (bool, u32, u32)> = HashMap::new();
     let mut approvals = HashMap::<String, bool>::new();
     let mut questions = HashMap::<String, QuestionInteraction>::new();
@@ -604,6 +605,12 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
         }
 
         match logged.data() {
+            EventData::JobContinuation { record } => {
+                record
+                    .validate_transition(job_continuations.get(&record.job_id))
+                    .map_err(|e| lifecycle_error(logged.seq, e))?;
+                job_continuations.insert(record.job_id.clone(), (**record).clone());
+            }
             EventData::ExecutionCheckpoint { turn, state, .. } => {
                 if open_turn != Some(*turn)
                     || state.phase == 0
@@ -634,6 +641,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             EventData::SessionForkOrigin {
                 parent_session_id, ..
             } => {
+                job_continuations.clear();
                 if parent_session_id.trim().is_empty() {
                     return Err(lifecycle_error(logged.seq, "fork parent must be non-empty"));
                 }
@@ -1263,6 +1271,7 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                             crate::GoalPhase::Active
                                                 | crate::GoalPhase::Paused
                                                 | crate::GoalPhase::Blocked
+                                                | crate::GoalPhase::Complete
                                         )
                                         && goal.phase == crate::GoalPhase::Active
                                         && change.rounds_started < goal.max_goal_rounds
@@ -1786,6 +1795,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 source_command_id,
                 turn,
                 error,
+                outcome,
+                fingerprint,
             } => {
                 let Some(state) = compactions.get_mut(compaction_id) else {
                     return Err(lifecycle_error(
@@ -1795,16 +1806,30 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                 };
                 let success_shape = state.summary.is_some() && state.replacement;
                 let failure_shape = state.summary.is_none() && !state.replacement;
+                let terminal_shape = match outcome {
+                    Some(CompactionEndOutcome::Applied) => error.is_none() && success_shape,
+                    Some(
+                        CompactionEndOutcome::NoBenefit | CompactionEndOutcome::NoEligibleSource,
+                    ) => error.is_none() && failure_shape,
+                    Some(CompactionEndOutcome::Interrupted | CompactionEndOutcome::Failed) => {
+                        error.is_some() && failure_shape
+                    }
+                    None => {
+                        (error.is_none() && success_shape) || (error.is_some() && failure_shape)
+                    }
+                };
                 if state.ended
                     || state.source_command_id != *source_command_id
                     || state.turn != *turn
                     || error.as_ref().is_some_and(|value| value.trim().is_empty())
-                    || (error.is_none() && !success_shape)
-                    || (error.is_some() && !failure_shape)
+                    || fingerprint
+                        .as_ref()
+                        .is_some_and(|value| value.trim().is_empty())
+                    || !terminal_shape
                 {
                     return Err(lifecycle_error(
                         logged.seq,
-                        "compaction/end does not close one valid success or failure transaction",
+                        "compaction/end does not close one valid applied, skipped, interrupted or failed transaction",
                     ));
                 }
                 state.ended = true;
@@ -1875,7 +1900,8 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                     state.replacement = true;
                 }
             }
-            EventData::AssistantChunk { turn, step, .. } => {
+            EventData::ModelReception { turn, step, .. }
+            | EventData::AssistantChunk { turn, step, .. } => {
                 let Some(state) = open_step.as_ref() else {
                     return Err(lifecycle_error(
                         logged.seq,

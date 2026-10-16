@@ -1,0 +1,2764 @@
+{
+  "elapsed_ms": 8946,
+  "failure": null,
+  "id": 27,
+  "ok": true,
+  "result": {
+    "accessibility": {
+      "eligible": 75,
+      "max_depth": 20,
+      "max_nodes": 220,
+      "max_visited": 1100,
+      "nodes": [
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 736.0,
+            "width": 1040.0,
+            "x": -8.0,
+            "y": -8.0
+          },
+          "context_only": false,
+          "depth": 0,
+          "enabled": true,
+          "focused": true,
+          "in_region": true,
+          "label": "2TB NVMe SSD | Newegg.com - 用户配置 1 - Microsoft​ Edge",
+          "node_id": "uia:win:1272:f0396:0",
+          "parent_id": null,
+          "role": "window",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 1,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "2TB NVMe SSD | Newegg.com - Microsoft Edge",
+          "node_id": "uia:win:1272:f0396:2",
+          "parent_id": "uia:win:1272:f0396:0",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 2,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:3",
+          "parent_id": "uia:win:1272:f0396:2",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 3,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:4",
+          "parent_id": "uia:win:1272:f0396:3",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 40.0,
+            "width": 138.0,
+            "x": 886.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 4,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:6",
+          "parent_id": "uia:win:1272:f0396:4",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 720.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 4,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:7",
+          "parent_id": "uia:win:1272:f0396:4",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 40.0,
+            "width": 46.0,
+            "x": 886.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "最小化",
+          "node_id": "uia:win:1272:f0396:8",
+          "parent_id": "uia:win:1272:f0396:6",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 40.0,
+            "width": 46.0,
+            "x": 932.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "还原",
+          "node_id": "uia:win:1272:f0396:9",
+          "parent_id": "uia:win:1272:f0396:6",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 40.0,
+            "width": 46.0,
+            "x": 978.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "关闭",
+          "node_id": "uia:win:1272:f0396:10",
+          "parent_id": "uia:win:1272:f0396:6",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 80.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:11",
+          "parent_id": "uia:win:1272:f0396:7",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:12",
+          "parent_id": "uia:win:1272:f0396:7",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 41.0,
+            "width": 884.0,
+            "x": 2.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 5,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "标签页栏",
+          "node_id": "uia:win:1272:f0396:13",
+          "parent_id": "uia:win:1272:f0396:7",
+          "role": "tab",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 40.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 40.0
+          },
+          "context_only": false,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "应用栏",
+          "node_id": "uia:win:1272:f0396:14",
+          "parent_id": "uia:win:1272:f0396:11",
+          "role": "toolbar",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:15",
+          "parent_id": "uia:win:1272:f0396:12",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 36.0,
+            "width": 32.0,
+            "x": 4.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "搜索标签页",
+          "node_id": "uia:win:1272:f0396:16",
+          "parent_id": "uia:win:1272:f0396:13",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 41.0,
+            "width": 256.0,
+            "x": 32.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:17",
+          "parent_id": "uia:win:1272:f0396:13",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 41.0,
+            "width": 32.0,
+            "x": 284.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 6,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "新建标签页",
+          "node_id": "uia:win:1272:f0396:18",
+          "parent_id": "uia:win:1272:f0396:13",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 36.0,
+            "x": 0.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "返回",
+          "node_id": "uia:win:1272:f0396:20",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 32.0,
+            "x": 40.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "刷新",
+          "node_id": "uia:win:1272:f0396:21",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 32.0,
+            "width": 800.0,
+            "x": 76.0,
+            "y": 44.0
+          },
+          "context_only": true,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:22",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 40.0,
+            "width": 68.0,
+            "x": 880.0,
+            "y": 40.0
+          },
+          "context_only": true,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:23",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 32.0,
+            "x": 952.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "用户配置 1 个人资料，请登录",
+          "node_id": "uia:win:1272:f0396:24",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 36.0,
+            "x": 988.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "设置及其他 (Alt+F)",
+          "node_id": "uia:win:1272:f0396:25",
+          "parent_id": "uia:win:1272:f0396:14",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:26",
+          "parent_id": "uia:win:1272:f0396:15",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 41.0,
+            "width": 256.0,
+            "x": 32.0,
+            "y": 0.0
+          },
+          "context_only": true,
+          "depth": 7,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:27",
+          "parent_id": "uia:win:1272:f0396:17",
+          "role": "tab",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 24.0,
+            "width": 24.0,
+            "x": 80.0,
+            "y": 48.0
+          },
+          "context_only": false,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "查看站点信息",
+          "node_id": "uia:win:1272:f0396:29",
+          "parent_id": "uia:win:1272:f0396:22",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 24.0,
+            "width": 684.0,
+            "x": 104.0,
+            "y": 48.0
+          },
+          "context_only": false,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "地址和搜索栏",
+          "node_id": "uia:win:1272:f0396:30",
+          "parent_id": "uia:win:1272:f0396:22",
+          "role": "edit",
+          "surface_id": "win:1272:f0396",
+          "value": "https://www.newegg.com/p/pl?d=2TB+NVMe+SSD",
+          "value_state": "known",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 24.0,
+            "width": 80.0,
+            "x": 792.0,
+            "y": 48.0
+          },
+          "context_only": true,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:32",
+          "parent_id": "uia:win:1272:f0396:22",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 32.0,
+            "x": 880.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "收藏夹",
+          "node_id": "uia:win:1272:f0396:33",
+          "parent_id": "uia:win:1272:f0396:23",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 32.0,
+            "width": 32.0,
+            "x": 916.0,
+            "y": 44.0
+          },
+          "context_only": false,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Microsoft Edge 安全网络已连接",
+          "node_id": "uia:win:1272:f0396:34",
+          "parent_id": "uia:win:1272:f0396:23",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:35",
+          "parent_id": "uia:win:1272:f0396:26",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 41.0,
+            "width": 256.0,
+            "x": 32.0,
+            "y": 0.0
+          },
+          "context_only": false,
+          "depth": 8,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "2TB NVMe SSD | Newegg.com - 内存使用率 - 304 MB",
+          "node_id": "uia:win:1272:f0396:37",
+          "parent_id": "uia:win:1272:f0396:27",
+          "role": "tabitem",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 24.0,
+            "width": 24.0,
+            "x": 792.0,
+            "y": 48.0
+          },
+          "context_only": false,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "显示翻译选项",
+          "node_id": "uia:win:1272:f0396:39",
+          "parent_id": "uia:win:1272:f0396:32",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 24.0,
+            "width": 24.0,
+            "x": 820.0,
+            "y": 48.0
+          },
+          "context_only": false,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "进入阅读模式(F9)",
+          "node_id": "uia:win:1272:f0396:40",
+          "parent_id": "uia:win:1272:f0396:32",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 24.0,
+            "width": 24.0,
+            "x": 848.0,
+            "y": 48.0
+          },
+          "context_only": false,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "将此页面添加到收藏夹(Ctrl+D)",
+          "node_id": "uia:win:1272:f0396:41",
+          "parent_id": "uia:win:1272:f0396:32",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 640.0,
+            "width": 1024.0,
+            "x": 0.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:42",
+          "parent_id": "uia:win:1272:f0396:35",
+          "role": "pane",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 16.0,
+            "x": 256.0,
+            "y": 12.0
+          },
+          "context_only": false,
+          "depth": 9,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "关闭标签页",
+          "node_id": "uia:win:1272:f0396:43",
+          "parent_id": "uia:win:1272:f0396:37",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 636.0,
+            "width": 1016.0,
+            "x": 4.0,
+            "y": 80.0
+          },
+          "context_only": false,
+          "depth": 10,
+          "enabled": true,
+          "focused": true,
+          "in_region": true,
+          "label": "2TB NVMe SSD | Newegg.com",
+          "node_id": "uia:win:1272:f0396:45",
+          "parent_id": "uia:win:1272:f0396:42",
+          "role": "document",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 12973.0,
+            "width": 1001.0,
+            "x": 4.0,
+            "y": -476.0
+          },
+          "context_only": true,
+          "depth": 11,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:46",
+          "parent_id": "uia:win:1272:f0396:45",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 509.0,
+            "width": 1002.0,
+            "x": 3.0,
+            "y": -357.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:47",
+          "parent_id": "uia:win:1272:f0396:46",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 11742.0,
+            "width": 1001.0,
+            "x": 4.0,
+            "y": -342.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:48",
+          "parent_id": "uia:win:1272:f0396:46",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 40.0,
+            "width": 40.0,
+            "x": 955.0,
+            "y": 546.0
+          },
+          "context_only": true,
+          "depth": 12,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:50",
+          "parent_id": "uia:win:1272:f0396:46",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 72.0,
+            "width": 1001.0,
+            "x": 4.0,
+            "y": 80.0
+          },
+          "context_only": true,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:52",
+          "parent_id": "uia:win:1272:f0396:47",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 11742.0,
+            "width": 1001.0,
+            "x": 4.0,
+            "y": -342.0
+          },
+          "context_only": true,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:53",
+          "parent_id": "uia:win:1272:f0396:48",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 41.0,
+            "x": 896.0,
+            "y": 557.0
+          },
+          "context_only": false,
+          "depth": 13,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Ask AI",
+          "node_id": "uia:win:1272:f0396:54",
+          "parent_id": "uia:win:1272:f0396:50",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 52.0,
+            "width": 102.0,
+            "x": 24.0,
+            "y": 90.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Newegg",
+          "node_id": "uia:win:1272:f0396:55",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 45.0,
+            "width": 44.0,
+            "x": 134.0,
+            "y": 93.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Select delivery address",
+          "node_id": "uia:win:1272:f0396:56",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 43.0,
+            "width": 280.0,
+            "x": 186.0,
+            "y": 94.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Site search",
+          "node_id": "uia:win:1272:f0396:57",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 485.0,
+            "y": 99.0
+          },
+          "context_only": true,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:59",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 28.0,
+            "width": 28.0,
+            "x": 537.0,
+            "y": 102.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Change Country",
+          "node_id": "uia:win:1272:f0396:60",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 23.0,
+            "width": 10.0,
+            "x": 550.0,
+            "y": 104.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "☾",
+          "node_id": "uia:win:1272:f0396:61",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 23.0,
+            "width": 17.0,
+            "x": 609.0,
+            "y": 104.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "☀",
+          "node_id": "uia:win:1272:f0396:62",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 45.0,
+            "width": 178.0,
+            "x": 642.0,
+            "y": 93.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "icon of my account Welcome Sign In / Register",
+          "node_id": "uia:win:1272:f0396:63",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 45.0,
+            "width": 79.0,
+            "x": 825.0,
+            "y": 93.0
+          },
+          "context_only": true,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:64",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 45.0,
+            "width": 74.0,
+            "x": 911.0,
+            "y": 93.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Shopping Cart",
+          "node_id": "uia:win:1272:f0396:66",
+          "parent_id": "uia:win:1272:f0396:52",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 39.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 55.0
+          },
+          "context_only": true,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:80",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "list",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 39.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 93.0
+          },
+          "context_only": true,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:81",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "list",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [],
+          "bounds": {
+            "height": 302.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 162.0
+          },
+          "context_only": true,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "",
+          "node_id": "uia:win:1272:f0396:82",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "list",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 20.0,
+            "width": 115.0,
+            "x": 343.0,
+            "y": 95.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FantasTech Deal",
+          "node_id": "uia:win:1272:f0396:111",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 225.0,
+            "width": 300.0,
+            "x": 346.0,
+            "y": 95.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM) Add Compare Quick View",
+          "node_id": "uia:win:1272:f0396:112",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 16.0,
+            "width": 56.0,
+            "x": 373.0,
+            "y": 326.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Best Seller",
+          "node_id": "uia:win:1272:f0396:114",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 15.0,
+            "x": 438.0,
+            "y": 325.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "in ",
+          "node_id": "uia:win:1272:f0396:115",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 80.0,
+            "x": 452.0,
+            "y": 325.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Internal SSDs",
+          "node_id": "uia:win:1272:f0396:116",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 19.0,
+            "width": 103.0,
+            "x": 346.0,
+            "y": 355.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.9 out of 5 (1,182)",
+          "node_id": "uia:win:1272:f0396:117",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 97.0,
+            "x": 549.0,
+            "y": 349.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG 󩃂",
+          "node_id": "uia:win:1272:f0396:118",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 38.0,
+            "width": 300.0,
+            "x": 346.0,
+            "y": 384.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SAMSUNG SSD 9100 PRO 2TB, PCIe 5.0x4 M.2 2280, Seq. Read Speeds Up to 14,700MB/s, Best for AI Computing, Gaming, and Heavy Duty Workstations (MZ-VAP2T0B/AM)",
+          "node_id": "uia:win:1272:f0396:119",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 121.0,
+            "x": 349.0,
+            "y": 432.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Save: $280.00 (41%)",
+          "node_id": "uia:win:1272:f0396:120",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 14.0,
+            "x": 348.0,
+            "y": 461.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$",
+          "node_id": "uia:win:1272:f0396:121",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 42.0,
+            "x": 361.0,
+            "y": 461.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "399",
+          "node_id": "uia:win:1272:f0396:122",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 18.0,
+            "x": 402.0,
+            "y": 466.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": ".99",
+          "node_id": "uia:win:1272:f0396:123",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 46.0,
+            "x": 429.0,
+            "y": 473.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$679.99",
+          "node_id": "uia:win:1272:f0396:124",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 208.0,
+            "x": 346.0,
+            "y": 494.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $394.99 - $760.59",
+          "node_id": "uia:win:1272:f0396:125",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 87.0,
+            "x": 346.0,
+            "y": 517.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FREE SHIPPING ",
+          "node_id": "uia:win:1272:f0396:126",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 106.0,
+            "x": 437.0,
+            "y": 517.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "from United States",
+          "node_id": "uia:win:1272:f0396:127",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 25.0,
+            "width": 112.0,
+            "x": 346.0,
+            "y": 551.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "ADD TO CART ",
+          "node_id": "uia:win:1272:f0396:128",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 465.0,
+            "y": 547.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Add to wish list",
+          "node_id": "uia:win:1272:f0396:129",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 225.0,
+            "width": 300.0,
+            "x": 675.0,
+            "y": 95.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E Add Compare Quick View",
+          "node_id": "uia:win:1272:f0396:130",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 19.0,
+            "width": 104.0,
+            "x": 675.0,
+            "y": 325.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "rated 4.8 out of 5 (1,282)",
+          "node_id": "uia:win:1272:f0396:131",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 96.0,
+            "x": 879.0,
+            "y": 319.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "SanDisk 󩃂",
+          "node_id": "uia:win:1272:f0396:132",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 38.0,
+            "width": 300.0,
+            "x": 675.0,
+            "y": 354.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "WD_BLACK 2TB SN850X NVMe Internal Gaming SSD Solid State Drive - Gen4 PCIe, M.2 2280, Up to 7,300 MB/s - WDS200T2X0E",
+          "node_id": "uia:win:1272:f0396:133",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 108.0,
+            "x": 678.0,
+            "y": 402.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Save: $26.90 (7%)",
+          "node_id": "uia:win:1272:f0396:134",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 15.0,
+            "x": 677.0,
+            "y": 431.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$",
+          "node_id": "uia:win:1272:f0396:135",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 34.0,
+            "width": 42.0,
+            "x": 691.0,
+            "y": 431.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "352",
+          "node_id": "uia:win:1272:f0396:136",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 18.0,
+            "x": 732.0,
+            "y": 436.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": ".00",
+          "node_id": "uia:win:1272:f0396:137",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 45.0,
+            "x": 759.0,
+            "y": 443.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "$378.90",
+          "node_id": "uia:win:1272:f0396:138",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 208.0,
+            "x": 675.0,
+            "y": 464.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "More options from $158.77 - $429.99",
+          "node_id": "uia:win:1272:f0396:139",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 88.0,
+            "x": 675.0,
+            "y": 487.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FREE SHIPPING ",
+          "node_id": "uia:win:1272:f0396:140",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 18.0,
+            "width": 93.0,
+            "x": 767.0,
+            "y": 487.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "from Hong Kong",
+          "node_id": "uia:win:1272:f0396:141",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "text",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 25.0,
+            "width": 112.0,
+            "x": 675.0,
+            "y": 551.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "ADD TO CART ",
+          "node_id": "uia:win:1272:f0396:142",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 794.0,
+            "y": 547.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Add to wish list",
+          "node_id": "uia:win:1272:f0396:143",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "button",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 225.0,
+            "width": 300.0,
+            "x": 346.0,
+            "y": 619.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "KingSpec XG7000-FB M.2 2280 2TB PCIe Gen 4.0x4 NVME 1.4 Speed up to 7400MB/s Write Speed Up to 6600MB/s Internal Solid State Drive for PS5 PC Desktop Laptop Game-Player Non-Heatsink Add Compare Quick View",
+          "node_id": "uia:win:1272:f0396:144",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 21.0,
+            "width": 115.0,
+            "x": 672.0,
+            "y": 619.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "FantasTech Deal",
+          "node_id": "uia:win:1272:f0396:159",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 225.0,
+            "width": 300.0,
+            "x": 675.0,
+            "y": 619.0
+          },
+          "context_only": false,
+          "depth": 14,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "KingSpec M.2 2280 2TB PCIe Gen 4x4 with NVMe 1.4 3D NAND Laptop & Desktop Internal Solid State Drive NVMe SSD R/W up to 4,000/3,700 MB/s XF-L 2TB 2280 Add Compare Quick View",
+          "node_id": "uia:win:1272:f0396:160",
+          "parent_id": "uia:win:1272:f0396:53",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 52.0,
+            "width": 102.0,
+            "x": 24.0,
+            "y": 90.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Newegg",
+          "node_id": "uia:win:1272:f0396:720",
+          "parent_id": "uia:win:1272:f0396:55",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 485.0,
+            "y": 99.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "notify",
+          "node_id": "uia:win:1272:f0396:722",
+          "parent_id": "uia:win:1272:f0396:59",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 642.0,
+            "y": 100.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "icon of my account",
+          "node_id": "uia:win:1272:f0396:723",
+          "parent_id": "uia:win:1272:f0396:63",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 45.0,
+            "width": 79.0,
+            "x": 825.0,
+            "y": 93.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Returns & Orders",
+          "node_id": "uia:win:1272:f0396:725",
+          "parent_id": "uia:win:1272:f0396:64",
+          "role": "hyperlink",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 33.0,
+            "width": 33.0,
+            "x": 911.0,
+            "y": 100.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "icon of shopping cart",
+          "node_id": "uia:win:1272:f0396:726",
+          "parent_id": "uia:win:1272:f0396:66",
+          "role": "control",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 39.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 55.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "NewONOFF",
+          "node_id": "uia:win:1272:f0396:727",
+          "parent_id": "uia:win:1272:f0396:80",
+          "role": "listitem",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus"
+          ],
+          "bounds": {
+            "height": 39.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 93.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Combo Deals OnlyONOFF",
+          "node_id": "uia:win:1272:f0396:728",
+          "parent_id": "uia:win:1272:f0396:81",
+          "role": "listitem",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        },
+        {
+          "actions": [
+            "focus",
+            "invoke"
+          ],
+          "bounds": {
+            "height": 31.0,
+            "width": 280.0,
+            "x": 34.0,
+            "y": 162.0
+          },
+          "context_only": false,
+          "depth": 15,
+          "enabled": true,
+          "focused": false,
+          "in_region": true,
+          "label": "Department ",
+          "node_id": "uia:win:1272:f0396:729",
+          "parent_id": "uia:win:1272:f0396:82",
+          "role": "listitem",
+          "surface_id": "win:1272:f0396",
+          "value": null,
+          "value_state": "not_applicable",
+          "value_truncated": false,
+          "visible": true
+        }
+      ],
+      "omitted": 0,
+      "region": {
+        "height": 768.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "returned": 101,
+      "scope": "foreground_window",
+      "selected": 101,
+      "selection_policy": "visible_breadth_first",
+      "truncated": true,
+      "truncation_reasons": [
+        "time_limit"
+      ],
+      "viewport": {
+        "height": 728.0,
+        "width": 1024.0,
+        "x": 0.0,
+        "y": 0.0
+      },
+      "visited": 730
+    },
+    "action": "keypress",
+    "coordinate_space": "physical_desktop_pixels",
+    "displays": [
+      {
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "id": "win-monitor:10001",
+        "physical_pixels": {
+          "height": 768.0,
+          "width": 1024.0
+        },
+        "primary": true,
+        "scale": 1.0,
+        "scale_source": "GetScaleFactorForMonitor"
+      }
+    ],
+    "frame_id": "win:7076:1791176317160311100:22",
+    "performed": true,
+    "permissions": {
+      "elevation": "unchanged",
+      "interactive_desktop": true,
+      "secure_desktop": false
+    },
+    "platform": "windows",
+    "screenshot_bounds": {
+      "height": 768.0,
+      "width": 1024.0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "screenshot_included": false,
+    "surfaces": [
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": true,
+        "frontmost": true,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:f0396",
+        "title": "2TB NVMe SSD | Newegg.com - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "ThumbnailDeviceHelperWnd",
+        "bounds": {
+          "height": 1.0,
+          "width": 1.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:103a4",
+        "title": ""
+      },
+      {
+        "app": "Shell_TrayWnd",
+        "bounds": {
+          "height": 48.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 720.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:100d8",
+        "title": ""
+      },
+      {
+        "app": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "bounds": {
+          "height": 635.0,
+          "width": 1044.0,
+          "x": 148.0,
+          "y": 156.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8792,
+        "surface_id": "win:8792:160394",
+        "title": "C:\\Users\\xharness\\AppData\\Local\\Temp\\XHarness-Shopping-Lab-20261005124221\\computer-probe.exe"
+      },
+      {
+        "app": "CASCADIA_HOSTING_WINDOW_CLASS",
+        "bounds": {
+          "height": 635.0,
+          "width": 1044.0,
+          "x": 96.0,
+          "y": 104.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8792,
+        "surface_id": "win:8792:c0194",
+        "title": "Windows PowerShell"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:190378",
+        "title": "XHarness Shopping Load Lab - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:1d0346",
+        "title": "1TB NVMe SSD | Newegg.com - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:e037e",
+        "title": "XHarness Shopping Load Lab - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Chrome_WidgetWin_1",
+        "bounds": {
+          "height": 736.0,
+          "width": 1040.0,
+          "x": -8.0,
+          "y": -8.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 1272,
+        "surface_id": "win:1272:1e0372",
+        "title": "自定义浏览器 和另外 2 个页面 - 用户配置 1 - Microsoft​ Edge"
+      },
+      {
+        "app": "Windows.UI.Core.CoreWindow",
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 8124,
+        "surface_id": "win:8124:30192",
+        "title": "Windows 输入体验"
+      },
+      {
+        "app": "EdgeUiInputTopWndClass",
+        "bounds": {
+          "height": 4.0,
+          "width": 1009.0,
+          "x": 15.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:10160",
+        "title": ""
+      },
+      {
+        "app": "Progman",
+        "bounds": {
+          "height": 768.0,
+          "width": 1024.0,
+          "x": 0.0,
+          "y": 0.0
+        },
+        "focused": false,
+        "frontmost": false,
+        "minimized": false,
+        "pid": 4248,
+        "surface_id": "win:4248:100fe",
+        "title": "Program Manager"
+      }
+    ]
+  },
+  "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd",
+  "host_received_utc": "2026-10-05T12:58:38.798033+00:00"
+}

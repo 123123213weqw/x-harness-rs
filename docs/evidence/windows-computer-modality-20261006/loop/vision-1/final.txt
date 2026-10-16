@@ -1,0 +1,8 @@
+The form was submitted — the product count changed from "808 products" to "8 products", confirming the search for "SSD" was applied. The first two result cards are:
+
+1. **Orion Pro SSD** — CNY 549
+2. **Lyra Plus SSD** — CNY 599
+
+```json
+{"query":"SSD","products":[{"name":"Orion Pro SSD","price":549},{"name":"Lyra Plus SSD","price":599}]}
+```

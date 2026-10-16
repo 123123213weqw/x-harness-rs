@@ -23,6 +23,17 @@ const referenceLayoutCss=`
  ._84hhiq_sidebarCol ._84hhiq_regionSurface .U910La_root{width:calc(100% + 1px)!important}
  ._84hhiq_detailsCol{border-left:1px solid var(--dsw-alias-border-l2)!important}
  ._84hhiq_frame[data-details-collapsed] ._84hhiq_detailsCol{border-left:none!important}
+ /* The reviewed execution chip has separate full-graph interaction/style
+    acceptance. Remove ONLY its Menu wrapper in the frozen-geometry lane. */
+ [data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment]){display:none!important}
+`
+
+// Project only the user-approved adjacent effort entry for frozen pixels.
+// Real source controls are counted and exercised separately below. No mask,
+// golden overwrite, or tolerance change is used.
+const referenceReasoningCss=`
+ .AbPDjW_root{display:block!important;gap:normal!important;max-width:none!important;flex-wrap:nowrap!important}
+ button[data-xh-model-control="effort"]{display:none!important}
 `
 
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
@@ -30,6 +41,12 @@ const require=createRequire(resolve(deps,'package.json')),browser=await require(
 try{
  // English accessible-name assertions must not inherit the runner's OS locale.
  const page=await browser.newPage({viewport:{width:1280,height:820},colorScheme:'light',locale:'en-US'}),errors=[],failed=[],requests=[],consoleErrors=[]
+ // Both immutable reference and candidate use the same deterministic clock.
+ // The built-in Host fixture deliberately toggles fx-gamma every five seconds;
+ // CPU contention must not compare opposite phases of that transport heartbeat.
+ // Freeze only after actual boot effects have completed and its idle phase is
+ // visible. No fixture bytes, DOM copy, control or pixel is masked/rewritten.
+ await page.clock.install({time:new Date('2026-10-12T00:00:00Z')})
  assert.equal(await page.evaluate(()=>navigator.language),'en-US','complete graph fixture uses its explicit English browser locale')
  page.on('pageerror',error=>errors.push(error.stack??error.message));page.on('console',message=>{if(message.type()==='error')consoleErrors.push(message.text())});page.on('requestfailed',request=>failed.push({url:request.url(),error:request.failure()?.errorText}))
  await page.route('**/*',route=>{
@@ -40,7 +57,7 @@ try{
   const types={'.html':'text/html','.js':'application/javascript','.json':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.wasm':'application/wasm'}
   const extension=local.match(/\.[^./]+$/)?.[0]
   const bytes=readFileSync(local)
-  const body=referenceLayout&&(url.pathname==='/'||url.pathname==='/index.html')?bytes.toString().replace('</head>',`<style data-approved-regional-projection>${referenceLayoutCss}</style></head>`):bytes
+  const body=referenceLayout&&(url.pathname==='/'||url.pathname==='/index.html')?bytes.toString().replace('</head>',`<style data-approved-regional-projection>${referenceLayoutCss}</style><style data-approved-reasoning-projection>${referenceReasoningCss}</style></head>`):bytes
   return route.fulfill({body,contentType:types[extension]??'application/octet-stream'})
  })
  await page.goto('http://127.0.0.1:39187/?fixture=1')
@@ -49,11 +66,23 @@ try{
  // Compare the settled UI, not the optional 180ms decorative loading exit.
  // This is a lifecycle condition, not a fixed sleep or an animation gate.
  await page.locator('[data-xh-startup-exit]').waitFor({state:'detached'})
+ await page.clock.pauseAt(await page.evaluate(()=>Date.now()+1000))
+ const idleHeartbeat=page.getByRole('treeitem').filter({hasText:/^fixture\s*2min$/})
+ if(await idleHeartbeat.count()===0)await page.clock.runFor(5000)
+ await idleHeartbeat.waitFor()
+ if(referenceLayout){
+  const projectedMenu=page.locator('[data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment])')
+  assert.equal(await projectedMenu.count(),1,'reference lane projects exactly the reviewed slot Menu wrapper')
+  assert.equal(await projectedMenu.evaluate(node=>getComputedStyle(node).display),'none','projection removes the exact new Menu flex item')
+ }
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
   await page.locator('._84hhiq_centerCol').screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-chat-boot.png':'-chat-boot.png')),animations:'disabled',caret:'hide'})
  }
+ // Remove only the temporary model-entry projection after pixel capture;
+ // all source interaction assertions exercise the real two-control layout.
+ await page.locator('style[data-approved-reasoning-projection]').evaluateAll(nodes=>nodes.forEach(node=>node.remove()))
  if(implementation==='source')assert.equal(await page.locator('._84hhiq_regionSurface').count(),3,'each owned column has its own surface')
  const early=await page.evaluate(()=>{
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
@@ -62,6 +91,9 @@ try{
   const codeReviewEntry=document.querySelectorAll('button[data-xharness-review-nav][aria-label="Code Review"]')
   const assistantEntry=document.querySelectorAll('button[data-xharness-assistant-nav][aria-label="Little X"]')
   const accountEntry=document.querySelectorAll('button[data-xh-account-trigger][aria-label="Account & settings"]')
+  const effortEntry=document.querySelectorAll('button[data-xh-model-control="effort"]')
+  const environmentEntry=document.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]')
+  const modelEntry=document.querySelectorAll('button[data-xh-model-control="model"]')
   // Explicit product deltas: Tasks, Code Review, Little X and removed sidebar search.
   // Count the removed controls independently; all other controls and exact
   // conversation pixels continue to use the untouched frozen reference.
@@ -70,12 +102,21 @@ try{
   // Only the reviewed sidebar entry changes from a gear to account chrome.
   // Keep its button count and all unrelated copy/pixels in frozen parity.
   copy.querySelectorAll('button[data-xh-account-trigger]').forEach(node=>{node.textContent='Settings'})
+  // Approved entry has separate exact counts; only its extra copy is projected.
+  copy.querySelectorAll('button[data-xh-model-control="effort"]').forEach(node=>node.remove())
+  copy.querySelectorAll('button[data-xh-runtime-environment][aria-label="Choose execution environment"]').forEach(node=>node.remove())
   copy.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger,button[aria-label="Search sessions"],button[data-xharness-review-nav][aria-label="Code Review"],button[data-xharness-assistant-nav][aria-label="Little X"],button[data-shell-navigation-back],button[data-shell-navigation-forward]').forEach(node=>node.remove())
-  return {accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
+  return {environmentEntryCount:environmentEntry.length,effortEntryCount:effortEntry.length,modelEntryCount:modelEntry.length,accountEntryCount:accountEntry.length,text:document.body.innerText,stableText:copy.textContent.replace(/\s+/g,' ').trim(),buttons:document.querySelectorAll('button').length,shellNavigationCount:shellNavigation.length,stableButtons:document.querySelectorAll('button').length-shellNavigation.length-navigation.length-sidebarSearch.length-codeReviewEntry.length-assistantEntry.length-effortEntry.length-environmentEntry.length,assistantEntryCount:assistantEntry.length,codeReviewEntryCount:codeReviewEntry.length,navigationCount:navigation.length,sidebarSearchEntryCount:sidebarSearch.length,sidebarSearchInputCount:sidebarSearchInput.length,inputs:document.querySelectorAll('textarea,[contenteditable="true"]').length}
  })
+ // Interaction acceptance resumes naturally advancing timers; only the settled,
+ // phase-bound boot receipt above is frozen. Navigation needs no manual ticks.
+ await page.clock.resume()
+ assert.equal(early.effortEntryCount,implementation==='source'?1:0,'exactly one reviewed adjacent effort control')
+ assert.equal(early.modelEntryCount,implementation==='source'?1:0,'source retains one authoritative model control')
  assert.equal(early.shellNavigationCount,implementation==='source'?2:0,'exactly the reviewed Back/Forward pair')
  assert.equal(early.codeReviewEntryCount,implementation==='source'?1:0,'reviewed navigation is one exact owned control; frozen positive control stays immutable')
  assert.equal(early.assistantEntryCount,implementation==='source'?1:0,'Little X is one exact owned control, not a generic parity mask')
+ assert.equal(early.environmentEntryCount,implementation==='source'?1:0,'exactly the reviewed typed execution-environment chip; frozen reference stays unchanged')
  assert.equal(early.sidebarSearchEntryCount,implementation==='source'?0:1,'removed search versus intact frozen positive control')
  assert.equal(early.accountEntryCount,implementation==='source'?1:0,'one reviewed account trigger replaces Settings; frozen control unchanged')
  assert.equal(early.sidebarSearchInputCount,implementation==='source'?0:1,'removed search field versus intact frozen positive control')
@@ -92,12 +133,19 @@ try{
  await page.getByRole('button',{name:'Close',exact:true}).click()
  await page.getByRole('button',{name:/Select model, current/}).click()
 
- await page.locator('button').filter({hasText:/^Effort\s*High$/}).waitFor()
  await page.locator('button').filter({hasText:/^上下文容量\s*未知$/}).waitFor()
- await page.locator('button').filter({hasText:/^Effort\s*High$/}).click()
+ if(implementation==='source') {
+  assert.equal(await page.locator('button').filter({hasText:/^Effort\s*High$/}).count(),0,'do not retain the old nested effort entry')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button',{name:'Thinking: High',exact:true}).click()
+ } else {
+  await page.locator('button').filter({hasText:/^Effort\s*High$/}).waitFor()
+  await page.locator('button').filter({hasText:/^Effort\s*High$/}).click()
+ }
  for(const name of ['Off','High','Max']) await page.locator('button').filter({hasText:new RegExp('^'+name+'$')}).waitFor()
  await page.locator('button').filter({hasText:/^Off$/}).click()
- await page.getByRole('button',{name:/Select model, current.*reasoning effort Off/}).waitFor()
+ if(implementation==='source')await page.getByRole('button',{name:'Thinking: Off',exact:true}).waitFor()
+ else await page.getByRole('button',{name:/Select model, current.*reasoning effort Off/}).waitFor()
  if(implementation==='source') {
   const composer=page.locator('textarea').first()
   await composer.fill('Retain draft across Work center')
@@ -119,5 +167,5 @@ try{
  assert.deepEqual(staticFailures,[],'all full graph static requests complete')
 
  assert.deepEqual(errors,[],'navigation on the genuine full graph must not throw')
- console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
+ console.log(JSON.stringify({engine,implementation,fullGraph:true,fixtureTransport:true,settingsProviders:true,modelEffortAndContextControls:true,effortChange:true,environmentEntryCount:early.environmentEntryCount,effortEntryCount:early.effortEntryCount,modelEntryCount:early.modelEntryCount,shellNavigationCount:early.shellNavigationCount,workCenterNavigation:implementation==='source',assistantEntryCount:early.assistantEntryCount,codeReviewEntryCount:early.codeReviewEntryCount,accountEntryCount:early.accountEntryCount,buttons:early.buttons,stableButtons:early.stableButtons,stableText:early.stableText,navigationCount:early.navigationCount,sidebarSearchEntryCount:early.sidebarSearchEntryCount,sidebarSearchInputCount:early.sidebarSearchInputCount,inputs:early.inputs,errors,staticFailures,fixtureHmrDisconnects:failed.filter(row=>new URL(row.url).pathname==='/plugins/events').length,text:early.text.slice(0,1000),loadedPluginPaths:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).sort(),loadedPlugins:requests.filter(path=>path.startsWith('/plugins/')&&path.endsWith('/client.js')).length}))
 }finally{await browser.close()}

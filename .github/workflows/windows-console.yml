@@ -11,6 +11,9 @@ on:
       - 'crates/xharness-web-terminal/**'
       - 'scripts/fixtures/windows-no-console.ps1'
       - '.github/workflows/windows-console.yml'
+      - 'runtime/powershell.lock.json'
+      - 'scripts/powershell-runtime.py'
+      - 'scripts/test-bundled-powershell.ps1'
 
 permissions:
   contents: read
@@ -25,7 +28,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Stage and verify the pinned PowerShell runtime before native tests
+        run: |
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Pinned PowerShell staging failed' }
+          ./scripts/test-bundled-powershell.ps1
+          "XHARNESS_BUNDLED_POWERSHELL_ROOT=$((Resolve-Path apps/desktop/src-tauri/resources/powershell).Path)" >> $env:GITHUB_ENV
       - name: Repeat cold PowerShell console probe with phase evidence
         run: |
           1..5 | ForEach-Object {

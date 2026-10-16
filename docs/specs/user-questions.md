@@ -8,6 +8,15 @@
 
 新版增加 60 秒软等待：`deferred` 只完成原工具等待，不终结待答问题，也不代表用户同意。低风险探索由执行层 Guard 强制约束，迟到答案经持久化 outbox 进入原 Steering 队列。详细状态和边界见 [问答继续规范](question-continuation.md)。下文原“同一 Tool Call 等待至回答”的语义仅适用于超时前；新代码尚需 CI 安装包部署。
 
+## 2026-10-14：问答不再写入工作区记忆
+
+`ask_user_question` 只澄清当前对话。已经移除 Question Hub 的文件写入端口和生产 AGENTS.md Writer；
+普通回答、已回答重放、超时后迟到回答、恢复后的回执投递均不再自动创建或修改 `AGENTS.md`。
+旧的 `agent_markdown` 参数/日志值仅用于兼容反序列化与调用身份校验，不再代表保存授权；
+对模型返回的答案统一投影为 `destination=context`，也不再报告 `requestsAgentMarkdown`。
+既有文件内容与会话日志不做迁移或删除；[独立项目规则加载器](workspace-instructions.md) 不再注入旧托管区，
+避免把旧问答提升为已授权规则。旧字段/读取 helper 只保留兼容，独立自动记忆系统另行设计。
+
 ## 目标
 
 当模型缺少的是用户决定、偏好或系统无法自行取得的事实时，可以暂停当前 Tool Call，等待用户回答，
@@ -25,9 +34,8 @@ Process 或 PTY；Host 重启后使用原 Interaction/Execution ID 重新发布�
 - `allowCustom=true` 时，用户可以只填写自由文本，也可以在选择一个选项后补充说明。
 - 纯文本问题必须使用空选项和 `allowCustom=true`。
 - 每题最多一个推荐选项。
-- `destination=context` 是默认短期答案，只进入当前 Tool Result/Session 上下文。
-- `destination=agent_markdown` 表示显式长期目标；Host 只能写入受管 AGENTS.md Memory Section，
-  禁止接受模型指定的任意路径。
+- 新调用应省略兼容字段 `destination`；答案只进入当前 Tool Result/Session 上下文。
+- 历史 `destination=context` 与 `destination=agent_markdown` 都可恢复，但后者不再触发文件写入。
 - 该工具必须独占一个 Tool Batch，禁止与写文件、运行命令等副作用工具并发发起。
 
 模型在提问前应先读取可用上下文并使用可用工具取得事实。能够从 Workspace、Session 原始日志或网络
@@ -124,11 +132,11 @@ Session 绑定，因此模型参数不需要携带 Session ID、文件路径或 
   `question/draft-updated` 事件供后续跨页面/跨进程草稿同步；冻结上游 UI 当前没有发送该事件，
   因而浏览器整页刷新只恢复问题本身，不承诺恢复尚未提交的输入框文字。
 
-## 长期与短期答案
+## 问答与记忆分离
 
-短期答案始终通过 Tool Result 进入当前 Context。`agent_markdown` 答案还需要由 Host 的受管 Memory
-Sink 规范化后写入 AGENTS.md 的专用区段，并使用 CAS/原子写保护用户已有内容。写入失败不得伪造
-成功，模型也不能指定任意路径或覆盖整个文件。
+回答问题不等于同意长期记忆。Question Hub 只持久化当前 Session 的问答事件，不提供工作区文件写入端口。
+旧日志保留原始字段与 Interaction/Execution ID；仅在普通 Tool Result 和迟到答案送入模型时，
+将答案作用域投影为当前对话，避免误报长期保存。`AGENTS.md` 中已有内容不自动删除、清理或重写。
 
 ## Compaction 后续任务
 
@@ -138,7 +146,7 @@ Sink 规范化后写入 AGENTS.md 的专用区段，并使用 CAS/原子写保�
 - 未解决的 Assistant Tool Call、`question/requested`、Draft 和关联 ID 禁止被 Compact；
 - Question 解决并生成 Tool Result 后，问、答、Tool Result 作为一个原子单元选取安全切点；
 - 原始 Session 中已有答案时，Context 恢复应优先检索原记录，再考虑询问用户；
-- 长期 `agent_markdown` 内容进入下一轮 Prompt 的预算和去重策略必须独立审计。
+- 独立长期记忆系统的预算、去重与用户管理必须另行设计，不复用问答回执作为保存触发器。
 
 ## 测试矩阵
 
@@ -147,7 +155,8 @@ Sink 规范化后写入 AGENTS.md 的专用区段，并使用 CAS/原子写保�
 - 回答一半后点掉，Draft 保持 Pending；
 - 空回答直接 Continue、部分回答 Continue、完整 Submit；
 - 相同 Resolve 幂等、不同 Resolve 冲突、Cancel 后拒绝回答；
-- `agent_markdown` 只产生受管目标，不接受 Path；
+- 旧 `agent_markdown` 调用在普通回答、Pending 冷恢复和已回答重放中均不写文件；
+- AGENTS.md 不存在、已有内容、只读文件、同名目录均不影响问答正常结算；
 - 普通 Tool Registry 注册、重复名检测、结构化 Tool Result；
 - External Settlement 不触发普通 Tool Timeout，Cancel 仍有界收敛；
 - Requested/Resolved/Tool Result 的确定性恢复、Web 重连基线和 Host Restart 已覆盖；逐切点

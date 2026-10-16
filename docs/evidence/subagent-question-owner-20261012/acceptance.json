@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-12",
+  "base_commit": "e0a35e4c4b3af36ed0e1b0ef6f348800c298a872",
+  "scope": "Delegated child agents report clarifications to their parent via existing settlement/send path; only primary conversations expose human questions.",
+  "remote": "WZU_Server",
+  "remote_directory": "~/codex-build/x-harness-rs/subagent-question-owner-20261012",
+  "source_sha256": {
+    "crates/xharness-host-app/src/lib.rs": "018b7aacc7baf13fb51ee8731e453b451f777f5ba2029f291a17cf95b9a4190c",
+    "crates/xharness-host/src/delegation.rs": "6af2d44cbb25a44705bcd9da6282b15f483325ce7cd83928eb1646e82461453a",
+    "crates/xharness-host/src/questions.rs": "9b2cfe3f6ea099ba1e3d2129f9c242aaa8419a0917df8a70e19f0fb67c2d15e8",
+    "crates/xharness-host/src/questions/continuation.rs": "e046a32b6fe130c8eb0527a5e66bb4cba79cc0fd2973509b8d166bb6b0136249",
+    "crates/xharness-host/src/restore.rs": "e0f5e27ffd783b63bce07f8fa8f774e15a06401855b2d454279145c6db9ff5da",
+    "crates/xharness-host/src/state.rs": "e07e31820a3c95694bd72910dd4dab2c1bf1419d087424933a8c0af3996f5304",
+    "crates/xharness-host-app/tests/subagent_questions.rs": "d39f23864b5569313c3abe110b41ab9c21391a0cbef020859a647bb647e3b435"
+  },
+  "regression_groups": {
+    "host_questions": 14,
+    "host_permission_filter": 7,
+    "host_delegation_filter": 33,
+    "host_app_library": 83,
+    "native_model_confirmation": 1,
+    "native_subagent_question_cold_restore": 1
+  },
+  "counts_are_test_invocations_not_unique_cases": true,
+  "existing_ignored_tests": 1,
+  "clippy": "passed for xharness-host and xharness-host-app, all targets, -D warnings",
+  "log_sha256": "2b7fd60652172257aa37b25a5904ca10825c6ae6f00b140d9d7b2464135f5da5",
+  "new_acceptance": [
+    "child user question schema is absent in both permission presets",
+    "forced stale child question call produces no user dialog",
+    "child report reaches parent; parent send resumes child",
+    "JSONL cold restore retains ownership and prompt policy",
+    "direct/stale question provider cannot publish new child questions",
+    "normal forks remain user-owned",
+    "legacy pending child waits are policy-cancelled, not merely hidden",
+    "previously accepted human answers remain replayable/deliverable without child dialog",
+    "manual model-change approval remains human-owned"
+  ],
+  "limitations": [
+    "Uses deterministic fake model responses through actual production NativeToolFactory and durable Host/RPC; not a real-model decision-quality evaluation.",
+    "Rust tests and Clippy ran only on remote Linux, not native Windows/macOS GUI.",
+    "No new RPC or persistent event format; no software replacement, deployment, PR or release performed."
+  ],
+  "passed": true
+}

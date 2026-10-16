@@ -1,0 +1,16 @@
+filter complete 20 calls 474.88 s Turn limit reached, not completion
+{"id": 20, "action": "observe", "ok": true, "native_ms": 311, "wall_s": 4.87, "image": false}
+{"id": 21, "action": "keypress", "ok": true, "native_ms": 404, "wall_s": 3.5, "image": false}
+{"id": 22, "action": "type", "ok": true, "native_ms": 325, "wall_s": 5.65, "image": false}
+{"id": 23, "action": "keypress", "ok": true, "native_ms": 438, "wall_s": 6.7, "image": false}
+scroll-detail complete 3 calls 76.7 s Non-whitelisted action; not dispatched
+{"id": 27, "action": "observe", "ok": true, "native_ms": 422, "wall_s": 3.42, "image": false}
+{"id": 28, "action": "keypress", "ok": true, "native_ms": 412, "wall_s": 3.02, "image": false}
+{"id": 29, "action": "type", "ok": true, "native_ms": 454, "wall_s": 4.03, "image": false}
+{"id": 30, "action": "keypress", "ok": true, "native_ms": 416, "wall_s": 10.09, "image": false}
+modal complete 7 calls 219.3 s None
+{"id": 38, "action": "observe", "ok": true, "native_ms": 388, "wall_s": 8.28, "image": false}
+{"id": 39, "action": "keypress", "ok": true, "native_ms": 423, "wall_s": 15.51, "image": false}
+{"id": 40, "action": "type", "ok": true, "native_ms": 503, "wall_s": 6.79, "image": false}
+{"id": 41, "action": "keypress", "ok": true, "native_ms": 467, "wall_s": 50.69, "image": false}
+slow-layout complete 13 calls 292.71 s None

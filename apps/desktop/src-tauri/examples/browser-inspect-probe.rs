@@ -12,12 +12,16 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_native/mod.rs"]
+mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 
 mod native_api;
 #[path = "../src/native_startup.rs"]
 mod native_startup;
+#[path = "probe_support/readiness.rs"]
+mod readiness;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -38,9 +42,31 @@ fn serve_fixture(html: String) -> String {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { break };
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-            let mut headers = [0; 4096];
-            let _ = stream.read(&mut headers);
-            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", html.len(), html);
+            let mut headers = Vec::new();
+            let mut chunk = [0; 1024];
+            while headers.len() < 8192 && !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(length) => headers.extend_from_slice(&chunk[..length]),
+                }
+            }
+            if !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                continue;
+            }
+            let headers = String::from_utf8_lossy(&headers);
+            let identity = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("user-agent")
+                        .then(|| value.trim())
+                })
+                .unwrap_or_default();
+            let identity = serde_json::to_string(identity)
+                .unwrap()
+                .replace('<', "\\u003c");
+            let response = format!("{html}<script>window.probeHttpUserAgent={identity}</script>");
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response);
         }
     });
     format!("http://{address}/")
@@ -138,6 +164,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     let listener = app.listen_any("xharness-browser-control-open", move |event| {
         let value: Value = serde_json::from_str(event.payload()).unwrap();
         let app = handle.clone();
+        let admitted_at = tokio::time::Instant::now();
         tauri::async_runtime::spawn(async move {
             let caller = app.get_webview("main").unwrap();
             let request_id = value["requestId"].as_str().unwrap().to_owned();
@@ -178,36 +205,66 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
                     .unwrap();
                 return;
             }
-            for _ in 0..100 {
-                let (guest, _) = app
-                    .state::<browser::BrowserState>()
-                    .inspection_target(&tab_id)
-                    .unwrap();
-                let origin = guest.url().unwrap().origin().ascii_serialization();
-                let _ = browser_delegation::desktop_browser_delegate(
-                    caller.clone(),
+            let started = tokio::time::Instant::now();
+            let ready_delay = std::env::var("XHARNESS_NATIVE_PROBE_READY_DELAY_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| matches!(value, 0 | 6000))
+                .unwrap_or(0);
+            // Poll acknowledgement, never replay navigation/input. Reserve a
+            // short interval to report failure before the production deadline.
+            let result = readiness::wait(
+                browser_lifecycle::OPEN_TIMEOUT
+                    .saturating_sub(admitted_at.elapsed() + Duration::from_millis(250)),
+                Duration::from_millis(50),
+                || async {
+                    if started.elapsed() < Duration::from_millis(ready_delay) {
+                        return Err("test-owned Ready acknowledgement delayed".into());
+                    }
+                    let (guest, _) = app
+                        .state::<browser::BrowserState>()
+                        .inspection_target(&tab_id)?;
+                    let origin = guest
+                        .url()
+                        .map_err(|_| "native URL unavailable")?
+                        .origin()
+                        .ascii_serialization();
+                    browser_delegation::desktop_browser_delegate(
+                        caller.clone(),
+                        app.state(),
+                        tab_id.clone(),
+                        Some(owner.clone()),
+                        true,
+                        Some(origin),
+                    )
+                    .await?;
+                    // Preserve the exact production readiness checks and expose
+                    // their reason rather than reducing all failures to false.
+                    app.state::<browser::BrowserState>()
+                        .loaded_receipt(&owner, &tab_id)?;
+                    browser_lifecycle::desktop_browser_control_reply(
+                        app.clone(),
+                        caller.clone(),
+                        app.state(),
+                        request_id.clone(),
+                        browser_lifecycle::ControlReply::Ready {
+                            tab_id: tab_id.clone(),
+                        },
+                    )
+                    .await
+                },
+            )
+            .await;
+            if let Err(error) = result {
+                eprintln!("Native lifecycle readiness failed: {error}");
+                let _ = browser_lifecycle::desktop_browser_control_reply(
+                    app.clone(),
+                    caller,
                     app.state(),
-                    tab_id.clone(),
-                    Some(owner.clone()),
-                    true,
-                    Some(origin),
+                    request_id,
+                    browser_lifecycle::ControlReply::Failed {},
                 )
                 .await;
-                if browser_lifecycle::desktop_browser_control_reply(
-                    app.clone(),
-                    caller.clone(),
-                    app.state(),
-                    request_id.clone(),
-                    browser_lifecycle::ControlReply::Ready {
-                        tab_id: tab_id.clone(),
-                    },
-                )
-                .await
-                .unwrap()
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
             }
         });
     });
@@ -219,7 +276,10 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     )
     .await?;
     if opened["result"]["state"] != "ready" {
-        return Err("native open did not reach ready".into());
+        return Err(format!(
+            "native open did not reach ready: ok={}, state={}, error={}",
+            opened["ok"], opened["result"]["state"], opened["error"]
+        ));
     }
     let view = bridge_call(connection, "probe-owner", "observe", json!({})).await?;
     let fill = serde_json::to_value(action(
@@ -391,6 +451,155 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// Exercise the production private bridge, not just the feasibility adapters.
+async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
+    use base64::Engine;
+    let main = app.get_webview("main").ok_or("main unavailable")?;
+    let (guest, inspector) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let origin = guest
+        .url()
+        .map_err(|_| "guest URL unavailable")?
+        .origin()
+        .ascii_serialization();
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("production-probe".into()),
+        true,
+        Some(origin),
+    )
+    .await?;
+    let bridge = app.state::<browser_bridge::BrowserBridge>();
+    let connection = bridge.start(app).await?;
+    let status = bridge_call(connection, "production-probe", "list", json!({})).await?;
+    if status["result"]["capabilities"]["native_input"] != true
+        || status["result"]["capabilities"]["screenshot"] != true
+    {
+        return Err("production capabilities missing".into());
+    }
+    evidence(&guest,"(() => {document.querySelector('#native-marker').style.background='rgb(255,0,0)';return true})()").await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    let frame = capture["result"]["frame_id"]
+        .as_str()
+        .ok_or("missing screenshot frame")?;
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(
+            capture["result"]["png_base64"]
+                .as_str()
+                .ok_or("missing production PNG")?,
+        )
+        .map_err(|_| "invalid production PNG")?;
+    if png.len() < 24 || !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("production snapshot was not native PNG".into());
+    }
+    if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+        std::fs::write(std::path::PathBuf::from(root).join("production.png"), &png)
+            .map_err(|_| "production PNG write failed")?;
+    }
+    let captured_viewport = capture["result"]["viewport"].clone();
+    if bridge_call(connection, "other-owner", "screenshot", json!({})).await?["ok"] != false {
+        return Err("screenshot leaked across owners".into());
+    }
+    let click = json!({"action":"click","frame_id":frame,"x":60,"y":35});
+    let receipt = bridge_call(connection, "production-probe", "input", click.clone()).await?;
+    if receipt["result"]["effect"] != "applied" {
+        return Err(format!("production pointer not applied: {receipt}"));
+    }
+    if bridge_call(connection, "production-probe", "input", click).await?["result"]["effect"]
+        != "not_started"
+    {
+        return Err("native input allowed duplicate frame".into());
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while evidence(&guest, "document.activeElement?.id==='answer'").await? != true {
+        if tokio::time::Instant::now() > deadline {
+            return Err("native input focus not observed".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    evidence(
+        &guest,
+        "(() => {document.querySelector('#answer').value='';nativeEvents=[];return true})()",
+    )
+    .await?;
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let key = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"key","frame_id":observation["result"]["frame_id"],"key":"z"}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if key["result"]["effect"] != "applied"
+        || evidence(&guest, "document.querySelector('#answer').value").await? != "z"
+        || evidence(&guest,"nativeEvents.some(e=>e.type==='keydown'&&e.trusted)&&nativeEvents.some(e=>e.type==='keyup'&&e.trusted)").await?!=true
+    {
+        return Err("production key did not affect actual field".into());
+    }
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let shifted=bridge_call(connection,"production-probe","input",json!({"action":"key","frame_id":observation["result"]["frame_id"],"key":"z","modifiers":["Shift"]})).await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if shifted["result"]["effect"] != "applied"
+        || evidence(&guest, "document.querySelector('#answer').value").await? != "zZ"
+    {
+        return Err("production shifted key did not affect field".into());
+    }
+    evidence(&guest,"(() => {window.hovered=false;document.querySelector('#native-probe').addEventListener('mousemove',e=>window.hovered=e.isTrusted);return true})()").await?;
+    let observation = bridge_call(connection, "production-probe", "observe", json!({})).await?;
+    let moved = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"move","frame_id":observation["result"]["frame_id"],"x":450,"y":120}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if moved["result"]["effect"] != "applied" || evidence(&guest, "hovered").await? != true {
+        return Err("production hover did not produce trusted event".into());
+    }
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    evidence(&guest, "(() => {nativeChild=null;return true})()").await?;
+    let child = bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"click","frame_id":capture["result"]["frame_id"],"x":450,"y":190}),
+    )
+    .await?;
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    if child["result"]["effect"] != "applied" || evidence(&guest, "nativeChild").await? != true {
+        return Err("production cross-origin pointer failed".into());
+    }
+    let capture = bridge_call(connection, "production-probe", "screenshot", json!({})).await?;
+    inspector.invalidate();
+    if bridge_call(
+        connection,
+        "production-probe",
+        "input",
+        json!({"action":"click","frame_id":capture["result"]["frame_id"],"x":450,"y":120}),
+    )
+    .await?["result"]["effect"]
+        != "not_started"
+    {
+        return Err("native input accepted stale epoch".into());
+    }
+    browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+    if bridge_call(connection, "production-probe", "screenshot", json!({})).await?["ok"] != false {
+        return Err("hidden native snapshot accepted".into());
+    }
+    browser::desktop_browser_activate(main, app.state(), Some("probe".into())).await?;
+    println!(
+        "PRODUCTION_NATIVE_EVIDENCE {}",
+        json!({"passed":true,"screenshot":"native_png","viewport":captured_viewport,"input":"actual_field_zZ","hover":"trusted_mousemove","cross_origin_pointer":"trusted_child_click","duplicate_frame":"denied","stale_epoch":"denied","hidden":"denied","wrong_owner":"denied"})
+    );
+    Ok(())
+}
+
 async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
     let (guest, _) = app
         .state::<browser::BrowserState>()
@@ -423,11 +632,11 @@ async fn hard_capability_probe(app: &tauri::AppHandle) -> Result<(), String> {
         "HARD_CAPABILITY_EVIDENCE {}",
         json!({
           "platform":std::env::consts::OS,"engine":"native-tauri-system-webview",
-          "trusted_input":{"status":"not_implemented","observed_dom_events":events},
+          "trusted_input":{"status":"production_input; perform remains DOM-only","observed_dom_events":events},
           "cross_origin_frames":{"status":"not_implemented","top_document_probe":observed["frameError"]},
-          "screenshot":{"status":"not_implemented"},"recording":{"status":"not_implemented"},
+          "screenshot":{"status":"production_native_viewport"},"recording":{"status":"not_implemented"},
           "hidden_tab_actions":{"status":"unsupported_by_current_policy","verified_by_hidden_tab_guard":true},
-          "parity_gate":"blocked; DOM actions are not native input; no claim of full ZCode parity"
+          "parity_gate":"partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim"
         })
     );
     Ok(())
@@ -454,7 +663,7 @@ fn action(
         .ok_or("missing nodes")?
         .iter()
         .find(|node| node["label"] == label)
-        .ok_or("missing action target")?["ref"]
+        .ok_or_else(|| format!("missing action target {label:?}"))?["ref"]
         .clone();
     serde_json::from_value(arguments).map_err(|error| error.to_string())
 }
@@ -494,7 +703,13 @@ async fn bridge_call(
         .read_u32()
         .await
         .map_err(|_| "bridge response failed")? as usize;
-    if length > 65536 {
+    if length
+        > if op == "screenshot" {
+            12 * 1024 * 1024
+        } else {
+            65536
+        }
+    {
         return Err("bridge reply was not bounded".into());
     }
     let mut reply = vec![0; length];
@@ -680,7 +895,145 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     Ok(())
 }
 
+/// Native geometry regression: use production pane commands, not a browser
+/// mock. Hidden tabs retain old native rectangles until activation refreshes
+/// them. The callback also checks the real document viewport after rendering.
+#[cfg(windows)]
+async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
+    let main = app.get_webview("main").ok_or("missing main view")?;
+    let window = app.get_window("main").ok_or("missing main window")?;
+    let mut cases = Vec::new();
+    for (name, tab, rect, create) in [
+        ("initial-a", "bounds-a", [16.0, 24.0, 320.0, 240.0], true),
+        ("initial-b", "bounds-b", [280.0, 84.0, 400.0, 320.0], true),
+        (
+            "resize-active-b",
+            "bounds-b",
+            [210.0, 72.0, 540.0, 410.0],
+            false,
+        ),
+        (
+            "reselect-hidden-a",
+            "bounds-a",
+            [210.0, 72.0, 540.0, 410.0],
+            false,
+        ),
+        (
+            "reopen-after-hidden-layout",
+            "bounds-a",
+            [360.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+        (
+            "reselect-hidden-b",
+            "bounds-b",
+            [360.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+        (
+            "position-only-sidebar-shift",
+            "bounds-a",
+            [220.0, 60.0, 380.0, 350.0],
+            false,
+        ),
+    ] {
+        if name == "reopen-after-hidden-layout" {
+            browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
+        }
+        browser::desktop_browser_bounds(
+            main.clone(),
+            app.state(),
+            serde_json::from_value(
+                json!({"x":rect[0],"y":rect[1],"width":rect[2],"height":rect[3]}),
+            )
+            .unwrap(),
+        )
+        .await?;
+        browser::desktop_browser_activate(main.clone(), app.state(), Some(tab.into())).await?;
+        if create {
+            browser::desktop_browser_navigate(
+                app.clone(),
+                main.clone(),
+                app.state(),
+                tab.into(),
+                url.into(),
+            )
+            .await?;
+        }
+        let (guest, _) = app
+            .state::<browser::BrowserState>()
+            .inspection_target(tab)?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let mut sample = Value::Null;
+        let mut matched = false;
+        for _ in 0..60 {
+            let position = guest.position().map_err(|error| error.to_string())?;
+            let size = guest.size().map_err(|error| error.to_string())?;
+            let logical_position = position.to_logical::<f64>(scale);
+            let logical_size = size.to_logical::<f64>(scale);
+            let viewport = match evidence(
+                &guest,
+                "({width:innerWidth,height:innerHeight,ratio:devicePixelRatio})",
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    // Initial navigation can abandon an evaluation callback.
+                    // Retry read-only sampling, never the navigation/action.
+                    sample = json!({"case":name,"passed":false,"callback_error":error});
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
+            };
+            // Windows positions are relative to the parent client area. Other
+            // native backends can report screen-relative positions; the size
+            // and viewport assertions apply everywhere, but do not fake those
+            // different origin contracts into a cross-platform position pass.
+            let position_matches = !cfg!(windows)
+                || ((logical_position.x - rect[0]).abs() <= 1.0
+                    && (logical_position.y - rect[1]).abs() <= 1.0);
+            matched = position_matches
+                && (logical_size.width - rect[2]).abs() <= 1.0
+                && (logical_size.height - rect[3]).abs() <= 1.0
+                && viewport["width"]
+                    .as_f64()
+                    .is_some_and(|v| (v - rect[2]).abs() <= 2.0)
+                && viewport["height"]
+                    .as_f64()
+                    .is_some_and(|v| (v - rect[3]).abs() <= 2.0);
+            sample = json!({"case":name,"tab":tab,"expected_logical":rect,"scale_factor":scale,
+                "native_physical":[position.x,position.y,size.width,size.height],"viewport":viewport,
+                "position_asserted":cfg!(windows),"passed":matched});
+            if matched {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        println!("BROWSER_BOUNDS_CASE {sample}");
+        if !matched {
+            return Err(format!("native browser bounds mismatch: {sample}"));
+        }
+        cases.push(sample);
+    }
+    browser::desktop_browser_close(main.clone(), app.state(), "bounds-a".into()).await?;
+    browser::desktop_browser_close(main, app.state(), "bounds-b".into()).await?;
+    println!(
+        "BROWSER_BOUNDS_EVIDENCE {}",
+        json!({"passed":true,"cases":cases,"test_only":true,"host_or_model_started":false})
+    );
+    Ok(())
+}
+
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    #[cfg(windows)]
+    bounds_probe(app, &url).await?;
+    if std::env::var("XHARNESS_NATIVE_PROBE_BOUNDS_ONLY").as_deref() == Ok("1") {
+        #[cfg(windows)]
+        return Ok(());
+        #[cfg(not(windows))]
+        return Err("Windows bounds fixture cannot certify another native backend".into());
+    }
     lifecycle_probe(app, &url).await?;
     subframe_navigation_probe(app).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
@@ -716,6 +1069,42 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     }
     if observation.is_null() {
         return Err("native callback did not produce fixture evidence".into());
+    }
+    let (guest, _) = app
+        .state::<browser::BrowserState>()
+        .inspection_target("probe")?;
+    let identity = evidence(
+        &guest,
+        "({http:window.probeHttpUserAgent,js:navigator.userAgent})",
+    )
+    .await?;
+    let native = evidence(&main, "navigator.userAgent").await?;
+    println!(
+        "USER_AGENT_EVIDENCE {}",
+        json!({"main":native,"guest":identity,"first_request_matches_js":identity["http"].is_string() && identity["http"] == identity["js"],"test_only":true})
+    );
+    if !identity["http"].is_string() || identity["http"] != identity["js"] {
+        return Err("guest HTTP and JavaScript browser identities differ".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let guest_ua = identity["js"].as_str().ok_or("missing guest identity")?;
+        if !guest_ua.starts_with(native.as_str().ok_or("missing main identity")?)
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Version/"))
+            || !guest_ua
+                .split_whitespace()
+                .any(|token| token.starts_with("Safari/"))
+        {
+            return Err(
+                "macOS guest identity did not preserve WebKit and include Safari version".into(),
+            );
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    if identity["js"] != native {
+        return Err("non-macOS browser identity was unexpectedly changed".into());
     }
     delegation_probe(app, &main).await?;
     observation = observe(app, &main).await?;
@@ -1055,6 +1444,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     }
     hard_capability_probe(app).await?;
     native_api_probe(app).await?;
+    production_native_probe(app).await?;
     browser::desktop_browser_activate(main.clone(), app.state(), None).await?;
     if browser_inspect::desktop_browser_inspect(
         main,
@@ -1234,6 +1624,12 @@ fn main() {
     let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completed = completion.clone();
     let url = fixture();
+    // The Rust adapter owns lifecycle events. Loading the production React UI
+    // here introduces a second adapter that may reject the probe's fake owner.
+    let shell = url::Url::parse(&serve_fixture(
+        "<!doctype html><title>Native probe shell</title>".into(),
+    ))
+    .expect("probe shell URL");
     let mut context = tauri::generate_context!();
     let mut nonce = [0; 8];
     getrandom::fill(&mut nonce).expect("native probe entropy");
@@ -1252,10 +1648,9 @@ fn main() {
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {
-            let window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Native browser observation probe")
-                    .inner_size(800.0, 600.0);
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(shell))
+                .title("Native browser observation probe")
+                .inner_size(800.0, 600.0);
             #[cfg(target_os = "macos")]
             let window =
                 if std::env::var("XHARNESS_NATIVE_PROBE_TITLEBAR").as_deref() == Ok("overlay") {

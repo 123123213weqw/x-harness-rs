@@ -147,7 +147,11 @@ export function apply(ctx: Context): void {
   // Chat semantic reader positions by session, surviving view switches and
   // width reflow when the tab ring remounts the view. Deliberately not
   // persisted: a fresh page load keeps the open-jump-to-bottom default.
-  const chatScrollMemory = new ChatScrollMemory()
+  const chatScrollMemory = new ChatScrollMemory((sessionId, position) => {
+    const seq = position?.anchorSeq
+    sessions.binding(sessionId)?.session.setHistoryOpenTarget?.(position === null ? { kind: 'latest' }
+      : seq !== undefined && Number.isSafeInteger(seq) && seq >= 0 ? { kind: 'anchor', seq } : undefined)
+  })
   ctx.effect(() => () => { chatScrollMemory.dispose() }, 'conversation reader memory')
 
   const viewTabs = (): ViewTab[] => {
@@ -208,6 +212,7 @@ export function apply(ctx: Context): void {
       'conversation.input.right': { kind: 'list', scope: 'session' },
       'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
       'conversation.hero.workspace': { kind: 'single', scope: 'root' },
+      'conversation.hero.runtimeEnvironment': { kind: 'single', scope: 'root' },
       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
@@ -398,7 +403,10 @@ export function apply(ctx: Context): void {
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          return workspaces.openPath(resolveWorkspacePath(cwd, path))
+          const resolved=resolveWorkspacePath(cwd,path)
+          if(path==='.'||path==='..'||/[\\/]$/.test(path))return workspaces.openPath(resolved)
+          window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'file',source:resolved,sessionId}}))
+          return Promise.resolve()
         },
         loadOlder: () => scoped.loadOlder(),
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),

@@ -3,6 +3,8 @@
 //! Session journals, receipts, pending-input invalidation and runtime wakeups
 //! are adapter concerns. This module owns only validated state transitions.
 
+#![forbid(unsafe_code)]
+
 use xharness_session::{GoalPhase, GoalSnapshotOperation};
 
 use crate::GoalState;
@@ -133,7 +135,10 @@ impl GoalProcessor {
                 GoalPhase::Active,
                 matches!(
                     goal.phase,
-                    GoalPhase::Active | GoalPhase::Paused | GoalPhase::Blocked
+                    GoalPhase::Active
+                        | GoalPhase::Paused
+                        | GoalPhase::Blocked
+                        | GoalPhase::Complete
                 ) && goal.rounds_started < goal.max_goal_rounds,
             ),
             GoalTransition::Complete => (
@@ -294,6 +299,19 @@ mod tests {
         assert!(matches!(
             GoalProcessor::transition(Some(&complete), &reference(), GoalTransition::Complete, 30),
             Err(GoalDecisionError::InvalidTransition { .. })
+        ));
+        let reopened =
+            GoalProcessor::transition(Some(&complete), &reference(), GoalTransition::Resume, 30)
+                .unwrap();
+        assert_eq!(reopened.goal.phase, GoalPhase::Active);
+        assert_eq!(reopened.goal.rounds_started, complete.rounds_started);
+        assert_eq!(reopened.goal.max_goal_rounds, complete.max_goal_rounds);
+        assert!(reopened.goal.blocked_reason.is_none());
+        let mut stale = reference();
+        stale.revision -= 1;
+        assert!(matches!(
+            GoalProcessor::transition(Some(&complete), &stale, GoalTransition::Resume, 30),
+            Err(GoalDecisionError::StaleReference)
         ));
 
         let mut exhausted = goal(GoalPhase::Paused);

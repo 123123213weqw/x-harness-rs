@@ -20,6 +20,15 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 if ($PSVersionTable.PSVersion.Major -lt 7) {
+    $runtimeManifest = Join-Path $PSScriptRoot 'runtime/powershell/manifest.json'
+    if (Test-Path -LiteralPath $runtimeManifest -PathType Leaf) {
+        $runtime = Get-Content -LiteralPath $runtimeManifest -Raw | ConvertFrom-Json
+        if ($runtime.schema -ne 1 -or $runtime.version -cnotmatch '^[1-9]\d*\.\d+\.\d+$') { throw 'Invalid packaged PowerShell manifest' }
+        $pwsh = Join-Path $PSScriptRoot "runtime/powershell/$($runtime.version)/pwsh.exe"
+        if (-not (Test-Path -LiteralPath $pwsh -PathType Leaf)) { throw 'Packaged PowerShell is missing; reinstall XHarness' }
+        & $pwsh -NoLogo -NoProfile -NonInteractive -File $PSCommandPath @PSBoundParameters
+        exit $LASTEXITCODE
+    }
     throw 'PowerShell 7 (pwsh) is required.'
 }
 if ([string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)) {

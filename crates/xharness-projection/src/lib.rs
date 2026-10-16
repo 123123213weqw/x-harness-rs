@@ -6,11 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 use xharness_session::{
-    AssistantChunk, EventData, InboxMessage, LoggedEvent, Message, MessageRole, RequestHeader,
-    Session, SessionHistoryWindow, ToolOutcome, TurnEndReason,
+    AssistantChunk, CompactionEndOutcome, EventData, InboxMessage, LoggedEvent, Message,
+    MessageRole, RequestHeader, Session, SessionHistoryWindow, ToolOutcome, TurnEndReason,
 };
 
 pub mod metrics;
+pub mod performance;
 pub mod wire;
 use metrics::web_token_usage;
 
@@ -220,9 +221,10 @@ fn event_view_from_sources(
     }
 }
 
-/// A self-contained presentation update for automatic or manual compaction. The end
-/// update repeats the committed summary so a paged history window does not
-/// need to load the start, summary and replacement events to render it.
+/// A self-contained presentation update for automatic or manual compaction.
+/// Applied ends repeat the committed summary; skipped and interrupted ends
+/// repeat their typed terminal state. A terminal-only page needs neither a
+/// model-generated summary nor a fabricated replacement to stop showing busy.
 fn compaction_view(
     events: &[LoggedEvent],
     context: &[LoggedEvent],
@@ -261,6 +263,7 @@ fn compaction_view(
             compaction_id,
             source_command_id,
             error,
+            outcome,
             ..
         } => {
             let mut start = None;
@@ -324,45 +327,76 @@ fn compaction_view(
                 }
             }
             let start = start?;
-            if error.is_some() {
-                return Some(json!({
+            if let Some(phase) = compaction_terminal_phase(*outcome, error.is_some()) {
+                return Some(with_compaction_outcome(
+                    json!({
+                        "for": "compaction",
+                        "view": {
+                            "schemaVersion": 1,
+                            "id": compaction_id,
+                    "sourceCommandId":source_command_id,
+                            "phase": phase,
+                            "anchorSeq": start.seq,
+                            "time": start.timestamp_ms,
+                            "endedAt": event.timestamp_ms,
+                            "error": error,
+                            "progress": progress,
+                        }
+                    }),
+                    *outcome,
+                ));
+            }
+            let (summary_seq, text, shadowed_seqs, shadowed_token_count) = summary?;
+            let replacement = replacement?;
+            Some(with_compaction_outcome(
+                json!({
                     "for": "compaction",
                     "view": {
                         "schemaVersion": 1,
                         "id": compaction_id,
-                "sourceCommandId":source_command_id,
-                        "phase": "failed",
-                        "anchorSeq": start.seq,
-                        "time": start.timestamp_ms,
+                    "sourceCommandId":source_command_id,
+                        "phase": "succeeded",
+                        "anchorSeq": replacement.seq,
+                        "time": replacement.timestamp_ms,
+                        "summary": text,
+                        "summaryEventSeq": summary_seq,
+                        "shadowedItemCount": shadowed_seqs.len(),
+                        "shadowedTokenCount": shadowed_token_count,
+                        "startedAt": start.timestamp_ms,
                         "endedAt": event.timestamp_ms,
-                        "error": error,
                         "progress": progress,
                     }
-                }));
-            }
-            let (summary_seq, text, shadowed_seqs, shadowed_token_count) = summary?;
-            let replacement = replacement?;
-            Some(json!({
-                "for": "compaction",
-                "view": {
-                    "schemaVersion": 1,
-                    "id": compaction_id,
-                "sourceCommandId":source_command_id,
-                    "phase": "succeeded",
-                    "anchorSeq": replacement.seq,
-                    "time": replacement.timestamp_ms,
-                    "summary": text,
-                    "summaryEventSeq": summary_seq,
-                    "shadowedItemCount": shadowed_seqs.len(),
-                    "shadowedTokenCount": shadowed_token_count,
-                    "startedAt": start.timestamp_ms,
-                    "endedAt": event.timestamp_ms,
-                    "progress": progress,
-                }
-            }))
+                }),
+                *outcome,
+            ))
         }
         _ => None,
     }
+}
+
+/// Legacy outcomes are deliberately not inferred from error text. New typed
+/// no-op and interruption results stay distinct in live and history views.
+fn compaction_terminal_phase(
+    outcome: Option<CompactionEndOutcome>,
+    has_error: bool,
+) -> Option<&'static str> {
+    match outcome {
+        Some(CompactionEndOutcome::NoBenefit | CompactionEndOutcome::NoEligibleSource) => {
+            Some("skipped")
+        }
+        Some(CompactionEndOutcome::Interrupted) => Some("cancelled"),
+        Some(CompactionEndOutcome::Failed) => Some("failed"),
+        Some(CompactionEndOutcome::Applied) => None,
+        None if has_error => Some("failed"),
+        None => None,
+    }
+}
+
+fn with_compaction_outcome(mut view: Value, outcome: Option<CompactionEndOutcome>) -> Value {
+    if let Some(outcome) = outcome {
+        view["view"]["outcome"] = json!(outcome);
+    }
+    view
 }
 
 /// Recover the same optional presentation from an already projected Web
@@ -478,13 +512,40 @@ fn compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
             "progress":data.get("progress")?, "progressTime":time,
         }}));
     }
-    if data.get("error").is_some_and(|error| !error.is_null()) {
-        return Some(json!({"for":"compaction", "view": {
-            "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"failed",
-            "anchorSeq":start.get("seq")?.as_u64()?,
-            "time":start.get("time")?.as_u64()?,
-            "endedAt":time, "error":data.get("error"), "progress":progress,
-        }}));
+    let outcome = data
+        .get("outcome")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<CompactionEndOutcome>(value.clone()))
+        .transpose()
+        .ok()?;
+    let error = data.get("error").filter(|value| !value.is_null());
+    if let Some(outcome) = outcome {
+        let has_error = error.is_some();
+        let valid = match outcome {
+            CompactionEndOutcome::Applied
+            | CompactionEndOutcome::NoBenefit
+            | CompactionEndOutcome::NoEligibleSource => !has_error,
+            CompactionEndOutcome::Interrupted | CompactionEndOutcome::Failed => error
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty()),
+        };
+        if !valid {
+            return None;
+        }
+    }
+    if let Some(phase) = compaction_terminal_phase(
+        outcome,
+        data.get("error").is_some_and(|error| !error.is_null()),
+    ) {
+        return Some(with_compaction_outcome(
+            json!({"for":"compaction", "view": {
+                "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":phase,
+                "anchorSeq":start.get("seq")?.as_u64()?,
+                "time":start.get("time")?.as_u64()?,
+                "endedAt":time, "error":data.get("error"), "progress":progress,
+            }}),
+            outcome,
+        ));
     }
     let summary = summary?;
     let replacement = replacement?;
@@ -499,16 +560,19 @@ fn compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
                 .flatten()
         })
         .collect::<String>();
-    Some(json!({"for":"compaction", "view": {
-        "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"succeeded",
-        "anchorSeq":replacement.get("seq")?.as_u64()?,
-        "time":replacement.get("time")?.as_u64()?,
-        "summary":summary_text,
-        "summaryEventSeq":summary.get("seq")?.as_u64()?,
-        "shadowedItemCount":summary_data.get("shadowedSeqs")?.as_array()?.len(),
-        "shadowedTokenCount":summary_data.get("shadowedTokenCount")?.as_u64()?,
-        "startedAt":start.get("time")?.as_u64()?, "endedAt":time, "progress":progress,
-    }}))
+    Some(with_compaction_outcome(
+        json!({"for":"compaction", "view": {
+            "schemaVersion":1, "id":id, "sourceCommandId":data.get("sourceCommandId"), "phase":"succeeded",
+            "anchorSeq":replacement.get("seq")?.as_u64()?,
+            "time":replacement.get("time")?.as_u64()?,
+            "summary":summary_text,
+            "summaryEventSeq":summary.get("seq")?.as_u64()?,
+            "shadowedItemCount":summary_data.get("shadowedSeqs")?.as_array()?.len(),
+            "shadowedTokenCount":summary_data.get("shadowedTokenCount")?.as_u64()?,
+            "startedAt":start.get("time")?.as_u64()?, "endedAt":time, "progress":progress,
+        }}),
+        outcome,
+    ))
 }
 
 fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {
@@ -947,12 +1011,22 @@ pub fn restored_web_event(
         return json!({"type":"xharness/internal", "seq":event.seq, "time":event.timestamp_ms, "data":{"kind":"execution-checkpoint-state"}, "hidden":true});
     }
     let (event_type, data, surface_op) = match event.data() {
+        EventData::ModelReception {
+            turn,
+            step,
+            reception,
+        } => (
+            "model/reception".into(),
+            json!({"turn":web_turn(*turn), "step":step, "reception":reception}),
+            None,
+        ),
         EventData::ExecutionCheckpoint { turn, notice, .. } => (
             "run/checkpoint".into(),
             web_execution_notice(web_turn(*turn), notice.as_ref()),
             None,
         ),
         EventData::SessionTitleGeneration { .. }
+        | EventData::JobContinuation { .. }
         | EventData::SessionForkOrigin { .. }
         | EventData::AgentDelegationFailure { .. }
         | EventData::AgentFailureDelivered { .. }
@@ -1322,21 +1396,47 @@ fn web_message(
     json!({
         "id": id,
         "role": message.role.as_str(),
-        "content": if message.role == MessageRole::Assistant {
-            assistant_content(&message.content, &message.reasoning)
-        } else {
-            vec![json!({"type":"text", "text":message.content})]
-        },
+        "content": web_message_content(message),
         "source": source,
     })
+}
+
+fn web_attachment_block(block: &xharness_session::ContentBlock) -> Option<Value> {
+    use xharness_session::ContentBlock;
+    match block {
+        ContentBlock::Image { attachment: r } => Some(
+            json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}),
+        ),
+        ContentBlock::File {
+            attachment: r,
+            name,
+        } => Some(
+            json!({"type":"file","name":name,"attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"reference":r}}),
+        ),
+        ContentBlock::Text { .. } => None,
+    }
+}
+fn web_message_content(message: &Message) -> Vec<Value> {
+    let mut parts = if message.role == MessageRole::Assistant {
+        assistant_content(&message.content, &message.reasoning)
+    } else {
+        vec![json!({"type":"text","text":message.content})]
+    };
+    parts.extend(
+        message
+            .content_blocks
+            .iter()
+            .filter_map(web_attachment_block),
+    );
+    parts
 }
 
 /// Shared durable/live attachment projection; binary payloads stay out of events.
 pub fn web_tool_content(text: &str, metadata: Option<&Value>) -> Vec<Value> {
     let mut parts = vec![json!({"type":"text","text":text})];
     for b in xharness_session::ContentBlock::from_tool_metadata(metadata) {
-        if let xharness_session::ContentBlock::Image { attachment: r } = b {
-            parts.push(json!({"type":"image","attachment":{"attachmentId":r.id,"mediaType":r.media_type,"bytes":r.bytes,"width":r.width,"height":r.height,"reference":r}}));
+        if let Some(block) = web_attachment_block(&b) {
+            parts.push(block);
         }
     }
     parts
@@ -1387,6 +1487,113 @@ mod projection_encoding_tests {
                 assert_eq!(tail.events, full.events);
                 assert_eq!(tail.bytes, bytes);
                 assert_eq!(tail.base_seq, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn compatibility_projection_rejects_contradictory_typed_terminal_outcomes() {
+        let start =
+            json!({"type":"compaction/start", "seq":1, "time":1, "data":{"compactionId":"c"}});
+        for data in [
+            json!({"compactionId":"c", "outcome":"no_benefit", "error":"failure"}),
+            json!({"compactionId":"c", "outcome":"no_eligible_source", "error":"failure"}),
+            json!({"compactionId":"c", "outcome":"interrupted"}),
+            json!({"compactionId":"c", "outcome":"failed", "error":" "}),
+            json!({"compactionId":"c", "outcome":"applied", "error":"failure"}),
+            json!({"compactionId":"c", "outcome":"unknown_success"}),
+        ] {
+            let end = json!({"type":"compaction/end", "seq":2, "time":2, "data":data});
+            assert!(project_web_event_view(&end, &[start.clone(), end.clone()]).is_none());
+        }
+    }
+
+    #[test]
+    fn typed_compaction_terminal_views_match_live_web_history_and_restart() {
+        use xharness_session::{CompactionEndOutcome, Revision, SessionHeader};
+        for source_command_id in [None, Some("manual-command".to_owned())] {
+            for (outcome, error, phase) in [
+                (CompactionEndOutcome::NoBenefit, None, "skipped"),
+                (CompactionEndOutcome::NoEligibleSource, None, "skipped"),
+                (
+                    CompactionEndOutcome::Interrupted,
+                    Some("interrupted"),
+                    "cancelled",
+                ),
+                (
+                    CompactionEndOutcome::Failed,
+                    Some("authentication failed"),
+                    "failed",
+                ),
+            ] {
+                let mut session = Session::new(SessionHeader::new("typed-terminal-view")).unwrap();
+                session
+                    .append_batch_at(
+                        Revision::ZERO,
+                        vec![
+                            EventData::TurnStart { turn: 1 }.into(),
+                            EventData::UserMessage {
+                                message: Message::user("source unchanged"),
+                                surface_replace: None,
+                            }
+                            .into(),
+                            EventData::CompactionStart {
+                                compaction_id: "c".into(),
+                                source_command_id: source_command_id.clone(),
+                                turn: Some(1),
+                            }
+                            .into(),
+                            EventData::CompactionEnd {
+                                compaction_id: "c".into(),
+                                source_command_id: source_command_id.clone(),
+                                turn: Some(1),
+                                error: error.map(str::to_owned),
+                                outcome: Some(outcome),
+                                fingerprint: Some("signature".into()),
+                            }
+                            .into(),
+                        ],
+                        10,
+                    )
+                    .unwrap();
+                let end = &session.events()[3];
+                let view = project_session_event_view(&session, end).unwrap();
+                assert_eq!(view["view"]["phase"], phase);
+                assert_eq!(view["view"]["outcome"], json!(outcome));
+                assert!(view["view"].get("summary").is_none());
+                let projected =
+                    project_session_event_range(&session, &TestRoute, 0, session.events().len());
+                assert_eq!(projected[3]["data"]["outcome"], json!(outcome));
+                assert_eq!(
+                    project_web_event_view(&projected[3], &projected),
+                    Some(view.clone())
+                );
+                let window = SessionHistoryWindow {
+                    next_seq: session.next_seq(),
+                    has_more: true,
+                    events: vec![end.clone()],
+                    context: vec![session.events()[2].clone()],
+                    initial_request_header_seq: None,
+                    completed_steps: Vec::new(),
+                };
+                assert_eq!(
+                    project_history_window_view(&window, &window.events[0]),
+                    Some(view.clone())
+                );
+                let restored = Session::restore(
+                    session.header().clone(),
+                    session.revision(),
+                    session.events().to_vec(),
+                )
+                .unwrap();
+                assert_eq!(
+                    project_session_event_view(&restored, &restored.events()[3]),
+                    Some(view)
+                );
+                assert_eq!(
+                    restored.derive_messages(),
+                    vec![Message::user("source unchanged")]
+                );
             }
         }
     }
@@ -1449,6 +1656,8 @@ mod projection_encoding_tests {
                         source_command_id: None,
                         turn: Some(1),
                         error: None,
+                        outcome: None,
+                        fingerprint: None,
                     }
                     .into(),
                 ],
@@ -1540,6 +1749,8 @@ mod projection_encoding_tests {
                         source_command_id: source_command_id.clone(),
                         turn: Some(1),
                         error: Some("fixture permanent error".into()),
+                        outcome: None,
+                        fingerprint: None,
                     }
                     .into()],
                     2000,
@@ -1613,6 +1824,8 @@ mod projection_encoding_tests {
                         source_command_id: None,
                         turn: Some(1),
                         error: Some("network closed".into()),
+                        outcome: None,
+                        fingerprint: None,
                     }
                     .into(),
                 ],
@@ -1637,5 +1850,38 @@ mod projection_encoding_tests {
             project_history_window_view(&window, &window.events[0]),
             project_session_event_view(&session, &session.events()[3])
         );
+    }
+}
+
+#[cfg(test)]
+mod media_projection_tests {
+    use super::*;
+    #[test]
+    fn media_projection_preserves_files_and_messages() {
+        use xharness_session::{AttachmentRef, ContentBlock};
+        let reference = AttachmentRef {
+            id: "a".repeat(64),
+            session_id: "ancestor".into(),
+            media_type: "text/plain".into(),
+            bytes: 8,
+            width: 0,
+            height: 0,
+        };
+        let block = ContentBlock::File {
+            attachment: reference.clone(),
+            name: Some("note.txt".into()),
+        };
+        let result = web_tool_content(
+            "text",
+            Some(&json!({"xharnessContentBlocks":[block.clone()]})),
+        );
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[1]["type"], "file");
+        assert_eq!(result[1]["attachment"]["attachmentId"], reference.id);
+        let mut message = Message::new(MessageRole::Assistant, "assistant");
+        message.content_blocks.push(block);
+        let parts = web_message_content(&message);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[1]["type"], "file");
     }
 }

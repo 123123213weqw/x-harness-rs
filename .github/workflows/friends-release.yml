@@ -42,6 +42,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Release preflight failed' }
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
@@ -79,6 +80,8 @@ jobs:
           if ($LASTEXITCODE) { throw 'Host build failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-host.exe x86_64-pc-windows-msvc
           if ($LASTEXITCODE) { throw 'Host stage failed' }
+          python -B scripts/powershell-runtime.py stage
+          if ($LASTEXITCODE) { throw 'Bundled PowerShell staging failed' }
           python scripts/stage-tauri-sidecar.py "$env:XHARNESS_RG" x86_64-pc-windows-msvc --name rg
           if ($LASTEXITCODE) { throw 'rg stage failed' }
           python scripts/stage-tauri-sidecar.py target/x86_64-pc-windows-msvc/release/xharness-windows-sandbox-runner.exe x86_64-pc-windows-msvc --name xharness-windows-sandbox-runner

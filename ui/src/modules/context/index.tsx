@@ -26,14 +26,14 @@ const harnessLabels = {
   zh: {
     system: '系统提示词', tools: '工具', toolCount: '个工具', search: '搜索工具', request: '选择请求', requestNumber: '请求', step: '步骤',
     noRequest: '还没有可用的请求快照。', loading: '正在读取…', retry: '重试',
-    notRecorded: '未记录；此请求未开启完整诊断。', captureFailed: '未记录；此请求的诊断捕获失败。',
+    snapshotFailed: '未记录；此请求的 Harness 快照保存失败。', notRecorded: '未记录；此请求未开启完整诊断。', captureFailed: '未记录；此请求的诊断捕获失败。',
     unavailable: '暂时无法读取，请重试。', noSystem: '此请求没有系统提示词。', noTools: '此请求没有工具。',
     noMatch: '没有匹配的工具。', noDescription: '没有描述。', parameters: '参数',
   },
   en: {
     system: 'System prompt', tools: 'Tools', toolCount: 'tools', search: 'Search tools', request: 'Select request', requestNumber: 'Request', step: 'Step',
     noRequest: 'No request snapshot yet.', loading: 'Loading…', retry: 'Retry',
-    notRecorded: 'Not recorded; full diagnostics were disabled for this request.', captureFailed: 'Not recorded; diagnostic capture failed for this request.',
+    snapshotFailed: 'Not recorded; the Harness snapshot could not be saved for this request.', notRecorded: 'Not recorded; full diagnostics were disabled for this request.', captureFailed: 'Not recorded; diagnostic capture failed for this request.',
     unavailable: 'Could not load. Please retry.', noSystem: 'This request has no system prompt.', noTools: 'This request has no tools.',
     noMatch: 'No matching tools.', noDescription: 'No description.', parameters: 'Parameters',
   },
@@ -208,7 +208,7 @@ function useRequestAudits(sessionId: string | undefined, snapshot: ContextSnapsh
         const headers=new Map<number, Record<string, unknown>>()
         // Only the selected request is hydrated, never a full history/compaction pair.
         for(const target of targets) {
-          const response=await fetch('/api/session.requestSnapshot',{method:'POST',credentials:'same-origin',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'audit-'+Date.now()+'-'+target.seq,method:'session.requestSnapshot',payload:{sessionId,seq:target.seq}})})
+          const response=await fetch('/api/session.requestSnapshot',{method:'POST',credentials:'same-origin',signal:controller.signal,headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'audit-'+Date.now()+'-'+target.seq,method:'session.requestSnapshot',payload:{sessionId,seq:target.seq,scope:'harness'}})})
           if(!response.ok)throw Error('快照读取失败：HTTP '+response.status)
           const raw: unknown = await response.json()
           const envelope=asObject(raw),result=asObject(envelope.result)
@@ -264,9 +264,12 @@ function HarnessView({ useSession, sessionId, t = defaultHarnessText }: ContextP
   const needle = current.query.trim().toLocaleLowerCase()
   const tools = needle === '' ? view.tools : view.tools.filter(tool =>
     `${textValue(tool.name)}\n${textValue(tool.description)}`.toLocaleLowerCase().includes(needle))
+  const surface = asObject(view.options.harnessSnapshot)
   const omitted = asObject(view.options.auditSnapshot)
-  const missing = audits.loading ? t('loading') : audits.error ? t('unavailable') : omitted.kind === 'omitted'
-    ? t(omitted.reason === 'archive_failed' ? 'captureFailed' : 'notRecorded') : undefined
+  const missing = audits.loading ? t('loading') : audits.error ? t('unavailable')
+    : surface.kind === 'omitted' ? t('snapshotFailed')
+    : surface.kind === 'archive' ? undefined
+    : omitted.kind === 'omitted' ? t(omitted.reason === 'archive_failed' ? 'captureFailed' : 'notRecorded') : undefined
   const reportedCount = numberOrUndefined(view.options.toolCount)
   const toolCount = missing
     ? reportedCount !== undefined && Number.isSafeInteger(reportedCount) && reportedCount >= 0 ? reportedCount : undefined

@@ -4,7 +4,7 @@ import copy
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import types
 import unittest
@@ -720,6 +720,22 @@ class NativeCargoCache(unittest.TestCase):
 
 
 class WorkflowGuard(unittest.TestCase):
+    def test_every_release_job_pins_python_before_scripts(self):
+        text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
+        # Integrated acceptance launches children with sys.executable. Ubuntu
+        # 22.04's system Python lacks tomllib, so every coordinator/worker must
+        # select the same supported runtime before invoking release scripts.
+        jobs = text.split('\n  plan:', 1)[1].split('\n  build:', 1)
+        plan, rest = jobs
+        worker, aggregate = rest.split('\n  aggregate:', 1)
+        for name, job in [('plan', plan), ('build', worker), ('aggregate', aggregate)]:
+            with self.subTest(job=name):
+                setup = "- uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'"
+                self.assertEqual(job.count(setup), 1)
+                script = min(pos for needle in ('run: python ', 'run: python3 ', 'python3 -B scripts/')
+                             if (pos := job.find(needle)) >= 0)
+                self.assertLess(job.index(setup), script)
+
     def test_single_aggregate_writer_and_four_native_platforms(self):
         text = (ROOT / '.github/workflows/desktop-release.yml').read_text(encoding='utf-8')
         self.assertEqual(text.count('contents: write'), 2) # Tag-only plan plus draft aggregator.
@@ -729,7 +745,9 @@ class WorkflowGuard(unittest.TestCase):
         self.assertNotIn('stage-draft', plan_job)
         self.assertNotIn('publish --workspace', plan_job)
         self.assertNotIn('contents: write', matrix_job)
-        self.assertIn('needs: [plan, build]', text)
+        self.assertIn('needs: plan', text.split('  aggregate:', 1)[1])
+        self.assertIn('wait-packages --plan', text)
+        self.assertNotIn('needs: [plan, build]', text)
         self.assertNotIn('tauri-apps/tauri-action', text)
         self.assertNotIn('--clobber', text)
         self.assertIn('fromJSON(needs.plan.outputs.matrix)', text)
@@ -836,6 +854,75 @@ class NpmInvocationTests(unittest.TestCase):
     def test_missing_npm_fails_closed(self):
         with patch.object(build.shutil, 'which', return_value=None), self.assertRaisesRegex(ValueError, 'Missing npm'):
             build.npm_invocation('win32')
+
+
+class AggregateRuntimePrerequisites(unittest.TestCase):
+    def scenario(self, failure=None, source_root=ROOT):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [],
+                [dict(id=1, run_attempt=1, head_sha=SHA, head_branch='master', event='push',
+                      status='completed', conclusion='success', path='.github/workflows/ci.yml')], 'windows-linux')
+            source = root / 'packages'
+            source.mkdir()
+            for platform in build.release_platforms(plan):
+                package = source / ('desktop-package-' + platform)
+                package.mkdir()
+                (package / build._contract.package_name(plan, platform)).write_bytes(b'immutable fixture')
+            candidate = root / 'candidate'
+            candidate.mkdir()
+            build.write(candidate / 'plan.json', plan)
+            runtime = root / 'trusted-runtime-staged'
+            calls = []
+
+            def native(*values, **kwargs):
+                script = values[2]
+                values = list(map(str, values))
+                if script == build.ROOT / 'scripts/powershell-runtime.py':
+                    calls.append('stage')
+                    self.assertIn('stage', values)
+                    self.assertEqual(values[-2:], ['--target', 'x86_64-pc-windows-msvc'])
+                    if failure == 'stage': raise ValueError('pinned runtime staging rejected')
+                    runtime.mkdir()
+                elif script == build.ROOT / 'scripts/audit-windows-runtime.py':
+                    calls.append('audit')
+                    if not runtime.is_dir(): raise ValueError('Missing runtime prerequisite on fresh Linux aggregator')
+                    if failure == 'audit': raise ValueError('extracted package audit rejected')
+                else:
+                    raise AssertionError(values)
+
+            def aggregate(*values):
+                self.assertEqual(calls, ['stage', 'audit'])
+                calls.append('aggregate')
+
+            arguments = ['desktop-release-build.py', 'aggregate', '--plan', str(candidate/'plan.json'),
+                         '--artifacts', str(source), '--output', str(candidate/'release')]
+            with patch.object(build, 'ROOT', source_root), \
+                    patch.object(build.sys, 'argv', arguments), patch.object(build, 'run', side_effect=native), \
+                    patch.object(build, 'public_key', side_effect=lambda path: path.write_bytes(b'public fixture')), \
+                    patch.object(build, 'contract', side_effect=aggregate):
+                if failure:
+                    with self.assertRaisesRegex(ValueError, 'runtime staging rejected' if failure == 'stage' else 'package audit rejected'):
+                        build.main()
+                else:
+                    build.main()
+            self.assertEqual(calls, ['stage'] if failure == 'stage' else ['stage', 'audit'] if failure == 'audit' else ['stage', 'audit', 'aggregate'])
+            for path in source.rglob('*'):
+                if path.is_file(): self.assertEqual(path.read_bytes(), b'immutable fixture')
+
+    def test_fresh_linux_aggregator_stages_pinned_windows_runtime_before_independent_audit(self):
+        self.scenario()
+
+    def test_stage_failure_cannot_reach_audit_or_aggregation(self):
+        self.scenario('stage')
+
+    def test_audit_failure_cannot_reach_aggregation(self):
+        self.scenario('audit')
+
+    def test_windows_checkout_paths_preserve_all_aggregate_prerequisite_gates(self):
+        for failure in [None, 'stage', 'audit']:
+            with self.subTest(failure=failure):
+                self.scenario(failure, source_root=PureWindowsPath(r'D:\a\project\project'))
 
 
 class WindowsRuntimeGates(unittest.TestCase):

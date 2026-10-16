@@ -12,6 +12,19 @@ use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Map, Value};
 use tokio_util::sync::CancellationToken;
 
+mod interactions;
+pub use interactions::*;
+mod catalogue;
+pub use catalogue::*;
+mod automation;
+pub use automation::*;
+mod creation;
+pub use creation::*;
+mod attachment;
+pub use attachment::*;
+mod event_page;
+pub use event_page::*;
+pub mod display;
 pub mod protocol;
 
 pub const API_PREFIX: &str = "/api";
@@ -75,6 +88,7 @@ rpc_methods! {
     SessionList => "session.list",
     SessionSearch => "session.search",
     SessionCreate => "session.create",
+    SessionImport => "session.import",
     SessionHistory => "session.history",
     SessionModels => "session.models",
     SessionSelectModel => "session.selectModel",
@@ -433,6 +447,10 @@ pub enum MuxFrame {
     QuestionRequested {
         session_id: String,
         questions: Vec<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deferred: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wait_timeout_seconds: Option<u32>,
     },
     #[serde(rename = "question/resolved", rename_all = "camelCase")]
     QuestionResolved {
@@ -637,7 +655,149 @@ pub trait ApiBackend: Send + Sync + 'static {
         None
     }
 
+    /// Narrow trusted-composition seam, NOT an HTTP RPC endpoint. Fail closed
+    /// unless the backend can validate a registered workspace/session pair.
+    async fn session_in_workspace(
+        &self,
+        _workspace_id: &str,
+        _session_id: &str,
+    ) -> Result<bool, RpcError> {
+        Err(RpcError::internal("session scope capability unavailable"))
+    }
+
+    /// Path-free metadata only for these exact allowed IDs. Not session.list,
+    /// workspace.list, hydration, title generation, or a controller RPC seam.
+    async fn scoped_catalogue(
+        &self,
+        _query: ScopedCatalogueQuery,
+    ) -> Result<ScopedCataloguePage, RpcError> {
+        Err(RpcError::internal(
+            "scoped catalogue capability unavailable",
+        ))
+    }
+
+    /// Saved session-local automation only. No create/edit or arbitrary RPC.
+    async fn scoped_automation_read(
+        &self,
+        _request: ScopedAutomationRead,
+    ) -> Result<ScopedAutomationPage, RpcError> {
+        Err(RpcError::internal("scoped automation read unavailable"))
+    }
+    /// One native control fact and its original receipt in the same append.
+    async fn scoped_automation_control(
+        &self,
+        _request: ScopedAutomationMutation,
+    ) -> Result<ScopedAutomationApplied, RpcError> {
+        Err(RpcError::internal("scoped automation control unavailable"))
+    }
+    /// None is verified absence, not permission to replay an uncertain effect.
+    async fn scoped_automation_receipt(
+        &self,
+        _request: ScopedAutomationMutation,
+    ) -> Result<Option<ScopedAutomationApplied>, RpcError> {
+        Err(RpcError::internal("scoped automation receipt unavailable"))
+    }
+
+    /// Durable native creation with the original fingerprint in the same
+    /// journal append as initial policy. No arbitrary cwd, preset or session ID.
+    async fn create_scoped_session(
+        &self,
+        _request: ScopedSessionCreate,
+    ) -> Result<ScopedSessionCreated, RpcError> {
+        Err(RpcError::internal("scoped creation capability unavailable"))
+    }
+
+    /// Some is an exact durable original-creator receipt, None is verified
+    /// absence. An existing session without that proof MUST return an error.
+    async fn scoped_session_creation_receipt(
+        &self,
+        _request: ScopedSessionCreate,
+    ) -> Result<Option<ScopedSessionCreated>, RpcError> {
+        Err(RpcError::internal("scoped creation receipts unavailable"))
+    }
+
+    /// Bounded contiguous forward projection from the authoritative journal.
+    /// None probes only the current head, not a fabricated old history page.
+    async fn session_event_page(
+        &self,
+        _workspace: &str,
+        _session: &str,
+        _after: Option<u64>,
+    ) -> Result<ScopedEventPage, RpcError> {
+        Err(RpcError::internal(
+            "scoped durable events capability unavailable",
+        ))
+    }
+
+    /// Bytes referenced by this exact authoritative native event. No fallback
+    /// to session storage, filesystem paths, or caller-supplied reference owners.
+    async fn session_event_attachment(
+        &self,
+        _workspace: &str,
+        _session: &str,
+        _seq: u64,
+        _attachment_id: &str,
+    ) -> Result<ScopedAttachment, RpcError> {
+        Err(RpcError::internal(
+            "scoped attachment capability unavailable",
+        ))
+    }
+
+    /// Read a durable prompt admission by its original identity and payload.
+    /// `None` means verified absence, not an unavailable receipt store. Backends
+    /// without durable fingerprint deduplication must return an error.
+    /// This is not external-tool exactly-once execution or Agent completion.
+    async fn prompt_receipt(
+        &self,
+        _session_id: &str,
+        _rpc_id: &RpcId,
+        _payload: &Value,
+    ) -> Result<Option<RpcResult>, RpcError> {
+        Err(RpcError::internal(
+            "durable prompt receipt capability unavailable",
+        ))
+    }
+
+    /// Exact native pending instance, after registered workspace/session checks.
+    /// There is no arbitrary client-response or global-stream fallback.
+    async fn session_interaction(
+        &self,
+        _workspace: &str,
+        _session: &str,
+        _rpc_id: &RpcId,
+    ) -> Result<Option<ScopedInteraction>, RpcError> {
+        Err(RpcError::internal(
+            "scoped interaction capability unavailable",
+        ))
+    }
+    /// Respond only to the captured pending instance with a closed answer type.
+    /// An uncertain receipt is not permission to repeat the operation.
+    async fn answer_session_interaction(
+        &self,
+        _workspace: &str,
+        _session: &str,
+        _expected: ScopedInteraction,
+        _answer: ScopedInteractionAnswer,
+    ) -> Result<ScopedInteractionReceipt, RpcError> {
+        Err(RpcError::internal(
+            "scoped interaction capability unavailable",
+        ))
+    }
+
     async fn respond(&self, response: ClientResponse) -> RpcReceipt;
+
+    /// Trusted scoped downlink. Implementations must hydrate and validate this
+    /// registered pair and emit only its session frames (plus a bounded stream
+    /// gap marker). Never substitute the all-session mux as a fallback.
+    async fn session_events(
+        &self,
+        _workspace_id: &str,
+        _session_id: &str,
+    ) -> Result<EventStream, RpcError> {
+        Err(RpcError::internal(
+            "scoped session stream capability unavailable",
+        ))
+    }
 
     fn mux_events(&self) -> EventStream;
 

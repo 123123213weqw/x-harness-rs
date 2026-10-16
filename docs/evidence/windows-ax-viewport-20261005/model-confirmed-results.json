@@ -1,0 +1,41 @@
+[
+  {
+    "id": 2,
+    "ok": true,
+    "elapsed_ms": 9133,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd"
+  },
+  {
+    "id": 3,
+    "ok": true,
+    "elapsed_ms": 9621,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd"
+  },
+  {
+    "id": 4,
+    "ok": true,
+    "elapsed_ms": 9023,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd"
+  },
+  {
+    "id": 5,
+    "ok": false,
+    "elapsed_ms": 8203,
+    "failure": {
+      "kind": "handler",
+      "message": "outcome_unknown: action was dispatched, but follow-up observation failed: stale_frame; do not replay input",
+      "retryable": false
+    },
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd"
+  },
+  {
+    "id": 6,
+    "ok": true,
+    "elapsed_ms": 8674,
+    "failure": null,
+    "source_sha": "c71f76a7e125e3b1515b6e1470fc1835ff0f51cd"
+  }
+]
