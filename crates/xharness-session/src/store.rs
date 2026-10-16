@@ -21,6 +21,24 @@ pub struct SessionHistoryWindow {
     pub completed_steps: Vec<(u32, u32)>,
 }
 
+/// Application-owned, read-only presentation values at a catalogue cut. This
+/// never certifies runtime recovery or replaces executable/model history.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryPresentation {
+    pub schema: String,
+    pub values: serde_json::Value,
+}
+
+/// One source-validated catalogue/presentation/page transaction. All three
+/// describe the same journal identity, checked under the store's reader lock.
+#[derive(Clone, Debug)]
+pub struct ColdHistoryWindow {
+    pub catalog: SessionCatalogEntry,
+    pub presentation: HistoryPresentation,
+    pub window: SessionHistoryWindow,
+}
+
 /// Disposable application-owned recovery projection, not a partial `Session`.
 /// Execution and model history MUST still use `Store::load`. The schema belongs
 /// to the projection owner; a mismatched schema is a cache miss.
@@ -152,6 +170,19 @@ pub trait Store: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Read a bounded display page without recovering an Agent. Only a verified
+    /// idle catalogue with the requested presentation schema qualifies. None
+    /// preserves the caller's existing authoritative recovery/history fallback.
+    async fn cold_history_window(
+        &self,
+        _session_id: &str,
+        _schema: &str,
+        _before_seq: Option<u64>,
+        _max_messages: usize,
+    ) -> Result<Option<ColdHistoryWindow>, StoreError> {
+        Ok(None)
+    }
+
     /// Optional fast catalogue lookup. None means missing/stale/unusable and
     /// must never be interpreted as proof that no work needs recovery.
     async fn catalog_entry(
@@ -164,6 +195,16 @@ pub trait Store: Send + Sync + 'static {
     /// Best-effort rebuildable index publication after a verified full replay.
     async fn publish_catalog_entry(&self, _entry: SessionCatalogEntry) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    /// Publish presentation values with the same source-bound catalogue stamp.
+    /// Older backends keep metadata publication and simply miss cold display reads.
+    async fn publish_catalog_presentation(
+        &self,
+        entry: SessionCatalogEntry,
+        _presentation: HistoryPresentation,
+    ) -> Result<(), StoreError> {
+        self.publish_catalog_entry(entry).await
     }
 
     /// Persist the exact tool-returned envelope before publishing a reduced result.

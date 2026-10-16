@@ -13,6 +13,9 @@ use xharness_session::{ScheduleRecord, SessionMutationReceipt};
 use crate::HostConfig;
 use xharness_projection::metrics::MetricsProjectionState;
 
+// Disposable display values are versioned independently of the wire and journal.
+pub(crate) const HISTORY_PRESENTATION_SCHEMA: &str = "xharness.host.history-presentation.v1";
+
 /// Product-level permission bundle advertised to the Web client and captured
 /// when a turn starts.  Full access is deliberately one preset instead of a
 /// loose pair of booleans so the UI can place one explicit risk gate in front
@@ -556,14 +559,22 @@ impl SessionRecord {
         self.projection_values_inner(true)
     }
 
+    pub(crate) fn history_presentation_values(&self) -> Value {
+        self.projection_values_at(true, false)
+    }
+
     fn projection_values_inner(&self, performance: bool) -> Value {
+        self.projection_values_at(performance, self.restoring)
+    }
+
+    fn projection_values_at(&self, performance: bool, restoring: bool) -> Value {
         let mut values = serde_json::Map::new();
         values.insert(
             "sessionListMetadata".to_owned(),
             json!({
                 "blank": self.blank,
-                "restoring": self.restoring,
-                "metricsPending": self.restoring && self.catalog_metrics.is_none(),
+                "restoring": restoring,
+                "metricsPending": restoring && self.catalog_metrics.is_none(),
                 "lastPromptAt": if self.blank { Value::Null } else { json!(self.updated_at) },
             }),
         );
@@ -578,17 +589,19 @@ impl SessionRecord {
             "plan".to_owned(),
             json!({"active": self.plan_active, "pending": false}),
         );
-        values.insert(
-            "goal".to_owned(),
-            self.goal
-                .as_ref()
-                .map_or(Value::Null, GoalState::projection),
-        );
-        values.insert("taskPlan".to_owned(), json!(self.task_plan));
+        // Cold records have not recovered Goal or task-plan state. Do not
+        // publish guessed defaults at the authoritative projection cursor.
+        if !restoring {
+            values.insert(
+                "goal".to_owned(),
+                self.goal.as_ref().map_or(Value::Null, GoalState::projection),
+            );
+            values.insert("taskPlan".to_owned(), json!(self.task_plan));
+        }
         if self.schedules_hydrated {
             values.insert("schedules".to_owned(), json!(self.schedules));
         }
-        let metrics = if self.restoring {
+        let metrics = if restoring {
             self.catalog_metrics.as_ref()
         } else {
             None
@@ -602,7 +615,7 @@ impl SessionRecord {
             ] {
                 values.insert(key.to_owned(), cold[key].clone());
             }
-        } else if !self.restoring {
+        } else if !restoring {
             values.insert("tokenUsage".to_owned(), self.metrics.token_usage());
             values.insert(
                 "dailyTokenUsage".to_owned(),

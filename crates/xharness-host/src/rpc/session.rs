@@ -127,6 +127,12 @@ pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, 
         .clamp(1, MAX_HISTORY_MESSAGES);
 
     host.state.write().await.touch_projection_cache(&session_id);
+    if let Some(page) = cold_history(host, &session_id, before_seq, max_messages).await {
+        return Ok(page);
+    }
+    host.hydrate_session(&session_id)
+        .await
+        .map_err(|error| RpcError::internal(format!("session recovery failed: {error}")))?;
     if let Some(page) = indexed_history(host, &session_id, before_seq, max_messages).await {
         return Ok(page);
     }
@@ -228,6 +234,97 @@ pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, 
     Ok(value)
 }
 
+/// Presentation readiness is not execution readiness. Keep the cold record and
+/// its recovery gate intact; only a source-bound idle page may bypass hydration.
+async fn cold_history(
+    host: &BasicHost,
+    id: &str,
+    before: Option<u64>,
+    max: usize,
+) -> Option<Value> {
+    if !host.agent_runtime.has_authoritative_sessions() {
+        return None;
+    }
+    let store = host.lazy_store.get()?.clone();
+    {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id)?;
+        if !record.restoring || record.running || state.deleted_sessions.contains(id) {
+            return None;
+        }
+    }
+    let gate = host.session_restore_gate(id).await;
+    let _recovery_guard = gate.lock().await;
+    let _projection_guard = host.lock_projection(id).await;
+    let (expected, route) = {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id)?;
+        if !record.restoring || record.running || state.deleted_sessions.contains(id) {
+            return None;
+        }
+        (
+            record.authoritative_seq?,
+            ModelRoute {
+                provider: record.model.provider.clone(),
+                model: record.model.model.clone(),
+                reasoning_effort: record.model.reasoning_effort.clone(),
+                context_window_tokens: record.model.context_window_tokens,
+            },
+        )
+    };
+    let mut cut = store
+        .cold_history_window(id, crate::state::HISTORY_PRESENTATION_SCHEMA, before, max)
+        .await
+        .ok()??;
+    if cut.presentation.schema != crate::state::HISTORY_PRESENTATION_SCHEMA
+        || ![
+            "sessionListMetadata",
+            "permissions",
+            "plan",
+            "goal",
+            "taskPlan",
+            "tokenUsage",
+            "dailyTokenUsage",
+            "sessionStats",
+            "contextPressure",
+            "performanceTimeline",
+        ]
+        .iter()
+        .all(|key| cut.presentation.values.get(*key).is_some())
+        || cut.catalog.header.id != id
+        || cut.catalog.next_seq != expected
+        || cut.window.next_seq != expected
+        || cut.catalog.needs_recovery
+    {
+        return None;
+    }
+    {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id)?;
+        if !record.restoring
+            || record.running
+            || state.deleted_sessions.contains(id)
+            || record.authoritative_seq != Some(expected)
+            || record.model.provider != route.provider
+            || record.model.model != route.model
+            || record.model.reasoning_effort != route.reasoning_effort
+            || record.model.context_window_tokens != route.context_window_tokens
+        {
+            return None;
+        }
+        // Display is ready; execution deliberately is not. Keep this metadata
+        // identical to the live/catalogue baseline at the same sequence.
+        cut.presentation.values["sessionListMetadata"] =
+            record.projection_values()["sessionListMetadata"].clone();
+    }
+    Some(indexed_page(
+        &cut.window,
+        &route,
+        before,
+        cut.presentation.values,
+    ))
+}
+
 /// Only an already hydrated, idle, exactly synchronized session can bypass
 /// full replay. Active turns and all unusable indices retain the old path.
 async fn indexed_history(
@@ -276,14 +373,24 @@ async fn indexed_history(
             return None;
         }
     }
-    let events = project_history_window(&window, &route)
+    Some(indexed_page(&window, &route, before, projections))
+}
+
+// Both display-only and recovered reads use the same event/view projection.
+fn indexed_page(
+    window: &xharness_session::SessionHistoryWindow,
+    route: &ModelRoute,
+    before: Option<u64>,
+    projections: Value,
+) -> Value {
+    let events = project_history_window(window, route)
         .into_iter()
         .map(|event| {
             let view = event
                 .get("seq")
                 .and_then(Value::as_u64)
                 .and_then(|seq| window.events.binary_search_by_key(&seq, |e| e.seq).ok())
-                .and_then(|n| project_history_window_view(&window, &window.events[n]))
+                .and_then(|n| project_history_window_view(window, &window.events[n]))
                 .or_else(|| EventGateway::live_view(&event, &[]));
             EventGateway::history_event(event, view)
         })
@@ -295,7 +402,7 @@ async fn indexed_history(
             "values": projections,
         });
     }
-    Some(value)
+    value
 }
 
 async fn models(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
@@ -308,9 +415,44 @@ async fn models(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
             .await
             .map_err(crate::model_settings::model_settings_error)?;
     }
-    let repaired = host.reconcile_model_routes().await;
-    if !repaired.is_empty() {
-        host.state.write().await.startup_issues.extend(repaired);
+    let mut cold = host
+        .state
+        .read()
+        .await
+        .sessions
+        .get(&session_id)
+        .is_some_and(|record| record.restoring);
+    if cold {
+        let store = host.lazy_store.get();
+        let entry = match store {
+            Some(store) => store.catalog_entry(&session_id).await.ok().flatten(),
+            None => None,
+        };
+        let verified = {
+            let state = host.state.read().await;
+            state
+                .sessions
+                .get(&session_id)
+                .zip(entry.as_ref())
+                .is_some_and(|(record, entry)| {
+                    record.restoring
+                        && !record.running
+                        && !entry.needs_recovery
+                        && record.authoritative_seq == Some(entry.next_seq)
+                })
+        };
+        if !verified {
+            host.hydrate_session(&session_id)
+                .await
+                .map_err(|error| RpcError::internal(format!("session recovery failed: {error}")))?;
+            cold = false;
+        }
+    }
+    if !cold {
+        let repaired = host.reconcile_model_routes().await;
+        if !repaired.is_empty() {
+            host.state.write().await.startup_issues.extend(repaired);
+        }
     }
     let (current, route) = {
         let state = host.state.read().await;

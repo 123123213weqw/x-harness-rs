@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Avoid full Agent recovery for a source-validated idle history page while preserving every execution and mutation gate.",
+  "compatibility": "New optional Store methods retain default fallbacks for other backends. Existing RPC shapes, journals, lightweight catalogues and recovery checkpoints are unchanged. A separate disposable bounded v1 presentation sidecar is source- and checksum-validated; absent, stale, oversized or corrupt acceleration takes the original recovery path. A validated checkpoint may seed only an identical source-bound idle catalogue without changing metadata or recovery flags. Native Windows replacement and restart gates remain mandatory in CI.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "d45210d342d19337e691c6d009f2eb9def9c08b540acc1ba99d0ba0301aa9d52",
+      "after": "39d16a0417062a1838d859c633b006dc63e6fdaba56064e4c679b4d2b0cee5f5"
+    },
+    "crates/xharness-session-jsonl/tests/cold_history.rs": {
+      "before": null,
+      "after": "5f0a9d881acfccf31cc75379bb92c0405b62d0fe1e7ea560f0d46fe164b46d33"
+    },
+    "crates/xharness-session/src/store.rs": {
+      "before": "b9025e5eb77fda0a5e2f54b5a0d832a8e3c3f48bed20b977390d899f28716cee",
+      "after": "5fc53d1e5980a6a900c600cd2850ec12342510a8929307cc858fcc8b0b0fab46"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}
