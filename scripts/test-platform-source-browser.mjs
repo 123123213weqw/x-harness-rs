@@ -68,8 +68,8 @@ for(const engine of engines){
   const results=[]
   for(const implementation of ['frozen','source']){
    const errors=[],requests=[]
-   const openPage=async()=>{
-    const page=await browser.newPage({viewport:{width:960,height:720}})
+   const openPage=async(viewport={width:960,height:720})=>{
+    const page=await browser.newPage({viewport})
     page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push(new URL(r.url()).pathname));page.setDefaultTimeout(15000)
     const entry=implementation==='source'?'/'+built.entryPath:frozenEntry
     const sourceCss=implementation==='source'?built.cssPaths:[]
@@ -177,39 +177,41 @@ for(const engine of engines){
    })
    assert.deepEqual(coreAbi.tracker,{method:'caller',getter:'caller',sameRoot:true,instance:true},'actual Core Service tracker preserves caller through methods and guarded getter')
    assert.deepEqual(coreAbi.selected,['b','winner']);assert.deepEqual(coreAbi.fallback,['b','shadow']);assert.deepEqual(coreAbi.chain,['earlier','later']);assert.deepEqual(coreAbi.keyed,['new-key']);assert.equal(coreAbi.cascaded.live,false)
-   // Independent fixture, not a replacement of the streaming/Shiki scene.
-   // CI retained two raster pixels outside every live surface element in the
-   // initial 960px scene; viewport changes happened to erase them. Start with
-   // a fresh document instead of masking pixels, tolerating differences, or
-   // relying on that incidental resize. The exact pixel oracle is unchanged.
-   await page.close();page=await openPage();await page.evaluate(initializeRoot)
-   assert.deepEqual(await page.evaluate(()=>Object.keys(staticModules).sort()),keys)
-   await page.addStyleTag({content:'*,*::before,*::after {animation:none !important;transition:none !important;caret-color:transparent !important} #fixture {padding:24px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap} '})
-   await page.evaluate(()=>{
-    const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
-    window.fixtureCloseCount=0;window.selected=[]
-    window.renderSurface=(kind='base')=>D.flushSync(()=>mount.render(R.createElement('div',{id:'fixture'},
-     ...['primary','ghost','outline','toolbar'].map(variant=>R.createElement(P.Button,{key:variant,variant},variant)),
-     R.createElement(P.Pill,{active:true},'Active'),R.createElement(P.Input,{defaultValue:'Input value','aria-label':'Input'}),
-     R.createElement(P.StateDot,{state:'done'}),R.createElement(P.DisclosureRow,{title:'Disclosure',icon:'i',open:true,expandable:true,onToggle:()=>{}},'content'),
-     R.createElement(P.JsonTree,{data:{a:1,nested:{x:'text'},array:[1,2]}}),
-     R.createElement(P.MarkdownText,{text:'Formula $x^2$ and **bold**\n\n$$\nx^2+y^2\n$$',streaming:true}),
-     kind==='menu'?R.createElement(P.Menu,{open:true,portal:true,anchor:R.createElement(P.Button,{},'Menu anchor'),items:[{type:'label',id:'label',text:'Heading'},{id:'a',label:'Alpha'},{type:'separator',id:'s'},{id:'b',label:'Disabled',disabled:true}],footer:[{id:'f',label:'Footer'}],onSelect:id=>selected.push(id),onClose:()=>fixtureCloseCount++}):null,
-     kind==='modal'?R.createElement(P.Modal,{open:true,title:'Modal title',description:'Description',onClose:()=>fixtureCloseCount++,footer:R.createElement(P.Button,{variant:'primary'},'Confirm')},'Modal body'):null)))
-    // The owned modal intentionally moved into the native top layer. Compare
-    // the feature-owned card (same geometry/tokens), not the transport wrapper.
-    window.layout=()=>{
-     const surface=document.querySelector('[role=dialog]')
-     const card=surface?.tagName==='DIALOG'?surface.querySelector('[class*=dialog]'):surface
-     return [...document.querySelectorAll('#fixture *'),...(card?[card,...card.querySelectorAll('*')]:[])].map(el=>{
-     const r=el.getBoundingClientRect(),css=getComputedStyle(el),before=getComputedStyle(el,'::before'),after=getComputedStyle(el,'::after')
-     const names=['display','position','color','backgroundColor','fontFamily','fontSize','fontWeight','lineHeight','padding','margin','border','borderRadius','gap','boxShadow','opacity','animationDuration','animationTimingFunction','transform','overflow','maxWidth','maxHeight']
-     return {tag:el.tagName,text:el.children.length?null:el.textContent,rect:[r.x,r.y,r.width,r.height],style:Object.fromEntries(names.map(name=>[name,css[name]])),before:{content:before.content,width:before.width,height:before.height,backgroundColor:before.backgroundColor},after:{content:after.content,width:after.width,height:after.height,backgroundColor:after.backgroundColor}}
-    })}
-   })
+   // Keep surface cases independent of the streaming/Shiki scene and of each
+   // other viewport. Chromium can retain raster pixels across a resize even
+   // when the DOM and computed layout match. Construct the document at its
+   // target size; do not mask pixels or relax the exact screenshot oracle.
+   const openSurface=async width=>{
+    await page.close();page=await openPage({width,height:720});await page.evaluate(initializeRoot)
+    assert.deepEqual(await page.evaluate(()=>Object.keys(staticModules).sort()),keys)
+    await page.addStyleTag({content:'*,*::before,*::after {animation:none !important;transition:none !important;caret-color:transparent !important} #fixture {padding:24px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap} '})
+    await page.evaluate(()=>{
+     const R=staticModules.react,D=staticModules['react-dom'],P=staticModules['@xharness/dsh-client-ui-primitives']
+     window.fixtureCloseCount=0;window.selected=[]
+     window.renderSurface=(kind='base')=>D.flushSync(()=>mount.render(R.createElement('div',{id:'fixture'},
+      ...['primary','ghost','outline','toolbar'].map(variant=>R.createElement(P.Button,{key:variant,variant},variant)),
+      R.createElement(P.Pill,{active:true},'Active'),R.createElement(P.Input,{defaultValue:'Input value','aria-label':'Input'}),
+      R.createElement(P.StateDot,{state:'done'}),R.createElement(P.DisclosureRow,{title:'Disclosure',icon:'i',open:true,expandable:true,onToggle:()=>{}},'content'),
+      R.createElement(P.JsonTree,{data:{a:1,nested:{x:'text'},array:[1,2]}}),
+      R.createElement(P.MarkdownText,{text:'Formula $x^2$ and **bold**\n\n$$\nx^2+y^2\n$$',streaming:true}),
+      kind==='menu'?R.createElement(P.Menu,{open:true,portal:true,anchor:R.createElement(P.Button,{},'Menu anchor'),items:[{type:'label',id:'label',text:'Heading'},{id:'a',label:'Alpha'},{type:'separator',id:'s'},{id:'b',label:'Disabled',disabled:true}],footer:[{id:'f',label:'Footer'}],onSelect:id=>selected.push(id),onClose:()=>fixtureCloseCount++}):null,
+      kind==='modal'?R.createElement(P.Modal,{open:true,title:'Modal title',description:'Description',onClose:()=>fixtureCloseCount++,footer:R.createElement(P.Button,{variant:'primary'},'Confirm')},'Modal body'):null)))
+     // The owned modal intentionally moved into the native top layer. Compare
+     // the feature-owned card (same geometry/tokens), not the transport wrapper.
+     window.layout=()=>{
+      const surface=document.querySelector('[role=dialog]')
+      const card=surface?.tagName==='DIALOG'?surface.querySelector('[class*=dialog]'):surface
+      return [...document.querySelectorAll('#fixture *'),...(card?[card,...card.querySelectorAll('*')]:[])].map(el=>{
+      const r=el.getBoundingClientRect(),css=getComputedStyle(el),before=getComputedStyle(el,'::before'),after=getComputedStyle(el,'::after')
+      const names=['display','position','color','backgroundColor','fontFamily','fontSize','fontWeight','lineHeight','padding','margin','border','borderRadius','gap','boxShadow','opacity','animationDuration','animationTimingFunction','transform','overflow','maxWidth','maxHeight']
+      return {tag:el.tagName,text:el.children.length?null:el.textContent,rect:[r.x,r.y,r.width,r.height],style:Object.fromEntries(names.map(name=>[name,css[name]])),before:{content:before.content,width:before.width,height:before.height,backgroundColor:before.backgroundColor},after:{content:after.content,width:after.width,height:after.height,backgroundColor:after.backgroundColor}}
+     })}
+    })
+   }
    const surfaces=[],screenshots=[]
    for(const theme of ['light','dark'])for(const width of [960,390])for(const kind of ['base','menu','modal']){
-    await page.setViewportSize({width,height:720});await page.evaluate(({theme,kind})=>{if(theme==='dark')document.body.setAttribute('data-ds-dark-theme','');else document.body.removeAttribute('data-ds-dark-theme');renderSurface(kind)},{theme,kind})
+    if(kind==='base')await openSurface(width)
+    await page.evaluate(({theme,kind})=>{if(theme==='dark')document.body.setAttribute('data-ds-dark-theme','');else document.body.removeAttribute('data-ds-dark-theme');renderSurface(kind)},{theme,kind})
     if(kind==='modal')await page.getByRole('button',{name:'Confirm',exact:true}).focus()
     await page.evaluate(()=>document.fonts.ready);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
     surfaces.push({theme,width,kind,layout:await page.evaluate(()=>layout())});screenshots.push(sha(await page.screenshot({animations:'disabled',path:join(evidence,`${engine}-${implementation}-${theme}-${width}-${kind}.png`)})))
