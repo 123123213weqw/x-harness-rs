@@ -3093,6 +3093,141 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    struct StartupReadProbe {
+        inner: Arc<dyn Store>,
+        loads: AtomicUsize,
+    }
+    #[async_trait]
+    impl Store for StartupReadProbe {
+        async fn list_headers(&self) -> Result<Vec<SessionHeader>, xharness_session::StoreError> {
+            panic!(
+                "Job discovery must not fully scan idle journals before checking their catalogue"
+            )
+        }
+        async fn scan_startup_candidates(
+            &self,
+        ) -> Result<
+            (Vec<SessionHeader>, Vec<xharness_session::UnreadableSession>),
+            xharness_session::StoreError,
+        > {
+            self.inner.scan_startup_candidates().await
+        }
+        async fn catalog_entry(
+            &self,
+            id: &str,
+        ) -> Result<Option<SessionCatalogEntry>, xharness_session::StoreError> {
+            self.inner.catalog_entry(id).await
+        }
+        async fn create(
+            &self,
+            header: SessionHeader,
+        ) -> Result<Session, xharness_session::StoreError> {
+            self.inner.create(header).await
+        }
+        async fn load(&self, id: &str) -> Result<Option<Session>, xharness_session::StoreError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            self.inner.load(id).await
+        }
+        async fn append(
+            &self,
+            id: &str,
+            expected: Revision,
+            events: Vec<SessionEvent>,
+        ) -> Result<xharness_session::AppendReceipt, xharness_session::StoreError> {
+            self.inner.append(id, expected, events).await
+        }
+        async fn inspect(
+            &self,
+            id: &str,
+        ) -> Result<Option<xharness_session::SessionInspection>, xharness_session::StoreError>
+        {
+            self.inner.inspect(id).await
+        }
+        async fn flush(&self, id: &str) -> Result<Revision, xharness_session::StoreError> {
+            self.inner.flush(id).await
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_history_job_discovery_skips_only_verified_idle_journals() {
+        use crate::job_continuation::{records, JobContinuationController};
+        for kind in ["idle", "missing", "stale", "pending", "corrupt-tail"] {
+            let (dir, store, host, _, _) = cold_history_fixture(kind).await;
+            if kind == "missing" {
+                std::fs::remove_file(dir.join("cold.catalog")).unwrap();
+            }
+            if kind == "pending" || kind == "stale" {
+                let mut pending_entry = store.catalog_entry("cold").await.unwrap().unwrap();
+                let session = store.load("cold").await.unwrap().unwrap();
+                store
+                    .append(
+                        "cold",
+                        session.revision(),
+                        vec![EventData::JobContinuation {
+                            record: Box::new(xharness_session::JobContinuationRecord {
+                                version: 1,
+                                id: "continuation".into(),
+                                job_id: "lost-job".into(),
+                                continuation: "observe terminal status".into(),
+                                state: xharness_session::JobContinuationState::Registered,
+                                completion: None,
+                            }),
+                        }
+                        .into()],
+                    )
+                    .await
+                    .unwrap();
+                if kind == "pending" {
+                    assert!(store.catalog_entry("cold").await.unwrap().is_none());
+                    pending_entry.next_seq = store.load("cold").await.unwrap().unwrap().next_seq();
+                    pending_entry.needs_recovery = true;
+                    store.publish_catalog_entry(pending_entry).await.unwrap();
+                }
+            }
+            if kind == "corrupt-tail" {
+                use std::io::Write;
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(dir.join("cold.jsonl"))
+                    .unwrap()
+                    .write_all(b"invalid committed record\n")
+                    .unwrap();
+            }
+            let probe = Arc::new(StartupReadProbe {
+                inner: store.clone(),
+                loads: AtomicUsize::new(0),
+            });
+            let controller = JobContinuationController::new(
+                Arc::new(xharness_jobs::JobRegistry::with_defaults()),
+                probe.clone(),
+                &host,
+            );
+            controller.pause_delivery();
+            let recovered = controller.recover().await;
+            if kind == "corrupt-tail" {
+                assert!(
+                    recovered.is_err(),
+                    "unreadable unknown work must be reported"
+                );
+            } else {
+                recovered.unwrap();
+            }
+            assert_eq!(
+                probe.loads.load(Ordering::SeqCst) == 0,
+                kind == "idle",
+                "{kind}"
+            );
+            if kind == "pending" || kind == "stale" {
+                assert_eq!(
+                    records(&store.load("cold").await.unwrap().unwrap())["lost-job"].state,
+                    xharness_session::JobContinuationState::Settled,
+                    "pending work is still recovered"
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn cold_history_namespaced_mutations_recover_before_admission() {
         for endpoint in ["commands/execute", "goals/clear"] {
