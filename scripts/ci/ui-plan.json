@@ -3910,6 +3910,41 @@
         "UI_TEST_IMPL": "source"
       },
       "weight": 20
+    },
+    {
+      "id": "contract-098",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-remote-settings-contract.mjs"
+      ],
+      "env": {},
+      "weight": 60
+    },
+    {
+      "id": "browser-224",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-remote-settings-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 120
+    },
+    {
+      "id": "browser-225",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-remote-settings-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 120
     }
   ]
 }
