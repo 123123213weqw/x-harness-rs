@@ -467,6 +467,21 @@ async fn native_http_provider_streams_both_protocols() {
         for expected in ["request", "response_status", "sse.chunk", "stream.event"] {
             assert!(trace.iter().any(|event| event.event == expected));
         }
+        let request_trace = trace.iter().find(|event| event.event == "request").unwrap();
+        assert_eq!(request_trace.payload["body"]["model"], "test-model");
+        assert!(trace.iter().any(|event| {
+            event.event == "sse.chunk"
+                && event.payload["bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes > 0)
+                && event.payload["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("hello"))
+        }));
+        assert!(trace.iter().any(|event| {
+            event.event == "stream.event"
+                && event.payload == json!({"type": "text_delta", "delta": "hello"})
+        }));
         assert!(trace.iter().all(|event| {
             event.scope.session_id.as_deref() == Some("provider-session")
                 && event.scope.run_id.as_deref() == Some("provider-run")
