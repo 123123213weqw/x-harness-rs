@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Integrate lazy diagnostics, shared durable events and bounded projection ownership with current steering readiness and recovery fixes.",
+  "compatibility": "Keep serialized event bodies, RPC payloads and journal replay unchanged while replacing in-memory ownership. Failed activation must not retain a session configuration, and startup reconciliation still precedes inbox reads. Run affected crate regressions/Clippy; the PR remains draft because broad RSS stability acceptance has not passed.",
+  "paths": {
+    "crates/xharness-projection/src/lib.rs": {
+      "before": "bb667c43ae59da081c4e63225e2d3e56695c6b9c72c0427fe58a8bbbe2b486a5",
+      "after": "26b624762d1420ca534d65e21a17fcb6c5fbd40e9e80ededbe9e8c97eafed86a"
+    },
+    "crates/xharness-projection/src/tail_update.rs": {
+      "before": null,
+      "after": "b54dd80626801c4921b9796fa9d5cacc7bf5ecb455b98a4000e1326f99c009c8"
+    },
+    "crates/xharness-session-jsonl/src/audit.rs": {
+      "before": "c8722b4bf5b884e9b2d2d75c7b3fb4e16127143ff8c3155fee18236114794d6f",
+      "after": "7b719044f0907deff946f8e6bc037ab34b4a9f8927a2bf3c4ad42a0144cc8289"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "d45210d342d19337e691c6d009f2eb9def9c08b540acc1ba99d0ba0301aa9d52",
+      "after": "fa9094f50cb05ddd33e56e13fe7849a3f03ccd94fbde4beade242ba0ab011d93"
+    },
+    "crates/xharness-session/src/event.rs": {
+      "before": "4116eb997398fc1ad29363a48d5102e1cd3b009257fac5b7ce766f836682a349",
+      "after": "e6f41e8e31fd8212a446b9648c3d025214404302f7f3478cf9bfce12c2315de2"
+    },
+    "crates/xharness-session/src/event_sharing_tests.rs": {
+      "before": null,
+      "after": "ea9b006e2b7864e3b6f545a75a731bc785d68aa806d5168e6811471db87af2b0"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows",
+    "wire"
+  ]
+}

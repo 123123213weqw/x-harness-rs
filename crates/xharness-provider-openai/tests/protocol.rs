@@ -467,6 +467,21 @@ async fn native_http_provider_streams_both_protocols() {
         for expected in ["request", "response_status", "sse.chunk", "stream.event"] {
             assert!(trace.iter().any(|event| event.event == expected));
         }
+        let request_trace = trace.iter().find(|event| event.event == "request").unwrap();
+        assert_eq!(request_trace.payload["body"]["model"], "test-model");
+        assert!(trace.iter().any(|event| {
+            event.event == "sse.chunk"
+                && event.payload["bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes > 0)
+                && event.payload["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("hello"))
+        }));
+        assert!(trace.iter().any(|event| {
+            event.event == "stream.event"
+                && event.payload == json!({"type": "text_delta", "delta": "hello"})
+        }));
         assert!(trace.iter().all(|event| {
             event.scope.session_id.as_deref() == Some("provider-session")
                 && event.scope.run_id.as_deref() == Some("provider-run")
@@ -1443,6 +1458,99 @@ async fn local_reasoning_recipes_reach_http_without_rewriting_messages_or_tools(
                 let body = server.await.unwrap();
                 assert_eq!(body["model"], model["upstream_model"]);
             }
+        }
+    }
+}
+
+#[tokio::test]
+async fn trace_mode_preserves_large_escaped_wire_request_and_normalized_events() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let mut previous = None;
+        for tracing in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let raw = read_http_request(&mut socket).await;
+                let split = raw.windows(4).position(|part| part == b"\r\n\r\n").unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+                let frames = match protocol {
+                    OpenAiProtocol::ChatCompletions => vec![
+                        json!({"choices":[{"delta":{"content":"output λ😀\n\"\\","reasoning_content":"reasoning λ😀"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":2}}}),
+                    ],
+                    OpenAiProtocol::Responses => vec![
+                        json!({"type":"response.output_text.delta","delta":"output λ😀\n\"\\"}),
+                        json!({"type":"response.completed","response":{"output":[],"usage":{"input_tokens":20,"output_tokens":6,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":2}}}}),
+                    ],
+                };
+                let mut sse = frames
+                    .into_iter()
+                    .map(|frame| format!("data: {frame}\n\n"))
+                    .collect::<String>();
+                if protocol == OpenAiProtocol::ChatCompletions {
+                    sse.push_str("data: [DONE]\n\n");
+                }
+                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse}", sse.len());
+                socket.write_all(response.as_bytes()).await.unwrap();
+                body
+            });
+            let sink = std::sync::Arc::new(MemoryDebugSink::default());
+            let recorder = if tracing {
+                DebugRecorder::new(sink.clone())
+            } else {
+                DebugRecorder::disabled()
+            };
+            let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+                protocol,
+                format!("http://{address}/v1"),
+                "fixture",
+                "test-model",
+            ))
+            .unwrap()
+            .with_debug(recorder);
+            let request = ProviderRequest {
+                messages: vec![AgentMessage::user(
+                    "large λ😀 \" \\ \n \t \0 input ".repeat(4096),
+                )],
+                tools: Vec::new(),
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: None,
+                debug_scope: DebugScope::default().with_session("wire-parity"),
+            };
+            let expected = build_openai_request(protocol, "test-model", &request);
+            let mut stream = provider
+                .stream(request, CancellationToken::new())
+                .await
+                .unwrap();
+            let mut events = Vec::new();
+            while let Some(event) = stream.next().await {
+                events.push(event.unwrap());
+            }
+            assert!(matches!(
+                events.last(),
+                Some(ProviderEvent::Completed { .. })
+            ));
+            let body = server.await.unwrap();
+            assert_eq!(body, expected);
+            let trace = sink.events().await;
+            if tracing {
+                assert_eq!(
+                    trace
+                        .iter()
+                        .find(|event| event.event == "request")
+                        .unwrap()
+                        .payload["body"],
+                    body
+                );
+            } else {
+                assert!(trace.is_empty());
+            }
+            if let Some((previous_body, previous_events)) = previous.take() {
+                assert_eq!(body, previous_body);
+                assert_eq!(events, previous_events);
+            }
+            previous = Some((body, events));
         }
     }
 }

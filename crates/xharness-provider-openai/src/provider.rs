@@ -22,7 +22,7 @@ use xharness_core::{
     ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount,
     ProviderNetworkDiagnostics, ProviderRequest, ProviderStream,
 };
-use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
+use xharness_debug::{DebugRecorder, DebugScope};
 use xharness_token::WireFeatures;
 
 use crate::{
@@ -805,15 +805,18 @@ impl ModelProvider for OpenAiProvider {
             Ok(capabilities) => capabilities,
             Err(error) if self.config.context_window_fallback.is_some() => {
                 self.debug
-                    .record_lossy(DebugEvent::new(
+                    .record_lossy_with(
                         "provider.openai",
                         "capability.fallback",
-                        serde_json::json!({
-                            "model": &self.config.model,
-                            "error": error.message,
-                            "source": "deployment_declared_fallback",
-                        }),
-                    ))
+                        DebugScope::default(),
+                        || {
+                            serde_json::json!({
+                                "model": &self.config.model,
+                                "error": error.message,
+                                "source": "deployment_declared_fallback",
+                            })
+                        },
+                    )
                     .await;
                 self.fallback_capabilities()
             }
@@ -851,7 +854,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.request",
-            json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
+            || json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
         )
         .await;
         let request_builder = self
@@ -870,7 +873,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.response_status",
-            json!({"status": status.as_u16()}),
+            || json!({"status": status.as_u16()}),
         )
         .await;
         if matches!(status.as_u16(), 404 | 405 | 501) {
@@ -895,7 +898,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.response_body",
-            json!({"body": &body}),
+            || json!({"body": &body}),
         )
         .await;
         let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
@@ -928,15 +931,13 @@ impl ModelProvider for OpenAiProvider {
         let calibration = self.calibration.clone();
         let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.multimodal_body(&request, false, &cancellation).await?;
-        self.trace(
-            &request.debug_scope,
-            "request",
+        self.trace(&request.debug_scope, "request", || {
             json!({
                 "endpoint": self.config.endpoint(),
                 "protocol": format!("{:?}", self.config.protocol),
                 "body": image_safe_trace(&body),
-            }),
-        )
+            })
+        })
         .await;
         let request_builder = self
             .client
@@ -969,7 +970,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "response_status",
-            json!({"status": status.as_u16()}),
+            || json!({"status": status.as_u16()}),
         )
         .await;
         if !status.is_success() {
@@ -980,7 +981,7 @@ impl ModelProvider for OpenAiProvider {
             self.trace(
                 &request.debug_scope,
                 "response_error",
-                json!({"status": code, "body": &body}),
+                || json!({"status": code, "body": &body}),
             )
             .await;
             let detail = if body.is_empty() {
@@ -1021,25 +1022,27 @@ impl ModelProvider for OpenAiProvider {
                         received_bytes = received_bytes.saturating_add(
                             u64::try_from(chunk.len()).unwrap_or(u64::MAX),
                         );
-                        debug.record_lossy(DebugEvent::new(
+                        debug.record_lossy_with(
                             "provider.openai",
                             "sse.chunk",
-                            json!({
+                            debug_scope.clone(),
+                            || json!({
                                 "bytes": chunk.len(),
                                 "content": String::from_utf8_lossy(&chunk),
                             }),
-                        ).with_scope(debug_scope.clone())).await;
+                        ).await;
                         match parser.feed_bytes(chunk, false) {
                             Ok(events) => {
                                 for event in events {
                                     match normalizer.consume(event) {
                                         Ok(provider_events) => {
                                             for provider_event in provider_events {
-                                                debug.record_lossy(DebugEvent::new(
+                                                debug.record_lossy_with(
                                                     "provider.openai",
                                                     "stream.event",
-                                                    provider_event_payload(&provider_event),
-                                                ).with_scope(debug_scope.clone())).await;
+                                                    debug_scope.clone(),
+                                                    || provider_event_payload(&provider_event),
+                                                ).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
                                                     calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
@@ -1067,11 +1070,11 @@ impl ModelProvider for OpenAiProvider {
                     Some(Err(error)) => {
                         let elapsed = stream_started.elapsed();
                         let kind = reqwest_error_kind(&error);
-                        let source_chain = reqwest_error_source_chain(&error);
-                        debug.record_lossy(DebugEvent::new(
+                        debug.record_lossy_with(
                             "provider.openai",
                             "stream.transport_error",
-                            json!({
+                            debug_scope.clone(),
+                            || json!({
                                 "kind": kind,
                                 "elapsedMs": elapsed.as_millis(),
                                 "receivedChunks": received_chunks,
@@ -1080,9 +1083,9 @@ impl ModelProvider for OpenAiProvider {
                                 "isConnect": error.is_connect(),
                                 "isDecode": error.is_decode(),
                                 "isBody": error.is_body(),
-                                "sourceChain": source_chain,
+                                "sourceChain": reqwest_error_source_chain(&error),
                             }),
-                        ).with_scope(debug_scope.clone())).await;
+                        ).await;
                         yield Err(observation.failure(ProviderError::retryable(format!(
                             "OpenAI stream interrupted after {} ({kind}; received {received_chunks} chunks / {received_bytes} bytes): {}",
                             format_duration(elapsed),
@@ -1100,11 +1103,12 @@ impl ModelProvider for OpenAiProvider {
                         match normalizer.consume(event) {
                             Ok(provider_events) => {
                                             for provider_event in provider_events {
-                                                debug.record_lossy(DebugEvent::new(
+                                                debug.record_lossy_with(
                                                     "provider.openai",
                                                     "stream.event",
-                                                    provider_event_payload(&provider_event),
-                                                ).with_scope(debug_scope.clone())).await;
+                                                    debug_scope.clone(),
+                                                    || provider_event_payload(&provider_event),
+                                                ).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
                                                     calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
@@ -1297,12 +1301,14 @@ fn format_duration(duration: Duration) -> String {
 }
 
 impl OpenAiProvider {
-    async fn trace(&self, scope: &DebugScope, event: &str, payload: Value) {
+    fn trace(
+        &self,
+        scope: &DebugScope,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         self.debug
-            .record_lossy(
-                DebugEvent::new("provider.openai", event, payload).with_scope(scope.clone()),
-            )
-            .await;
+            .record_lossy_with("provider.openai", event, scope.clone(), payload)
     }
 }
 

@@ -148,11 +148,17 @@ pub struct ScheduleManager {
     control_lifetime: Arc<RwLock<()>>,
     store: Arc<dyn Store>,
     clock: Arc<dyn Clock>,
-    owners: Mutex<HashMap<String, Arc<ScheduleOwner>>>,
+    owners: Mutex<ScheduleOwners>,
     deliveries: Arc<Mutex<HashMap<(String, String), PreparedScheduleDelivery>>>,
     delivery_tx: broadcast::Sender<ScheduleDeliveryNotice>,
     closed: AtomicBool,
     targets: Arc<OnceLock<Arc<dyn AutomationTargetProvider>>>,
+}
+
+#[derive(Default)]
+struct ScheduleOwners {
+    live: HashMap<String, Arc<ScheduleOwner>>,
+    retired: HashSet<String>,
 }
 
 struct ScheduleOwner {
@@ -182,7 +188,7 @@ impl ScheduleManager {
             control_lifetime: Arc::new(RwLock::new(())),
             store,
             clock: Arc::new(SystemClock),
-            owners: Mutex::new(HashMap::new()),
+            owners: Mutex::new(ScheduleOwners::default()),
             deliveries: Arc::new(Mutex::new(HashMap::new())),
             delivery_tx,
             closed: AtomicBool::new(false),
@@ -198,7 +204,7 @@ impl ScheduleManager {
             control_lifetime: Arc::new(RwLock::new(())),
             store,
             clock,
-            owners: Mutex::new(HashMap::new()),
+            owners: Mutex::new(ScheduleOwners::default()),
             deliveries: Arc::new(Mutex::new(HashMap::new())),
             delivery_tx,
             closed: AtomicBool::new(false),
@@ -211,8 +217,11 @@ impl ScheduleManager {
             return Err(ScheduleError::Closed);
         }
         let mut owners = self.owners.lock().await;
+        if self.closed.load(Ordering::Acquire) || owners.retired.contains(session_id) {
+            return Err(ScheduleError::Closed);
+        }
         Ok(Arc::clone(
-            owners.entry(session_id.to_owned()).or_insert_with(|| {
+            owners.live.entry(session_id.to_owned()).or_insert_with(|| {
                 Arc::new(ScheduleOwner {
                     session_id: session_id.to_owned(),
                     store: Arc::clone(&self.store),
@@ -257,6 +266,9 @@ impl ScheduleManager {
             .map_err(|error| error.to_string())?;
         {
             let mut current = owner.handle.write().await;
+            if owner.stop.is_cancelled() {
+                return Err(ScheduleError::Closed.to_string());
+            }
             if current
                 .as_ref()
                 .is_some_and(|existing| existing.is_same_worker(&handle))
@@ -267,11 +279,53 @@ impl ScheduleManager {
             *current = Some(handle);
         }
         let mut task = owner.task.lock().await;
+        if owner.stop.is_cancelled() {
+            return Err(ScheduleError::Closed.to_string());
+        }
         if task.is_none() {
             let runtime = Arc::clone(&owner);
             *task = Some(tokio::spawn(async move { runtime.run().await }));
         }
         owner.notify.notify_one();
+        Ok(())
+    }
+
+    /// Retire only one permanently deleted session. Admission is fenced before
+    /// awaiting its timer; unrelated session owners and durable rules survive.
+    pub async fn retire_session(&self, id: &str) -> Result<(), String> {
+        let owner = {
+            let mut owners = self.owners.lock().await;
+            owners.retired.insert(id.to_owned());
+            let owner = owners.live.get(id).cloned();
+            if let Some(owner) = &owner {
+                owner.stop.cancel();
+                owner.notify.notify_waiters();
+            }
+            owner
+        };
+        self.deliveries
+            .lock()
+            .await
+            .retain(|(session, _), _| session != id);
+        if let Some(owner) = owner {
+            owner.handle.write().await.take();
+            // Keep the JoinHandle in the owner until it has settled. A cancelled
+            // caller leaves a joinable task for the deletion retry, not a
+            // detached timer which could still touch the disappearing journal.
+            let mut task_slot = owner.task.lock().await;
+            if let Some(task) = task_slot.as_mut() {
+                if tokio::time::timeout(Duration::from_secs(8), &mut *task)
+                    .await
+                    .is_err()
+                {
+                    task.abort();
+                    let _ = (&mut *task).await;
+                }
+            }
+            task_slot.take();
+            drop(task_slot);
+            self.owners.lock().await.live.remove(id);
+        }
         Ok(())
     }
 
@@ -284,6 +338,7 @@ impl ScheduleManager {
             .owners
             .lock()
             .await
+            .live
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -2617,3 +2672,6 @@ mod tests {
         manager.shutdown().await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod retirement_tests;
