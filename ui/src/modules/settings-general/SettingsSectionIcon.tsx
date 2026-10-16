@@ -3,7 +3,7 @@ import {
   IconPersonalizationOutline16, IconSettingsOutline16, IconUserOutline16,
 } from '@xharness/dsh-client-ui-primitives'
 
-type Glyph = 'general' | 'models' | 'account' | 'usage' | 'archive' | 'display' | 'installation' | 'agent' | 'plugins' | 'memory' | 'import'
+type Glyph = 'general' | 'models' | 'account' | 'usage' | 'archive' | 'display' | 'installation' | 'agent' | 'plugins' | 'memory' | 'import' | 'remote'
 function glyphFor(section: string): Glyph {
   switch (section) {
     case 'models': return 'models'
@@ -16,6 +16,7 @@ function glyphFor(section: string): Glyph {
     case 'plugins': return 'plugins'
     case 'memory': return 'memory'
     case 'session-import': return 'import'
+    case 'remote-control': return 'remote'
     default: return 'general'
   }
 }
@@ -26,6 +27,14 @@ function GlyphImage({ kind }: { kind: Glyph }) {
     case 'archive': return <IconArchiveOutline20 size={16} />
     case 'agent': return <IconAgentPresetOutline16 size={16} />
     case 'plugins': return <IconPersonalizationOutline16 size={16} />
+    case 'remote': return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1.5" y="2.5" width="9" height="7" rx="1.5" />
+        <path d="M6 9.5v3M3.5 12.5h5" />
+        <rect x="10" y="6.5" width="4.5" height="7.5" rx="1" />
+        <path d="M12 12h.5" />
+      </svg>
+    )
     case 'usage': return (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 13.5h12" />

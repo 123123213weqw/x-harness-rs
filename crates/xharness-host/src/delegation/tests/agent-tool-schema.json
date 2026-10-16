@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "start",
+        "send",
+        "inspect",
+        "stop",
+        "revert"
+      ]
+    },
+    "task": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string",
+      "description": "Configured provider ID. Copy together with model from inspect models[].start_selectors when the user requests a model choice; omitted provider inherits the parent provider. Changes require human confirmation."
+    },
+    "model": {
+      "type": "string",
+      "description": "Configured model ID, not a provider/model concatenation. Copy together with provider from the same inspect models[].start_selectors candidate when the user requests a model choice. Changes require human confirmation."
+    },
+    "reasoning_effort": {
+      "type": "string",
+      "description": "Supported effort ID for the selected model. Omit unless explicitly requested by the user; changes require human confirmation."
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "checkpoint_seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Exact safe checkpoint seq returned by inspect; revert only."
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

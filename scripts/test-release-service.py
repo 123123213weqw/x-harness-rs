@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 def module(name, file):
@@ -228,6 +228,70 @@ class Pipeline(unittest.TestCase):
             build.wait_build_artifacts(plan(), ['desktop-candidate'], Path(folder)/'output', timeout=1)
         with tempfile.TemporaryDirectory() as folder, self.assertRaisesRegex(ValueError, 'fresh'):
             build.wait_build_artifacts(plan(), ['desktop-candidate'], Path(folder))
+
+
+class InBuildRunVisibility(unittest.TestCase):
+    """A worker can start before the aggregate REST run status leaves queued."""
+
+    def environment(self):
+        return dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', GITHUB_REPOSITORY=REPO,
+                    XHARNESS_FRIENDS_RELEASE_REPOSITORY=REPO, GITHUB_SHA=SHA,
+                    GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2')
+
+    def workflow_run(self, status='in_progress'):
+        return dict(id=123, path='.github/workflows/desktop-release.yml', head_repository={'full_name': REPO},
+                    head_sha=SHA, run_attempt=2, status=status, conclusion=None,
+                    event='workflow_dispatch', head_branch=plan()['tag'])
+
+    def test_queued_tag_run_converges_before_artifact_handoff(self):
+        queued, running = self.workflow_run('queued'), self.workflow_run()
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', side_effect=[queued, queued, running]) as read, \
+                patch.object(build, 'verify_candidate_tag') as tag, patch.object(build.time, 'sleep') as sleep:
+            self.assertEqual(build.current_build(plan()), running)
+        self.assertEqual(read.call_args_list, [call(f'repos/{REPO}/actions/runs/123')] * 3)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 2)
+        self.assertEqual(tag.call_args_list, [call(REPO, plan()['tag'], SHA)] * 3)
+
+    def test_last_visibility_read_can_converge_without_an_extra_sleep(self):
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', side_effect=[self.workflow_run('queued')] * 8 + [self.workflow_run()]) as read, \
+                patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep:
+            self.assertEqual(build.current_build(plan()), self.workflow_run())
+        self.assertEqual(read.call_count, 9)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 8)
+
+    def test_queued_run_visibility_timeout_is_bounded_and_never_accepted(self):
+        with patch.dict(os.environ, self.environment(), clear=True), \
+                patch.object(build, 'api', return_value=self.workflow_run('queued')) as read, \
+                patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep, \
+                self.assertRaisesRegex(ValueError, 'still queued after bounded visibility wait'):
+            build.current_build(plan())
+        self.assertEqual(read.call_count, 9)
+        self.assertEqual(sleep.call_args_list, [call(15)] * 8)
+
+    def test_every_queued_read_reauthenticates_identity_and_trigger_before_waiting(self):
+        changes = [{'id': 124}, {'head_sha': 'b' * 40}, {'run_attempt': 1},
+                   {'head_repository': {'full_name': 'someone/fork'}},
+                   {'path': '.github/workflows/evil.yml'}, {'event': 'pull_request'}, {'head_branch': 'dev'},
+                   {'conclusion': 'failure'}, {'conclusion': 'success'}, {'status': 'completed'}, {'status': 'waiting'},
+                   {'status': 'requested'}, {'status': 'unknown'}]
+        for change in changes:
+            for initial_queued in (False, True):
+                values = ([self.workflow_run('queued')] if initial_queued else []) + [{**self.workflow_run('queued'), **change}]
+                with self.subTest(change=change, initial_queued=initial_queued), \
+                        patch.dict(os.environ, self.environment(), clear=True), \
+                        patch.object(build, 'api', side_effect=values) as read, \
+                        patch.object(build, 'verify_candidate_tag'), patch.object(build.time, 'sleep') as sleep, \
+                        self.assertRaises(ValueError):
+                    build.current_build(plan())
+                self.assertEqual(read.call_count, len(values))
+                self.assertEqual(sleep.call_count, int(initial_queued))
+
+    def test_visibility_wait_does_not_accept_queued_or_running_as_publication_proof(self):
+        for status in ('queued', 'in_progress'):
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                build.check_run(self.workflow_run(status), REPO, SHA, '.github/workflows/desktop-release.yml')
 
 
 class CheckpointTests(unittest.TestCase):

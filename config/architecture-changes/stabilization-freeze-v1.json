@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Introduce a stabilization gate to prevent unplanned foundation redesign while preserving flexible tool development.",
+  "compatibility": "Runtime code, tool schemas, wire and storage behavior, installer identity and Windows test coverage are unchanged; this adds a diff-aware compatibility/test-plan gate.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "64280d3d613d481dfde7cc8255baef6c33ac63473e9fe6cfa9a6006c26b6c5f4",
+      "after": "c2d57aa79e2b8baf48ece9ec6eac7934a0a88fb765959bed6be2ab109f63c243"
+    },
+    "config/architecture-freeze.json": {
+      "before": null,
+      "after": "521cdf17d123a6395901d3f88555a0869cb9749a0216d620e01bb383ffa7d069"
+    },
+    "scripts/regression/architecture_freeze.py": {
+      "before": null,
+      "after": "f7ead06e2496ecb96cc0201fa1785161d346c1cf8d4243ff17fbf5825d6a9b4f"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "3225adc15c6d080afbc8bf91f1cfb6fa9d756af6b69fd5e9391dbfb19fc448c6",
+      "after": "1c6f5a07b0dd35247b6af4345488ffab8553875af7764c77f52a22571c0c37ec"
+    },
+    "scripts/regression/run-suite.sh": {
+      "before": "e74986a8d58e4463dec34f437bacef7a649596e65ef9c6fb45721d7ec4cf9b7c",
+      "after": "aa3309fe85072f75cf502b66d6ee339fa39faa58027e3e2a37656633b27b30fa"
+    },
+    "scripts/regression/test_architecture_freeze.py": {
+      "before": null,
+      "after": "edd787494a86043a9ca934a74769dfcf2b3a21090adec96f478457020178cbf6"
+    },
+    "scripts/test-ci-tiering.py": {
+      "before": "d6bf08b23d5840ab9596cae3340c47d59984826df4b7c9b237d3b0a6795693f4",
+      "after": "cfb719e233b5ad1c33de603a94dc1aebdd85b1500f81bc2768c83cbe69c0e665"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

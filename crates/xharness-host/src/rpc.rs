@@ -19,6 +19,11 @@ mod goal;
 mod host;
 mod interaction;
 mod jobs;
+mod scoped_attachment;
+mod scoped_automation;
+mod scoped_catalogue;
+mod scoped_events;
+pub(crate) mod scoped_interaction;
 pub(crate) use interaction::respond_review;
 mod memory;
 mod model;
@@ -203,116 +208,191 @@ impl ApiBackend for BasicHost {
         })
     }
 
+    async fn session_in_workspace(
+        &self,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> Result<bool, RpcError> {
+        // Reject mismatched scope from metadata BEFORE replay/recovery. Merely
+        // probing a cold session outside this workspace must not activate it.
+        {
+            let state = self.state.read().await;
+            if state.deleted_sessions.contains(session_id) {
+                return Ok(false);
+            }
+            let Some(workspace) = state.workspaces.get(workspace_id) else {
+                return Ok(false);
+            };
+            let cwd = match state.sessions.get(session_id) {
+                Some(session) => Some(session.cwd.clone()),
+                None => self
+                    .lazy_headers
+                    .read()
+                    .await
+                    .get(session_id)
+                    .map(|header| {
+                        header
+                            .cwd
+                            .clone()
+                            .unwrap_or_else(|| self.config.cwd.to_string_lossy().into_owned())
+                    }),
+            };
+            if cwd.as_deref() != Some(workspace.path.as_str()) {
+                return Ok(false);
+            }
+        }
+        self.hydrate_session(session_id)
+            .await
+            .map_err(|_| RpcError::internal("session recovery failed"))?;
+        let state = self.state.read().await;
+        if state.deleted_sessions.contains(session_id) {
+            return Ok(false);
+        }
+        Ok(state
+            .workspaces
+            .get(workspace_id)
+            .zip(state.sessions.get(session_id))
+            .is_some_and(|(workspace, session)| workspace.path == session.cwd))
+    }
+
+    async fn scoped_catalogue(
+        &self,
+        query: xharness_api::ScopedCatalogueQuery,
+    ) -> Result<xharness_api::ScopedCataloguePage, RpcError> {
+        scoped_catalogue::read(self, query).await
+    }
+
+    async fn scoped_automation_read(
+        &self,
+        request: xharness_api::ScopedAutomationRead,
+    ) -> Result<xharness_api::ScopedAutomationPage, RpcError> {
+        scoped_automation::read(self, request).await
+    }
+    async fn scoped_automation_control(
+        &self,
+        request: xharness_api::ScopedAutomationMutation,
+    ) -> Result<xharness_api::ScopedAutomationApplied, RpcError> {
+        scoped_automation::control(self, request).await
+    }
+    async fn scoped_automation_receipt(
+        &self,
+        request: xharness_api::ScopedAutomationMutation,
+    ) -> Result<Option<xharness_api::ScopedAutomationApplied>, RpcError> {
+        scoped_automation::receipt(self, request).await
+    }
+
+    async fn create_scoped_session(
+        &self,
+        request: xharness_api::ScopedSessionCreate,
+    ) -> Result<xharness_api::ScopedSessionCreated, RpcError> {
+        session_lifecycle::create_scoped(self, request).await
+    }
+
+    async fn scoped_session_creation_receipt(
+        &self,
+        request: xharness_api::ScopedSessionCreate,
+    ) -> Result<Option<xharness_api::ScopedSessionCreated>, RpcError> {
+        session_lifecycle::creation_receipt(self, &request).await
+    }
+
+    async fn session_event_attachment(
+        &self,
+        workspace: &str,
+        session: &str,
+        seq: u64,
+        id: &str,
+    ) -> Result<xharness_api::ScopedAttachment, RpcError> {
+        scoped_attachment::read(self, workspace, session, seq, id).await
+    }
+
+    async fn session_event_page(
+        &self,
+        workspace: &str,
+        session: &str,
+        after: Option<u64>,
+    ) -> Result<xharness_api::ScopedEventPage, RpcError> {
+        scoped_events::page(self, workspace, session, after).await
+    }
+
+    async fn prompt_receipt(
+        &self,
+        session_id: &str,
+        rpc_id: &RpcId,
+        payload: &Value,
+    ) -> Result<Option<RpcResult>, RpcError> {
+        if !self.agent_runtime.has_authoritative_sessions() {
+            return Err(RpcError::internal(
+                "durable prompt receipts require authoritative sessions",
+            ));
+        }
+        if payload.get("sessionId").and_then(Value::as_str) != Some(session_id) {
+            return Err(wire::bad_request("prompt receipt session mismatch"));
+        }
+        self.hydrate_session(session_id)
+            .await
+            .map_err(|_| RpcError::internal("session recovery failed"))?;
+        let _guard = self.lock_admission(session_id).await;
+        let mode = required_string(payload, "mode")?;
+        let content = required_array(payload, "content")?;
+        let zone = optional_string(payload, "clientTimeZone")?;
+        let fingerprint = prompt_fingerprint(&mode, content, zone.as_deref());
+        let durable = self
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(crate::driver::agent_runtime_error)?
+            .ok_or_else(|| RpcError::internal("authoritative receipt journal unavailable"))?;
+        let admissions = crate::restore::restored_admissions(&durable);
+        match admissions.get(rpc_id.as_str()) {
+            Some(previous) if previous.fingerprint.as_deref() == Some(&fingerprint) => {
+                Ok(Some(RpcResult::success(json!({"accepted": true}))))
+            }
+            Some(_) => Err(wire::bad_request("prompt receipt identity conflict")),
+            None => Ok(None),
+        }
+    }
+
+    async fn session_interaction(
+        &self,
+        workspace: &str,
+        session: &str,
+        id: &RpcId,
+    ) -> Result<Option<xharness_api::ScopedInteraction>, RpcError> {
+        if !self.session_in_workspace(workspace, session).await? {
+            return Err(RpcError::internal("session scope is unavailable"));
+        }
+        scoped_interaction::snapshot(self, session, id).await
+    }
+    async fn answer_session_interaction(
+        &self,
+        workspace: &str,
+        session: &str,
+        expected: xharness_api::ScopedInteraction,
+        answer: xharness_api::ScopedInteractionAnswer,
+    ) -> Result<xharness_api::ScopedInteractionReceipt, RpcError> {
+        if !self.session_in_workspace(workspace, session).await? {
+            return Err(RpcError::internal("session scope is unavailable"));
+        }
+        scoped_interaction::answer(self, session, expected, answer).await
+    }
+
     async fn respond(&self, response: ClientResponse) -> RpcReceipt {
         interaction::respond(self, response).await
     }
 
+    async fn session_events(
+        &self,
+        workspace_id: &str,
+        session_id: &str,
+    ) -> Result<EventStream, RpcError> {
+        if !self.session_in_workspace(workspace_id, session_id).await? {
+            return Err(RpcError::internal("session scope is unavailable"));
+        }
+        Ok(mux_events_filtered(self, Some(session_id.to_owned())))
+    }
+
     fn mux_events(&self) -> EventStream {
-        let mut receiver = self.event_gateway.subscribe_mux();
-        let mut question_receiver = self.questions.subscribe();
-        let state = Arc::clone(&self.state);
-        let next_id = Arc::clone(&self.next_id);
-        let questions = Arc::clone(&self.questions);
-        Box::pin(async_stream::stream! {
-            let mut baseline = {
-            let state = state.read().await;
-            let mut frames = Vec::new();
-            for session in state.sessions.values() {
-                frames.push(ServerRequest::new(
-                    RpcId::new(mint_stream_id(&next_id, "subscribed")),
-                    "session/subscribed",
-                    json!({
-                        "type": "session/subscribed",
-                        "sessionId": session.session_id,
-                        "lastSeq": session.last_event_seq_i64(),
-                    }),
-                ));
-                for (key, value) in session
-                    .projection_values()
-                    .as_object()
-                    .expect("projection values are an object")
-                {
-                    frames.push(ServerRequest::new(
-                        RpcId::new(mint_stream_id(&next_id, "projection")),
-                        "session/projection",
-                        json!({
-                            "type": "session/projection",
-                            "sessionId": session.session_id,
-                            "key": key,
-                            "value": value,
-                            "seq": session.last_event_seq_i64(),
-                        }),
-                    ));
-                }
-                let items = session.queue_view();
-                if !items.is_empty() {
-                    frames.push(ServerRequest::new(
-                        RpcId::new(mint_stream_id(&next_id, "queue")),
-                        "session/queue",
-                        json!({
-                            "type": "session/queue",
-                            "sessionId": session.session_id,
-                            "items": items,
-                        }),
-                    ));
-                }
-            }
-            for (rpc_id, pending) in &state.pending {
-                match pending {
-                    PendingResponse::Approval {
-                        session_id,
-                        approval_id,
-                        call_id,
-                        tool_name,
-                        reviewing,
-                        reason,
-                        ..
-                    } => frames.push(ServerRequest::new(
-                        RpcId::new(rpc_id),
-                        "approval/requested",
-                        json!({
-                            "type": "approval/requested",
-                            "sessionId": session_id,
-                            "approvalId": approval_id,
-                            "toolName": tool_name,
-                            "callId": call_id,
-                            "reason": reason,
-                            "reviewing": reviewing,
-                        }),
-                    )),
-                }
-            }
-            frames
-            };
-            baseline.extend(questions.baseline().await);
-            for frame in baseline {
-                yield frame;
-            }
-            loop {
-                let received = tokio::select! {
-                    frame = receiver.recv() => frame,
-                    frame = question_receiver.recv() => frame,
-                };
-                match received {
-                    Ok(frame) => yield frame,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        yield ServerRequest::new(
-                            RpcId::new("stream-lagged"),
-                            "stream/error",
-                            json!({
-                                "type": "stream/error",
-                                "error": {
-                                    "code": "internal",
-                                    "message": format!("mux stream lagged by {skipped} frames; refetch history"),
-                                    "details": {},
-                                },
-                            }),
-                        );
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        })
+        mux_events_filtered(self, None)
     }
 
     fn host_events(&self) -> EventStream {
@@ -348,6 +428,121 @@ impl ApiBackend for BasicHost {
     ) -> Result<SessionExport, RpcError> {
         export::session(self, session_id).await
     }
+}
+
+fn mux_events_filtered(host: &BasicHost, scope: Option<String>) -> EventStream {
+    let mut receiver = host.event_gateway.subscribe_mux();
+    let mut question_receiver = host.questions.subscribe();
+    let state = Arc::clone(&host.state);
+    let next_id = Arc::clone(&host.next_id);
+    let questions = Arc::clone(&host.questions);
+    Box::pin(async_stream::stream! {
+        let mut baseline = {
+        let state = state.read().await;
+        let mut frames = Vec::new();
+        for session in state.sessions.values() {
+            if scope.as_deref().is_some_and(|id| session.session_id != id) { continue; }
+            frames.push(ServerRequest::new(
+                RpcId::new(mint_stream_id(&next_id, "subscribed")),
+                "session/subscribed",
+                json!({
+                    "type": "session/subscribed",
+                    "sessionId": session.session_id,
+                    "lastSeq": session.last_event_seq_i64(),
+                }),
+            ));
+            for (key, value) in session
+                .projection_values()
+                .as_object()
+                .expect("projection values are an object")
+            {
+                frames.push(ServerRequest::new(
+                    RpcId::new(mint_stream_id(&next_id, "projection")),
+                    "session/projection",
+                    json!({
+                        "type": "session/projection",
+                        "sessionId": session.session_id,
+                        "key": key,
+                        "value": value,
+                        "seq": session.last_event_seq_i64(),
+                    }),
+                ));
+            }
+            let items = session.queue_view();
+            if !items.is_empty() {
+                frames.push(ServerRequest::new(
+                    RpcId::new(mint_stream_id(&next_id, "queue")),
+                    "session/queue",
+                    json!({
+                        "type": "session/queue",
+                        "sessionId": session.session_id,
+                        "items": items,
+                    }),
+                ));
+            }
+        }
+        for (rpc_id, pending) in &state.pending {
+            match pending {
+                PendingResponse::Approval {
+                    session_id,
+                    approval_id,
+                    call_id,
+                    tool_name,
+                    reviewing,
+                    reason,
+                    ..
+                } if scope.as_deref().is_none_or(|id| session_id == id) => frames.push(ServerRequest::new(
+                    RpcId::new(rpc_id),
+                    "approval/requested",
+                    json!({
+                        "type": "approval/requested",
+                        "sessionId": session_id,
+                        "approvalId": approval_id,
+                        "toolName": tool_name,
+                        "callId": call_id,
+                        "reason": reason,
+                        "reviewing": reviewing,
+                    }),
+                )),
+                _ => {},
+            }
+        }
+        frames
+        };
+        baseline.extend(match scope.as_deref() {
+            Some(id) => questions.baseline_for(Some(id)).await,
+            None => questions.baseline().await,
+        });
+        for frame in baseline {
+            yield frame;
+        }
+        loop {
+            let received = tokio::select! {
+                frame = receiver.recv() => frame,
+                frame = question_receiver.recv() => frame,
+            };
+            match received {
+                Ok(frame) => {
+                    if scope.as_deref().is_none_or(|id| frame.payload["sessionId"].as_str() == Some(id)) { yield frame; }
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    yield ServerRequest::new(
+                        RpcId::new("stream-lagged"),
+                        "stream/error",
+                        json!({
+                            "type": "stream/error",
+                            "error": {
+                                "code": "internal",
+                                "message": if scope.is_some() { "session stream lagged; refetch history".to_owned() } else { format!("mux stream lagged by {skipped} frames; refetch history") },
+                                "details": {},
+                            },
+                        }),
+                    );
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -420,5 +615,347 @@ mod edit_admission_tests {
         assert!(error.message.contains("does not support images"));
         assert!(host.state.read().await.sessions[id].queue.is_empty());
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[cfg(test)]
+mod scoped_stream_tests {
+    use super::*;
+    use crate::{HostConfig, NoTools};
+    use futures::StreamExt;
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+
+    async fn host() -> (std::path::PathBuf, Arc<BasicHost>) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "xh-scoped-stream-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let host = BasicHost::new(HostConfig::new(&root), None, Arc::new(NoTools));
+        for id in ["s", "other"] {
+            let result = host
+                .call(
+                    RpcId::new(id),
+                    RpcMethod::SessionCreate,
+                    json!({"workspaceId":"workspace-default","sessionId":id}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(result, RpcResult::Success { .. }), "{result:?}");
+        }
+        (root, host)
+    }
+    async fn next(stream: &mut EventStream) -> ServerRequest {
+        tokio::time::timeout(Duration::from_secs(2), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+    }
+    #[tokio::test]
+    async fn mismatched_cold_scope_is_rejected_before_recovery_can_activate_it() {
+        let (root, host) = host().await;
+        assert!(host
+            .lazy_store
+            .set(Arc::new(xharness_session::MemorySessionStore::default()))
+            .is_ok());
+        {
+            let mut state = host.state.write().await;
+            let record = state.sessions.get_mut("other").unwrap();
+            record.restoring = true;
+            record.cwd = "/outside-scoped-workspace".into();
+        }
+        assert!(!host
+            .session_in_workspace("workspace-default", "other")
+            .await
+            .unwrap());
+        assert!(!host
+            .session_in_workspace("unregistered", "other")
+            .await
+            .unwrap());
+        assert!(host.state.read().await.sessions["other"].restoring);
+        // Correct metadata permits recovery; the intentionally empty journal
+        // then fails. Wrong scope above must return false, not this error.
+        let workspace_cwd = host.state.read().await.workspaces["workspace-default"]
+            .path
+            .clone();
+        host.state
+            .write()
+            .await
+            .sessions
+            .get_mut("other")
+            .unwrap()
+            .cwd = workspace_cwd;
+        assert!(host
+            .session_in_workspace("workspace-default", "other")
+            .await
+            .is_err());
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn genuine_host_scoped_baseline_and_live_frames_exclude_other_session() {
+        let (root, host) = host().await;
+        assert!(host.session_events("unregistered", "s").await.is_err());
+        assert!(host
+            .session_events("workspace-default", "missing")
+            .await
+            .is_err());
+        for session_id in ["s", "other"] {
+            host.state.write().await.pending.insert(
+                format!("approval-{session_id}"),
+                PendingResponse::Approval {
+                    session_id: session_id.into(),
+                    approval_id: format!("approval-{session_id}"),
+                    call_id: "call".into(),
+                    tool_name: "fixture-tool".into(),
+                    control: tokio::sync::mpsc::channel(1).0,
+                    reviewing: false,
+                    reason: "fixture".into(),
+                    scoped_nonce: Arc::new(std::sync::OnceLock::new()),
+                    deciding: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                },
+            );
+        }
+        let mut scoped = host.session_events("workspace-default", "s").await.unwrap();
+        host.event_gateway.publish_mux(
+            RpcId::new("private"),
+            json!({"type":"session/queue","sessionId":"other","items":["must-not-leak"]}),
+        );
+        host.event_gateway.publish_mux(
+            RpcId::new("wanted"),
+            json!({"type":"session/queue","sessionId":"s","items":[]}),
+        );
+        let mut subscribed = 0;
+        let mut approvals = 0;
+        loop {
+            let frame = next(&mut scoped).await;
+            assert_eq!(frame.payload["sessionId"], "s");
+            assert!(!frame.payload.to_string().contains("must-not-leak"));
+            if frame.method == "session/subscribed" {
+                subscribed += 1;
+            }
+            if frame.method == "approval/requested" {
+                approvals += 1;
+                assert_eq!(frame.rpc_id.as_str(), "approval-s");
+            }
+            if frame.rpc_id.as_str() == "wanted" {
+                break;
+            }
+        }
+        assert_eq!(subscribed, 1);
+        assert_eq!(approvals, 1);
+        // Existing desktop mux retains both sessions; narrowing is not global.
+        let mut global = host.mux_events();
+        let mut seen = BTreeSet::new();
+        while seen.len() < 2 {
+            let frame = next(&mut global).await;
+            if frame.method == "session/subscribed" {
+                seen.insert(frame.payload["sessionId"].as_str().unwrap().to_owned());
+            }
+        }
+        assert_eq!(seen, BTreeSet::from(["s".to_owned(), "other".to_owned()]));
+        drop(global);
+        drop(scoped);
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn genuine_host_scoped_lag_marker_does_not_reveal_global_skipped_count() {
+        let (root, host) = host().await;
+        let mut stream = host.session_events("workspace-default", "s").await.unwrap();
+        for _ in 0..5000 {
+            host.event_gateway.publish_mux(
+                RpcId::new("noise"),
+                json!({"type":"session/queue","sessionId":"other","items":[]}),
+            );
+        }
+        loop {
+            let frame = next(&mut stream).await;
+            if frame.method == "stream/error" {
+                assert_eq!(
+                    frame.payload["error"]["message"],
+                    "session stream lagged; refetch history"
+                );
+                break;
+            }
+            assert_eq!(frame.payload["sessionId"], "s");
+        }
+        drop(stream);
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn scoped_interaction_validates_workspace_session_nonce_and_native_decision() {
+        use xharness_api::{ScopedInteractionAnswer as A, ScopedInteractionReceipt as R};
+        let (root, host) = host().await;
+        let (control, mut commands) = tokio::sync::mpsc::channel(2);
+        let insert = |reviewing| PendingResponse::Approval {
+            session_id: "s".into(),
+            approval_id: "a".into(),
+            call_id: "call".into(),
+            tool_name: "fixture".into(),
+            control: control.clone(),
+            reviewing,
+            reason: "manual".into(),
+            scoped_nonce: Arc::new(std::sync::OnceLock::new()),
+            deciding: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        host.state
+            .write()
+            .await
+            .pending
+            .insert("r".into(), insert(true));
+        let id = RpcId::new("r");
+        assert!(host
+            .session_interaction("workspace-default", "s", &id)
+            .await
+            .unwrap()
+            .is_none());
+        host.state
+            .write()
+            .await
+            .pending
+            .insert("r".into(), insert(false));
+        assert!(host
+            .session_interaction("unregistered", "s", &id)
+            .await
+            .is_err());
+        assert!(host
+            .session_interaction("workspace-default", "other", &id)
+            .await
+            .unwrap()
+            .is_none());
+        let old = host
+            .session_interaction("workspace-default", "s", &id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_value::<xharness_api::MuxFrame>(old.frame.payload.clone())
+                .unwrap()
+                .into_server_request(old.frame.rpc_id.clone()),
+            old.frame,
+        );
+        assert_eq!(
+            host.answer_session_interaction(
+                "workspace-default",
+                "other",
+                old.clone(),
+                A::Approval { allowed: true }
+            )
+            .await
+            .unwrap(),
+            R::Stale
+        );
+        assert_eq!(
+            host.answer_session_interaction(
+                "workspace-default",
+                "s",
+                old.clone(),
+                A::CancelQuestion
+            )
+            .await
+            .unwrap(),
+            R::Invalid
+        );
+        host.state
+            .write()
+            .await
+            .pending
+            .insert("r".into(), insert(false));
+        let new = host
+            .session_interaction("workspace-default", "s", &id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(old.nonce, new.nonce);
+        assert_eq!(
+            host.answer_session_interaction(
+                "workspace-default",
+                "s",
+                old,
+                A::Approval { allowed: true }
+            )
+            .await
+            .unwrap(),
+            R::Stale
+        );
+        assert!(commands.try_recv().is_err());
+        let worker = tokio::spawn({
+            let host = host.clone();
+            let new = new.clone();
+            async move {
+                host.answer_session_interaction(
+                    "workspace-default",
+                    "s",
+                    new,
+                    A::Approval { allowed: true },
+                )
+                .await
+            }
+        });
+        let command = commands.recv().await.unwrap();
+        assert!(
+            matches!(command.command,xharness_core::LoopCommand::ApproveTool {call_id} if call_id=="call")
+        );
+        command.acknowledgement.send(Ok(())).unwrap();
+        assert_eq!(worker.await.unwrap().unwrap(), R::Accepted);
+        assert_eq!(
+            host.answer_session_interaction(
+                "workspace-default",
+                "s",
+                new,
+                A::Approval { allowed: true }
+            )
+            .await
+            .unwrap(),
+            R::Stale
+        );
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[tokio::test]
+    async fn scoped_interaction_lost_native_acknowledgement_is_uncertain_not_false_rejection() {
+        use xharness_api::{ScopedInteractionAnswer as A, ScopedInteractionReceipt as R};
+        let (root, host) = host().await;
+        let (control, mut commands) = tokio::sync::mpsc::channel(1);
+        host.state.write().await.pending.insert(
+            "r".into(),
+            PendingResponse::Approval {
+                session_id: "s".into(),
+                approval_id: "a".into(),
+                call_id: "call".into(),
+                tool_name: "fixture".into(),
+                control,
+                reviewing: false,
+                reason: "manual".into(),
+                scoped_nonce: Arc::new(std::sync::OnceLock::new()),
+                deciding: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            },
+        );
+        let expected = host
+            .session_interaction("workspace-default", "s", &RpcId::new("r"))
+            .await
+            .unwrap()
+            .unwrap();
+        let worker = tokio::spawn({
+            let host = host.clone();
+            async move {
+                host.answer_session_interaction(
+                    "workspace-default",
+                    "s",
+                    expected,
+                    A::Approval { allowed: false },
+                )
+                .await
+            }
+        });
+        drop(commands.recv().await.unwrap());
+        assert_eq!(worker.await.unwrap().unwrap(), R::Uncertain);
+        drop(host);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
