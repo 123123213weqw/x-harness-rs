@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "status": "not_ready_for_broad_memory_signoff",
+  "base_commit": "fc7897dd60846d16016d04256a3f3674a6bf564c",
+  "candidate_code_commit": "977bd81ceff23bd2886ed2c7e2700ca6c17ec74f",
+  "rust_tests_passed": 277,
+  "architecture_self_tests_passed": 30,
+  "clippy": "passed",
+  "probe_cases": [
+    {
+      "passed": false,
+      "mode": "off",
+      "lifecycle": "reuse",
+      "waves": 24,
+      "concurrency": 8,
+      "binary_sha256": "576d1ccabfad2f8cfd39ddc468cfa218f153b2bb0da774bd2fcbb5ab8f6c5aa8",
+      "limits": {
+        "idle_rss_drift_kib": 65536,
+        "host_peak_rss_kib": 1048576,
+        "idle_fd_drift": 8
+      },
+      "scope": "Same Host process; 32 KiB prompts, exact current-turn output/reasoning/usage checks, sample idle RSS. Reuse mode keeps a fixed session set and growing normal history; delete mode archives/deletes fresh completed sessions per wave. No real model, TLS, UI, heap profiler or multi-hour guarantee. Control receipts and full traces persist by design.",
+      "verified_turns": 192,
+      "early_idle_rss_kib": 185370.0,
+      "late_idle_rss_kib": 572374.0,
+      "idle_rss_drift_kib": 387004.0,
+      "fd_drift": 0.0,
+      "error": "Idle RSS drift exceeds predeclared 64 MiB alarm threshold",
+      "trace_integrity": {
+        "records": 0,
+        "blob_references": 0
+      },
+      "label": "lazy-stability-reuse-off",
+      "initial_rss_kib": 61296,
+      "last_rss_kib": 635360,
+      "initial_fds": 40,
+      "last_fds": 42
+    },
+    {
+      "passed": false,
+      "mode": "full",
+      "lifecycle": "reuse",
+      "waves": 24,
+      "concurrency": 8,
+      "binary_sha256": "576d1ccabfad2f8cfd39ddc468cfa218f153b2bb0da774bd2fcbb5ab8f6c5aa8",
+      "limits": {
+        "idle_rss_drift_kib": 65536,
+        "host_peak_rss_kib": 1048576,
+        "idle_fd_drift": 8
+      },
+      "scope": "Same Host process; 32 KiB prompts, exact current-turn output/reasoning/usage checks, sample idle RSS. Reuse mode keeps a fixed session set and growing normal history; delete mode archives/deletes fresh completed sessions per wave. No real model, TLS, UI, heap profiler or multi-hour guarantee. Control receipts and full traces persist by design.",
+      "verified_turns": 192,
+      "early_idle_rss_kib": 188262.0,
+      "late_idle_rss_kib": 556344.0,
+      "idle_rss_drift_kib": 368082.0,
+      "fd_drift": 0.0,
+      "error": "Idle RSS drift exceeds predeclared 64 MiB alarm threshold",
+      "trace_integrity": {
+        "records": 30124,
+        "blob_references": 928
+      },
+      "label": "lazy-stability-reuse-full",
+      "initial_rss_kib": 64252,
+      "last_rss_kib": 621224,
+      "initial_fds": 41,
+      "last_fds": 41
+    },
+    {
+      "passed": false,
+      "mode": "off",
+      "lifecycle": "reuse",
+      "waves": 24,
+      "concurrency": 8,
+      "binary_sha256": "c3eb6b3c2caf4ecfc67c0e999ab60da9c2dfd052ddc98f9c9b9236a50111a23f",
+      "limits": {
+        "idle_rss_drift_kib": 65536,
+        "host_peak_rss_kib": 1048576,
+        "idle_fd_drift": 8
+      },
+      "scope": "Same Host process; 32 KiB prompts, exact current-turn output/reasoning/usage checks, sample idle RSS. Reuse mode keeps a fixed session set and growing normal history; delete mode archives/deletes fresh completed sessions per wave. No real model, TLS, UI, heap profiler or multi-hour guarantee. Control receipts and full traces persist by design.",
+      "verified_turns": 192,
+      "early_idle_rss_kib": 180540.0,
+      "late_idle_rss_kib": 564536.0,
+      "idle_rss_drift_kib": 383996.0,
+      "fd_drift": 0.0,
+      "error": "Idle RSS drift exceeds predeclared 64 MiB alarm threshold",
+      "trace_integrity": {
+        "records": 0,
+        "blob_references": 0
+      },
+      "label": "lazy-stability-reuse-old",
+      "initial_rss_kib": 57364,
+      "last_rss_kib": 592744,
+      "initial_fds": 39,
+      "last_fds": 42
+    },
+    {
+      "passed": false,
+      "mode": "off",
+      "lifecycle": "delete",
+      "waves": 12,
+      "concurrency": 2,
+      "binary_sha256": "576d1ccabfad2f8cfd39ddc468cfa218f153b2bb0da774bd2fcbb5ab8f6c5aa8",
+      "limits": {
+        "idle_rss_drift_kib": 65536,
+        "host_peak_rss_kib": 1048576,
+        "idle_fd_drift": 8
+      },
+      "scope": "Same Host process; 32 KiB prompts, exact current-turn output/reasoning/usage checks, sample idle RSS. Reuse mode keeps a fixed session set and growing normal history; delete mode archives/deletes fresh completed sessions per wave. No real model, TLS, UI, heap profiler or multi-hour guarantee. Control receipts and full traces persist by design.",
+      "verified_turns": 24,
+      "early_idle_rss_kib": 52246.0,
+      "late_idle_rss_kib": 57854.0,
+      "idle_rss_drift_kib": 5608.0,
+      "fd_drift": 24.0,
+      "error": "Idle file-descriptor drift exceeds predeclared limit of 8",
+      "trace_integrity": {
+        "records": 0,
+        "blob_references": 0
+      },
+      "label": "lazy-stability-delete-strict",
+      "initial_rss_kib": 42212,
+      "last_rss_kib": 59524,
+      "initial_fds": 19,
+      "last_fds": 85
+    },
+    {
+      "passed": true,
+      "mode": "off",
+      "waves": 12,
+      "concurrency": 2,
+      "binary_sha256": "c3eb6b3c2caf4ecfc67c0e999ab60da9c2dfd052ddc98f9c9b9236a50111a23f",
+      "limits": {
+        "idle_rss_drift_kib": 65536,
+        "host_peak_rss_kib": 1048576
+      },
+      "scope": "Same Host process; fresh 32 KiB isolated sessions per wave, exact output/reasoning/usage checks, archive and delete completed sessions, then sample idle RSS. No real model, TLS, UI, heap profiler or multi-hour guarantee. Control receipts and full traces persist by design.",
+      "verified_turns": 24,
+      "early_idle_rss_kib": 48506.0,
+      "late_idle_rss_kib": 55060.0,
+      "idle_rss_drift_kib": 6554.0,
+      "fd_drift": 24.0,
+      "trace_integrity": {
+        "records": 0,
+        "blob_references": 0
+      },
+      "label": "lazy-stability-old-baseline",
+      "initial_rss_kib": 39328,
+      "last_rss_kib": 57104,
+      "initial_fds": 19,
+      "last_fds": 85,
+      "interpretation": "Pilot did not enforce FD growth; its passed=true is functional-only and not resource sign-off. Retained FDs increased by 66 over 24 created/deleted sessions."
+    }
+  ],
+  "limits": [
+    "Old binary baseline uses commit 2f72bdd4, not the current master parent; the runs are characterization, not controlled causal memory A/B.",
+    "Reuse mode retains growing normal conversation history; RSS growth alone is not proof of a leak.",
+    "Linux Host-only, loopback fake model, under one minute per run; no multi-hour, real-model load or native Windows/macOS memory certification.",
+    "Full-trace queue byte budget and other JSON pipeline redesigns remain outside this focused PR."
+  ]
+}

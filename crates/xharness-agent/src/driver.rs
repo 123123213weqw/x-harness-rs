@@ -294,7 +294,12 @@ impl WorkerSupervisor {
             // Wake, tool call or unknown-outcome operation on its behalf.
         }
         self.state.send_replace(WorkerState::Closed);
-        self.finished.cancel();
+        let finished = self.finished.clone();
+        // Close means the supervisor has released its activation and factory,
+        // not just that its worker has returned. Retirement waiters can now
+        // drop the final handle without racing this task's resource teardown.
+        drop(self);
+        finished.cancel();
     }
 }
 
@@ -434,6 +439,11 @@ impl DurableAgentHandle {
 
     pub fn request_shutdown(&self) {
         self.shutdown.cancel();
+    }
+
+    /// Settles only after the stable worker supervisor has reaped its worker.
+    pub async fn closed(&self) {
+        self.finished.cancelled().await;
     }
 
     pub async fn when_stopped(&self) {
@@ -619,8 +629,15 @@ pub struct AgentSupervisor {
     registry: Arc<AgentRegistry>,
     factory: Arc<dyn TurnRequestFactory>,
     event_capacity: usize,
-    handles: tokio::sync::Mutex<std::collections::HashMap<String, DurableAgentHandle>>,
+    handles: tokio::sync::Mutex<SupervisorHandles>,
     closed: AtomicBool,
+}
+
+#[derive(Default)]
+struct SupervisorHandles {
+    active: std::collections::HashMap<String, DurableAgentHandle>,
+    // Terminal admission fences contain completion receipts, never handles.
+    retired: std::collections::HashMap<String, watch::Receiver<Option<AgentShutdownOutcome>>>,
 }
 
 impl AgentSupervisor {
@@ -633,7 +650,7 @@ impl AgentSupervisor {
             registry,
             factory,
             event_capacity,
-            handles: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            handles: tokio::sync::Mutex::new(SupervisorHandles::default()),
             closed: AtomicBool::new(false),
         }
     }
@@ -647,21 +664,61 @@ impl AgentSupervisor {
         }
         let id = header.id.clone();
         let mut handles = self.handles.lock().await;
-        if self.closed.load(Ordering::Acquire) {
+        if self.closed.load(Ordering::Acquire) || handles.retired.contains_key(&id) {
             return Err(RegistryError::Unavailable);
         }
-        if let Some(handle) = handles.get(&id) {
+        if let Some(handle) = handles.active.get(&id) {
             return Ok(handle.clone());
         }
         let activation = self.registry.activate(header).await?;
         let handle =
             DurableAgentHandle::start(activation, Arc::clone(&self.factory), self.event_capacity);
-        handles.insert(id, handle.clone());
+        handles.active.insert(id, handle.clone());
         Ok(handle)
     }
 
     pub async fn get(&self, agent_id: &str) -> Option<DurableAgentHandle> {
-        self.handles.lock().await.get(agent_id).cloned()
+        self.handles.lock().await.active.get(agent_id).cloned()
+    }
+
+    /// Permanently fence admission and reap one deleted session. Cleanup is
+    /// owned independently of an RPC waiter, so cancellation and duplicate
+    /// requests cannot detach the worker or race a replacement activation.
+    pub async fn retire(
+        &self,
+        agent_id: &str,
+        grace: Duration,
+    ) -> Result<AgentShutdownOutcome, RegistryError> {
+        let mut receipt = {
+            let mut handles = self.handles.lock().await;
+            if let Some(receipt) = handles.retired.get(agent_id) {
+                receipt.clone()
+            } else {
+                let handle = handles.active.remove(agent_id);
+                let (completion, receipt) = watch::channel(None);
+                handles.retired.insert(agent_id.to_owned(), receipt.clone());
+                if let Some(handle) = handle {
+                    handle.request_shutdown();
+                    tokio::spawn(async move {
+                        let outcome = handle.shutdown(grace).await;
+                        drop(handle);
+                        completion.send_replace(Some(outcome));
+                    });
+                } else {
+                    completion.send_replace(Some(AgentShutdownOutcome::Graceful));
+                }
+                receipt
+            }
+        };
+        loop {
+            if let Some(outcome) = *receipt.borrow_and_update() {
+                return Ok(outcome);
+            }
+            receipt
+                .changed()
+                .await
+                .map_err(|_| RegistryError::Unavailable)?;
+        }
     }
 
     pub fn is_closed(&self) -> bool {
@@ -673,9 +730,20 @@ impl AgentSupervisor {
     /// forced cleanup instead of being silently detached from Host shutdown.
     pub async fn shutdown(&self, grace: Duration) -> AgentShutdownReport {
         self.closed.store(true, Ordering::Release);
-        let handles = {
+        let (handles, retirements) = {
             let mut active = self.handles.lock().await;
-            active.drain().map(|(_, handle)| handle).collect::<Vec<_>>()
+            let pending = active
+                .retired
+                .values()
+                .filter(|receipt| receipt.borrow().is_none())
+                .cloned()
+                .collect::<Vec<_>>();
+            let handles = active
+                .active
+                .drain()
+                .map(|(_, handle)| handle)
+                .collect::<Vec<_>>();
+            (handles, pending)
         };
         for handle in &handles {
             handle.request_shutdown();
@@ -690,6 +758,25 @@ impl AgentSupervisor {
             match handle.shutdown(remaining).await {
                 AgentShutdownOutcome::Graceful => report.graceful += 1,
                 AgentShutdownOutcome::ForcedCleanup => report.forced_cleanup += 1,
+            }
+        }
+        for mut receipt in retirements {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let settled = tokio::time::timeout(remaining, async {
+                loop {
+                    if let Some(outcome) = *receipt.borrow_and_update() {
+                        return Some(outcome);
+                    }
+                    if receipt.changed().await.is_err() {
+                        return None;
+                    }
+                }
+            })
+            .await;
+            if !matches!(settled, Ok(Some(AgentShutdownOutcome::Graceful))) {
+                report
+                    .cleanup_errors
+                    .push("session retirement did not settle gracefully".into());
             }
         }
         report

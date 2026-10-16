@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Port validated lazy diagnostics, deleted-session retirement, shared immutable snapshots, bounded display working sets and body-free prompt receipts onto current master.",
+  "compatibility": "Preserve current master startup when_ready reconciliation, native browser/UI features, journal envelopes, exact request deduplication and complete queue/message/attachment data. v4 checkpoints store bounded receipts with durable fallback. Web splices carry identities and normalize cancellation. Shared SessionEvent and projection-tail structs require documented workspace Rust source adaptation. Resident charges are estimates, not an RSS guarantee.",
+  "paths": {
+    "crates/xharness-projection/src/lib.rs": {
+      "before": "bb667c43ae59da081c4e63225e2d3e56695c6b9c72c0427fe58a8bbbe2b486a5",
+      "after": "cec2ee35507ed378a9bdca8e1a5bd74bd3c38a254334f62532335f572f7bf39f"
+    },
+    "crates/xharness-projection/src/residency.rs": {
+      "before": null,
+      "after": "534e372015b0e34054dcc9d35609273b5b1d52d61bb52fe46b424cac0cb56a97"
+    },
+    "crates/xharness-projection/src/tail_update.rs": {
+      "before": null,
+      "after": "bc31d58f7eb51525cc7591e30bdf631e8cdbbb77483ad019bcadcc594a2c5ce9"
+    },
+    "crates/xharness-session-jsonl/src/audit.rs": {
+      "before": "c8722b4bf5b884e9b2d2d75c7b3fb4e16127143ff8c3155fee18236114794d6f",
+      "after": "7b719044f0907deff946f8e6bc037ab34b4a9f8927a2bf3c4ad42a0144cc8289"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "d45210d342d19337e691c6d009f2eb9def9c08b540acc1ba99d0ba0301aa9d52",
+      "after": "fa9094f50cb05ddd33e56e13fe7849a3f03ccd94fbde4beade242ba0ab011d93"
+    },
+    "crates/xharness-session/src/event.rs": {
+      "before": "4116eb997398fc1ad29363a48d5102e1cd3b009257fac5b7ce766f836682a349",
+      "after": "e6f41e8e31fd8212a446b9648c3d025214404302f7f3478cf9bfce12c2315de2"
+    },
+    "crates/xharness-session/src/event_sharing_tests.rs": {
+      "before": null,
+      "after": "ea9b006e2b7864e3b6f545a75a731bc785d68aa806d5168e6811471db87af2b0"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows",
+    "wire"
+  ]
+}

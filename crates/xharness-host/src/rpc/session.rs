@@ -126,6 +126,7 @@ pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, 
         .unwrap_or(DEFAULT_HISTORY_MESSAGES)
         .clamp(1, MAX_HISTORY_MESSAGES);
 
+    host.state.write().await.touch_projection_cache(&session_id);
     if let Some(page) = indexed_history(host, &session_id, before_seq, max_messages).await {
         return Ok(page);
     }

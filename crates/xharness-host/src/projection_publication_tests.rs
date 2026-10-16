@@ -107,7 +107,7 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
     let original = &state.sessions[ID];
     let inputs = ProjectionInputs::capture(original);
     assert!(inputs.matches(original));
-    for field in 0..9 {
+    for field in 0..11 {
         let mut changed = ProjectionInputs::capture(original);
         match field {
             0 => changed.cursor = Some(original.authoritative_seq.unwrap() + 1),
@@ -118,9 +118,71 @@ async fn projection_inputs_reject_stale_cursor_identity_and_each_route_field() {
             5 => changed.route.provider.push_str("-new"),
             6 => changed.route.model.push_str("-new"),
             7 => changed.route.reasoning_effort = Some("different".into()),
-            _ => changed.route.context_window_tokens = Some(123),
+            8 => changed.route.context_window_tokens = Some(123),
+            9 => changed.restoring = !changed.restoring,
+            _ => changed.projected_model = Some(original.model.clone()),
         }
         assert!(!changed.matches(original), "changed field {field}");
+    }
+}
+
+#[tokio::test]
+async fn unchanged_snapshot_reuses_the_resident_tail_without_duplicate_projections() {
+    let (host, store) = fixture().await;
+    let session = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, session.revision(), vec![title("cache tail")])
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let (pointer, events) = {
+        let state = host.state.read().await;
+        let record = &state.sessions[ID];
+        assert!(!record.events.is_empty());
+        assert_eq!(record.projected_model.as_ref(), Some(&record.model));
+        (record.events.as_ptr() as usize, record.events.clone())
+    };
+    let mut receiver = host.event_gateway.subscribe_mux();
+    for _ in 0..16 {
+        host.sync_authoritative_session(ID).await.unwrap();
+    }
+    let state = host.state.read().await;
+    assert_eq!(state.sessions[ID].events.as_ptr() as usize, pointer);
+    assert_eq!(state.sessions[ID].events, events);
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+}
+
+#[tokio::test]
+async fn unchanged_cursor_does_not_hide_a_changed_projection_route() {
+    let (host, store) = fixture().await;
+    let session = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, session.revision(), vec![title("cache tail")])
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    for field in 0..4 {
+        let (cursor, pointer) = {
+            let mut state = host.state.write().await;
+            let record = state.sessions.get_mut(ID).unwrap();
+            match field {
+                0 => record.model.provider.push_str("-changed"),
+                1 => record.model.model.push_str("-changed"),
+                2 => record.model.reasoning_effort = Some("changed".into()),
+                _ => record.model.context_window_tokens = Some(123_456),
+            }
+            (record.authoritative_seq, record.events.as_ptr() as usize)
+        };
+        host.sync_authoritative_session(ID).await.unwrap();
+        let state = host.state.read().await;
+        let record = &state.sessions[ID];
+        assert_eq!(record.authoritative_seq, cursor);
+        assert_eq!(record.projected_model.as_ref(), Some(&record.model));
+        // The new nonempty tail is built while the old allocation is alive.
+        assert_ne!(record.events.as_ptr() as usize, pointer);
     }
 }
 
@@ -1022,3 +1084,9 @@ async fn automatic_compaction_views_match_live_history_and_restart() {
         }
     }
 }
+
+#[path = "projection_working_set_tests.rs"]
+mod working_set_tests;
+
+#[path = "admission_receipt_tests.rs"]
+mod admission_receipt_tests;
