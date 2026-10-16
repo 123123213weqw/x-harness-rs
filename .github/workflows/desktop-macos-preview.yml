@@ -128,6 +128,7 @@ jobs:
         run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
@@ -140,6 +141,12 @@ jobs:
           node scripts/test-desktop-updater.mjs
           node scripts/test-updater-signature.mjs
           python3 -B scripts/test-desktop-release.py
+      - name: Restore pinned portable ripgrep cache
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
       - name: Native Host, sidecars and the desktop shell
         run: |
           set -euo pipefail
@@ -188,6 +195,12 @@ jobs:
           path: dist/desktop-macos-preview/
           if-no-files-found: warn
           retention-days: 30
+      - name: Save verified portable ripgrep cache
+        if: success() && github.ref == 'refs/heads/master' && steps.portable-rg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
 
   publish:
     needs: [plan, build]
