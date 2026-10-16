@@ -41,6 +41,9 @@ webview2-com = "0.39.1"
 windows = "0.62.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# deep-link 2.6.2 initializes the two-field parser; 0.21.2 added required fields.
+# Remove this compatibility pin only after the upstream initializer is updated.
+rust-ini = "=0.21.1"
 gtk = "0.18.2"
 webkit2gtk = "2.0.2"
 x11-dl = "2.21.0"
