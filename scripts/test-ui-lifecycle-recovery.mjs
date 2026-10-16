@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 // Execute shipped code: fixtures replace only transport and view registrations.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -58,7 +59,7 @@ assert.equal(patchConversationLifecycle(Buffer.from(fresh)).toString(),fresh,'fr
 assert.ok(fresh.includes('fallbackRetryState(context)'));
 const connection=verifyConnectionArtifact();let connRegistration;
 vm.runInNewContext(exposeModuleUnit(connection,'client-connection','controller','ConnectionController'),{window:{__ModuleLoader__:{load:value=>connRegistration=value}},console,URL,AbortController,setTimeout,clearTimeout});
-const conn={Controller:connRegistration.factory(name=>{throw Error(name)}).ConnectionController};
+const conn={Controller:connRegistration.factory(name=>{if(name==='zod')return sharedVendors.zod;throw Error(name)}).ConnectionController};
 let resolveDescribe,connectedResolve;
 const description=new Promise(r=>resolveDescribe=r),completed=new Promise(r=>connectedResolve=r);
 const connectedManager=new runtime.SessionManager({sessions:{history:async()=>ok([])}},{},undefined,undefined,empty);

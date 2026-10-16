@@ -3945,6 +3945,30 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 120
+    },
+    {
+      "id": "browser-226",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-227",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 60
     }
   ]
 }

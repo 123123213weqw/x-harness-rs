@@ -1,3 +1,4 @@
+import { sharedVendors } from './shared-source-vendors.mjs'
 // Test-only access to real emitted source units; production ABI stays unchanged.
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
@@ -13,5 +14,5 @@ export function loadSourceInternals(id, externals, globals = {}) {
   let registration
   vm.runInNewContext(source, {...globals, window: {...globals.window, __ModuleLoader__: {load: row => {registration = row}}}})
   assert.equal(registration.id, id)
-  return registration.factory(externals)
+  return registration.factory(name => name === 'zod' ? sharedVendors.zod : externals(name))
 }
