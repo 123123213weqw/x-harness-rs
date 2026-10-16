@@ -129,6 +129,8 @@ pub enum InboxError {
     EmptyMessageId,
     #[error("inbox message {message_id:?} is already pending")]
     DuplicateMessage { message_id: String },
+    #[error("inbox message {message_id:?} was already admitted with different contents")]
+    ConflictingMessage { message_id: String },
     #[error("inbox projection is inconsistent with the validated session log")]
     ProjectionCorrupt,
     #[error("inbox mutation could not converge after {attempts} revision conflicts")]
@@ -184,6 +186,91 @@ impl DurableInbox {
         message: InboxMessage,
     ) -> Result<AppendReceipt, InboxError> {
         self.insert_at(target, InsertPosition::Back, message).await
+    }
+
+    /// Atomically promote queued input to steering, or admit fresh steering.
+    /// Returns true only when Core needs a new delivery. Repeated, consumed or
+    /// explicitly removed identities never get injected/executed a second time.
+    pub async fn admit_steering(&self, message: InboxMessage) -> Result<bool, InboxError> {
+        if message.id.is_empty() {
+            return Err(InboxError::EmptyMessageId);
+        }
+        let _guard = self.local_gate.lock().await;
+        for _ in 0..MAX_CAS_RETRIES {
+            let session = self.load().await?;
+            let projection = InboxProjection::from_session(&session)?;
+            let mut events = Vec::new();
+            let consumed = session.events().iter().any(|event| matches!(event.data(),
+                EventData::UserMessage { message: used, .. } if used.id.as_deref() == Some(message.id.as_str())
+            ));
+            let mut deliver = true;
+            if let Some((target, index)) = projection.locate(&message.id) {
+                if consumed {
+                    events.push(splice(target, index, 1, Vec::new(), None));
+                    deliver = false;
+                } else {
+                    if projection.list(target)[index] != message {
+                        return Err(InboxError::ConflictingMessage {
+                            message_id: message.id.clone(),
+                        });
+                    }
+                    if target == InboxTarget::NextStep {
+                        self.store.flush(&self.session_id).await?;
+                        return Ok(false);
+                    }
+                    events.push(splice(target, index, 1, Vec::new(), None));
+                }
+            } else {
+                // The first insertion is the receipt even after a queue edit.
+                if let Some(original) =
+                    session
+                        .events()
+                        .iter()
+                        .find_map(|event| match event.data() {
+                            EventData::AgentInboxSpliced { inserted, .. } => {
+                                inserted.iter().find(|input| input.id == message.id)
+                            }
+                            _ => None,
+                        })
+                {
+                    if original != &message {
+                        return Err(InboxError::ConflictingMessage {
+                            message_id: message.id.clone(),
+                        });
+                    }
+                    self.store.flush(&self.session_id).await?;
+                    return Ok(false);
+                }
+                if consumed {
+                    self.store.flush(&self.session_id).await?;
+                    return Ok(false);
+                }
+            }
+            if deliver {
+                events.push(splice(
+                    InboxTarget::NextStep,
+                    projection.next_step.len(),
+                    0,
+                    vec![message.clone()],
+                    None,
+                ));
+            }
+            match self
+                .store
+                .append(&self.session_id, session.revision(), events)
+                .await
+            {
+                Ok(_) => {
+                    self.store.flush(&self.session_id).await?;
+                    return Ok(deliver);
+                }
+                Err(StoreError::RevisionConflict { .. }) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(InboxError::Contended {
+            attempts: MAX_CAS_RETRIES,
+        })
     }
 
     /// Prepend a new identified message to one pending list.

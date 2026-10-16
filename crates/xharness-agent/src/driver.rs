@@ -18,8 +18,8 @@ use xharness_core::{
 use xharness_session::{EventData, InboxMessage, InboxTarget};
 
 use crate::{
-    AgentActivation, AgentRegistry, AgentStatus, DurableInbox, InboxError, LifecycleError,
-    RegistryError,
+    AgentActivation, AgentRegistry, AgentStatus, DispatchDecision, DispatchState, DurableInbox,
+    InboxError, InboxProjection, LifecycleError, RegistryError,
 };
 
 /// Deployment-owned construction of one turn's Provider, tools, context and
@@ -748,36 +748,26 @@ impl DriverWorker {
             }
             if self.wake_requested {
                 self.wake_requested = false;
-                let snapshot = match self.activation.inbox().snapshot().await {
-                    Ok(snapshot) => snapshot,
+                match self.dispatch_decision().await {
+                    Ok(DispatchDecision::Ready) => {
+                        if let Err(error) = self.drive_pending().await {
+                            if self.shutdown.is_cancelled() {
+                                return;
+                            }
+                            self.publish_error(error.to_string());
+                        }
+                    }
+                    Ok(DispatchDecision::Paused) => {
+                        if let Err(error) = self.park_settled_pending().await {
+                            self.publish_error(error.to_string());
+                        }
+                        self.set_status(AgentStatus::Idle);
+                    }
+                    Ok(DispatchDecision::Idle) => self.set_status(AgentStatus::Idle),
                     Err(error) => {
                         self.publish_error(error.to_string());
                         self.set_status(AgentStatus::Idle);
-                        continue;
                     }
-                };
-                if self.pending_compaction.is_some()
-                    || !snapshot.next_turn().is_empty()
-                    || self
-                        .goal_controller()
-                        .state()
-                        .await
-                        .ok()
-                        .flatten()
-                        .is_some_and(|s| {
-                            s.definition.execution_enabled
-                                && s.definition.snapshot.phase
-                                    == xharness_session::GoalPhase::Active
-                        })
-                {
-                    if let Err(error) = self.drive_pending().await {
-                        if self.shutdown.is_cancelled() {
-                            return;
-                        }
-                        self.publish_error(error.to_string());
-                    }
-                } else {
-                    self.set_status(AgentStatus::Idle);
                 }
                 continue;
             }
@@ -790,6 +780,21 @@ impl DriverWorker {
                 }
             }
         }
+    }
+
+    async fn dispatch_decision(&self) -> Result<DispatchDecision, AgentCommandError> {
+        let session = self
+            .activation
+            .inbox()
+            .store()
+            .load(self.activation.id())
+            .await
+            .map_err(|error| AgentCommandError::Failed(error.to_string()))?
+            .ok_or_else(|| AgentCommandError::Failed("agent session disappeared".into()))?;
+        let inbox = InboxProjection::from_session(&session).map_err(inbox_error)?;
+        let mut state = DispatchState::from_session(&session);
+        state.maintenance_pending = self.pending_compaction.is_some();
+        Ok(state.decide(&inbox))
     }
 
     async fn drive_pending(&mut self) -> Result<(), AgentCommandError> {
@@ -1054,27 +1059,13 @@ impl DriverWorker {
                 .reconcile_consumed()
                 .await
                 .map_err(inbox_error)?;
-            let pending = self
-                .activation
-                .inbox()
-                .snapshot()
-                .await
-                .map_err(inbox_error)?;
-            let continue_goal = self
-                .goal_controller()
-                .state()
-                .await
-                .map_err(|e| AgentCommandError::Failed(e.to_string()))?
-                .is_some_and(|s| {
-                    s.definition.execution_enabled
-                        && s.definition.snapshot.phase == xharness_session::GoalPhase::Active
-                });
-            if pending.next_turn().is_empty()
-                && self.pending_compaction.is_none()
-                && !self.wake_requested
-                && !continue_goal
-            {
-                return Ok(());
+            match self.dispatch_decision().await? {
+                DispatchDecision::Ready => {}
+                DispatchDecision::Idle => return Ok(()),
+                DispatchDecision::Paused => {
+                    self.park_settled_pending().await?;
+                    return Ok(());
+                }
             }
             self.wake_requested = false;
         }
@@ -1340,12 +1331,12 @@ impl DriverWorker {
                 result
             }
             DriverCommand::Steer(message) => {
-                let result = self.persist(InboxTarget::NextStep, message).await;
+                let result = self.persist_steering(message).await;
                 if result.is_ok() {
                     self.wake_requested = true;
                     self.set_status(AgentStatus::Running);
                 }
-                result
+                result.map(|_| ())
             }
             DriverCommand::Inject(message) => self.persist(InboxTarget::NextStep, message).await,
             DriverCommand::Control(LoopCommand::Cancel | LoopCommand::InterruptByUser) => {
@@ -1374,15 +1365,17 @@ impl DriverWorker {
                 result
             }
             DriverCommand::MaintenanceFollowup(_) => Err(AgentCommandError::Busy),
-            DriverCommand::Steer(message) => {
-                match self.persist(InboxTarget::NextStep, message.clone()).await {
-                    Ok(()) => {
-                        self.wake_requested = true;
+            DriverCommand::Steer(message) => match self.persist_steering(message.clone()).await {
+                Ok(deliver) => {
+                    self.wake_requested = true;
+                    if deliver {
                         map_loop_control(run.send(LoopCommand::Steer(message.message)).await, true)
+                    } else {
+                        Ok(())
                     }
-                    Err(error) => Err(error),
                 }
-            }
+                Err(error) => Err(error),
+            },
             DriverCommand::Inject(message) => {
                 match self.persist(InboxTarget::NextStep, message.clone()).await {
                     Ok(()) => map_loop_control(
@@ -1409,6 +1402,22 @@ impl DriverWorker {
             }
         };
         let _ = envelope.acknowledgement.send(result);
+    }
+
+    async fn persist_steering(&self, message: InboxMessage) -> Result<bool, AgentCommandError> {
+        let deliver = self
+            .activation
+            .inbox()
+            .admit_steering(message.clone())
+            .await
+            .map_err(inbox_error)?;
+        if deliver {
+            let _ = self.events.send(AgentEvent::InboxInserted {
+                target: InboxTarget::NextStep,
+                message,
+            });
+        }
+        Ok(deliver)
     }
 
     async fn persist(

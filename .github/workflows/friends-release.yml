@@ -42,6 +42,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'Release preflight failed' }
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
