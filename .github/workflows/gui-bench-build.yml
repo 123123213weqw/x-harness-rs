@@ -57,7 +57,7 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Build exact candidate and run observation-only contract
@@ -98,7 +98,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Install isolated browser dependency
