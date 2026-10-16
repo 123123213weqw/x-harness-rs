@@ -166,6 +166,7 @@ jobs:
         shell: bash
     env:
       # Empty until the native-only ingestion endpoint is deployed and accepted.
+      ZSTD_CLEVEL: '1' # Cache archives only; release optimization and symbols are unchanged.
       AUTOMATIC_CANDIDATE: ${{ inputs.automatic_candidate }}
       RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
       XHARNESS_INSTALLATION_ENDPOINT: ${{ vars.XHARNESS_INSTALLATION_ENDPOINT }}
@@ -218,6 +219,7 @@ jobs:
           "XHARNESS_RG=$extract/ripgrep-15.2.0-x86_64-pc-windows-msvc/rg.exe" >> $env:GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: ${{ matrix.target }}
           components: clippy
       - name: Preserve Windows release symbols without changing optimization
@@ -227,7 +229,9 @@ jobs:
           'CARGO_PROFILE_RELEASE_DEBUG=2' >> $env:GITHUB_ENV
           'CARGO_PROFILE_RELEASE_STRIP=none' >> $env:GITHUB_ENV
       - uses: Swatinem/rust-cache@v2
+        id: native-cache
         with:
+          cache-workspace-crates: false
           cache-on-failure: true
           shared-key: desktop-native-${{ matrix.target }}
           # Salt only public compile-time configuration, never signing secrets.
@@ -235,6 +239,18 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Report native cache policy
+        env:
+          EXACT_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
+        run: |
+          printf '### Native build cache\n\nExact dependency-cache hit: `%s`\n\nWorkspace caching: disabled (benchmark only). Cache compression: zstd level 1.\n' "$EXACT_CACHE_HIT" >> "$GITHUB_STEP_SUMMARY"
+      - name: Restore pinned portable ripgrep cache
+        if: startsWith(matrix.platform, 'darwin-')
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
       - name: Install native macOS ripgrep
         if: startsWith(matrix.platform, 'darwin-')
         run: bash scripts/install-portable-rg.sh
@@ -321,6 +337,21 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: ./scripts/test-windows-install-ownership.ps1 -Installer (Resolve-Path 'dist/desktop-package/windows-x86_64/XHarness_${{ needs.plan.outputs.version }}_x64-setup.exe').Path -RuntimeAudit dist/windows-runtime-audit/collect.json
+      # Diagnostic bytes only, not desktop-package / candidate / native evidence.
+      # A failed run still cannot be promoted. Preserve the exact failed package
+      # so investigating a lock never requires rebuilding or reusing its version.
+      - name: Retain unaccepted Windows installer only when the worker fails
+        if: failure() && matrix.platform == 'windows-x86_64'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows-unaccepted-diagnostic
+          path: |
+            dist/desktop-package/windows-x86_64/*.exe
+            dist/desktop-package/windows-x86_64/*.sig
+            dist/windows-runtime-audit/collect.json
+            dist/desktop-plan/plan.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Verify and archive exact EXE/PDB pairs separately from installers
         if: matrix.platform == 'windows-x86_64'
         run: python -B scripts/archive-desktop-symbols.py --target '${{ matrix.target }}' --output dist/desktop-symbols-windows
@@ -416,6 +447,12 @@ jobs:
       - name: Destroy isolated publisher keychain after signing and native acceptance
         if: ${{ always() && matrix.macos_selfsigned }}
         run: python -B scripts/macos-stable-signing.py cleanup
+      - name: Save verified portable ripgrep cache
+        if: success() && github.ref == 'refs/heads/master' && steps.portable-rg-cache.outputs.cache-hit != 'true' && startsWith(matrix.platform, 'darwin-')
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
 
   aggregate:
     # The pipeline workers wait for this artifact; depending on build would deadlock.

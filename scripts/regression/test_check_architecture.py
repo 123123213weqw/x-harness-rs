@@ -1,9 +1,13 @@
 """Mutation tests for the managed Host architecture boundary."""
 
 import importlib.util
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SOURCE = Path(__file__).with_name("check-architecture.py")
@@ -96,6 +100,53 @@ class ManagedHostPolicyTests(unittest.TestCase):
         )
         errors = "\n".join(self.check())
         self.assertIn("unique state owner", errors)
+
+
+class RemoteInteractionSeamPolicyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for relative in set(CHECKER.SOURCE_BOUNDARIES) | set(CHECKER.FORBIDDEN_SOURCE_FRAGMENTS):
+            file = self.root / relative
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text("")
+        (self.root / "crates/xharness-host/src/lib.rs").write_text("")
+        self.baseline = self.root / "baseline.json"
+        self.baseline.write_text("{}")
+        self.policy = self.root / "policy.json"
+        self.policy.write_text(json.dumps({"version": 1, "managedModules": []}))
+
+    def run_checker(self) -> tuple[int, str]:
+        output = io.StringIO()
+        # This disposable fixture tests dependency/source seams, not a Git diff.
+        # The independent freeze mutation suite exercises the real freeze gate.
+        with patch("sys.argv", ["check-architecture.py"]), patch.object(
+            CHECKER.runpy, "run_path", return_value={"run": lambda _root, _base: 0}
+        ), patch.object(CHECKER, "ROOT", self.root), patch.object(CHECKER, "BASELINE", self.baseline), patch.object(CHECKER, "HOST_POLICY", self.policy), contextlib.redirect_stdout(output):
+            result = CHECKER.main()
+        return result, output.getvalue()
+
+    def test_empty_declared_seams_pass_real_checker(self) -> None:
+        self.assertEqual(self.run_checker()[0], 0)
+
+    def test_interaction_ticket_observer_and_catalog_raw_rpc_bypasses_fail(self) -> None:
+        for relative in ["crates/xharness-remote/src/media.rs", "crates/xharness-channel-telegram/src/media.rs", "crates/xharness-remote/src/command_replies.rs", "crates/xharness-channel-telegram/src/commands.rs", "crates/xharness-remote/src/projection.rs", "crates/xharness-channel-telegram/src/output.rs", "crates/xharness-remote/src/catalogue.rs", "crates/xharness-remote/src/tickets.rs", "crates/xharness-remote/src/routing.rs", "crates/xharness-channel-telegram/src/interactions.rs"]:
+            for token in ["backend.respond(response)", "backend.call(id,method,payload)", "backend.mux_events()"]:
+                with self.subTest(source=relative, token=token):
+                    file = self.root / relative
+                    file.write_text(token)
+                    result, output = self.run_checker()
+                    self.assertEqual(result, 1)
+                    self.assertIn(relative + ": forbidden coupling", output)
+                    file.write_text("")
+
+    def test_platform_observer_cannot_import_api_host_agent_or_core(self) -> None:
+        relative = "crates/xharness-channel-telegram/src/commands.rs"
+        for token in ["xharness_api::ApiBackend", "xharness_host::BasicHost", "xharness_core::AgentLoop", "xharness_agent::Agent"]:
+            with self.subTest(token=token):
+                (self.root / relative).write_text(token)
+                self.assertEqual(self.run_checker()[0], 1)
 
 
 if __name__ == "__main__":

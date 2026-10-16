@@ -1,0 +1,48 @@
+{
+  "diagnosticOnly": true,
+  "releaseEligible": false,
+  "status": "passed",
+  "harnessSha": "856a507232c1a29f53586b970bff7e278a3ba8f3",
+  "packageSourceSha": "df3c273aa378fe7ef8fa3211b41b175ae88c2be8",
+  "sourceRunId": "38695438145",
+  "sourceRunAttempt": 1,
+  "baseVersion": "0.2.44",
+  "targetVersion": "0.2.50",
+  "packageSha256": "0bb13fc299b99c775510e82dc14bd0c9fd6faa98bd9e03c8cb411cfedbba16ec",
+  "checks": {
+    "signature": true,
+    "install": true,
+    "launch": true,
+    "update": true,
+    "state-preservation": true,
+    "embedded-channel": true,
+    "corrupt-package-rejected": true,
+    "confirmation-required": true
+  },
+  "schema": 1,
+  "workflowRunId": "38709926712",
+  "workflowUrl": "https://github.com/123123213weqw/x-harness-rs/actions/runs/38709926712",
+  "artifactName": "windows-upgrade-replay",
+  "nativeJobSeconds": 126,
+  "packageRebuilt": false,
+  "packageResigned": false,
+  "rustCompilation": false,
+  "automaticCandidatesPaused": true,
+  "validPackageDownloads": 1,
+  "corruptPackageRequests": 1,
+  "observedPreparationPhases": [
+    "checking",
+    "error",
+    "error",
+    "downloaded"
+  ],
+  "sessionJournalUnchanged": true,
+  "configCredentialAndWorkspaceFixturesUnchanged": true,
+  "productReadyAfterRestart": true,
+  "testedScripts": {
+    "scripts/windows-migration-acceptance.mjs": "89d1dca6cfc58a7f27f4d350c0d8bd4172a8bdf829fcdb0f8f559af90706d5e1",
+    "scripts/windows-migration-acceptance.ps1": "6b1e835381055ac42906a503279ab2316d915ded22994ae403e5fc6f7163b248",
+    "scripts/native-desktop-attachment.mjs": "ee93ab63b2a6796d18222f95b1c1a7551cacc567afbaf7803b246e96d9c352d4",
+    "scripts/replay-windows-upgrade.mjs": "d4128e33ac7b47a5dfada800269951fb2eed9b8fe5f7dc462ccc5ba9e97b0780"
+  }
+}
