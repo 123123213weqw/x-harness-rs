@@ -337,6 +337,7 @@ impl BasicHost {
                         events: vec![],
                         event_base_seq: 0,
                         event_cache_bytes: 0,
+                        projected_model: None,
                         metrics: MetricsProjectionState::default(),
                         catalog_metrics: None,
                         messages: vec![],

@@ -205,3 +205,44 @@ async fn concurrent_full_trace_preserves_redaction_order_and_large_blob_integrit
     assert_eq!(offsets, [32; 16]);
     assert_eq!(blobs.len(), 64);
 }
+
+/// A large closure must not enlarge every enclosing async state machine, even
+/// if the caller keeps the returned disabled future without polling it.
+#[test]
+fn disabled_future_does_not_retain_payload_captures_or_their_layout() {
+    struct LargeCapture {
+        bytes: [u8; 64 * 1024],
+        dropped: Arc<AtomicU64>,
+    }
+    impl Drop for LargeCapture {
+        fn drop(&mut self) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let recorder = DebugRecorder::disabled();
+    let dropped = Arc::new(AtomicU64::new(0));
+    let capture = LargeCapture {
+        bytes: [42; 64 * 1024],
+        dropped: dropped.clone(),
+    };
+    let future =
+        recorder.record_lossy_with("core", "large-capture", DebugScope::default(), move || {
+            let value = std::hint::black_box(capture);
+            json!({"bytes": value.bytes.len()})
+        });
+    println!(
+        "XH_DISABLED_TRACE_FUTURE_BYTES {}",
+        std::mem::size_of_val(&future)
+    );
+    assert_eq!(
+        dropped.load(Ordering::Relaxed),
+        1,
+        "disabled captures must be released at call time"
+    );
+    assert!(
+        std::mem::size_of_val(&future) <= 64,
+        "trace closure inflated the enclosing future"
+    );
+    drop(future);
+    assert_eq!(dropped.load(Ordering::Relaxed), 1);
+}

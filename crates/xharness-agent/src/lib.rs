@@ -25,3 +25,6 @@ pub use goal::*;
 
 #[cfg(test)]
 mod stability_repro;
+
+#[cfg(test)]
+mod retirement_tests;

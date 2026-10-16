@@ -42,6 +42,8 @@ struct ProjectionInputs {
     cache_base_seq: u64,
     created_at: u64,
     schedules_hydrated: bool,
+    restoring: bool,
+    projected_model: Option<crate::state::ModelSelection>,
     route: ModelRoute,
 }
 
@@ -52,6 +54,8 @@ impl ProjectionInputs {
             cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
             schedules_hydrated: record.schedules_hydrated,
+            restoring: record.restoring,
+            projected_model: record.projected_model.clone(),
             route: ModelRoute {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
@@ -66,10 +70,24 @@ impl ProjectionInputs {
             && self.cache_base_seq == record.event_base_seq
             && self.created_at == record.created_at
             && self.schedules_hydrated == record.schedules_hydrated
+            && self.restoring == record.restoring
+            && self.projected_model == record.projected_model
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
             && self.route.reasoning_effort == record.model.reasoning_effort
             && self.route.context_window_tokens == record.model.context_window_tokens
+    }
+
+    fn already_projected(&self, next_seq: u64) -> bool {
+        self.cursor == Some(next_seq)
+            && self.schedules_hydrated
+            && !self.restoring
+            && self.projected_model.as_ref().is_some_and(|model| {
+                model.provider == self.route.provider
+                    && model.model == self.route.model
+                    && model.reasoning_effort == self.route.reasoning_effort
+                    && model.context_window_tokens == self.route.context_window_tokens
+            })
     }
 }
 
@@ -379,6 +397,13 @@ impl BasicHost {
                 })?;
                 ProjectionInputs::capture(record)
             };
+            // Several stream notices can refer to the same latest snapshot.
+            // Rebuilding it again clones and serializes the entire resident
+            // history without producing any new durable events. Cold records
+            // and changed routes must still pass through full hydration.
+            if inputs.already_projected(session.next_seq()) {
+                return Ok(true);
+            }
             let route = &inputs.route;
             let permission = restored_permission(&session);
             let agent_preset = restored_agent_preset(&session);
@@ -458,6 +483,7 @@ impl BasicHost {
                         tail.events,
                         tail.bytes,
                     );
+                    record.projected_model = Some(record.model.clone());
                     // Durable Runtime derives provider messages from the journal on demand.
                     // Do not retain a second transcript for every idle conversation.
                     record.messages.clear();

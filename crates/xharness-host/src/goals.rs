@@ -35,6 +35,13 @@ impl Default for GoalBridge {
     }
 }
 impl GoalBridge {
+    pub async fn retire_announcements(&self, id: &str) {
+        self.announced
+            .lock()
+            .await
+            .retain(|(session, _)| session != id);
+    }
+
     pub async fn prepare(
         &self,
         id: &str,

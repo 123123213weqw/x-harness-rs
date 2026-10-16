@@ -1394,7 +1394,9 @@ impl DurableLoopAgentRuntime {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tokio::select! {
+                        biased;
                         _=goals.shutdown.cancelled()=>break,
+                        _=handle.closed()=>break,
                         _=tick.tick()=>{
                             if handle.status()!=xharness_agent::AgentStatus::Idle {continue}
                             // Serialize retirement with re-attachment so resume cannot lose its watcher.
@@ -1467,6 +1469,13 @@ impl DurableLoopAgentRuntime {
         request: AgentTurnRequest,
     ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
         let (input, input_id) = self.validate_turn_input(&request)?;
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1476,13 +1485,6 @@ impl DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         let events = handle.subscribe();
         handle
             .inbox()
@@ -1542,6 +1544,35 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        // The Host has committed its tombstone and still owns the session's
+        // admission fence. Reap the actor before removing files or caches.
+        self.supervisor
+            .retire(session_id, Duration::from_secs(8))
+            .await
+            .map_err(registry_error)?;
+        if let Some(schedules) = &self.schedules {
+            schedules
+                .retire_session(session_id)
+                .await
+                .map_err(|message| AgentRuntimeError::Preparation { message })?;
+        }
+        self.goals.handles.write().await.remove(session_id);
+        self.goals
+            .prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.goals.watched.lock().await.remove(session_id);
+        self.goals.retire_announcements(session_id).await;
+        self.prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.sessions.write().await.remove(session_id);
+        self.tool_factory
+            .release_session(session_id)
+            .await
+            .map_err(|message| AgentRuntimeError::Preparation { message })?;
         self.store
             .delete_session_data(session_id)
             .await
@@ -1646,6 +1677,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1655,13 +1693,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         self.attach_schedules(&handle).await?;
         Ok(handle)
     }
@@ -1893,6 +1924,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1902,13 +1940,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         if handle.status() == xharness_agent::AgentStatus::Idle {
             xharness_agent::GoalController::new(Arc::clone(&self.store), &request.session_id)
                 .recover_abandoned()
@@ -2326,6 +2357,7 @@ mod tests {
 
     mod max_tokens_diagnostic;
     mod observer_tests;
+    mod retirement_tests;
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,

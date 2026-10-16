@@ -1301,10 +1301,14 @@ fn format_duration(duration: Duration) -> String {
 }
 
 impl OpenAiProvider {
-    async fn trace(&self, scope: &DebugScope, event: &str, payload: impl FnOnce() -> Value) {
+    fn trace(
+        &self,
+        scope: &DebugScope,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         self.debug
             .record_lossy_with("provider.openai", event, scope.clone(), payload)
-            .await;
     }
 }
 
