@@ -3,6 +3,14 @@ name: GUI Acceptance Candidate
 on:
   workflow_dispatch:
     inputs:
+      build_cache_benchmark:
+        description: Run isolated same-source fresh-runner build cache passes, never release
+        type: boolean
+        default: false
+      workspace_cache_experiment:
+        description: Compare Intel Mac workspace-crate retention against dependency-only caching
+        type: boolean
+        default: false
       native_public_site:
         description: 'Run isolated native signed-out GitHub observation (no model/API calls)'
         type: boolean
@@ -25,6 +33,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-cache-benchmark:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_cache_benchmark
+    uses: ./.github/workflows/desktop-build-benchmark.yml
+    with:
+      workspace_experiment: ${{ inputs.workspace_cache_experiment }}
+
   native-public-site:
     if: github.event_name == 'workflow_dispatch' && inputs.native_public_site
     runs-on: ubuntu-22.04
@@ -36,6 +50,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -66,6 +82,7 @@ jobs:
           retention-days: 7
 
   budget-contract:
+    if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -76,6 +93,7 @@ jobs:
       - run: python3 -B -m unittest scripts.gui_bench.test_budget scripts.gui_bench.test_runner scripts.gui_bench.test_native_probe scripts.gui_bench.test_native_png scripts.gui_bench.test_scoped scripts.gui_bench.test_webview -v
 
   browser-contract:
+    if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -95,11 +113,14 @@ jobs:
           node scripts/gui_bench/test_native_observation.mjs
 
   macos-host:
+    if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked -p xharness-computer -p xharness-computer-macos
       - run: cargo test --locked -p xharness-host-app deployment_allowlist

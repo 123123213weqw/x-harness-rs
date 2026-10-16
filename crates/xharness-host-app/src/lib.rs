@@ -6,6 +6,7 @@
 //! implementations.
 
 mod builtin_ui;
+pub mod channel_accounts;
 #[cfg(any(target_os = "macos", windows, test))]
 mod computer_media;
 mod file_display;
@@ -20,6 +21,8 @@ pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
 mod read_media;
+pub mod remote_admin;
+pub mod remote_control;
 pub mod tool_allowlist;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_compat;

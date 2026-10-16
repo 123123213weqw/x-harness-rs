@@ -512,7 +512,7 @@ fn action(
         .ok_or("missing nodes")?
         .iter()
         .find(|node| node["label"] == label)
-        .ok_or("missing action target")?["ref"]
+        .ok_or_else(|| format!("missing action target {label:?}"))?["ref"]
         .clone();
     serde_json::from_value(arguments).map_err(|error| error.to_string())
 }

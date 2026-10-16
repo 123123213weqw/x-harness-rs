@@ -625,7 +625,7 @@ async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead(
     };
     assert!(pids
         .iter()
-        .all(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists()));
+        .all(|pid| linux_process_state(*pid).is_some_and(|state| state != 'Z')));
 
     batch.cancel();
     while batch.next_event().await.is_some() {}
@@ -635,11 +635,42 @@ async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead(
         results[0].result.failure_kind(),
         Some(ToolFailureKind::Cancelled)
     );
+    let states = pids
+        .iter()
+        .map(|pid| linux_process_state(*pid))
+        .collect::<Vec<_>>();
+    assert_eq!(states[0], None, "the owned root must already be reaped");
     assert!(
-        pids.iter()
-            .all(|pid| !std::path::Path::new(&format!("/proc/{pid}")).exists()),
-        "tool batch settled while a managed process was still alive: {pids:?}"
+        states.iter().all(|state| matches!(state, None | Some('Z'))),
+        "tool batch settled while a managed process was running: {pids:?}; states={states:?}"
     );
+    // An orphaned grandchild can be dead before PID 1 reaps its zombie. Do
+    // not confuse that kernel bookkeeping with a live process. Still require
+    // every PID to disappear, separately from the immediate liveness check.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while pids.iter().any(|pid| linux_process_state(*pid).is_some()) {
+        assert!(
+            Instant::now() < deadline,
+            "dead process was not reaped: {pids:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_state(pid: u32) -> Option<char> {
+    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Ok(stat) => Some(
+            stat.rsplit_once(") ")
+                .expect("process stat has a command name")
+                .1
+                .chars()
+                .next()
+                .expect("process stat has a state"),
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("cannot inspect managed pid {pid}: {error}"),
+    }
 }
 
 #[tokio::test]
