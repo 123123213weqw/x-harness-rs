@@ -700,25 +700,25 @@ def prepare_reqwest_dependency(desktop):
     lock = tomllib.loads(lock_text)
     packages = lock.get('package', [])
     clients = [p for p in packages if p.get('name') == 'reqwest']
-    require(len(clients) == 1 and clients[0].get('version') == '0.13.4',
-            'Disposable updater requires pinned reqwest 0.13.4 in Cargo.lock')
+    require(len(clients) == 1 and clients[0].get('version') == '0.13.5',
+            'Disposable updater requires pinned reqwest 0.13.5 in Cargo.lock')
     dependency = manifest.get('dependencies', {}).get('reqwest')
     if dependency is not None:
         version = dependency if isinstance(dependency, str) else dependency.get('version') if isinstance(dependency, dict) else None
-        require(version in ('0.13', '^0.13', '0.13.4', '^0.13.4', '=0.13.4'),
-                f'Existing reqwest dependency is incompatible with pinned 0.13.4: {version!r}')
+        require(version in ('0.13', '^0.13', '0.13.5', '^0.13.5', '=0.13.5'),
+                f'Existing reqwest dependency is incompatible with pinned 0.13.5: {version!r}')
         require(not isinstance(dependency, dict) or not any(key in dependency for key in ('path', 'git', 'package', 'workspace')),
                 'Disposable updater cannot reconcile a redirected reqwest dependency')
     else:
         require(manifest_text.count('[dependencies]\n') == 1,
                 'Disposable reqwest dependency section anchor drifted')
         manifest_text = manifest_text.replace('[dependencies]\n',
-            '[dependencies]\nreqwest = { version = "=0.13.4", default-features = false }\n', 1)
+            '[dependencies]\nreqwest = { version = "=0.13.5", default-features = false }\n', 1)
     desktops = [p for p in packages if p.get('name') == 'xharness-desktop']
     require(len(desktops) == 1, 'Desktop lockfile package anchor drifted')
     deps = desktops[0].get('dependencies', [])
     references = [dep for dep in deps if dep == 'reqwest' or dep.startswith('reqwest ')]
-    require(len(references) <= 1 and all(dep in ('reqwest', 'reqwest 0.13.4') for dep in references),
+    require(len(references) <= 1 and all(dep in ('reqwest', 'reqwest 0.13.5') for dep in references),
             'Desktop lockfile reqwest dependency is ambiguous or incompatible')
     if not references:
         blocks = re.split(r'(?=\[\[package\]\])', lock_text)

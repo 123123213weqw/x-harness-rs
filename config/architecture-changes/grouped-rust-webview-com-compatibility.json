@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Align the desktop native WebView2 COM types with the upgraded Wry bridge and keep updater acceptance pinned to the upgraded HTTP client.",
+  "compatibility": "Native callback interface identity must match Wry and the desktop; no browser permissions, native input semantics, installer publication rules or TLS validation are relaxed. Add a lockfile type-identity regression, retain fail-closed updater dependency tests and require hosted Windows native compilation.",
+  "paths": {
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "76f13c2ab28868e2ea3e1626e2d9d2fcca2b584eaf2724cf92d71cfeaa1217ac",
+      "after": "196be7590bc36bb2102737b8cace628709697b7ee3d5c26746bb07fe5f03025f"
+    }
+  },
+  "regressions": [
+    "updater",
+    "windows"
+  ]
+}
