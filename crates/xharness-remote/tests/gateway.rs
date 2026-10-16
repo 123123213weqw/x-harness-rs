@@ -183,6 +183,9 @@ async fn duplicate_survives_restart_and_payload_conflict_fails() {
         g.dispatch(&d.key).await.unwrap().state,
         DeliveryState::Completed
     );
+    // Graceful restart uses the production shutdown fence; a completed
+    // blocking transaction can briefly retain its task-owned Store Arc.
+    g.close().await.unwrap();
     drop(g);
     let g = Gateway::open(temp.path(), "h".into(), host.clone()).unwrap();
     let replay = accept(&g, prompt("1")).await;
@@ -332,6 +335,7 @@ async fn exclusive_consumer_and_wrong_host_restart() {
         Gateway::open(temp.path(), "h".into(), host.clone()),
         Err(Error::ConsumerBusy)
     ));
+    g.close().await.unwrap();
     drop(g);
     assert!(matches!(
         Gateway::open(temp.path(), "another-host".into(), host),
@@ -511,6 +515,7 @@ async fn queued_intake_survives_restart_before_any_host_call() {
     let host = Arc::new(Host::new());
     let (temp, g) = setup(host.clone()).await;
     let d = accept(&g, prompt("before-dispatch")).await;
+    g.close().await.unwrap();
     drop(g);
     let g = Gateway::open(temp.path(), "h".into(), host.clone()).unwrap();
     assert_eq!(g.pending().await.unwrap()[0].key, d.key);
@@ -683,6 +688,7 @@ async fn receive_atomically_checkpoints_durable_intake_and_never_regresses_on_du
         .await,
         Err(Error::CursorConflict)
     ));
+    g.close().await.unwrap();
     drop(g);
     let g = Gateway::open(temp.path(), "h".into(), host.clone()).unwrap();
     let restored = g.acquire_account(account()).await.unwrap();

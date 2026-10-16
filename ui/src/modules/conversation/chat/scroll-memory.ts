@@ -7,13 +7,24 @@ export class ChatScrollMemory {
   private readonly listeners = new Map<string, Set<() => void>>()
   private disposed = false
 
+  constructor(private readonly onPosition?: (sessionId: string, position: ChatScrollPosition | null) => void) {}
+
+  private publish(sessionId: string, position: ChatScrollPosition | null): void {
+    if (this.disposed) return
+    try { this.onPosition?.(sessionId, position) }
+    catch (error) { console.error('[conversation] reading target listener failed:', error) }
+  }
+
   forSession(sessionId: string): ChatViewInjected['chatScroll'] {
+    // Slot injection may run in a discarded concurrent render. Only committed
+    // position saves and explicit follow intents may publish a runtime hint.
     return {
       read: () => this.positions.get(sessionId) ?? null,
       save: position => {
         if (this.disposed) return
         if (position === null) this.positions.delete(sessionId)
         else this.positions.set(sessionId, position)
+        this.publish(sessionId, position)
       },
       subscribeFollow: listener => {
         if (this.disposed) return () => {}
@@ -32,6 +43,7 @@ export class ChatScrollMemory {
   requestFollow(sessionId: string): void {
     if (this.disposed) return
     this.positions.delete(sessionId)
+    this.publish(sessionId, null)
     const listeners = this.listeners.get(sessionId)
     for (const listener of [...listeners ?? []]) {
       if (!listeners?.has(listener)) continue

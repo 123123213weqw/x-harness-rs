@@ -98,8 +98,10 @@ function scrollPosition(list: HTMLElement, scrollport: HTMLElement): ChatScrollP
   const row = pagingAnchor(list, scrollport)
   const anchorKey = row?.dataset.chatAnchorKey
   if (row === null || anchorKey === undefined) return null
+  const seq = row.dataset.chatAnchorSeq === undefined ? NaN : Number(row.dataset.chatAnchorSeq)
   return {
     anchorKey,
+    ...(Number.isSafeInteger(seq) && seq >= 0 ? { anchorSeq: seq } : {}),
     anchorTop: flowTop(row, scrollport),
     scrollTop: scrollport.scrollTop,
   }
@@ -251,8 +253,8 @@ export function ChatView({
   const [railHost, setRailHost] = useState<HTMLElement | null>(null)
   const [activeMarker, setActiveMarker] = useState<string | null>(null)
   const columnRef = useRef<HTMLDivElement | null>(null)
-  const atBottomRef = useRef(true)
-  const [atBottom, setAtBottom] = useState(true)
+  const atBottomRef = useRef(chatScroll.read() === null)
+  const [atBottom, setAtBottom] = useState(atBottomRef.current)
   /** Last position delivered or written on the main thread. */
   const observedTopRef = useRef(0)
   const readerScrollUntilRef = useRef(0)
@@ -401,6 +403,9 @@ export function ChatView({
     /* v8 ignore next -- ref-null guard: React attaches the ref before layout effects run. */
     if (local === null) return
     const el = scrollerOf(local)
+    // A cold view has no flow to follow yet. In particular, its empty first
+    // layout must not turn an older reading bookmark into a latest-page hint.
+    if (openState !== 'open' && order.length === 0) return
     // Open completed: jump to the bottom once — unless a scroll position
     // survives from a previous mount (view-tab switch away and back), which
     // is restored instead of snapping the reader back to the floor.
@@ -450,6 +455,9 @@ export function ChatView({
 
   const onScrollRef = useRef(() => {})
   onScrollRef.current = () => {
+    // Empty loading/retry layouts are not reader intent and must not erase a
+    // bookmark before its required history window has been restored.
+    if (openState !== 'open' && order.length === 0) return
     const local = listRef.current
     /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
     if (local === null) return
@@ -587,6 +595,7 @@ export function ChatView({
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
   followRef.current = () => {
+    if (openState !== 'open' && order.length === 0) return
     const local = listRef.current
     if (local !== null && atBottomRef.current) {
       const el = scrollerOf(local)
