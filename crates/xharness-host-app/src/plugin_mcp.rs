@@ -82,13 +82,14 @@ pub(crate) fn bind(
     ui: Option<Arc<BuiltinUi>>,
     owner: String,
     full_access: bool,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> Binding {
     let guard = Arc::new(InvocationPolicy {
         full_access,
         builtin_ui_available: ui.is_some(),
     });
     Binding {
-        spec: spec(manager, runtime, native, ui, owner),
+        spec: spec(manager, runtime, native, ui, owner, media),
         guard,
     }
 }
@@ -127,6 +128,7 @@ fn spec(
     native: Option<Arc<crate::native_browser::NativeBrowser>>,
     ui: Option<Arc<BuiltinUi>>,
     owner: String,
+    media: Option<Arc<dyn xharness_computer::ComputerMediaSink>>,
 ) -> ToolSpec {
     ToolSpec::new(
         ToolDefinition::new(
@@ -144,6 +146,7 @@ fn spec(
             let runtime = runtime.clone();
             let ui = ui.clone();
             let owner = owner.clone();
+            let media = media.clone();
             async move {
                 let args = &context.arguments;
                 let action = args.get("action").and_then(Value::as_str).ok_or_else(|| error("action required"))?;
@@ -192,6 +195,10 @@ fn spec(
                     if action == "call" {
                         let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                         let parameters = match args.get("arguments") { None => Map::new(), Some(Value::Object(parameters)) => parameters.clone(), _ => return Err(error("native arguments must be an object")) };
+                        if tool=="screenshot" {
+                            let media=media.ok_or_else(||error("browser attachment service unavailable"))?;
+                            return native.screenshot(&owner,parameters,media.as_ref(),&context.cancellation).await;
+                        }
                         return call_output(native.call(&owner, tool, parameters, &context.cancellation).await.map_err(error)?);
                     }
                     if !native.available(&owner, &context.cancellation).await { return Err(error("native browser bridge unavailable")); }
@@ -267,6 +274,7 @@ mod tests {
             None,
             "owner".into(),
             false,
+            None,
         );
         let registry = Arc::new(ToolRegistry::new());
         registry.register(binding.spec).await.unwrap();

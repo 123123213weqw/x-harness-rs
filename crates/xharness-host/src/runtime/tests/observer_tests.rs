@@ -687,8 +687,8 @@ async fn host_flood_steer_stop_clears_running_and_parks_internal_followup() {
 }
 
 /// Blocks the first turn until it is cancelled, then completes every later one.
-struct BlockFirstTurn {
-    attempts: AtomicUsize,
+pub(super) struct BlockFirstTurn {
+    pub(super) attempts: AtomicUsize,
 }
 #[async_trait]
 impl ModelProvider for BlockFirstTurn {
@@ -817,7 +817,7 @@ async fn user_stop_lets_the_already_queued_prompt_start_the_next_turn() {
 }
 
 /// Completes every turn immediately.
-struct CompleteImmediately;
+pub(super) struct CompleteImmediately;
 #[async_trait]
 impl ModelProvider for CompleteImmediately {
     async fn stream(

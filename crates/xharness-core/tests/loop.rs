@@ -8063,7 +8063,7 @@ async fn independent_review_is_fenced_against_pending_user_steering() {
                 call_id: call_id.clone(),
                 approved: true,
                 user_request_seq: None,
-                user_request_sha256: format!("{:x}", Sha256::digest(b"original task")),
+                user_request_sha256: hex::encode(Sha256::digest(b"original task")),
             })
             .await;
         assert_eq!(decision.is_ok(), !changed);
@@ -8265,7 +8265,7 @@ async fn independent_review_survives_mid_turn_compaction_for_allow_and_reject() 
             call_id,
             approved,
             user_request_seq: Some(seq),
-            user_request_sha256: format!("{:x}", Sha256::digest(original.as_bytes())),
+            user_request_sha256: hex::encode(Sha256::digest(original.as_bytes())),
         })
         .await
         .unwrap();
@@ -8324,7 +8324,7 @@ async fn independent_review_after_compaction_rejects_stale_scope_and_pending_ste
                 user_request_sha256: if scenario == "wrong-hash" {
                     "wrong".into()
                 } else {
-                    format!("{:x}", Sha256::digest(original.as_bytes()))
+                    hex::encode(Sha256::digest(original.as_bytes()))
                 },
             })
             .await;
@@ -8403,7 +8403,7 @@ async fn independent_review_restores_authorization_from_compacted_pending_approv
         call_id,
         approved: true,
         user_request_seq: Some(seq),
-        user_request_sha256: format!("{:x}", Sha256::digest(original.as_bytes())),
+        user_request_sha256: hex::encode(Sha256::digest(original.as_bytes())),
     })
     .await
     .unwrap();
@@ -8476,7 +8476,7 @@ async fn independent_review_rejects_old_sequence_after_identical_user_input_comm
         .unwrap();
     let new_seq = next.latest_user_request().unwrap().0;
     assert!(new_seq > old_seq);
-    let sha256 = format!("{:x}", Sha256::digest(b"same task"));
+    let sha256 = hex::encode(Sha256::digest(b"same task"));
     let stale = run
         .send(LoopCommand::ReviewToolDecision {
             call_id: second_call.clone(),

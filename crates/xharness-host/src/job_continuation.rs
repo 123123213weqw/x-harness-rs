@@ -361,7 +361,7 @@ impl JobContinuationPort for JobContinuationController {
                 Sha256::digest(serde_json::to_vec(&(owner, job_id)).map_err(|e| e.to_string())?);
             let row = Record {
                 version: 1,
-                id: format!("job-settlement:{digest:x}"),
+                id: format!("job-settlement:{}", hex::encode(digest)),
                 job_id: job_id.into(),
                 continuation: continuation.into(),
                 state: State::Registered,

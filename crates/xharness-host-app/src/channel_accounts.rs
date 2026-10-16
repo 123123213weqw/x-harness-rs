@@ -185,10 +185,9 @@ fn telegram_id(account: &Account) -> Result<u64, ChannelFailure> {
         .ok_or(ChannelFailure::InvalidConfiguration)
 }
 fn identity(account: &Account) -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(account).expect("account serialization"))
-    )
+    hex::encode(Sha256::digest(
+        serde_json::to_vec(account).expect("account serialization"),
+    ))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,7 +262,10 @@ impl AccountManager {
             .ok_or(ChannelFailure::SettingConflict)?;
         let mut nonce = [0u8; 24];
         getrandom::fill(&mut nonce).map_err(|_| ChannelFailure::NativeCredentialUnavailable)?;
-        let reference = format!("REMOTE_TELEGRAM_{:X}", Sha256::digest(nonce));
+        let reference = format!(
+            "REMOTE_TELEGRAM_{}",
+            hex::encode_upper(Sha256::digest(nonce))
+        );
         self.gateway
             .stage_credential_reference(&reference)
             .await

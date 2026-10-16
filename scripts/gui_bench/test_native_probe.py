@@ -10,6 +10,23 @@ from scripts.gui_bench.run_native_probe import command, environment, cleanup, cl
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_production_bridge_has_real_native_backends_and_no_new_guest_ipc(self):
+        root = Path(__file__).resolve().parents[2]
+        source=(root/'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
+        self.assertIn('production_native_probe(app).await?',source)
+        self.assertIn('PRODUCTION_NATIVE_EVIDENCE',source)
+        native=(root/'apps/desktop/src-tauri/src/browser_native/mod.rs').read_text()
+        for guard in ('tx.is_closed()', 'Instant::now() >= deadline', 'native_dispatch_target', 'inspector.claim', 'inspector.check_point'):
+            self.assertIn(guard,native)
+        for name,api in [('windows','Input.dispatchMouseEvent'),('linux','view.event(&event)'),('macos','view.mouseDown(&event)')]:
+            backend=(root/f'apps/desktop/src-tauri/src/browser_native/{name}.rs').read_text()
+            self.assertIn(api,backend)
+        # Tool capability is the private Host bridge, not an extra guest/main IPC
+        # permission that a loaded page can impersonate.
+        main=(root/'apps/desktop/src-tauri/build.rs').read_text()
+        self.assertNotIn('"desktop_browser_input"',main)
+        self.assertNotIn('"desktop_browser_screenshot"',main)
+
     def test_native_lifecycle_probe_has_one_adapter_and_a_bounded_ready_deadline(self):
         root = Path(__file__).resolve().parents[2]
         source = (root/'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
@@ -89,6 +106,7 @@ class NativeProbeTests(unittest.TestCase):
                 with patch.object(probe.sys, 'argv', ['probe', str(binary), '--evidence-dir', str(receipt_dir)]), \
                      patch.object(probe, 'run_probe', side_effect=fake_probe), \
                      patch.object(probe, 'native_api_evidence', return_value=evidence), \
+                     patch.object(probe, 'production_native_evidence', return_value={'passed':True}), \
                      redirect_stdout(io.StringIO()):
                     exit_code = probe.main()
                 receipt = json.loads((receipt_dir / 'receipt.json').read_text())

@@ -609,7 +609,7 @@ impl UserRequestScope {
     fn new(seq: Option<u64>, message: &AgentMessage) -> Self {
         Self {
             seq,
-            sha256: format!("{:x}", Sha256::digest(message.content.as_bytes())),
+            sha256: hex::encode(Sha256::digest(message.content.as_bytes())),
         }
     }
 }
@@ -5106,7 +5106,7 @@ fn sha256_json(value: &impl Serialize) -> Result<String, RunFailure> {
         .map_err(|error| RunFailure::Failed(format!("could not encode request audit: {error}")))?;
     let mut digest = Sha256::new();
     digest.update(encoded);
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(hex::encode(digest.finalize()))
 }
 
 #[derive(Default)]

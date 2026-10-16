@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Integrate the desktop SHA2 upgrade on top of the complete workspace digest-array encoding migration.",
+  "compatibility": "Preserve all identifier encodings and wire/persistence invariants from the tested workspace migration. Desktop S256 challenges still hash the same verifier bytes and encode URL-safe Base64; update only the desktop SHA2 dependency and its independent lockfile, then require native hosted compilation.",
+  "paths": {
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "76f13c2ab28868e2ea3e1626e2d9d2fcca2b584eaf2724cf92d71cfeaa1217ac",
+      "after": "95aebdc05a995f78e74d99fb98e9cea54d39704faebe2449cb75c21c76229256"
+    }
+  },
+  "regressions": [
+    "windows",
+    "updater"
+  ]
+}

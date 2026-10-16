@@ -166,7 +166,7 @@ impl PromptAssembler {
 fn sha256(value: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(value);
-    format!("{:x}", digest.finalize())
+    hex::encode(digest.finalize())
 }
 
 #[cfg(test)]

@@ -241,10 +241,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let executor = tools(root.clone(), store.clone()).await?;
     let mut stdout = io::stdout().lock();
     use sha2::{Digest, Sha256};
-    let implementation_hash = format!(
-        "{:x}",
-        Sha256::digest(include_str!("../../xharness-core/src/compaction.rs").as_bytes())
-    );
+    let implementation_hash = hex::encode(Sha256::digest(
+        include_str!("../../xharness-core/src/compaction.rs").as_bytes(),
+    ));
     writeln!(
         stdout,
         "{}",
@@ -356,8 +355,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 failed_tests += 1;
                             }
                             let arguments: Value = serde_json::from_str(&call.arguments_json).unwrap_or(Value::Null);
-                            let content_sha = arguments.get("content").and_then(Value::as_str).map(|content|format!("{:x}", Sha256::digest(content.as_bytes())));
-                            tool_evidence.push(json!({"tool":call.name,"path":arguments.get("path"),"content_sha256":content_sha,"result_sha256":format!("{:x}",Sha256::digest(result.content.as_bytes())),"test_exit_zero":if call.name == "test" {Some(result.content.contains("exit=0"))}else{None}}));
+                            let content_sha = arguments.get("content").and_then(Value::as_str).map(|content|hex::encode(Sha256::digest(content.as_bytes())));
+                            tool_evidence.push(json!({"tool":call.name,"path":arguments.get("path"),"content_sha256":content_sha,"result_sha256":hex::encode(Sha256::digest(result.content.as_bytes())),"test_exit_zero":if call.name == "test" {Some(result.content.contains("exit=0"))}else{None}}));
                             calls.push(call.name);
                         }
                     }
@@ -401,7 +400,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .ok_or("event metadata object")?
                                     .remove("summary");
                                 metadata["summary_sha256"] =
-                                    json!(format!("{:x}", Sha256::digest(summary.as_bytes())));
+                                    json!(hex::encode(Sha256::digest(summary.as_bytes())));
                                 metadata["summary_bytes"] = json!(summary.len());
                                 metadata["seq"] = json!(e.seq);
                                 compaction_events.push(metadata);

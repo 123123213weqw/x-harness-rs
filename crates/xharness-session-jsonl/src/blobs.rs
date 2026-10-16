@@ -91,7 +91,7 @@ pub(super) fn read(dir: &Path, key: &str, max_blob: u64) -> Result<Vec<u8>, Stor
     file.take(max_blob + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| backend_error("read audit", &p, e))?;
-    if bytes.len() as u64 > max_blob || format!("{:x}", Sha256::digest(&bytes)) != key {
+    if bytes.len() as u64 > max_blob || hex::encode(Sha256::digest(&bytes)) != key {
         return Err(backend_message("audit blob size or digest mismatch"));
     }
     Ok(bytes)
@@ -107,7 +107,7 @@ pub(super) fn put<T: Serialize>(
             "snapshot blob exceeds {max_blob} bytes"
         )));
     }
-    let key = format!("{:x}", Sha256::digest(&bytes));
+    let key = hex::encode(Sha256::digest(&bytes));
     let p = path(dir, &key)?;
     match fs::symlink_metadata(&p) {
         Ok(metadata) => {

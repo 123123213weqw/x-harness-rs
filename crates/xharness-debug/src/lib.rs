@@ -619,7 +619,7 @@ impl WriterState {
     }
 
     async fn write_blob(&self, bytes: &[u8]) -> Result<DebugBlobRef, DebugError> {
-        let sha256 = format!("{:x}", Sha256::digest(bytes));
+        let sha256 = hex::encode(Sha256::digest(bytes));
         let filename = format!("{sha256}.json");
         let final_path = self.blobs_dir.join(&filename);
         match fs::metadata(&final_path).await {
@@ -854,7 +854,7 @@ mod tests {
         let blob = fs::read(info.directory.join(reference.relative_path))
             .await
             .unwrap();
-        assert_eq!(format!("{:x}", Sha256::digest(&blob)), reference.sha256);
+        assert_eq!(hex::encode(Sha256::digest(&blob)), reference.sha256);
         let blob: Value = serde_json::from_slice(&blob).unwrap();
         assert_eq!(blob["api_key"], REDACTED_VALUE);
         assert_eq!(blob["output"].as_str().unwrap().len(), 256);

@@ -20,7 +20,7 @@ fn directory(root: &Path, session: &str, create: bool) -> Result<Option<PathBuf>
     };
     blobs::directory(
         &parent,
-        &format!("{:x}", Sha256::digest(session.as_bytes())),
+        &hex::encode(Sha256::digest(session.as_bytes())),
         create,
     )
 }

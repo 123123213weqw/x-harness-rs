@@ -316,9 +316,7 @@ impl BasicHost {
                 .unwrap_or_else(|| self.config.cwd.to_string_lossy().into_owned());
             let route = restored_route(&session, &self.config);
             let queue = inbox
-                .next_turn()
-                .iter()
-                .filter(|m| !xharness_agent::is_goal_message(m))
+                .recovery_inputs(&session)
                 .map(restored_prompt)
                 .collect::<VecDeque<_>>();
             let projected_queue = restored_queue(&inbox);
@@ -626,6 +624,14 @@ impl BasicHost {
                         && runtime_report.recovered_question_work_id.is_none()
                         && runtime_report.recovered_compaction_work_id.is_none()
                     {
+                        // Startup may have removed already-consumed steering.
+                        // Publish that cleanup even when no observer must run.
+                        self.sync_authoritative_session(&session_id)
+                            .await
+                            .map_err(|error| HostRestoreError::InvalidInbox {
+                                session_id: session_id.clone(),
+                                message: error.message,
+                            })?;
                         // Timer-only activation is driven by the runtime's
                         // background-turn notice. Starting an empty Host queue
                         // driver here would race and clear its running state.
@@ -1358,7 +1364,7 @@ pub(crate) fn restored_session_mutation_receipts(
 /// `workspace_order_set` written earlier then replayed that id against the
 /// wrong workspace, permanently reordering the user's sidebar.
 fn discovered_workspace_id(cwd: &str) -> String {
-    let digest = format!("{:x}", Sha256::digest(cwd.as_bytes()));
+    let digest = hex::encode(Sha256::digest(cwd.as_bytes()));
     format!("workspace-path-{}", &digest[..16])
 }
 

@@ -734,6 +734,8 @@ export type ApprovalComposerProps =
 export interface ChatScrollPosition {
   /** Stable rendered node/call identity nearest the visible reading edge. */
   readonly anchorKey: string
+  /** Data-layer sequence of that node, never parsed from its DOM key. */
+  readonly anchorSeq?: number
   /** Anchor top relative to the transcript scrollport when saved. */
   readonly anchorTop: number
   /** Approximate offset used before the semantic anchor is measured. */

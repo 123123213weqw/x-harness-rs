@@ -152,7 +152,7 @@ fn host_sha() -> &'static str {
             }
             digest.update(&buffer[..n]);
         }
-        format!("{:x}", digest.finalize())
+        hex::encode(digest.finalize())
     })
 }
 #[tokio::test]
