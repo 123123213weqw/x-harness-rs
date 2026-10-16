@@ -11,6 +11,8 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_native/mod.rs"]
+mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 #[path = "../src/native_startup.rs"]

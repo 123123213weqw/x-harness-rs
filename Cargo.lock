@@ -4023,6 +4023,7 @@ dependencies = [
  "fs2",
  "futures",
  "getrandom 0.3.4",
+ "image",
  "keyring",
  "qrcode",
  "reqwest",
