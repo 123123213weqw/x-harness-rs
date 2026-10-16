@@ -37,7 +37,7 @@ impl NativeCredentialStore {
             .map_err(|_| "Cannot resolve model state directory".to_owned())?;
         let digest = Sha256::digest(path.to_string_lossy().as_bytes());
         Ok(Self {
-            service: format!("com.xlang.xharness.{namespace}.{digest:x}"),
+            service: format!("com.xlang.xharness.{namespace}.{}", hex::encode(digest)),
             gate: Arc::new(std::sync::Mutex::new(())),
         })
     }

@@ -88,14 +88,11 @@ fn native(host: &str, d: &Delivery) -> Result<ScopedAutomationMutation, Error> {
     let Command::AutomationControl { control } = &d.inbound.command else {
         return Err(Error::Invalid("automation control"));
     };
-    let key = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&json!([
-            "remote-automation-inbox-v1",
-            host,
-            identity(d)
-        ]))?)
-    );
+    let key = hex::encode(Sha256::digest(serde_json::to_vec(&json!([
+        "remote-automation-inbox-v1",
+        host,
+        identity(d)
+    ]))?));
     Ok(ScopedAutomationMutation {
         workspace: d.binding.workspace.clone(),
         session: d.binding.session.clone(),

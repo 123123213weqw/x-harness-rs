@@ -97,7 +97,7 @@ fn test_config(root: &Path, bind: SocketAddr, origin: &str) -> Config {
             hosts: HashMap::from([(
                 HOST.into(),
                 RegisteredHost {
-                    key_sha256: format!("{:x}", Sha256::digest(KEY.as_bytes())),
+                    key_sha256: hex::encode(Sha256::digest(KEY.as_bytes())),
                 },
             )]),
         },

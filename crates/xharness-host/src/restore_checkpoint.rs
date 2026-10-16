@@ -986,7 +986,7 @@ mod tests {
                 usize::from(mode == "checkpoint")
             );
             let elapsed = start.elapsed().as_micros();
-            println!("RECOVERY_BENCH mode={mode} repetition={repeat} elapsed_us={elapsed} checkpoint_hits={} tail_events={} loads={} digest={:x}",report.checkpoint_restored_sessions,report.checkpoint_tail_events,store.loads.load(Ordering::SeqCst),Sha256::digest(serde_json::to_vec(&state).unwrap()));
+            println!("RECOVERY_BENCH mode={mode} repetition={repeat} elapsed_us={elapsed} checkpoint_hits={} tail_events={} loads={} digest={}",report.checkpoint_restored_sessions,report.checkpoint_tail_events,store.loads.load(Ordering::SeqCst),hex::encode(Sha256::digest(serde_json::to_vec(&state).unwrap())));
             drop(h);
         }
     }

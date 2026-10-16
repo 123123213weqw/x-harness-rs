@@ -117,7 +117,7 @@ impl Intake {
                 .await
                 .map_err(|_| IntakeError::Journal)?;
             let raw = serde_json::to_vec(&update).map_err(|_| Error::MalformedResponse)?;
-            let digest = format!("{:x}", Sha256::digest(raw));
+            let digest = hex::encode(Sha256::digest(raw));
             let input = self.normalize(id, &update).await?;
             let receipt = self
                 .gateway

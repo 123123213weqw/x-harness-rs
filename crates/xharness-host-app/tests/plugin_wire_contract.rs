@@ -76,7 +76,7 @@ async fn plugin_center_wire_contract() {
     )))
     .unwrap();
     let bytes = archive();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = hex::encode(Sha256::digest(&bytes));
     let source = PackageSource {
         source: "url".into(),
         kind: "zip".into(),

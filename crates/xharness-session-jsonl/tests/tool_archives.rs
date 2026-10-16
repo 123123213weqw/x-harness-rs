@@ -86,7 +86,7 @@ async fn corrupt_archive_is_rejected_not_overwritten() {
     let path = dir
         .path()
         .join("tool-results")
-        .join(format!("{:x}", Sha256::digest(b"one")))
+        .join(hex::encode(Sha256::digest(b"one")))
         .join(format!("{}.json", reference.sha256));
     std::fs::write(&path, "corrupt").unwrap();
     assert!(store

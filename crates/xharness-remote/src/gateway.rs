@@ -643,7 +643,7 @@ fn validate_command(command: &Command) -> Result<(), Error> {
 }
 pub(crate) fn digest(value: &Value) -> String {
     let bytes = serde_json::to_vec(value).expect("JSON serialization");
-    format!("remote-v1-{:x}", Sha256::digest(bytes))
+    format!("remote-v1-{}", hex::encode(Sha256::digest(bytes)))
 }
 fn request_key(host: &str, sender: &Sender, conversation: &str, request_id: &str) -> String {
     digest(&json!([1, host, sender, conversation, request_id]))

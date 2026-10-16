@@ -85,10 +85,7 @@ impl MemoryStore {
                 MemoryScope::Global => "global".to_owned(),
                 MemoryScope::Workspace(cwd) => {
                     let workspace = std::fs::canonicalize(cwd).map_err(|e| e.to_string())?;
-                    format!(
-                        "{:x}",
-                        Sha256::digest(workspace.as_os_str().as_encoded_bytes())
-                    )
+                    hex::encode(Sha256::digest(workspace.as_os_str().as_encoded_bytes()))
                 }
             };
             // The base is deployment-owned, never supplied by a model or RPC.

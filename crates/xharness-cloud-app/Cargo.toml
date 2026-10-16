@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Durable hosted-task control and reconciler adapters"
 
 [dependencies]
+hex.workspace = true
 xharness-cloud = { path = "../xharness-cloud" }
 async-trait.workspace = true
 fs2 = "0.4.3"

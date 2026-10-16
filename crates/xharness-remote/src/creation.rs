@@ -393,5 +393,5 @@ pub(crate) fn creation_key(
         &scope.conversation,
         request,
     ))?);
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }

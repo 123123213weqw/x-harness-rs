@@ -104,8 +104,8 @@ impl RemoteControl {
         let canonical = std::fs::canonicalize(state_dir)
             .map_err(|_| "Cannot resolve remote control state directory")?;
         let host_id = format!(
-            "host-{:x}",
-            Sha256::digest(canonical.to_string_lossy().as_bytes())
+            "host-{}",
+            hex::encode(Sha256::digest(canonical.to_string_lossy().as_bytes()))
         );
         let gateway=Gateway::open(&canonical.join("remote-control"),host_id,backend)
             .map_err(|_|"Cannot open private remote control journal; another consumer, invalid journal or storage failure".to_owned())?;

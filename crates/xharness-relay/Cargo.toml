@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Bounded mobile transport relay; no Agent, desktop RPC or credentials database"
 
 [dependencies]
+hex.workspace = true
 xharness-mobile = { path = "../xharness-mobile" }
 axum.workspace = true
 base64 = "0.22"

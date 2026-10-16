@@ -70,7 +70,7 @@ impl HostedExecution {
             }
             digest.update(&buffer[..n]);
         }
-        if format!("{:x}", digest.finalize())
+        if hex::encode(digest.finalize())
             != snapshot
                 .specification
                 .binding

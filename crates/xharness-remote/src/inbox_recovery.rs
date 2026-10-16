@@ -25,20 +25,17 @@ impl InboxRecoveryIdentity {
             principal: d.principal.clone(),
             principal_revision: d.principal_revision,
             binding: d.binding.clone(),
-            identity_sha256: format!(
-                "{:x}",
-                Sha256::digest(
-                    serde_json::to_vec(&json!([
-                        d.key,
-                        d.sequence,
-                        d.principal,
-                        d.principal_revision,
-                        d.binding,
-                        d.inbound
-                    ]))
-                    .expect("immutable delivery JSON")
-                )
-            ),
+            identity_sha256: hex::encode(Sha256::digest(
+                serde_json::to_vec(&json!([
+                    d.key,
+                    d.sequence,
+                    d.principal,
+                    d.principal_revision,
+                    d.binding,
+                    d.inbound
+                ]))
+                .expect("immutable delivery JSON"),
+            )),
         }
     }
     pub(crate) fn validate(&self) -> Result<(), Error> {

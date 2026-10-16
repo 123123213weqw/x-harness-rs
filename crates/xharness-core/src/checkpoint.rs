@@ -88,7 +88,7 @@ pub(crate) fn observe(
         h.update((bytes.len() as u64).to_le_bytes());
         h.update(bytes);
     }
-    let fingerprint = format!("{:x}", h.finalize());
+    let fingerprint = hex::encode(h.finalize());
     let r = &mut state.repetition;
     if r.fingerprint == fingerprint {
         r.count = r.count.saturating_add(1);

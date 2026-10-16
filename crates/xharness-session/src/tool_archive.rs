@@ -21,7 +21,7 @@ impl ToolArchiveRef {
             });
         }
         Ok(Self {
-            sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
+            sha256: hex::encode(Sha256::digest(text.as_bytes())),
             bytes: text.len(),
         })
     }
