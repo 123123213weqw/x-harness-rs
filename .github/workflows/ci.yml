@@ -218,6 +218,10 @@ jobs:
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-ci-latency.py
           node --test scripts/test-ci-ui-timing.mjs
+      - name: Mobile UI and isolated deployment contracts (no live account or service)
+        run: |
+          node scripts/test-mobile-ui-contract.mjs
+          python3 -B scripts/test_deploy_mobile_experiment.py
       - name: Check committed artifacts, strict types and deterministic build
         run: node scripts/ci-ui-suite.mjs --suite build
       - name: Seal same-run UI artifact (not a compiler cache)
