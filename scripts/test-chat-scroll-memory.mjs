@@ -53,3 +53,27 @@ test('actual InputHub dispatches one local intent before prompt; later success/r
   disposers.forEach(off => off()); cleanup.forEach(off => off()); memory.dispose()
  }
 })
+
+test('reading target publication comes from saves and explicit follow, never render injection', () => {
+ const calls = [], memory = new api.ChatScrollMemory((id, value) => calls.push([id, value]))
+ const a = memory.forSession('a'), b = memory.forSession('b')
+ const anchored = { ...position, anchorSeq: 0 }
+ a.save(anchored); b.save(position)
+ memory.forSession('a')
+ a.subscribeFollow(() => calls.push(['follow', a.read()]))
+ memory.requestFollow('a')
+ assert.deepEqual(calls, [['a', anchored], ['b', position], ['a', null], ['follow', null]])
+ memory.dispose(); a.save(anchored); memory.forSession('b'); memory.requestFollow('a')
+ assert.equal(calls.length, 4)
+})
+
+test('a reading target listener failure cannot prevent local follow or saving a bookmark', () => {
+ const memory = new api.ChatScrollMemory(() => { throw Error('expected reading listener failure') })
+ const old = console.error; console.error = () => {}
+ try {
+  const seat = memory.forSession('s'); let followed = false
+  seat.save(position); assert.equal(seat.read(), position)
+  seat.subscribeFollow(() => { followed = true })
+  memory.requestFollow('s'); assert.equal(followed, true); assert.equal(seat.read(), null)
+ } finally { console.error = old; memory.dispose() }
+})

@@ -333,7 +333,7 @@ impl NativePermitJournal {
     }
     pub fn transition(&self, command: &NativePermitCommand) -> CloudResult<PermitRecord> {
         self.check_identity()?;
-        let fingerprint = format!("{:x}", Sha256::digest(encode(command)?.as_bytes()));
+        let fingerprint = hex::encode(Sha256::digest(encode(command)?.as_bytes()));
         let mut c = self.connection.lock().map_err(|_| storage())?;
         let tx = c
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -697,7 +697,7 @@ impl NativePermitJournal {
             expected_revision: Counter(1),
             to: ExecutionPermit::Active,
         };
-        if fingerprint != format!("{:x}", Sha256::digest(encode(&expected)?.as_bytes())) {
+        if fingerprint != hex::encode(Sha256::digest(encode(&expected)?.as_bytes())) {
             return Err(storage());
         }
         let row: PermitRecord = decode(&data)?;

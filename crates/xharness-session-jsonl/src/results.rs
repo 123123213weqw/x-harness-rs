@@ -24,7 +24,7 @@ fn directory(root: &Path, session: &str, create: bool) -> Result<Option<PathBuf>
     let mut dir = root.to_owned();
     for part in [
         "tool-results".to_owned(),
-        format!("{:x}", Sha256::digest(session.as_bytes())),
+        hex::encode(Sha256::digest(session.as_bytes())),
     ] {
         dir.push(part);
         if create {
@@ -84,7 +84,7 @@ fn read_file(path: &Path, key: &str) -> Result<Option<String>, StoreError> {
     file.take(MAX_TOOL_ARCHIVE_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| backend_error("read tool archive", path, e))?;
-    if bytes.len() > MAX_TOOL_ARCHIVE_BYTES || format!("{:x}", Sha256::digest(&bytes)) != key {
+    if bytes.len() > MAX_TOOL_ARCHIVE_BYTES || hex::encode(Sha256::digest(&bytes)) != key {
         return Err(backend_message("tool archive integrity check failed"));
     }
     String::from_utf8(bytes)

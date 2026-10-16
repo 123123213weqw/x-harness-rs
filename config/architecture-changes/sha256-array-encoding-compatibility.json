@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Migrate SHA-256 digest array formatting across all consumers when upgrading SHA2, rather than patching only the first compiler error.",
+  "compatibility": "Preserve the exact lowercase and uppercase hexadecimal encodings, leading zeroes, keychain namespaces, durable blob/journal hashes and remote identity prefixes. Add differential tests against SHA2 0.10, retain all wire fields and journal formats, introduce no internal crate dependencies and run workspace tests/Clippy plus native Windows CI.",
+  "paths": {
+    "Cargo.toml": {
+      "before": "327c2115d06f319419954be52604c03941e963f626c2cf7ddcbcd1fb8b34e574",
+      "after": "93dbb76cc6a19a341239b6d67870b0d8bdd7b01940806e849b67fa9276204946"
+    },
+    "crates/xharness-session-jsonl/Cargo.toml": {
+      "before": "d5be142522f2a2e17c790582251ba34a8be5db9c53928e36b76383f4a4675557",
+      "after": "1c6e743ace3d2cbf4663a422020f5b392f0594d4fbc6e7776d88291912b7e760"
+    },
+    "crates/xharness-session-jsonl/src/blobs.rs": {
+      "before": "150fe272958382a1a9da23d1ec0aa25584b48309469716d54a7bddcf47b34396",
+      "after": "39aef9fb5a56b89445b4871add8ee22f5c32857c84163eee95b990ddda6d09b0"
+    },
+    "crates/xharness-session-jsonl/src/harness_snapshot.rs": {
+      "before": "e4970c1f20ee7949bc5050968b86aa83f7ab00fef259f8d3a3b8826de84d7073",
+      "after": "c1c2700f51f38f213d747c938b25cd7c004e1bcfe9674f3640dc6c256dc3c8cd"
+    },
+    "crates/xharness-session-jsonl/src/history_index.rs": {
+      "before": "18f0127ff36d3612d044d429c821e23aba3edf7df42f3a192e38694faca8303a",
+      "after": "049c847d1529273b47089928fa11c54027928dfe0e8185038d5be65075b4fed6"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "d45210d342d19337e691c6d009f2eb9def9c08b540acc1ba99d0ba0301aa9d52",
+      "after": "21fc14d91d701134b08d184794c8acf19a53f66f539fd05d8cc9f169f7af117f"
+    },
+    "crates/xharness-session-jsonl/src/recovery_checkpoint.rs": {
+      "before": "29db4e60f274889526781e3e22bf094952c25c4ebcd333f6d2c723db24ef7498",
+      "after": "c63daa326864e5f66651158e2e9f74fbd1c79e445ab337873cd3b8e1b4ebaea2"
+    },
+    "crates/xharness-session-jsonl/src/results.rs": {
+      "before": "f452c1ebe5fe55d83946996a70a9ab110aafd1568396782b7bf2527620e5b759",
+      "after": "e7c378ad991e56d39ab1d3f6b7ba5d7959faba1093481b3caf9f8b8f575cb780"
+    },
+    "crates/xharness-session-jsonl/tests/jsonl.rs": {
+      "before": "a4d07a1c637fce060cf387b949f94503d0e7dfc59c88105b259a0d991605cbe5",
+      "after": "3693fa8019a9f95fd2fb3c44bdec59c7810b7944293acf666ff89e3d9d0bb9f5"
+    },
+    "crates/xharness-session-jsonl/tests/tool_archives.rs": {
+      "before": "a826dc9c989dbfea3230f3f27feb67836e9fbc80557d67113c9a5e8c270c3b86",
+      "after": "e41525e1015dbeeb0f0b5259394286c7b6260ebcbe82da130bc0f4027e75500e"
+    },
+    "crates/xharness-session/Cargo.toml": {
+      "before": "44c7d9d78e535b1864f5dbef6ba5d762c3fb84709051a5760d7d6dd693cb7073",
+      "after": "b35e35c65bcc2f465aa26f8067a92985cc17b7b039e968a55bb62c2406b1fade"
+    },
+    "crates/xharness-session/src/tool_archive.rs": {
+      "before": "55c44deaecc0138486f821befb7be12ca4577b76f9d0fa224cbfbe3eac71fbdd",
+      "after": "175ddfa637df5d4c868d19d16de7fccf2272089e74e234a0d1f2c044950ca3c6"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

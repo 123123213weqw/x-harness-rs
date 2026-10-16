@@ -57,7 +57,7 @@ pub async fn run_interactions(
                         Ok(encoded) => encoded,
                         Err(error) => break 'reconcile Err(Error::Json(error)),
                     };
-                    let key = format!("{:x}",Sha256::digest(encoded));
+                    let key = hex::encode(Sha256::digest(encoded));
                     wanted.insert(key,scope);
                 }
                 for (key, token) in &active {
@@ -268,7 +268,7 @@ pub fn format_interaction(ticket: &InteractionTicket) -> Result<Vec<ReplyPlan>, 
         return Err(Error::Capacity);
     }
     let last = chunks.len() - 1;
-    let identity = format!("{:x}", Sha256::digest(raw));
+    let identity = hex::encode(Sha256::digest(raw));
     Ok(chunks
         .into_iter()
         .enumerate()

@@ -93,7 +93,7 @@ pub(super) fn publish(
 }
 fn digest(body: &Body) -> Result<String, StoreError> {
     serde_json::to_vec(body)
-        .map(|b| format!("{:x}", Sha256::digest(b)))
+        .map(|b| hex::encode(Sha256::digest(b)))
         .map_err(|e| backend_message(e.to_string()))
 }
 fn read_header(journal: &Path, id: &str) -> Result<(HeaderRecord, u64), StoreError> {
@@ -186,7 +186,7 @@ pub(super) fn read(
             hasher.update(&buffer[..n]);
             remaining -= n as u64;
         }
-        if format!("{:x}", hasher.finalize()) != body.prefix_sha256 {
+        if hex::encode(hasher.finalize()) != body.prefix_sha256 {
             return Ok(None);
         }
     }

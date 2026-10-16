@@ -29,7 +29,7 @@ fn receipt() -> ControlEvent {
         receipt: MutationReceipt {
             rpc_id: MARKER.to_owned(),
             method: "settings.outputBudgetMigration".to_owned(),
-            fingerprint: format!("{:x}", Sha256::digest(MARKER.as_bytes())),
+            fingerprint: hex::encode(Sha256::digest(MARKER.as_bytes())),
             response: json!({"version":1}),
         },
     }

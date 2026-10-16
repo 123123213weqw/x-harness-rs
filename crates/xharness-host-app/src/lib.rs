@@ -7,7 +7,6 @@
 
 mod builtin_ui;
 pub mod channel_accounts;
-#[cfg(any(target_os = "macos", windows, test))]
 mod computer_media;
 mod file_display;
 mod git_display;
@@ -548,6 +547,12 @@ impl SessionToolFactory for NativeToolFactory {
                 builtin_ui,
                 session_id.into(),
                 permission == PermissionPreset::DangerFullAccess,
+                self.agent_host.get().map(|host| {
+                    Arc::new(computer_media::Sink {
+                        host: host.clone(),
+                        session: session_id.into(),
+                    }) as Arc<dyn xharness_computer::ComputerMediaSink>
+                }),
             );
             specs.push(binding.spec);
             guards.push(binding.guard);
@@ -812,7 +817,7 @@ mod tests {
             writer.finish().unwrap();
         }
         let archive = archive.into_inner();
-        let digest = format!("{:x}", sha2::Sha256::digest(&archive));
+        let digest = hex::encode(sha2::Sha256::digest(&archive));
         manager.import_catalog(&serde_json::json!({"plugins":[{"name":"demo","version":"1.0",
             "source":{"source":"url","type":"zip","url":"https://example.com/demo.zip","sha256":digest}}]}).to_string()).await.unwrap();
         manager

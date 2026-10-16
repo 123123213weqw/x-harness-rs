@@ -55,12 +55,9 @@ pub(super) async fn import(
         request.cwd,
         request.workspace_id
     ]);
-    let hash = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_vec(&identity).map_err(|e| RpcError::internal(e.to_string()))?
-        )
-    );
+    let hash = hex::encode(Sha256::digest(
+        serde_json::to_vec(&identity).map_err(|e| RpcError::internal(e.to_string()))?,
+    ));
     let mut create = json!({"sessionId":format!("import-{hash}")});
     if let Some(cwd) = request.cwd {
         create["cwd"] = json!(cwd);

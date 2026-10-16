@@ -65,7 +65,7 @@ pub enum AutomationCommand {
 }
 
 pub(super) fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 fn selector(after: Option<u64>, at: Option<Value>, every: Option<u64>) -> Result<Selector, Value> {
     if usize::from(after.is_some()) + usize::from(at.is_some()) + usize::from(every.is_some()) != 1

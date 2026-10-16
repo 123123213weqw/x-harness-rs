@@ -244,7 +244,7 @@ impl BasicHost {
             model,
             payload,
             scope_seq,
-            format!("{:x}", Sha256::digest(user_request.as_bytes())),
+            hex::encode(Sha256::digest(user_request.as_bytes())),
         ))
     }
 
@@ -350,7 +350,7 @@ fn review_payload(
         "workspace":binding.cwd,"tool":binding.call.name,"arguments":arguments,
         "call_id":binding.call.id,"scope_seq":scope_seq});
     let mut value = value;
-    let digest = format!("{:x}", Sha256::digest(value.to_string().as_bytes()));
+    let digest = hex::encode(Sha256::digest(value.to_string().as_bytes()));
     value["binding_sha256"] = json!(digest);
     let payload = value.to_string();
     if payload.len() > INPUT_BYTES {

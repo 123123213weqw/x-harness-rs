@@ -1463,7 +1463,7 @@ async fn history_index_performance_acceptance() {
             session.events()[start..].to_vec()
         };
         let bytes = serde_json::to_vec(&events).unwrap();
-        println!("HISTORY_BENCH mode={mode} repetition={repetition} elapsed_us={} page_events={} digest={:x}", start_time.elapsed().as_micros(), events.len(), Sha256::digest(bytes));
+        println!("HISTORY_BENCH mode={mode} repetition={repetition} elapsed_us={} page_events={} digest={}", start_time.elapsed().as_micros(), events.len(), hex::encode(Sha256::digest(bytes)));
     }
 }
 
@@ -2127,7 +2127,7 @@ fn harness_directory(dir: &TestDir, id: &str) -> PathBuf {
     use sha2::{Digest, Sha256};
     dir.path()
         .join("harness-snapshots")
-        .join(format!("{:x}", Sha256::digest(id.as_bytes())))
+        .join(hex::encode(Sha256::digest(id.as_bytes())))
 }
 async fn capture_harness(
     store: &JsonlSessionStore,

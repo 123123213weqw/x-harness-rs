@@ -257,7 +257,7 @@ fn numeric_id(value: &str) -> Option<u64> {
 fn new_id(prefix: &str) -> Result<String, Error> {
     let mut nonce = [0u8; 24];
     getrandom::fill(&mut nonce).map_err(|_| Error::WorkerFailed)?;
-    Ok(format!("{prefix}-{:x}", Sha256::digest(nonce)))
+    Ok(format!("{prefix}-{}", hex::encode(Sha256::digest(nonce))))
 }
 async fn manage(State(state): State<RemoteAdminState>, body: Bytes) -> Response {
     let action = match serde_json::from_slice::<Action>(&body) {

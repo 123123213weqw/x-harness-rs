@@ -3783,6 +3783,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "hex",
  "image",
  "serde",
  "serde_json",
@@ -3800,6 +3801,7 @@ dependencies = [
  "axum",
  "base64",
  "futures",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
@@ -3835,6 +3837,7 @@ name = "xharness-cloud"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -3848,6 +3851,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "fs2",
+ "hex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3969,6 +3973,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "futures",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -3991,8 +3996,10 @@ name = "xharness-debug"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "hex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sha2 0.11.1",
  "thiserror 2.0.20",
  "tokio",
@@ -4039,6 +4046,7 @@ dependencies = [
  "chrono",
  "futures",
  "getrandom 0.3.4",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -4078,6 +4086,8 @@ dependencies = [
  "fs2",
  "futures",
  "getrandom 0.3.4",
+ "hex",
+ "image",
  "keyring",
  "qrcode",
  "reqwest",
@@ -4190,6 +4200,7 @@ dependencies = [
  "fs2",
  "futures",
  "getrandom 0.3.4",
+ "hex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -4232,6 +4243,7 @@ name = "xharness-plugins"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
@@ -4268,6 +4280,7 @@ dependencies = [
 name = "xharness-prompt"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -4282,6 +4295,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures",
+ "hex",
  "httpdate",
  "reqwest",
  "rustls",
@@ -4303,6 +4317,7 @@ dependencies = [
  "axum",
  "base64",
  "futures",
+ "hex",
  "reqwest",
  "serde",
  "serde_json",
@@ -4326,6 +4341,7 @@ dependencies = [
  "fs2",
  "futures",
  "getrandom 0.3.4",
+ "hex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -4360,6 +4376,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "futures",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -4398,6 +4415,7 @@ name = "xharness-session"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "hex",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -4424,6 +4442,7 @@ dependencies = [
  "base64",
  "flate2",
  "fs2",
+ "hex",
  "libc",
  "serde",
  "serde_json",

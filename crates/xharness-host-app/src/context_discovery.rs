@@ -103,10 +103,9 @@ impl ContextDiscovery {
     ) -> BTreeMap<String, ContextWindowCapability> {
         // Credential identity participates in the cache; credentials are never
         // stored in cache keys, errors, events or logs. No redirect follows keys.
-        let identity = format!(
-            "{:x}",
-            Sha256::digest(format!("{base}\0{}", key.unwrap_or_default()).as_bytes())
-        );
+        let identity = hex::encode(Sha256::digest(
+            format!("{base}\0{}", key.unwrap_or_default()).as_bytes(),
+        ));
         if !force {
             if let Some((until, value)) = self.cache.lock().await.get(&identity) {
                 if *until > Instant::now() {

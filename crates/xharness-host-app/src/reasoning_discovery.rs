@@ -208,7 +208,7 @@ impl ReasoningDiscovery {
             serde_json::to_string(spec).unwrap_or_default(),
             key.unwrap_or("")
         );
-        let hash = format!("{:x}", Sha256::digest(identity.as_bytes()));
+        let hash = hex::encode(Sha256::digest(identity.as_bytes()));
         let cached = self.cache.lock().await.get(&hash).cloned();
         if !force {
             if let Some(c) = cached

@@ -69,7 +69,7 @@ impl GoalBootstrapSpec {
         if data.len() > 256 * 1024 {
             return Err(invalid());
         }
-        Ok(format!("{:x}", Sha256::digest(data)))
+        Ok(hex::encode(Sha256::digest(data)))
     }
 }
 /// Returns the ORIGINAL receipt even after the Goal was edited, stopped or
