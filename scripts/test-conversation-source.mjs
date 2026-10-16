@@ -17,12 +17,14 @@ const compactionTerminalLocales = {
 };
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
+ assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
  for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
   assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
   delete normalized[key];
  }
+ delete normalized['stats.title'];
  return normalized;
 }
 function stateContext(def,state,matches){return{key:def.kind+':c',id:'c',state,matches,start:matches.find(m=>m.role==='start'),locations:[],target:'chat'}}
@@ -36,6 +38,9 @@ test('reviewed compaction locale additions reject missing or changed labels with
    assert.throws(()=>baselineProductCopy(language,missing),/terminal label/);
    assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect terminal label'}),/terminal label/);
   }
+  const missingStats = {...current}; delete missingStats['stats.title'];
+  assert.throws(()=>baselineProductCopy(language,missingStats),/statistics label/);
+  assert.throws(()=>baselineProductCopy(language,{...current,'stats.title':'incorrect'}),/statistics label/);
   const unexpected = baselineProductCopy(language,{...current,'xh.compact.unreviewed':'Unreviewed'});
   assert.equal(unexpected['xh.compact.unreviewed'],'Unreviewed');
   assert.notDeepEqual(unexpected,normalized,'unreviewed additions must remain visible to the strict dictionary comparison');
@@ -84,7 +89,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  // Reviewed composer redesign: pin the two rewritten sheets explicitly,
  // rather than weakening frozen-style parity for unrelated components.
  const composerStyles = {
-  'skeleton/InputBar': 'b65c0293ec2911ba0171a9695a8eb5d90bcdc730909034372045b0573d0fbe51',
+  'skeleton/InputBar': '62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d',
   'chat/StatsLine': 'eab66196169a782ec6d580f699fc2398c429baa105576b82b0dc0d834898ee60',
   'skeleton/ContextMeter': '7a712d895a114ee0a5cddc1cdbc55692e6d6b52289ef4409e927809bbc694ff2',
   'skeleton/PermissionSelect': 'e91048346a2948571cfa55321fd43f8a22cf96c0b0b89b4bd4882736a29eda74',
