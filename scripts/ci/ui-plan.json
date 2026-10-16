@@ -3945,6 +3945,41 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 120
+    },
+    {
+      "id": "contract-099",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-history-open-target.mjs"
+      ],
+      "env": {},
+      "weight": 60
+    },
+    {
+      "id": "browser-228",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-history-open-target-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 90
+    },
+    {
+      "id": "browser-229",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-history-open-target-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 90
     }
   ]
 }

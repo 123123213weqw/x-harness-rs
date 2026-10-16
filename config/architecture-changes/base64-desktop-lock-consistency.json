@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Repair the Base64 dependency upgrade in the desktop and shared installation crate across both independent workspace lockfiles.",
+  "compatibility": "Only the Base64 package version changes. Existing installation consent, revocation, outbox and restart-confirmation semantics and wire encodings remain unchanged. Run locked installation tests and Clippy on Linux and native updater/Windows CI for the desktop.",
+  "paths": {
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "76f13c2ab28868e2ea3e1626e2d9d2fcca2b584eaf2724cf92d71cfeaa1217ac",
+      "after": "aca102d255e99cda0244b27fa90ccd7123fb7fc21d3575f0a53e41c474416ab1"
+    }
+  },
+  "regressions": [
+    "updater",
+    "windows"
+  ]
+}

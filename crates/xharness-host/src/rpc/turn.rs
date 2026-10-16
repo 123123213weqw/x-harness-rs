@@ -440,15 +440,15 @@ pub(super) async fn update_queue(host: &BasicHost, payload: &Value) -> Result<Va
     let mut steer_item = None;
     let mut replacement = None;
     match kind {
-        "remove" | "steer" => {
+        "remove" => {
             host.agent_runtime
                 .remove_pending_input(&session_id, &item_id)
                 .await
                 .map_err(|error| queue_item_not_found(&item_id, error))?;
-            if kind == "steer" {
-                steer_item = Some(item);
-            }
         }
+        // Durable promotion is one actor-owned CAS batch, not a cancellation
+        // followed by a second admission with a crash window between them.
+        "steer" => steer_item = Some(item),
         "edit" => {
             let content = action
                 .get("content")

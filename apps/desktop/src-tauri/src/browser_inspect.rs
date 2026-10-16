@@ -65,6 +65,7 @@ struct Frame {
     id: String,
     epoch: u64,
     refs: HashSet<String>,
+    viewport: Option<(f64, f64)>,
 }
 
 impl Inspector {
@@ -77,10 +78,13 @@ impl Inspector {
         self.invalidate();
     }
 
-    fn remember(&self, snapshot: &Value, epoch: u64) -> Result<(), String> {
+    pub(super) fn remember(&self, snapshot: &Value, epoch: u64) -> Result<(), String> {
         let frame = Frame {
             id: snapshot["frame_id"].as_str().ok_or("missing frame")?.into(),
             epoch,
+            viewport: snapshot["viewport"]["width"]
+                .as_f64()
+                .zip(snapshot["viewport"]["height"].as_f64()),
             refs: snapshot["nodes"]
                 .as_array()
                 .ok_or("missing nodes")?
@@ -95,11 +99,35 @@ impl Inspector {
         Ok(())
     }
 
-    fn forget(&self) -> Result<(), String> {
+    pub(super) fn forget(&self) -> Result<(), String> {
         *self
             .latest
             .lock()
             .map_err(|_| "browser frame unavailable")? = None;
+        Ok(())
+    }
+
+    pub(super) fn check_point(&self, id: &str, x: f64, y: f64) -> Result<(), String> {
+        let latest = self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")?;
+        let frame = latest
+            .as_ref()
+            .filter(|frame| frame.id == id)
+            .ok_or("stale_frame: observe again")?;
+        let (width, height) = frame
+            .viewport
+            .ok_or("frame has no viewport geometry; observe again")?;
+        if !width.is_finite()
+            || !height.is_finite()
+            || x < 0.0
+            || y < 0.0
+            || x >= width
+            || y >= height
+        {
+            return Err("point outside observed browser viewport".into());
+        }
         Ok(())
     }
 
@@ -122,7 +150,7 @@ impl Inspector {
     }
 }
 
-fn frame_id() -> Result<String, String> {
+pub(super) fn frame_id() -> Result<String, String> {
     let mut bytes = [0; 16];
     getrandom::fill(&mut bytes).map_err(|_| "observation entropy unavailable")?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
