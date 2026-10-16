@@ -4,7 +4,7 @@ import copy
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import types
 import unittest
@@ -857,7 +857,7 @@ class NpmInvocationTests(unittest.TestCase):
 
 
 class AggregateRuntimePrerequisites(unittest.TestCase):
-    def scenario(self, failure=None):
+    def scenario(self, failure=None, source_root=ROOT):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             plan = build._contract.make_plan(REPO, REPO, 'desktop-v0.2.10', SHA, '1', '1', [],
@@ -876,14 +876,15 @@ class AggregateRuntimePrerequisites(unittest.TestCase):
             calls = []
 
             def native(*values, **kwargs):
+                script = values[2]
                 values = list(map(str, values))
-                if any(value.endswith('/powershell-runtime.py') for value in values):
+                if script == build.ROOT / 'scripts/powershell-runtime.py':
                     calls.append('stage')
                     self.assertIn('stage', values)
                     self.assertEqual(values[-2:], ['--target', 'x86_64-pc-windows-msvc'])
                     if failure == 'stage': raise ValueError('pinned runtime staging rejected')
                     runtime.mkdir()
-                elif any(value.endswith('/audit-windows-runtime.py') for value in values):
+                elif script == build.ROOT / 'scripts/audit-windows-runtime.py':
                     calls.append('audit')
                     if not runtime.is_dir(): raise ValueError('Missing runtime prerequisite on fresh Linux aggregator')
                     if failure == 'audit': raise ValueError('extracted package audit rejected')
@@ -896,7 +897,8 @@ class AggregateRuntimePrerequisites(unittest.TestCase):
 
             arguments = ['desktop-release-build.py', 'aggregate', '--plan', str(candidate/'plan.json'),
                          '--artifacts', str(source), '--output', str(candidate/'release')]
-            with patch.object(build.sys, 'argv', arguments), patch.object(build, 'run', side_effect=native), \
+            with patch.object(build, 'ROOT', source_root), \
+                    patch.object(build.sys, 'argv', arguments), patch.object(build, 'run', side_effect=native), \
                     patch.object(build, 'public_key', side_effect=lambda path: path.write_bytes(b'public fixture')), \
                     patch.object(build, 'contract', side_effect=aggregate):
                 if failure:
@@ -916,6 +918,11 @@ class AggregateRuntimePrerequisites(unittest.TestCase):
 
     def test_audit_failure_cannot_reach_aggregation(self):
         self.scenario('audit')
+
+    def test_windows_checkout_paths_preserve_all_aggregate_prerequisite_gates(self):
+        for failure in [None, 'stage', 'audit']:
+            with self.subTest(failure=failure):
+                self.scenario(failure, source_root=PureWindowsPath(r'D:\a\project\project'))
 
 
 class WindowsRuntimeGates(unittest.TestCase):
