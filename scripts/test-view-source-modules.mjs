@@ -143,6 +143,17 @@ for (const name of modules) {
       Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
     }
+    if (name === 'goal') {
+      // Working-plan copy is additive; compare all frozen Goal copy unchanged.
+      Object.assign(namespaces[0].dictionaries.en, {
+        'progress.title':'Progress', 'progress.pending':'Pending',
+        'progress.running':'In progress', 'progress.completed':'Completed',
+      })
+      Object.assign(namespaces[0].dictionaries.zh, {
+        'progress.title':'进度', 'progress.pending':'待办',
+        'progress.running':'进行中', 'progress.completed':'已完成',
+      })
+    }
     if (name === 'settings-general') {
       // Reviewed account-menu addition minus its redundant visual caption.
       // Accessible trigger/menu copy and all other dictionary entries remain frozen.
@@ -157,6 +168,7 @@ for (const name of modules) {
     }
     assert.deepEqual(normalized(two.namespaces), namespaces)
     const expected = normalized(one.registrations.map(({spec}) => spec))
+    if (name === 'goal') expected.push({name:'conversation.input.dock', id:'task-progress', order:9, locale:'goal'})
     if (name === 'layout') Object.assign(expected[0].children, {
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
