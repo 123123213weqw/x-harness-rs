@@ -12,7 +12,7 @@ import type {
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '../../client-connection/contracts/host/apiproxy/api/index'
-import type { SessionFace } from '../contract/session'
+import type { HistoryOpenTarget, SessionFace } from '../contract/session'
 import { ConversationNodeAssembler } from './conversation-assembler'
 import type { ConversationRuntime } from './conversation-assembler'
 import type { ConversationEventInput, ConversationPublication } from '../contract/conversation'
@@ -69,6 +69,7 @@ export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read API) ----
   xhHistoryOwner: HistoryCache | undefined
   private xhRestoreBaseSeq: number | undefined
+  private historyOpenTarget: HistoryOpenTarget | undefined
   private xhPendingOperations = 0
   private xhLiveRecoveryAt: number | undefined
   private events: SessionWireEvent[] = []
@@ -856,15 +857,42 @@ export class Session implements SessionFace {
     })
   }
 
+  /** A reader hint is lightweight and remains resident when history is evicted. */
+  setHistoryOpenTarget(target: HistoryOpenTarget | undefined): void {
+    if (target?.kind === 'anchor' && (!Number.isSafeInteger(target.seq) || target.seq < 0)) {
+      throw new Error('History reading anchor must be a non-negative safe event sequence')
+    }
+    this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
+      : target === undefined ? undefined : { kind: 'latest' }
+  }
+
+  private historyRestoreTarget(): number | undefined {
+    // Reconnect/gap repair owns an already committed window: keep it atomic and
+    // never shrink it to a tail page, regardless of a later presentation hint.
+    if (this.events.length > 0) return this.xhRestoreBaseSeq
+    if (this.historyOpenTarget?.kind === 'latest') return undefined
+    return this.historyOpenTarget?.kind === 'anchor' ? this.historyOpenTarget.seq : this.xhRestoreBaseSeq
+  }
+
   private async restoreHistoryRange(value: HistoryValue, generation: number): Promise<HistoryValue> {
-    const target = this.xhRestoreBaseSeq
+    let target = this.historyRestoreTarget()
     if (target === undefined) return value
     let entries = value.events, hasMore = value.hasMore
     const pages = [entries]
     while (hasMore && entries[0] !== undefined && entries[0].event.seq > target) {
       const beforeSeq = entries[0].event.seq
-      const { result } = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES })
+      let response: RpcResponse<HistoryValue>
+      try { response = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES }) }
+      catch (error) {
+        if (generation !== this.openGeneration || this.historyRestoreTarget() === undefined) return value
+        throw error
+      }
       if (generation !== this.openGeneration) return value
+      const { result } = response
+      // An explicit send/jump can supersede a cold bookmark while this RPC is
+      // in flight. Discard unused pages, not the initial validated tail page.
+      target = this.historyRestoreTarget()
+      if (target === undefined) return value
       if (!result.ok) throw new Error('History restore failed: ' + (result.error.message ?? 'request rejected'))
       entries = result.value.events
       hasMore = result.value.hasMore
@@ -872,7 +900,7 @@ export class Session implements SessionFace {
       pages.push(entries)
     }
     if (generation !== this.openGeneration) return value
-    if (entries[0] === undefined || entries[0].event.seq > target) throw new Error('History restore failed: saved range is no longer available')
+    if (entries[0] === undefined || entries[0].event.seq > target) throw new Error('History restore failed: saved reading position is no longer available')
     return { ...value, events: pages.reverse().flat(), hasMore }
   }
 
