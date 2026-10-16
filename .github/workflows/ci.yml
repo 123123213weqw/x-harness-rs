@@ -15,6 +15,7 @@ concurrency:
 
 env:
   PYTHONUTF8: '1'
+  ZSTD_CLEVEL: '1'
 
 jobs:
   architecture-freeze:
@@ -47,6 +48,7 @@ jobs:
         run: |
           python3 -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
           python3 -B scripts/test-ci-tiering.py
+          python3 -B scripts/test-desktop-build-cache.py
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -406,6 +408,7 @@ jobs:
         run: python3 -B scripts/test-friends-release.py
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -494,6 +497,8 @@ jobs:
         run: |
           python -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
           if ($LASTEXITCODE) { throw 'Architecture stabilization regression failed' }
+          python -B scripts/test-desktop-build-cache.py
+          if ($LASTEXITCODE) { throw 'Desktop build cache regression failed' }
       - name: Stage and execute pinned portable PowerShell without system PATH
         run: |
           python -B scripts/powershell-runtime.py stage
@@ -509,6 +514,7 @@ jobs:
         run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -737,6 +743,7 @@ jobs:
         run: test "$(uname -s)-$(uname -m)" = "Darwin-arm64"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -744,6 +751,12 @@ jobs:
           workspaces: |
             . -> target
             apps/desktop/src-tauri -> target
+      - name: Restore pinned portable ripgrep cache
+        id: portable-rg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: portable-rg-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', 'scripts/install-portable-rg.sh', 'scripts/portable-rg-cache.py') }}
       - name: Install portable search before integration tests
         run: bash scripts/install-portable-rg.sh
       - run: cargo check --workspace --all-targets
@@ -855,6 +868,12 @@ jobs:
             dist/xharness-host-darwin-arm64.tar.gz
             dist/xharness-host-darwin-arm64.tar.gz.sha256
           if-no-files-found: error
+      - name: Save verified portable ripgrep cache
+        if: success() && github.ref == 'refs/heads/master' && steps.portable-rg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/xharness-portable-rg
+          key: ${{ steps.portable-rg-cache.outputs.cache-primary-key }}
 
   desktop-linux:
     name: Tauri Desktop / Linux x86_64
@@ -867,6 +886,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ripgrep xvfb dbus-x11
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
