@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Update setup-node in hosted CI workflows without changing toolchain versions, cache inputs or test selection.",
+  "compatibility": "Node remains version 22 in all affected steps; hosted runner labels, lockfile cache paths, publication guards, test suites and environment settings are retained. Validate CI tiering, release/candidate contracts and exact-head hosted Windows/Linux/macOS jobs before merging.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "d7644bf1a32fa5825a13727cd8878e78e813aecc42f33f71b4f2e14c0c998d8a",
+      "after": "090be19b0a942df6a5229645e3868bec6586d4803a6f7c718e5a4b96d1cf305f"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}
