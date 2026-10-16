@@ -78,6 +78,7 @@
     const snapshot = {
       frame_id: args.frame_id, scope: args.scope,
       url: location.href.slice(0, 2048), title: document.title.slice(0, 240),
+      viewport: { width: innerWidth, height: innerHeight },
       text_offset: Math.min(args.text_offset, text.length),
       text: text.slice(args.text_offset, args.text_offset + 3500),
       nodes: [], next_node_offset: null, next_text_offset: null,
@@ -94,7 +95,9 @@
     for (; next < end && snapshot.nodes.length < 60; next++) {
       const element = candidates[next], style = getComputedStyle(element);
       if (!element.getClientRects().length || style.visibility === "hidden" || style.display === "none") continue;
+      const rect = element.getBoundingClientRect();
       const node = {
+        bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         ref: "n" + next, tag: element.tagName.toLowerCase(),
         type: element.getAttribute("type") || "", role: element.getAttribute("role") || "",
         label: label(element),

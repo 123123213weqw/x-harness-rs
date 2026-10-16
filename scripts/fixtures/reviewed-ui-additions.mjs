@@ -6,6 +6,12 @@ import {resolve} from 'node:path'
 const optional = new Set(["@xlang/xharness-client-ui-memory", "@xlang/xharness-client-ui-session-import"])
 const rows = [
   {
+    "id": "@xharness/dsh-client-ui-settings-remote-control",
+    "kind": "source-module",
+    "source": "src/modules/settings-remote-control/index.ts",
+    "inject": ["@xharness/dsh-client-runtime", "@xharness/dsh-client-ui-settings", "@xharness/dsh-client-locale", "@xharness/dsh-client-connection"]
+  },
+  {
     "id": "@xlang/xharness-client-ui-runtime",
     "kind": "source-module",
     "source": "src/modules/runtime-environment/index.ts",

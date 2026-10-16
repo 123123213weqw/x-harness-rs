@@ -569,6 +569,7 @@ pub(crate) enum PendingResponse {
         control: mpsc::Sender<DriverCommand>,
         reviewing: bool,
         reason: String,
+        scoped_nonce: std::sync::Arc<std::sync::OnceLock<String>>,
         deciding: std::sync::Arc<std::sync::atomic::AtomicBool>,
     },
 }
@@ -612,9 +613,13 @@ impl HostState {
                 id: "coding".to_owned(),
                 trust: "system".to_owned(),
                 is_default: true,
-                name: Some("Coding Agent".to_owned()),
-                description: Some("XHarness standard fourteen-tool coding agent".to_owned()),
-                content: "You are a coding agent. Inspect the workspace, make precise changes, and verify your work.".to_owned(),
+                // Keep the historical id so existing sessions and copied
+                // presets remain compatible; the default identity is task-neutral.
+                name: Some("XHarness Agent".to_owned()),
+                description: Some("Rational, rigorous, exploration-oriented task agent".to_owned()),
+                content: include_str!("../prompts/default-agent.txt")
+                    .trim()
+                    .to_owned(),
             },
         );
         let mut settings = BTreeMap::new();

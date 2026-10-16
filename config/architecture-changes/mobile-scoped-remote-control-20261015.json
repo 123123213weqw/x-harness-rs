@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add opt-in scoped mobile transport and retain the existing Host as the sole execution authority; integrate the remote-control branch with the current stabilization baseline.",
+  "compatibility": "Existing RPC names, native persistence formats, installation identity and Windows coverage are preserved. Mobile credentials and grants are independent and opt-in; there is no arbitrary remote RPC or automatic approval. Existing import, memory, delegated-question and native wire export paths remain authoritative.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "c2d57aa79e2b8baf48ece9ec6eac7934a0a88fb765959bed6be2ab109f63c243",
+      "after": "23fb88e1cddd988c0125770f97145d57455392c36be3379fe13d63591c273b45"
+    },
+    "Cargo.toml": {
+      "before": "a86991cf240f5ddf27c006034160ccfbe0efc034f8198f89fc8df581f1e35dce",
+      "after": "327c2115d06f319419954be52604c03941e963f626c2cf7ddcbcd1fb8b34e574"
+    },
+    "config/architecture-dependencies.json": {
+      "before": "92cf0a1d6a86dbecda20980a4613b3c0ed74af7efb572f64fbb938b6d7d2e4af",
+      "after": "97f93e2ab55647c986e91a350446b6d1a6fb94ee551d610d5a78f8c68aca768e"
+    },
+    "crates/xharness-api/src/attachment.rs": {
+      "before": null,
+      "after": "fe7c0739d137f7e35919eb631f02415ee8dca0773a7ec09136f5d4c73f4fea7c"
+    },
+    "crates/xharness-api/src/automation.rs": {
+      "before": null,
+      "after": "358a498165e3a8661c2b378e6b3402d460fcbd50fe34f932c77ad61f9f6fcf1a"
+    },
+    "crates/xharness-api/src/catalogue.rs": {
+      "before": null,
+      "after": "dc22f6df7d147adf088b7f71d7e8967d17048b0d490ef1c1893da4db370cfc25"
+    },
+    "crates/xharness-api/src/creation.rs": {
+      "before": null,
+      "after": "f51bc3540467151e7cd76a59a26b907c0e96a3aa0aeeea12c35321e518f81a49"
+    },
+    "crates/xharness-api/src/event_page.rs": {
+      "before": null,
+      "after": "9f7b6095ecc63f4088b5c39958b8d70b4244eb0d9a1857ffd40db19994677df4"
+    },
+    "crates/xharness-api/src/interactions.rs": {
+      "before": null,
+      "after": "5a8c94a765fa2b64986b16c4cbd93b0499ed8ca3910a8df1c198c52d3453ccdb"
+    },
+    "crates/xharness-api/src/lib.rs": {
+      "before": "b13de4152e0918b85e12d183091b7f6943081d17383ed48a15dadc46ffc422c7",
+      "after": "35b6e16594ae0a1f0950609e0bf9f1420994bdb5b6a9db0be975d824d8edc80d"
+    },
+    "crates/xharness-api/tests/contract.rs": {
+      "before": "a2ea26f5b2c64cb6c9ed32daf16a2ce7f9049023ef5c101afd5fbc86ffe877b1",
+      "after": "6791248b57091c6c654f70adaed053ffb591c4f2f1a9d6d02bac969467b72101"
+    },
+    "crates/xharness-projection/src/lib.rs": {
+      "before": "482e5426f241332873f19a0557b7bcf019dd2c87403c628c89505c1d1f73aafa",
+      "after": "bb667c43ae59da081c4e63225e2d3e56695c6b9c72c0427fe58a8bbbe2b486a5"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "1c6f5a07b0dd35247b6af4345488ffab8553875af7764c77f52a22571c0c37ec",
+      "after": "de44604710088a21c8aa2b247b22a5a899a68a2ec455ccca9f46547669e696d2"
+    },
+    "scripts/regression/test_check_architecture.py": {
+      "before": "bfd731414aef98eb631237fe0084ae0a6abd9aee69d0ad5dc394900ec9e677dc",
+      "after": "3d9bc88deabe6f397acd245b0b8235a44307d1b91d7eebb5f87069b5e12e44bf"
+    },
+    "scripts/test-ci-tiering.py": {
+      "before": "cfb719e233b5ad1c33de603a94dc1aebdd85b1500f81bc2768c83cbe69c0e665",
+      "after": "b8eeabd7020c0f0dd1267844c4fcc2842ec5d9fc8d3094870a902379a6444a04"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows",
+    "wire"
+  ]
+}

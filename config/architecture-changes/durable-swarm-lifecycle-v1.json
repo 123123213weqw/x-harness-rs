@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "kind": "compatible-addition",
-  "reason": "Persist opt-in Swarm identity, lifecycle and associations with existing delegated sessions; reuse Host Control CAS and Agent recovery without introducing a scheduler. Extend the existing pure-processor architecture gate to the new module.",
-  "compatibility": "Existing session journals, tool schemas, unary RPC catalogue, chat dispatch and recovery defaults are unchanged. Control log gains validated incremental Swarm events; older logs remain readable, but downgrade to binaries unaware of the new event is not guaranteed. Swarm metadata never starts, resumes or stops workers. Validate Control persistence, Host restart and ordinary-chat regressions plus remote Clippy; no platform execution paths changed.",
+  "reason": "Persist opt-in Swarm metadata with a pure Host processor and retain all current source-boundary checks during integration.",
+  "compatibility": "Existing chat dispatch, ordinary journals and default UI remain unchanged. New Control metadata never starts, cancels or resumes child workers. Preserve strict managed-module unsafe-code bans and all preexisting architecture seams. Validate Control/Host recovery, source/browser Swarm tests and native Windows CI before merge.",
   "paths": {
     "config/architecture-host-modules.json": {
       "before": "a3d8db08b67c0a20d1530782eef010ea05a387598fe90e0a1454becc874874be",
@@ -17,8 +17,8 @@
       "after": "69c9bb4c5903ea00296374927925999e4dd8735633214bf9a32f6dec36b6695f"
     },
     "scripts/regression/check-architecture.py": {
-      "before": "1c6f5a07b0dd35247b6af4345488ffab8553875af7764c77f52a22571c0c37ec",
-      "after": "f96c51f25986e5dcf4248e11ec7778965570f1e3a0508e53705c83fb7a110f09"
+      "before": "de44604710088a21c8aa2b247b22a5a899a68a2ec455ccca9f46547669e696d2",
+      "after": "b883ec719368d1260796021edd32f861e12556f02d069e734cd640cd61e7e5fa"
     }
   },
   "regressions": [

@@ -26,6 +26,7 @@ jobs:
       - run: npm ci --prefix ui --ignore-scripts
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: '1.99.0'
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN" data-view="pair">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+  <meta name="color-scheme" content="light dark">
+  <title>XHarness · 手机控制</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header><strong>XHarness</strong><span id="connection" role="status">尚未配对</span><button id="logout" hidden>退出设备</button></header>
+  <main>
+    <p class="muted experiment-note">实验验收先确认配对与会话读取。模型未配置时不会产生 AI 回复；请求接纳不等于 Agent 完成。</p>
+    <section id="pair">
+      <h1>连接你的 XHarness</h1>
+      <p>在电脑设置中创建一次性配对码。手机只访问明确授权的工作区和会话。</p>
+      <form id="pair-form">
+        <label>Host 身份<input name="host" autocomplete="off" required maxlength="128"></label>
+        <label>一次性配对码<input name="code" type="password" autocomplete="off" required maxlength="512"></label>
+        <label>设备名称<input name="name" value="我的手机" maxlength="64" required></label>
+        <button type="submit">配对设备</button>
+      </form>
+      <button id="reconnect" type="button">已配对？重新连接</button>
+      <p class="muted">实验环境 · 配对不会执行任务，也不会保存模型密钥到手机。</p>
+    </section>
+    <section id="control" hidden>
+      <nav aria-label="会话控制">
+        <label>授权会话<select id="sessions"><option value="">读取中…</option></select></label>
+        <button id="refresh">刷新</button><button id="review-interactions" type="button" hidden>Review</button><button id="new-session" hidden>新建会话</button>
+      </nav>
+      <p id="scope" class="muted"></p>
+      <section id="conversation" tabindex="0" aria-label="会话记录与待确认操作">
+        <div id="timeline" role="log" aria-live="polite"><p class="muted">正在读取原生会话记录…</p></div>
+        <aside id="unknown" hidden>
+          <strong>操作结果未知</strong><p>不会自动重发。先核验原始请求结果，再决定是否继续。</p>
+          <button id="inspect">查询原始请求</button><button id="abandon">核验后放弃本地等待</button>
+        </aside>
+        <details id="automation-panel"><summary>自动化</summary><button id="automations">查看已保存的自动化</button><div id="automation-list"></div></details>
+      </section>
+      <dialog id="interaction-dialog" aria-labelledby="interaction-heading">
+        <div class="interaction-heading"><strong id="interaction-heading">Pending operations</strong><button id="close-interactions" type="button" aria-label="Close pending operations">Close</button></div>
+        <section id="interactions" aria-label="Pending operations"></section>
+      </dialog>
+      <form id="prompt-form">
+        <label for="prompt">消息或补充指令</label>
+        <textarea id="prompt" rows="2" maxlength="200000" placeholder="给这个会话发一条消息…"></textarea>
+        <div class="composer">
+          <label class="file">附件<input id="files" type="file" multiple accept="image/*,.txt,.md,.pdf,.json,.csv,.log"></label>
+          <select id="mode" aria-label="执行中的输入方式"><option value="queue">排队执行</option><option value="steer">补充指令</option></select>
+          <button id="cancel" type="button">取消任务</button><button type="submit">发送</button>
+        </div>
+        <small id="file-status"></small>
+      </form>
+    </section>
+    <p id="error" role="alert" hidden></p>
+  </main>
+  <footer>网页连接断开不会取消已接纳的任务 · 项目与执行仍归 Host 所有</footer>
+</body>
+</html>

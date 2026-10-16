@@ -1,0 +1,26 @@
+[package]
+name = "xharness-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bounded mobile transport relay; no Agent, desktop RPC or credentials database"
+
+[dependencies]
+xharness-mobile = { path = "../xharness-mobile" }
+axum.workspace = true
+base64 = "0.22"
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower-http.workspace = true
+url = "2"
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["rustls-tls", "cookies"] }
+tempfile = "3"
+tokio-tungstenite.workspace = true

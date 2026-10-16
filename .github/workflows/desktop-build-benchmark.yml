@@ -1,0 +1,25 @@
+name: Desktop build cache benchmark (diagnostic only)
+
+on:
+  workflow_call:
+    inputs:
+      workspace_experiment:
+        description: Compare dependency-only and workspace caching on the same source
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  populate:
+    uses: ./.github/workflows/desktop-build-benchmark-pass.yml
+    with:
+      phase: populate
+      workspace_experiment: ${{ inputs.workspace_experiment }}
+  warm:
+    needs: populate
+    uses: ./.github/workflows/desktop-build-benchmark-pass.yml
+    with:
+      phase: warm
+      workspace_experiment: ${{ inputs.workspace_experiment }}

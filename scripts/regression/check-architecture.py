@@ -21,11 +21,93 @@ HOST_POLICY = ROOT / "config" / "architecture-host-modules.json"
 # the staged extraction and therefore must not regain transport/Host coupling.
 SOURCE_BOUNDARIES = {
     "crates/xharness-host/src/swarm_processor.rs": {
-        "BasicHost",
-        "RpcId",
-        "RpcMethod",
-        "ControlStore",
-        "tokio::",
+        "BasicHost", "RpcId", "RpcMethod", "ControlStore", "tokio::",
+    },
+    "crates/xharness-remote/src/creation.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/media.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/media.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+
+    "crates/xharness-remote/src/command_replies.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/commands.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/projection.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/output.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/catalogue.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/interactions.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::", "xharness_api::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/routing.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/tickets.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+
+    "crates/xharness-remote/src/administration.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-host-app/src/remote_admin.rs": {
+        "xharness_host::", "xharness_core::", "xharness_agent::", "NativeModelSettings",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/accounts.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-host-app/src/channel_accounts.rs": {
+        "xharness_host::", "xharness_core::", "xharness_agent::", "NativeModelSettings",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/outbox.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/replies.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/intake.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-remote/src/subscription.rs": {
+        "BasicHost", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".mux_events(", ".host_events(",
+    },
+    "crates/xharness-channel-telegram/src/client.rs": {
+        "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
+        "call_dynamic(", "std::process::",
+    },
+    "crates/xharness-remote/src/gateway.rs": {
+        "BasicHost", "xharness_core::", "xharness_agent::",
+        ".call_dynamic(", ".respond(", ".host_events(",
     },
     "crates/xharness-host/src/credential_processor.rs": {
         "BasicHost",

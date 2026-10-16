@@ -6,7 +6,7 @@
 //! implementations.
 
 mod builtin_ui;
-#[cfg(any(target_os = "macos", windows, test))]
+pub mod channel_accounts;
 mod computer_media;
 mod file_display;
 mod git_display;
@@ -20,6 +20,8 @@ pub mod ownership;
 mod plugin_mcp;
 mod plugin_service;
 mod read_media;
+pub mod remote_admin;
+pub mod remote_control;
 pub mod tool_allowlist;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 pub mod reasoning_compat;
@@ -545,6 +547,12 @@ impl SessionToolFactory for NativeToolFactory {
                 builtin_ui,
                 session_id.into(),
                 permission == PermissionPreset::DangerFullAccess,
+                self.agent_host.get().map(|host| {
+                    Arc::new(computer_media::Sink {
+                        host: host.clone(),
+                        session: session_id.into(),
+                    }) as Arc<dyn xharness_computer::ComputerMediaSink>
+                }),
             );
             specs.push(binding.spec);
             guards.push(binding.guard);
