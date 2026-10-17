@@ -77,12 +77,10 @@ impl WireFeatures {
             .fold(self.framing, u64::saturating_add)
             .max(1)
     }
-    fn similar(&self, other: &Self) -> bool {
+    fn similar_text(&self, other: &Self) -> bool {
         let a = self.units() as f64;
         let b = other.units() as f64;
-        self.image_tokens == 0
-            && other.image_tokens == 0
-            && a / b <= 2.0
+        a / b <= 2.0
             && b / a <= 2.0
             && self
                 .buckets
@@ -187,7 +185,9 @@ impl Calibration {
         self.scopes.remove(scope);
     }
 
-    pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
+    // Only text-only observations identify the text price. A mixed response's
+    // total cannot be split by subtracting an estimated image allowance.
+    fn estimate_text(&self, scope: &str, features: &WireFeatures) -> (u64, TokenCountAccuracy) {
         let rows: Vec<_> = self
             .scopes
             .get(scope)
@@ -196,12 +196,13 @@ impl Calibration {
             .filter(|s| {
                 s.observed_at_ms <= now_ms()
                     && now_ms().saturating_sub(s.observed_at_ms) <= CALIBRATION_TTL_MS
-                    && features.similar(&s.features)
+                    && s.features.image_tokens == 0
+                    && features.similar_text(&s.features)
             })
             .collect();
-        // Unknown distributions and multimodal requests stay conservative. Never
-        // fit image pricing to a text-only observation or learn across endpoints.
-        let (count, accuracy) = if rows.len() >= 8 {
+        // Preserve text distribution, warmup and scope boundaries even when the
+        // current request includes images. Image pricing remains independent.
+        if rows.len() >= 8 {
             let ratio = rows
                 .iter()
                 .map(|s| s.actual as f64 / s.features.units() as f64)
@@ -211,19 +212,36 @@ impl Calibration {
                 TokenCountAccuracy::Calibrated,
             )
         } else {
-            (
-                features.units().saturating_add(features.image_tokens),
-                TokenCountAccuracy::Estimated,
-            )
-        };
+            (features.units(), TokenCountAccuracy::Estimated)
+        }
+    }
+
+    pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
+        let (text_tokens, text_accuracy) = self.estimate_text(scope, features);
         ProviderInputTokenCount {
             counter: format!("wire-calibration/v1:{scope}"),
-            input_tokens: count,
-            accuracy,
+            input_tokens: text_tokens.saturating_add(features.image_tokens),
+            // The image allowance is still estimated, not a measured image cost.
+            accuracy: if features.image_tokens == 0 {
+                text_accuracy
+            } else {
+                TokenCountAccuracy::Estimated
+            },
         }
     }
     pub fn observe(&mut self, scope: &str, request_id: &str, features: WireFeatures, actual: u64) {
-        if actual == 0 || features.image_tokens != 0 {
+        if actual == 0 {
+            return;
+        }
+        if features.image_tokens != 0 {
+            let (text_tokens, accuracy) = self.estimate_text(scope, &features);
+            if accuracy == TokenCountAccuracy::Calibrated
+                && actual > text_tokens.saturating_add(features.image_tokens)
+            {
+                // An underestimated mixed request invalidates the reused text
+                // distribution too. Never learn a text ratio from its total.
+                self.invalidate(scope);
+            }
             return;
         }
         if self.scopes.len() >= 64 && !self.scopes.contains_key(scope) {
@@ -317,6 +335,162 @@ mod tests {
             TokenCountAccuracy::Estimated
         );
     }
+    #[test]
+    fn first_and_repeated_images_add_allowance_without_repricing_text() {
+        use crate::{ConservativeByteMeter, TokenBudget, TokenGuard};
+        use std::sync::Arc;
+
+        let mut c = Calibration::default();
+        for i in 0..8 {
+            c.observe("s", &i.to_string(), f(900_000), 225_000);
+        }
+        let text = c.estimate("s", &f(900_000));
+        assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget::new(1_048_576, 65_536),
+        )
+        .unwrap();
+        for images in [1, 2, 8, 64] {
+            let features = WireFeatures {
+                image_tokens: images * 20_520,
+                ..f(900_000)
+            };
+            let mixed = c.estimate("s", &features);
+            assert_eq!(
+                mixed.input_tokens,
+                text.input_tokens + features.image_tokens
+            );
+            assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+            if images <= 8 {
+                let budget = guard.check_provider_count(&mixed).unwrap();
+                assert!(budget.estimate.total_input_tokens < 1_048_576 * 4 / 5);
+            } else {
+                assert!(guard.check_provider_count(&mixed).is_err());
+            }
+        }
+        assert_eq!(c.estimate("s", &f(900_000)), text);
+    }
+
+    #[test]
+    fn mixed_requests_keep_cold_distribution_scope_and_warmup_guards() {
+        let mut c = Calibration::default();
+        let mixed = |n, image_tokens| WireFeatures {
+            image_tokens,
+            ..f(n)
+        };
+        for i in 0..7 {
+            c.observe("s", &i.to_string(), f(400_000), 100_000);
+        }
+        assert_eq!(c.estimate("s", &mixed(400_000, 4096)).input_tokens, 404_096);
+        c.observe("s", "eighth", f(400_000), 100_000);
+        assert!(c.estimate("s", &mixed(400_000, 4096)).input_tokens < 200_000);
+        for (scope, features) in [
+            ("other-endpoint", mixed(400_000, 4096)),
+            ("s", mixed(4_000_000, 4096)),
+            (
+                "s",
+                WireFeatures {
+                    buckets: [0, 0, 400_000],
+                    image_tokens: 4096,
+                    ..Default::default()
+                },
+            ),
+        ] {
+            assert_eq!(
+                c.estimate(scope, &features).input_tokens,
+                features.units() + features.image_tokens
+            );
+        }
+        assert_eq!(
+            c.estimate("s", &mixed(400_000, u64::MAX)).input_tokens,
+            u64::MAX
+        );
+    }
+
+    #[test]
+    fn mixed_usage_does_not_learn_text_or_evict_text_samples() {
+        let mut c = Calibration::default();
+        for i in 0..8 {
+            c.observe("s", &i.to_string(), f(400_000), 100_000);
+        }
+        let text = c.estimate("s", &f(400_000));
+        for i in 0..64 {
+            c.observe(
+                "s",
+                &format!("image-{i}"),
+                WireFeatures {
+                    image_tokens: 4096,
+                    ..f(400_000)
+                },
+                // An unusually cheap total must never teach a lower text ratio.
+                1,
+            );
+        }
+        assert_eq!(c.estimate("s", &f(400_000)), text);
+        assert_eq!(c.scopes["s"].len(), 8);
+        assert!(!c.scopes["s"].iter().any(|s| s.features.image_tokens != 0));
+    }
+
+    #[test]
+    fn mixed_underestimate_invalidates_reused_text_without_learning_image_totals() {
+        let mut c = Calibration::default();
+        for i in 0..8 {
+            c.observe("s", &i.to_string(), f(400_000), 100_000);
+        }
+        let features = WireFeatures {
+            image_tokens: 4096,
+            ..f(400_000)
+        };
+        let prior = c.estimate("s", &features);
+        c.observe("s", "no-usage", features.clone(), 0);
+        c.observe("s", "safe", features.clone(), prior.input_tokens);
+        assert_eq!(c.estimate("s", &features), prior);
+        c.observe(
+            "s",
+            "underestimate",
+            features.clone(),
+            prior.input_tokens + 1,
+        );
+        assert_eq!(c.estimate("s", &features).input_tokens, 404_096);
+        assert_eq!(
+            c.estimate("s", &f(400_000)).accuracy,
+            TokenCountAccuracy::Estimated
+        );
+        assert!(!c.scopes.contains_key("s"));
+    }
+
+    #[test]
+    fn measured_game_history_first_image_does_not_create_false_pressure() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/first-image-calibration.json"
+        ))
+        .unwrap();
+        let mut c = Calibration::default();
+        for (index, row) in fixture["samples"].as_array().unwrap().iter().enumerate() {
+            c.observe(
+                "replay",
+                &index.to_string(),
+                serde_json::from_value(row["features"].clone()).unwrap(),
+                row["actual"].as_u64().unwrap(),
+            );
+        }
+        let mut query: WireFeatures = serde_json::from_value(fixture["query"].clone()).unwrap();
+        let text = c.estimate("replay", &query);
+        assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+        query.image_tokens = fixture["first_image_allowance"].as_u64().unwrap();
+        let mixed = c.estimate("replay", &query);
+        let old = query.units() + query.image_tokens;
+        assert_eq!(mixed.input_tokens, text.input_tokens + query.image_tokens);
+        assert!(old > 750_000);
+        assert!(mixed.input_tokens < 350_000);
+        assert!(mixed.input_tokens >= fixture["reported_input_after_image"].as_u64().unwrap());
+        eprintln!(
+            "numeric first-image replay: {}",
+            serde_json::json!({"old_estimate":old,"new_estimate":mixed.input_tokens,"text_estimate":text.input_tokens,"image_allowance":query.image_tokens})
+        );
+    }
+
     #[test]
     fn wire_features_do_not_count_base64_or_output_reserve() {
         let a = serde_json::json!({"messages":[{"role":"user","content":"abc"}],"max_tokens":10});
@@ -424,5 +598,36 @@ mod snapshot_tests {
             .unwrap()
             .scopes
             .is_empty());
+    }
+
+    #[test]
+    fn restart_reuses_text_for_images_and_persists_mixed_underestimate_invalidation() {
+        let c = warm();
+        let scope = "a".repeat(64);
+        let mut restored = Calibration::restore(&c.snapshot().unwrap()).unwrap();
+        let mixed = WireFeatures {
+            buckets: [1_448_000, 0, 0],
+            image_tokens: 20_520,
+            ..Default::default()
+        };
+        let estimate = restored.estimate(&scope, &mixed);
+        assert_eq!(estimate.accuracy, TokenCountAccuracy::Estimated);
+        assert!(estimate.input_tokens < mixed.units());
+        restored.observe(
+            &scope,
+            &"f".repeat(64),
+            mixed.clone(),
+            estimate.input_tokens + 1,
+        );
+        let restarted = Calibration::restore(&restored.snapshot().unwrap()).unwrap();
+        assert_eq!(
+            restarted.estimate(&scope, &mixed).input_tokens,
+            mixed.units() + mixed.image_tokens
+        );
+
+        // Version 1 snapshots must still reject mixed totals as text samples.
+        let mut invalid: Value = serde_json::from_slice(&c.snapshot().unwrap()).unwrap();
+        invalid["scopes"][&scope][0]["features"]["image_tokens"] = 1.into();
+        assert!(Calibration::restore(&serde_json::to_vec(&invalid).unwrap()).is_err());
     }
 }
