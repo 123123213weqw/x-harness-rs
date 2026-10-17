@@ -271,6 +271,71 @@ fn action_schema(action: &str, extra: Value, mut required: Vec<&str>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn lazy_discovery_summarizes_only_available_browser_even_with_zero_tabs() {
+        use std::sync::Arc;
+        use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+        for available in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let browser = Arc::new(NativeBrowser {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            });
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let length = stream.read_u32().await.unwrap() as usize;
+                let mut bytes = vec![0; length];
+                stream.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["op"], "list", "discovery must not open a page");
+                assert_eq!(request["owner"], "discovery-owner");
+                let reply = serde_json::to_vec(
+                    &json!({"ok":true,"result":{"available":available,"bound":false,"tabs":[]}}),
+                )
+                .unwrap();
+                stream.write_u32(reply.len() as u32).await.unwrap();
+                stream.write_all(&reply).await.unwrap();
+            });
+            let binding = crate::plugin_mcp::bind(
+                None,
+                None,
+                Some(browser),
+                None,
+                "discovery-owner".into(),
+                true,
+                None,
+            );
+            let registry = Arc::new(ToolRegistry::new());
+            registry.register(binding.spec).await.unwrap();
+            let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
+            let result = executor
+                .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
+                .await;
+            assert!(result.is_ok(), "{result:?}");
+            let text = result.output.unwrap().content;
+            let index: Value = serde_json::from_str(&text).unwrap();
+            if available {
+                assert_eq!(index["plugins"], json!([PLUGIN]));
+                assert_eq!(index["capabilities"].as_array().unwrap().len(), 1);
+                let browser = &index["capabilities"][0];
+                assert_eq!(browser["plugin"], PLUGIN);
+                assert_eq!(browser["server"], SERVER);
+                assert!(browser["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("zero tabs"));
+                assert!(browser.get("inputSchema").is_none());
+                assert!(browser.get("tools").is_none());
+            } else {
+                assert_eq!(index, json!({"plugins":[],"capabilities":[]}));
+            }
+            assert!(!text.contains(&"a".repeat(64)));
+            assert!(!text.contains("127.0.0.1"));
+            assert!(text.len() < 512);
+            server.await.unwrap();
+        }
+    }
     struct TestMedia {
         images: bool,
     }

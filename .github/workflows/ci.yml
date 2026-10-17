@@ -49,6 +49,8 @@ jobs:
           python3 -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-desktop-build-cache.py
+      - name: Browser routing fixture and oracle regression (offline)
+        run: python3 -B scripts/experiments/test-browser-routing-ab.py
       - uses: actions/upload-artifact@v7
         if: always()
         with:

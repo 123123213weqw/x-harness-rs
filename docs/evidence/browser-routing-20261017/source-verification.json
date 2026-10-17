@@ -1,0 +1,14 @@
+{
+  "machine": "WZU_Server",
+  "matched_files": 7,
+  "mismatches": [],
+  "sha256": {
+    ".github/workflows/ci.yml": "59b10a33da178d71564743884562019134e6a4d8cfe6ab66abeee9d5fbe0db74",
+    "crates/xharness-host/src/state.rs": "b2ad0c69ca43e87f4cd38fc4da4d748ddad840e9c5a54d936320634fa6d78ba9",
+    "crates/xharness-host/src/instructions/tests.rs": "dde2da93044e5f75806447409504154fde04b44badda8426ef639bc54443d11a",
+    "crates/xharness-host-app/src/plugin_mcp.rs": "63a965f420b3d9b48eebf0b8eb9a8db16a0853276d4ebd469e2d06551a32cd56",
+    "crates/xharness-host-app/src/native_browser.rs": "08d7e6e196c07184f10be8880a8a4c98208842d5eb498c154390fb9dc4c062ad",
+    "scripts/experiments/browser-routing-ab.py": "434b8a1847b46d3b33785917fb88ff7e603d79d40000c4f67fbe7dea67b434a1",
+    "scripts/experiments/test-browser-routing-ab.py": "c815c5dff369357c0e070520fc0c3a740fdc13842e6addb3dd0fdb8af52fd571"
+  }
+}

@@ -1,0 +1,285 @@
+{
+  "base": "34b9336d476d861277e91eff4085c54bc1343d39",
+  "model": "deepseek-flash",
+  "endpoint": "https://api.deepseek.com/chat/completions",
+  "repeats": 2,
+  "max_steps": 8,
+  "max_output_tokens": 1024,
+  "thinking": "disabled",
+  "concurrency": 3,
+  "cases": [
+    {
+      "id": "open_page",
+      "user": "Open https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr and tell me the page title.",
+      "route": "browser"
+    },
+    {
+      "id": "look_at_link",
+      "user": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr can you look at this?",
+      "route": "browser"
+    },
+    {
+      "id": "after_js_fetch",
+      "user": "Look at https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr and explain the activity.",
+      "route": "browser",
+      "prefetch": true
+    },
+    {
+      "id": "interactive_page",
+      "user": "Open https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr and locate the registration button. Do not submit anything.",
+      "route": "browser"
+    },
+    {
+      "id": "explicit_chrome",
+      "user": "Open https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr in Google Chrome, not the embedded browser.",
+      "route": "external"
+    },
+    {
+      "id": "desktop_calculator",
+      "user": "Inspect the Calculator desktop application, not a website.",
+      "route": "desktop"
+    },
+    {
+      "id": "read_title_only",
+      "user": "Read just the public page title of https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr. Do not open a browser.",
+      "route": "fetch"
+    },
+    {
+      "id": "unavailable_bridge",
+      "user": "Can you read the page at https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr?",
+      "route": "fallback",
+      "available": false
+    }
+  ],
+  "before": {
+    "definition": {
+      "name": "plugin_mcp",
+      "description": "Use built-in UI display (plugin=builtin, server=ui, tool=display) on Web or desktop, user-enabled local MCP servers and, when running in the desktop, its native browser (discoverable with zero tabs; use control to open a page) under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "describe",
+              "call"
+            ]
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    "base_system": "You are a rational, rigorous, exploration-oriented task agent.\nYour goal is to use the available tools to help the user obtain correct, verifiable, and practically effective results.\n\n[Reasoning]\n- Reason from facts, causal relationships, and verifiable evidence.\n- Reason thoroughly about complex problems; do not rush to accept the first plausible answer.\n- Identify implicit assumptions, dependencies, boundary conditions, and contradictions. Compare alternative explanations and solutions.\n- Actively look for counterexamples, exceptional cases, and failure paths. Validate key judgments with calculations, code, or experiments.\n- Clearly distinguish observations, deductions, hypotheses, and unknowns. Do not substitute confidence for evidence.\n- Do not skip critical validation merely to answer quickly, and do not confuse reasoning length with reasoning quality.\n\n[Exploration and novelty]\n- Explore alternative approaches and seek new ideas with practical value.\n- Explain the benefits, costs, applicability, and validation method of a new approach relative to existing approaches.\n- Do not add complexity merely to appear original, or present an untested idea as an established conclusion.\n\n[Explanation and communication]\n- When explaining technical topics, prefer concrete examples, runnable code, equations, and state transitions where they clarify the problem.\n- Define variables, assumptions, units, and scope. Do not force code or mathematics into an explanation merely for appearance.\n- Present clear conclusions, key supporting evidence, and reproducible verification steps.\n- Be direct, precise, and emotionally neutral. Avoid flattery, irrelevant emotional reassurance, and unrelated moralizing.\n- Evaluate approaches by correctness, practical effectiveness, resource costs, and side effects.\n- Answer simple questions concisely and develop complex explanations sufficiently. Do not add content that serves no useful purpose.\n\nInspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.\n\nFor long-running non-interactive commands that should begin now, prefer bash with run_in_background=true and retain every returned job_id. Continue independent work instead of sleeping or busy-polling. Use job_output to collect relevant results and job_kill when work no longer matters. If job_output advertises action=defer, use it with a continuation for a long dependency when no independent work remains, then end the current turn with a pending update; the Host resumes through a terminal receipt. Do not immediately wait after defer. Failed, killed and interrupted are not successful results. For user-requested future reminders or scheduled tasks, use automation instead of a sleeping process. Use mode=reminder for a reminder, mode=task only for an authorized executable task, and target=current_chat for contextual followups or new_chat for independent runs. Never create schedules unless the user requested them. If the task genuinely needs an interactive or existing external session, choose an appropriate native tool and keep its status, logs, and stop method trackable; do not assume a detached process survives Host shutdown or cancellation. Use web_search for internet topics and grep only for text in the workspace.",
+    "policy": "",
+    "schemas": {
+      "control": {
+        "name": "control",
+        "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override.",
+        "inputSchema": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "status"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "open"
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "action",
+                "url"
+              ]
+            }
+          ]
+        }
+      },
+      "observe": {
+        "name": "observe",
+        "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "page",
+                "main",
+                "dialog"
+              ]
+            },
+            "text_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "node_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "option_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          }
+        }
+      }
+    },
+    "plugin": "@xharness/native-browser",
+    "server": "webview",
+    "summary": ""
+  },
+  "after": {
+    "definition": {
+      "name": "plugin_mcp",
+      "description": "Discover and control XHarness's embedded browser when available, display local files, or invoke enabled MCP servers. action=list returns plugin IDs and available built-in capability summaries; add plugin to list servers, then server to list tools. action=describe loads one tool schema; action=call invokes it. File display: plugin=builtin, server=ui, tool=display. Schemas load on demand; existing tool approvals apply.\n\nEmbedded browser: For requests to open, view or interact with websites, prefer the embedded browser through plugin_mcp when available. Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it, not merely fetching its HTML or offering to open it later. Use web_fetch for lightweight public-page reading when opening or rendering is not requested; if JavaScript rendering or interaction is needed, discover the embedded browser before desktop automation. After a title-only or empty web_fetch result, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. If discovery reports no embedded browser or an operation fails, explain the limitation or use a suitable fallback; never claim a page opened without a successful result. Discovery and routing do not bypass approvals.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "describe",
+              "call"
+            ]
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    "base_system": "You are a rational, rigorous, exploration-oriented task agent.\nYour goal is to use the available tools to help the user obtain correct, verifiable, and practically effective results.\n\n[Reasoning]\n- Reason from facts, causal relationships, and verifiable evidence.\n- Reason thoroughly about complex problems; do not rush to accept the first plausible answer.\n- Identify implicit assumptions, dependencies, boundary conditions, and contradictions. Compare alternative explanations and solutions.\n- Actively look for counterexamples, exceptional cases, and failure paths. Validate key judgments with calculations, code, or experiments.\n- Clearly distinguish observations, deductions, hypotheses, and unknowns. Do not substitute confidence for evidence.\n- Do not skip critical validation merely to answer quickly, and do not confuse reasoning length with reasoning quality.\n\n[Exploration and novelty]\n- Explore alternative approaches and seek new ideas with practical value.\n- Explain the benefits, costs, applicability, and validation method of a new approach relative to existing approaches.\n- Do not add complexity merely to appear original, or present an untested idea as an established conclusion.\n\n[Explanation and communication]\n- When explaining technical topics, prefer concrete examples, runnable code, equations, and state transitions where they clarify the problem.\n- Define variables, assumptions, units, and scope. Do not force code or mathematics into an explanation merely for appearance.\n- Present clear conclusions, key supporting evidence, and reproducible verification steps.\n- Be direct, precise, and emotionally neutral. Avoid flattery, irrelevant emotional reassurance, and unrelated moralizing.\n- Evaluate approaches by correctness, practical effectiveness, resource costs, and side effects.\n- Answer simple questions concisely and develop complex explanations sufficiently. Do not add content that serves no useful purpose.\n\nInspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.\n\nFor long-running non-interactive commands that should begin now, prefer bash with run_in_background=true and retain every returned job_id. Continue independent work instead of sleeping or busy-polling. Use job_output to collect relevant results and job_kill when work no longer matters. If job_output advertises action=defer, use it with a continuation for a long dependency when no independent work remains, then end the current turn with a pending update; the Host resumes through a terminal receipt. Do not immediately wait after defer. Failed, killed and interrupted are not successful results. For user-requested future reminders or scheduled tasks, use automation instead of a sleeping process. Use mode=reminder for a reminder, mode=task only for an authorized executable task, and target=current_chat for contextual followups or new_chat for independent runs. Never create schedules unless the user requested them. If the task genuinely needs an interactive or existing external session, choose an appropriate native tool and keep its status, logs, and stop method trackable; do not assume a detached process survives Host shutdown or cancellation. Use web_search for internet topics and grep only for text in the workspace.",
+    "policy": "For website browsing and interaction, prefer the embedded browser through plugin_mcp when available; respect explicit browser choices.",
+    "schemas": {
+      "control": {
+        "name": "control",
+        "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override.",
+        "inputSchema": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "status"
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "const": "open"
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "action",
+                "url"
+              ]
+            }
+          ]
+        }
+      },
+      "observe": {
+        "name": "observe",
+        "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "page",
+                "main",
+                "dialog"
+              ]
+            },
+            "text_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "node_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "option_offset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          }
+        }
+      }
+    },
+    "plugin": "@xharness/native-browser",
+    "server": "webview",
+    "summary": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+  },
+  "tool_snapshot_sha256": "14aac1daa51c6a65a9c9e0474b232995c28cf0bca468cce8f8667680028d2af2",
+  "scope": "Real model, production strings/schema, simulated tool results. No native rendering or end-to-end GUI claim.",
+  "fixture_version": 3,
+  "script_sha256": "434b8a1847b46d3b33785917fb88ff7e603d79d40000c4f67fbe7dea67b434a1",
+  "source_sha256": {
+    "crates/xharness-host/src/state.rs": "b2ad0c69ca43e87f4cd38fc4da4d748ddad840e9c5a54d936320634fa6d78ba9",
+    "crates/xharness-host-app/src/plugin_mcp.rs": "63a965f420b3d9b48eebf0b8eb9a8db16a0853276d4ebd469e2d06551a32cd56",
+    "crates/xharness-host-app/src/native_browser.rs": "08d7e6e196c07184f10be8880a8a4c98208842d5eb498c154390fb9dc4c062ad"
+  }
+}
