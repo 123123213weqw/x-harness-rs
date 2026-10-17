@@ -690,6 +690,9 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Independent working-plan snapshot; not provider text or a Goal transition.
+    #[serde(rename = "session/plan-updated")]
+    SessionPlanUpdated { plan: crate::SessionPlan },
     #[serde(rename = "job/continuation")]
     JobContinuation {
         record: Box<crate::JobContinuationRecord>,

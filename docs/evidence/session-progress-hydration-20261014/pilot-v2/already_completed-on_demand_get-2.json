@@ -1,0 +1,50 @@
+{
+  "case": "already_completed",
+  "arm": "on_demand_get",
+  "repeat": 2,
+  "infrastructure_error": null,
+  "score": {
+    "passed": false,
+    "violations": [
+      "completion_report_missing"
+    ],
+    "tool_calls": 0,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1400,
+        "completion_tokens": 55,
+        "total_tokens": 1455,
+        "prompt_tokens_details": {
+          "cached_tokens": 1152
+        },
+        "prompt_cache_hit_tokens": 1152,
+        "prompt_cache_miss_tokens": 248
+      },
+      "elapsed_seconds": 1.12,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "e2df59f0-6fcf-446f-826e-55640fd4d334"
+    }
+  ],
+  "trace": [],
+  "answer": "刚才没有建立过清单（plan），所以现在没有可汇报的清单状态。\n\n之前那轮只做了两件事：改解析器、跑 `npm test -- parser`（12 项通过，退出码 0）。没有创建 plan，也没有创建 Goal。",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}
