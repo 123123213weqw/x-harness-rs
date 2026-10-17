@@ -82,6 +82,24 @@ try {
   assert.equal(await page.evaluate(() => calls.some(x => x.command === 'desktop_browser_access')), false)
   assert.equal(await page.evaluate(() => calls.some(x => /inspect|perform/.test(x.command))), false, 'binding itself must not execute a model action')
 
+  // A redundant geometry sample during grant acknowledgement must not revoke
+  // an unchanged visible owner. Observe every IPC, not only the final state.
+  await page.evaluate(() => { holdGrant = true; grantStarted = false; setSession('session-layout') })
+  await page.waitForFunction(() => grantStarted)
+  const layoutStart = await page.evaluate(() => calls.length)
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.evaluate(() => releaseGrant())
+  await page.waitForFunction(() => lease?.owner === 'session-layout')
+  const reloads = await page.evaluate(() => calls.filter(x => x.command === 'desktop_browser_action').length)
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.waitForFunction(count => calls.filter(x => x.command === 'desktop_browser_action').length > count, reloads)
+  assert.equal(await page.evaluate(start => calls.slice(start).some(x =>
+    x.command === 'desktop_browser_activate' && x.args.tabId === null), layoutStart), false,
+  'a superseding visible layout sample must not revoke its acknowledged grant')
+  await page.evaluate(() => setSession('session-parent'))
+  await page.waitForFunction(() => lease?.owner === 'session-parent')
+
   // Hidden native pages cannot cover local/global overlays or remain agent-accessible.
   await page.getByRole('button', { name: '下载记录', exact: true }).click()
   await page.waitForFunction(() => active === null && lease === null)
