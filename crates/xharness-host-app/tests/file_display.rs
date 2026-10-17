@@ -429,7 +429,12 @@ async fn real_host_http_display_route_reads_a_file_and_preserves_rpc_envelope() 
         .spawn()
         .unwrap();
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
+        // A cold native runner may need more than two seconds for the first
+        // durable session write. This is a bounded functional test, not a
+        // latency assertion. Mutating RPCs are still sent exactly once.
+        .timeout(std::time::Duration::from_secs(15))
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .no_proxy()
         .build()
         .unwrap();
     async fn rpc(
@@ -438,7 +443,20 @@ async fn real_host_http_display_route_reads_a_file_and_preserves_rpc_envelope() 
         method: &str,
         payload: serde_json::Value,
     ) -> serde_json::Value {
-        client.post(format!("http://{address}/api/{method}")).json(&json!({"type":"client-request","rpcId":format!("display-{method}"),"method":method,"payload":payload})).send().await.unwrap().json().await.unwrap()
+        let response = client
+            .post(format!("http://{address}/api/{method}"))
+            .json(&json!({"type":"client-request","rpcId":format!("display-{method}"),"method":method,"payload":payload}))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("Host RPC {method} failed within its 15s budget: {error}"));
+        assert!(
+            response.status().is_success(),
+            "Host RPC {method} returned {}",
+            response.status()
+        );
+        response.json().await.unwrap_or_else(|error| {
+            panic!("Host RPC {method} returned an invalid JSON envelope: {error}")
+        })
     }
     tokio::time::timeout(std::time::Duration::from_secs(15), async {
         loop {
@@ -446,6 +464,7 @@ async fn real_host_http_display_route_reads_a_file_and_preserves_rpc_envelope() 
             if let Ok(response) = client
                 .post(format!("http://{address}/api/host.describe"))
                 .json(&json!({"type":"client-request","rpcId":"ready","method":"host.describe","payload":{}}))
+                .timeout(std::time::Duration::from_secs(2))
                 .send()
                 .await
             {
