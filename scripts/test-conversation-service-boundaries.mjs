@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 /** Latest frozen/source service factories on the actual pinned Core kernel. */
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -12,7 +13,7 @@ function load(implementation,name){
  const id=entries.find(row=>row[0]===name)[1],source=implementation==='source'?compiled.get(id).bytes.toString():readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8');let registration
  const jsx=(type,props,key)=>({type,props,key}),react={useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],useRef:value=>({current:value}),useEffect(){},useLayoutEffect(){},useMemo:fn=>fn(),useCallback:fn=>fn,memo:fn=>fn}
  vm.runInNewContext(source,{window:{__ModuleLoader__:{load:row=>registration=row}},document:{querySelector:()=>null,getElementById:()=>null,createElement:()=>({dataset:{}}),head:{appendChild(){}}},console,AbortController,AbortSignal,Date,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval})
- return registration.factory(name=>name==='@xharness/cordis'?Core:name==='@xharness/dsh-client-runtime/client'?runtime:name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-ui-primitives'?new Proxy({},{get:(_o,k)=>String(k)}):name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:value=>value}:(()=>{throw Error(name)})())
+ return registration.factory(name=>name==='zod'?sharedVendors.zod:name==='@xharness/cordis'?Core:name==='@xharness/dsh-client-runtime/client'?runtime:name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-ui-primitives'?new Proxy({},{get:(_o,k)=>String(k)}):name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:value=>value}:(()=>{throw Error(name)})())
 }
 const normalize=value=>JSON.parse(JSON.stringify(value))
 const tick=()=>new Promise(resolve=>setImmediate(resolve))

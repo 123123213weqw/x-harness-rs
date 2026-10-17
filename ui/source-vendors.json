@@ -49,7 +49,8 @@
   "packages": {
     "zod": {
       "version": "4.6.5",
-      "license": "MIT"
+      "license": "MIT",
+      "shared": true
     }
   },
   "platformPackages": {
@@ -988,6 +989,15 @@
       ],
       "integrity": "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==",
       "packageJsonSha256": "11f873b423b96a5ad444a099685ca6b9de1379dcd83fd8d368e757ddb53658e4"
+    },
+    "zod": {
+      "version": "4.6.5",
+      "license": "MIT",
+      "licenses": [
+        "LICENSE"
+      ],
+      "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==",
+      "packageJsonSha256": "a046ed85fa09571dba539fee9ef236152d12dabd1f229b014ec3bd2ebaad9000"
     }
   },
   "sourcePackages": {

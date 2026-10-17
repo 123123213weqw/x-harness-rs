@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
 // Real-browser old/new acceptance over isolated React root and fake Host loader.
 import assert from 'node:assert/strict'
 import {readFileSync}from'node:fs'
@@ -13,9 +14,10 @@ try{
  const page=await browser.newPage({viewport:{width:900,height:620}});page.setDefaultTimeout(10000);page.on('pageerror',error=>{throw error});
  await page.setContent('<html><head></head><body><div id="root" style="width:420px"></div></body></html>');
  for(const file of ['react/umd/react.development.js','react-dom/umd/react-dom.development.js'])await page.addScriptTag({path:resolve(process.env.UI_TEST_DEPS??'/tmp/xharness-model-ui-tests','node_modules',file)});
+ await installSharedSourceVendors(page)
  await page.addScriptTag({content:'window.__ModuleLoader__={load:row=>window.registration=row}'});await page.addScriptTag({content:source});
  await page.evaluate(()=>{
-  const api=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment}:new Proxy({}, {get:()=>()=>null}));
+  const api=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx:(type,props,key)=>React.createElement(type,{...props,key}),jsxs:(type,props,key)=>React.createElement(type,{...props,key}),Fragment:React.Fragment}:new Proxy({}, {get:()=>()=>null}));
   window.slots={};api.apply({slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>{slots[spec.name]=component}}});
   window.root=ReactDOM.createRoot(document.getElementById('root'));window.removed=[];window.added=[];window.loads=[];window.fail=false;window.mode='draft';window.canAccept=true;
   window.png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
