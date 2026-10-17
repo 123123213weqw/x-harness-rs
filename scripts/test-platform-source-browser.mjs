@@ -87,7 +87,8 @@ for(const engine of engines){
    }
    let page=await openPage()
    const keys=await page.evaluate(()=>Object.keys(staticModules).sort())
-   assert.deepEqual(keys,['@xharness/cordis','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react-dom/client','react/jsx-runtime'].sort(),'actual master static platform words')
+   assert.deepEqual(keys,['@xharness/cordis','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react-dom/client','react/jsx-runtime',...(implementation==='source'?['zod']:[])].sort(),'actual platform words, with pinned source-only shared vendor')
+   if(implementation==='source')assert.equal(await page.evaluate(()=>staticModules.zod.z.string().safeParse('pinned').success),true)
    const singleton=await page.evaluate(()=>{
     const R=staticModules.react,J=staticModules['react/jsx-runtime'];return {version:R.version,element:J.jsx('span',{}).$$typeof===R.createElement('span').$$typeof,createRoot:staticModules['react-dom/client'].createRoot===staticModules['react-dom'].createRoot}
    });assert.equal(singleton.version,'18.3.1');assert.ok(singleton.element);assert.ok(singleton.createRoot)
@@ -261,7 +262,9 @@ for(const engine of engines){
   }
   writeFileSync(join(evidence,`${engine}-results.json`),JSON.stringify(results,null,2)+'\n')
   const {screenshots:expectedPixels,...expected}=results[0],{screenshots:actualPixels,...actual}=results[1]
-  assert.deepEqual(actual,expected,`${engine}: exact semantic math/brand/Shiki DOM and singleton ABI`)
+  // The shared validator is the only intentional seed-table extension; its
+  // exact presence and behavior were checked above. Rendering stays identical.
+  assert.deepEqual({...actual,keys:actual.keys.filter(key=>key!=='zod')},expected,`${engine}: exact semantic math/brand/Shiki DOM and existing singleton ABI`)
   assert.deepEqual(actualPixels,expectedPixels,`${engine}: exact pixels; see dist/platform-source-evidence/ for both PNGs and layout records`)
   console.log(`${engine}: frozen/source platform keys, singleton, 10 streamed math scenarios, partial/frozen/retry, brand/lazy Shiki, 8 exact on-demand/common grammar scenes, tracked Core Service, SlotCore lifecycle and 12 computed-layout/pixel snapshots passed`)
  }finally{await browser.close()}

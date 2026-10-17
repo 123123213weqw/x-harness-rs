@@ -332,6 +332,7 @@ impl BasicHost {
                         active_permission: None,
                         plan_active: crate::restore::restored_plan_mode(&branch),
                         goal: None,
+                        task_plan: xharness_session::session_plan(&branch),
                         schedules: vec![],
                         schedules_hydrated: true,
                         events: vec![],

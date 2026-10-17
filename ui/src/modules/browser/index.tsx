@@ -245,6 +245,14 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       return enqueueNative(async () => {
         if (disposed || !eventsReady || requested !== generation) return false
         const current = () => requested === generation && visible()
+        const yieldToLatest = async () => {
+          // A newer layout sample owns the queued follow-up; supersession is
+          // not occlusion. Hiding here would interrupt an otherwise valid
+          // observe/perform pair. Actual overlays, closure and chat changes
+          // still revoke presentation immediately after every native await.
+          if (!visible()) await hide()
+          return false
+        }
         if (!current()) {
           if (lastGeometry !== 'hidden') await hide()
           return false
@@ -255,14 +263,14 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`
         if (geometry !== lastGeometry || pending) {
           await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
-          if (!current()) { await hide(); return false }
+          if (!current()) return yieldToLatest()
           const exists = await send('desktop_browser_activate', { tabId: item.id })
-          if (!current()) { await hide(); return false }
+          if (!current()) return yieldToLatest()
           if (!exists || pending) {
             loading = true
             await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url })
             if (navigationRef.current === pending) navigationRef.current = null
-            if (!current()) { await hide(); return false }
+            if (!current()) return yieldToLatest()
           }
           lastGeometry = geometry
         }
@@ -274,7 +282,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
           let result: unknown
           try { result = await send('desktop_browser_delegate', { tabId: item.id, owner: sessionId, allowActions: true, expectedOrigin: origin }) }
           catch (error) { await hide(); throw error }
-          if (!current() || pageOrigin(currentAddress(itemRef.current)) !== origin) { await hide(); return false }
+          if (pageOrigin(currentAddress(itemRef.current)) !== origin) { await hide(); return false }
+          if (!current()) return yieldToLatest()
           const reply = objectValue(result)
           const grant = objectValue(reply.grant)
           if (reply.origin !== origin || grant.owner !== sessionId || grant.allowActions !== true

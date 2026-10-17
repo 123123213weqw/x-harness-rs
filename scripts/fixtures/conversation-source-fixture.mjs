@@ -1,3 +1,4 @@
+import { sharedVendors } from './shared-source-vendors.mjs'
 // Execute the actual emitted closure; only Host/UI services are test doubles.
 import {File} from 'node:buffer'
 import {webcrypto} from 'node:crypto'
@@ -14,6 +15,6 @@ export function conversationFixture(source,names,env={}) {
  const runtime=env.runtime??runtimeRow.factory(name=>name==='@xharness/cordis'?{Service,Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:{});
  const primitives=env.primitives??new Proxy({},{get:(_t,key)=>key});
  vm.runInNewContext(exposeConversation(source,names),global);
- const api=registration.factory(name=>name==='react'?React:name==='react-dom'?(env.reactDom??{createPortal:(children,container)=>({portal:true,children,container})}):name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service,Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>typeof x==='function'?x():x}:(()=>{throw Error('Unexpected fixture dependency '+name)})());
+ const api=registration.factory(name=>name==='zod'?sharedVendors.zod:name==='react'?React:name==='react-dom'?(env.reactDom??{createPortal:(children,container)=>({portal:true,children,container})}):name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'fragment'}:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service,Context:{is:ctx=>ctx!==null&&typeof ctx==='object'}}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-ui-slots'?{resolveSlotLabel:x=>typeof x==='function'?x():x}:(()=>{throw Error('Unexpected fixture dependency '+name)})());
  return{api,runtime,global};
 }

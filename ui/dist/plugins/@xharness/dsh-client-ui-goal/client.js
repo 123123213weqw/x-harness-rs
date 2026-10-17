@@ -8,15 +8,18 @@ const __units = {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.inject = exports.GoalDock = exports.GoalBar = void 0;
+exports.inject = exports.ProgressDock = exports.GoalDock = exports.GoalBar = void 0;
 exports.apply = apply;
 const GoalBar_1 = require("./GoalBar");
+const ProgressDock_1 = require("./ProgressDock");
 const GoalCommandInputView_1 = require("./GoalCommandInputView");
 const goal_command_input_1 = require("./goal-command-input");
 const locales_1 = require("./locales");
 var GoalBar_2 = require("./GoalBar");
 Object.defineProperty(exports, "GoalBar", { enumerable: true, get: function () { return GoalBar_2.GoalBar; } });
 Object.defineProperty(exports, "GoalDock", { enumerable: true, get: function () { return GoalBar_2.GoalDock; } });
+var ProgressDock_2 = require("./ProgressDock");
+Object.defineProperty(exports, "ProgressDock", { enumerable: true, get: function () { return ProgressDock_2.ProgressDock; } });
 /** Dictionary namespace owned by this plugin. */
 const NS = 'goal';
 /** Required services for the Goal dock, command-input projection, Remote mutations, and copy. */
@@ -90,6 +93,9 @@ function apply(ctx) {
             },
         }),
     }, GoalBar_1.GoalDock));
+    ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+        name: 'conversation.input.dock', id: 'task-progress', order: 9, locale: NS,
+    }, ProgressDock_1.ProgressDock));
 }
 
 },
@@ -276,6 +282,69 @@ function installStyles(id, plugin, css) {
 }
 
 },
+"src/modules/goal/ProgressDock.js": function(module, exports, require) {
+// source: src/modules/goal/ProgressDock.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.readProgressPlan = readProgressPlan;
+exports.ProgressDock = ProgressDock;
+const jsx_runtime_1 = require("react/jsx-runtime");
+require("./ProgressDock.styles");
+function isUnknownArray(value) { return Array.isArray(value); }
+/** Validate the generic wire projection before consuming its fields. */
+function readProgressPlan(value) {
+    if (typeof value !== 'object' || value === null || !('revision' in value) || !('items' in value))
+        return null;
+    const { revision, items } = value;
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 1 || !isUnknownArray(items) || items.length > 128)
+        return null;
+    const parsed = [];
+    const ids = new Set();
+    for (const item of items) {
+        // Array.isArray yields a library array; receive each element as unknown.
+        const entry = item;
+        if (typeof entry !== 'object' || entry === null || !('id' in entry) || !('title' in entry) || !('status' in entry))
+            return null;
+        const { id, title, status } = entry;
+        if (typeof id !== 'string' || id.length > 128 || !id.trim() || ids.has(id) || typeof title !== 'string' || title.length > 2048 || !title.trim())
+            return null;
+        if (status !== 'pending' && status !== 'in_progress' && status !== 'completed')
+            return null;
+        ids.add(id);
+        parsed.push({ id, title, status });
+    }
+    return { revision, items: parsed };
+}
+function ProgressDock({ useProjection, t }) {
+    const plan = readProgressPlan(useProjection('taskPlan'));
+    if (!plan || plan.items.length === 0)
+        return null;
+    const completed = plan.items.filter(item => item.status === 'completed').length;
+    return (0, jsx_runtime_1.jsx)("div", { className: "xh-progress-dock", "data-task-plan-revision": plan.revision, children: (0, jsx_runtime_1.jsxs)("details", { className: "xh-progress-card", open: true, children: [(0, jsx_runtime_1.jsxs)("summary", { children: [(0, jsx_runtime_1.jsx)("span", { children: t('progress.title') }), (0, jsx_runtime_1.jsxs)("span", { className: "xh-progress-count", children: [completed, "/", plan.items.length] }), (0, jsx_runtime_1.jsx)("span", { className: "xh-progress-chevron", "aria-hidden": "true", children: "\u2303" })] }), (0, jsx_runtime_1.jsx)("ol", { "aria-label": t('progress.title'), children: plan.items.map(item => (0, jsx_runtime_1.jsxs)("li", { "data-plan-item": item.id, "data-plan-status": item.status, children: [(0, jsx_runtime_1.jsx)("span", { className: "xh-progress-icon", "aria-hidden": "true", children: item.status === 'completed' ? '✓' : item.status === 'in_progress' ? '→' : '○' }), (0, jsx_runtime_1.jsxs)("span", { className: "xh-progress-item", children: [(0, jsx_runtime_1.jsxs)("span", { className: "xh-progress-sr", children: [t(item.status === 'completed' ? 'progress.completed' : item.status === 'in_progress' ? 'progress.running' : 'progress.pending'), ": "] }), item.title] })] }, item.id)) })] }) });
+}
+
+},
+"src/modules/goal/ProgressDock.styles.js": function(module, exports, require) {
+// source: src/modules/goal/ProgressDock.styles.ts
+
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const ProgressDock_css_1 = __importDefault(require("./ProgressDock.css"));
+const views_types_1 = require("../views-types");
+(0, views_types_1.installStyles)('@xharness/dsh-client-ui-goal/ProgressDock.css', '@xharness/dsh-client-ui-goal', ProgressDock_css_1.default);
+
+},
+"src/modules/goal/ProgressDock.css": function(module, exports, require) {
+// source: src/modules/goal/ProgressDock.css
+
+Object.defineProperty(exports, '__esModule', { value: true });
+exports.default = ".xh-progress-dock { width: calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset)); margin: 0 auto; min-width: 0; padding: 0 0 8px; box-sizing: border-box; }\n.xh-progress-card { max-width: 480px; min-width: 0; border: 1px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-specific-tip); color: var(--dsw-alias-label-primary); font-size: 13px; }\n.xh-progress-card summary { display: flex; align-items: center; gap: 18px; padding: 12px 16px; cursor: pointer; list-style: none; color: var(--dsw-alias-label-tertiary); font-weight: 500; }\n.xh-progress-card summary::-webkit-details-marker { display: none; }\n.xh-progress-card summary:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 12px; }\n.xh-progress-count { font-variant-numeric: tabular-nums; }\n.xh-progress-chevron { margin-left: auto; }\n.xh-progress-card:not([open]) .xh-progress-chevron { transform: rotate(180deg); }\n.xh-progress-card ol { list-style: none; margin: 0; padding: 0 12px 10px; max-height: 260px; overflow-y: auto; }\n.xh-progress-card li { display: flex; align-items: baseline; gap: 10px; padding: 6px 4px; line-height: 1.5; }\n.xh-progress-icon { flex: 0 0 16px; text-align: center; }\n.xh-progress-item { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }\n.xh-progress-card [data-plan-status=\"completed\"] { color: var(--dsw-alias-label-tertiary); opacity: .65; }\n.xh-progress-card [data-plan-status=\"completed\"] .xh-progress-item { text-decoration: line-through; }\n.xh-progress-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }\n";
+
+},
 "src/modules/goal/GoalCommandInputView.js": function(module, exports, require) {
 // source: src/modules/goal/GoalCommandInputView.tsx
 
@@ -386,6 +455,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.en = exports.zh = void 0;
 /** Simplified Chinese dictionary (the key-set source of truth). */
 exports.zh = {
+    'progress.title': '进度',
+    'progress.completed': '已完成',
+    'progress.running': '进行中',
+    'progress.pending': '待办',
     'phase.active': '进行中的目标',
     'phase.paused': '已暂停的目标',
     'phase.blocked': '受阻的目标',
@@ -400,6 +473,10 @@ exports.zh = {
 };
 /** English dictionary, checked complete against the zh key set. */
 exports.en = {
+    'progress.title': 'Progress',
+    'progress.completed': 'Completed',
+    'progress.running': 'In progress',
+    'progress.pending': 'Pending',
     'phase.active': 'Ongoing Goal',
     'phase.paused': 'Paused Goal',
     'phase.blocked': 'Blocked Goal',
@@ -415,7 +492,7 @@ exports.en = {
 
 }
 };
-const __dependencies = {"src/modules/goal/index.js":{"./GoalBar":"src/modules/goal/GoalBar.js","./GoalCommandInputView":"src/modules/goal/GoalCommandInputView.js","./goal-command-input":"src/modules/goal/goal-command-input.js","./locales":"src/modules/goal/locales.js"},"src/modules/goal/GoalBar.js":{"./GoalBar.styles":"src/modules/goal/GoalBar.styles.js"},"src/modules/goal/GoalBar.styles.js":{"./GoalBar.css":"src/modules/goal/GoalBar.css","../views-types":"src/modules/views-types.js"},"src/modules/goal/GoalBar.css":{},"src/modules/views-types.js":{},"src/modules/goal/GoalCommandInputView.js":{"./GoalCommandInputView.styles":"src/modules/goal/GoalCommandInputView.styles.js"},"src/modules/goal/GoalCommandInputView.styles.js":{"./GoalCommandInputView.css":"src/modules/goal/GoalCommandInputView.css","../views-types":"src/modules/views-types.js"},"src/modules/goal/GoalCommandInputView.css":{},"src/modules/goal/goal-command-input.js":{},"src/modules/goal/locales.js":{}};
+const __dependencies = {"src/modules/goal/index.js":{"./GoalBar":"src/modules/goal/GoalBar.js","./ProgressDock":"src/modules/goal/ProgressDock.js","./GoalCommandInputView":"src/modules/goal/GoalCommandInputView.js","./goal-command-input":"src/modules/goal/goal-command-input.js","./locales":"src/modules/goal/locales.js"},"src/modules/goal/GoalBar.js":{"./GoalBar.styles":"src/modules/goal/GoalBar.styles.js"},"src/modules/goal/GoalBar.styles.js":{"./GoalBar.css":"src/modules/goal/GoalBar.css","../views-types":"src/modules/views-types.js"},"src/modules/goal/GoalBar.css":{},"src/modules/views-types.js":{},"src/modules/goal/ProgressDock.js":{"./ProgressDock.styles":"src/modules/goal/ProgressDock.styles.js"},"src/modules/goal/ProgressDock.styles.js":{"./ProgressDock.css":"src/modules/goal/ProgressDock.css","../views-types":"src/modules/views-types.js"},"src/modules/goal/ProgressDock.css":{},"src/modules/goal/GoalCommandInputView.js":{"./GoalCommandInputView.styles":"src/modules/goal/GoalCommandInputView.styles.js"},"src/modules/goal/GoalCommandInputView.styles.js":{"./GoalCommandInputView.css":"src/modules/goal/GoalCommandInputView.css","../views-types":"src/modules/views-types.js"},"src/modules/goal/GoalCommandInputView.css":{},"src/modules/goal/goal-command-input.js":{},"src/modules/goal/locales.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

@@ -3980,6 +3980,114 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 90
+    },
+    {
+      "id": "contract-98",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-swarm-client.mjs"
+      ],
+      "env": {},
+      "weight": 2
+    },
+    {
+      "id": "browser-234",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-235",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-swarm-ui-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit",
+        "UI_TEST_IMPL": "source"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-226",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-227",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-message-rail-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-232",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-progress-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-233",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-progress-runtime-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 60
+    },
+    {
+      "id": "browser-230",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 30
+    },
+    {
+      "id": "browser-231",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 30
     }
   ]
 }

@@ -2,11 +2,11 @@
   "schema": 1,
   "kind": "bugfix",
   "reason": "Port validated lazy diagnostics, deleted-session retirement, shared immutable snapshots, bounded display working sets and body-free prompt receipts onto current master.",
-  "compatibility": "Preserve current master startup when_ready reconciliation, native browser/UI features, journal envelopes, exact request deduplication and complete queue/message/attachment data. v4 checkpoints store bounded receipts with durable fallback. Web splices carry identities and normalize cancellation. Shared SessionEvent and projection-tail structs require documented workspace Rust source adaptation. Resident charges are estimates, not an RSS guarantee.",
+  "compatibility": "Preserve current master startup when_ready reconciliation, native browser/UI features, journal envelopes, exact request deduplication and complete queue/message/attachment data. v4 checkpoints store bounded receipts with durable fallback. Web splices carry identities and normalize cancellation. Shared SessionEvent and projection-tail structs require documented workspace Rust source adaptation. Resident charges are estimates, not an RSS guarantee. Integration with master 1b853347 preserves durable working plans, Swarm metadata, compact composer and native browser visibility fixes. The original 64 MiB RSS-drift alarm remains failed for growing histories; merging accepts these optimizations without declaring that alarm resolved.",
   "paths": {
     "crates/xharness-projection/src/lib.rs": {
-      "before": "bb667c43ae59da081c4e63225e2d3e56695c6b9c72c0427fe58a8bbbe2b486a5",
-      "after": "cec2ee35507ed378a9bdca8e1a5bd74bd3c38a254334f62532335f572f7bf39f"
+      "before": "eb586d8e7a47dc4bebbc2814fc9757648652e6819e17986ec93fa577f95f5d30",
+      "after": "9d5f8bb88c18d1937c5716e05a4de82e5f8fbcdc7cb5f6700080efb0feefdba1"
     },
     "crates/xharness-projection/src/residency.rs": {
       "before": null,
@@ -25,8 +25,8 @@
       "after": "fa9094f50cb05ddd33e56e13fe7849a3f03ccd94fbde4beade242ba0ab011d93"
     },
     "crates/xharness-session/src/event.rs": {
-      "before": "4116eb997398fc1ad29363a48d5102e1cd3b009257fac5b7ce766f836682a349",
-      "after": "e6f41e8e31fd8212a446b9648c3d025214404302f7f3478cf9bfce12c2315de2"
+      "before": "9f971d617316996459c9382034eb74c2a0a0d3eb15deb877baa2746d545eec30",
+      "after": "89f72fff6fc64ad675b03124c5c486b7aca5bbfd45e63e8c0303086995e2708b"
     },
     "crates/xharness-session/src/event_sharing_tests.rs": {
       "before": null,

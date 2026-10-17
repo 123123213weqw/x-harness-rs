@@ -1,0 +1,48 @@
+{
+  "case": "already_completed",
+  "arm": "snapshot",
+  "repeat": 2,
+  "infrastructure_error": null,
+  "score": {
+    "passed": true,
+    "violations": [],
+    "tool_calls": 0,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1469,
+        "completion_tokens": 54,
+        "total_tokens": 1523,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 189
+      },
+      "elapsed_seconds": 1.125,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "1c8c347c-c0ff-4e18-8e6e-ce8834085cf6"
+    }
+  ],
+  "trace": [],
+  "answer": "当前清单（revision 6）状态如下：\n\n- **fix — Fix the parser**：已完成\n- **test — Run npm test -- parser**：已完成\n\n两项均为 completed，没有待办项。按你的要求，本轮不再执行任何验证。",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}

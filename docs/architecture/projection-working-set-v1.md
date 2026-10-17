@@ -50,3 +50,12 @@ Every server diagnostic payload uses the existing lazy recorder. Off-mode activi
 The validated implementation was ported onto master snapshot `e6b2bb78789611100928bb6ffae2c88889e12c17` without merging the superseded Git history. Startup recovery retains master's `when_ready()` reconciliation before reading the inbox; activation remains single and occurs before registering per-session ownership. UI outputs are regenerated from the combined current sources rather than copied from the earlier branch.
 
 The earlier evaluation files are historical experiments, not current-master certification. Fresh source/binary identities and regression evidence must accompany this port. Continuously growing histories still exceed the original RSS-drift alarm; lower observed memory and successful bounded-working-set tests do not establish flat RSS or universal native-platform leak freedom.
+
+
+## Merge integration acceptance (2026-10-17)
+
+The implementation is integrated with master `1b853347b22ba4c6df4e1a70241a1518c4058880`, preserving the compact composer, shared source vendors, durable working plans, Swarm metadata and native-browser visibility fixes. Both sides of the publication-test conflict are retained. A new zero-display-budget regression verifies that a working plan survives history reads and restart even when no display tail remains resident.
+
+The user explicitly approved merging these optimizations with the known growing-history resource alarm still unresolved. Fresh isolated loopback soaks preserve the original 64 MiB alarm: 192 growing-history turns still report `resource_alarm`; 320 create/delete turns pass. Neither the threshold nor either result is weakened or relabeled. This is acceptance of a partial optimization, not certification of flat RSS, universal leak freedom or a measured speedup. No paid model requests, installed-application changes or release are part of this integration.
+
+Fresh functional, architecture, source/binary and resource evidence is summarized in `docs/evaluations/retention-master-integration-20261017.json`. Historical evaluation files above remain historical; exact-head cross-platform CI must pass before merge.

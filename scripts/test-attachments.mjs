@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs'
 import {verifyConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs'
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs'
@@ -60,7 +61,7 @@ let wireRegistration;
 let wireSource=readFileSync(resolve(root,'ui/dist/plugins/@xharness/dsh-client-connection/client.js'),'utf8');
 wireSource=wireSource.startsWith('// Generated')?exposeConnection(verifyConnectionArtifact(),['promptContentPartSchema','sessionAttachmentValueSchema']):wireSource.replace('exports.AbstractApiClient = AbstractApiClient;', 'exports.testAttachment = sessionAttachmentValueSchema; exports.testPart = promptContentPartSchema; exports.AbstractApiClient = AbstractApiClient;');
 vm.runInNewContext(wireSource,{window:{__ModuleLoader__:{load:r=>wireRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});
-const wire=wireRegistration.factory(id=>id==='@xharness/cordis'?{Service:class{}}:{});
+const wire=wireRegistration.factory(id=>id==='zod'?sharedVendors.zod:id==='@xharness/cordis'?{Service:class{}}:{});
 wire.testPart??=wire.promptContentPartSchema;wire.testAttachment??=wire.sessionAttachmentValueSchema;
 for(const part of captured) assert.equal(wire.testPart.parse(part).type,part.type);
 const emptyFile={attachment:{attachmentId:'sha256:fixture',mediaType:'application/octet-stream',bytes:0,name:'empty.txt'},data:''};

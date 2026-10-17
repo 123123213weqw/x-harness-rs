@@ -124,6 +124,28 @@ try {
   await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'url', value: 'https://example.com/next' } })))
   await page.waitForFunction(() => document.querySelector('input[aria-label="网址"]')?.value === 'https://example.com/next')
   await page.evaluate(() => listeners.forEach(fn => fn({ payload: { tabId: 'browser:1', kind: 'download-complete', value: '/Users/test/Downloads/example.pdf' } })))
+  // A newer layout sample does not itself hide the still-visible native page.
+  // Hold each native await, supersede it with a redundant resize, and inspect
+  // the complete IPC history so even a transient hide cannot pass unnoticed.
+  for (const command of ['desktop_browser_bounds', 'desktop_browser_activate', 'desktop_browser_navigate']) {
+    await flush()
+    const start = await page.evaluate(() => commands.length)
+    await page.evaluate(command => { window.hold = { command }; window.gateStarted = false }, command)
+    if (command === 'desktop_browser_navigate') { await address.fill('https://example.com/layout-race'); await address.press('Enter') }
+    else await resize()
+    await page.waitForFunction(() => window.gateStarted)
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await page.evaluate(() => window.releaseGate())
+    await flush()
+    assert.equal(await page.evaluate(start => commands.slice(start).some(call =>
+      call.command === 'desktop_browser_activate' && call.args.tabId === null), start), false,
+    `${command}: a superseding visible layout sample must not interrupt a delegated action`)
+    assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
+    if (command === 'desktop_browser_navigate') assert.equal(await page.evaluate(start => commands.slice(start).filter(call =>
+      call.command === 'desktop_browser_navigate' && call.args.url === 'https://example.com/layout-race').length, start), 1,
+    'supersession must not replay the completed navigation')
+  }
   for (const label of ['下载记录', '更多浏览器操作']) {
     await page.getByRole('button', { name: label, exact: true }).click()
     await assertHidden()

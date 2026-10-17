@@ -1303,6 +1303,7 @@ impl Runner {
         context_tools: &[Value],
     ) -> Result<ContextSurface, RunFailure> {
         let mut origins = Vec::new();
+        let mut working_plan = None;
         {
             if let Some(journal) = &self.journal {
                 let session = journal
@@ -1313,14 +1314,20 @@ impl Runner {
                         RunFailure::Failed(format!("working set journal load failed: {error}"))
                     })?
                     .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
+                working_plan = xharness_session::session_plan(&session);
                 let surface = session.derive_surface_messages();
                 let sources = crate::context_working_set::sources(&session, &surface);
                 origins =
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
-        self.prepare_context_with_sources(context_messages, context_tools, &origins)
-            .await
+        self.prepare_context_with_sources(
+            context_messages,
+            context_tools,
+            &origins,
+            working_plan.as_ref(),
+        )
+        .await
     }
 
     async fn prepare_context_with_sources(
@@ -1328,6 +1335,7 @@ impl Runner {
         mut context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
         origins: &[Option<xharness_context::WorkingSetSource>],
+        working_plan: Option<&xharness_session::SessionPlan>,
     ) -> Result<ContextSurface, RunFailure> {
         // Retirement is allowed only with a real session-bound recovery tool.
         // A custom executor without history must remain lossless/fail closed.
@@ -1407,6 +1415,11 @@ impl Runner {
         // wire. In particular, a long conversation must not fail forever once
         // its accumulated attachments exceed one request's resource budget.
         prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
+        if let Some(note) =
+            crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
+        {
+            crate::plan_context::insert(&mut prepared.messages, note);
+        }
         if let Some(continuation) = self.pending_continuation.clone() {
             prepared.messages.push(continuation);
         }
@@ -2125,7 +2138,12 @@ impl Runner {
                 .saturating_sub(candidate_origins.len());
             candidate_origins.splice(0..0, std::iter::repeat_n(None, prefix_len));
             let prepared = self
-                .prepare_context_with_sources(prefixed_candidate, &tools, &candidate_origins)
+                .prepare_context_with_sources(
+                    prefixed_candidate,
+                    &tools,
+                    &candidate_origins,
+                    xharness_session::session_plan(&session).as_ref(),
+                )
                 .await?;
             let request = ProviderRequest {
                 messages: prepared.messages.clone(),
@@ -2896,6 +2914,7 @@ impl Runner {
                                     | SessionEventData::SessionTitleGeneration { .. }
                                     | SessionEventData::GoalExecution { .. }
                                     | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::SessionPlanUpdated { .. }
                                     | SessionEventData::ScheduleChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }

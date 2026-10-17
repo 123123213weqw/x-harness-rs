@@ -1090,3 +1090,43 @@ mod working_set_tests;
 
 #[path = "admission_receipt_tests.rs"]
 mod admission_receipt_tests;
+#[tokio::test]
+async fn working_plan_reaches_mux_and_history_without_republishing_on_unrelated_events() {
+    let (host, store) = fixture().await;
+    let mut receiver = host.event_gateway.subscribe_mux();
+    let reply = rpc_value(&host, RpcMethod::GoalUpdatePlan, json!({"sessionId":ID,"planRevision":0,"items":[{"id":"verify","title":"Verify","status":"in_progress"}]})).await;
+    let plan = reply["plan"].clone();
+    let projections = std::iter::from_fn(|| receiver.try_recv().ok())
+        .filter(|frame| {
+            frame.payload["type"] == "session/projection" && frame.payload["key"] == "taskPlan"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(projections.len(), 1);
+    assert_eq!(projections[0].payload["value"], plan);
+    let request = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    for index in 0..60 {
+        let snapshot = store.load(ID).await.unwrap().unwrap();
+        store
+            .append(
+                ID,
+                snapshot.revision(),
+                completed_turn(index + 1, "unrelated", &request),
+            )
+            .await
+            .unwrap();
+    }
+    host.sync_authoritative_session(ID).await.unwrap();
+    assert!(!std::iter::from_fn(|| receiver.try_recv().ok())
+        .any(|frame| frame.payload["type"] == "session/projection"
+            && frame.payload["key"] == "taskPlan"));
+    let history = rpc_value(&host, RpcMethod::SessionHistory, json!({"sessionId":ID})).await;
+    assert!(!history["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["type"] == "session/plan-updated"));
+    assert_eq!(history["projections"]["values"]["taskPlan"], plan);
+}

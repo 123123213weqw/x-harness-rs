@@ -75,12 +75,13 @@ export function permissionFeedback(value: PermissionSelectValue | undefined): st
 export interface PermissionSelectProps {
   value: PermissionSelectValue | undefined
   locked: boolean
+  compact?: boolean
   command: (line: string) => Promise<boolean>
   /** The owning bar's locale seat, passed down as a plain prop. */
   t: ComposerBarProps['t']
 }
 
-export function PermissionSelect({ value, locked, command, t }: PermissionSelectProps) {
+export function PermissionSelect({ value, locked, compact = false, command, t }: PermissionSelectProps) {
   const [pick, setPick] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
@@ -148,9 +149,12 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
         anchor={
           <button
             type="button"
-            className={css.trigger}
+            className={clsx(css.trigger, compact && permissionGlyph(currentValue) !== undefined && css.compact)}
+            data-access-pending={value.pending || pick !== null || undefined}
+            data-access-full={currentValue === FULL_ACCESS || undefined}
+            aria-haspopup="menu" aria-expanded={open}
             aria-label={t('input.accessMode', { name: current === undefined ? displayName(currentValue) : optionLabel(current) })}
-            title={pick !== null ? '正在保存权限选择；当前执行权限不变' : permissionFeedback(value) || current?.description}
+            title={pick !== null ? '正在保存权限选择；当前执行权限不变' : permissionFeedback(value) || current?.description || (current === undefined ? displayName(currentValue) : optionLabel(current))}
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
           >

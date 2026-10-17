@@ -20,6 +20,9 @@ HOST_POLICY = ROOT / "config" / "architecture-host-modules.json"
 # this list deliberately small: it guards only processors that have completed
 # the staged extraction and therefore must not regain transport/Host coupling.
 SOURCE_BOUNDARIES = {
+    "crates/xharness-host/src/swarm_processor.rs": {
+        "BasicHost", "RpcId", "RpcMethod", "ControlStore", "tokio::",
+    },
     "crates/xharness-remote/src/creation.rs": {
         "BasicHost", "xharness_host::", "xharness_core::", "xharness_agent::",
         ".call_dynamic(", ".respond(", ".call(", ".mux_events(", ".host_events(",

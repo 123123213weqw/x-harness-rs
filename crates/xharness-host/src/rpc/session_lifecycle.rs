@@ -289,6 +289,7 @@ async fn create_inner(
         active_permission: None,
         plan_active: false,
         goal: None,
+        task_plan: None,
         schedules: Vec::new(),
         schedules_hydrated: true,
         events: Vec::new(),
@@ -788,6 +789,9 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         active_permission: None,
         plan_active,
         goal,
+        task_plan: historical_state
+            .as_ref()
+            .and_then(xharness_session::session_plan),
         schedules: historical_state
             .as_ref()
             .map(xharness_schedule::active_schedules)

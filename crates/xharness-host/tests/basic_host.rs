@@ -1739,6 +1739,15 @@ async fn every_upstream_rpc_has_baseline_behavior() {
 
     fx.value(RpcMethod::SkillList, json!({"sessionId": session_id}))
         .await;
+    let plan_items = json!([{"id":"verify","title":"Verify the plan","status":"in_progress"}]);
+    let plan = fx
+        .value(
+            RpcMethod::GoalUpdatePlan,
+            json!({"sessionId": session_id, "planRevision": 0, "items": plan_items}),
+        )
+        .await;
+    assert_eq!(plan["plan"]["revision"], 1);
+    assert_eq!(plan["plan"]["items"], plan_items);
     let goal = fx
         .value(
             RpcMethod::GoalCreate,

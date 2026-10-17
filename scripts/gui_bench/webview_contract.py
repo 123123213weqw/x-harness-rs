@@ -18,10 +18,12 @@ class Contract:
     def observe(self, scope='page', **paging):
         # AppFrame expands/resizes a real native pane asynchronously. Retry
         # only a bounded, side-effect-free observation while its presentation
-        # is settling. Never replay an action or conceal transport/JS failures.
+        # is settling or a navigation invalidated the read. Never replay an
+        # action, relax native scope checks or conceal transport/JS failures.
         deadline = time.monotonic() + 5
         transient = {'native browser is hidden', 'native browser is not delegated to this session',
-                     'only the active, laid-out browser tab can be inspected'}
+                     'only the active, laid-out browser tab can be inspected',
+                     'browser navigation changed during inspection; observe again'}
         while True:
             try:
                 snapshot = self.call('observe', dict(scope=scope, **paging))

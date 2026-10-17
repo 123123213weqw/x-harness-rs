@@ -99,6 +99,39 @@ async fn limited_fixture(
 }
 
 #[tokio::test]
+async fn working_plan_survives_zero_display_budget_history_and_restart() {
+    let (host, store) = limited_fixture(2048, 16 * 1024 * 1024, 0).await;
+    let reply = rpc_value(
+        &host,
+        RpcMethod::GoalUpdatePlan,
+        json!({"sessionId":ID,"planRevision":0,"items":[{"id":"verify","title":"Verify after eviction","status":"in_progress"}]}),
+    )
+    .await;
+    let expected = reply["plan"].clone();
+    assert_eq!(expected["revision"], 1);
+    {
+        let state = host.state.read().await;
+        assert!(state.sessions[ID].events.is_empty());
+        assert_eq!(state.sessions[ID].event_cache_resident_bytes, 0);
+    }
+    let mut config = HostConfig::new(std::env::temp_dir());
+    config.session_event_cache_total_bytes = 0;
+    let restarted = BasicHost::with_agent_runtime(config, Arc::new(SnapshotRuntime(store.clone())));
+    restarted.restore_from_store(store.clone()).await.unwrap();
+    for candidate in [&*host, &restarted] {
+        let history = rpc_value(
+            candidate,
+            RpcMethod::SessionHistory,
+            json!({"sessionId":ID}),
+        )
+        .await;
+        assert_eq!(history["projections"]["values"]["taskPlan"], expected);
+        assert!(candidate.state.read().await.sessions[ID].events.is_empty());
+    }
+    assert!(xharness_session::session_plan(&store.load(ID).await.unwrap().unwrap()).is_some());
+}
+
+#[tokio::test]
 async fn incremental_cache_matches_full_projection_at_every_prefix_and_eviction_boundary() {
     for count in [0, 1, 7, 64] {
         for bytes in [0, 1, 512, 4096, 64 * 1024] {

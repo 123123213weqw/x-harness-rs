@@ -9646,3 +9646,5 @@ async fn transport_clock_precedes_private_tool_prefix_commit_and_tool_runs_once(
     let serialized = serde_json::to_string(reception).unwrap();
     assert!(!serialized.contains("value"));
 }
+
+include!("cases/working_plan_context.rs");

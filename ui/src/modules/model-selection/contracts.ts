@@ -49,7 +49,7 @@ export interface ModelSelectInjected {
   load(refreshCapabilities?: boolean): void | Promise<unknown>
   select(selection: ModelSelection): Promise<boolean>
 }
-export type ModelSelectProps = ModelSelectInjected & { locked: boolean; t: Translation }
+export type ModelSelectProps = ModelSelectInjected & { locked: boolean; compact?: boolean; t: Translation }
 export interface ClientSessions {
   scope(sessionId: string): EffectContext | undefined
   subagentAddress(sessionId: string): unknown

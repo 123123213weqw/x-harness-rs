@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "integration_base": "1b853347b22ba4c6df4e1a70241a1518c4058880",
+  "prior_pr_head": "048c37f9dd193ddcda55fa05273acc16190c016a",
+  "compiled_on": "WZU_Server",
+  "local_rust_compilation": false,
+  "production_inputs_count": 1985,
+  "production_inputs_manifest_sha256": "f64346e96ab2a5c166bdeb0fc12017eb847188952eb8b30d6b5e6390b7e60359",
+  "rust": {
+    "workspace_all_targets_passed": 2124,
+    "workspace_ignored": 24,
+    "additional_unique_regressions": 1,
+    "host_lib_rerun_passed": 406,
+    "workspace_and_host_all_target_clippy": "passed"
+  },
+  "frontend": {
+    "focused_contract_tests_passed": 121,
+    "chromium": "passed",
+    "webkit": "passed",
+    "strict_full_boot_pixel_differential": "passed",
+    "typecheck_and_canonical_freshness": "passed",
+    "architecture_gate_and_30_mutation_tests": "passed"
+  },
+  "resource_soaks": [
+    {
+      "passed": false,
+      "error": "Idle RSS drift exceeds predeclared 64 MiB alarm threshold",
+      "verified_turns": 192,
+      "idle_rss_drift_kib": 147404.0,
+      "late_idle_rss_kib": 294288.0,
+      "fd_drift": 0.0,
+      "binary_sha256": "e4aa0cad8917804949e3d2623ea77de4b88a02f17967542a36a5715a607d21ee",
+      "lifecycle": "reuse",
+      "status": "resource_alarm",
+      "exit_code": 1
+    },
+    {
+      "passed": true,
+      "error": null,
+      "verified_turns": 320,
+      "idle_rss_drift_kib": 41546.0,
+      "late_idle_rss_kib": 151636.0,
+      "fd_drift": 1.0,
+      "binary_sha256": "e4aa0cad8917804949e3d2623ea77de4b88a02f17967542a36a5715a607d21ee",
+      "lifecycle": "delete",
+      "status": "passed",
+      "exit_code": 0
+    }
+  ],
+  "profile": "unoptimized dev Host; debug info disabled; isolated synthetic loopback only",
+  "acceptance": {
+    "functional": "passed on the integrated source; exact-head cross-platform PR CI required before merge",
+    "memory": "partial; growing-history RSS alarm remains unresolved and is not relabeled as success",
+    "user_authorization": "Explicit approval to merge #344 despite the documented growing-history resource alarm",
+    "thresholds_changed": false,
+    "history_truncated": false,
+    "paid_model_calls": 0,
+    "release_or_app_replacement": false
+  },
+  "limitations": [
+    "No flat-RSS, leak-free or cross-platform hardware certification claim.",
+    "Historical evaluations remain unchanged; their old source identities and no-merge statements describe those earlier runs.",
+    "The new integration regression adds coverage but no production behavior after the full-workspace run; it was separately rerun with the complete Host library and all-target Clippy."
+  ]
+}

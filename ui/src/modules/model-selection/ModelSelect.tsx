@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { FocusEvent, KeyboardEvent, RefCallback } from 'react'
-import { IconChevronDownOutline14, IconChevronRightOutline14, IconCheckOutline16, IconWarningOutline16, Toast } from '@xharness/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, IconChevronRightOutline14, IconCheckOutline16, IconWarningOutline16, IconThinkOutline14, Toast } from '@xharness/dsh-client-ui-primitives'
 import type { ModelSelection, ModelSelectProps } from './contracts'
 import { ContextPane, ContextRow, ReasoningStatus } from './ContextPane'
 import { css } from './styles'
@@ -12,7 +12,7 @@ type EffortChoice = { key: string; effort: string | undefined; label: string; de
 function classes(...values: (string | false)[]): string { return values.filter(Boolean).join(' ') }
 
 /** Adjacent composer controls; effort choices reuse the authoritative session RPC. */
-function ModelSelect({ locked, available, directory, load, select, manageModels, t }: ModelSelectProps) {
+function ModelSelect({ locked, compact = false, available, directory, load, select, manageModels, t }: ModelSelectProps) {
   const state = useSyncExternalStore(fn => directory.subscribe(fn), () => directory.getSnapshot())
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
@@ -126,22 +126,25 @@ function ModelSelect({ locked, available, directory, load, select, manageModels,
   const loadError = (retryLabel: string, retry = reload) => state.error !== null && lastActionRef.current === 'load' && <div className={css.error}>
     <span>{t('error.action', { message: state.error })}</span><button type="button" className={css.retry} onClick={retry}>{t(retryLabel)}</button>
   </div>
-  return <div ref={rootRef} className={css.root} onKeyDown={onKeyDown} onBlur={onBlur}>
+  return <div ref={rootRef} className={classes(css.root, compact && css.compact)} onKeyDown={onKeyDown} onBlur={onBlur}>
     <button ref={triggerRef} data-xh-model-control="model" type="button" className={css.trigger} aria-label={triggerAria} aria-haspopup="menu" aria-expanded={open && openerRef.current === 'model'} aria-controls={open && openerRef.current === 'model' ? `${id}-menu` : undefined}
-      title={triggerLabel} disabled={locked || busy} onClick={() => { if (open && openerRef.current === 'model') close(); else show('model') }}>
-      <span className={css.triggerLabel}>{modelLabel}</span><IconChevronDownOutline14 className={classes(css.chevron, open && openerRef.current === 'model' && css.chevronOpen)} />
+      title={compact ? `${modelLabel} · ${effortTriggerLabel}` : triggerLabel} disabled={locked || busy} onClick={() => { if (open && openerRef.current === 'model') close(); else show('model') }}>
+      <span className={css.modelIcon} aria-hidden><IconThinkOutline14 /></span><span className={css.triggerLabel}>{modelLabel}</span><IconChevronDownOutline14 className={classes(css.chevron, open && openerRef.current === 'model' && css.chevronOpen)} />
     </button>
-    <button ref={effortTriggerRef} data-xh-model-control="effort" type="button" className={classes(css.trigger, css.triggerEffort)} aria-label={effortTriggerLabel}
+    {!compact && <button ref={effortTriggerRef} data-xh-model-control="effort" type="button" className={classes(css.trigger, css.triggerEffort)} aria-label={effortTriggerLabel}
       aria-haspopup="menu" aria-expanded={open && openerRef.current === 'effort'} aria-controls={open && openerRef.current === 'effort' ? `${id}-menu` : undefined}
       title={effortTriggerLabel} disabled={locked || busy || state.current === null}
       onClick={() => { if (open && openerRef.current === 'effort') close(); else show('effort') }}>
       <span className={css.triggerLabel}>{effortTriggerLabel}</span><IconChevronDownOutline14 className={classes(css.chevron, open && openerRef.current === 'effort' && css.chevronOpen)} />
-    </button>
+    </button>}
     {open && <div id={`${id}-menu`} className={css.menu} role={pane === 'context' ? 'dialog' : 'menu'} aria-label={pane === 'context' ? '调整上下文容量' : pane === 'effort' ? t('menu.effort') : t('menu.aria')} aria-busy={state.status === 'loading' || busy}>
       {pane === 'root' && <>
         <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
           <span className={css.cellLabel}>{t('menu.model')}</span><span className={css.cellValue}>{modelLabel}</span><IconChevronRightOutline14 className={css.cellChevron} />
         </button>
+        {compact && <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('effort') }}>
+          <span className={css.cellLabel}>{t('menu.effort')}</span><span className={css.cellValue}>{displayEffort}</span><IconChevronRightOutline14 className={css.cellChevron} />
+        </button>}
         <ContextRow state={state} itemRef={itemRef()} open={() => { setPane('context') }} />
       </>}
       {pane === 'context' && <ContextPane locked={locked} directory={directory} load={loadContext} select={select} back={() => { setPane('root') }} saved={() => { close(true) }} />}
