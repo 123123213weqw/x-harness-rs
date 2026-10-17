@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 // Run the shipped connection factory and its actual embedded Zod codecs.
 // Replacing transport is intentional; replacing callUnary/readSse would hide
 // exactly the production bug this regression must detect.
@@ -31,7 +32,7 @@ function load(bytes, overrides = {}) {
     ...overrides,
   });
   assert.equal(registration.id, '@xharness/dsh-client-connection');
-  const api = registration.factory(id => {throw new Error('unexpected dependency: ' + id);});
+  const api = registration.factory(id => {if(id==='zod')return sharedVendors.zod;throw new Error('unexpected dependency: ' + id);});
   return {api, errors};
 }
 const old = load(legacy), current = load(source);

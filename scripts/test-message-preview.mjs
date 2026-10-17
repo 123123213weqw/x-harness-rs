@@ -9,7 +9,7 @@ const source = compileSourceModules(new URL('../ui', import.meta.url).pathname,
 let registration
 runInNewContext(source, { window: { __ModuleLoader__: { load: row => { registration = row } } } })
 assert.ok(registration, 'compile the actual TypeScript preview, not a copied test implementation')
-const { messagePreview } = registration.factory(name => assert.fail('Unexpected preview dependency: ' + name))
+const { messagePreview, MessageMarkerCache } = registration.factory(name => assert.fail('Unexpected preview dependency: ' + name))
 const text = value => ({ type: 'text', text: value })
 const original = content => content
   .filter(block => typeof block === 'object' && block !== null && !Array.isArray(block)
@@ -71,4 +71,30 @@ test('10,000 deterministic mixed-block previews match the previous implementatio
       : text(Array.from({ length: next() % 300 }, () => alphabet[next() % alphabet.length]).join('')))
     assert.equal(messagePreview(content), original(content), `case ${n}`)
   }
+})
+
+
+test('marker cache reuses previews, marker objects and the array across unrelated streaming deltas', () => {
+  let reads=0
+  const content=[{type:'text',get text(){reads++;return 'stable preview'}}]
+  const cache=new MessageMarkerCache(), contentOf=key=>key==='user'?content:undefined
+  const initial=cache.read(['user'],contentOf), marker=initial[0], afterPreview=reads
+  for(let n=0;n<100;n++)assert.equal(cache.read(['user',`assistant-${n}`],contentOf),initial)
+  assert.equal(reads,afterPreview,'immutable user content is not reparsed on assistant deltas')
+  assert.equal(initial[0],marker)
+})
+
+test('marker cache updates prepend, reorder, replacement and removal without retaining removed markers', () => {
+  const cache=new MessageMarkerCache(), content=new Map([['a',[text('first')]],['b',[text('second')]]])
+  const read=order=>cache.read(order,key=>content.get(key))
+  const original=read(['a']), appended=read(['a','b'])
+  assert.equal(appended[0],original[0]);assert.notEqual(appended,original)
+  assert.equal(read(['a','b']),appended)
+  assert.equal(read(['b','a']).map(x=>x.key).join(','),'b,a')
+  assert.equal(read(['a','b']).map(x=>x.key).join(','),'a,b')
+  content.set('a',[text('changed')]);assert.equal(read(['a','b'])[0].preview,'changed')
+  content.set('a',[text('changed')]);const before=read(['a','b'])
+  assert.equal(read(['a','b']),before,'equal replacement previews preserve chrome identity')
+  assert.equal(read(['a']).length,1);assert.equal(read([]).length,0)
+  assert.equal(read(['b'])[0].preview,'second')
 })
