@@ -109,7 +109,9 @@ compatible text estimate + independent conservative image allowance
   that scope and persist the invalidation. Normal mixed completions neither train
   nor evict the text-only observations. Restart and snapshot version 1 remain
   compatible; mixed totals are never accepted as persisted text samples.
-- Hard input/output/safety budgets, compaction thresholds, image allowance policy,
+- Caption blocks not yet expanded by the wire encoder are reserved separately at
+  conservative UTF-8 byte cost plus framing; text calibration cannot erase them.
+- Hard input/output/safety budgets, compaction thresholds, image pixel allowance policy,
   prompt content, attachment encoding, and the running user's state are unchanged.
 
 Regression coverage includes first/repeated/removed images, cold starts, distribution
