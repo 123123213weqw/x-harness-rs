@@ -183,6 +183,52 @@ async fn workspace_switch_and_refresh_do_not_append_rules_to_history() {
         .all(|s| s.messages.is_empty()));
 }
 
+#[tokio::test]
+async fn browser_routing_is_a_single_stable_audited_policy_not_a_capability_claim() {
+    let root = Root::new();
+    let host = crate::BasicHost::without_provider(crate::HostConfig::new(&root.0));
+    create(&host, "browser-policy", &root).await;
+    let first = host.prompt_assembly("browser-policy").await.unwrap();
+    assert_eq!(first, host.prompt_assembly("browser-policy").await.unwrap());
+    let audit = first
+        .audit()
+        .sections
+        .iter()
+        .filter(|s| s.id == "tool/browser")
+        .collect::<Vec<_>>();
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].version, "2");
+    let sections = host
+        .state
+        .read()
+        .await
+        .prompt_sections("browser-policy")
+        .unwrap();
+    let policy = &sections
+        .iter()
+        .find(|s| s.id == "tool/browser")
+        .unwrap()
+        .content;
+    assert_eq!(first.system().matches(policy).count(), 1);
+    assert_eq!(policy, "For website browsing and interaction, prefer the embedded browser through plugin_mcp when available; respect explicit browser choices.");
+    for detail in [
+        "zero open tabs",
+        "web_fetch",
+        "computer",
+        "successful result",
+    ] {
+        assert!(
+            !policy.contains(detail),
+            "detailed guidance belongs to plugin_mcp: {detail}"
+        );
+    }
+    assert!(!policy.contains("@xharness/native-browser"));
+    assert!(!policy.contains("Tauri"));
+    assert!(host.state.read().await.sessions["browser-policy"]
+        .messages
+        .is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn waiting_for_instruction_io_never_pins_the_global_state_lock() {
     let root = Root::new();
