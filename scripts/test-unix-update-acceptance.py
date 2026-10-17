@@ -43,7 +43,7 @@ class HarnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             desktop = pathlib.Path(tmp)
             (desktop / 'Cargo.toml').write_text('[package]\nname = "xharness-desktop"\n[dependencies]\nother = "1"\n')
-            (desktop / 'Cargo.lock').write_text('version = 4\n[[package]]\nname = "reqwest"\nversion = "0.13.4"\n[[package]]\nname = "xharness-desktop"\nversion = "0.1.0"\ndependencies = [\n "other",\n]\n')
+            (desktop / 'Cargo.lock').write_text('version = 4\n[[package]]\nname = "reqwest"\nversion = "0.13.5"\n[[package]]\nname = "xharness-desktop"\nversion = "0.1.0"\ndependencies = [\n "other",\n]\n')
             m.prepare_reqwest_dependency(desktop)
             first = {name: (desktop / name).read_bytes() for name in ('Cargo.toml', 'Cargo.lock')}
             m.prepare_reqwest_dependency(desktop)
@@ -52,7 +52,7 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual((desktop / 'Cargo.lock').read_text().count(' "reqwest",'), 1)
 
     def test_reqwest_incompatible_versions_fail_before_writing_either_file(self):
-        for version, locked in [('0.12', '0.13.4'), ('0.13', '0.13.5'), ('=0.13.3', '0.13.4')]:
+        for version, locked in [('0.12', '0.13.5'), ('0.13', '0.14.0'), ('=0.13.3', '0.13.5')]:
             with self.subTest(version=version, locked=locked), tempfile.TemporaryDirectory() as tmp:
                 desktop = pathlib.Path(tmp)
                 (desktop / 'Cargo.toml').write_text(f'[dependencies]\nreqwest = {{version = "{version}", features = ["json"]}}\n')
