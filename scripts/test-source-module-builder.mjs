@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import {test, after} from 'node:test'
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync} from 'node:fs'
@@ -172,4 +173,25 @@ test('pinned source-library runtime and original public SDK are distinct verifie
   writeFileSync(join(root,'src/modules/test/index.ts'),'import {identity} from "fixturelib"; export const value = identity(7);')
   writeFileSync(join(root,folder,'index.ts'),files['index.ts']+'\nexport const changed = 1;')
   assert.throws(()=>compile(root), /Pinned input changed/,'runtime vendor drift cannot bypass SDK typechecking')
+})
+
+
+test('shared pinned vendor is external and retains platform singleton identity across factories', () => {
+  const root=fixture({'index.ts':"import {z} from 'zod';export const schema=z.string();export const namespace=z;"})
+  cpSync(resolve('ui/node_modules/zod'),join(root,'node_modules/zod'),{recursive:true})
+  const path=join(root,'source-vendors.json'), spec=JSON.parse(readFileSync(path))
+  spec.packages.zod.shared=true;spec.platformPackages={zod:{version:'4.4.3',license:'MIT'}}
+  writeFileSync(path,JSON.stringify(spec))
+  const built=compile(root)
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@4.4.3'))
+  assert.ok(!built.bytes.toString().includes('vendor/zod.js'))
+  const first=load(built,name=>{assert.equal(name,'zod');return sharedVendors.zod})
+  const second=load(built,()=>sharedVendors.zod)
+  assert.equal(first.namespace,second.namespace);assert.equal(first.namespace,sharedVendors.zod.z)
+  assert.equal(first.schema.safeParse(1).success,false);assert.equal(first.schema.safeParse('ok').success,true)
+  assert.throws(()=>load(built),/unexpected dependency/,'absent platform vendor must fail, not silently disable validation')
+  spec.platformPackages.zod.version='wrong';writeFileSync(path,JSON.stringify(spec))
+  assert.throws(()=>compile(root),/matching platform pin/)
+  spec.packages.zod.shared='true';writeFileSync(path,JSON.stringify(spec))
+  assert.throws(()=>compile(root),/Invalid shared vendor policy/)
 })

@@ -834,6 +834,14 @@
       "licenses": [
         "LICENSE"
       ]
+    },
+    {
+      "name": "zod",
+      "version": "4.4.3",
+      "license": "MIT",
+      "licenses": [
+        "node_modules/zod/LICENSE"
+      ]
     }
   ],
   "files": [
@@ -15152,6 +15160,330 @@
     {
       "path": "node_modules/undici-types/websocket.d.ts",
       "sha256": "a4d551dbf8746780194d550c88f26cf937caf8d56f102969a110cfaed4b06656"
+    },
+    {
+      "path": "node_modules/zod/LICENSE",
+      "sha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8"
+    },
+    {
+      "path": "node_modules/zod/package.json",
+      "sha256": "c630bd10b52dcf71c112a2bf78dbf2734b9db58d62de663b8d86c2ec2c8cda2e"
+    },
+    {
+      "path": "node_modules/zod/v4/core/core.js",
+      "sha256": "a5e713beaac4647151e03716a83f51ab714e5337cf66850f3b28eaf072a0bbfe"
+    },
+    {
+      "path": "node_modules/zod/v4/core/util.js",
+      "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3"
+    },
+    {
+      "path": "node_modules/zod/v4/core/errors.js",
+      "sha256": "bdd0ed8fd4a6e9d04fe6423b0f9df3a0b403939bc7dcedd8930a4b8df1fb118c"
+    },
+    {
+      "path": "node_modules/zod/v4/core/parse.js",
+      "sha256": "2578b8d1341c3882a6c089f9ec57ce1c1a16b8b2b477721d4d89ba3d3ee50c9c"
+    },
+    {
+      "path": "node_modules/zod/v4/core/regexes.js",
+      "sha256": "3cb122080c1154321331322ebc0cbe04878fe104c8c7b335891d9f85fc4b3f63"
+    },
+    {
+      "path": "node_modules/zod/v4/core/checks.js",
+      "sha256": "5a33a20dcad372b4d18ead8d1e58b1950454f136a2216e62f247e0e5601ac838"
+    },
+    {
+      "path": "node_modules/zod/v4/core/doc.js",
+      "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9"
+    },
+    {
+      "path": "node_modules/zod/v4/core/versions.js",
+      "sha256": "bf082fde98fa7725412d713c7f56da3a5603bdef199d68d5769263f30ce9c756"
+    },
+    {
+      "path": "node_modules/zod/v4/core/schemas.js",
+      "sha256": "09da9b0cb9b9d2d795c349bc47c7521d5aaffe241885f0c9728f2aa7de3834c9"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ar.js",
+      "sha256": "220ca3ca8cf67e4ccc05d789eeed2692d970269fe0cd82f05db8fd899b661b9e"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/az.js",
+      "sha256": "4725ffef0b2f2df947194f9698c792b69f52a8c3a5a1e1bdfabbf62259a1dd46"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/be.js",
+      "sha256": "da4bda7fbc940dd9f50efdd914caa9397243be779a505b82bd4be5395d3b795e"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/bg.js",
+      "sha256": "48511ad2f86043f0eea6e7673d5e2b848a3295a26c9c4650e96b3884d640196d"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ca.js",
+      "sha256": "796f9ba7dcd53648171aa0132c50271ef358936765cec0a44a642c41d05b3e8c"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/cs.js",
+      "sha256": "670a75fe1db1104db090c95aabb01e4eb6decd451fe77fd830c2e4dafc79b49a"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/da.js",
+      "sha256": "cdaad7a1fa370abda1943fe9c2caba961e7896b9808d51275daf33f964af49cc"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/de.js",
+      "sha256": "521a4ed29fcaf3f781163875dc282cfb5262047773aa2b70a852996b1d8a51b9"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/el.js",
+      "sha256": "9857a9e4909282b2efd86317fc3e67ed86e24287f32329cfa5ab833c05fc0d81"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/en.js",
+      "sha256": "232a0828d64df8e410b23ac9825a667bd9d485fd70acdc4b4d0870539faef0a4"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/eo.js",
+      "sha256": "ebe08048aa3ee9871ce9fe1271e254cb672b1968ec40ac253066d08d176e8a65"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/es.js",
+      "sha256": "4edd9302e9724c408b024220e99092fbd2f90100ac3c6407a94543b79843610c"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/fa.js",
+      "sha256": "2dc1bee1e984e8a15191fb3c69aaecaa26c922e12a0d4486ac005a0372b78565"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/fi.js",
+      "sha256": "3911184979f01d2ae580ce611710ee40597eff97a410d0fa823ab6ea27cee88c"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/fr.js",
+      "sha256": "3ea466ca5737984bb5acc9008822060272f596317004618cfe1e05109f707577"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/fr-CA.js",
+      "sha256": "f8716c2baaccdfd1d958743bbc5250c9bdef5152d0801470e9b9a380d618f4ab"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/he.js",
+      "sha256": "290512e43d2907700211da09dc3959fd98d120bfb89f8836e6e3f83a472e26fe"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/hr.js",
+      "sha256": "1ea65433c32b89bead43113ac69b3acc520bb73ae231dd2e05fedf8e8c5656d6"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/hu.js",
+      "sha256": "913ee94a253db79b31463ae23a337060b6fe28be73dfc7657d8a83a4942bd8a8"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/hy.js",
+      "sha256": "0d3bbb96c0f8bc74468a2dfc7d066e838bb56fab64fd5ec03ce9c4d89eccbe99"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/id.js",
+      "sha256": "cd2c19b5c30dade3ed91ffcff3deb0b068713be24f02248e7e46b87b2b9553ee"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/is.js",
+      "sha256": "ead5b14eac892229f915fe38ec94ab3b1e676f8aa2df2a8450848ba9ca9a1612"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/it.js",
+      "sha256": "439969d199427d77ebf1e477bf2295b226712804b25437d442f9dfc78aca95e0"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ja.js",
+      "sha256": "43ee10378cac22b0b8aee912a66c3f36a834d5b4c76e9748f88a784044f248fd"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ka.js",
+      "sha256": "0ab5322368f9ac6e6b58f93dac484a4f4f06cdf4c0677f4df88164e9d8b4bf81"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/km.js",
+      "sha256": "dbdabda94dd93d4a1827e6c809505c79fa6aa7abefec91dc50fa0871382c99cc"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/kh.js",
+      "sha256": "78c3d1991041bb8c8fc0f7c5d745aae422d4c2e4e8f30bae44f3fef4765900a8"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ko.js",
+      "sha256": "d2efe22ac069d9b32b0109fa07713ac0695ac1c1357afc4e4277056466f2e196"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/lt.js",
+      "sha256": "dad886e52c56a1329d22e072f8b08dc8730f69c3dc5e5acf8267cac18df1ab28"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/mk.js",
+      "sha256": "9eb4af0392fc5b9c438cdc6ceea446acc541b59e221dba918f7b80800d9da3d1"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ms.js",
+      "sha256": "c550a9185d997e8fcd17311951aa1e29793a50b8e825e18310efd5a46c641795"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/nl.js",
+      "sha256": "acba414579c5bbd7f83dc6661fa1a12d65f1822f9b0f5035549ac60f46d93763"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/no.js",
+      "sha256": "1854483c7cf158b8f97f0faf6fd799eb1f762009018b5fde893ca33f2fb0b313"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ota.js",
+      "sha256": "34ae496104bc17fea7d30c3d45c94cfe3d1d569b5d39a6ca51de6c177690c556"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ps.js",
+      "sha256": "f977b5141fa8fb6a8459372e0b2895d74b381c9f2ff4899141f7ee3e639a4513"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/pl.js",
+      "sha256": "18eab58f395e30b906e8e3fddc5f212eb19f2c4362410889a5c5e0141ebe2144"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/pt.js",
+      "sha256": "df172afc585544dee7c063c484f5a07b5ed103e2c1072a782c763ad8ceb08e17"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ro.js",
+      "sha256": "ecae409f4299ab91e2aff1095db14e23f3cf2c05b3654e242047655352c7f46b"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ru.js",
+      "sha256": "c397a473e94d7d189a9c09c7890fe379c4f6f46d9556d52a040a90ffa56f7b93"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/sl.js",
+      "sha256": "ee2ff3a19b62cd2f89b54b165088773b937de15df7253df220bef07d9adf2d80"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/sv.js",
+      "sha256": "97d6718fb643e05d6fe30fa4f9f09b8d9a3eda4a3a350b57dfb2944943d19502"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ta.js",
+      "sha256": "04bbde9766251f9047e786fdd77632f2ecd53aec2eb060eb2fc85bf576ad729d"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/th.js",
+      "sha256": "aea70c9ac2b399fe4749e19ba3aa99c3efb4dfb50eadfb62b0b2a6e005748f3d"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/tr.js",
+      "sha256": "4449f41d22c6f15ede5066f79d840a52ec45a6b694c859e16f9121062b6fad2f"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/uk.js",
+      "sha256": "77136a2a60eef62f7cc803a0f9971aebbc641403af77c1b41fd5ce59abfa5de3"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ua.js",
+      "sha256": "9391169ffbc72f777a83230b6ffcc3f4cf46ab5945ec540de9ef4609dca1f4cc"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/ur.js",
+      "sha256": "858f4f38d651073e7a3fbec7ed356692578b3ad1fae1b453cb3d85312a4f39d2"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/uz.js",
+      "sha256": "d540bed482d15c47cb45439cff34e053379c53019c7c7c5fbe43f222d0c81f04"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/vi.js",
+      "sha256": "2c61bd3f4a733f3cbb1ad85e75a053cb15a8ebeb83ab56dc21f2948b1138e12f"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/zh-CN.js",
+      "sha256": "99a4b16af598834a0b11607fcdebd1c6de026386ff1d6a5a306b364c154c5899"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/zh-TW.js",
+      "sha256": "37dcae620e1553e9174a4b9434bbcc4e465150a627e80c9c17fd01de8baaf59a"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/yo.js",
+      "sha256": "98b9cbf31bf00c8b2c00de62725a9dd7cb718ac72d6e8fd4e0a1a7c49723e0f4"
+    },
+    {
+      "path": "node_modules/zod/v4/locales/index.js",
+      "sha256": "d73f41a76614855d43eea493030a1aa05dca30c9a17015a0da5b8b70da61b6b1"
+    },
+    {
+      "path": "node_modules/zod/v4/core/registries.js",
+      "sha256": "620ea1a715ccc4e6e605a271343bf47942dccae90885dc71f137b1f08a972e50"
+    },
+    {
+      "path": "node_modules/zod/v4/core/api.js",
+      "sha256": "00cb5edcfde8098e5a169e66c1dce50c101484d21436e3d78e137e1fa87c4836"
+    },
+    {
+      "path": "node_modules/zod/v4/core/to-json-schema.js",
+      "sha256": "fb3c9ab59947582f7671a53c8e20a3ced5eaa92d1c220ce8b27717a59033ad0d"
+    },
+    {
+      "path": "node_modules/zod/v4/core/json-schema-processors.js",
+      "sha256": "ff15f567c9401dd7d3151ce11736283ff747c9a9e205cc08ee96f90eadc1c0c6"
+    },
+    {
+      "path": "node_modules/zod/v4/core/json-schema-generator.js",
+      "sha256": "9cc884cdb535a9c87b85b66e61a593ff6b686222f038834f81c5e92552cd6e23"
+    },
+    {
+      "path": "node_modules/zod/v4/core/json-schema.js",
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    {
+      "path": "node_modules/zod/v4/core/index.js",
+      "sha256": "f9698820ee8371215e8d015cfa060230c62e65428397dce83f78e6538976301c"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/checks.js",
+      "sha256": "78a162d29e06001b4d919e1ed08f6e7d0d665bba0ef983201373745410d7b354"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/iso.js",
+      "sha256": "3cc5e6b4da086b8ffc7ee3188c69e4d3c945b368092e78d2299b5321182752c5"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/errors.js",
+      "sha256": "b155316267f79068ddc2dddc7046e13785804b768ca36e6deff1691d154f7c20"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/parse.js",
+      "sha256": "14cbcc416ab9169abc2cde97af77da54ca769684eac1e03a3753c16ea4a7cd95"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/schemas.js",
+      "sha256": "eb4af7946a092aff8678b9251728ea58dab40154920cd65ec4a2ca1d4df68393"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/compat.js",
+      "sha256": "0e948b101771cc0e7b753e54b3f5b486929d3db9bd4c09d98fe4ce86271bcf7b"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/from-json-schema.js",
+      "sha256": "d8866bf5232e55d12cda032bde6a56a05a0a8b276945c2e4eed66432ef5cc9b2"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/coerce.js",
+      "sha256": "fb2efe3b6eacc475c77cbb571b5fb8650d92a10f316dc869e49b722973d83c3c"
+    },
+    {
+      "path": "node_modules/zod/v4/classic/external.js",
+      "sha256": "179a03ace3d1d77895cc5b3c54a3fcbf2b7f8bad44d6f030092491c10e5d9097"
+    },
+    {
+      "path": "node_modules/zod/index.js",
+      "sha256": "c733a1897d6b4b30dad6998597f6896b265b094a65534359ada34b08ecf8932c"
     }
   ]
 }

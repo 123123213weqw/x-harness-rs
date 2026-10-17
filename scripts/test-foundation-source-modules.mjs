@@ -1,3 +1,4 @@
+import { sharedSourceVendors, sharedVendors } from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -56,7 +57,9 @@ function sourceModule(name, globals = {}, externals = {}, entry = 'index') {
     window:{...globals.window,__ModuleLoader__:{load(value){registration=value}}}}
   const realm=vm.createContext(context)
   vm.runInContext(compiledEntry(name,entry),realm)
+  const vendors=sharedSourceVendors(realm)
   const exports=registration.factory(spec => {
+    if (spec in vendors) return vendors[spec]
     if (spec in externals) return externals[spec]
     throw new Error(`Unexpected source external import ${spec}`)
   })
@@ -602,7 +605,8 @@ function legacyConnectionSchemas(names) {
   // initializes English through another package. Initialize the same pinned
   // SDK in this exact realm before evaluating the immutable frozen factory.
   vm.runInContext(compiledEntry('client-connection','contracts/host/apiproxy/api/rpc.schema'),realm)
-  registration.factory(()=>{throw Error('schema SDK unexpectedly requires external')})
+  const vendors=sharedSourceVendors(realm)
+  registration.factory(name=>{assert.ok(name in vendors);return vendors[name]})
   vm.runInContext(code.replace('return module.exports;',hook),realm)
   return rememberSchemaRealm(registration.factory(()=>{throw Error('connection unexpectedly requires external')}).__schemas,realm)
 }
@@ -671,17 +675,17 @@ test('connection: fixture mutations, edit-before-user forks and generic Remote f
   assert.deepEqual(traces[1],traces[0])
 })
 
-test('connection: production compiler packages the whole entry and Zod without an external loader escape',async()=>{
+test('connection: production compiler declares the pinned platform Zod singleton',async()=>{
   const id='@xharness/dsh-client-connection';const row={id,source:'src/modules/client-connection/index.ts'};const built=compileSourceModules(join(repo,'ui'),[row]).get(id)
-  assert.deepEqual(built.external,[]);assert.ok(built.sources.includes('npm:zod@4.4.3'));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@4.4.3'));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
   let registration;const globals=connectionGlobals('?fixture');vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
-  assert.equal(registration.id,id);const api=registration.factory(request=>{throw Error(`Unexpected production loader request ${request}`)});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
+  assert.equal(registration.id,id);const api=registration.factory(request=>{assert.ok(request in sharedVendors);return sharedVendors[request]});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
 })
 
 function runtimeFixture(label, globals={}, suppliedApi) {
   const ctx=new Core.Context(),trace=[];const inherited={...connectionGlobals(''),Map,Set,queueMicrotask,process:{env:{NODE_ENV:'production'}},...globals}
   const core=sourceModule('platform',inherited,{},'slots/index')
-  const externals={'@xharness/cordis':Core,'@xharness/dsh-client-ui-slots':core}
+  const externals={...sharedVendors,'@xharness/cordis':Core,'@xharness/dsh-client-ui-slots':core}
   const api=suppliedApi?suppliedApi(externals):(label==='legacy'?legacy('client-runtime',inherited,externals):sourceModule('client-runtime',inherited,externals))
   ctx.provide('remote',{commands:{execute:async()=>({ok:true,value:undefined})},$dispatch:(event,args)=>trace.push(['dispatch',event,args])})
   ctx.provide('typert',{contexts:{registerClient(_name,provider){return ctx.provide('identity',provider.identity)}}})
@@ -771,7 +775,7 @@ test('runtime: Conversation registries and incremental assembler retain prepend 
 
 test('runtime: production compiler bundles genuine pinned Immer and bootstraps without a process/global package escape',async()=>{
   const id='@xharness/dsh-client-runtime';const built=compileSourceModules(join(repo,'ui'),[{id,source:'src/modules/client-runtime/index.ts'}]).get(id)
-  assert.deepEqual(built.external,['@xharness/cordis','@xharness/dsh-client-ui-slots']);assert.ok(built.sources.includes('vendor:immer@10.2.0'));assert.ok(built.sources.includes('src/modules/client-runtime/sessions/session.ts'));assert.ok(!built.sources.some(path=>path.includes('Documents/Codex')))
+  assert.deepEqual(built.external,['@xharness/cordis','@xharness/dsh-client-ui-slots','zod']);assert.ok(built.sources.includes('vendor:immer@10.2.0'));assert.ok(built.sources.includes('src/modules/client-runtime/sessions/session.ts'));assert.ok(!built.sources.some(path=>path.includes('Documents/Codex')))
   const globals=connectionGlobals('');let registration;vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
   const f=runtimeFixture('source',{},externals=>registration.factory(spec=>{assert.ok(spec in externals,`production external ${spec}`);return externals[spec]}));const fixture=connectionFixture('source');let sinks;f.services.set('connection',{api:fixture.handle.api,start(value){sinks=value;return{stop(){}}}});f.api.apply(f.ctx);sinks.onConnected();await drain();assert.equal(f.services.get('sessions').list.getSnapshot().phase,'ready')
   // Readiness of the two baseline RPCs precedes the runtime-owned initial

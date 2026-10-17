@@ -112,7 +112,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  for(const [language,expected] of [['en','Reviewing on your behalf…'],['zh','正在代你审核…']])assert.equal(apis[1].plugin[language]['approval.reviewing'],expected);
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
- assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime'].sort());
+ assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime','zod'].sort());
 });
 test('complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats',()=>{
  const receipts=[];for(const {plugin:api} of apis){const slots=[],defs=[],views=[],dicts=[],effects=[],events=[];

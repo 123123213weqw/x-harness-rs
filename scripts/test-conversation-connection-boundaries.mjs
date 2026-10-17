@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 /** Direct protocol extensions + open carrier/surface rules of the actual strict factory. */
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -7,7 +8,7 @@ import {compileSourceModules} from './build-source-modules.mjs'
 import {loadOwnedCordisRuntime} from './fixtures/owned-view-cordis-runtime.mjs'
 import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs'
 const id='@xharness/dsh-client-connection',source=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/client-connection/index.ts'}]).get(id).bytes.toString(),frozen=readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8')
-function evaluate(bytes,fixture=false,externals={}){let row;const context={window:{location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},__ModuleLoader__:{load:value=>row=value}},location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},console,AbortController,AbortSignal,URL,URLSearchParams,Date,fetch,Response,Headers,Request,crypto:globalThis.crypto,structuredClone,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval};vm.runInNewContext(bytes,context);return row.factory(name=>{if(name in externals)return externals[name];throw Error(name)})}
+function evaluate(bytes,fixture=false,externals={}){let row;const context={window:{location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},__ModuleLoader__:{load:value=>row=value}},location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},console,AbortController,AbortSignal,URL,URLSearchParams,Date,fetch,Response,Headers,Request,crypto:globalThis.crypto,structuredClone,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval};vm.runInNewContext(bytes,context);return row.factory(name=>{if(name==='zod')return sharedVendors.zod;if(name in externals)return externals[name];throw Error(name)})}
 const apis=[evaluate(frozen),evaluate(source)],json=value=>JSON.parse(JSON.stringify(value))
 const surfaceName='contracts/core/session/surface',names=['isSurfaceEvent','isAppendSurfaceEvent','isReplacementSurfaceEvent','deriveEventMessage','foldSurface','SurfaceManager']
 const frozenMarkers=evaluate(readFileSync('ui/reference/master-a613970/plugins/@xharness/dsh-client-runtime/client.js','utf8').replace('return module.exports;','Object.assign(exports,{isSurfaceEvent,isAppendSurfaceEvent,isReplacementSurfaceEvent});return module.exports;'),false,{'@xharness/cordis':loadOwnedCordisRuntime(),'@xharness/dsh-client-ui-slots':{}})

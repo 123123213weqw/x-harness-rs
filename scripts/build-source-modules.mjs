@@ -95,6 +95,14 @@ export function compileSourceModules(ui, rows) {
     const packagePath = localRequire.resolve(`${name}/package.json`)
     const metadata = JSON.parse(readFileSync(packagePath, 'utf8'))
     if (metadata.version !== spec.version || metadata.license !== spec.license) throw Error(`Unpinned vendor package: ${name}`)
+    if (spec.shared !== undefined && typeof spec.shared !== 'boolean') throw Error(`Invalid shared vendor policy: ${name}`)
+    if (spec.shared) {
+      const platform = vendorSpec.platformPackages?.[name]
+      if (platform?.version !== spec.version || platform.license !== spec.license) throw Error(`Shared vendor has no matching platform pin: ${name}`)
+      // The shell supplies this exact pinned namespace once. Keeping it an
+      // ordinary external preserves ModuleLoader identity and dependency checks.
+      return undefined
+    }
     const entry = localRequire.resolve(name)
     const built = esbuild.buildSync({entryPoints: [entry], absWorkingDir: ui, bundle: true, platform: 'browser',
       format: 'cjs', target: 'es2020', write: false, metafile: true, legalComments: 'inline'})

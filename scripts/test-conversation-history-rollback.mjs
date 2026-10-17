@@ -1,3 +1,4 @@
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 /** Real Session + assembler + complete Conversation classifiers, not copied reducers. */
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -7,7 +8,7 @@ import {compileSourceModules} from './build-source-modules.mjs'
 import {loadOwnedCordisRuntime} from './fixtures/owned-view-cordis-runtime.mjs'
 const Core=loadOwnedCordisRuntime(),runtimeId='@xharness/dsh-client-runtime',conversationId='@xharness/dsh-client-ui-conversation'
 const compiled=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id:runtimeId,source:'src/modules/client-runtime/test-exports.ts'},{id:conversationId,source:'src/modules/client-runtime/history-browser-exports.ts'}])
-function evaluate(code,externals){let row;const document={querySelector:()=>null,getElementById:()=>null,createElement:()=>({dataset:{}}),head:{appendChild(){}}};vm.runInNewContext(code,{window:{__ModuleLoader__:{load:value=>row=value}},document,console,AbortController,AbortSignal,Date,URL,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame:callback=>setTimeout(callback,0),cancelAnimationFrame:clearTimeout});return row.factory(name=>{if(name in externals)return externals[name];throw Error('unexpected external '+name)})}
+function evaluate(code,externals){let row;const document={querySelector:()=>null,getElementById:()=>null,createElement:()=>({dataset:{}}),head:{appendChild(){}}};vm.runInNewContext(code,{window:{__ModuleLoader__:{load:value=>row=value}},document,console,AbortController,AbortSignal,Date,URL,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame:callback=>setTimeout(callback,0),cancelAnimationFrame:clearTimeout});return row.factory(name=>{if(name==='zod')return sharedVendors.zod;if(name in externals)return externals[name];throw Error('unexpected external '+name)})}
 const react={createElement:(type,props)=>({type,props}),memo:x=>x,createContext:initial=>({value:initial}),useState:value=>[value,()=>{}]},jsx=(type,props)=>({type,props})
 const raw=(type,data,seq)=>({event:{seq,time:seq,type,data}}),user=seq=>({...raw('user/message',{id:'u'+seq,source:{kind:'user'},content:[{type:'text',text:'retained'}]},seq),event:{...raw('user/message',{id:'u'+seq,source:{kind:'user'},content:[{type:'text',text:'retained'}]},seq).event,surfaceOp:'append'}})
 for(const implementation of ['legacy','source']){

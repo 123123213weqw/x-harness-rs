@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './fixtures/shared-source-vendors.mjs'
 // Render actual source ChatView, keyed row seats and turn footer in both engines.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -33,6 +34,7 @@ try {
  await page.addStyleTag({content:':root{--dsh-chat-content-width:760px;--dsw-alias-label-primary:#222;--dsw-alias-label-secondary:#555;--dsw-alias-label-tertiary:#888;--dsw-alias-bg-base:#fff;--dsw-alias-state-business-primary:#4577e5}body{font:14px sans-serif}button{font:inherit}'} )
  await page.addScriptTag({content:'window.__ModuleLoader__={load:r=>window.registration=r}'})
  await page.addScriptTag({content:toolBundle})
+ await installSharedSourceVendors(page)
  await page.evaluate(()=>window.toolRegistration=registration)
  await page.addScriptTag({content:source})
  await page.evaluate(()=>{
@@ -53,8 +55,8 @@ try {
   const runtime={isAppendSurfaceEvent:()=>true,toAssistantBlocks:x=>x,createSnapshotStore:store,defineStore:x=>x}
   const DisclosureRow=({open,onToggle,title,children})=>jsx('div',{children:[jsx('button',{onClick:onToggle,'aria-expanded':open,children:title}),open&&children]})
   const primitives=new Proxy({DisclosureRow,Tooltip:({children})=>children,MarkdownText:({text})=>jsx('div',{'data-md':'',children:text}),JsonBlock:({label})=>jsx('div',{children:label}),writeClipboard:async()=>true},{get:(o,k)=>o[k]??(()=>jsx('svg',{width:14,height:14}))})
-  const plugin=registration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
-  const toolApi=toolRegistration.factory(name=>name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
+  const plugin=registration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:name==='@xharness/dsh-client-runtime/client'?runtime:name==='@xharness/cordis'?{Service:class{}}:{})
+  const toolApi=toolRegistration.factory(name=>name==='zod'?window.__sourceVendors.zod:name==='react'?React:name==='react-dom'?ReactDOM:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:React.Fragment}:name==='@xharness/dsh-client-ui-primitives'?primitives:{})
   const t=(key,args={})=>(plugin.en[key]??key).replace(/\{(\w+)\}/g,(_,k)=>args[k])
   const hook=s=>select=>select(React.useSyncExternalStore(s.subscribe,s.getSnapshot))
   window.calls=[];window.sessionId='s';window.setId=id=>{sessionId=id;render()}
