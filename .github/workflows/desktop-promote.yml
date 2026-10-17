@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
       - name: Restore trusted publication controls without rebuilding or changing the immutable candidate
         run: cp "$RUNNER_TEMP/desktop-promotion-controls/"*.py scripts/
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Fetch and authenticate exact successful build and all native acceptance attempts

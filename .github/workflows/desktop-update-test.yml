@@ -49,7 +49,7 @@ jobs:
           PY
           existing=$(gh release view "desktop-test-v$UPDATE_VERSION" --json isDraft --jq '.isDraft' 2>/dev/null || true)
           test "$existing" != "false" || { echo 'Refusing to overwrite a published test version; choose a new version.'; exit 1; }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Install locked source UI toolchain
