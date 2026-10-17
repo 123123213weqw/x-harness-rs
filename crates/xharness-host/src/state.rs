@@ -967,6 +967,8 @@ impl HostState {
         let workflow = "Inspect before editing and make the smallest coherent change. For large files, use targeted search and bounded read pages; continue only the needed page with next_cursor instead of repeating or requesting the whole file. A tool error is an observation: diagnose it, change the approach, or report the limitation instead of retrying the same unavailable capability forever. Once the evidence is sufficient, answer directly. Preserve user work and verify changes with the strongest available checks.";
         let background_jobs = "For long-running non-interactive commands that should begin now, prefer bash with run_in_background=true and retain every returned job_id. Continue independent work instead of sleeping or busy-polling. Use job_output to collect relevant results and job_kill when work no longer matters. If job_output advertises action=defer, use it with a continuation for a long dependency when no independent work remains, then end the current turn with a pending update; the Host resumes through a terminal receipt. Do not immediately wait after defer. Failed, killed and interrupted are not successful results. For user-requested future reminders or scheduled tasks, use automation instead of a sleeping process. Use mode=reminder for a reminder, mode=task only for an authorized executable task, and target=current_chat for contextual followups or new_chat for independent runs. Never create schedules unless the user requested them. If the task genuinely needs an interactive or existing external session, choose an appropriate native tool and keep its status, logs, and stop method trackable; do not assume a detached process survives Host shutdown or cancellation. Use web_search for internet topics and grep only for text in the workspace.";
 
+        let browser = "For website browsing and interaction, prefer the embedded browser through plugin_mcp when available; respect explicit browser choices.";
+
         let mut sections = vec![
             PromptSection::content_addressed(
                 format!("agent-preset/{preset_id}"),
@@ -976,6 +978,7 @@ impl HostState {
             PromptSection::content_addressed("workspace/context", workspace),
             PromptSection::new("coding/workflow", "2", workflow),
             PromptSection::new("tool/jobs", "5", background_jobs),
+            PromptSection::new("tool/browser", "2", browser),
         ];
         if session.delegated {
             sections.push(PromptSection::new(
