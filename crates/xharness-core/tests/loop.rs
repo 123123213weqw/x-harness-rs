@@ -5519,7 +5519,8 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
     request.debug = DebugRecorder::new(sink.clone());
     let mut run = LoopEngine.start(request);
     while run.next().await.is_some() {}
-    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
 
     let events = sink.events().await;
     for expected in [
@@ -5534,6 +5535,15 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
     assert!(events.iter().all(|event| {
         event.scope.session_id.as_deref() == Some("debug-session") && event.scope.run_id.is_some()
     }));
+    let terminal = events
+        .iter()
+        .find(|event| event.event == "run.end")
+        .unwrap();
+    assert_eq!(
+        terminal.payload["messages"],
+        serde_json::to_value(&result.messages).unwrap()
+    );
+    assert_eq!(terminal.payload["finalText"], "hello");
 }
 
 #[tokio::test]

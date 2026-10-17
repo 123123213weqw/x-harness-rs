@@ -351,8 +351,8 @@ impl ApiBackend for BasicHost {
             .await
             .map_err(crate::driver::agent_runtime_error)?
             .ok_or_else(|| RpcError::internal("authoritative receipt journal unavailable"))?;
-        let admissions = crate::restore::restored_admissions(&durable);
-        match admissions.get(rpc_id.as_str()) {
+        let receipt = crate::restore::restored_admission(&durable, rpc_id.as_str());
+        match receipt.as_ref() {
             Some(previous) if previous.fingerprint.as_deref() == Some(&fingerprint) => {
                 Ok(Some(RpcResult::success(json!({"accepted": true}))))
             }

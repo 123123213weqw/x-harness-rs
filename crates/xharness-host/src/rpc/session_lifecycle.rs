@@ -295,18 +295,26 @@ async fn create_inner(
         events: Vec::new(),
         event_base_seq: 0,
         event_cache_bytes: 0,
+        event_cache_weights: Vec::new(),
+        event_cache_resident_bytes: 0,
+        event_cache_resident_weights: Vec::new(),
+        event_cache_touched: 0,
+        projected_model: None,
         metrics: MetricsProjectionState::default(),
         catalog_metrics: None,
         messages: Vec::new(),
         queue: Default::default(),
         projected_queue: Default::default(),
-        admissions: Default::default(),
+        admissions: crate::admission_cache::AdmissionCache::new(
+            host.agent_runtime.has_authoritative_sessions(),
+        ),
         mutation_receipts: Default::default(),
         authoritative_seq: None,
         control: None,
         next_turn: 0,
     };
     state.sessions.insert(session_id.clone(), record);
+    state.enforce_projection_budget(&session_id, host.config.session_event_cache_total_bytes);
     let workspace_changed = workspace_id.and_then(|workspace_id| {
         let workspace = state.workspaces.get_mut(&workspace_id)?;
         if !workspace.session_ids.contains(&session_id) {
@@ -794,12 +802,19 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         events: child_events,
         event_base_seq: 0,
         event_cache_bytes: child_event_bytes,
+        event_cache_weights: Vec::new(),
+        event_cache_resident_bytes: 0,
+        event_cache_resident_weights: Vec::new(),
+        event_cache_touched: 0,
+        projected_model: None,
         metrics: child_metrics,
         catalog_metrics: None,
         messages: child_messages,
         queue: Default::default(),
         projected_queue: Default::default(),
-        admissions: Default::default(),
+        admissions: crate::admission_cache::AdmissionCache::new(
+            host.agent_runtime.has_authoritative_sessions(),
+        ),
         mutation_receipts: Default::default(),
         authoritative_seq: None,
         control: None,
@@ -807,6 +822,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
     };
     let mut state = host.state.write().await;
     state.sessions.insert(child_id.clone(), child);
+    state.enforce_projection_budget(&child_id, host.config.session_event_cache_total_bytes);
     let mut changed_workspace = None;
     for workspace in state.workspaces.values_mut() {
         if workspace.session_ids.contains(&source_id) {

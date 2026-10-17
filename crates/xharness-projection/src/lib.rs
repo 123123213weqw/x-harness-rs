@@ -12,8 +12,10 @@ use xharness_session::{
 
 pub mod metrics;
 pub mod performance;
+mod tail_update;
 pub mod wire;
 use metrics::web_token_usage;
+pub use tail_update::{prepare_session_tail_update, ProjectedTailUpdate, TailReplacement};
 
 const HISTORY_CHUNK_COALESCE_BYTES: usize = 64 * 1_024;
 
@@ -57,6 +59,10 @@ pub fn assistant_content(text: &str, reasoning: &str) -> Vec<Value> {
 /// stay identical to the append-only Session log, so eviction never changes a
 /// browser cursor.
 pub struct ProjectedEventTail {
+    /// Encoded weights computed once while preparing each event.
+    pub event_bytes: Vec<usize>,
+    pub resident_bytes: usize,
+    pub event_resident_bytes: Vec<usize>,
     pub base_seq: u64,
     pub next_seq: u64,
     pub bytes: usize,
@@ -68,6 +74,9 @@ impl ProjectedEventTail {
     /// cursor. Cold history is loaded through `session.history` on demand.
     pub fn empty_at(next_seq: u64) -> Self {
         Self {
+            event_bytes: Vec::new(),
+            resident_bytes: 0,
+            event_resident_bytes: Vec::new(),
             base_seq: next_seq,
             next_seq,
             bytes: 0,
@@ -690,6 +699,9 @@ pub fn project_session_event_tail_from(
     let max_events = max_events.max(1);
     let max_bytes = max_bytes.max(1);
     let mut reversed = Vec::new();
+    let mut weights = Vec::new();
+    let mut resident_weights = Vec::new();
+    let mut resident_bytes = 0usize;
     let mut bytes = 0usize;
 
     for event in session.events()[floor..end].iter().rev().take(max_events) {
@@ -712,11 +724,20 @@ pub fn project_session_event_tail_from(
             break;
         }
         bytes = bytes.saturating_add(event_bytes);
+        weights.push(event_bytes);
+        let resident = estimated_event_resident_bytes(&projected).max(event_bytes);
+        resident_bytes = resident_bytes.saturating_add(resident);
+        resident_weights.push(resident);
         reversed.push(projected);
     }
     reversed.reverse();
+    weights.reverse();
+    resident_weights.reverse();
     let start = end.saturating_sub(reversed.len());
     ProjectedEventTail {
+        event_bytes: weights,
+        resident_bytes,
+        event_resident_bytes: resident_weights,
         base_seq: u64::try_from(start).unwrap_or(u64::MAX),
         next_seq: session.next_seq(),
         bytes,
@@ -1092,12 +1113,17 @@ pub fn restored_web_event(
                 // The Web fold spreads this field unconditionally; an empty
                 // removal splice must therefore carry `[]` rather than rely on
                 // the durable enum's skip-empty serialization.
-                "inserted": inserted,
+                "inserted": inserted.iter().map(|input| json!({"id": input.id})).collect::<Vec<_>>(),
             });
             if let Some(outcome) = outcome {
                 data.as_object_mut()
                     .expect("inbox splice data is an object")
-                    .insert("outcome".to_owned(), json!(outcome));
+                    .insert(
+                        "outcome".to_owned(),
+                        json!(match outcome {
+                            xharness_session::InboxSpliceOutcome::Cancelled => "canceled",
+                        }),
+                    );
             }
             ("agent/inbox/spliced".to_owned(), data, None)
         }
@@ -1455,6 +1481,69 @@ mod projection_encoding_tests {
         fn model(&self) -> &str {
             "test"
         }
+    }
+
+    #[test]
+    fn web_inbox_splices_keep_only_identity_without_changing_durable_content() {
+        use xharness_session::{InboxSpliceOutcome, InboxTarget, Revision};
+        let content = json!([{"type":"text","text":"private Δ\n\\\"".repeat(2000)},{"type":"image_ref","attachment":{"attachmentId":"image-id"}},{"type":"file","attachment":{"attachmentId":"file-id"}}]);
+        let mut input = InboxMessage::user("input-id", "original model-facing body");
+        input.source = Some(
+            json!({"content":content,"source":{"kind":"user"},"rpcFingerprint":"fingerprint"}),
+        );
+        for target in [InboxTarget::NextTurn, InboxTarget::NextStep] {
+            for removal in [false, true] {
+                let event = LoggedEvent {
+                    seq: 17,
+                    revision: Revision(1),
+                    timestamp_ms: 123,
+                    event: EventData::AgentInboxSpliced {
+                        target,
+                        start: 0,
+                        removed_count: usize::from(removal),
+                        inserted: if removal { vec![] } else { vec![input.clone()] },
+                        outcome: removal.then_some(InboxSpliceOutcome::Cancelled),
+                    }
+                    .into(),
+                };
+                let projected = restored_web_event(
+                    &event,
+                    &TestRoute,
+                    &ProjectionSources::default(),
+                    None,
+                    None,
+                );
+                assert_eq!(projected["seq"], 17);
+                assert_eq!(projected["time"], 123);
+                assert_eq!(
+                    projected["data"]["target"],
+                    serde_json::to_value(target).unwrap()
+                );
+                assert_eq!(projected["data"]["removedCount"], usize::from(removal));
+                assert_eq!(
+                    projected["data"]["inserted"],
+                    if removal {
+                        json!([])
+                    } else {
+                        json!([{"id":"input-id"}])
+                    }
+                );
+                if removal {
+                    assert_eq!(projected["data"]["outcome"], "canceled");
+                } else {
+                    assert!(serde_json::to_string(&event)
+                        .unwrap()
+                        .contains("original model-facing body"));
+                }
+                assert!(!serde_json::to_string(&projected)
+                    .unwrap()
+                    .contains("private"));
+            }
+        }
+        let prompt = project_inbox_message(&input);
+        assert_eq!(prompt.content, content.as_array().unwrap().clone());
+        assert_eq!(prompt.source, json!({"kind":"user"}));
+        assert_eq!(prompt.rpc_fingerprint.as_deref(), Some("fingerprint"));
     }
 
     #[test]
@@ -1886,3 +1975,6 @@ mod media_projection_tests {
         assert_eq!(parts[1]["type"], "file");
     }
 }
+
+mod residency;
+pub use residency::estimated_event_resident_bytes;

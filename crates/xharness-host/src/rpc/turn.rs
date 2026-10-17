@@ -121,17 +121,47 @@ pub(crate) async fn duplicate_admission(
     rpc_id: &str,
     fingerprint: &str,
 ) -> Result<bool, RpcError> {
-    let state = host.state.read().await;
-    let session = state
-        .sessions
-        .get(session_id)
-        .ok_or_else(|| session_not_found(session_id))?;
-    let Some(previous) = session.admissions.get(rpc_id) else {
+    let cached = {
+        let state = host.state.read().await;
+        state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?
+            .admissions
+            .get(rpc_id)
+            .cloned()
+    };
+    let receipt = if cached.is_some() || !host.agent_runtime.has_authoritative_sessions() {
+        cached
+    } else {
+        // A bounded hot-cache miss is unknown, never proof of non-admission.
+        // Inspect durable metadata without rebuilding or cloning prompt bodies.
+        let durable = host
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(crate::driver::agent_runtime_error)?
+            .ok_or_else(|| RpcError::internal("durable admission journal unavailable"))?;
+        let receipt = crate::restore::restored_admission(&durable, rpc_id);
+        if let Some(receipt) = &receipt {
+            host.state
+                .write()
+                .await
+                .sessions
+                .get_mut(session_id)
+                .ok_or_else(|| session_not_found(session_id))?
+                .admissions
+                .insert(rpc_id.to_owned(), receipt.clone());
+        }
+        receipt
+    };
+    let Some(previous) = receipt else {
         return Ok(false);
     };
     if previous.fingerprint.as_deref() == Some(fingerprint) {
         return Ok(true);
     }
+
     Err(rpc_error(
         RpcErrorCode::SessionConflict,
         "rpc id was already admitted with a different prompt payload",

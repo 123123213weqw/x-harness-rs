@@ -38,7 +38,7 @@ use xharness_api::{
     RpcMethod, RpcReceipt, RpcResult, ServerRequest, ServerResponse, HOST_EVENTS_PATH,
     MUX_EVENTS_PATH, RESPOND_PATH, SESSION_EXPORT_PATH,
 };
-use xharness_debug::{DebugEvent, DebugRecorder};
+use xharness_debug::DebugRecorder;
 
 pub const DEFAULT_REQUEST_BODY_LIMIT_BYTES: usize = 160 * 1024 * 1024;
 const DESKTOP_COOKIE_NAME: &str = "xharness_desktop";
@@ -130,11 +130,12 @@ async fn session_export(
 ) -> Response {
     state
         .debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "session_export.request",
-            json!({"method": method.as_str(), "sessionId": &query.session_id}),
-        ))
+            xharness_debug::DebugScope::default(),
+            || json!({"method": method.as_str(), "sessionId": &query.session_id}),
+        )
         .await;
     if query.session_id.is_empty() {
         return (
@@ -153,17 +154,20 @@ async fn session_export(
         Ok(export) => {
             state
                 .debug
-                .record_lossy(DebugEvent::new(
+                .record_lossy_with(
                     "server",
                     "session_export.response",
-                    json!({
-                        "sessionId": &query.session_id,
-                        "filename": &export.filename,
-                        "contentType": &export.content_type,
-                        "bytes": export.bytes.len(),
-                        "content": String::from_utf8_lossy(&export.bytes),
-                    }),
-                ))
+                    xharness_debug::DebugScope::default(),
+                    || {
+                        json!({
+                            "sessionId": &query.session_id,
+                            "filename": &export.filename,
+                            "contentType": &export.content_type,
+                            "bytes": export.bytes.len(),
+                            "content": String::from_utf8_lossy(&export.bytes),
+                        })
+                    },
+                )
                 .await;
             let mut response = if method == Method::HEAD {
                 ().into_response()
@@ -191,22 +195,24 @@ async fn session_export(
         Err(error) if error.code == xharness_api::RpcErrorCode::SessionNotFound => {
             state
                 .debug
-                .record_lossy(DebugEvent::new(
+                .record_lossy_with(
                     "server",
                     "session_export.error",
-                    json!({"sessionId": &query.session_id, "error": &error}),
-                ))
+                    xharness_debug::DebugScope::default(),
+                    || json!({"sessionId": &query.session_id, "error": &error}),
+                )
                 .await;
             (StatusCode::NOT_FOUND, error.message).into_response()
         }
         Err(error) => {
             state
                 .debug
-                .record_lossy(DebugEvent::new(
+                .record_lossy_with(
                     "server",
                     "session_export.error",
-                    json!({"sessionId": &query.session_id, "error": &error}),
-                ))
+                    xharness_debug::DebugScope::default(),
+                    || json!({"sessionId": &query.session_id, "error": &error}),
+                )
                 .await;
             (StatusCode::INTERNAL_SERVER_ERROR, error.message).into_response()
         }
@@ -554,24 +560,28 @@ async fn unary_endpoint(
 ) -> Response {
     state
         .debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "rpc.request",
-            json!({
-                "method": &path_method,
-                "bytes": body.len(),
-                "body": rpc_debug_body(&path_method, &body),
-            }),
-        ))
+            xharness_debug::DebugScope::default(),
+            || {
+                json!({
+                    "method": &path_method,
+                    "bytes": body.len(),
+                    "body": rpc_debug_body(&path_method, &body),
+                })
+            },
+        )
         .await;
     if !is_json(&headers) {
         state
             .debug
-            .record_lossy(DebugEvent::new(
+            .record_lossy_with(
                 "server",
                 "rpc.rejected",
-                json!({"method": &path_method, "reason": "unsupported_media_type"}),
-            ))
+                xharness_debug::DebugScope::default(),
+                || json!({"method": &path_method, "reason": "unsupported_media_type"}),
+            )
             .await;
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -582,11 +592,7 @@ async fn unary_endpoint(
     let value: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
         Err(error) => {
-            state.debug.record_lossy(DebugEvent::new(
-                "server",
-                "rpc.rejected",
-                json!({"method": &path_method, "reason": "invalid_json", "error": error.to_string()}),
-            )).await;
+            state.debug.record_lossy_with("server", "rpc.rejected", xharness_debug::DebugScope::default(), || json!({"method": &path_method, "reason": "invalid_json", "error": error.to_string()})).await;
             return (StatusCode::BAD_REQUEST, "body is not JSON").into_response();
         }
     };
@@ -594,11 +600,7 @@ async fn unary_endpoint(
         Ok(request) => request,
         Err(error) => {
             let rpc_id = salvage_rpc_id(&value);
-            state.debug.record_lossy(DebugEvent::new(
-                "server",
-                "rpc.rejected",
-                json!({"method": &path_method, "rpcId": &rpc_id, "reason": "invalid_envelope", "error": error.to_string()}),
-            )).await;
+            state.debug.record_lossy_with("server", "rpc.rejected", xharness_debug::DebugScope::default(), || json!({"method": &path_method, "rpcId": &rpc_id, "reason": "invalid_envelope", "error": error.to_string()})).await;
             return Json(ServerResponse::new(
                 rpc_id,
                 RpcResult::failure(RpcError::bad_request(
@@ -610,11 +612,7 @@ async fn unary_endpoint(
         }
     };
     if request.method != path_method {
-        state.debug.record_lossy(DebugEvent::new(
-            "server",
-            "rpc.rejected",
-            json!({"method": &path_method, "rpcId": &request.rpc_id, "reason": "path_method_mismatch", "envelopeMethod": &request.method}),
-        )).await;
+        state.debug.record_lossy_with("server", "rpc.rejected", xharness_debug::DebugScope::default(), || json!({"method": &path_method, "rpcId": &request.rpc_id, "reason": "path_method_mismatch", "envelopeMethod": &request.method})).await;
         return Json(ServerResponse::new(
             request.rpc_id,
             RpcResult::failure(RpcError::bad_request(
@@ -631,37 +629,36 @@ async fn unary_endpoint(
     let cancellation = CancellationToken::new();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let rpc_id = request.rpc_id;
-    let result =
-        match RpcMethod::from_str(&path_method) {
-            Ok(method) => {
+    let result = match RpcMethod::from_str(&path_method) {
+        Ok(method) => {
+            state
+                .backend
+                .call(rpc_id.clone(), method, request.payload, cancellation)
+                .await
+        }
+        Err(_) => {
+            let Some(result) = state
+                .backend
+                .call_dynamic(rpc_id.clone(), &path_method, request.payload, cancellation)
+                .await
+            else {
                 state
-                    .backend
-                    .call(rpc_id.clone(), method, request.payload, cancellation)
-                    .await
-            }
-            Err(_) => {
-                let Some(result) = state
-                    .backend
-                    .call_dynamic(rpc_id.clone(), &path_method, request.payload, cancellation)
-                    .await
-                else {
-                    state.debug.record_lossy(DebugEvent::new(
-                    "server",
-                    "rpc.rejected",
-                    json!({"method": &path_method, "rpcId": &rpc_id, "reason": "not_found"}),
-                )).await;
-                    return (StatusCode::NOT_FOUND, "not found").into_response();
-                };
-                result
-            }
-        };
+                    .debug
+                    .record_lossy_with(
+                        "server",
+                        "rpc.rejected",
+                        xharness_debug::DebugScope::default(),
+                        || json!({"method": &path_method, "rpcId": &rpc_id, "reason": "not_found"}),
+                    )
+                    .await;
+                return (StatusCode::NOT_FOUND, "not found").into_response();
+            };
+            result
+        }
+    };
     state
         .debug
-        .record_lossy(DebugEvent::new(
-            "server",
-            "rpc.response",
-            json!({"method": &path_method, "rpcId": &rpc_id, "result": rpc_debug_result(&path_method, &result)}),
-        ))
+        .record_lossy_with("server", "rpc.response", xharness_debug::DebugScope::default(), || json!({"method": &path_method, "rpcId": &rpc_id, "result": rpc_debug_result(&path_method, &result)}))
         .await;
     Json(ServerResponse::new(rpc_id, result)).into_response()
 }
@@ -669,20 +666,22 @@ async fn unary_endpoint(
 async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
     state
         .debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "respond.request",
-            json!({"bytes": body.len(), "body": String::from_utf8_lossy(&body)}),
-        ))
+            xharness_debug::DebugScope::default(),
+            || json!({"bytes": body.len(), "body": String::from_utf8_lossy(&body)}),
+        )
         .await;
     if !is_json(&headers) {
         state
             .debug
-            .record_lossy(DebugEvent::new(
+            .record_lossy_with(
                 "server",
                 "respond.rejected",
-                json!({"reason": "unsupported_media_type"}),
-            ))
+                xharness_debug::DebugScope::default(),
+                || json!({"reason": "unsupported_media_type"}),
+            )
             .await;
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -695,11 +694,12 @@ async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Byt
         Err(error) => {
             state
                 .debug
-                .record_lossy(DebugEvent::new(
+                .record_lossy_with(
                     "server",
                     "respond.rejected",
-                    json!({"reason": "invalid_json", "error": error.to_string()}),
-                ))
+                    xharness_debug::DebugScope::default(),
+                    || json!({"reason": "invalid_json", "error": error.to_string()}),
+                )
                 .await;
             return (StatusCode::BAD_REQUEST, "body is not JSON").into_response();
         }
@@ -709,11 +709,12 @@ async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Byt
         Err(_) => {
             state
                 .debug
-                .record_lossy(DebugEvent::new(
+                .record_lossy_with(
                     "server",
                     "respond.rejected",
-                    json!({"reason": "invalid_envelope"}),
-                ))
+                    xharness_debug::DebugScope::default(),
+                    || json!({"reason": "invalid_envelope"}),
+                )
                 .await;
             return Json(RpcReceipt::Rejected {
                 reason: ReceiptRejection::BadResponse,
@@ -724,11 +725,12 @@ async fn respond(State(state): State<ServerState>, headers: HeaderMap, body: Byt
     let receipt = state.backend.respond(response).await;
     state
         .debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "respond.response",
-            json!({"receipt": &receipt}),
-        ))
+            xharness_debug::DebugScope::default(),
+            || json!({"receipt": &receipt}),
+        )
         .await;
     Json(receipt).into_response()
 }
@@ -758,22 +760,19 @@ async fn pump_downlink(
     channel: &'static str,
 ) {
     debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "websocket.opened",
-            json!({"channel": channel}),
-        ))
+            xharness_debug::DebugScope::default(),
+            || json!({"channel": channel}),
+        )
         .await;
     let (mut sender, mut receiver) = socket.split();
     loop {
         tokio::select! {
             frame = events.next() => match frame {
                 Some(frame) => {
-                    debug.record_lossy(DebugEvent::new(
-                        "server",
-                        "websocket.frame",
-                        json!({"channel": channel, "frame": &frame}),
-                    )).await;
+                    debug.record_lossy_with("server", "websocket.frame", xharness_debug::DebugScope::default(), || json!({"channel": channel, "frame": &frame})).await;
                     let Ok(text) = serde_json::to_string(&frame) else { break };
                     if sender.send(Message::Text(text.into())).await.is_err() { break; }
                 }
@@ -797,11 +796,12 @@ async fn pump_downlink(
         }
     }
     debug
-        .record_lossy(DebugEvent::new(
+        .record_lossy_with(
             "server",
             "websocket.closed",
-            json!({"channel": channel}),
-        ))
+            xharness_debug::DebugScope::default(),
+            || json!({"channel": channel}),
+        )
         .await;
 }
 

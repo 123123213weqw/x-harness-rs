@@ -10724,13 +10724,20 @@ function applySplice(previous, splice) {
     const old = isInboxState(previous?.state) ? previous.state : undefined;
     const pending = [...(old?.pending ?? [])];
     const claimed = new Set(old?.claimed ?? []);
-    const removed = pending.splice(splice.start, splice.removedCount ?? 0, ...splice.inserted);
+    // Legacy envelopes can still contain bodies; this fold owns identities only.
+    const inserted = splice.inserted.map(({ id }) => ({ id }));
+    const removed = pending.splice(splice.start, splice.removedCount ?? 0, ...inserted);
+    if (splice.target === 'next-step') {
+        for (const identity of removed) {
+            if (splice.outcome === 'canceled')
+                claimed.delete(identity.id);
+            else
+                claimed.add(identity.id);
+        }
+    }
+    // Reinsertion is a pending identity, not consumption of that same input.
     for (const identity of splice.inserted)
         claimed.delete(identity.id);
-    if (splice.target === 'next-step' && splice.outcome !== 'canceled') {
-        for (const identity of removed)
-            claimed.add(identity.id);
-    }
     return { pending, claimed };
 }
 function inboxDefinition(target) {

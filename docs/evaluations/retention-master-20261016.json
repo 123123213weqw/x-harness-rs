@@ -1,0 +1,206 @@
+{
+  "schema": 1,
+  "code_commit": "1e773d2522327100d7a382de78579b9e7462ce95",
+  "base_commit": "e6b2bb78789611100928bb6ffae2c88889e12c17",
+  "source_manifest_sha256": "13a06c05d4e54cf5312e042cd8dd46545e3b322fbb19022660feb457da5b513e",
+  "binary_sha256": "0629fe71cd1dab46c27d1e8e8818c556778f903e27462705439ce83005ac81a6",
+  "compiled_input_verification": {
+    "checked_inputs": 2291,
+    "mismatches": []
+  },
+  "rust": {
+    "passed": 1240,
+    "ignored": 15,
+    "groups": 67,
+    "clippy_affected_all_targets_warnings_denied": true
+  },
+  "frontend": {
+    "commands_passed": 11,
+    "commands_total": 11,
+    "browsers": [
+      "chromium",
+      "webkit"
+    ],
+    "architecture_tests_passed": 30
+  },
+  "post_port_cases": [
+    {
+      "label": "validated-before-port",
+      "exit_code": 1,
+      "status": "resource_alarm",
+      "verified_turns": 192,
+      "error": null,
+      "idle_rss_mib": 311.6328125,
+      "live_malloc_mib": 74.18601989746094,
+      "rss_drift_mib": 186.869140625,
+      "fd_drift": 0.0,
+      "created_sessions": 8,
+      "deleted_sessions": 0
+    },
+    {
+      "label": "master-default-1",
+      "exit_code": 1,
+      "status": "resource_alarm",
+      "verified_turns": 192,
+      "error": null,
+      "idle_rss_mib": 308.4140625,
+      "live_malloc_mib": 73.93107604980469,
+      "rss_drift_mib": 179.392578125,
+      "fd_drift": 0.0,
+      "created_sessions": 8,
+      "deleted_sessions": 0
+    },
+    {
+      "label": "master-default-2",
+      "exit_code": 1,
+      "status": "resource_alarm",
+      "verified_turns": 192,
+      "error": null,
+      "idle_rss_mib": 298.88671875,
+      "live_malloc_mib": 74.28865051269531,
+      "rss_drift_mib": 169.900390625,
+      "fd_drift": 1.0,
+      "created_sessions": 8,
+      "deleted_sessions": 0
+    },
+    {
+      "label": "master-bounded-delete",
+      "exit_code": 0,
+      "status": "passed",
+      "verified_turns": 320,
+      "error": null,
+      "idle_rss_mib": 108.4375,
+      "live_malloc_mib": 6.6779327392578125,
+      "rss_drift_mib": 40.31640625,
+      "fd_drift": 0.0,
+      "created_sessions": 320,
+      "deleted_sessions": 320
+    }
+  ],
+  "post_port_total_verified_turns": 1088,
+  "post_port_candidate_turns": 896,
+  "microbench": {
+    "passed": 30,
+    "total": 30,
+    "baseline": "previous validated implementation, not unfixed master",
+    "medians": {
+      "small": {
+        "baseline": {
+          "task_ms": 85.705810546875,
+          "host_cpu_ms": 30.0,
+          "peak_host_rss_kib": 34424
+        },
+        "candidate": {
+          "task_ms": 86.437255859375,
+          "host_cpu_ms": 30.0,
+          "peak_host_rss_kib": 34496
+        }
+      },
+      "large_context": {
+        "baseline": {
+          "task_ms": 561.4345703125,
+          "host_cpu_ms": 560.0,
+          "peak_host_rss_kib": 118532
+        },
+        "candidate": {
+          "task_ms": 568.7109375,
+          "host_cpu_ms": 580.0,
+          "peak_host_rss_kib": 116696
+        }
+      },
+      "streaming": {
+        "baseline": {
+          "task_ms": 336.759033203125,
+          "host_cpu_ms": 730.0,
+          "peak_host_rss_kib": 68764
+        },
+        "candidate": {
+          "task_ms": 327.844482421875,
+          "host_cpu_ms": 710.0,
+          "peak_host_rss_kib": 72996
+        }
+      }
+    }
+  },
+  "full_trace": {
+    "passed": false,
+    "verified_turns": 192,
+    "error": "Idle RSS drift exceeds predeclared 64 MiB alarm threshold",
+    "fd_drift": 0.0,
+    "trace_integrity": {
+      "records": 30050,
+      "blob_references": 920
+    },
+    "trace_error": null
+  },
+  "real_deepseek": {
+    "model": "deepseek-flash",
+    "effort": "xhigh",
+    "max_output_tokens": 65536,
+    "status": "passed",
+    "turns": 4,
+    "functional_passed": 4,
+    "strict_format_passed": 4,
+    "successful_actual_test_receipts_each_turn": true,
+    "proof_file_passed": true,
+    "provided_tests": 19,
+    "hidden_oracle_cases": 37,
+    "peak_host_rss_mib": 57.4609375,
+    "final_message_only_audit_passed": true
+  },
+  "pre_port_controlled_phase": {
+    "scope": "Comparison against the already partly optimized f1b8d7e7 implementation, not a current-master baseline. Small shared-V100 cohorts; no causal or universal speedup claim.",
+    "matrix_turns": 2160,
+    "comparison": {
+      "before": {
+        "repeats": 2,
+        "idle_rss_mib": 450.958984375,
+        "peak_rss_mib": 450.958984375,
+        "live_malloc_mib": 98.40048217773438,
+        "disk_mib": 34.989206314086914
+      },
+      "candidate": {
+        "repeats": 3,
+        "idle_rss_mib": 303.296875,
+        "peak_rss_mib": 303.296875,
+        "live_malloc_mib": 74.24620056152344,
+        "disk_mib": 22.66728401184082
+      },
+      "observed_reduction_percent": {
+        "idle_rss_mib": 32.74402207102053,
+        "peak_rss_mib": 32.74402207102053,
+        "live_malloc_mib": 24.546913878513966,
+        "disk_mib": 35.21635269927571
+      }
+    },
+    "real_model_turns": 8,
+    "all_8_functional_and_final_formats_passed": true
+  },
+  "configured_credential_scan": {
+    "local": {
+      "scanned_files": 129,
+      "matching_files": []
+    },
+    "remote": {
+      "scanned_files": 2735,
+      "matching_files": []
+    }
+  },
+  "compatibility": [
+    "No journal truncation or change to its envelopes; exact admission checks fall back to durable history after eviction.",
+    "v4 checkpoints retain bounded fingerprints; old checkpoints/journals replay safely.",
+    "Inbox Web splices carry IDs, not bodies; full queue/message/attachment projections remain intact.",
+    "Existing UI cancellation spelling is normalized; reinsertion remains pending. Legacy identity folds drop unused body/source fields.",
+    "SessionEvent and projection-tail workspace Rust source APIs require documented accessor/field adaptation.",
+    "Current-master startup when_ready reconciliation and current UI sources are retained.",
+    "No model, reasoning, output-reserve, allocator or worker default was changed."
+  ],
+  "limitations": [
+    "Continuously growing histories still exceed the original 64 MiB idle-RSS drift alarm. No resource alarm was weakened or relabeled as a complete pass.",
+    "Bounded create/delete working-set and ownership tests do not establish universal or multi-day leak freedom.",
+    "Linux Host and headless Chromium/WebKit evidence do not certify native Windows/macOS packaging or hardware behavior. Cross-platform CI is separate.",
+    "Real-model samples are small; model execution paths and network variance preclude a causal latency comparison.",
+    "Historical remote evidence under the old source directory was removed by an initial sync. Local archived evidence is intact; the baseline executable was recovered with the exact recorded SHA-256. New evidence is stored outside source sync trees."
+  ],
+  "merge_and_deploy": "Not performed; keep draft pending cross-platform review and explicit memory-gate review."
+}
