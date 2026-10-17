@@ -25,6 +25,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock};
 
+mod swarm;
+pub use swarm::*;
+
 const FILE_FORMAT: &str = "xharness.host-control.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
 const HEADER_RECORD: &str = "header";
@@ -92,6 +95,7 @@ pub enum ControlEvent {
     SessionDeleted { session_id: String },
     SettingsSet { settings: SettingsSnapshot },
     MutationCommitted { receipt: MutationReceipt },
+    SwarmChanged { change: SwarmChange },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -127,6 +131,7 @@ pub struct ControlProjection {
     pub deleted_sessions: BTreeSet<String>,
     pub settings: BTreeMap<String, SettingsSnapshot>,
     pub receipts: BTreeMap<String, MutationReceipt>,
+    pub swarms: BTreeMap<String, SwarmSnapshot>,
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
@@ -240,6 +245,9 @@ impl ControlProjection {
         let mut settings_revisions = BTreeMap::<String, u64>::new();
         for logged in events {
             match &logged.event {
+                ControlEvent::SwarmChanged { change } => {
+                    swarm::apply(&mut projection.swarms, change)?;
+                }
                 ControlEvent::WorkspaceDefined { workspace } => {
                     validate_workspace(workspace)?;
                     if let Some(previous) = projection.workspaces.get(&workspace.workspace_id) {

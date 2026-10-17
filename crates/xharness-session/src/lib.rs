@@ -5,6 +5,8 @@
 //! single-writer [`Revision`]. Model history is always derived from those
 //! facts; it is never maintained as a second mutable transcript.
 
+pub mod plan;
+pub use plan::{session_plan, PlanItem, PlanItemStatus, SessionPlan};
 mod checkpoint;
 mod dispatch;
 pub mod goal;

@@ -1,0 +1,128 @@
+    Blocking waiting for file lock on package cache
+   Compiling libc v0.2.189
+   Compiling syn v3.0.3
+   Compiling errno v0.3.14
+   Compiling signal-hook-registry v1.4.8
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.2
+   Compiling fs2 v0.4.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.53.1
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling futures-macro v0.3.34
+   Compiling futures-util v0.3.34
+   Compiling futures-executor v0.3.34
+   Compiling tokio-util v0.7.19
+   Compiling xharness-diagnostics v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-diagnostics)
+   Compiling async-trait v0.1.92
+   Compiling futures v0.3.34
+   Compiling tokio-stream v0.1.19
+   Compiling xharness-token v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-token)
+   Compiling xharness-debug v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-debug)
+   Compiling xharness-tools v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-tools)
+   Compiling xharness-prompt v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-prompt)
+   Compiling xharness-interaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-interaction)
+   Compiling xharness-session v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-session)
+   Compiling xharness-compaction v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-compaction)
+   Compiling xharness-context v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-context)
+   Compiling xharness-goal v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-goal)
+   Compiling xharness-core v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-core)
+   Compiling xharness-agent v0.1.0 (/home/data/wangyue/repos/codex-build/x-harness-rs/durable-swarm-20261015/crates/xharness-agent)
+    Finished `test` profile [unoptimized] target(s) in 27.04s
+     Running unittests src/lib.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/xharness_agent-d50cd00d2110e873)
+
+running 15 tests
+test delegation::tests::validates_all_actions_and_bounds ... ok
+test delegation::tests::model_selectors_are_optional_and_round_trip_without_a_global_effort_enum ... ok
+test delegation::tests::rejects_cross_action_fields_and_missing_arguments ... ok
+test delegation::tests::rejects_malformed_model_selectors_before_admission ... ok
+test stability_repro::dropping_last_handle_releases_activation_and_supervisor ... ok
+test stability_repro::subscriptions_survive_a_recoverable_storage_error ... ok
+test stability_repro::forced_shutdown_reaps_worker_and_releases_reservation ... ok
+test stability_repro::when_idle_does_not_hang_after_worker_panic ... ok
+test stability_repro::stopped_waiter_detects_replacement_even_if_it_missed_backoff ... ok
+test stability_repro::recovery_without_commands_does_not_replay_pending_work ... ok
+test stability_repro::a_transient_store_error_does_not_kill_the_worker ... ok
+test stability_repro::shutdown_during_backoff_never_respawns_and_wakes_waiters ... ok
+test stability_repro::a_worker_that_died_mid_drive_can_still_be_replaced ... ok
+test stability_repro::concurrent_recovery_waiters_share_one_generation ... ok
+test stability_repro::persistent_startup_fault_has_backoff_and_recovers_without_a_command ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+
+
+running 10 tests
+test supervisor_publishes_only_one_worker_per_agent ... ok
+test handle_shutdown_waits_until_the_active_provider_stream_is_dropped ... ok
+test maintenance_followup_rejects_a_busy_actor_without_queueing ... ok
+test recovered_followup_waits_for_explicit_wake_after_subscriber_attachment ... ok
+test idle_injection_stays_pending_until_a_waking_message_arrives ... ok
+test maintenance_followup_is_admitted_only_at_an_idle_actor_boundary ... ok
+     Running tests/driver.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/driver-64657c1a321dfd9f)
+test explicit_interrupt_reaches_durable_loop_and_idle_repeat_does_not_add_markers ... ok
+test durable_driver_consumes_followups_across_multiple_turns ... ok
+test active_steer_is_durable_and_consumed_at_the_next_step ... ok
+test consumed_late_answers_leave_the_inbox_before_the_turn_finishes ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 3 tests
+test restored_failed_journal_and_new_receipts_remain_parked_without_a_pause_marker ... ok
+     Running tests/failure_admission.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/failure_admission-2db5e37916779921)
+test healthy_agent_still_accepts_automatic_settlements ... ok
+test nonshrinking_compaction_parks_receipts_and_explicit_user_retry_is_atomic ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 20 tests
+test clear_removes_orphan_and_never_executes_as_user_input ... ok
+test concurrent_reconcile_only_queues_one_and_replay_retains_receipt ... ok
+test legacy_goal_does_not_execute_until_explicit_enable ... ok
+test late_completion_after_pause_never_reactivates_goal ... ok
+test lost_commit_ack_does_not_duplicate_continuation_on_retry ... ok
+test abandoned_goal_turn_is_closed_unknown_and_not_reexecuted ... ok
+test claim_is_revision_fenced_and_user_input_takes_priority ... ok
+test malformed_atomic_claim_is_rejected_without_consuming_queue ... ok
+     Running tests/goal_runtime.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/goal_runtime-f53072e4e67ccc19)
+test dependencies_wait_without_spending_rounds_then_continue_once ... ok
+test preparation_failure_persists_diagnostic_and_discards_only_goal_intent ... ok
+test removing_queued_goal_input_pauses_instead_of_waiting_forever ... ok
+test legacy_pause_invalidates_queued_continuation ... ok
+test persisted_confirmation_requires_exact_report_and_survives_replay ... ok
+test restart_after_claim_waits_for_recovery_without_repeating_side_effects ... ok
+test pause_between_prepare_and_start_never_calls_model_or_counts_round ... ok
+test settled_cancel_and_output_limits_never_spawn_a_new_round ... ok
+test pause_resume_preserves_round_budget_and_requires_explicit_reenable ... ok
+test missing_reports_pause_after_three_settled_empty_rounds ... ok
+test actual_durable_driver_advances_three_rounds_and_stops_on_goal_completion ... ok
+test dependency_failure_pauses_only_goal_and_preserves_user_chat_across_restart ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 10 tests
+test lifecycle_matches_idle_running_and_maintenance_contract ... ok
+test inbox_events_are_not_provider_messages ... ok
+test claim_is_committed_atomically_with_its_turn ... ok
+test inbox_replays_next_turn_and_next_step_in_order ... ok
+test registry_returns_one_live_activation_and_resumes_last_turn ... ok
+test queue_editing_is_durable_and_duplicate_ids_are_rejected ... ok
+test stale_claim_cannot_remove_newer_queue_state ... ok
+test recovery_reconciles_a_consumed_steer_left_pending_by_a_crash ... ok
+test file_lease_excludes_other_managers_until_guard_drops ... ok
+test user_resume_is_revision_bound_and_preserves_earlier_runtime_receipts ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/inbox.rs (/home/wzu/codex-build/x-harness-rs/target/debug/deps/inbox-d0980a7d993cafd2)
+   Doc-tests xharness_agent

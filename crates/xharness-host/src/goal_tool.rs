@@ -15,6 +15,10 @@ enum Operation {
         max_goal_rounds: Option<u64>,
     },
     Get {},
+    UpdatePlan {
+        plan_revision: u64,
+        items: Vec<xharness_session::PlanItem>,
+    },
     Update {
         r#ref: GoalRef,
         objective: Option<String>,
@@ -45,9 +49,11 @@ pub(crate) fn spec(
     fence: Option<(GoalDefinition, u64)>,
 ) -> ToolSpec {
     ToolSpec::new(ToolDefinition::new("goal",
-        "Manage a persistent Goal in this conversation. Create ONLY when the user explicitly asks to set a goal or keep working toward one; ordinary tasks do not imply a Goal. action=create requires objective, optional max_goal_rounds (default 256). get reads status and ref. update/pause/resume require the latest ref {id,revision} from get; update changes objective and/or max_goal_rounds and pauses automatic continuation. Change budgets or resume only when the user asks. report requires report {status:progress|blocked|complete,summary,remaining,evidence,blocked_reason}; use near the end of an automatic Goal turn after work settles, then finish the turn. Complete reports need concrete evidence and no remaining work. For new Goals the model decides completion: report complete and finish the turn; the runtime completes the Goal after normal settlement and dependency checks. Existing Goals may retain user-confirmation mode; get returns execution.verificationMode. job/agent evidence references must be exact existing resource IDs owned by this conversation; never append progress text or annotations to an ID (put that text in summary). Invalid references are rejected: correct them and retry the report. These IDs are required dependencies, not unrelated daemons. Never create a new Goal to bypass a paused/finished budget. There is no model action to confirm completion or delete history. Call alone. Tools, /goal and the Goal bar share the same durable state.",
+        "Manage a working plan and optional persistent Goal in this conversation. action=update_plan requires plan_revision (0 initially, then the revision returned by the last update/get) and items [{id,title,status:pending|in_progress|completed}]. Send the complete list; [] clears it. Stable unique IDs preserve item identity. Multiple in_progress items are allowed. This only records progress: it NEVER creates, resumes or completes a Goal, never schedules work, and is available for ordinary tasks. Mark completed only after actual work; revise stale plans when the user changes direction. get includes the current plan.  Create ONLY when the user explicitly asks to set a goal or keep working toward one; ordinary tasks do not imply a Goal. action=create requires objective, optional max_goal_rounds (default 256). get reads status and ref. update/pause/resume require the latest ref {id,revision} from get; update changes objective and/or max_goal_rounds and pauses automatic continuation. Change budgets or resume only when the user asks. report requires report {status:progress|blocked|complete,summary,remaining,evidence,blocked_reason}; use near the end of an automatic Goal turn after work settles, then finish the turn. Complete reports need concrete evidence and no remaining work. For new Goals the model decides completion: report complete and finish the turn; the runtime completes the Goal after normal settlement and dependency checks. Existing Goals may retain user-confirmation mode; get returns execution.verificationMode. job/agent evidence references must be exact existing resource IDs owned by this conversation; never append progress text or annotations to an ID (put that text in summary). Invalid references are rejected: correct them and retry the report. These IDs are required dependencies, not unrelated daemons. Never create a new Goal to bypass a paused/finished budget. There is no model action to confirm completion or delete history. Call alone. Tools, /goal and the Goal bar share the same durable state.",
         json!({"type":"object","additionalProperties":false,"required":["action"],"properties":{
-            "action":{"type":"string","enum":["create","get","update","pause","resume","report"]},
+            "action":{"type":"string","enum":["create","get","update","pause","resume","report","update_plan"]},
+            "plan_revision":{"type":"integer","minimum":0},
+            "items":{"type":"array","maxItems":128,"items":{"type":"object","additionalProperties":false,"required":["id","title","status"],"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"title":{"type":"string","minLength":1,"maxLength":2048},"status":{"type":"string","enum":["pending","in_progress","completed"]}}}},
             "objective":{"type":"string","minLength":1},
             "max_goal_rounds":{"type":"integer","minimum":1},
             "ref":{"type":"object","additionalProperties":false,"required":["id","revision"],"properties":{"id":{"type":"string","minLength":1},"revision":{"type":"integer","minimum":1}}},
@@ -92,7 +98,7 @@ async fn execute(
         if !state.sessions.contains_key(session) {
             return Err(ToolHandlerError::new("session missing"));
         }
-        let value = state
+        let mut value = state
             .goals
             .get(session)
             .map(|g| {
@@ -101,10 +107,22 @@ async fn execute(
                 value
             })
             .unwrap_or_else(|| json!({"goal":null,"ref":null}));
+        value["plan"] = json!(state
+            .sessions
+            .get(session)
+            .and_then(|s| s.task_plan.as_ref()));
         return Ok(ToolOutput::text(value.to_string()));
     }
     let mut payload = json!({"sessionId":session});
     let method = match op {
+        Operation::UpdatePlan {
+            plan_revision,
+            items,
+        } => {
+            payload["planRevision"] = json!(plan_revision);
+            payload["items"] = json!(items);
+            RpcMethod::GoalUpdatePlan
+        }
         Operation::Create {
             objective,
             max_goal_rounds,
@@ -145,7 +163,7 @@ async fn execute(
         Operation::Get {} | Operation::Report { .. } => unreachable!(),
     };
     match host.call(RpcId::new(format!("goal-tool:{session}:{invocation}")),method,payload,Default::default()).await {
-        RpcResult::Success {value} => Ok(ToolOutput::text(json!({"accepted":true,"result":value,"note":"Goal state updated, not proof of task completion."}).to_string())),
+        RpcResult::Success {value} => Ok(ToolOutput::text(json!({"accepted":true,"result":value,"note":"State recorded, not proof of task completion; plan updates never activate a Goal."}).to_string())),
         RpcResult::Failure {error} => Err(ToolHandlerError::new(error.message)),
     }
 }

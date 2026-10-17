@@ -26,6 +26,7 @@ pub(super) async fn call(
     payload: &Value,
 ) -> Result<Value, RpcError> {
     match method {
+        RpcMethod::GoalUpdatePlan => super::session_plan::update(host, rpc_id, payload).await,
         RpcMethod::GoalCreate => create(host, rpc_id, payload).await,
         RpcMethod::GoalEdit => edit(host, rpc_id, payload).await,
         RpcMethod::GoalPause => transition(host, rpc_id, payload, "paused").await,

@@ -172,6 +172,7 @@ impl BasicHost {
             }
             namespace.revision = settings.revision;
         }
+        state.swarms = projection.swarms;
         state.control_revision = revision;
         state.mutation_receipts = projection.receipts;
         Ok(())
