@@ -559,6 +559,64 @@ mod edit_admission_tests {
     use super::*;
     use crate::{HostConfig, NoTools};
 
+    struct ImageRuntime(Option<bool>);
+    #[async_trait::async_trait]
+    impl crate::AgentRuntime for ImageRuntime {
+        fn has_available_route(&self) -> bool {
+            true
+        }
+        fn can_route(&self, _: &crate::ModelRoute) -> bool {
+            true
+        }
+        fn model_catalog(&self) -> Vec<crate::ModelDescriptor> {
+            vec![crate::ModelDescriptor::new("p", "Provider", "m", "Model")
+                .with_image_input(self.0, json!({"source":"documented"}))]
+        }
+        async fn start_turn(
+            &self,
+            _: crate::AgentTurnRequest,
+        ) -> Result<Box<dyn crate::RunningTurn>, crate::AgentRuntimeError> {
+            panic!("image admission test must not call a model")
+        }
+    }
+    #[tokio::test]
+    async fn image_admission_and_tool_gate_use_active_route_not_raw_settings() {
+        for supported in [None, Some(false), Some(true)] {
+            let root = std::env::temp_dir()
+                .join(format!("xh-images-{}-{supported:?}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let mut config = HostConfig::new(&root);
+            config.provider_id = "p".into();
+            config.model_id = "m".into();
+            let host = BasicHost::with_agent_runtime(config, Arc::new(ImageRuntime(supported)));
+            let created = session_lifecycle::create(&host, &json!({"cwd":root}))
+                .await
+                .unwrap();
+            let id = created["sessionId"].as_str().unwrap();
+            // Contradictory, unactivated settings must not override active metadata.
+            host.state
+                .write()
+                .await
+                .settings
+                .get_mut(crate::MODEL_SETTINGS_NAMESPACE)
+                .unwrap()
+                .value = json!({"providers":{"p":{"models":[{"id":"m","imageInput":supported != Some(true)}]}}});
+            assert_eq!(
+                host.session_accepts_images(id).await,
+                supported == Some(true)
+            );
+            if supported != Some(true) {
+                let error = turn::prompt(&host, RpcId::new("no-image"), &json!({
+                    "sessionId":id,"mode":"queue","content":[{"type":"image_ref","attachmentId":"missing"}]
+                })).await.unwrap_err();
+                assert!(error.message.contains("image capability is unknown"));
+                assert!(host.state.read().await.sessions[id].queue.is_empty());
+            }
+            assert!(!host.session_accepts_images("missing-session").await);
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
     #[tokio::test]
     async fn edit_admission_rejects_running_invalid_flags_and_text_only_models() {
         let root = std::env::temp_dir().join(format!("xh-edit-admission-{}", std::process::id()));

@@ -194,15 +194,15 @@ async fn glm_forced_reasoning_rejects_off_before_any_network_request() {
 #[test]
 fn browser_fixture_is_exactly_the_pinned_catalog_not_another_ui_enum() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../scripts/fixtures/reasoning-catalog-v0.1.1.json"
+        "../../../scripts/fixtures/reasoning-catalog-v0.4.0.json"
     ))
     .unwrap();
-    let catalog: Value = serde_json::from_str(xharness_model_catalog::CATALOG_JSON).unwrap();
+    let catalog: Value = serde_json::from_str(reasonmap::CATALOG_JSON).unwrap();
     assert_eq!(fixture["profiles"], catalog["profiles"]);
     assert_eq!(fixture["catalogVersion"], catalog["version"]);
-    assert_eq!(fixture["packageVersion"], "0.1.1");
+    assert_eq!(fixture["packageVersion"], "0.4.0");
     assert_eq!(
         fixture["gitRevision"],
-        "b76585abb9102690d2dd85e385550e0d2f688601"
+        "160ff392ae74af14205ba1dd0c7d0538d4777e97"
     );
 }

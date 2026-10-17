@@ -122,6 +122,9 @@ export interface ModelReasoning {
 
 /** One model displayed inside its provider group. */
 export interface ModelCatalogModel {
+  /** Exact active route capability. Missing means unknown, not text-only. */
+  imageInput?: boolean | undefined
+  imageInputCapability?: unknown | undefined
   reasoningCapability?: unknown | undefined
   contextWindow?: number | undefined
   contextWindowSource?: string | undefined

@@ -622,3 +622,37 @@ fn saved_automation_pages_and_control_receipts_cannot_adopt_other_scope_or_gener
     assert!(!request.admits(&result));
     assert!(serde_json::from_value::<ScopedAutomationApplied>(json!({"accepted":true})).is_err());
 }
+
+#[test]
+fn image_capability_wire_is_additive_and_preserves_false_vs_unknown() {
+    use xharness_api::protocol::{DiscoveredModelView, ModelCatalogEntry};
+    for supported in [true, false] {
+        let value = serde_json::json!({"id":"model","name":"Model","imageInput":supported,
+            "imageInputCapability":{"state":if supported {"supported"} else {"unsupported"},"source":"documented"}});
+        let model: ModelCatalogEntry = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(model.image_input, Some(supported));
+        assert_eq!(
+            serde_json::to_value(model).unwrap()["imageInput"],
+            supported
+        );
+        let discovered: DiscoveredModelView = serde_json::from_value(value).unwrap();
+        assert_eq!(discovered.image_input, Some(supported));
+        assert_eq!(
+            serde_json::to_value(discovered).unwrap()["imageInputCapability"]["source"],
+            "documented"
+        );
+    }
+    let legacy = serde_json::json!({"id":"model","name":"Legacy"});
+    let model: ModelCatalogEntry = serde_json::from_value(legacy.clone()).unwrap();
+    let discovered: DiscoveredModelView = serde_json::from_value(legacy).unwrap();
+    assert!(model.image_input.is_none());
+    assert!(discovered.image_input.is_none());
+    assert!(serde_json::to_value(model)
+        .unwrap()
+        .get("imageInput")
+        .is_none());
+    assert!(serde_json::to_value(discovered)
+        .unwrap()
+        .get("imageInput")
+        .is_none());
+}

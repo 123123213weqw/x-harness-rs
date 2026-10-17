@@ -2302,6 +2302,35 @@ async fn web_response_resumes_a_real_tool_approval() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+struct ImageCapturingRuntime(LoopAgentRuntime);
+#[async_trait]
+impl AgentRuntime for ImageCapturingRuntime {
+    fn has_available_route(&self) -> bool {
+        self.0.has_available_route()
+    }
+    fn can_route(&self, route: &ModelRoute) -> bool {
+        self.0.can_route(route)
+    }
+    fn model_catalog(&self) -> Vec<ModelDescriptor> {
+        self.0
+            .model_catalog()
+            .into_iter()
+            .map(|model| {
+                model.with_image_input(
+                    Some(true),
+                    json!({"state":"supported","source":"configured"}),
+                )
+            })
+            .collect()
+    }
+    async fn start_turn(
+        &self,
+        request: AgentTurnRequest,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.0.start_turn(request).await
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
     use xharness_session::ContentBlock;
@@ -2310,7 +2339,14 @@ async fn uploaded_image_reaches_model_as_reference_and_is_session_scoped() {
     config.provider_id = "capture".into();
     config.model_id = "capture-model".into();
     let provider = Arc::new(CapturingProvider::default());
-    fx.host = BasicHost::new(config, Some(provider.clone()), Arc::new(NoTools));
+    let runtime = LoopAgentRuntime::new(
+        "capture",
+        "capture-model",
+        Some(provider.clone()),
+        Arc::new(NoTools),
+        Arc::new(xharness_core::IdentityContextPolicy),
+    );
+    fx.host = BasicHost::with_agent_runtime(config, Arc::new(ImageCapturingRuntime(runtime)));
     let sid = fx
         .value(RpcMethod::SessionCreate, json!({"cwd":fx.root}))
         .await["sessionId"]

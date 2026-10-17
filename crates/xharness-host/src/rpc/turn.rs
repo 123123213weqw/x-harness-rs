@@ -68,28 +68,13 @@ pub(crate) async fn prompt(
             part.get("type").and_then(Value::as_str),
             Some("image" | "image_ref")
         )
-    }) {
-        let state = host.state.read().await;
-        if let Some(session) = state.sessions.get(&session_id) {
-            let unsupported = state
-                .settings
-                .get(crate::MODEL_SETTINGS_NAMESPACE)
-                .and_then(|ns| ns.value["providers"][&session.model.provider]["models"].as_array())
-                .and_then(|models| {
-                    models
-                        .iter()
-                        .find(|m| m["id"].as_str() == Some(&session.model.model))
-                })
-                .and_then(|model| model["imageInput"].as_bool())
-                == Some(false);
-            if unsupported {
-                return Err(rpc_error(
-                    RpcErrorCode::AttachmentError,
-                    "current model does not support images",
-                    json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
-                ));
-            }
-        }
+    }) && !host.session_accepts_images(&session_id).await
+    {
+        return Err(rpc_error(
+            RpcErrorCode::AttachmentError,
+            "current model does not support images or image capability is unknown; configure image input for this exact route",
+            json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
+        ));
     }
 
     // Attachment materialization is deliberately after receipt lookup:
