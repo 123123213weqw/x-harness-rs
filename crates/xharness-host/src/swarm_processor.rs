@@ -31,6 +31,13 @@ impl SwarmProcessor {
             status,
         }
     }
+    pub(crate) fn dispatch(id: String, expected_revision: u64, enabled: bool) -> SwarmChange {
+        SwarmChange::DispatchChanged {
+            id,
+            expected_revision,
+            enabled,
+        }
+    }
     pub(crate) fn attach(
         id: String,
         expected_revision: u64,
@@ -44,6 +51,17 @@ impl SwarmProcessor {
                 session_id,
                 assignment,
             },
+        }
+    }
+    pub(crate) fn task(
+        id: String,
+        expected_revision: u64,
+        change: xharness_control::SwarmTaskChange,
+    ) -> SwarmChange {
+        SwarmChange::TaskChanged {
+            id,
+            expected_revision,
+            change,
         }
     }
     pub(crate) fn validate(

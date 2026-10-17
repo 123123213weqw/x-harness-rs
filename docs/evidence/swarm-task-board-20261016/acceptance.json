@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "feature": "swarm-task-board-first-backend-slice",
+  "base": "8a1fe4b232c883d852f878192260e8c51a1c0d9a",
+  "branch": "feat/swarm-task-board-20261016",
+  "recordedAt": "2026-10-16T12:42:51.424653+00:00",
+  "execution": {
+    "rustHost": "WZU_Server",
+    "remotePath": "~/codex-build/x-harness-rs/swarm-task-board-20261016",
+    "localRustCompilation": false,
+    "remoteSourceHashesMatch": true,
+    "provider": "deterministic in-process fake; no paid model requests",
+    "restart": "fresh Host with reopened real JSONL Session and Control stores"
+  },
+  "validation": {
+    "newControlTests": 3,
+    "newHostTaskBoardTests": 8,
+    "newHostRepeatRuns": 3,
+    "newHostTestsPerRepeat": 8,
+    "hostUnitPassed": 358,
+    "hostUnitExistingIgnored": 7,
+    "rustRegression": "passed: control, agent, session, session-jsonl, api, host",
+    "clippy": "passed: control + host, all targets, warnings denied",
+    "architecture": "passed: content-bound follow-up base; no gate weakened",
+    "architectureUnitTestsPassed": 27,
+    "uiContractsPassed": 21,
+    "generatedUiBuildCheck": "passed; UI source/artifacts unchanged",
+    "formatting": "cargo fmt --all -- --check passed",
+    "whitespace": "git diff --check passed"
+  },
+  "verified": [
+    "Exclusive claims and at most one unfinished task per member; stale revisions and foreign ownership rejected.",
+    "The exact consuming worker turn is required for successful acceptance; normal turn completion alone is not semantic task acceptance.",
+    "Coordinator rejection of a normally ended attempt does not unlock dependencies.",
+    "Only successful accepted dependencies unlock pending work; active view hides settled tasks while paginated history retains them.",
+    "Real Agent inbox delivery uses a stable message identity; lost delivery-marker acknowledgement does not readmit the assignment.",
+    "Cold restoration recovers committed undelivered work; paused or interrupted workers remain parked without effect replay.",
+    "A blocked Swarm outbox cannot block ordinary child-result notification delivery.",
+    "Existing unrelated chat journals, ordinary Agent runtime tests and current UI build/contract tests remain passing."
+  ],
+  "notClaimed": [
+    "automatic task pickup or autonomous coordinator loop",
+    "model-facing task actions or specialized tool profiles",
+    "task-board frontend",
+    "task-aware multi-turn correction/retry/reassignment",
+    "real-provider end-to-end quality or OS-level kill tests",
+    "native Windows/macOS execution or cloud failover",
+    "new PR, merge, release, installed software replacement"
+  ],
+  "sourceSha256": {
+    "config/architecture-changes/swarm-task-board-v1.json": "401b49d2f71e2c8248c099946bdb5c12dfddbd0158f5d51188b830b3e4bc0db3",
+    "config/architecture-host-modules.json": "f711a62a2c269a7860645a0f83f771dc76bca9ff8b9bd853dcbb1b559d4fd56e",
+    "crates/xharness-control/src/swarm.rs": "eb25122f4a2d1344d6e10aaaf3f5b9698a9a23a1e0b20b30ef4ddfc010bb1d13",
+    "crates/xharness-control/src/swarm/tasks.rs": "f0b17f32448a2232fdb659b73b27a62b37e6d7f49a18aaf67b6d31164485e0f0",
+    "crates/xharness-host/src/delegation.rs": "21fc02707dd23c34447ff7714de43791c7702737d5b104360b3be639eada1543",
+    "crates/xharness-host/src/driver.rs": "faffb3ee1aa1f03003f5856cad93d4f1c07f4f24121ad7a88eee2a2316e73629",
+    "crates/xharness-host/src/lib.rs": "0793c60eeae84f6a704c13ba284f551b2195fc7066016a85eb0cde85e06036f2",
+    "crates/xharness-host/src/rpc.rs": "ef8ddc1efa7f71e1f98ed6668b0fd9e40123a312492ee754cbb1e5652e175bcf",
+    "crates/xharness-host/src/rpc/swarm.rs": "3d32ef62ee12889725ec2b68d2d8d2728b459ae94a33efe3e4b22daf79b76b74",
+    "crates/xharness-host/src/rpc/swarm_tasks.rs": "dae64f1e527d65f5e6b6bd4c5764740b2c576dea3c31bbcc3bd463a50eb852cb",
+    "crates/xharness-host/src/swarm_processor.rs": "f53cfe6b970143c0b8d2531007dc6affc2b3ff15a5e62bd51adbd8bd40ffc835",
+    "crates/xharness-host/src/swarm_tasks.rs": "ca5d02096083c3ee1d427906218344193e1584918b006cd9535cfe534f0b755c",
+    "crates/xharness-host/src/swarm_tests.rs": "ebdc75d892d20c06c94560f52d694f66cd039a0a14d0d3deb7261674c42a72b6",
+    "docs/specs/swarm-task-board.md": "d1cf268a51db7426239c399e8e50df3de3ab5f974342551447cd62f48ecc9423"
+  },
+  "logNormalization": "Captured logs have trailing whitespace normalized; messages and results otherwise unchanged. Original capture hashes are recorded separately.",
+  "originalCaptureSha256": {
+    "rust-regression-clippy-and-repeats.log": "a952ac5c81e2d25fadb2977a4a06b8694cf5f8f2462d88683b8dcbaab9a8c799",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "architecture-tests.log": "3f61d069e3b58caaa394b7e115e55b79d961b43098fb263a382bb3136feca35d",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d",
+    "ui-contracts.log": "966dbb7b1c70051b76edcc01be3aebeb7bcf36c0f6d1c9efe82897c093429ffd"
+  },
+  "logSha256": {
+    "rust-regression-clippy-and-repeats.log": "a952ac5c81e2d25fadb2977a4a06b8694cf5f8f2462d88683b8dcbaab9a8c799",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "architecture-tests.log": "3f61d069e3b58caaa394b7e115e55b79d961b43098fb263a382bb3136feca35d",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d",
+    "ui-contracts.log": "966dbb7b1c70051b76edcc01be3aebeb7bcf36c0f6d1c9efe82897c093429ffd"
+  }
+}

@@ -1,6 +1,9 @@
 //! Incremental team metadata. Agent execution and conversations remain session-owned.
 #![forbid(unsafe_code)]
 
+mod tasks;
+pub use tasks::*;
+
 use crate::{invalid, ControlError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -31,7 +34,12 @@ pub struct SwarmSnapshot {
     pub objective: String,
     pub status: SwarmStatus,
     pub revision: u64,
+    /// Human opt-in; old teams never acquire automatic dispatch on upgrade.
+    #[serde(default)]
+    pub auto_dispatch: bool,
     pub members: BTreeMap<String, SwarmMember>,
+    #[serde(default)]
+    pub tasks: BTreeMap<String, SwarmTask>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +55,16 @@ pub enum SwarmChange {
         id: String,
         expected_revision: u64,
         status: SwarmStatus,
+    },
+    DispatchChanged {
+        id: String,
+        expected_revision: u64,
+        enabled: bool,
+    },
+    TaskChanged {
+        id: String,
+        expected_revision: u64,
+        change: SwarmTaskChange,
     },
     MemberAttached {
         id: String,
@@ -91,7 +109,9 @@ pub(crate) fn apply(
                     objective: objective.clone(),
                     status: SwarmStatus::Active,
                     revision: 1,
+                    auto_dispatch: false,
                     members: BTreeMap::new(),
+                    tasks: BTreeMap::new(),
                 },
             );
         }
@@ -105,6 +125,35 @@ pub(crate) fn apply(
                 return Err(invalid("Swarm status is unchanged"));
             }
             current.status = *status;
+            current.revision += 1;
+        }
+        SwarmChange::DispatchChanged {
+            id,
+            expected_revision,
+            enabled,
+        } => {
+            let current = current(swarms, id, *expected_revision)?;
+            if current.auto_dispatch == *enabled {
+                return Err(invalid("Swarm dispatch setting is unchanged"));
+            }
+            if *enabled && current.status != SwarmStatus::Active {
+                return Err(invalid("Swarm must be active to enable dispatch"));
+            }
+            current.auto_dispatch = *enabled;
+            current.revision += 1;
+        }
+        SwarmChange::TaskChanged {
+            id,
+            expected_revision,
+            change,
+        } => {
+            let current = current(swarms, id, *expected_revision)?;
+            if current.status != SwarmStatus::Active
+                && !matches!(change, SwarmTaskChange::Settled { .. })
+            {
+                return Err(invalid("Swarm must be active to change tasks"));
+            }
+            tasks::apply(current, change)?;
             current.revision += 1;
         }
         SwarmChange::MemberAttached {

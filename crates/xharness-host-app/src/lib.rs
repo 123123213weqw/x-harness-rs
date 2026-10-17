@@ -452,7 +452,7 @@ impl SessionToolFactory for NativeToolFactory {
         }
         project_tools(&mut specs, &readiness);
         if let Some(host) = self.agent_host.get().and_then(std::sync::Weak::upgrade) {
-            specs.push(xharness_host::AgentTool::for_host(&host, session_id));
+            specs.push(xharness_host::AgentTool::for_session(&host, session_id).await);
             builtin_ui = Some(Arc::new(builtin_ui::BuiltinUi::new(&host, session_id)));
         }
         // Native desktop control deliberately remains outside the workspace
