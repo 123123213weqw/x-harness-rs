@@ -14,12 +14,21 @@ const compactionTerminalLocales = {
  en: {'xh.compact.skipped': 'Compaction skipped', 'xh.compact.cancelled': 'Compaction interrupted'},
  zh: {'xh.compact.skipped': '压缩已跳过', 'xh.compact.cancelled': '压缩已中断'},
 };
+const contextProvenanceLocales = {
+ en: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+ zh: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
  for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
   assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ for (const [key, expected] of Object.entries(contextProvenanceLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'provenance labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} provenance label ${key} must match its reviewed value`);
   delete normalized[key];
  }
  return normalized;
@@ -38,6 +47,20 @@ test('reviewed compaction locale additions reject missing or changed labels with
   const unexpected = baselineProductCopy(language,{...current,'xh.compact.unreviewed':'Unreviewed'});
   assert.equal(unexpected['xh.compact.unreviewed'],'Unreviewed');
   assert.notDeepEqual(unexpected,normalized,'unreviewed additions must remain visible to the strict dictionary comparison');
+ }
+});
+
+test('reviewed provenance labels reject missing, changed and unrelated locale deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  for(const key of Object.keys(contextProvenanceLocales[language])) {
+   const missing={...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/provenance label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'wrong attribution'}),/provenance label/);
+  }
+  const unrelated=baselineProductCopy(language,{...current,'context.unreviewed':'unexpected'});
+  assert.equal(unrelated['context.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
  }
 });
 
