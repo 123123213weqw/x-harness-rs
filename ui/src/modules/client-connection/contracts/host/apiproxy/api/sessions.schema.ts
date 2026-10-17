@@ -172,6 +172,8 @@ export const modelReasoningSchema = z.object({
 
 /** One advisory model entry inside a provider group. */
 export const modelCatalogModelSchema = z.object({
+  imageInput: z.boolean().optional(),
+  imageInputCapability: z.unknown().optional(),
   reasoningCapability: z.unknown().optional(),
   contextWindow: z.number().int().positive().optional(),
   contextWindowSource: z.string().optional(),
