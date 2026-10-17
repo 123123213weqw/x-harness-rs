@@ -1,0 +1,108 @@
+{
+  "source": "Provider-reported normalized session projections, cumulative across this isolated 13-session test only",
+  "sessionCount": 13,
+  "perSession": {
+    "swarm-scale12-1792161988": {
+      "cacheReadTokens": 1365248,
+      "cacheWriteTokens": 0,
+      "outputTokens": 12354,
+      "uncachedInputTokens": 68168
+    },
+    "agent-2905fc9ae3914b070fc16bc78484d15a153a0d1fdfb3b2bcb5e9963a81b5e27d": {
+      "cacheReadTokens": 6912,
+      "cacheWriteTokens": 0,
+      "outputTokens": 124,
+      "uncachedInputTokens": 2075
+    },
+    "agent-b88c3622f647dd8ebff6cf0358373b2e7720dc87f3e1d1d04b73d7f98f97ccc4": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 27,
+      "uncachedInputTokens": 422
+    },
+    "agent-d11cd2b13b027d1a9fec35aa685c3ba34326cecfc591cb4765768b4e64fed4a9": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 25,
+      "uncachedInputTokens": 422
+    },
+    "agent-6f8707275bbb3be7299dc94ff72f05447a87a588dbafcca483eb400e63416eb6": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 26,
+      "uncachedInputTokens": 422
+    },
+    "agent-60913e4f00a725259e13c12aec348e7c25160f828574cd8d0c73408f7855d91c": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 27,
+      "uncachedInputTokens": 422
+    },
+    "agent-004f53be599f82dea3d7a17fe424652ddc350ebfa47ccbe3412b4a1804131a7d": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 25,
+      "uncachedInputTokens": 422
+    },
+    "agent-e1b01efdfd659561cc5abe88d1dcb3d28551efb4210da06091657003411e6daa": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "uncachedInputTokens": 422
+    },
+    "agent-4df6df899e3e82fbc01a3adec9a0fac5af1b8e20538492e03494ea809b769df7": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 25,
+      "uncachedInputTokens": 422
+    },
+    "agent-47dee621e644446b0afd4618ed762d28fa695b8d10231c544829474d8bc32732": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 22,
+      "uncachedInputTokens": 422
+    },
+    "agent-f9198141bc75e0a1eb655430496eac2729223a124dc7265475818713e7c2da82": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "uncachedInputTokens": 422
+    },
+    "agent-c6f5ac795474cd9a6aff2934b2bb7bfd44f2ed5ffea07735b87ffc666a4c6dba": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "uncachedInputTokens": 422
+    },
+    "agent-966b876350ddee18edcd9f7fcf90369761890bbf2b1ab19350f83b53bb5fa1eb": {
+      "cacheReadTokens": 4480,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "uncachedInputTokens": 422
+    }
+  },
+  "total": {
+    "uncachedInputTokens": 74885,
+    "cacheReadTokens": 1421440,
+    "cacheWriteTokens": 0,
+    "outputTokens": 12747
+  },
+  "rootStats": {
+    "activeThroughput": {
+      "decodeMs": 60389,
+      "decodeTokens": 15429,
+      "model": "deepseek-flash",
+      "provider": "deepseek"
+    },
+    "decodeMs": 60389,
+    "decodeTokens": 15429,
+    "llmMs": 117107,
+    "steps": 61,
+    "toolMs": 8837,
+    "ttftMs": 50052,
+    "ttftSteps": 61,
+    "turns": 27
+  },
+  "moneyCost": null,
+  "note": "Reported tokens, not an invoice or measured money cost."
+}

@@ -1,0 +1,3 @@
+architecture dependency boundary passed for 46 crates and 30 extracted processors
+architecture freeze: {"base": "1b853347b22ba4c6df4e1a70241a1518c4058880", "bootstrap": false, "flexible_changes": [], "protected": ["config/architecture-host-modules.json", "crates/xharness-control/src/swarm.rs", "crates/xharness-control/src/swarm/tasks.rs"], "records": ["config/architecture-changes/swarm-task-board-v1.json"]}
+stabilization freeze passed; tool handlers and schemas remain flexible
