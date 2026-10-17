@@ -1,9 +1,7 @@
 //! Compact, read-only idle recovery. Execution retains full journal replay.
 //! No transcript, raw tool output, provider request or live task is serialized.
 use crate::{
-    state::{
-        GoalState, ModelSelection, ProjectedSessionMutationReceipt, QueuedPrompt, SessionRecord,
-    },
+    state::{GoalState, ModelSelection, ProjectedSessionMutationReceipt, SessionRecord},
     BasicHost, PermissionPreset,
 };
 use serde::{Deserialize, Serialize};
@@ -14,8 +12,10 @@ use xharness_session::{EventData, Session, SessionRecoveryCheckpoint, SessionRec
 // v1 cached admission using only explicit pause events. Its false bit cannot
 // certify an old failed turn as healthy under terminal-failure admission.
 // Fall back to authoritative replay once; v2 also existed before the capacity/failure-gate integration, so it
-// cannot certify both facts. Newly published v3 remains fast.
-pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v3";
+// cannot certify both facts. v4 stores bounded, body-free receipts; v3 journals
+// remain readable and are replayed once when the store requires an exact schema.
+pub(crate) const SCHEMA: &str = "xharness.host.idle-recovery.v4";
+const LEGACY_SCHEMA: &str = "xharness.host.idle-recovery.v3";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,14 +31,16 @@ struct IdleState {
     permission: PermissionPreset,
     plan_active: bool,
     goal: Option<GoalState>,
+    #[serde(default)]
+    task_plan: Option<xharness_session::SessionPlan>,
     dispatch_paused: bool,
     delegated: bool,
     next_turn: u32,
     #[serde(default)]
     auto_title_settled: bool,
     metrics: MetricsProjectionState,
-    // Exact RPC admission/receipt deduplication, not a lossy ID-only summary.
-    admissions: BTreeMap<String, QueuedPrompt>,
+    // Hot RPC receipts only; exact deduplication falls back to the durable inbox.
+    admissions: crate::admission_cache::AdmissionCache,
     mutation_receipts: BTreeMap<String, ProjectedSessionMutationReceipt>,
 }
 
@@ -144,6 +146,7 @@ pub(crate) fn checkpoint(
         permission: crate::restore::restored_permission(session),
         plan_active: crate::restore::restored_plan_mode(session),
         goal: crate::restore::restored_goal(session),
+        task_plan: xharness_session::session_plan(session),
         dispatch_paused: crate::delegation::restored_dispatch_paused(session),
         delegated: crate::delegation::restored_delegation(session).is_some(),
         next_turn: session
@@ -172,7 +175,9 @@ pub(crate) fn checkpoint(
 }
 
 fn restored_state(host: &BasicHost, tail: &SessionRecoveryTail) -> Option<IdleState> {
-    if !host.agent_runtime.supports_idle_restore_checkpoint() || tail.checkpoint.schema != SCHEMA {
+    if !host.agent_runtime.supports_idle_restore_checkpoint()
+        || !matches!(tail.checkpoint.schema.as_str(), SCHEMA | LEGACY_SCHEMA)
+    {
         return None;
     }
     let mut state: IdleState = serde_json::from_value(tail.checkpoint.state.clone()).ok()?;
@@ -304,11 +309,17 @@ pub(crate) fn restore(host: &BasicHost, tail: &SessionRecoveryTail) -> Option<Se
         active_permission: None,
         plan_active: state.plan_active,
         goal: state.goal,
+        task_plan: state.task_plan,
         schedules: Vec::new(),
         schedules_hydrated: true,
         events: Vec::new(),
         event_base_seq: tail.next_seq,
         event_cache_bytes: 0,
+        event_cache_weights: Vec::new(),
+        event_cache_resident_bytes: 0,
+        event_cache_resident_weights: Vec::new(),
+        event_cache_touched: 0,
+        projected_model: None,
         metrics: state.metrics,
         catalog_metrics: None,
         messages: Vec::new(),
@@ -509,6 +520,116 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[tokio::test]
+    async fn cold_v4_checkpoint_eviction_uses_durable_receipts_before_any_replay() {
+        use xharness_session::{InboxMessage, InboxTarget};
+        let d = Dir::new();
+        let s = d.store();
+        let session = s.create(SessionHeader::new("test")).await.unwrap();
+        let inserted = (0..400)
+            .map(|n| {
+                let mut input =
+                    InboxMessage::user(format!("request-{n:04}"), "original prompt body");
+                input.source = Some(
+                    json!({"rpcSessionId":"test","rpcFingerprint":format!("fingerprint-{n}")}),
+                );
+                input
+            })
+            .collect::<Vec<_>>();
+        let mut events = vec![
+            EventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 0,
+                inserted,
+                outcome: None,
+            }
+            .into(),
+            EventData::AgentInboxSpliced {
+                target: InboxTarget::NextTurn,
+                start: 0,
+                removed_count: 400,
+                inserted: vec![],
+                outcome: None,
+            }
+            .into(),
+        ];
+        events.extend(closed_turn(1));
+        s.append("test", session.revision(), events).await.unwrap();
+        let first = host(s.clone(), true);
+        first.restore_from_store(s.clone()).await.unwrap();
+        drop(first);
+        let cold = d.store();
+        let fast = host(cold.clone(), true);
+        let report = fast.restore_from_store(cold.clone()).await.unwrap();
+        assert_eq!(report.checkpoint_restored_sessions, 1);
+        assert_eq!(cold.loads.load(Ordering::SeqCst), 0);
+        assert!(fast.state.read().await.sessions["test"]
+            .admissions
+            .get("request-0000")
+            .is_none());
+        assert!(crate::rpc::turn::duplicate_admission(
+            &fast,
+            "test",
+            "request-0000",
+            "fingerprint-0"
+        )
+        .await
+        .unwrap());
+        assert!(cold.loads.load(Ordering::SeqCst) > 0);
+        assert!(
+            crate::rpc::turn::duplicate_admission(&fast, "test", "request-0000", "conflict")
+                .await
+                .is_err()
+        );
+        let journal = cold.load("test").await.unwrap().unwrap();
+        assert_eq!(journal.events().len(), 10);
+        assert!(serde_json::to_string(journal.events())
+            .unwrap()
+            .contains("original prompt body"));
+    }
+
+    #[tokio::test]
+    async fn legacy_body_receipts_are_migrated_without_serializing_prompt_bodies() {
+        let d = Dir::new();
+        let s = d.store();
+        let session = s.create(SessionHeader::new("test")).await.unwrap();
+        s.append("test", session.revision(), closed_turn(1))
+            .await
+            .unwrap();
+        let h = host(s.clone(), true);
+        h.restore_from_store(s.clone()).await.unwrap();
+        let journal = s.load("test").await.unwrap().unwrap();
+        let mut old = checkpoint(&h, &journal, &h.state.read().await.sessions["test"]).unwrap();
+        old.schema = LEGACY_SCHEMA.into();
+        old.state["admissions"] = json!({"legacy":{"id":"legacy","text":"private body".repeat(10000),"content":[],"source":{},"fingerprint":"same","placement":"queued"}});
+        let tail = SessionRecoveryTail {
+            next_seq: old.next_seq,
+            revision: old.revision,
+            checkpoint: old,
+            events: vec![],
+        };
+        let record = restore(&h, &tail).unwrap();
+        assert_eq!(
+            record
+                .admissions
+                .get("legacy")
+                .unwrap()
+                .fingerprint
+                .as_deref(),
+            Some("same")
+        );
+        assert_eq!(
+            serde_json::to_value(&record.admissions).unwrap(),
+            json!({"legacy":{"fingerprint":"same"}})
+        );
+        let published = checkpoint(&h, &journal, &record).unwrap();
+        assert_eq!(published.schema, SCHEMA);
+        assert!(!serde_json::to_string(&published)
+            .unwrap()
+            .contains("private body"));
     }
 
     #[tokio::test]

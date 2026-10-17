@@ -6,6 +6,7 @@ mod context_composition;
 mod context_working_set;
 pub use checkpoint::CheckpointConfig;
 mod engine;
+mod plan_context;
 mod reception;
 mod retry;
 mod session;

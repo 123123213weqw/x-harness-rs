@@ -22,7 +22,7 @@ use xharness_compaction::{
     frame_summary, BasicCompactionPlanner, CompactionDecision, CompactionPlan, CompactionRequest,
     CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind,
 };
-use xharness_debug::{DebugEvent, DebugScope};
+use xharness_debug::DebugScope;
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionEndOutcome, CompactionProgress,
     CompactionStage, EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval,
@@ -616,15 +616,14 @@ impl UserRequestScope {
 
 impl Runner {
     async fn run(mut self) -> LoopResult {
-        self.debug(
-            "run.start",
+        self.debug("run.start", || {
             json!({
                 "provider": self.request.provider.provider_name(),
                 "model": self.request.provider.model_name(),
                 "messageCount": self.request.messages.len(),
                 "maxSteps": self.request.config.max_steps,
-            }),
-        )
+            })
+        })
         .await;
         if let Some(error) = self.startup_error.take() {
             self.messages = self.request.messages.clone();
@@ -633,15 +632,14 @@ impl Runner {
                     error: error.clone(),
                 })
                 .await;
-            self.debug(
-                "run.end",
+            self.debug("run.end", || {
                 json!({
                     "status": LoopStatus::Failed,
                     "finalText": "",
                     "messages": &self.messages,
                     "error": &error,
-                }),
-            )
+                })
+            })
             .await;
             return LoopResult {
                 status: LoopStatus::Failed,
@@ -721,8 +719,7 @@ impl Runner {
                 .await;
         }
         let _ = self.snapshot(phase, self.tool_batch_complete).await;
-        self.debug(
-            "run.end",
+        self.debug("run.end", || {
             json!({
                 "status": status,
                 "finalText": &self.final_text,
@@ -731,8 +728,8 @@ impl Runner {
                 "stepUsage": &self.step_usage,
                 "finishReason": &self.finish_reason,
                 "error": &error,
-            }),
-        )
+            })
+        })
         .await;
         LoopResult {
             status,
@@ -807,13 +804,12 @@ impl Runner {
                 } = self
                     .prepare_context(self.messages.clone(), &context_tools)
                     .await?;
-                self.debug(
-                    "context.prepared",
+                self.debug("context.prepared", || {
                     json!({
                         "surface": &prepared,
                         "tools": &context_tools,
-                    }),
-                )
+                    })
+                })
                 .await;
                 let mut provider_request = ProviderRequest {
                     messages: prepared.messages.clone(),
@@ -886,7 +882,7 @@ impl Runner {
                                     Err(error) => {
                                         self.debug(
                                             "compaction.pressure_failed",
-                                            json!({"error": error.to_string()}),
+                                            || json!({"error": error.to_string()}),
                                         )
                                         .await;
                                         return Err(error);
@@ -981,8 +977,7 @@ impl Runner {
                 }
             };
             if self.request.debug.enabled() {
-                self.debug(
-                    "provider.request.prepared",
+                self.debug("provider.request.prepared", || {
                     json!({
                         "request": {
                             "messages": &provider_request.messages,
@@ -991,8 +986,8 @@ impl Runner {
                             "maxOutputTokens": provider_request.max_output_tokens,
                         },
                         "tokenBudget": &token_budget,
-                    }),
-                )
+                    })
+                })
                 .await;
             }
             self.journal_request_header(
@@ -1323,6 +1318,7 @@ impl Runner {
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         let mut origins = Vec::new();
         let mut attribution = Vec::new();
+        let mut working_plan = None;
         {
             if let Some(journal) = &self.journal {
                 let session = journal
@@ -1333,6 +1329,7 @@ impl Runner {
                         RunFailure::Failed(format!("working set journal load failed: {error}"))
                     })?
                     .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
+                working_plan = xharness_session::session_plan(&session);
                 let surface = session.derive_surface_messages();
                 attribution = crate::context_composition::aligned_origins(
                     &session,
@@ -1344,8 +1341,14 @@ impl Runner {
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
-        self.prepare_context_with_sources(context_messages, context_tools, &origins, &attribution)
-            .await
+        self.prepare_context_with_sources(
+            context_messages,
+            context_tools,
+            &origins,
+            &attribution,
+            working_plan.as_ref(),
+        )
+        .await
     }
 
     async fn prepare_context_with_sources(
@@ -1354,6 +1357,7 @@ impl Runner {
         context_tools: &[Value],
         origins: &[Option<xharness_context::WorkingSetSource>],
         attribution: &[xharness_token::ContextMessageOrigin],
+        working_plan: Option<&xharness_session::SessionPlan>,
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         // Retirement is allowed only with a real session-bound recovery tool.
         // A custom executor without history must remain lossless/fail closed.
@@ -1437,6 +1441,12 @@ impl Runner {
         // wire. In particular, a long conversation must not fail forever once
         // its accumulated attachments exceed one request's resource budget.
         prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
+        if let Some(note) =
+            crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
+        {
+            let index = crate::plan_context::insert(&mut prepared.messages, note);
+            attribution.insert(index, xharness_token::ContextMessageOrigin::RuntimeContext);
+        }
         if let Some(continuation) = self.pending_continuation.clone() {
             prepared.messages.push(continuation);
             attribution.push(xharness_token::ContextMessageOrigin::RuntimeContext);
@@ -1626,7 +1636,7 @@ impl Runner {
                     Err(error) if error.retryable && guard.allows_counter_fallback() => {
                         fallback_reason = Some("transient_counter_failure".to_owned());
                         provider.input_counter_failed();
-                        self.debug("token_count.fallback",json!({"reason":"transient_counter_failure","status":error.http_status})).await;
+                        self.debug("token_count.fallback",|| json!({"reason":"transient_counter_failure","status":error.http_status})).await;
                         break None;
                     }
                     Err(error) => {
@@ -1986,8 +1996,7 @@ impl Runner {
             true,
         )
         .await?;
-        self.debug(
-            "compaction.start",
+        self.debug("compaction.start", || {
             json!({
                 "compactionId": &compaction_id,
                 "trigger": trigger,
@@ -1995,8 +2004,8 @@ impl Runner {
                 "currentInputTokens": current_input_tokens,
                 "reasoningEffort": &self.request.compaction_reasoning_effort,
                 "toolCount": 0,
-            }),
-        )
+            })
+        })
         .await;
 
         // Cache deterministic failure for this exact source within the run;
@@ -2164,7 +2173,13 @@ impl Runner {
                 .saturating_sub(candidate_origins.len());
             candidate_origins.splice(0..0, std::iter::repeat_n(None, prefix_len));
             let prepared = self
-                .prepare_context_with_sources(prefixed_candidate, &tools, &candidate_origins, &[])
+                .prepare_context_with_sources(
+                    prefixed_candidate,
+                    &tools,
+                    &candidate_origins,
+                    &[],
+                    xharness_session::session_plan(&session).as_ref(),
+                )
                 .await?
                 .surface;
             let request = ProviderRequest {
@@ -2183,7 +2198,7 @@ impl Runner {
                 TokenBudgetCheck::Ready(report) => {
                     progress.input_tokens_after =
                         report.as_ref().map(|r| r.estimate.total_input_tokens);
-                    self.debug("compaction.candidate_budget", json!({"budget":report}))
+                    self.debug("compaction.candidate_budget", || json!({"budget":report}))
                         .await;
                     if progress
                         .input_tokens_after
@@ -2300,16 +2315,16 @@ impl Runner {
             return Ok(CompactionOutcome::Interrupted);
         }
         self.reload_journal_messages().await?;
-        self.debug(
-            "compaction.end",
+        let context_tools_sha256 = sha256_json(&context_tools)?;
+        self.debug("compaction.end", || {
             json!({
                 "compactionId": &compaction_id,
                 "shadowedTokens": plan.range.shadowed_token_count,
                 "checkpointTokens": checkpoint_tokens,
                 "visibleMessages": self.messages.len(),
-                "toolsSha256": sha256_json(&context_tools)?,
-            }),
-        )
+                "toolsSha256": context_tools_sha256,
+            })
+        })
         .await;
         Ok(CompactionOutcome::Applied)
     }
@@ -2429,7 +2444,7 @@ impl Runner {
         .await?;
         self.debug(
             "compaction.skipped",
-            json!({"reason":reason,"trigger":trigger}),
+            || json!({"reason":reason,"trigger":trigger}),
         )
         .await;
         if trigger == CompactionTrigger::ContextOverflow {
@@ -2544,12 +2559,11 @@ impl Runner {
                 result = &mut summary => break result?,
             }
         };
-        self.debug(
-            "compaction.summary_completed",
+        self.debug("compaction.summary_completed", || {
             json!({
                 "calls": output.calls, "splits": output.splits, "usage": output.usage,
-            }),
-        )
+            })
+        })
         .await;
         Ok(CompactionSummaryOutput {
             progress: CompactionProgress {
@@ -2937,6 +2951,7 @@ impl Runner {
                                     | SessionEventData::SessionTitleGeneration { .. }
                                     | SessionEventData::GoalExecution { .. }
                                     | SessionEventData::GoalChange { .. }
+                                    | SessionEventData::SessionPlanUpdated { .. }
                                     | SessionEventData::ScheduleChange { .. }
                                     | SessionEventData::SessionMutationCommitted { .. }
                                     | SessionEventData::PlanMode { .. }
@@ -3888,18 +3903,21 @@ impl Runner {
             step: self.step,
             kind,
         };
-        self.debug("loop.event", json!({"event": &event})).await;
+        self.debug("loop.event", || json!({"event": &event})).await;
         self.event_journal
             .append(event)
             .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
     }
 
-    async fn debug(&self, event: &str, payload: Value) {
+    fn debug(
+        &self,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         let scope = self.debug_scope();
         self.request
             .debug
-            .record_lossy(DebugEvent::new("core", event, payload).with_scope(scope))
-            .await;
+            .record_lossy_with("core", event, scope, payload)
     }
 
     fn debug_scope(&self) -> DebugScope {
@@ -4991,7 +5009,7 @@ impl Runner {
             if approval.response.send(Ok(runtime)).is_err() {
                 self.debug(
                     "approval.delivery_expired",
-                    json!({"executionId":approval.execution_id}),
+                    || json!({"executionId":approval.execution_id}),
                 )
                 .await;
             }

@@ -7,13 +7,15 @@ import {join, resolve, relative} from 'node:path'
 import vm from 'node:vm'
 import {createHash} from 'node:crypto'
 import {compileSourceModules,stripEmissionTrivia} from './build-source-modules.mjs'
+const declaredZod = JSON.parse(readFileSync(new URL('../ui/source-vendors.json', import.meta.url))).packages.zod
+const zodPin = {version: declaredZod.version, license: declaredZod.license}
 const fixtures = []
 after(() => {for (const root of fixtures) rmSync(root, {recursive: true, force: true})})
 function fixture(files) {
   const root = mkdtempSync(join(tmpdir(), 'xh-source-builder-')); fixtures.push(root)
   mkdirSync(join(root, 'src/modules/test'), {recursive: true})
   writeFileSync(join(root, 'package.json'), '{}')
-  writeFileSync(join(root, 'source-vendors.json'), JSON.stringify({schemaVersion:1,packages:{zod:{version:'4.4.3',license:'MIT'}}}))
+  writeFileSync(join(root, 'source-vendors.json'), JSON.stringify({schemaVersion:1,packages:{zod:zodPin}}))
   writeFileSync(join(root, 'tsconfig.sources.json'), JSON.stringify({compilerOptions:{target:'ES2020',module:'CommonJS',moduleResolution:'Node',types:[],strict:true,noUncheckedIndexedAccess:true,exactOptionalPropertyTypes:true,esModuleInterop:true,newLine:'lf',lib:['ES2020','DOM']},files:['src/modules/test/ambient.d.ts']}))
   writeFileSync(join(root, 'src/modules/test/ambient.d.ts'), "declare module '*.css' {const css:string;export default css} declare module 'react' {export function fixtureCount(): number}")
   for (const [name, source] of Object.entries(files)) {mkdirSync(join(root, 'src/modules/test', name, '..'), {recursive:true});writeFileSync(join(root, 'src/modules/test', name), source)}
@@ -70,7 +72,7 @@ test('locked Zod is bundled internally, preserving validation/projection, not ex
   const root=fixture({'index.ts':"import {z} from 'zod';export const schema=z.object({n:z.number()});export const projection=z.toJSONSchema(schema);"})
   cpSync(resolve('ui/node_modules/zod'),join(root,'node_modules/zod'),{recursive:true})
   const built=compile(root), value=load(built)
-  assert.deepEqual(built.external,[]);assert.ok(built.sources.includes('npm:zod@4.4.3'))
+  assert.deepEqual(built.external,[]);assert.ok(built.sources.includes(`npm:zod@${zodPin.version}`))
   assert.equal(value.schema.safeParse({n:'bad'}).success,false);assert.equal(value.schema.safeParse({n:1}).success,true)
   assert.equal(value.projection.properties.n.type,'number')
   const metadata=join(root,'node_modules/zod/package.json'),pkg=JSON.parse(readFileSync(metadata));pkg.version='wrong';writeFileSync(metadata,JSON.stringify(pkg))
@@ -180,10 +182,10 @@ test('shared pinned vendor is external and retains platform singleton identity a
   const root=fixture({'index.ts':"import {z} from 'zod';export const schema=z.string();export const namespace=z;"})
   cpSync(resolve('ui/node_modules/zod'),join(root,'node_modules/zod'),{recursive:true})
   const path=join(root,'source-vendors.json'), spec=JSON.parse(readFileSync(path))
-  spec.packages.zod.shared=true;spec.platformPackages={zod:{version:'4.4.3',license:'MIT'}}
+  spec.packages.zod.shared=true;spec.platformPackages={zod:{...zodPin}}
   writeFileSync(path,JSON.stringify(spec))
   const built=compile(root)
-  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@4.4.3'))
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes(`npm:zod@${zodPin.version}`))
   assert.ok(!built.bytes.toString().includes('vendor/zod.js'))
   const first=load(built,name=>{assert.equal(name,'zod');return sharedVendors.zod})
   const second=load(built,()=>sharedVendors.zod)

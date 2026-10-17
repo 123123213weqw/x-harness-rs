@@ -1,0 +1,3012 @@
+[
+  {
+    "case": "after_js_fetch",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "curl -sL -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\" \"https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr\" -o /tmp/tmall.html; wc -c /tmp/tmall.html; head -c 3000 /tmp/tmall.html"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.153,
+        "usage": {
+          "prompt_tokens": 7188,
+          "completion_tokens": 145,
+          "total_tokens": 7333,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 148
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "after_js_fetch",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "curl -sL -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\" \"https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr\" -o /tmp/tmall.html; wc -c /tmp/tmall.html; head -c 3000 /tmp/tmall.html"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.144,
+        "usage": {
+          "prompt_tokens": 7188,
+          "completion_tokens": 145,
+          "total_tokens": 7333,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 148
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "after_js_fetch",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe",
+          "arguments": {}
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.769,
+        "usage": {
+          "prompt_tokens": 7353,
+          "completion_tokens": 38,
+          "total_tokens": 7391,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 185
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.951,
+        "usage": {
+          "prompt_tokens": 7500,
+          "completion_tokens": 94,
+          "total_tokens": 7594,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 204
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.409,
+        "usage": {
+          "prompt_tokens": 7632,
+          "completion_tokens": 139,
+          "total_tokens": 7771,
+          "prompt_tokens_details": {
+            "cached_tokens": 7424
+          },
+          "prompt_cache_hit_tokens": 7424,
+          "prompt_cache_miss_tokens": 208
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.944,
+        "usage": {
+          "prompt_tokens": 7860,
+          "completion_tokens": 78,
+          "total_tokens": 7938,
+          "prompt_tokens_details": {
+            "cached_tokens": 7680
+          },
+          "prompt_cache_hit_tokens": 7680,
+          "prompt_cache_miss_tokens": 180
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.262,
+        "usage": {
+          "prompt_tokens": 8218,
+          "completion_tokens": 145,
+          "total_tokens": 8363,
+          "prompt_tokens_details": {
+            "cached_tokens": 7936
+          },
+          "prompt_cache_hit_tokens": 7936,
+          "prompt_cache_miss_tokens": 282
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.912,
+        "usage": {
+          "prompt_tokens": 8497,
+          "completion_tokens": 110,
+          "total_tokens": 8607,
+          "prompt_tokens_details": {
+            "cached_tokens": 8320
+          },
+          "prompt_cache_hit_tokens": 8320,
+          "prompt_cache_miss_tokens": 177
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "after_js_fetch",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe",
+          "arguments": {
+            "scope": "page"
+          }
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.669,
+        "usage": {
+          "prompt_tokens": 7353,
+          "completion_tokens": 38,
+          "total_tokens": 7391,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 185
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.812,
+        "usage": {
+          "prompt_tokens": 7500,
+          "completion_tokens": 94,
+          "total_tokens": 7594,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 204
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.158,
+        "usage": {
+          "prompt_tokens": 7632,
+          "completion_tokens": 139,
+          "total_tokens": 7771,
+          "prompt_tokens_details": {
+            "cached_tokens": 7424
+          },
+          "prompt_cache_hit_tokens": 7424,
+          "prompt_cache_miss_tokens": 208
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.819,
+        "usage": {
+          "prompt_tokens": 7860,
+          "completion_tokens": 78,
+          "total_tokens": 7938,
+          "prompt_tokens_details": {
+            "cached_tokens": 7680
+          },
+          "prompt_cache_hit_tokens": 7680,
+          "prompt_cache_miss_tokens": 180
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.195,
+        "usage": {
+          "prompt_tokens": 8218,
+          "completion_tokens": 145,
+          "total_tokens": 8363,
+          "prompt_tokens_details": {
+            "cached_tokens": 8064
+          },
+          "prompt_cache_hit_tokens": 8064,
+          "prompt_cache_miss_tokens": 154
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.039,
+        "usage": {
+          "prompt_tokens": 8497,
+          "completion_tokens": 116,
+          "total_tokens": 8613,
+          "prompt_tokens_details": {
+            "cached_tokens": 8320
+          },
+          "prompt_cache_hit_tokens": 8320,
+          "prompt_cache_miss_tokens": 177
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "desktop_calculator",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "auto"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.073,
+        "usage": {
+          "prompt_tokens": 7050,
+          "completion_tokens": 66,
+          "total_tokens": 7116,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 138
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "desktop_calculator",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "auto"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.142,
+        "usage": {
+          "prompt_tokens": 7050,
+          "completion_tokens": 65,
+          "total_tokens": 7115,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 138
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "desktop_calculator",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.476,
+        "usage": {
+          "prompt_tokens": 7215,
+          "completion_tokens": 65,
+          "total_tokens": 7280,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 175
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "desktop_calculator",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.796,
+        "usage": {
+          "prompt_tokens": 7215,
+          "completion_tokens": 65,
+          "total_tokens": 7280,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 175
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "explicit_chrome",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.008,
+        "usage": {
+          "prompt_tokens": 7074,
+          "completion_tokens": 69,
+          "total_tokens": 7143,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 162
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "explicit_chrome",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "ls /Applications | grep -i chrome; echo \"---\"; ls ~/Applications 2>/dev/null | grep -i chrome",
+          "description": "Check for Chrome installation"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.233,
+        "usage": {
+          "prompt_tokens": 7074,
+          "completion_tokens": 100,
+          "total_tokens": 7174,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 162
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "explicit_chrome",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.834,
+        "usage": {
+          "prompt_tokens": 7239,
+          "completion_tokens": 64,
+          "total_tokens": 7303,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 199
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "explicit_chrome",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.158,
+        "usage": {
+          "prompt_tokens": 7239,
+          "completion_tokens": 64,
+          "total_tokens": 7303,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 199
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "interactive_page",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "low"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.045,
+        "usage": {
+          "prompt_tokens": 7076,
+          "completion_tokens": 64,
+          "total_tokens": 7140,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 164
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "interactive_page",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "computer",
+        "arguments": {
+          "action": "observe",
+          "detail": "semantic"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.092,
+        "usage": {
+          "prompt_tokens": 7076,
+          "completion_tokens": 65,
+          "total_tokens": 7141,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 164
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "interactive_page",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser"
+        },
+        "result": {
+          "servers": [
+            "webview"
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe",
+          "arguments": {}
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.845,
+        "usage": {
+          "prompt_tokens": 7241,
+          "completion_tokens": 47,
+          "total_tokens": 7288,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 201
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.862,
+        "usage": {
+          "prompt_tokens": 7397,
+          "completion_tokens": 78,
+          "total_tokens": 7475,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 229
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.807,
+        "usage": {
+          "prompt_tokens": 7513,
+          "completion_tokens": 61,
+          "total_tokens": 7574,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 217
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.987,
+        "usage": {
+          "prompt_tokens": 7617,
+          "completion_tokens": 78,
+          "total_tokens": 7695,
+          "prompt_tokens_details": {
+            "cached_tokens": 7424
+          },
+          "prompt_cache_hit_tokens": 7424,
+          "prompt_cache_miss_tokens": 193
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.218,
+        "usage": {
+          "prompt_tokens": 7975,
+          "completion_tokens": 145,
+          "total_tokens": 8120,
+          "prompt_tokens_details": {
+            "cached_tokens": 7680
+          },
+          "prompt_cache_hit_tokens": 7680,
+          "prompt_cache_miss_tokens": 295
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.244,
+        "usage": {
+          "prompt_tokens": 8254,
+          "completion_tokens": 110,
+          "total_tokens": 8364,
+          "prompt_tokens_details": {
+            "cached_tokens": 8064
+          },
+          "prompt_cache_hit_tokens": 8064,
+          "prompt_cache_miss_tokens": 190
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "interactive_page",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "observe"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe"
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.917,
+        "usage": {
+          "prompt_tokens": 7241,
+          "completion_tokens": 47,
+          "total_tokens": 7288,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 201
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.78,
+        "usage": {
+          "prompt_tokens": 7397,
+          "completion_tokens": 94,
+          "total_tokens": 7491,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 229
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.782,
+        "usage": {
+          "prompt_tokens": 7529,
+          "completion_tokens": 78,
+          "total_tokens": 7607,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 233
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.207,
+        "usage": {
+          "prompt_tokens": 7887,
+          "completion_tokens": 145,
+          "total_tokens": 8032,
+          "prompt_tokens_details": {
+            "cached_tokens": 7552
+          },
+          "prompt_cache_hit_tokens": 7552,
+          "prompt_cache_miss_tokens": 335
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.031,
+        "usage": {
+          "prompt_tokens": 8166,
+          "completion_tokens": 117,
+          "total_tokens": 8283,
+          "prompt_tokens_details": {
+            "cached_tokens": 7936
+          },
+          "prompt_cache_hit_tokens": 7936,
+          "prompt_cache_miss_tokens": 230
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "look_at_link",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "curl -sL -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\" \"https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr\" -o /tmp/tmall.html -w \"%{http_code} %{size_download} %{url_effective}\\n\"; echo \"---\"; wc -c /tmp/tmall.html",
+          "description": "Fetch raw HTML of the Tmall page"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.807,
+        "usage": {
+          "prompt_tokens": 7070,
+          "completion_tokens": 70,
+          "total_tokens": 7140,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 158
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.261,
+        "usage": {
+          "prompt_tokens": 7209,
+          "completion_tokens": 180,
+          "total_tokens": 7389,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 169
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "look_at_link",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": true,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      },
+      {
+        "tool": "bash",
+        "arguments": {
+          "command": "curl -sL -A \"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36\" \"https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr\" -o /tmp/wupr.html -w \"%{http_code} %{size_download}\\n\"; wc -c /tmp/wupr.html",
+          "description": "Fetch raw HTML of the Tmall page"
+        },
+        "result": {
+          "ok": true,
+          "fixture": "route observed; no desktop or command executed"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.896,
+        "usage": {
+          "prompt_tokens": 7070,
+          "completion_tokens": 70,
+          "total_tokens": 7140,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 158
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.321,
+        "usage": {
+          "prompt_tokens": 7209,
+          "completion_tokens": 172,
+          "total_tokens": 7381,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 169
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "look_at_link",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control"
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "observe"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe"
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.922,
+        "usage": {
+          "prompt_tokens": 7235,
+          "completion_tokens": 46,
+          "total_tokens": 7281,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 195
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.949,
+        "usage": {
+          "prompt_tokens": 7390,
+          "completion_tokens": 94,
+          "total_tokens": 7484,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 222
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.974,
+        "usage": {
+          "prompt_tokens": 7522,
+          "completion_tokens": 139,
+          "total_tokens": 7661,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 226
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.793,
+        "usage": {
+          "prompt_tokens": 7750,
+          "completion_tokens": 78,
+          "total_tokens": 7828,
+          "prompt_tokens_details": {
+            "cached_tokens": 7552
+          },
+          "prompt_cache_hit_tokens": 7552,
+          "prompt_cache_miss_tokens": 198
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.033,
+        "usage": {
+          "prompt_tokens": 8108,
+          "completion_tokens": 145,
+          "total_tokens": 8253,
+          "prompt_tokens_details": {
+            "cached_tokens": 7808
+          },
+          "prompt_cache_hit_tokens": 7808,
+          "prompt_cache_miss_tokens": 300
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.111,
+        "usage": {
+          "prompt_tokens": 8387,
+          "completion_tokens": 117,
+          "total_tokens": 8504,
+          "prompt_tokens_details": {
+            "cached_tokens": 8192
+          },
+          "prompt_cache_hit_tokens": 8192,
+          "prompt_cache_miss_tokens": 195
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "look_at_link",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control"
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "observe"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe"
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.109,
+        "usage": {
+          "prompt_tokens": 7235,
+          "completion_tokens": 46,
+          "total_tokens": 7281,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 195
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.014,
+        "usage": {
+          "prompt_tokens": 7390,
+          "completion_tokens": 94,
+          "total_tokens": 7484,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 222
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.997,
+        "usage": {
+          "prompt_tokens": 7522,
+          "completion_tokens": 139,
+          "total_tokens": 7661,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 226
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.966,
+        "usage": {
+          "prompt_tokens": 7750,
+          "completion_tokens": 78,
+          "total_tokens": 7828,
+          "prompt_tokens_details": {
+            "cached_tokens": 7552
+          },
+          "prompt_cache_hit_tokens": 7552,
+          "prompt_cache_miss_tokens": 198
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.36,
+        "usage": {
+          "prompt_tokens": 8108,
+          "completion_tokens": 145,
+          "total_tokens": 8253,
+          "prompt_tokens_details": {
+            "cached_tokens": 7936
+          },
+          "prompt_cache_hit_tokens": 7936,
+          "prompt_cache_miss_tokens": 172
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.893,
+        "usage": {
+          "prompt_tokens": 8387,
+          "completion_tokens": 117,
+          "total_tokens": 8504,
+          "prompt_tokens_details": {
+            "cached_tokens": 8192
+          },
+          "prompt_cache_hit_tokens": 8192,
+          "prompt_cache_miss_tokens": 195
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "open_page",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.994,
+        "usage": {
+          "prompt_tokens": 7072,
+          "completion_tokens": 88,
+          "total_tokens": 7160,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 160
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.171,
+        "usage": {
+          "prompt_tokens": 7229,
+          "completion_tokens": 49,
+          "total_tokens": 7278,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 189
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "stop"
+      }
+    ],
+    "answer": "The page title is **AI Hackathon**.\n\nThe fetch returned HTTP 200 with a minimal HTML document whose only extracted text was \"AI Hackathon\" \u2014 consistent with a JavaScript-rendered activity page where the static HTML carries just the title."
+  },
+  {
+    "case": "open_page",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.889,
+        "usage": {
+          "prompt_tokens": 7072,
+          "completion_tokens": 88,
+          "total_tokens": 7160,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 160
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.294,
+        "usage": {
+          "prompt_tokens": 7229,
+          "completion_tokens": 77,
+          "total_tokens": 7306,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 189
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "stop"
+      }
+    ],
+    "answer": "The page title is **AI Hackathon**.\n\nThe fetch returned HTTP 200 with a minimal HTML document whose only extracted text was \"AI Hackathon\" \u2014 consistent with a JavaScript-rendered Tmall activity page where the static HTML carries just the title. If you need the rendered content (not just the title), that would require a browser, since the body is populated client-side."
+  },
+  {
+    "case": "open_page",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe",
+          "arguments": {
+            "scope": "page"
+          }
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.741,
+        "usage": {
+          "prompt_tokens": 7237,
+          "completion_tokens": 47,
+          "total_tokens": 7284,
+          "prompt_tokens_details": {
+            "cached_tokens": 512
+          },
+          "prompt_cache_hit_tokens": 512,
+          "prompt_cache_miss_tokens": 6725
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.097,
+        "usage": {
+          "prompt_tokens": 7393,
+          "completion_tokens": 94,
+          "total_tokens": 7487,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 225
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.323,
+        "usage": {
+          "prompt_tokens": 7525,
+          "completion_tokens": 139,
+          "total_tokens": 7664,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 229
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.788,
+        "usage": {
+          "prompt_tokens": 7753,
+          "completion_tokens": 78,
+          "total_tokens": 7831,
+          "prompt_tokens_details": {
+            "cached_tokens": 7552
+          },
+          "prompt_cache_hit_tokens": 7552,
+          "prompt_cache_miss_tokens": 201
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.962,
+        "usage": {
+          "prompt_tokens": 8111,
+          "completion_tokens": 145,
+          "total_tokens": 8256,
+          "prompt_tokens_details": {
+            "cached_tokens": 7808
+          },
+          "prompt_cache_hit_tokens": 7808,
+          "prompt_cache_miss_tokens": 303
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.946,
+        "usage": {
+          "prompt_tokens": 8390,
+          "completion_tokens": 116,
+          "total_tokens": 8506,
+          "prompt_tokens_details": {
+            "cached_tokens": 8192
+          },
+          "prompt_cache_hit_tokens": 8192,
+          "prompt_cache_miss_tokens": 198
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "open_page",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": true,
+      "observed": true,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin",
+            "@xharness/native-browser"
+          ],
+          "capabilities": [
+            {
+              "plugin": "@xharness/native-browser",
+              "server": "webview",
+              "description": "Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "describe",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open"
+        },
+        "result": {
+          "tool": {}
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "open",
+          "arguments": {
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          }
+        },
+        "result": {
+          "ok": false,
+          "error": "unsupported or not-yet-open fixture action"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "@xharness/native-browser",
+          "server": "webview"
+        },
+        "result": {
+          "tools": [
+            {
+              "name": "control",
+              "description": "Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override."
+            },
+            {
+              "name": "observe",
+              "description": "Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null."
+            }
+          ]
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {
+            "action": "open",
+            "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+          },
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "control"
+        },
+        "result": {
+          "ok": true,
+          "state": "ready",
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "tab_id": "fixture-tab",
+          "effect": "applied"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "call",
+          "arguments": {},
+          "plugin": "@xharness/native-browser",
+          "server": "webview",
+          "tool": "observe"
+        },
+        "result": {
+          "text": "AI Hackathon. Registration is open.",
+          "frame_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "nodes": [
+            {
+              "ref": "n1",
+              "role": "button",
+              "name": "Register"
+            }
+          ]
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.12,
+        "usage": {
+          "prompt_tokens": 7237,
+          "completion_tokens": 47,
+          "total_tokens": 7284,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 197
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.014,
+        "usage": {
+          "prompt_tokens": 7393,
+          "completion_tokens": 94,
+          "total_tokens": 7487,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 225
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.962,
+        "usage": {
+          "prompt_tokens": 7525,
+          "completion_tokens": 139,
+          "total_tokens": 7664,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 229
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.943,
+        "usage": {
+          "prompt_tokens": 7753,
+          "completion_tokens": 94,
+          "total_tokens": 7847,
+          "prompt_tokens_details": {
+            "cached_tokens": 7552
+          },
+          "prompt_cache_hit_tokens": 7552,
+          "prompt_cache_miss_tokens": 201
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.2,
+        "usage": {
+          "prompt_tokens": 8127,
+          "completion_tokens": 145,
+          "total_tokens": 8272,
+          "prompt_tokens_details": {
+            "cached_tokens": 7808
+          },
+          "prompt_cache_hit_tokens": 7808,
+          "prompt_cache_miss_tokens": 319
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.262,
+        "usage": {
+          "prompt_tokens": 8406,
+          "completion_tokens": 110,
+          "total_tokens": 8516,
+          "prompt_tokens_details": {
+            "cached_tokens": 8192
+          },
+          "prompt_cache_hit_tokens": 8192,
+          "prompt_cache_miss_tokens": 214
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "read_title_only",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.786,
+        "usage": {
+          "prompt_tokens": 7078,
+          "completion_tokens": 79,
+          "total_tokens": 7157,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 166
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "read_title_only",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.858,
+        "usage": {
+          "prompt_tokens": 7078,
+          "completion_tokens": 79,
+          "total_tokens": 7157,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 166
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "read_title_only",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.646,
+        "usage": {
+          "prompt_tokens": 7243,
+          "completion_tokens": 79,
+          "total_tokens": 7322,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 203
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "read_title_only",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr",
+          "focus": "page title"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.021,
+        "usage": {
+          "prompt_tokens": 7243,
+          "completion_tokens": 79,
+          "total_tokens": 7322,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 203
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "unavailable_bridge",
+    "arm": "baseline",
+    "repeat": 1,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 2.101,
+        "usage": {
+          "prompt_tokens": 7071,
+          "completion_tokens": 69,
+          "total_tokens": 7140,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 159
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 2.423,
+        "usage": {
+          "prompt_tokens": 7209,
+          "completion_tokens": 301,
+          "total_tokens": 7510,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 169
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "stop"
+      }
+    ],
+    "answer": "The page loaded (HTTP 200), but it contains essentially no readable text \u2014 just the string **\"AI Hackathon\"**.\n\nThat's typical for Tmall activity pages (`pages.tmall.com/wow/a/act/...`): they're JavaScript-rendered single-page apps. The HTML shell returns almost nothing; all real content (product listings, prices, countdowns, login state) is injected client-side after scripts run, and much of it requires a logged-in Taobao/Tmall session plus region/cookie context.\n\nSo what I can tell you:\n\n- **Reachable:** yes, the URL resolves and returns 200.\n- **Content:** not extractable via a plain HTTP fetch. The only static text is \"AI Hackathon\", which suggests the page is an event/campaign landing page for an AI hackathon promotion.\n- **Not available to me:** any actual page body, images, prices, or interactive elements.\n\nIf you need the real content, options are:\n\n1. **Open it in a browser** \u2014 I can drive the local desktop browser and read the rendered page, if you want me to try that.\n2. **Paste the text/screenshot** you see, and I'll work with that.\n3. If you're the page owner, the content likely lives in a JSON config or API endpoint the page calls; I could look for that if you can share the network requests.\n\nWant me to try rendering it in the desktop browser?"
+  },
+  {
+    "case": "unavailable_bridge",
+    "arm": "baseline",
+    "repeat": 2,
+    "score": {
+      "passed": false,
+      "wrong_desktop_fallback": false,
+      "discovered": false,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.021,
+        "usage": {
+          "prompt_tokens": 7071,
+          "completion_tokens": 69,
+          "total_tokens": 7140,
+          "prompt_tokens_details": {
+            "cached_tokens": 6912
+          },
+          "prompt_cache_hit_tokens": 6912,
+          "prompt_cache_miss_tokens": 159
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 2.063,
+        "usage": {
+          "prompt_tokens": 7209,
+          "completion_tokens": 281,
+          "total_tokens": 7490,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 169
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "stop"
+      }
+    ],
+    "answer": "The page loaded (HTTP 200), but it contains essentially no readable content \u2014 the only text extracted is:\n\n**\"AI Hackathon\"**\n\nThat's typical of Tmall's `pages.tmall.com/wow/...` activity pages: they're JavaScript-rendered single-page apps. The HTML shell returns almost nothing, and all real content (product listings, prices, event rules, countdowns) is injected client-side by scripts, often gated behind login, region detection, or app-only (Taobao/Tmall client) checks.\n\nSo I can't tell you what the page actually offers. Options:\n\n1. **Open it in a real browser** \u2014 if you're on the desktop app, I can drive the native browser to render it and read the visible content. Say the word and I'll try.\n2. **You paste the content** \u2014 if you can see the page, copy the relevant text and I'll work with it.\n3. **Tell me what you need from it** \u2014 e.g., event rules, a product list, a deadline. That may let me find the same info via a searchable source instead.\n\nOne caveat on option 1: these pages frequently require a logged-in Taobao/Tmall session and may redirect to an app-download prompt or a login wall, in which case even a rendered view may show little."
+  },
+  {
+    "case": "unavailable_bridge",
+    "arm": "candidate",
+    "repeat": 1,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin"
+          ],
+          "capabilities": []
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 0.863,
+        "usage": {
+          "prompt_tokens": 7236,
+          "completion_tokens": 69,
+          "total_tokens": 7305,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 196
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 1.01,
+        "usage": {
+          "prompt_tokens": 7374,
+          "completion_tokens": 94,
+          "total_tokens": 7468,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 206
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  },
+  {
+    "case": "unavailable_bridge",
+    "arm": "candidate",
+    "repeat": 2,
+    "score": {
+      "passed": true,
+      "wrong_desktop_fallback": false,
+      "discovered": true,
+      "opened": false,
+      "observed": false,
+      "scope": "routing only, not rendered-page correctness"
+    },
+    "infrastructure_error": null,
+    "trace": [
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list"
+        },
+        "result": {
+          "plugins": [
+            "builtin"
+          ],
+          "capabilities": []
+        }
+      },
+      {
+        "tool": "plugin_mcp",
+        "arguments": {
+          "action": "list",
+          "plugin": "builtin"
+        },
+        "result": {
+          "ok": false,
+          "error": "unknown fixture target"
+        }
+      },
+      {
+        "tool": "web_fetch",
+        "arguments": {
+          "url": "https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr?"
+        },
+        "result": {
+          "ok": true,
+          "status": 200,
+          "content": "AI Hackathon",
+          "extracted_chars": 12,
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "requests": [
+      {
+        "elapsed_seconds": 1.036,
+        "usage": {
+          "prompt_tokens": 7236,
+          "completion_tokens": 47,
+          "total_tokens": 7283,
+          "prompt_tokens_details": {
+            "cached_tokens": 7040
+          },
+          "prompt_cache_hit_tokens": 7040,
+          "prompt_cache_miss_tokens": 196
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.903,
+        "usage": {
+          "prompt_tokens": 7330,
+          "completion_tokens": 55,
+          "total_tokens": 7385,
+          "prompt_tokens_details": {
+            "cached_tokens": 7168
+          },
+          "prompt_cache_hit_tokens": 7168,
+          "prompt_cache_miss_tokens": 162
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      },
+      {
+        "elapsed_seconds": 0.832,
+        "usage": {
+          "prompt_tokens": 7431,
+          "completion_tokens": 62,
+          "total_tokens": 7493,
+          "prompt_tokens_details": {
+            "cached_tokens": 7296
+          },
+          "prompt_cache_hit_tokens": 7296,
+          "prompt_cache_miss_tokens": 135
+        },
+        "response_model": "deepseek-flash",
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "answer": ""
+  }
+]

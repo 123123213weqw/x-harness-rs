@@ -5540,7 +5540,8 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
     request.debug = DebugRecorder::new(sink.clone());
     let mut run = LoopEngine.start(request);
     while run.next().await.is_some() {}
-    assert_eq!(run.result().await.status, LoopStatus::Completed);
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
 
     let events = sink.events().await;
     for expected in [
@@ -5555,6 +5556,15 @@ async fn full_debug_records_correlated_loop_context_provider_and_terminal_events
     assert!(events.iter().all(|event| {
         event.scope.session_id.as_deref() == Some("debug-session") && event.scope.run_id.is_some()
     }));
+    let terminal = events
+        .iter()
+        .find(|event| event.event == "run.end")
+        .unwrap();
+    assert_eq!(
+        terminal.payload["messages"],
+        serde_json::to_value(&result.messages).unwrap()
+    );
+    assert_eq!(terminal.payload["finalText"], "hello");
 }
 
 #[tokio::test]
@@ -9798,4 +9808,79 @@ async fn transient_output_continuation_is_runtime_context_not_a_human_message() 
     assert!(compositions[1]["runtimeContextTokens"].as_u64().unwrap() > 0);
     assert_eq!(compositions[1]["userTokens"], 0);
     assert_eq!(compositions[1]["totalInputTokens"], 1_000);
+}
+include!("cases/working_plan_context.rs");
+
+#[tokio::test]
+async fn working_plan_snapshot_keeps_runtime_and_human_composition_aligned() {
+    let journal = Arc::new(EventMemorySessionStore::default());
+    journal
+        .create(SessionHeader::new("plan-attribution"))
+        .await
+        .unwrap();
+    append_context_plan(journal.as_ref(), "plan-attribution", context_plan(1)).await;
+    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let mut input = InboxMessage::user("real-human", "Inspect current load only. ".repeat(100));
+    input.source = Some(json!({"kind":"user"}));
+    let mut request = LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::system("Stable rules"), input.message.clone()],
+    );
+    request.session_id = Some("plan-attribution".into());
+    request.journal_store = Some(journal.clone());
+    request.token_guard = Some(
+        TokenGuard::new(
+            Arc::new(FixedTokenMeter { total: 10_000 }),
+            TokenBudget {
+                context_window_tokens: 100_000,
+                reserved_output_tokens: 1_024,
+                minimum_output_tokens: 1_024,
+                safety_margin_tokens: 100,
+            },
+        )
+        .unwrap(),
+    );
+    request.journal_prelude = vec![
+        SessionEventData::AgentInboxSpliced {
+            target: InboxTarget::NextTurn,
+            start: 0,
+            removed_count: 0,
+            inserted: vec![input.clone()],
+            outcome: None,
+        }
+        .into(),
+        SessionEventData::AgentInboxSpliced {
+            target: InboxTarget::NextTurn,
+            start: 0,
+            removed_count: 1,
+            inserted: vec![],
+            outcome: None,
+        }
+        .into(),
+    ];
+    install_tools(&mut request, vec![unused_goal_tool()]).await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(plan_notes(&requests[0].messages).len(), 1);
+    assert_eq!(
+        requests[0].messages[0],
+        AgentMessage::system("Stable rules")
+    );
+    assert_eq!(requests[0].messages.last(), Some(&input.message));
+    let session = journal.load("plan-attribution").await.unwrap().unwrap();
+    let composition = session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            SessionEventData::RequestHeader { header } => header.options.get("contextComposition"),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(composition["attributionVersion"], 2);
+    assert_eq!(composition["totalInputTokens"], 10_000);
+    assert!(composition["runtimeContextTokens"].as_u64().unwrap() > 0);
+    assert!(composition["userTokens"].as_u64().unwrap() > 0);
+    assert_eq!(composition["unattributedTokens"], 0);
 }

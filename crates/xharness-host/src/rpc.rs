@@ -24,6 +24,7 @@ mod scoped_automation;
 mod scoped_catalogue;
 mod scoped_events;
 pub(crate) mod scoped_interaction;
+mod session_plan;
 pub(crate) use interaction::respond_review;
 mod memory;
 mod model;
@@ -34,6 +35,7 @@ mod session_import;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
+mod swarm;
 pub(crate) mod turn;
 mod wire;
 mod workspace;
@@ -119,7 +121,8 @@ impl ApiBackend for BasicHost {
             | RpcMethod::AgentPresetCopy
             | RpcMethod::AgentPresetOpenDocument
             | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::GoalCreate
+            method @ (RpcMethod::GoalUpdatePlan
+            | RpcMethod::GoalCreate
             | RpcMethod::GoalEdit
             | RpcMethod::GoalPause
             | RpcMethod::GoalResume
@@ -150,6 +153,12 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "swarm/manage" {
+            return Some(match swarm::manage(self, rpc_id, &payload).await {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
+            });
+        }
         if endpoint == "workspace/memory" {
             // Settings must remain repairable even if session hydration fails.
             return Some(match memory::call(self, rpc_id, &payload).await {
@@ -342,8 +351,8 @@ impl ApiBackend for BasicHost {
             .await
             .map_err(crate::driver::agent_runtime_error)?
             .ok_or_else(|| RpcError::internal("authoritative receipt journal unavailable"))?;
-        let admissions = crate::restore::restored_admissions(&durable);
-        match admissions.get(rpc_id.as_str()) {
+        let receipt = crate::restore::restored_admission(&durable, rpc_id.as_str());
+        match receipt.as_ref() {
             Some(previous) if previous.fingerprint.as_deref() == Some(&fingerprint) => {
                 Ok(Some(RpcResult::success(json!({"accepted": true}))))
             }

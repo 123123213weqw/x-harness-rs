@@ -236,7 +236,11 @@ impl BasicHost {
                             } else {
                                 state.goals.remove(&session_id);
                             }
-                            state.sessions.insert(session_id, record);
+                            state.sessions.insert(session_id.clone(), record);
+                            state.enforce_projection_budget(
+                                &session_id,
+                                self.config.session_event_cache_total_bytes,
+                            );
                             report.restored_sessions += 1;
                             report.checkpoint_restored_sessions += 1;
                             report.checkpoint_tail_events += tail.events.len();
@@ -455,11 +459,17 @@ impl BasicHost {
                 active_permission: None,
                 plan_active,
                 goal: goal.clone(),
+                task_plan: xharness_session::session_plan(&session),
                 schedules,
                 schedules_hydrated: true,
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
+                event_cache_weights: tail.event_bytes,
+                event_cache_resident_bytes: tail.resident_bytes,
+                event_cache_resident_weights: tail.event_resident_bytes,
+                event_cache_touched: 0,
+                projected_model: None,
                 metrics,
                 catalog_metrics: None,
                 messages,
@@ -515,6 +525,10 @@ impl BasicHost {
                 let mut state = self.state.write().await;
                 attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
                 state.sessions.insert(session_id.clone(), record);
+                state.enforce_projection_budget(
+                    &session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 if let Some(goal) = goal {
                     state.goals.insert(session_id.clone(), goal);
                 }
@@ -893,11 +907,17 @@ impl BasicHost {
                 active_permission: None,
                 plan_active: indexed.is_some_and(|e| e.plan_active),
                 goal: None,
+                task_plan: None,
                 schedules: Vec::new(),
                 schedules_hydrated: false,
                 events: Vec::new(),
                 event_base_seq: 0,
                 event_cache_bytes: 0,
+                event_cache_weights: Vec::new(),
+                event_cache_resident_bytes: 0,
+                event_cache_resident_weights: Vec::new(),
+                event_cache_touched: 0,
+                projected_model: None,
                 metrics: MetricsProjectionState::default(),
                 catalog_metrics: indexed.and_then(|e| {
                     xharness_projection::metrics::catalog_metric_values(
@@ -908,7 +928,7 @@ impl BasicHost {
                 messages: Vec::new(),
                 queue: VecDeque::new(),
                 projected_queue: Vec::new(),
-                admissions: BTreeMap::new(),
+                admissions: crate::admission_cache::AdmissionCache::new(true),
                 mutation_receipts: BTreeMap::new(),
                 authoritative_seq: indexed.map(|e| e.next_seq),
                 control: None,
@@ -920,6 +940,10 @@ impl BasicHost {
             }
             attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
             state.sessions.insert(session_id.clone(), record);
+            state.enforce_projection_budget(
+                &session_id,
+                self.config.session_event_cache_total_bytes,
+            );
             drop(state);
             if indexed.is_some_and(|e| e.needs_recovery) {
                 necessary.push(header.id);
@@ -1306,25 +1330,47 @@ pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
     items
 }
 
-pub(crate) fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
-    let session_id = &session.header().id;
-    let mut admissions = BTreeMap::new();
-    for event in session.events() {
+pub(crate) fn restored_admission(
+    session: &Session,
+    rpc_id: &str,
+) -> Option<crate::admission_cache::AdmissionReceipt> {
+    session.events().iter().rev().find_map(|event| {
         let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
-            continue;
+            return None;
         };
-        for input in inserted {
-            let metadata = input.source.as_ref().and_then(Value::as_object);
-            let belongs_to_session = metadata
-                .and_then(|value| value.get("rpcSessionId"))
-                .and_then(Value::as_str)
-                == Some(session_id.as_str());
-            if !belongs_to_session {
-                continue;
-            }
-            let prompt = restored_prompt(input);
-            if prompt.fingerprint.is_some() {
-                admissions.insert(prompt.id.clone(), prompt);
+        inserted
+            .iter()
+            .rev()
+            .filter(|input| input.id == rpc_id)
+            .find_map(|input| admission_receipt(session, input).map(|(_, receipt)| receipt))
+    })
+}
+
+fn admission_receipt<'a>(
+    session: &Session,
+    input: &'a xharness_session::InboxMessage,
+) -> Option<(&'a str, crate::admission_cache::AdmissionReceipt)> {
+    let metadata = input.source.as_ref()?;
+    if metadata.get("rpcSessionId")?.as_str()? != session.header().id {
+        return None;
+    }
+    let fingerprint = metadata.get("rpcFingerprint")?.as_str()?.to_owned();
+    Some((
+        &input.id,
+        crate::admission_cache::AdmissionReceipt {
+            fingerprint: Some(fingerprint),
+        },
+    ))
+}
+
+pub(crate) fn restored_admissions(session: &Session) -> crate::admission_cache::AdmissionCache {
+    let mut admissions = crate::admission_cache::AdmissionCache::new(true);
+    for event in session.events() {
+        if let EventData::AgentInboxSpliced { inserted, .. } = event.data() {
+            for input in inserted {
+                if let Some((id, receipt)) = admission_receipt(session, input) {
+                    admissions.insert(id.to_owned(), receipt);
+                }
             }
         }
     }

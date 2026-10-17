@@ -1,0 +1,133 @@
+{
+  "case": "resume_after_compact",
+  "arm": "snapshot",
+  "repeat": 2,
+  "infrastructure_error": null,
+  "score": {
+    "passed": true,
+    "violations": [],
+    "tool_calls": 2,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1467,
+        "completion_tokens": 39,
+        "total_tokens": 1506,
+        "prompt_tokens_details": {
+          "cached_tokens": 1280
+        },
+        "prompt_cache_hit_tokens": 1280,
+        "prompt_cache_miss_tokens": 187
+      },
+      "elapsed_seconds": 0.518,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "7de81a66-1b73-47c0-83f5-c472fdb0aa6b"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1543,
+        "completion_tokens": 115,
+        "total_tokens": 1658,
+        "prompt_tokens_details": {
+          "cached_tokens": 1408
+        },
+        "prompt_cache_hit_tokens": 1408,
+        "prompt_cache_miss_tokens": 135
+      },
+      "elapsed_seconds": 0.845,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "e0732f69-0939-450e-83b6-49e5ef7ff1a6"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1757,
+        "completion_tokens": 67,
+        "total_tokens": 1824,
+        "prompt_tokens_details": {
+          "cached_tokens": 1536
+        },
+        "prompt_cache_hit_tokens": 1536,
+        "prompt_cache_miss_tokens": 221
+      },
+      "elapsed_seconds": 0.923,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "9373c212-9b47-4240-96d6-87ff8ae55db5"
+    }
+  ],
+  "trace": [
+    {
+      "tool": "bash",
+      "arguments": {
+        "command": "npm test -- parser"
+      },
+      "result": {
+        "stdout": "PASS parser: 12 tests passed; exit_code=0",
+        "exit_code": 0
+      },
+      "test_passed_before_or_at_result": true
+    },
+    {
+      "tool": "goal",
+      "arguments": {
+        "action": "update_plan",
+        "plan_revision": 5,
+        "items": [
+          {
+            "id": "fix",
+            "title": "Fix the parser",
+            "status": "completed"
+          },
+          {
+            "id": "test",
+            "title": "Run npm test -- parser",
+            "status": "completed"
+          }
+        ]
+      },
+      "result": {
+        "accepted": true,
+        "result": {
+          "plan": {
+            "revision": 6,
+            "items": [
+              {
+                "id": "fix",
+                "title": "Fix the parser",
+                "status": "completed"
+              },
+              {
+                "id": "test",
+                "title": "Run npm test -- parser",
+                "status": "completed"
+              }
+            ]
+          }
+        },
+        "note": "State recorded, not proof of task completion; plan updates never activate a Goal."
+      },
+      "test_passed_before_or_at_result": true
+    }
+  ],
+  "answer": "验证完成，未提交、未发布。\n\n- 运行 `npm test -- parser`：PASS，12 个测试全部通过，exit_code=0。\n- 工作计划的最后一项（运行 parser 测试）已标记完成；parser 修复项此前已完成。\n\n没有执行任何 commit 或 release 操作。",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}

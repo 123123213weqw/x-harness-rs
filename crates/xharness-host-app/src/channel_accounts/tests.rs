@@ -163,7 +163,9 @@ fn setup() -> (
     (d, g, k, c, m)
 }
 async fn state(m: &AccountManager, expected: ConnectionState) {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    // Observe real journal/HTTP worker startup under native-runner contention.
+    // A finite wait is not permission to retry a configuration or outgoing send.
+    let settled = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             if m.status().await.iter().any(|s| s.connection == expected) {
                 break;
@@ -171,8 +173,12 @@ async fn state(m: &AccountManager, expected: ConnectionState) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .unwrap();
+    .await;
+    assert!(
+        settled.is_ok(),
+        "account did not reach {expected:?}; observed statuses: {:?}",
+        m.status().await,
+    );
 }
 #[tokio::test]
 async fn disabled_configuration_persists_only_refs_and_does_not_read_keys_or_connect() {

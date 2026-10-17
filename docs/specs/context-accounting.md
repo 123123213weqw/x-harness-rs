@@ -115,3 +115,8 @@ original logs and old estimated buckets are not retroactively rewritten. Live
 and history-replayed projections carry the same small numeric composition;
 provider-reported totals, stale-history indicators, and estimate labels remain
 independent and unchanged.
+
+Working-plan snapshots inserted into a prepared request are runtime context.
+Their insertion updates the attribution vector at the same exact index, so
+the following genuine human message retains its durable authorship category.
+This does not change the snapshot bytes, request ordering, or admission budget.

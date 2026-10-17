@@ -174,9 +174,11 @@ const pageOrigin = (address) => {
 };
 // Native child views cannot participate in CSS stacking. Yield only while
 // a rendered modal or a floating UI surface covers their page rectangle.
-// ARIA surfaces and body portals share this policy; no hashed CSS names.
-const MODAL_SURFACE = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]';
-const OVERLAY_SURFACE = `${MODAL_SURFACE}, [role="menu"], [role="listbox"], [role="tooltip"], [popover], [data-xh-overlay]`;
+// A dialog role describes a surface, not modality: chat-local context/note
+// popovers must not blank an unrelated native page. Native showModal() and
+// explicit ARIA modals still own the whole app, irrespective of overlap.
+const MODAL_SURFACE = 'dialog:modal, [aria-modal="true"]';
+const OVERLAY_SURFACE = `${MODAL_SURFACE}, dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [popover], [data-xh-overlay]`;
 const floating = (element) => ['fixed', 'absolute'].includes(getComputedStyle(element).position);
 function browserSurfaces(content) {
     const surfaces = new Set(document.querySelectorAll(OVERLAY_SURFACE));
@@ -250,7 +252,7 @@ function watchBrowserSurfaces(content, sync) {
             schedule();
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true,
-        attributeFilter: ['style', 'class', 'hidden', 'inert', 'role', 'aria-modal', 'aria-hidden', 'popover', 'data-xh-overlay'] });
+        attributeFilter: ['style', 'class', 'hidden', 'inert', 'open', 'role', 'aria-modal', 'aria-hidden', 'popover', 'data-xh-overlay'] });
     window.addEventListener('scroll', schedule, true);
     const settled = (event) => { if (relevant(event.target))
         schedule(); };
@@ -324,6 +326,15 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                 if (disposed || !eventsReady || requested !== generation)
                     return false;
                 const current = () => requested === generation && visible();
+                const yieldToLatest = async () => {
+                    // A newer layout sample owns the queued follow-up; supersession is
+                    // not occlusion. Hiding here would interrupt an otherwise valid
+                    // observe/perform pair. Actual overlays, closure and chat changes
+                    // still revoke presentation immediately after every native await.
+                    if (!visible())
+                        await hide();
+                    return false;
+                };
                 if (!current()) {
                     if (lastGeometry !== 'hidden')
                         await hide();
@@ -335,24 +346,18 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                 const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`;
                 if (geometry !== lastGeometry || pending) {
                     await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } });
-                    if (!current()) {
-                        await hide();
-                        return false;
-                    }
+                    if (!current())
+                        return yieldToLatest();
                     const exists = await send('desktop_browser_activate', { tabId: item.id });
-                    if (!current()) {
-                        await hide();
-                        return false;
-                    }
+                    if (!current())
+                        return yieldToLatest();
                     if (!exists || pending) {
                         loading = true;
                         await send('desktop_browser_navigate', { tabId: item.id, url: pending?.url ?? url });
                         if (navigationRef.current === pending)
                             navigationRef.current = null;
-                        if (!current()) {
-                            await hide();
-                            return false;
-                        }
+                        if (!current())
+                            return yieldToLatest();
                     }
                     lastGeometry = geometry;
                 }
@@ -369,10 +374,12 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                         await hide();
                         throw error;
                     }
-                    if (!current() || pageOrigin(currentAddress(itemRef.current)) !== origin) {
+                    if (pageOrigin(currentAddress(itemRef.current)) !== origin) {
                         await hide();
                         return false;
                     }
+                    if (!current())
+                        return yieldToLatest();
                     const reply = (0, runtime_types_1.objectValue)(result);
                     const grant = (0, runtime_types_1.objectValue)(reply.grant);
                     if (reply.origin !== origin || grant.owner !== sessionId || grant.allowActions !== true

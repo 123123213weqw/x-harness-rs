@@ -133,7 +133,7 @@ fn spec(
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Use built-in UI display (plugin=builtin, server=ui, tool=display) on Web or desktop, user-enabled local MCP servers and, when running in the desktop, its native browser (discoverable with zero tabs; use control to open a page) under the existing tool approval policy. action=list without plugin lists enabled plugins; with plugin lists its servers; with plugin and server lists a compact tool index. action=describe returns one tool's input schema. action=call invokes one tool by plugin, server and tool name. Servers start lazily and are isolated per chat.",
+            "Discover and control XHarness's embedded browser when available, display local files, or invoke enabled MCP servers. action=list returns plugin IDs and available built-in capability summaries; add plugin to list servers, then server to list tools. action=describe loads one tool schema; action=call invokes it. File display: plugin=builtin, server=ui, tool=display. Schemas load on demand; existing tool approvals apply.\n\nEmbedded browser: For requests to open, view or interact with websites, prefer the embedded browser through plugin_mcp when available. Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it, not merely fetching its HTML or offering to open it later. Use web_fetch for lightweight public-page reading when opening or rendering is not requested; if JavaScript rendering or interaction is needed, discover the embedded browser before desktop automation. After a title-only or empty web_fetch result, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. If discovery reports no embedded browser or an operation fails, explain the limitation or use a suitable fallback; never claim a page opened without a successful result. Discovery and routing do not bypass approvals.",
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -156,10 +156,18 @@ fn spec(
                     // Reserved host namespace cannot be impersonated by an installed plugin.
                     plugins.retain(|plugin| plugin != builtin_ui::PLUGIN);
                     if ui.is_some() { plugins.push(builtin_ui::PLUGIN.into()); }
+                    let mut capabilities = Vec::new();
                     if let Some(native) = &native {
-                        if native.available(&owner, &context.cancellation).await { plugins.push(crate::native_browser::PLUGIN.into()); }
+                        if native.available(&owner, &context.cancellation).await {
+                            plugins.push(crate::native_browser::PLUGIN.into());
+                            capabilities.push(json!({
+                                "plugin":crate::native_browser::PLUGIN,
+                                "server":crate::native_browser::SERVER,
+                                "description":"Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
+                            }));
+                        }
                     }
-                    return Ok(ToolOutput::text(json!({"plugins":plugins}).to_string()));
+                    return Ok(ToolOutput::text(json!({"plugins":plugins,"capabilities":capabilities}).to_string()));
                 }
                 let plugin = plugin.ok_or_else(|| error("plugin required"))?;
                 if plugin == builtin_ui::PLUGIN {
@@ -264,6 +272,39 @@ fn spec(
 mod tests {
     use super::*;
     use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+
+    #[tokio::test]
+    async fn absent_bridge_does_not_advertise_a_browser_or_inject_schemas() {
+        let binding = bind(None, None, None, None, "owner".into(), true, None);
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(binding.spec).await.unwrap();
+        let definitions = registry.definitions().await;
+        assert_eq!(definitions.len(), 1);
+        let description = &definitions[0].description;
+        assert!(description
+            .starts_with("Discover and control XHarness's embedded browser when available"));
+        for rule in [
+            "Embedded browser:",
+            "Discover availability first",
+            "zero open tabs does not mean unavailable",
+            "An explicit request to open or view a page requires opening it",
+            "Use web_fetch for lightweight public-page reading when opening or rendering is not requested",
+            "Use computer for desktop applications or an explicitly requested external browser",
+            "check the embedded browser before ending an unresolved page-reading request",
+            "Respect explicit browser choices",
+            "never claim a page opened without a successful result",
+            "do not bypass approvals",
+        ] {
+            assert!(description.contains(rule), "missing browser guidance: {rule}");
+        }
+        let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
+        let result = executor
+            .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        let index: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        assert_eq!(index, json!({"plugins":[],"capabilities":[]}));
+    }
 
     #[tokio::test]
     async fn automatic_browser_binding_does_not_bypass_tool_approval() {

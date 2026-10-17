@@ -436,7 +436,31 @@ test('source: structured inspect catalogs retain baseline data without an extern
     const module={exports:{}};const compiled=ts.transpileModule(baseline,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText
     vm.runInNewContext(`(function(module,exports){${compiled}\n})`,{})(module,module.exports)
     const current=sourceModule('cordis-client-runner',{},viewExternals,entry)
-    for(const key of keys)assert.equal(JSON.stringify(current[key]),JSON.stringify(module.exports[key]),`${entry}.${key} catalog mismatch`)
+    for(const key of keys) {
+      let value=current[key]
+      if(entry==='slot-catalog'&&key==='CLIENT_SLOT_API') {
+        const placements={
+          'conversation.input.dock':[['A full-width row of its own, stacked above the composer card','A full-width row of its own, in the composer card header'],['readout under the card, and','readout inside the toolbar, and']],
+          'conversation.composer.dock':[
+            ["The band under the composer card, inside the bar's width column — the seat for an ambient readout about the conversation (the shipped stats line lives here).",'Compact readouts inside the composer toolbar (the shipped statistics disclosure lives here).'],
+            ["The band under the composer card, inside the bar's width column — the\nseat for an ambient readout about the conversation (the shipped stats\nline lives here). Same InputZone owner share as the other\nregions. Anything the user must click belongs in the tool row instead\n(`conversation.input.left` / `.right`); anything needing its own line",'Compact readouts inside the composer toolbar (the shipped statistics\ndisclosure lives here). Same InputZone owner share as the other\nregions. Keep contributions compact; general actions belong in\n`conversation.input.left` / `.right`, and content needing its own line'],
+            ['above the card belongs in','above the textarea belongs in'],
+          ],
+        }
+        value=value.map(row=>{
+          const changes=placements[row.key]
+          if(!changes)return row
+          const before=module.exports[key].find(item=>item.key===row.key),normalized={...row}
+          for(const field of ['summary','doc']) {
+            const expected=changes.reduce((text,[from,to])=>text.replaceAll(from,to),before[field])
+            assert.equal(row[field],expected,'reviewed composer placement copy: '+row.key+'.'+field)
+            normalized[field]=before[field]
+          }
+          return normalized
+        })
+      }
+      assert.equal(JSON.stringify(value),JSON.stringify(module.exports[key]),`${entry}.${key} catalog mismatch`)
+    }
   }
 })
 
@@ -653,7 +677,7 @@ test('connection: fixture mutations, edit-before-user forks and generic Remote f
 
 test('connection: production compiler declares the pinned platform Zod singleton',async()=>{
   const id='@xharness/dsh-client-connection';const row={id,source:'src/modules/client-connection/index.ts'};const built=compileSourceModules(join(repo,'ui'),[row]).get(id)
-  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@4.4.3'));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@'+JSON.parse(readFileSync(join(repo,'ui/source-vendors.json'))).packages.zod.version));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
   let registration;const globals=connectionGlobals('?fixture');vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
   assert.equal(registration.id,id);const api=registration.factory(request=>{assert.ok(request in sharedVendors);return sharedVendors[request]});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
 })

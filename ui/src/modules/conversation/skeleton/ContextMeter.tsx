@@ -53,7 +53,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
         <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden><circle className={css.track} cx="7" cy="7" r={RADIUS} />{ring}</svg>
       </button>
     </Tooltip>
-    {open && context && <div className={css.panel} role="dialog" aria-label={t('context.used')}>
+    {open && context && <div className={css.panel} role="dialog" aria-modal="false" aria-label={t('context.used')}>
       <div className={css.header}><span className={css.headline}>{context.label}</span><span className={css.percent}>{reading}</span><span className={css.figures}>{`${context.exact ? '' : '≈'}${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`}</span></div>
       <div className={css.bar}>{segments.map(row => <div key={row.key} className={css.segment} style={tintStyle(row.tint, `${percent * row.ratio}%`)} />)}</div>
       {weight > 0 && <dl className={css.rows}>
