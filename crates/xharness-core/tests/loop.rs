@@ -26,6 +26,8 @@ async fn durable_large_result_has_recoverable_original_and_exact_call() {
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("run")]);
     request.session_id = Some("archive-core".into());
     request.journal_store = Some(journal.clone());
+    // Exercise deliberate model-budget truncation, not the archival threshold.
+    request.config.tool_result_limit_bytes = 8192;
     install_tool(&mut request, tool).await;
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
@@ -53,6 +55,137 @@ async fn durable_large_result_has_recoverable_original_and_exact_call() {
     let snapshot = journal.load("archive-core").await.unwrap().unwrap();
     assert!(snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolResult {result,..} if result.content == observation.content)));
     assert!(snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolCall {call,..} if call.arguments_json == "{ \"value\": 7 }")));
+}
+
+#[tokio::test]
+async fn durable_browser_page_within_model_budget_survives_archival_intact() {
+    // Synthetic native-browser/MCP structure only; no user page or game data.
+    let page = json!({
+        "frame_id": "0123456789abcdef0123456789abcdef",
+        "scope": "main",
+        "nodes": (0..32).map(|i| json!({
+            "disabled": false,
+            "label": format!("Square {i:02}: white knight, legal destination, accessible board control"),
+            "ref": format!("n{}", i + 40),
+            "role": "",
+            "tag": "button",
+            "type": "button",
+        })).collect::<Vec<_>>(),
+        "text": "Your turn. ".repeat(200),
+        "text_offset": 0,
+        "next_node_offset": 72,
+        "next_text_offset": 2200,
+        "truncated": true,
+    });
+    let content = json!({
+        "content": [{"type": "text", "text": page.to_string()}],
+        "isError": false,
+    })
+    .to_string();
+    let original_bytes = serde_json::to_vec(&ToolResult::success(content.clone()))
+        .unwrap()
+        .len();
+    assert!(original_bytes > xharness_session::TOOL_ARCHIVE_THRESHOLD_BYTES);
+
+    for limit in [16 * 1024, 256 * 1024] {
+        assert!(original_bytes + 512 < limit);
+        let journal = Arc::new(EventMemorySessionStore::default());
+        let provider = Arc::new(ScriptProvider::new([
+            vec![
+                Ok(tool_delta(0, "browser-page", "observe", "{}")),
+                Ok(completed_for_calls()),
+            ],
+            vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())],
+        ]));
+        let output = content.clone();
+        let tool = TestToolSpec::new(
+            "observe",
+            "observe",
+            json!({"type":"object"}),
+            move |_, _| {
+                let output = output.clone();
+                async move { ToolResult::success(output) }
+            },
+        );
+        let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("inspect")]);
+        request.session_id = Some("browser-page".into());
+        request.journal_store = Some(journal.clone());
+        request.config.tool_result_limit_bytes = limit;
+        request.context_policy =
+            Arc::new(xharness_context::ToolResultPruningContextPolicy::default());
+        install_tool(&mut request, tool).await;
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+        let requests = provider.requests();
+        assert_eq!(requests.len(), 2);
+        let observation = requests[1]
+            .messages
+            .iter()
+            .find(|m| m.role == Role::Tool)
+            .unwrap();
+        assert_eq!(observation.tool_call_id.as_deref(), Some("browser-page"));
+        assert!(observation.content.len() <= limit);
+        let envelope: Value = serde_json::from_str(&observation.content).unwrap();
+        assert_eq!(
+            envelope["truncated"], false,
+            "archiving a bounded page must not cut it"
+        );
+        assert!(envelope.get("reduction").is_none());
+        assert_eq!(envelope["content"], content);
+        let mcp: Value = serde_json::from_str(envelope["content"].as_str().unwrap()).unwrap();
+        let delivered_page: Value =
+            serde_json::from_str(mcp["content"][0]["text"].as_str().unwrap()).unwrap();
+        // Every ref, frame fence and renderer-owned pagination cursor survives.
+        assert_eq!(delivered_page, page);
+        let key = envelope["archive"]["sha256"].as_str().unwrap();
+        let archived = journal
+            .tool_result_archive("browser-page", key)
+            .await
+            .unwrap()
+            .unwrap();
+        let original: ToolResult = serde_json::from_str(&archived).unwrap();
+        assert_eq!(original.content, content);
+        assert!(!original.truncated);
+        let snapshot = journal.load("browser-page").await.unwrap().unwrap();
+        assert!(snapshot.events().iter().any(|e| matches!(e.data(), SessionEventData::ToolResult { result, .. } if result.content == observation.content)));
+    }
+}
+
+#[tokio::test]
+async fn fresh_tool_observation_still_obeys_whole_request_budget() {
+    let provider = Arc::new(ScriptProvider::new([
+        vec![
+            Ok(tool_delta(0, "fresh-result", "observe", "{}")),
+            Ok(completed_for_calls()),
+        ],
+        vec![Ok(completed())],
+    ]));
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("inspect")]);
+    request.config.tool_result_limit_bytes = 32 * 1024;
+    request.context_policy = Arc::new(xharness_context::ToolResultPruningContextPolicy::default());
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 8192,
+            reserved_output_tokens: 1024,
+            minimum_output_tokens: 1024,
+            safety_margin_tokens: 256,
+        })
+        .unwrap(),
+    );
+    install_tool(
+        &mut request,
+        TestToolSpec::new(
+            "observe",
+            "observe",
+            json!({"type":"object"}),
+            |_, _| async { ToolResult::success("x".repeat(20_000)) },
+        ),
+    )
+    .await;
+    let (_, result) = collect(LoopEngine.start(request)).await;
+    assert_eq!(result.status, LoopStatus::Failed);
+    assert!(result.error.unwrap().contains("token budget rejected"));
+    assert_eq!(provider.attempts(), 1, "no oversized second model request");
 }
 
 #[derive(Default)]
