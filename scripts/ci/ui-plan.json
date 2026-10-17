@@ -4028,6 +4028,30 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 60
+    },
+    {
+      "id": "browser-230",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 30
+    },
+    {
+      "id": "browser-231",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-composer-layout-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 30
     }
   ]
 }

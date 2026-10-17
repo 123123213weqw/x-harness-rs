@@ -650,7 +650,7 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "69450efa7a92c72cd522db236c8303cc61011bc992a82e42b7796251ccf87b84",
+      "sha256": "a92c91ee03a93afa541b38bc5b8fda76955ad25ec98d3397556a7503abe581e2",
       "bytes": 28211
     },
     "desktop-bootstrap.js": {
@@ -678,7 +678,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "89814a20196a6b9f6c93366a61c6e5b8e381e24f102af01d08f19974176511dd",
+      "sha256": "7ea82363ac33d882ddbc065cf34336f42fc3d4ea9beaa0a3902e2aa93e186609",
       "bytes": 27869
     },
     "logo-motion.css": {
@@ -790,8 +790,8 @@
       "bytes": 59312
     },
     "plugins/@xharness/dsh-client-ui-conversation/client.js": {
-      "sha256": "dcc3e064356a16b8c0a5a2038e73a6e4d3950d4cb18c1e600550a208188f4a62",
-      "bytes": 730406
+      "sha256": "0e808b12a766f50d7ee924740d3d7b144eeb2216ed5c19be607cde260d7d825a",
+      "bytes": 736545
     },
     "plugins/@xharness/dsh-client-ui-cordis/client.js": {
       "sha256": "de9d0ab71274171567afab653709ee6de7c628b09b9e209de82dd63021d5f959",
@@ -822,8 +822,8 @@
       "bytes": 39175
     },
     "plugins/@xharness/dsh-client-ui-model-selection/client.js": {
-      "sha256": "c598974b7e2045d3dcc7e6a795ec36b70e46a60d37f8f5888e49e58a826b7065",
-      "bytes": 100817
+      "sha256": "d822889f3cbd3df7e216e0218ad15ea5a9cd20ec2d0046ce7f10b661a665f52f",
+      "bytes": 102229
     },
     "plugins/@xharness/dsh-client-ui-permission-presets/client.js": {
       "sha256": "1bb6f43be67efbe620153db759bdb8f4cb9d3d6d9ad7b9b9fdb54f5a5c697c9c",
@@ -902,8 +902,8 @@
       "bytes": 134945
     },
     "plugins/@xharness/dsh-cordis-client-runner/client.js": {
-      "sha256": "0f7225bd1eb92c21348a456632f006332ea5387ee8970f13ba7636b94cb4f6b3",
-      "bytes": 272604
+      "sha256": "cb911a6d42ad106c337b462047eaab703379608a1bca49d3603fbd08125aaad6",
+      "bytes": 272461
     },
     "plugins/@xharness/dsh-session-log-export/client.js": {
       "sha256": "8ebf1ef6d8ab5fb9132b253471828a25e58fd3daeefe73735e49cc595ecf45f8",

@@ -5,3 +5,11 @@
 .AbPDjW_root{display:flex;align-items:center;gap:6px;max-width:100%;flex-wrap:wrap}
 .AbPDjW_trigger{min-width:0}
 .AbPDjW_triggerEffort{max-width:min(220px,40cqw);color:var(--dsw-alias-label-caption)}
+
+.AbPDjW_modelIcon{display:none}
+.AbPDjW_compact{flex:none;position:static}
+.AbPDjW_compact>.AbPDjW_trigger{width:32px;min-width:32px;height:32px;padding:0;justify-content:center}
+.AbPDjW_compact>.AbPDjW_trigger .AbPDjW_triggerLabel,.AbPDjW_compact>.AbPDjW_trigger>.AbPDjW_chevron{display:none}
+.AbPDjW_compact .AbPDjW_modelIcon{display:inline-flex}
+.AbPDjW_compact .AbPDjW_modelIcon svg{width:20px;height:20px}
+@container (max-width:520px){.AbPDjW_compact .AbPDjW_menu{left:auto;right:0;max-width:min(420px,100cqw);min-width:min(240px,100cqw)}}
