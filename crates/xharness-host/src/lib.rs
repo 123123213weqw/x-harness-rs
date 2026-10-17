@@ -522,6 +522,15 @@ impl BasicHost {
         let Some(s) = state.sessions.get(id) else {
             return false;
         };
+        if let Some(model) = self
+            .agent_runtime
+            .model_catalog()
+            .iter()
+            .find(|model| model.provider == s.model.provider && model.model == s.model.model)
+        {
+            return model.image_input == Some(true);
+        }
+        // Compatibility for runtimes without descriptors. Unknown is not permission.
         state
             .settings
             .get(crate::MODEL_SETTINGS_NAMESPACE)

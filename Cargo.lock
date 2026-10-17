@@ -2192,6 +2192,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "reasonmap"
+version = "0.4.0"
+source = "git+https://github.com/123123213weqw/reasonmap?rev=160ff392ae74af14205ba1dd0c7d0538d4777e97#160ff392ae74af14205ba1dd0c7d0538d4777e97"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4026,6 +4036,7 @@ dependencies = [
  "image",
  "keyring",
  "qrcode",
+ "reasonmap",
  "reqwest",
  "rusqlite",
  "serde",
@@ -4057,7 +4068,6 @@ dependencies = [
  "xharness-jobs",
  "xharness-mcp",
  "xharness-mobile",
- "xharness-model-catalog",
  "xharness-platform",
  "xharness-plugins",
  "xharness-process",
@@ -4148,16 +4158,6 @@ dependencies = [
  "url",
  "xharness-api",
  "xharness-remote",
-]
-
-[[package]]
-name = "xharness-model-catalog"
-version = "0.1.1"
-source = "git+https://github.com/123123213weqw/xharness-model-catalog?rev=b76585abb9102690d2dd85e385550e0d2f688601#b76585abb9102690d2dd85e385550e0d2f688601"
-dependencies = [
- "serde",
- "serde_json",
- "url",
 ]
 
 [[package]]

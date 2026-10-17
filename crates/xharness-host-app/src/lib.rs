@@ -24,6 +24,7 @@ pub mod remote_admin;
 pub mod remote_control;
 pub mod tool_allowlist;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
+mod input_compat;
 pub mod reasoning_compat;
 pub mod reasoning_discovery;
 

@@ -61,6 +61,10 @@ pub struct ModelDescriptor {
     pub reasoning: Option<ModelReasoning>,
     /// Provenance/state for discovery; no vendor wire patches enter the UI.
     pub reasoning_capability: serde_json::Value,
+    /// Effective image admission for the exact active route. None means unknown.
+    pub image_input: Option<bool>,
+    /// Separate modality provenance; reasoning overrides never affect this field.
+    pub image_input_capability: serde_json::Value,
     /// Capability snapshot reported by the exact deployment, or an explicitly
     /// labelled deployment fallback when the Provider cannot advertise it.
     pub context_window: ContextWindowCapability,
@@ -133,6 +137,8 @@ impl ModelDescriptor {
             model_display_name: model_display_name.into(),
             reasoning: None,
             reasoning_capability: serde_json::json!({"state":"unknown"}),
+            image_input: None,
+            image_input_capability: serde_json::json!({"state":"unknown","source":"unknown"}),
             context_window: ContextWindowCapability::default(),
         }
     }
@@ -144,6 +150,16 @@ impl ModelDescriptor {
 
     pub fn with_context_window(mut self, context_window: ContextWindowCapability) -> Self {
         self.context_window = context_window;
+        self
+    }
+
+    pub fn with_image_input(
+        mut self,
+        supported: Option<bool>,
+        provenance: serde_json::Value,
+    ) -> Self {
+        self.image_input = supported;
+        self.image_input_capability = provenance;
         self
     }
 

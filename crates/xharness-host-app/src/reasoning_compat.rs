@@ -1,6 +1,6 @@
 //! Host projection of the independent, offline model catalog.
+use reasonmap::{bundled, Protocol};
 use serde_json::{json, Value};
-use xharness_model_catalog::{bundled, Protocol};
 #[derive(Clone, Debug)]
 pub struct Compatibility {
     pub profile: Value,

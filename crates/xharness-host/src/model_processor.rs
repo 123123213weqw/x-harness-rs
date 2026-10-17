@@ -80,7 +80,11 @@ impl ModelProcessor {
                 "name": model.model_display_name,
                 "contextWindowCapability": model.context_window,
                 "reasoningCapability": model.reasoning_capability,
+                "imageInputCapability": model.image_input_capability,
             });
+            if let Some(supported) = model.image_input {
+                projected["imageInput"] = json!(supported);
+            }
             if let Some(maximum) = model.context_window.effective_hard_max() {
                 projected["contextWindow"] = json!(maximum);
                 projected["contextWindowSource"] =
@@ -222,7 +226,16 @@ mod tests {
             ])
             .with_default("high"),
         );
+        let model = model.with_image_input(
+            Some(true),
+            json!({"state":"supported","source":"documented"}),
+        );
         let groups = ModelProcessor::groups(&[model]);
+        assert_eq!(groups[0]["models"][0]["imageInput"], true);
+        assert_eq!(
+            groups[0]["models"][0]["imageInputCapability"]["source"],
+            "documented"
+        );
         assert_eq!(groups[0]["models"][0]["contextWindow"], 131_072);
         assert_eq!(groups[0]["models"][0]["reasoning"]["defaultEffort"], "high");
         assert_eq!(
