@@ -111,7 +111,7 @@ pub(crate) fn snapshot(
     (!messages.iter().any(|m| m == &note)).then_some(note)
 }
 
-pub(crate) fn insert(messages: &mut Vec<Message>, note: Message) {
+pub(crate) fn insert(messages: &mut Vec<Message>, note: Message) -> usize {
     // Never alter the immutable system prefix or split assistant/tool pairs.
     // Put state before the latest user message, not after their new direction.
     let index = messages
@@ -124,6 +124,7 @@ pub(crate) fn insert(messages: &mut Vec<Message>, note: Message) {
                 .count()
         });
     messages.insert(index, note);
+    index
 }
 
 #[cfg(test)]

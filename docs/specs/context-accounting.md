@@ -88,3 +88,35 @@ Host 实时增量 fold 和前端历史 replay 使用同样的精度/生命周期
 **预算算法未变**：硬准入仍使用 `context - minimum_output - safety_margin`；
 通过后实际选择的输出长度随剩余空间调节，不能把期望预留误当成始终固定的硬扣除。
 测试覆盖预留 512 / 最低输出 64 的不同值、准入边界 928 可用 / 929 拒绝。
+
+
+## Display attribution v2 (2026-10-17)
+
+The context total still comes from request admission or normalized provider usage.
+The display-only composition now records `attributionVersion: 2` and separates
+`userTokens` (verified human-origin admissions), `agentReportTokens`,
+`runtimeContextTokens`, `checkpointTokens`, and `unattributedTokens`. Category
+shares remain estimates; matching their sum to the total does not establish
+independent tokenizer accuracy. No model request, budget, or durable message is
+rewritten by this display calculation.
+
+Classification follows recorded inbox source metadata at consumption time.
+Both direct sources and the Host RPC metadata wrapper are supported. Checkpoints
+follow explicit `surface_replace` events, not text markers or ID prefixes.
+Working-set history references and transient continuation/control notices are
+runtime context. Provenance is mapped through each actual projection before
+composite audit edits replace the mapping. Missing, ambiguous, or unrecognized
+provenance is never silently claimed as human authorship.
+
+Existing recorded compositions without version 2 remain readable but show
+**User-role history (source unknown)** rather than **Your messages**. New requests
+can classify retained old messages where durable source metadata exists. The
+original logs and old estimated buckets are not retroactively rewritten. Live
+and history-replayed projections carry the same small numeric composition;
+provider-reported totals, stale-history indicators, and estimate labels remain
+independent and unchanged.
+
+Working-plan snapshots inserted into a prepared request are runtime context.
+Their insertion updates the attribution vector at the same exact index, so
+the following genuine human message retains its durable authorship category.
+This does not change the snapshot bytes, request ordering, or admission budget.

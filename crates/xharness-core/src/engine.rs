@@ -789,7 +789,7 @@ impl Runner {
             self.step += 1;
             self.journal_step_start().await?;
             let mut pressure_attempted = false;
-            let (provider_request, prepared, context_tools, token_budget) = loop {
+            let (provider_request, prepared, context_tools, token_budget, context_origins) = loop {
                 let tool_definitions = self.tool_definitions().await;
                 let context_tools = tool_definitions
                     .iter()
@@ -798,7 +798,10 @@ impl Runner {
                     .map_err(|error| {
                         RunFailure::Failed(format!("could not serialize tool schema: {error}"))
                     })?;
-                let prepared = self
+                let crate::context_composition::PreparedContext {
+                    surface: prepared,
+                    origins: context_origins,
+                } = self
                     .prepare_context(self.messages.clone(), &context_tools)
                     .await?;
                 self.debug("context.prepared", || {
@@ -901,7 +904,13 @@ impl Runner {
                                     .map_or(remaining, |limit| limit.min(remaining)),
                             );
                         }
-                        break (provider_request, prepared, context_tools, report);
+                        break (
+                            provider_request,
+                            prepared,
+                            context_tools,
+                            report,
+                            context_origins,
+                        );
                     }
                     TokenBudgetCheck::Exceeded {
                         current_input_tokens,
@@ -981,8 +990,13 @@ impl Runner {
                 })
                 .await;
             }
-            self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
-                .await?;
+            self.journal_request_header(
+                &prepared,
+                &context_tools,
+                token_budget.as_ref(),
+                &context_origins,
+            )
+            .await?;
 
             let mut model = match self.model_round(provider_request).await {
                 Ok(model) => model,
@@ -1301,8 +1315,9 @@ impl Runner {
         &self,
         context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
-    ) -> Result<ContextSurface, RunFailure> {
+    ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         let mut origins = Vec::new();
+        let mut attribution = Vec::new();
         let mut working_plan = None;
         {
             if let Some(journal) = &self.journal {
@@ -1316,6 +1331,11 @@ impl Runner {
                     .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
                 working_plan = xharness_session::session_plan(&session);
                 let surface = session.derive_surface_messages();
+                attribution = crate::context_composition::aligned_origins(
+                    &session,
+                    &surface,
+                    &context_messages,
+                );
                 let sources = crate::context_working_set::sources(&session, &surface);
                 origins =
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
@@ -1325,6 +1345,7 @@ impl Runner {
             context_messages,
             context_tools,
             &origins,
+            &attribution,
             working_plan.as_ref(),
         )
         .await
@@ -1335,8 +1356,9 @@ impl Runner {
         mut context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
         origins: &[Option<xharness_context::WorkingSetSource>],
+        attribution: &[xharness_token::ContextMessageOrigin],
         working_plan: Option<&xharness_session::SessionPlan>,
-    ) -> Result<ContextSurface, RunFailure> {
+    ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         // Retirement is allowed only with a real session-bound recovery tool.
         // A custom executor without history must remain lossless/fail closed.
         let history_available = context_tools
@@ -1347,6 +1369,8 @@ impl Runner {
         } else {
             ContextSurface::identity(context_messages)
         };
+        let working_attribution =
+            crate::context_composition::project_origins(attribution, &working);
         context_messages = working.messages.clone();
         let mut context_request = ContextRequest::new(context_messages)
             .with_target(
@@ -1393,6 +1417,8 @@ impl Runner {
             .validate()
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         self.validate_prompt_surface(&prepared)?;
+        let mut attribution =
+            crate::context_composition::project_origins(&working_attribution, &prepared);
         if !working.edits.is_empty() {
             // Keep source-coordinate retirement evidence in a separate audited
             // surface, rather than mixing two policies' incompatible indexes.
@@ -1418,10 +1444,12 @@ impl Runner {
         if let Some(note) =
             crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
         {
-            crate::plan_context::insert(&mut prepared.messages, note);
+            let index = crate::plan_context::insert(&mut prepared.messages, note);
+            attribution.insert(index, xharness_token::ContextMessageOrigin::RuntimeContext);
         }
         if let Some(continuation) = self.pending_continuation.clone() {
             prepared.messages.push(continuation);
+            attribution.push(xharness_token::ContextMessageOrigin::RuntimeContext);
         }
         // Runtime controls are transient, not new user history. Add AFTER
         // policy projection so compaction/custom policies cannot remove
@@ -1434,7 +1462,13 @@ impl Runner {
                     .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
             );
         }
-        Ok(prepared)
+        if self.checkpoint.pending_notice.is_some() {
+            attribution.push(xharness_token::ContextMessageOrigin::RuntimeContext);
+        }
+        Ok(crate::context_composition::PreparedContext {
+            surface: prepared,
+            origins: attribution,
+        })
     }
 
     fn project_working_set(
@@ -1703,7 +1737,8 @@ impl Runner {
                 })?;
             let prepared = self
                 .prepare_context(self.messages.clone(), &context_tools)
-                .await?;
+                .await?
+                .surface;
             let provider_request = ProviderRequest {
                 messages: prepared.messages.clone(),
                 tools: tool_definitions,
@@ -2142,9 +2177,11 @@ impl Runner {
                     prefixed_candidate,
                     &tools,
                     &candidate_origins,
+                    &[],
                     xharness_session::session_plan(&session).as_ref(),
                 )
-                .await?;
+                .await?
+                .surface;
             let request = ProviderRequest {
                 messages: prepared.messages.clone(),
                 tools: tool_definitions,
@@ -2992,6 +3029,7 @@ impl Runner {
         surface: &ContextSurface,
         tools: &[Value],
         token_budget: Option<&TokenBudgetReport>,
+        origins: &[xharness_token::ContextMessageOrigin],
     ) -> Result<(), RunFailure> {
         if self.journal.is_none() {
             return Ok(());
@@ -3072,18 +3110,22 @@ impl Runner {
                 tools: tools.to_vec(),
                 ..TokenEstimateRequest::default()
             };
-            for message in &surface.messages {
+            let mut conversation_origins = Vec::new();
+            for (index, message) in surface.messages.iter().enumerate() {
                 if let Ok(encoded) = serde_json::to_value(message) {
                     if message.role == Role::System {
                         estimate_request.system_messages.push(encoded);
                     } else {
                         estimate_request.conversation_messages.push(encoded);
+                        conversation_origins.push(origins.get(index).copied().unwrap_or_default());
                     }
                 }
             }
-            if let Ok(composition) =
-                ContextComposition::estimate(&estimate_request, report.estimate.total_input_tokens)
-            {
+            if let Ok(composition) = ContextComposition::estimate_with_origins(
+                &estimate_request,
+                report.estimate.total_input_tokens,
+                &conversation_origins,
+            ) {
                 header.options.insert(
                     "contextComposition".to_owned(),
                     serde_json::to_value(composition).map_err(|error| {

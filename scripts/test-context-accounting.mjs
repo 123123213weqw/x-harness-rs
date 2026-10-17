@@ -133,3 +133,43 @@ assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,
 const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');
 assert.ok(html.includes(entry.url));
 console.log('context meter: stable slot / no stale reading / unavailable / measured / bilingual / revision passed');
+
+// Authorship is independent of role, and old role-only snapshots are never
+// relabelled as human-authored. Execute the actual shipped expanded panel.
+const expanded=conversationFixture(bundle,['ContextMeter','en'],{react:{useState:()=>[true,()=>{}]}}).api;
+function textOf(node) {
+  if(node===null||node===undefined||typeof node==='boolean')return '';
+  if(typeof node==='string'||typeof node==='number')return String(node);
+  if(Array.isArray(node))return node.map(textOf).join('');
+  return textOf(node.props?.children);
+}
+function descendants(node,type,result=[]) {
+  if(Array.isArray(node)){for(const child of node)descendants(child,type,result);return result;}
+  if(!node||typeof node!=='object')return result;
+  if(node.type===type)result.push(node);
+  descendants(node.props?.children,type,result);return result;
+}
+function categoryPanel(composition) {
+ const tree=expanded.ContextMeter({useProjection:()=>({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported',composition}),t:key=>expanded.en[key]??key});
+ const labels=descendants(tree,'dt').map(textOf), amounts=descendants(tree,'dd').map(textOf);
+ return {tree,labels,amounts};
+}
+const origins={attributionVersion:2,systemTokens:5,userTokens:2,agentReportTokens:40,runtimeContextTokens:20,checkpointTokens:10,unattributedTokens:3,assistantTokens:10,toolResultTokens:5,toolDefinitionTokens:4,protocolTokens:1,totalInputTokens:100,accuracy:'estimated'};
+const authored=categoryPanel(origins);
+assert.deepEqual(authored.labels,['System prompt','Your messages','Agent reports','Runtime context','Checkpoints','Unattributed context','Assistant','Tool results','Tools','Protocol overhead']);
+assert.equal(authored.amounts[1],'≈10');assert.equal(authored.amounts[2],'≈200');
+assert.equal(authored.amounts.reduce((sum,value)=>sum+Number(value.slice(1)),0),500,'rows scale to the measured total, not cumulative billing');
+const legacyPanel=categoryPanel(composition);
+assert.ok(legacyPanel.labels.includes('User-role history (source unknown)'));
+assert.ok(!legacyPanel.labels.includes('Your messages'),'legacy role totals cannot claim human authorship');
+const absentHuman=categoryPanel({...origins,userTokens:0});
+assert.ok(!absentHuman.labels.includes('Your messages'));
+assert.ok(absentHuman.labels.includes('Agent reports'));
+const invalidPanel=categoryPanel({...origins,userTokens:NaN,agentReportTokens:Infinity,runtimeContextTokens:-1});
+assert.ok(!invalidPanel.labels.includes('Your messages'));assert.ok(!invalidPanel.labels.includes('Agent reports'));assert.ok(!invalidPanel.labels.includes('Runtime context'));
+const newEvents=[start(1),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,estimate:{totalInputTokens:100}},contextComposition:origins}}}),usage(1,400),event('user/message',{})];
+const newReplay=replay(newEvents);
+assert.equal(JSON.stringify(newReplay.composition),JSON.stringify(origins));
+assert.equal(newReplay.pressureTokens,500);assert.equal(newReplay.phase,'history_changed');
+assert.equal(replay([...newEvents,start(2)]).composition,undefined);
+console.log('context provenance: human / agent / runtime / checkpoint / unknown / legacy / invalid / measured total / replay passed');
