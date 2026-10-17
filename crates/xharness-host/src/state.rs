@@ -298,6 +298,9 @@ pub struct SessionRecord {
     pub plan_active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal: Option<GoalState>,
+    /// Independent plan cache, rebuilt from the authoritative journal.
+    #[serde(skip)]
+    pub(crate) task_plan: Option<xharness_session::SessionPlan>,
     /// Rebuildable active Schedule catalog. Unlike the bounded event tail,
     /// this includes rules created before the current history page.
     #[serde(skip)]
@@ -455,6 +458,7 @@ impl SessionRecord {
                 .as_ref()
                 .map_or(Value::Null, GoalState::projection),
         );
+        values.insert("taskPlan".to_owned(), json!(self.task_plan));
         if self.schedules_hydrated {
             values.insert("schedules".to_owned(), json!(self.schedules));
         }

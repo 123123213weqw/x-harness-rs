@@ -15,11 +15,13 @@ import type { SessionId } from '../views-types'
 // Type-only: the `goal` SessionProjectionMap key merge (single source, the domain's pure outlet).
 import type { GoalContext, GoalRef, GoalActionResult, GoalBarActions } from './contracts'
 import { GoalDock } from './GoalBar'
+import { ProgressDock } from './ProgressDock'
 import { GoalCommandInputView } from './GoalCommandInputView'
 import { goalCommandInputDefinition } from './goal-command-input'
 import { en, zh, type GoalKey } from './locales'
 
 export { GoalBar, GoalDock } from './GoalBar'
+export { ProgressDock } from './ProgressDock'
 export type { GoalActionResult, GoalBarActions } from './contracts'
 export type { GoalKey } from './locales'
 
@@ -98,4 +100,7 @@ export function apply(ctx: GoalContext): void {
       },
     }),
   }, GoalDock))
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock', id: 'task-progress', order: 9, locale: NS,
+  }, ProgressDock))
 }

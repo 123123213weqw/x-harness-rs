@@ -24,6 +24,7 @@ mod scoped_automation;
 mod scoped_catalogue;
 mod scoped_events;
 pub(crate) mod scoped_interaction;
+mod session_plan;
 pub(crate) use interaction::respond_review;
 mod memory;
 mod model;
@@ -120,7 +121,8 @@ impl ApiBackend for BasicHost {
             | RpcMethod::AgentPresetCopy
             | RpcMethod::AgentPresetOpenDocument
             | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::GoalCreate
+            method @ (RpcMethod::GoalUpdatePlan
+            | RpcMethod::GoalCreate
             | RpcMethod::GoalEdit
             | RpcMethod::GoalPause
             | RpcMethod::GoalResume
