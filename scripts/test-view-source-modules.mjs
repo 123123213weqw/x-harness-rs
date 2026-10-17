@@ -158,6 +158,7 @@ for (const name of modules) {
     assert.deepEqual(normalized(two.namespaces), namespaces)
     const expected = normalized(one.registrations.map(({spec}) => spec))
     if (name === 'layout') Object.assign(expected[0].children, {
+      'swarm.center': {kind: 'single', scope: 'root'},
       'work.center.tasks': {kind: 'single', scope: 'root'},
       'work.center.automations': {kind: 'single', scope: 'root'},
       'work.center.executions': {kind: 'single', scope: 'root'},

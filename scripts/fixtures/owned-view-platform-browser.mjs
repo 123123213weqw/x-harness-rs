@@ -1,3 +1,4 @@
+import {installSharedSourceVendors} from './shared-source-vendors.mjs'
 /** Exact latest master / strict-source platform, intercepted only before Host
  * boot. Feature tests consume real React, Cordis, slots and UI primitives. */
 import {readFileSync,existsSync} from 'node:fs'
@@ -21,6 +22,10 @@ export async function installOwnedViewPlatform(page,implementation,{origin='http
  })
  await page.goto(origin+'/')
  await page.waitForFunction(()=>window.staticModules)
+ if(implementation!=='source'){
+  await installSharedSourceVendors(page)
+  await page.evaluate(()=>{staticModules.zod=window.__sourceVendors.zod})
+ }
  await page.evaluate(()=>{window.React=staticModules.react;window.ReactDOM=staticModules['react-dom']})
 }
 /** Preserve an existing feature fixture's initial HTML after capturing the real
