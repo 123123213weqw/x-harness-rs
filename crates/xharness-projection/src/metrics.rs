@@ -1611,6 +1611,44 @@ mod tests {
     }
 
     #[test]
+    fn provenance_categories_survive_live_replay_and_measured_total_replacement() {
+        let composition = json!({"attributionVersion":2,"systemTokens":5,"userTokens":2,
+            "agentReportTokens":40,"runtimeContextTokens":20,"checkpointTokens":10,
+            "unattributedTokens":3,"assistantTokens":10,"toolResultTokens":5,
+            "toolDefinitionTokens":4,"protocolTokens":1,"totalInputTokens":100,"accuracy":"estimated"});
+        let events = vec![
+            event(0, 0, "step/start", json!({"turn":1,"step":1})),
+            event(
+                1,
+                1,
+                "request/header",
+                json!({"header":{"options":{
+                "tokenBudget":{"contextWindowTokens":1000,"estimate":{"totalInputTokens":100}},
+                "contextComposition":composition}}}),
+            ),
+            event(
+                2,
+                2,
+                "assistant/message",
+                json!({"turn":1,"step":1,
+                "usage":{"inputTokens":180,"cacheReadTokens":20,"outputTokens":1}}),
+            ),
+            event(3, 3, "user/message", json!({})),
+        ];
+        let mut live = MetricsProjectionState::default();
+        for item in &events {
+            live.apply(item);
+        }
+        let rebuilt = MetricsProjectionState::rebuild(events.iter()).context_pressure();
+        assert_eq!(live.context_pressure(), rebuilt);
+        assert_eq!(rebuilt["composition"], composition);
+        assert_eq!(rebuilt["pressureTokens"], 200);
+        assert_eq!(rebuilt["phase"], "history_changed");
+        live.apply(&event(4, 4, "step/start", json!({"turn":1,"step":2})));
+        assert!(live.context_pressure().get("composition").is_none());
+    }
+
+    #[test]
     fn usage_mapper_accepts_old_snake_case_and_emits_camel_case() {
         assert_eq!(
             web_token_usage(&json!({
