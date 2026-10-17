@@ -127,7 +127,7 @@ pub(super) async fn history(host: &BasicHost, payload: &Value) -> Result<Value, 
         .clamp(1, MAX_HISTORY_MESSAGES);
 
     host.state.write().await.touch_projection_cache(&session_id);
-    if let Some(page) = cold_history(host, &session_id, before_seq, max_messages).await {
+    if let Some(page) = cold_history(host, &session_id, before_seq, max_messages).await? {
         return Ok(page);
     }
     host.hydrate_session(&session_id)
@@ -241,16 +241,20 @@ async fn cold_history(
     id: &str,
     before: Option<u64>,
     max: usize,
-) -> Option<Value> {
+) -> Result<Option<Value>, RpcError> {
     if !host.agent_runtime.has_authoritative_sessions() {
-        return None;
+        return Ok(None);
     }
-    let store = host.lazy_store.get()?.clone();
+    let Some(store) = host.lazy_store.get().cloned() else {
+        return Ok(None);
+    };
     {
         let state = host.state.read().await;
-        let record = state.sessions.get(id)?;
+        let Some(record) = state.sessions.get(id) else {
+            return Ok(None);
+        };
         if !record.restoring || record.running || state.deleted_sessions.contains(id) {
-            return None;
+            return Ok(None);
         }
     }
     let gate = host.session_restore_gate(id).await;
@@ -258,12 +262,17 @@ async fn cold_history(
     let _projection_guard = host.lock_projection(id).await;
     let (expected, route) = {
         let state = host.state.read().await;
-        let record = state.sessions.get(id)?;
+        let Some(record) = state.sessions.get(id) else {
+            return Ok(None);
+        };
         if !record.restoring || record.running || state.deleted_sessions.contains(id) {
-            return None;
+            return Ok(None);
         }
         (
-            record.authoritative_seq?,
+            match record.authoritative_seq {
+                Some(seq) => seq,
+                None => return Ok(None),
+            },
             ModelRoute {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
@@ -272,10 +281,13 @@ async fn cold_history(
             },
         )
     };
-    let mut cut = store
+    let Some(mut cut) = store
         .cold_history_window(id, crate::state::HISTORY_PRESENTATION_SCHEMA, before, max)
         .await
-        .ok()??;
+        .map_err(|error| RpcError::internal(format!("cold history read failed: {error}")))?
+    else {
+        return Ok(None);
+    };
     if cut.presentation.schema != crate::state::HISTORY_PRESENTATION_SCHEMA
         || ![
             "sessionListMetadata",
@@ -296,11 +308,13 @@ async fn cold_history(
         || cut.window.next_seq != expected
         || cut.catalog.needs_recovery
     {
-        return None;
+        return Ok(None);
     }
     {
         let state = host.state.read().await;
-        let record = state.sessions.get(id)?;
+        let Some(record) = state.sessions.get(id) else {
+            return Ok(None);
+        };
         if !record.restoring
             || record.running
             || state.deleted_sessions.contains(id)
@@ -310,19 +324,19 @@ async fn cold_history(
             || record.model.reasoning_effort != route.reasoning_effort
             || record.model.context_window_tokens != route.context_window_tokens
         {
-            return None;
+            return Ok(None);
         }
         // Display is ready; execution deliberately is not. Keep this metadata
         // identical to the live/catalogue baseline at the same sequence.
         cut.presentation.values["sessionListMetadata"] =
             record.projection_values()["sessionListMetadata"].clone();
     }
-    Some(indexed_page(
+    Ok(Some(indexed_page(
         &cut.window,
         &route,
         before,
         cut.presentation.values,
-    ))
+    )))
 }
 
 /// Only an already hydrated, idle, exactly synchronized session can bypass

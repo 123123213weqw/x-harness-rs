@@ -100,9 +100,7 @@ async fn cold_display_is_read_only_bounded_source_validated_and_restart_safe() {
 }
 #[tokio::test]
 async fn legacy_corrupt_unknown_or_incomplete_display_state_is_a_cache_miss() {
-    for damage in [
-        "legacy", "schema", "values", "version", "index", "pending", "id",
-    ] {
+    for damage in ["legacy", "schema", "values", "version", "pending", "id"] {
         let f = fixture().await;
         let path = f
             .dir
@@ -389,4 +387,379 @@ async fn checkpoint_owner_can_seed_only_an_identical_valid_idle_catalogue_withou
         .unwrap()
         .is_some());
     assert_eq!(fresh.catalog_entry("test").await.unwrap().unwrap(), f.entry);
+}
+
+#[tokio::test]
+async fn missing_stale_and_corrupt_offset_indexes_repair_without_a_session() {
+    for damage in [
+        "missing", "json", "checksum", "version", "source", "oversize",
+    ] {
+        let f = fixture().await;
+        let journal = fs::read(f.dir.join("test.jsonl")).unwrap();
+        let expected = f
+            .store
+            .cold_history_window("test", SCHEMA, None, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        let path = f.dir.join("test.history-index");
+        let mut index: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        match damage {
+            "missing" => fs::remove_file(&path).unwrap(),
+            "json" => fs::write(&path, b"broken").unwrap(),
+            "oversize" => fs::File::create(&path)
+                .unwrap()
+                .set_len(8 * 1024 * 1024 + 1)
+                .unwrap(),
+            _ => {
+                match damage {
+                    "checksum" => index["sha256"] = json!("0".repeat(64)),
+                    "version" => index["index"]["version"] = json!(99),
+                    "source" => index["index"]["fingerprint"]["len"] = json!(0),
+                    _ => unreachable!(),
+                }
+                fs::write(&path, serde_json::to_vec(&index).unwrap()).unwrap();
+            }
+        }
+        let cold = JsonlSessionStore::new(&f.dir).unwrap().for_runtime();
+        let actual = cold
+            .cold_history_window("test", SCHEMA, None, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual.window.events, expected.window.events, "{damage}");
+        assert_eq!(actual.window.context, expected.window.context, "{damage}");
+        assert_eq!(actual.window.next_seq, expected.window.next_seq);
+        assert_eq!(actual.window.has_more, expected.window.has_more);
+        assert_eq!(actual.presentation.values, expected.presentation.values);
+        assert_eq!(cold.cache_stats().entries, 0);
+        let older = cold
+            .cold_history_window("test", SCHEMA, Some(0), 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(older.window.events.is_empty() && !older.window.has_more);
+        assert_eq!(fs::read(f.dir.join("test.jsonl")).unwrap(), journal);
+        assert!(serde_json::from_slice::<Value>(&fs::read(path).unwrap()).is_ok());
+    }
+}
+
+#[tokio::test]
+async fn parsed_indexes_are_bounded_optional_and_invalidated_by_replacement() {
+    let f = multi_batch_fixture(256, 128).await;
+    for (bytes, entries) in [(0, 4), (1024 * 1024, 0), (1, 4), (1024 * 1024, 1)] {
+        let cold = JsonlSessionStore::new(&f.dir)
+            .unwrap()
+            .with_history_index_cache_limits(bytes, entries);
+        for _ in 0..3 {
+            assert!(cold
+                .cold_history_window("test", SCHEMA, None, 1)
+                .await
+                .unwrap()
+                .is_some());
+        }
+        let stats = cold.history_index_cache_stats();
+        assert!(stats.accounted_bytes <= bytes);
+        assert!(stats.entries <= entries);
+        assert_eq!(
+            stats.entries,
+            usize::from(bytes == 1024 * 1024 && entries == 1)
+        );
+        fs::write(f.dir.join("test.history-index"), b"corrupt after cache hit").unwrap();
+        assert!(cold
+            .cold_history_window("test", SCHEMA, None, 1)
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(cold.cache_stats().entries, 0);
+    }
+}
+
+struct CountFold {
+    seen: u64,
+    oversize: bool,
+}
+impl xharness_session::CatalogMetricsFold for CountFold {
+    fn apply(&mut self, events: &[xharness_session::LoggedEvent]) {
+        self.seen += events.len() as u64;
+    }
+    fn snapshot(&self) -> Value {
+        if self.oversize {
+            json!({"tooLarge": "x".repeat(1024 * 1024)})
+        } else {
+            json!({"count": self.seen})
+        }
+    }
+}
+
+#[tokio::test]
+async fn metrics_scan_publishes_only_a_complete_exact_source_without_recovery_stamps() {
+    let f = fixture().await;
+    let cold = JsonlSessionStore::new(&f.dir).unwrap().for_runtime();
+    let journal = fs::read(f.dir.join("test.jsonl")).unwrap();
+    let snapshot = cold
+        .repair_catalog_metrics(
+            f.entry.clone(),
+            Box::new(CountFold {
+                seen: 0,
+                oversize: false,
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(snapshot, json!({"count": f.entry.next_seq}));
+    let mut expected = f.entry.clone();
+    expected.metric_snapshot = Some(snapshot);
+    assert_eq!(cold.catalog_entry("test").await.unwrap().unwrap(), expected);
+    assert_eq!(cold.cache_stats().entries, 0);
+    assert_eq!(fs::read(f.dir.join("test.jsonl")).unwrap(), journal);
+    let mut changed = expected.clone();
+    changed.title = Some("unauthorized metadata change".into());
+    assert!(
+        cold.publish_catalog_entry(changed.clone()).await.is_err(),
+        "display scan must not mint a recovery/source publication stamp"
+    );
+    assert!(cold
+        .repair_catalog_metrics(
+            changed,
+            Box::new(CountFold {
+                seen: 0,
+                oversize: false
+            })
+        )
+        .await
+        .unwrap()
+        .is_none());
+    let before = fs::read(f.dir.join("test.catalog")).unwrap();
+    assert!(cold
+        .repair_catalog_metrics(
+            expected,
+            Box::new(CountFold {
+                seen: 0,
+                oversize: true
+            })
+        )
+        .await
+        .is_err());
+    assert_eq!(fs::read(f.dir.join("test.catalog")).unwrap(), before);
+}
+
+#[tokio::test]
+async fn noncooperating_source_or_catalogue_changes_discard_partial_metrics() {
+    struct RacingFold {
+        path: PathBuf,
+    }
+    impl xharness_session::CatalogMetricsFold for RacingFold {
+        fn apply(&mut self, _: &[xharness_session::LoggedEvent]) {
+            use std::io::Write;
+            if self.path.extension().is_some_and(|e| e == "catalog") {
+                let mut record: Value =
+                    serde_json::from_slice(&fs::read(&self.path).unwrap()).unwrap();
+                record["entry"]["title"] = json!("another publisher changed metadata");
+                fs::write(&self.path, serde_json::to_vec(&record).unwrap()).unwrap();
+            } else {
+                fs::OpenOptions::new()
+                    .append(true)
+                    .open(&self.path)
+                    .unwrap()
+                    .write_all(b" ")
+                    .unwrap();
+            }
+        }
+        fn snapshot(&self) -> Value {
+            json!({"mustNotBePublished":true})
+        }
+    }
+    for suffix in ["jsonl", "catalog"] {
+        let f = fixture().await;
+        let cold = JsonlSessionStore::new(&f.dir).unwrap();
+        let result = cold
+            .repair_catalog_metrics(
+                f.entry.clone(),
+                Box::new(RacingFold {
+                    path: f.dir.join(format!("test.{suffix}")),
+                }),
+            )
+            .await;
+        assert!(matches!(result, Ok(None)), "{result:?}");
+        let bytes = fs::read(f.dir.join("test.catalog")).unwrap();
+        assert!(!String::from_utf8_lossy(&bytes).contains("mustNotBePublished"));
+        assert_eq!(cold.cache_stats().entries, 0);
+    }
+}
+
+#[tokio::test]
+async fn failed_index_publication_still_serves_the_page_without_replay_or_removing_files() {
+    let f = fixture().await;
+    let index = f.dir.join("test.history-index");
+    fs::remove_file(&index).unwrap();
+    fs::create_dir(&index).unwrap();
+    fs::write(index.join("foreign"), b"preserve").unwrap();
+    let cold = JsonlSessionStore::new(&f.dir).unwrap();
+    let journal = fs::read(f.dir.join("test.jsonl")).unwrap();
+    assert!(cold
+        .cold_history_window("test", SCHEMA, None, 1)
+        .await
+        .unwrap()
+        .is_some());
+    assert_eq!(cold.cache_stats().entries, 0);
+    assert_eq!(fs::read(index.join("foreign")).unwrap(), b"preserve");
+    assert_eq!(fs::read(f.dir.join("test.jsonl")).unwrap(), journal);
+}
+
+/// Synthetic multi-batch journal, verified once by the normal full replay.
+/// Benchmarks then use fresh Stores so a warm Session cannot hide disk reads.
+async fn multi_batch_fixture(turns: u32, text_bytes: usize) -> Fixture {
+    use std::io::{BufWriter, Write};
+    use xharness_session::{LoggedEvent, Message, RequestHeader, Revision, TurnEndReason};
+    let mut f = fixture().await;
+    let path = f.dir.join("test.jsonl");
+    let mut file = BufWriter::new(fs::File::create(&path).unwrap());
+    serde_json::to_writer(&mut file, &json!({"record":"header", "format":"xharness.session.jsonl", "format_version":1, "header": f.entry.header})).unwrap();
+    file.write_all(b"\n").unwrap();
+    let mut seq = 0;
+    for turn in 1..=turns {
+        let events = vec![
+            EventData::TurnStart { turn },
+            EventData::UserMessage {
+                message: Message::user(format!("question {turn}")),
+                surface_replace: None,
+            },
+            EventData::StepStart { turn, step: 1 },
+            EventData::RequestHeader {
+                header: RequestHeader::new("test", "model"),
+            },
+            EventData::AssistantMessage {
+                turn,
+                step: 1,
+                message: Message::assistant("x".repeat(text_bytes)),
+                usage: Some(json!({"inputTokens":10,"cacheReadTokens":90,"outputTokens":5})),
+            },
+            EventData::StepEnd { turn, step: 1 },
+            EventData::TurnEnd {
+                turn,
+                reason: TurnEndReason::Completed,
+            },
+        ]
+        .into_iter()
+        .map(|data| {
+            let event = LoggedEvent {
+                seq,
+                revision: Revision(turn as u64),
+                timestamp_ms: turn as u64 * 1000,
+                event: data.into(),
+            };
+            seq += 1;
+            event
+        })
+        .collect::<Vec<_>>();
+        serde_json::to_writer(&mut file, &json!({"record":"batch", "previous_revision":Revision(turn as u64 - 1), "revision":Revision(turn as u64), "events":events})).unwrap();
+        file.write_all(b"\n").unwrap();
+    }
+    file.flush().unwrap();
+    drop(file);
+    let loaded = f.store.load("test").await.unwrap().unwrap();
+    f.entry.next_seq = loaded.next_seq();
+    f.entry.plan_active = false;
+    f.entry.blank = false;
+    f.store
+        .publish_catalog_presentation(
+            f.entry.clone(),
+            HistoryPresentation {
+                schema: SCHEMA.into(),
+                values: json!({"fixture":true}),
+            },
+        )
+        .await
+        .unwrap();
+    f
+}
+
+#[tokio::test]
+async fn streaming_metrics_and_index_repair_match_compressed_multi_batch_sources() {
+    for compressed in [false, true] {
+        let f = multi_batch_fixture(8, 8192).await;
+        if compressed {
+            assert!(f.store.compress_cold_session("test").await.unwrap().changed);
+            f.store.load("test").await.unwrap().unwrap();
+            f.store
+                .publish_catalog_presentation(
+                    f.entry.clone(),
+                    HistoryPresentation {
+                        schema: SCHEMA.into(),
+                        values: json!({"fixture":true}),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let journal = fs::read(f.dir.join("test.jsonl")).unwrap();
+        fs::remove_file(f.dir.join("test.history-index")).unwrap();
+        let cold = JsonlSessionStore::new(&f.dir).unwrap().for_runtime();
+        let tail = cold
+            .cold_history_window("test", SCHEMA, None, 2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(tail.window.has_more);
+        assert_eq!(tail.window.next_seq, 56);
+        let before = tail.window.events[0].seq;
+        let older = cold
+            .cold_history_window("test", SCHEMA, Some(before), 2)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(older.window.events.iter().all(|e| e.seq < before));
+        let counted = cold
+            .repair_catalog_metrics(
+                f.entry.clone(),
+                Box::new(CountFold {
+                    seen: 0,
+                    oversize: false,
+                }),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(counted, json!({"count":56}));
+        assert_eq!(cold.cache_stats().entries, 0);
+        assert_eq!(fs::read(f.dir.join("test.jsonl")).unwrap(), journal);
+    }
+}
+
+#[tokio::test]
+#[ignore = "opt-in parsed-index A/B benchmark; no network/model calls"]
+async fn parsed_index_cache_ab_benchmark() {
+    let f = multi_batch_fixture(2000, 256).await;
+    let journal = fs::read(f.dir.join("test.jsonl")).unwrap();
+    let mut expected = None;
+    for enabled in [false, true, true, false] {
+        let store = JsonlSessionStore::new(&f.dir)
+            .unwrap()
+            .with_history_index_cache_limits(if enabled { 8 * 1024 * 1024 } else { 0 }, 4);
+        let began = std::time::Instant::now();
+        let mut cursor = None;
+        let mut coordinates = Vec::new();
+        for _ in 0..60 {
+            let page = store
+                .cold_history_window("test", SCHEMA, cursor, 20)
+                .await
+                .unwrap()
+                .unwrap();
+            coordinates.extend(page.window.events.iter().map(|e| e.seq));
+            cursor = page.window.events.first().map(|e| e.seq);
+        }
+        let ms = began.elapsed().as_secs_f64() * 1000.0;
+        if let Some(reference) = &expected {
+            assert_eq!(&coordinates, reference);
+        } else {
+            expected = Some(coordinates);
+        }
+        let cache = store.history_index_cache_stats();
+        assert!(cache.accounted_bytes <= cache.max_bytes);
+        assert_eq!(store.cache_stats().entries, 0);
+        println!("INDEX_CACHE_AB enabled={enabled} pages=60 ms={ms:.3} cache_entries={} cache_bytes={} index_bytes={}", cache.entries, cache.accounted_bytes, fs::metadata(f.dir.join("test.history-index")).unwrap().len());
+    }
+    assert_eq!(fs::read(f.dir.join("test.jsonl")).unwrap(), journal);
 }

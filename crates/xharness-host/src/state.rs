@@ -594,7 +594,9 @@ impl SessionRecord {
         if !restoring {
             values.insert(
                 "goal".to_owned(),
-                self.goal.as_ref().map_or(Value::Null, GoalState::projection),
+                self.goal
+                    .as_ref()
+                    .map_or(Value::Null, GoalState::projection),
             );
             values.insert("taskPlan".to_owned(), json!(self.task_plan));
         }

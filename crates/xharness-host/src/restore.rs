@@ -1090,20 +1090,45 @@ impl BasicHost {
         let Some(mut entry) = store.catalog_entry(session_id).await? else {
             return Ok(());
         };
-        let Some(session) = store.load(session_id).await? else {
-            return Ok(());
-        };
-        if entry.next_seq != session.next_seq() {
-            return Ok(());
+        struct MetricsFold(MetricsProjectionState);
+        impl xharness_session::CatalogMetricsFold for MetricsFold {
+            fn apply(&mut self, events: &[xharness_session::LoggedEvent]) {
+                for event in events {
+                    self.0.apply_logged(event);
+                }
+            }
+            fn snapshot(&self) -> Value {
+                self.0.catalog_snapshot()
+            }
         }
-        let snapshot = MetricsProjectionState::rebuild_logged(session.events()).catalog_snapshot();
-        entry.metric_snapshot = Some(snapshot.clone());
-        // The disk store rechecks its source fingerprint under the writer lock.
-        // Failed/racing publication never replaces the authoritative journal.
-        store.publish_catalog_entry(entry).await?;
+        let expected_next = entry.next_seq;
+        let snapshot = match store
+            .repair_catalog_metrics(
+                entry.clone(),
+                Box::new(MetricsFold(MetricsProjectionState::default())),
+            )
+            .await?
+        {
+            Some(snapshot) => snapshot,
+            None => {
+                // Optional Store seam: unsupported or changed sources retain
+                // the full-load path, including normal semantic validation.
+                let Some(session) = store.load(session_id).await? else {
+                    return Ok(());
+                };
+                if entry.next_seq != session.next_seq() {
+                    return Ok(());
+                }
+                let snapshot =
+                    MetricsProjectionState::rebuild_logged(session.events()).catalog_snapshot();
+                entry.metric_snapshot = Some(snapshot.clone());
+                store.publish_catalog_entry(entry).await?;
+                snapshot
+            }
+        };
         let mut state = self.state.write().await;
         if let Some(record) = state.sessions.get_mut(session_id) {
-            if record.restoring && record.next_event_seq() == session.next_seq() {
+            if record.restoring && record.next_event_seq() == expected_next {
                 record.catalog_metrics = Some(snapshot);
             }
         }
@@ -2063,6 +2088,11 @@ mod tests {
                 false
             );
         }
+        assert_eq!(
+            legacy_disk.cache_stats().entries,
+            0,
+            "metric repair must stream without a Session"
+        );
         assert!(legacy_disk
             .catalog_entry("usage-history")
             .await
@@ -2831,12 +2861,16 @@ mod tests {
         store.create(header).await.unwrap();
         let mut revision = Revision::ZERO;
         for turn in 1..=8 {
+            let mut turn_events = closed_text_turn(turn, "reader request", "complete answer");
+            for event in &mut turn_events {
+                if let EventData::AssistantMessage { usage, .. } = event.data_mut() {
+                    *usage = Some(
+                        serde_json::json!({"inputTokens": turn * 10, "cacheReadTokens": 90, "cacheWriteTokens": 3, "outputTokens": 5}),
+                    );
+                }
+            }
             revision = store
-                .append(
-                    "cold",
-                    revision,
-                    closed_text_turn(turn, "reader request", "complete answer"),
-                )
+                .append("cold", revision, turn_events)
                 .await
                 .unwrap()
                 .revision;
@@ -2845,7 +2879,7 @@ mod tests {
             GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot, GoalSnapshotChange,
             GoalSnapshotOperation,
         };
-        let goals = [
+        let mut goals: Vec<SessionEvent> = [
             (GoalSnapshotOperation::Create, GoalPhase::Active, 1),
             (GoalSnapshotOperation::Complete, GoalPhase::Complete, 2),
         ]
@@ -2872,6 +2906,19 @@ mod tests {
             .into()
         })
         .collect();
+        goals.push(
+            EventData::SessionPlanUpdated {
+                plan: xharness_session::SessionPlan {
+                    revision: 1,
+                    items: vec![xharness_session::PlanItem {
+                        id: "verify".into(),
+                        title: "Preserve working plan".into(),
+                        status: xharness_session::PlanItemStatus::Completed,
+                    }],
+                },
+            }
+            .into(),
+        );
         store.append("cold", revision, goals).await.unwrap();
         let producer = BasicHost::with_agent_runtime(
             config(&dir),
@@ -3004,12 +3051,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cold_history_repairs_missing_indexes_without_runtime_recovery() {
+        for damage in ["missing", "corrupt", "unwritable"] {
+            let (dir, store, host, runtime, mut expected) = cold_history_fixture(damage).await;
+            let index = dir.join("cold.history-index");
+            std::fs::remove_file(&index).unwrap();
+            if damage == "corrupt" {
+                std::fs::write(&index, b"broken").unwrap();
+            }
+            if damage == "unwritable" {
+                std::fs::create_dir(&index).unwrap();
+            }
+            let result = host
+                .call(
+                    RpcId::new("repair-index"),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":"cold", "maxMessages":2}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success {
+                value: Some(actual),
+            } = result
+            else {
+                panic!("{result:?}")
+            };
+            expected["projections"]["values"]["sessionListMetadata"]["restoring"] = json!(true);
+            assert_eq!(actual, expected);
+            assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+            assert_eq!(store.cache_stats().entries, 0);
+            assert!(host.state.read().await.sessions["cold"].restoring);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn streaming_catalog_metrics_match_full_replay_for_usage_and_task_plan_history() {
+        let (dir, store, _, _, expected) = cold_history_fixture("metrics-stream").await;
+        let path = dir.join("cold.catalog");
+        let mut catalog: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        catalog["entry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("metricSnapshot");
+        std::fs::write(&path, serde_json::to_vec(&catalog).unwrap()).unwrap();
+        let runtime = Arc::new(CountedSnapshotRuntime {
+            store: store.clone(),
+            loads: AtomicUsize::new(0),
+            idle_checkpoints: false,
+        });
+        let host = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
+        host.prepare_startup_catalog(store.clone()).await.unwrap();
+        host.backfill_startup_metrics().await;
+        let state = host.state.read().await;
+        let actual = state.sessions["cold"].projection_values();
+        for key in [
+            "tokenUsage",
+            "dailyTokenUsage",
+            "sessionStats",
+            "contextPressure",
+        ] {
+            assert_eq!(actual[key], expected["projections"]["values"][key], "{key}");
+        }
+        assert!(state.startup_issues.is_empty());
+        assert!(state.sessions["cold"].restoring);
+        assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+        assert_eq!(store.cache_stats().entries, 0);
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn cold_history_invalid_acceleration_keeps_recovery_fallback() {
         for damage in [
             "missing-presentation",
             "schema",
             "catalog",
-            "index",
             "needs-recovery",
             "oversize",
         ] {

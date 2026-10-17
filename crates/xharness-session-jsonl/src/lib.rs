@@ -34,6 +34,7 @@ use xharness_session::{
 
 mod audit;
 mod blobs;
+mod catalog_scan;
 mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
@@ -95,6 +96,8 @@ pub struct JsonlSessionStore {
     /// only removes the previous O(file-size) replay from every in-process
     /// append/load/checkpoint.
     cache: Arc<StdMutex<SnapshotCache>>,
+    history_cache: Arc<StdMutex<history_index::Cache>>,
+    maintenance: Arc<tokio::sync::Semaphore>,
 }
 
 /// Request diagnostics are independent of the authoritative conversation
@@ -580,6 +583,8 @@ impl JsonlSessionStore {
             request_audit_mode: RequestAuditMode::MetadataOnly,
             audit_reads: Arc::new(tokio::sync::Semaphore::new(2)),
             cache: Arc::new(StdMutex::new(SnapshotCache::default())),
+            history_cache: Arc::new(StdMutex::new(history_index::Cache::default())),
+            maintenance: Arc::new(tokio::sync::Semaphore::new(1)),
         })
     }
 
@@ -608,6 +613,19 @@ impl JsonlSessionStore {
             c.entries.clear();
         }
         self
+    }
+    /// Parsed history indexes are independent of heavyweight runtime snapshots.
+    pub fn with_history_index_cache_limits(self, max_bytes: usize, max_entries: usize) -> Self {
+        {
+            let mut cache = self.history_cache.lock().unwrap();
+            cache.max_bytes = max_bytes;
+            cache.max_entries = max_entries;
+            cache.clear();
+        }
+        self
+    }
+    pub fn history_index_cache_stats(&self) -> CacheStats {
+        self.history_cache.lock().unwrap().stats()
     }
     pub fn cache_stats(&self) -> CacheStats {
         let c = self.cache.lock().unwrap();
@@ -676,6 +694,52 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    async fn repair_catalog_metrics(
+        &self,
+        expected: SessionCatalogEntry,
+        mut fold: Box<dyn xharness_session::CatalogMetricsFold>,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        let permit = self
+            .maintenance
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| backend_message("session maintenance limiter closed"))?;
+        let (path, guard) = self.locked_path(&expected.header.id).await?;
+        run_blocking(move || {
+            let (_permit, _guard) = (permit, guard);
+            let _lock = acquire_file_lock(&path)?;
+            let Some(mut catalog) = read_catalog_record(&path, &expected.header.id)? else {
+                return Ok(None);
+            };
+            if catalog.entry != expected {
+                return Ok(None);
+            }
+            if catalog_scan::scan(&path, &catalog, |_, _, batch| {
+                fold.apply(&batch.events);
+                Ok(true)
+            })?
+            .is_none()
+            {
+                return Ok(None);
+            }
+            let snapshot = fold.snapshot();
+            catalog.entry.metric_snapshot = Some(snapshot.clone());
+            let bytes = serde_json::to_vec(&catalog).map_err(|e| backend_message(e.to_string()))?;
+            if bytes.len() as u64 > MAX_CATALOG_BYTES {
+                return Err(backend_message("session metrics catalogue exceeds 1 MiB"));
+            }
+            // The scan rechecked both identities. Never mint a Session cache or
+            // a validated recovery/checkpoint stamp from this display-only fold.
+            if file_fingerprint(&path)? != Some(catalog.fingerprint) {
+                return Ok(None);
+            }
+            write_projection_file(&catalog_path(&path), &bytes, "catalog")?;
+            Ok(Some(snapshot))
+        })
+        .await
+    }
+
     async fn history_window(
         &self,
         session_id: &str,
@@ -692,6 +756,7 @@ impl Store for JsonlSessionStore {
         let (path, guard) = self.locked_path(session_id).await?;
         let id = session_id.to_owned();
         let cache = self.cache.clone();
+        let history_cache = self.history_cache.clone();
         run_blocking(move || {
             let _permit = permit;
             let _guard = guard;
@@ -712,10 +777,15 @@ impl Store for JsonlSessionStore {
             }
             // A damaged acceleration file must never replace normal errors or
             // make the browser think that authoritative history disappeared.
-            Ok(
-                history_index::read(&path, &id, expected_next_seq, before_seq, max_messages)
-                    .unwrap_or(None),
+            Ok(history_index::read(
+                &path,
+                &id,
+                expected_next_seq,
+                before_seq,
+                max_messages,
+                &history_cache,
             )
+            .unwrap_or(None))
         })
         .await
     }
@@ -770,46 +840,83 @@ impl Store for JsonlSessionStore {
         before_seq: Option<u64>,
         max_messages: usize,
     ) -> Result<Option<xharness_session::ColdHistoryWindow>, StoreError> {
-        let permit = self
-            .audit_reads
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|e| backend_message(e.to_string()))?;
-        let (path, guard) = self.locked_path(session_id).await?;
-        let id = session_id.to_owned();
-        let schema = schema.to_owned();
-        run_blocking(move || {
-            let _permit = permit;
-            let _guard = guard;
-            let _file_lock = acquire_file_lock(&path)?;
-            let Some(record) = read_catalog_record(&path, &id)? else {
-                return Ok(None);
+        // Ordinary indexed pages never queue behind unrelated maintenance.
+        // A miss releases both session locks before waiting for the single
+        // maintenance permit, then rechecks the complete source transaction.
+        for repair in [false, true] {
+            let maintenance = if repair {
+                Some(
+                    self.maintenance
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| backend_message("session maintenance limiter closed"))?,
+                )
+            } else {
+                None
             };
-            if record.entry.needs_recovery {
-                return Ok(None);
+            let permit = self
+                .audit_reads
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| backend_message(e.to_string()))?;
+            let (path, guard) = self.locked_path(session_id).await?;
+            let id = session_id.to_owned();
+            let schema = schema.to_owned();
+            let history_cache = self.history_cache.clone();
+            let (cut, needs_repair) = run_blocking(move || {
+                let (_maintenance, _permit, _guard) = (maintenance, permit, guard);
+                let _file_lock = acquire_file_lock(&path)?;
+                let Some(record) = read_catalog_record(&path, &id)? else {
+                    return Ok((None, false));
+                };
+                if record.entry.needs_recovery {
+                    return Ok((None, false));
+                }
+                let Some(presentation) = read_presentation(&path, &record, &schema) else {
+                    return Ok((None, false));
+                };
+                let mut window = history_index::read(
+                    &path,
+                    &id,
+                    record.entry.next_seq,
+                    before_seq,
+                    max_messages,
+                    &history_cache,
+                )?;
+                if window.is_none()
+                    && !history_index::available(&path, &id, record.entry.next_seq, &history_cache)?
+                {
+                    if !repair {
+                        return Ok((None, true));
+                    }
+                    let Some(index) = history_index::repair(&path, &record)? else {
+                        return Ok((None, false));
+                    };
+                    window = history_index::read_prepared(&path, &index, before_seq, max_messages)?;
+                }
+                let Some(window) = window else {
+                    return Ok((None, false));
+                };
+                if file_fingerprint(&path)? != Some(record.fingerprint) {
+                    return Ok((None, false));
+                }
+                Ok((
+                    Some(xharness_session::ColdHistoryWindow {
+                        catalog: record.entry,
+                        presentation,
+                        window,
+                    }),
+                    false,
+                ))
+            })
+            .await?;
+            if !needs_repair {
+                return Ok(cut);
             }
-            let Some(presentation) = read_presentation(&path, &record, &schema) else {
-                return Ok(None);
-            };
-            let Some(window) =
-                history_index::read(&path, &id, record.entry.next_seq, before_seq, max_messages)
-                    .unwrap_or(None)
-            else {
-                return Ok(None);
-            };
-            // Bind metadata, values and page to one source, including against
-            // a writer which does not cooperate with the advisory reader lock.
-            if file_fingerprint(&path)? != Some(record.fingerprint) {
-                return Ok(None);
-            }
-            Ok(Some(xharness_session::ColdHistoryWindow {
-                catalog: record.entry,
-                presentation,
-                window,
-            }))
-        })
-        .await
+        }
+        Ok(None)
     }
 
     async fn catalog_entry(
@@ -2189,12 +2296,11 @@ fn validate_header_record(
     Ok(())
 }
 
-fn extend_batch_record(
+fn validate_batch_record(
     path: &Path,
     line_number: usize,
-    revision: &mut Revision,
-    events: &mut Vec<LoggedEvent>,
-    record: BatchRecord,
+    revision: Revision,
+    record: &BatchRecord,
 ) -> Result<(), StoreError> {
     if record.record != BATCH_RECORD {
         return Err(corrupt(
@@ -2206,7 +2312,7 @@ fn extend_batch_record(
     if record.events.is_empty() {
         return Err(corrupt(path, line_number, "persisted batch is empty"));
     }
-    if record.previous_revision != *revision {
+    if record.previous_revision != revision {
         return Err(corrupt(
             path,
             line_number,
@@ -2233,6 +2339,17 @@ fn extend_batch_record(
         ));
     }
 
+    Ok(())
+}
+
+fn extend_batch_record(
+    path: &Path,
+    line_number: usize,
+    revision: &mut Revision,
+    events: &mut Vec<LoggedEvent>,
+    record: BatchRecord,
+) -> Result<(), StoreError> {
+    validate_batch_record(path, line_number, *revision, &record)?;
     events.extend(record.events);
     *revision = record.revision;
     Ok(())

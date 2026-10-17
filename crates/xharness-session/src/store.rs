@@ -134,9 +134,30 @@ pub enum StartupCandidate {
     Unreadable(UnreadableSession),
 }
 
+/// Application-owned reducer for public usage views only. A streaming Store
+/// calls this once per batch and never exposes a partially validated snapshot.
+/// Implementations must not retain message text or perform external side effects.
+pub trait CatalogMetricsFold: Send + 'static {
+    fn apply(&mut self, events: &[LoggedEvent]);
+    fn snapshot(&self) -> serde_json::Value;
+}
+
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Optional batch-at-a-time repair of a previously source-validated
+    /// catalogue's metrics. Some is returned only after atomically publishing
+    /// the complete snapshot against the identical catalogue and journal.
+    /// None preserves the backend's existing full-load fallback. This is not
+    /// Session semantic validation and MUST NOT create a recovery stamp.
+    async fn repair_catalog_metrics(
+        &self,
+        _expected: SessionCatalogEntry,
+        _fold: Box<dyn CatalogMetricsFold>,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        Ok(None)
+    }
+
     /// Optional read-only acceleration. None (including corruption, a torn
     /// tail or exceeded acceleration budget) requires authoritative full replay.
     async fn recovery_tail(
