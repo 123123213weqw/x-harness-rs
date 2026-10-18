@@ -1,0 +1,28 @@
+{
+  "request_step": 50,
+  "estimate": 734086,
+  "provider_usage": {
+    "cache_read_tokens": 181760,
+    "cache_write_tokens": 0,
+    "input_tokens": 318,
+    "output_tokens": 886,
+    "reasoning_tokens": 3473
+  },
+  "actual_input_including_cache": 182078,
+  "image_count_before_request": 11,
+  "raw_image_bytes": 1054530,
+  "generic_image_allowance": 143444,
+  "caption_allowance": 2131,
+  "inferred_wire_text_units": 588511,
+  "replayed_reasoning_ascii_bytes": 339951,
+  "replayed_reasoning_nonascii_bytes": 4252,
+  "available_cached_samples": 32,
+  "same_scope_size_matches": 23,
+  "query_ordinary_fraction_lower_bound": 0.5776459573397948,
+  "max_ordinary_fraction_in_size_matches": 0.2565566888617339,
+  "minimum_single_bucket_distance": 0.32108926847806096,
+  "similarity_threshold": 0.3,
+  "reasoning_sufficient_to_exclude_all_size_matches": true,
+  "provenance": "Read-only installed-backend journal and numeric calibration cache; exact screenshot category totals matched.",
+  "reconstruction_limit": "Image/text decomposition reconstructed from retained attachment metadata and the released encoder; full request audit was disabled. The regression uses a synthetic distribution around these totals, not a byte-identical replay of the private prompt."
+}

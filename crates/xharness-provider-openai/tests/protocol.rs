@@ -1706,3 +1706,9 @@ async fn trace_mode_preserves_large_escaped_wire_request_and_normalized_events()
         }
     }
 }
+
+#[path = "protocol/mixed_calibration.rs"]
+mod mixed_calibration;
+
+#[path = "protocol/mixed_calibration_live.rs"]
+mod mixed_calibration_live;
