@@ -6,7 +6,7 @@ Text/image capability wiring is implemented and automated checks passed.
 The existing Loop, image encoder, attachment persistence, sandbox and approval
 policies are reused, not replaced. This is not a release/deployment acceptance.
 
-Base: `97296a19135c1b765b2cc3acaf83a858b4bce86c`.
+Initial base: `97296a19135c1b765b2cc3acaf83a858b4bce86c`.
 Rebased after upstream PR #348; only generated asset indices conflicted. They
 were regenerated from the merged source. The complete Rust test/Clippy batch,
 UI build/type checks, model/settings browsers, and upstream native-browser
@@ -128,3 +128,45 @@ Full logs remain outside the public tree; SHA-256:
 - `current-models-browser-webkit.log`: `ac4a39c75bd527f94b6ff91167df0baf33f485140f703e34eaf7c213a3a0037d`
 - `current-models-typecheck.log`: `d9c05db99b601ebce54191a08919805d02b97e6eb2ed5fd9270efd48037f851d`
 - `current-models-source-hashes.log`: `89776785f091a33c634e35502fa1c66de033b5b20dd0a9b3f8484c32ace35174`
+
+## Integrated current-model snapshot
+
+Rebased onto `404366c5c908b8909ddc0fdc4288e3a31992921a`, preserving the
+upstream mixed-image calibration, context provenance and native-observation
+changes (#350, #345, #349). Only the three generated UI index files conflicted;
+they were rebuilt from the integrated source rather than hand-editing hashes.
+The feature diff does not modify Core, token calibration, projection or context
+production code relative to that base.
+
+The final WZU_Server batch passed **1,031 selected Rust tests**, with zero failures
+and nine existing opt-in ignores (28 suite summaries). All-target Clippy with
+warnings denied also passed. In addition to the earlier package set, this batch
+checks/tests `xharness-core`, `xharness-token` and `xharness-projection` to cover
+the recently integrated upstream changes. The 75 current-model PNG wire cases
+passed again. No Rust compiler or paid model request ran locally.
+
+Both Chromium and WebKit passed the model selector, model settings, native
+browser bridge and context-layout suites. Context-accounting regressions and
+22 conversation-source tests passed; strict TypeScript and reproducible UI
+assembly passed (61 modules, 190 assets). The architecture gate passed against
+the full base SHA above. Final remote/local hashes matched all 59 changed
+executable/configuration artifacts from the integrated snapshot; documentation
+is excluded from this final comparison so this evidence append cannot create a
+self-referential digest. Reasonmap PR #2 also passed Linux, Windows and macOS CI.
+
+Final logs, retained outside the repository (SHA-256):
+
+- `xharness-current-models-rebased.log`: `5aead2812fce3559071c90aa67f8ccd8f0682d3e33407e179938cbe988153f1d`
+- `current-models-rebased-ui-build.log`: `2514aaff95b8896469a9d829e2491fa00c6053fdb14d5abd6f1bfc46e114e40a`
+- `current-models-final-code-hashes.log`: `dd7a047036a6708518f818c4ce445d7f137bd63906ceeca1bf7793ca9dc4403f`
+- `architecture-current-models-rebased.log`: `7c82138d57570ad7d48f5fbd2a1893750fd36d64f81e1230efab295e5c404623`
+- `current-rebased-context-accounting.log`: `7a93d6c5ee95b8eafb0adc4233a1b3907fd5d7726288b900e0f185005142aca2`
+- `current-rebased-conversation-source.log`: `c76cc860776fc3db1baf0686f2f3e98f7f71fd4ac756ac1e8bf098d93255c445`
+- `current-rebased-test-model-selection-source-browser-chromium.log`: `1d51692814551604dae3417ab3f3d7d20fb1c095d1a08c894896e6ba020b4298`
+- `current-rebased-test-settings-models-source-browser-chromium.log`: `c3c67a3e89eb3bb777f374ab106487f6948a8e65da1f46104830395c0ce77be2`
+- `current-rebased-test-browser-native-bridge-chromium.log`: `5f7a4bb721d0cc0a1b71bd7ef1ba4eddad58ced6dea8faa135d9a42ba51bee2a`
+- `current-rebased-test-context-layout-chromium.log`: `c088ef1adf944b44aba6477e7732b4513b569e2bf099b9b44fa896a7c8bcc6d5`
+- `current-rebased-test-model-selection-source-browser-webkit.log`: `ac4a39c75bd527f94b6ff91167df0baf33f485140f703e34eaf7c213a3a0037d`
+- `current-rebased-test-settings-models-source-browser-webkit.log`: `9e23bf53c15ddedf9f4ad4e323085830383945aa6c2912e0a832d00a57ff4d7f`
+- `current-rebased-test-browser-native-bridge-webkit.log`: `9e123e80ea70a901d0194d6fc671b92ea8aa0b16eb573710658f81a56dd3f990`
+- `current-rebased-test-context-layout-webkit.log`: `ab498fd39195a0265cf8e257f7fd8b7b8ba6baa9870888c43973e5ffe5ce292f`
