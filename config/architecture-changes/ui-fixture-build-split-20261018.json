@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Reject test-only fixture UI output at desktop packaging without changing the runtime or Host protocol.",
+  "compatibility": "Application identity, installer mode, entry HTML, native IPC and updater behavior are unchanged. The existing production UI build passes the new check. Offline boundary tests reject fixture variants, fixture input graphs, stale assets and fixture code; desktop bootstrap/startup contracts and Chromium/WebKit full-UI parity remain required. Native installer builds remain CI validation, not claimed as locally executed.",
+  "paths": {
+    "apps/desktop/src-tauri/tauri.conf.json": {
+      "before": "8ac335e5e29a545a047a862a4e36732111a905e7adfd415f2e873a8c1d4c410e",
+      "after": "06cdc27ef3ebfb71c7c49880fd5f3d160c73297dd5d1df3c2c6287bf93d9e951"
+    }
+  },
+  "regressions": [
+    "updater",
+    "windows"
+  ]
+}

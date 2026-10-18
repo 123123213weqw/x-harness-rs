@@ -5,6 +5,7 @@ import { realpathSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readInput, localPath } from './ui-build-contract.mjs'
+import { assertVariant, assertProductionSources } from './ui-build-variant.mjs'
 import { assertOwnedSource, inspectOwnedSource } from './owned-ui-type-policy.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -31,7 +32,8 @@ export function stripEmissionTrivia(code) {
   return code
 }
 
-export function compileSourceModules(ui, rows) {
+export function compileSourceModules(ui, rows, {variant = 'production'} = {}) {
+  assertVariant(variant)
   if (!rows.length) return new Map()
   ui = realpathSync(ui)
   const root = ui
@@ -158,7 +160,9 @@ export function compileSourceModules(ui, rows) {
     const actual = realpathSync(file.fileName)
     if (file.isDeclarationFile && (actual.includes(`${sep}node_modules${sep}`))) continue
     if (!actual.startsWith(root + sep)) throw Error(`Source import escapes UI inputs: ${file.fileName}`)
-    readInput(ui, { source: relative(root, actual).split(sep).join('/') })
+    const source = relative(root, actual).split(sep).join('/')
+    if (variant === 'production') assertProductionSources([source])
+    readInput(ui, { source })
     if (vendorFiles.has(actual)) {
       // Pinned third-party assertions are exempt, but silencing its compiler is not.
       if (inspectOwnedSource(ts, file).some(error => error.rule === 'disabled-type-check'))

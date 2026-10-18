@@ -35,7 +35,7 @@ function compiledEntry(name, entry = 'index') {
   let bytes = compiledEntries.get(key)
   if (bytes === undefined) {
     const id = `foundation-acceptance:${key}`
-    bytes = compileSourceModules(join(repo, 'ui'), [{ id, source: `src/modules/${key}.ts` }]).get(id).bytes.toString()
+    bytes = compileSourceModules(join(repo, 'ui'), [{ id, source: `src/modules/${key}.ts` }], {variant: entry === 'fixture-entry' ? 'fixture' : 'production'}).get(id).bytes.toString()
     compiledEntries.set(key, bytes)
   }
   return bytes
@@ -585,7 +585,7 @@ function connectionGlobals(search = '?fixture') {
     console:{warn(){},error(){}},__zod_globalConfig:zod.z.core.config()}
 }
 function connectionFixture(label, search='?fixture', moreGlobals={}) {
-  const globals={...connectionGlobals(search),...moreGlobals};const api=label==='legacy'?legacy('client-connection',globals):sourceModule('client-connection',globals)
+  const globals={...connectionGlobals(search),...moreGlobals};const api=label==='legacy'?legacy('client-connection',globals):sourceModule('client-connection',globals,{},search.includes('fixture')?'fixture-entry':'index')
   let handle;api.apply({provide(name,value){assert.equal(name,'connection');handle=value}})
   return {api,handle,globals}
 }
@@ -677,8 +677,8 @@ test('connection: fixture mutations, edit-before-user forks and generic Remote f
 
 test('connection: production compiler declares the pinned platform Zod singleton',async()=>{
   const id='@xharness/dsh-client-connection';const row={id,source:'src/modules/client-connection/index.ts'};const built=compileSourceModules(join(repo,'ui'),[row]).get(id)
-  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@'+JSON.parse(readFileSync(join(repo,'ui/source-vendors.json'))).packages.zod.version));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
-  let registration;const globals=connectionGlobals('?fixture');vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@'+JSON.parse(readFileSync(join(repo,'ui/source-vendors.json'))).packages.zod.version));assert.ok(!built.sources.includes('src/modules/client-connection/fixture.ts'))
+  let registration;const globals={...connectionGlobals('?fixture'),fetch:async(_url,init)=>({ok:true,json:async()=>({type:'server-response',rpcId:JSON.parse(init.body).rpcId,result:{ok:true,value:{version:'test',cwd:'/test',attachedSessions:0,home:'/home/test',canOpenPath:false}}})})};vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
   assert.equal(registration.id,id);const api=registration.factory(request=>{assert.ok(request in sharedVendors);return sharedVendors[request]});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
 })
 

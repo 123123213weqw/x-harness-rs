@@ -16,7 +16,11 @@ output = Path(os.environ.get('UI_STARTUP_RESULTS', '/tmp/xh-ui-startup-gtk')).re
 repetitions = int(os.environ.get('UI_STARTUP_REPEATS', '3'))
 if not 1 <= repetitions <= 30:
     raise ValueError('repetitions must be in [1,30]')
-roots = {'baseline': baseline, 'optimized': Path('ui/dist').resolve()}
+candidate = Path(os.environ['UI_FIXTURE_DIST']).resolve()
+marker = json.loads((candidate / '.xharness-ui-output.json').read_text())
+if marker.get('variant') != 'fixture':
+    raise ValueError('UI_FIXTURE_DIST must be an explicit fixture build')
+roots = {'baseline': baseline, 'optimized': candidate}
 servers, receipts = {}, []
 
 

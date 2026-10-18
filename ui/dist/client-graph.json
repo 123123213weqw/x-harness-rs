@@ -1,5 +1,5 @@
 {
-  "rev": "0c9f63f1c2fa6983",
+  "rev": "1c82b603fc6ee0cf",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -75,8 +75,8 @@
     },
     {
       "id": "@xharness/dsh-client-connection",
-      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=6f22f122897f826e",
-      "rev": "6f22f122897f826e",
+      "url": "/plugins/@xharness/dsh-client-connection/client.js?rev=523b951045a972d0",
+      "rev": "523b951045a972d0",
       "inject": [],
       "external": [
         "zod"

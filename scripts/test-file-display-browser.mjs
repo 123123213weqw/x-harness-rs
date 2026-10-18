@@ -1,10 +1,11 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 // Full shipped owned UI graph; only the Host fixture transport is substituted.
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 import {readFileSync,existsSync,mkdirSync} from 'node:fs'
 import {resolve,sep,extname} from 'node:path'
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps','package.json'))
-const engine=process.env.UI_TEST_BROWSER??'chromium',browser=await require('playwright')[engine].launch({headless:true}),base=resolve('ui/dist')
+const engine=process.env.UI_TEST_BROWSER??'chromium',browser=await require('playwright')[engine].launch({headless:true}),base=fixtureUiRoot()
 const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPwd3v6HwAE3AJ6zM4FjgAAAABJRU5ErkJggg=='
 const patch='diff --git a/main.rs b/main.rs\n--- a/main.rs\n+++ b/main.rs\n@@ -1,2 +1,2 @@\n fn main() {\n-old();\n+new();\ndiff --git a/image.png b/image.png\nindex a..b 100644\nBinary files a/image.png and b/image.png differ\n'
 let version=1

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 // Serves the assembled product with its existing readiness fixture. No Host,
 // native bridge, sign-in, credentials or reporting endpoint is enabled here.
 import { createServer } from 'node:http'
@@ -6,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 
-const root = fileURLToPath(new URL('../ui/dist/', import.meta.url))
+const root = fixtureUiRoot()
 const manifest = JSON.parse(readFileSync(join(root, 'asset-manifest.json'), 'utf8'))
 const files = new Set(['index.html', 'asset-manifest.json', ...Object.keys(manifest.files)])
 const types = { html: 'text/html; charset=utf-8', js: 'text/javascript', json: 'application/json', css: 'text/css', svg: 'image/svg+xml', png: 'image/png', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', wasm: 'application/wasm' }

@@ -4,6 +4,7 @@
   "version": "0.1.1",
   "identifier": "com.xlang.xharness",
   "build": {
+    "beforeBuildCommand": "node ../../scripts/check-production-ui.mjs",
     "frontendDist": "../frontend"
   },
   "app": {
