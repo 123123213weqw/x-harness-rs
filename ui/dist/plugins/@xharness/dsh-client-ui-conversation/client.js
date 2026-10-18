@@ -1274,7 +1274,11 @@ const ContextMeter_styles_1 = __importDefault(require("./ContextMeter.styles"));
 const RADIUS = 5.5, CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const ROWS = [
     { key: 'systemTokens', label: 'context.system', tint: '#8290a5' },
-    { key: 'userTokens', label: 'context.user', tint: '#3b82f6' },
+    { key: 'userTokens', label: 'context.yourMessages', tint: '#3b82f6' },
+    { key: 'agentReportTokens', label: 'context.agentReports', tint: '#36b7c4' },
+    { key: 'runtimeContextTokens', label: 'context.runtimeContext', tint: '#d48e5b' },
+    { key: 'checkpointTokens', label: 'context.checkpoints', tint: '#bb79cd' },
+    { key: 'unattributedTokens', label: 'context.unattributed', tint: '#a1a1aa' },
     { key: 'assistantTokens', label: 'context.assistant', tint: '#20a887' },
     { key: 'toolResultTokens', label: 'context.toolResults', tint: '#e1a63b' },
     { key: 'toolDefinitionTokens', label: 'context.tools', tint: '#a78bfa' },
@@ -1299,18 +1303,20 @@ function ContextMeter({ useProjection, t }) {
         document.addEventListener('keydown', escape);
         return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape); };
     }, [available, open]);
-    const weight = available && composition ? ROWS.reduce((total, row) => total + (Number.isSafeInteger(composition[row.key]) && composition[row.key] > 0 ? composition[row.key] : 0), 0) : 0;
+    const values = ROWS.map(row => ({ ...row, value: composition?.[row.key] ?? 0 }))
+        .filter(row => Number.isSafeInteger(row.value) && row.value > 0);
+    const weight = available ? values.reduce((total, row) => total + row.value, 0) : 0;
     const percent = context?.percent ?? 0;
     const reading = available ? (context.exact ? '' : '≈') + percent + '%' : null;
     const label = available ? t('context.aria', { percent: reading }) : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unavailable');
-    const segments = weight > 0 && composition ? ROWS.filter(row => composition[row.key] > 0).map(row => ({ ...row, ratio: composition[row.key] / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }];
+    const segments = weight > 0 && composition ? values.map(row => ({ ...row, ratio: row.value / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }];
     let offset = 0;
     const ring = segments.map(segment => {
         const length = CIRCUMFERENCE * percent / 100 * segment.ratio, start = offset;
         offset += length;
         return (0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.fill, cx: "7", cy: "7", r: RADIUS, stroke: segment.tint, strokeDasharray: `${length} ${CIRCUMFERENCE}`, strokeDashoffset: -start, transform: "rotate(-90 7 7)" }, segment.key);
     });
-    return (0, jsx_runtime_1.jsxs)("span", { ref: rootRef, className: ContextMeter_styles_1.default.root, children: [(0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "top", delayMs: 200, disabled: open, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ContextMeter_styles_1.default.trigger, "aria-label": label, "aria-haspopup": available ? 'dialog' : undefined, "aria-expanded": available ? open : undefined, disabled: !available, onClick: () => setOpen(!open), children: (0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 14 14", width: "14", height: "14", "aria-hidden": true, children: [(0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.track, cx: "7", cy: "7", r: RADIUS }), ring] }) }) }), open && context && (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.panel, role: "dialog", "aria-modal": "false", "aria-label": t('context.used'), children: [(0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.header, children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.headline, children: context.label }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.percent, children: reading }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.figures, children: `${context.exact ? '' : '≈'}${(0, StatsLine_1.formatTokens)(context.usedTokens)} / ${(0, StatsLine_1.formatTokens)(context.contextWindow)}` })] }), (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.bar, children: segments.map(row => (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.segment, style: tintStyle(row.tint, `${percent * row.ratio}%`) }, row.key)) }), weight > 0 && (0, jsx_runtime_1.jsxs)("dl", { className: ContextMeter_styles_1.default.rows, children: [(0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.headline, children: t('context.distributionEstimate') }), segments.map(row => (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.row, children: [(0, jsx_runtime_1.jsxs)("dt", { children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.swatch, style: tintStyle(row.tint), "aria-hidden": true }), row.label ? t(row.label) : ''] }), (0, jsx_runtime_1.jsx)("dd", { children: `≈${(0, StatsLine_1.formatTokens)(Math.round(context.usedTokens * row.ratio))}` })] }, row.key))] })] })] });
+    return (0, jsx_runtime_1.jsxs)("span", { ref: rootRef, className: ContextMeter_styles_1.default.root, children: [(0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "top", delayMs: 200, disabled: open, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ContextMeter_styles_1.default.trigger, "aria-label": label, "aria-haspopup": available ? 'dialog' : undefined, "aria-expanded": available ? open : undefined, disabled: !available, onClick: () => setOpen(!open), children: (0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 14 14", width: "14", height: "14", "aria-hidden": true, children: [(0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.track, cx: "7", cy: "7", r: RADIUS }), ring] }) }) }), open && context && (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.panel, role: "dialog", "aria-modal": "false", "aria-label": t('context.used'), children: [(0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.header, children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.headline, children: context.label }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.percent, children: reading }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.figures, children: `${context.exact ? '' : '≈'}${(0, StatsLine_1.formatTokens)(context.usedTokens)} / ${(0, StatsLine_1.formatTokens)(context.contextWindow)}` })] }), (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.bar, children: segments.map(row => (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.segment, style: tintStyle(row.tint, `${percent * row.ratio}%`) }, row.key)) }), weight > 0 && (0, jsx_runtime_1.jsxs)("dl", { className: ContextMeter_styles_1.default.rows, children: [(0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.headline, children: t('context.distributionEstimate') }), segments.map(row => (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.row, children: [(0, jsx_runtime_1.jsxs)("dt", { children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.swatch, style: tintStyle(row.tint), "aria-hidden": true }), row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''] }), (0, jsx_runtime_1.jsx)("dd", { children: `≈${(0, StatsLine_1.formatTokens)(Math.round(context.usedTokens * row.ratio))}` })] }, row.key))] })] })] });
 }
 
 },
@@ -8079,6 +8085,7 @@ exports.en = {
     "context.system": "System prompt",
     "context.tools": "Tools",
     "context.messages": "Messages", "context.user": "User", "context.assistant": "Assistant", "context.toolResults": "Tool results", "context.mcp": "MCP tools", "context.protocol": "Protocol overhead", "context.distributionEstimate": "Category shares are estimated",
+    "context.yourMessages": "Your messages", "context.agentReports": "Agent reports", "context.runtimeContext": "Runtime context", "context.checkpoints": "Checkpoints", "context.unattributed": "Unattributed context", "context.userRoleHistory": "User-role history (source unknown)",
     "stats.title": "Conversation statistics",
     "stats.counts": "{turns} turns · {steps} steps",
     "stats.llm": "LLM {duration}",
@@ -8301,6 +8308,7 @@ exports.zh = {
     "context.system": "系统提示词",
     "context.tools": "工具",
     "context.messages": "对话消息", "context.user": "用户", "context.assistant": "助手", "context.toolResults": "工具结果", "context.mcp": "MCP 工具", "context.protocol": "协议开销", "context.distributionEstimate": "颜色分布为估算",
+    "context.yourMessages": "Your messages", "context.agentReports": "Agent reports", "context.runtimeContext": "Runtime context", "context.checkpoints": "Checkpoints", "context.unattributed": "Unattributed context", "context.userRoleHistory": "User-role history (source unknown)",
     "stats.title": "对话统计",
     "stats.counts": "{turns} 轮 · {steps} 步",
     "stats.llm": "LLM {duration}",

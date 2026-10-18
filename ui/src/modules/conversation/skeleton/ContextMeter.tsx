@@ -8,7 +8,11 @@ import css from './ContextMeter.styles'
 const RADIUS = 5.5, CIRCUMFERENCE = 2 * Math.PI * RADIUS
 const ROWS = [
   { key: 'systemTokens', label: 'context.system', tint: '#8290a5' },
-  { key: 'userTokens', label: 'context.user', tint: '#3b82f6' },
+  { key: 'userTokens', label: 'context.yourMessages', tint: '#3b82f6' },
+  { key: 'agentReportTokens', label: 'context.agentReports', tint: '#36b7c4' },
+  { key: 'runtimeContextTokens', label: 'context.runtimeContext', tint: '#d48e5b' },
+  { key: 'checkpointTokens', label: 'context.checkpoints', tint: '#bb79cd' },
+  { key: 'unattributedTokens', label: 'context.unattributed', tint: '#a1a1aa' },
   { key: 'assistantTokens', label: 'context.assistant', tint: '#20a887' },
   { key: 'toolResultTokens', label: 'context.toolResults', tint: '#e1a63b' },
   { key: 'toolDefinitionTokens', label: 'context.tools', tint: '#a78bfa' },
@@ -30,11 +34,13 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
     document.addEventListener('pointerdown', pointer); document.addEventListener('keydown', escape)
     return () => { document.removeEventListener('pointerdown', pointer); document.removeEventListener('keydown', escape) }
   }, [available, open])
-  const weight = available && composition ? ROWS.reduce((total, row) => total + (Number.isSafeInteger(composition[row.key]) && composition[row.key] > 0 ? composition[row.key] : 0), 0) : 0
+  const values = ROWS.map(row => ({ ...row, value: composition?.[row.key] ?? 0 }))
+    .filter(row => Number.isSafeInteger(row.value) && row.value > 0)
+  const weight = available ? values.reduce((total, row) => total + row.value, 0) : 0
   const percent = context?.percent ?? 0
   const reading = available ? (context.exact ? '' : '≈') + percent + '%' : null
   const label = available ? t('context.aria', { percent: reading }) : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unavailable')
-  const segments: Segment[] = weight > 0 && composition ? ROWS.filter(row => composition[row.key] > 0).map(row => ({ ...row, ratio: composition[row.key] / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }]
+  const segments: Segment[] = weight > 0 && composition ? values.map(row => ({ ...row, ratio: row.value / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }]
   let offset = 0
   const ring = segments.map(segment => {
     const length = CIRCUMFERENCE * percent / 100 * segment.ratio, start = offset
@@ -52,7 +58,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
       <div className={css.bar}>{segments.map(row => <div key={row.key} className={css.segment} style={tintStyle(row.tint, `${percent * row.ratio}%`)} />)}</div>
       {weight > 0 && <dl className={css.rows}>
         <div className={css.headline}>{t('context.distributionEstimate')}</div>
-        {segments.map(row => <div key={row.key} className={css.row}><dt><span className={css.swatch} style={tintStyle(row.tint)} aria-hidden />{row.label ? t(row.label) : ''}</dt><dd>{`≈${formatTokens(Math.round(context.usedTokens * row.ratio))}`}</dd></div>)}
+        {segments.map(row => <div key={row.key} className={css.row}><dt><span className={css.swatch} style={tintStyle(row.tint)} aria-hidden />{row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''}</dt><dd>{`≈${formatTokens(Math.round(context.usedTokens * row.ratio))}`}</dd></div>)}
       </dl>}
     </div>}
   </span>
