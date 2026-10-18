@@ -5,6 +5,7 @@ import {mkdtempSync, readFileSync, writeFileSync, rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {resolve, join} from 'node:path'
 import vm from 'node:vm'
+import {exposeConnection} from './connection-artifact-test.mjs'
 import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 import {compileSourceModules} from './build-source-modules.mjs'
 import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
@@ -103,4 +104,17 @@ test('explicit fixture output preserves every other production module and never 
     else assert.deepEqual(preview, original, row.id)
   }
   assert.deepEqual(treeHashes(join(ui, 'dist')), before)
+})
+
+test('acceptance seams cannot silently substitute fixture code for a production contract', () => {
+  const fixture = readFileSync(join(fixtureUiRoot(), `plugins/${CONNECTION_ID}/client.js`), 'utf8')
+  assert.throws(() => exposeConnection(production.bytes.toString(), ['contextPressureOf']), /explicit fixture build/)
+  assert.throws(() => exposeConnection(fixture, ['sessionModelsValueSchema']), /entry must match/)
+  assert.throws(() => exposeConnection(production.bytes.toString(), ['sessionModelsValueSchema'], {variant: 'fixture'}), /entry must match/)
+  assert.throws(() => exposeConnection(fixture, ['contextPressureOf'], {variant: 'invalid'}), /Unknown/)
+  const exposed = exposeConnection(fixture, ['contextPressureOf'], {variant: 'fixture'})
+  let registration
+  vm.runInNewContext(exposed, {window: {__ModuleLoader__: {load(row) {registration = row}}}, console, URL, AbortController, setTimeout, clearTimeout})
+  const api = registration.factory(name => {assert.ok(name in sharedVendors); return sharedVendors[name]})
+  assert.equal(typeof api.contextPressureOf, 'function', 'the explicit fixture seam retains its real lexical reducer')
 })

@@ -106,6 +106,16 @@ impl ModelDeployment {
             },
             &config.model,
         );
+        let image_capability = crate::input_compat::resolve(
+            &config.base_url,
+            if config.protocol == OpenAiProtocol::Responses {
+                "openai-responses"
+            } else {
+                "openai-completions"
+            },
+            &config.model,
+            None,
+        );
         let reasoning: Option<ModelReasoningConfig> = compatibility
             .as_ref()
             .map(|c| {
@@ -125,7 +135,8 @@ impl ModelDeployment {
         }
         let adapter = OpenAiProvider::new(provider_config)
             .map_err(|error| error.to_string())?
-            .with_debug(debug);
+            .with_debug(debug)
+            .with_image_support(Some(image_capability.supported == Some(true)));
         let adapter = match attachments {
             Some(store) => adapter.with_attachments(store),
             None => adapter,
@@ -148,7 +159,8 @@ impl ModelDeployment {
             &config.model,
             &config.model,
         )
-        .with_context_window(capabilities.context_window);
+        .with_context_window(capabilities.context_window)
+        .with_image_input(image_capability.supported, image_capability.provenance);
         if let Some(reasoning) = reasoning {
             descriptor = descriptor.with_reasoning(reasoning.public());
         }
@@ -336,6 +348,16 @@ impl ProviderConfig {
                 reasoning_capability,
             } = model;
             let upstream_model = upstream_model.unwrap_or_else(|| id.clone());
+            let image_capability = crate::input_compat::resolve(
+                &self.base_url,
+                if protocol == OpenAiProtocol::Responses {
+                    "openai-responses"
+                } else {
+                    "openai-completions"
+                },
+                &upstream_model,
+                image_input,
+            );
             let reasoning_disabled =
                 reasoning_disabled || matches!(reasoning, Some(ReasoningSetting::Disabled));
             let reasoning = reasoning.and_then(ReasoningSetting::into_profile);
@@ -392,7 +414,7 @@ impl ProviderConfig {
             let adapter = OpenAiProvider::new(provider_config)
                 .map_err(|error| error.to_string())?
                 .with_debug(debug.clone())
-                .with_image_support(image_input);
+                .with_image_support(Some(image_capability.supported == Some(true)));
             let adapter = match calibration.clone() {
                 Some(store) => adapter.with_calibration_store(store),
                 None => adapter,
@@ -424,7 +446,8 @@ impl ProviderConfig {
                 &id,
                 display_name.unwrap_or_else(|| id.clone()),
             )
-            .with_context_window(capabilities.context_window);
+            .with_context_window(capabilities.context_window)
+            .with_image_input(image_capability.supported, image_capability.provenance);
             descriptor.reasoning_capability = reasoning_state;
             if let Some(reasoning) = reasoning {
                 descriptor = descriptor.with_reasoning(reasoning.public());
@@ -735,6 +758,87 @@ pub fn token_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn image_capability_survives_reasoning_overrides_and_upstream_aliases() {
+        for (base, upstream, image, reasoning) in [
+            (
+                "https://api.deepseek.com",
+                "deepseek-flash",
+                None,
+                serde_json::Value::Null,
+            ),
+            (
+                "https://api.deepseek.com",
+                "deepseek-flash",
+                Some(false),
+                serde_json::Value::Null,
+            ),
+            (
+                "http://localhost:8080/v1",
+                "local-vision",
+                Some(true),
+                serde_json::Value::Null,
+            ),
+            (
+                "http://localhost:8080/v1",
+                "deepseek-flash",
+                None,
+                serde_json::Value::Null,
+            ),
+            (
+                "https://api.deepseek.com",
+                "deepseek-flash",
+                None,
+                crate::reasoning_compat::resolve(
+                    "https://api.deepseek.com",
+                    "openai-completions",
+                    "deepseek-flash",
+                )
+                .unwrap()
+                .profile,
+            ),
+        ] {
+            let provider: ProviderConfig = serde_json::from_value(serde_json::json!({
+                "id":"fixture", "base_url":base, "protocol":"chat",
+                "models":[{"id":"friendly-name", "upstream_model":upstream,
+                    "image_input":image, "reasoning":reasoning,
+                    "context_window_tokens":8192, "max_output_tokens":2048,
+                    "minimum_output_tokens":512}]
+            }))
+            .unwrap();
+            let mut registry = ModelRegistry::new();
+            provider
+                .register_models_with_key(
+                    &mut registry,
+                    DebugRecorder::disabled(),
+                    String::new(),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+            let models = registry.models();
+            let model = &models[0];
+            assert_eq!(
+                model.image_input,
+                image.or((base == "https://api.deepseek.com").then_some(true))
+            );
+            assert_eq!(
+                model.image_input_capability["source"],
+                if image.is_some() {
+                    "configured"
+                } else if base == "https://api.deepseek.com" {
+                    "documented"
+                } else {
+                    "unknown"
+                }
+            );
+            if reasoning.is_null() {
+                assert!(model.reasoning.is_none());
+            }
+        }
+    }
 
     #[test]
     fn provider_file_missing_reasoning_is_not_an_explicit_disable() {

@@ -66,3 +66,40 @@ data for deterministic tests and previews.
 
 Commands and ownership boundaries are documented in [UI build variants](../ui-build-variants.md).
 Compact machine-readable receipts are in `docs/evidence/ui-fixture-split-20261018/`.
+
+## PR #354 follow-up: fixture-aware acceptance and current master
+
+The first CI run found two test migration omissions, not a reason to put demo code
+back into release assets:
+
+- `test-context-accounting.mjs` requested a private fixture reducer from the
+  production graph. It now verifies the production graph separately, proves the
+  reducer is absent there, then exercises the strictly compiled fixture graph.
+- `test-conversation-message-edit.mjs` searched the production wire client for
+  the fake server's fork implementation. That assertion now inspects the verified
+  fixture build; all editor lifecycle, real runtime-to-API fork, ancestry,
+  attachment, golden/hash/HTML and source-freshness assertions remain present.
+
+`connection-artifact-test.mjs` verifies the selected variant's marker, graph,
+HTML revisions and exact strict compilation. Fixture-only acceptance members
+require explicit opt-in. Negative cases reject swapped production/fixture
+factories, implicit fixture exposure and invalid variants.
+
+Master `c9d8f2ed93957405bef22c44671d7d8dd63b8bf5` was integrated. Its optional
+image-capability contracts and model UI changes were preserved. The four merge
+conflicts were generated UI outputs; they were regenerated atomically from the
+combined source tree, not resolved by dropping either source change. There are no
+Rust source differences against that master base.
+
+Full Chromium/WebKit pixel parity passed again. The fixture-boundary suite now
+has eight cases; together with the seven connection boundary cases, all 15 passed.
+The two previously failing tests also passed directly. Full affected contract
+shard outcomes and additional follow-up results are recorded in `followup.json`
+under the same evidence directory. CI on the pushed revision is still required;
+these local results do not authorize a bypass or imply a completed merge.
+
+The two affected contract shards passed all 54 commands (27 per shard), with zero
+failures. Foundation 123/123, source builder 28/28, CI suite 14/14 and strict
+TypeScript checks also passed. The Gitee mirror rerun, attempt 2 of run
+39090970972, succeeded without modifying its workflow. The earlier connection
+reset was transient; fresh checks on the updated PR head remain required.
