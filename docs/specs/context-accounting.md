@@ -32,7 +32,7 @@
 - 当前请求与样本大小相差不超过 2 倍，字符/结构分布距离小于 0.30，至少 8 个相似样本才校准。
 - 校准取相似样本中最大实际 token/特征单位比率，再乘 1.25，加 256 token。结果标记 `calibrated`，**不是统计置信区间，也不是精确 tokenizer**。
 - 重复请求指纹不重复学习。发现实际值突破估算，立即清除该作用域；服务端 context overflow 清空当前 Adapter 校准。
-- 图片请求不参与文本校准，沿用独立图片估算；新分布、新工具 schema、新模型/端点/推理配置重新预热。不会把文本压缩比套用到图片。
+- Image-bearing requests do not train text calibration. Their text may reuse compatible text-only samples; the independent image allowance is always added in full. New text distributions, schemas, models, endpoints and reasoning configurations retain the existing warmup rules.
 - 请求前估算和响应后的观察分别扫描完整请求；无额外远程模型摘要调用。
 
 ## 无损工具编码
@@ -88,3 +88,34 @@ Host 实时增量 fold 和前端历史 replay 使用同样的精度/生命周期
 **预算算法未变**：硬准入仍使用 `context - minimum_output - safety_margin`；
 通过后实际选择的输出长度随剩余空间调节，不能把期望预留误当成始终固定的硬扣除。
 测试覆盖预留 512 / 最低输出 64 的不同值、准入边界 928 可用 / 929 拒绝。
+
+## Mixed text/image admission (2026-10-18)
+
+Reading a screenshot must not switch the entire retained text history from a
+warm calibrated estimate to byte counting. The request estimate is:
+
+```text
+compatible text estimate + independent conservative image allowance
+```
+
+- Text reuse still requires eight unexpired, same-scope, text-only samples within
+  the existing size/distribution bounds. Cold or incompatible text retains the
+  byte-based fallback. The 1.25 multiplier and 256-token reserve are unchanged.
+- A mixed request remains `estimated`, not `calibrated` or exact: its image price
+  is not measured. Exact provider counters still take priority.
+- Mixed usage cannot identify the text price. Do not subtract an estimated image
+  allowance from reported total usage to manufacture a text observation.
+- If complete mixed usage exceeds the reused-text-plus-image estimate, invalidate
+  that scope and persist the invalidation. Normal mixed completions neither train
+  nor evict the text-only observations. Restart and snapshot version 1 remain
+  compatible; mixed totals are never accepted as persisted text samples.
+- Caption blocks not yet expanded by the wire encoder are reserved separately at
+  conservative UTF-8 byte cost plus framing; text calibration cannot erase them.
+- Hard input/output/safety budgets, compaction thresholds, image pixel allowance policy,
+  prompt content, attachment encoding, and the running user's state are unchanged.
+
+Regression coverage includes first/repeated/removed images, cold starts, distribution
+drift, scope isolation, saturation and genuine overflow, underestimated mixed usage,
+cache-inclusive HTTP usage through Chat Completions and Responses, and restart.
+The numeric-only first-image fixture holds the recorded pre-image text fixed to
+isolate the accounting transition; it is not a new live model or game-quality test.

@@ -636,8 +636,20 @@ impl OpenAiProvider {
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| ProviderError::new(e.to_string()))?;
-        let image_tokens = xharness_token::image_estimate(&messages)
+        let mut image_tokens = xharness_token::image_estimate(&messages)
             .map_err(|e| ProviderError::new(e.to_string()))?;
+        if image_tokens != 0 {
+            // request_body has not expanded content_blocks yet. Keep their
+            // accompanying text outside the learned text ratio so a large
+            // image caption cannot disappear behind text calibration.
+            for block in request.messages.iter().flat_map(|m| &m.content_blocks) {
+                if let xharness_attachments::ContentBlock::Text { text } = block {
+                    image_tokens = image_tokens
+                        .saturating_add(text.len() as u64)
+                        .saturating_add(64);
+                }
+            }
+        }
         Ok((
             scope,
             request_id,
@@ -1856,6 +1868,43 @@ mod multimodal_tests {
                 debug_scope: DebugScope::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn image_caption_allowance_is_not_scaled_by_the_text_ratio() {
+        use xharness_token::{ConservativeByteMeter, TokenBudget, TokenCountAccuracy, TokenGuard};
+
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (provider, mut request) = fixture(protocol).await;
+            let image = request.messages[1].content_blocks[1].clone();
+            for i in 0..8 {
+                request.messages = vec![AgentMessage::user(format!("{i} {}", "x".repeat(900_000)))];
+                let (scope, id, features) = provider.count_features(&request).unwrap();
+                provider
+                    .calibration
+                    .observe(scope, id, features, 225_000)
+                    .await;
+            }
+            let text = provider.estimate_input_tokens(&request).unwrap();
+            assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+            request
+                .messages
+                .push(AgentMessage::user("").with_content_blocks(vec![
+                    ContentBlock::Text {
+                        text: "c".repeat(900_000),
+                    },
+                    image,
+                ]));
+            let mixed = provider.estimate_input_tokens(&request).unwrap();
+            assert!(mixed.input_tokens >= text.input_tokens + 900_000 + 4096);
+            assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+            let guard = TokenGuard::new(
+                Arc::new(ConservativeByteMeter),
+                TokenBudget::new(1_048_576, 65_536),
+            )
+            .unwrap();
+            assert!(guard.check_provider_count(&mixed).is_err());
+        }
     }
 
     #[tokio::test]

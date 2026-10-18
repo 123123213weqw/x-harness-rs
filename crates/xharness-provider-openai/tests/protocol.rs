@@ -1319,6 +1319,158 @@ async fn completed_http_usage_survives_restart_and_overflow_invalidates_disk() {
     }
 }
 
+#[tokio::test]
+async fn first_image_keeps_text_calibration_through_http_restart_and_usage_drift() {
+    use std::sync::Arc;
+    use xharness_attachments::{AttachmentStore, ContentBlock, MemoryAttachmentStore, Upload};
+    use xharness_token::{ConservativeByteMeter, TokenBudget, TokenCountAccuracy, TokenGuard};
+
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "xh-first-image-{}-{}",
+            std::process::id(),
+            address.port()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("cache.json");
+        let server = tokio::spawn(async move {
+            for i in 0..10 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let raw = read_http_request(&mut socket).await;
+                let raw = String::from_utf8(raw).unwrap();
+                assert_eq!(raw.contains("data:image/png;base64,"), i >= 8);
+                let actual = if i < 8 {
+                    225_000
+                } else if i == 8 {
+                    225_100
+                } else {
+                    480_000
+                };
+                let usage = match protocol {
+                    OpenAiProtocol::ChatCompletions => json!({
+                        "prompt_tokens":actual,"completion_tokens":1,
+                        "prompt_tokens_details":{"cached_tokens":200_000}
+                    }),
+                    OpenAiProtocol::Responses => json!({
+                        "input_tokens":actual,"output_tokens":1,
+                        "input_tokens_details":{"cached_tokens":200_000}
+                    }),
+                };
+                let body = usage_fixture(protocol, usage);
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let store = Arc::new(MemoryAttachmentStore::default());
+        let image = store
+            .put(
+                "image-fixture",
+                Upload {
+                    media_type: "image/png".into(),
+                    data: include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png")
+                        .to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        let config =
+            OpenAiProviderConfig::new(protocol, format!("http://{address}/v1"), "", "fixture");
+        let provider = OpenAiProvider::new(config.clone())
+            .unwrap()
+            .with_attachments(store.clone())
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        let mut request = ProviderRequest {
+            messages: vec![],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: Some(64),
+            debug_scope: Default::default(),
+        };
+        for i in 0..8 {
+            request.messages = vec![AgentMessage::user(format!(
+                "fixture-{i} {}",
+                "x".repeat(900_000)
+            ))];
+            let mut stream = provider
+                .stream(request.clone(), CancellationToken::new())
+                .await
+                .unwrap();
+            while let Some(event) = stream.next().await {
+                event.unwrap();
+            }
+        }
+        let text = provider.estimate_input_tokens(&request).unwrap();
+        assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+        request.messages.push(
+            AgentMessage::user("")
+                .with_content_blocks(vec![ContentBlock::Image { attachment: image }]),
+        );
+        let mixed = provider.estimate_input_tokens(&request).unwrap();
+        assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+        assert!(mixed.input_tokens > text.input_tokens);
+        assert!(mixed.input_tokens < text.input_tokens + 5000);
+        assert!(mixed.input_tokens >= 225_100);
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget::new(1_048_576, 65_536),
+        )
+        .unwrap();
+        let report = guard.check_provider_count(&mixed).unwrap();
+        assert!(report.estimate.total_input_tokens < 1_048_576 * 4 / 5);
+        drop(provider);
+        let restored = OpenAiProvider::new(config.clone())
+            .unwrap()
+            .with_attachments(store.clone())
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        assert_eq!(restored.estimate_input_tokens(&request).unwrap(), mixed);
+        // Good mixed usage must preserve, but not train or evict, the text samples.
+        let mut stream = restored
+            .stream(request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        while let Some(event) = stream.next().await {
+            event.unwrap();
+        }
+        assert_eq!(restored.estimate_input_tokens(&request).unwrap(), mixed);
+        // Complete HTTP usage, including cache reads, invalidates a violated bound.
+        let mut stream = restored
+            .stream(request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        while let Some(event) = stream.next().await {
+            event.unwrap();
+        }
+        assert!(
+            restored
+                .estimate_input_tokens(&request)
+                .unwrap()
+                .input_tokens
+                > 900_000
+        );
+        drop(restored);
+        let restarted = OpenAiProvider::new(config)
+            .unwrap()
+            .with_attachments(store)
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        assert!(
+            restarted
+                .estimate_input_tokens(&request)
+                .unwrap()
+                .input_tokens
+                > 900_000
+        );
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&disk).unwrap()["scopes"],
+            json!({})
+        );
+        server.await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 #[test]
 fn local_server_reasoning_aliases_do_not_mask_or_duplicate_streamed_thoughts() {
     for (delta, expected) in [
