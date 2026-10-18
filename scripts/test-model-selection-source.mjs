@@ -120,11 +120,11 @@ test('actual resolver automatically checks stale metadata once and cancels check
 
 test('reasoning catalog is an exact external dependency, not a duplicated workspace crate',()=>{
  const host=readFileSync('crates/xharness-host-app/Cargo.toml','utf8');
- assert.match(host,/reasonmap = \{ git = "https:\/\/github\.com\/123123213weqw\/reasonmap", rev = "160ff392ae74af14205ba1dd0c7d0538d4777e97", version = "=0\.4\.0" \}/);
+ assert.match(host,/reasonmap = \{ git = "https:\/\/github\.com\/123123213weqw\/reasonmap", rev = "44159024c3c7a16d175d2cb3a5d665c39fe47d63", version = "=0\.4\.0" \}/);
  assert.ok(!readFileSync('Cargo.toml','utf8').includes('crates/xharness-model-catalog'));
  const fixture=JSON.parse(readFileSync('scripts/fixtures/reasoning-catalog-v0.4.0.json','utf8'));
  assert.equal(fixture.packageVersion,'0.4.0');
- assert.equal(fixture.gitRevision,'160ff392ae74af14205ba1dd0c7d0538d4777e97');
+ assert.equal(fixture.gitRevision,'44159024c3c7a16d175d2cb3a5d665c39fe47d63');
  const lock=readFileSync('Cargo.lock','utf8');
- assert.match(lock,/name = "reasonmap"\nversion = "0\.4\.0"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/reasonmap\?rev=160ff392ae74af14205ba1dd0c7d0538d4777e97#160ff392ae74af14205ba1dd0c7d0538d4777e97"/);
+ assert.match(lock,/name = "reasonmap"\nversion = "0\.4\.0"\nsource = "git\+https:\/\/github\.com\/123123213weqw\/reasonmap\?rev=44159024c3c7a16d175d2cb3a5d665c39fe47d63#44159024c3c7a16d175d2cb3a5d665c39fe47d63"/);
 });

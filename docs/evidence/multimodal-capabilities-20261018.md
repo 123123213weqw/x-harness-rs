@@ -170,3 +170,24 @@ Final logs, retained outside the repository (SHA-256):
 - `current-rebased-test-settings-models-source-browser-webkit.log`: `9e23bf53c15ddedf9f4ad4e323085830383945aa6c2912e0a832d00a57ff4d7f`
 - `current-rebased-test-browser-native-bridge-webkit.log`: `9e123e80ea70a901d0194d6fc671b92ea8aa0b16eb573710658f81a56dd3f990`
 - `current-rebased-test-context-layout-webkit.log`: `ab498fd39195a0265cf8e257f7fd8b7b8ba6baa9870888c43973e5ffe5ce292f`
+
+## Merge-gate regression correction
+
+GitHub CI caught a stale source-level test assertion in
+`scripts/test-model-selection-source.mjs`: the dependency guard still expected
+the initial Reasonmap source revision even though the reviewed manifest, lockfile
+and browser fixture all used the validated current-model source. The three
+assertions now require `44159024c3c7a16d175d2cb3a5d665c39fe47d63`; no assertion,
+check, runtime implementation, dependency or provider setting was removed or
+changed. This is a test correction, not a claim that the failed CI run passed.
+
+The 30 focused model/settings/capability Node tests pass, and the complete failed
+CI contract shard (27 isolated contract entries) passes locally. The prior 1,031
+remote Rust regressions apply to unchanged Rust sources. Formatting, whitespace
+and the architecture gate also pass. The corrected PR head must pass GitHub CI
+before merging. Automatic candidate builds remain paused.
+
+Correction logs (retained locally; SHA-256):
+
+- `current-catalog-node-tests.log`: `9be63112e54beacd9fd03c713261b9315944dd3b6f669997d928704f6fb80952`
+- `ui-contract-shard-3-fixed.log`: `7fc2edccfd776923d79aebbbca6329cabf53640b50bb00987fa51eeb4ecea663`
