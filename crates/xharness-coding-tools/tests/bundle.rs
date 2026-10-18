@@ -697,3 +697,43 @@ async fn search_tools_distinguish_no_matches_and_real_errors() {
         }
     }
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn log_filter_no_match_does_not_replace_the_producer_exit_status() {
+    let workspace = TempWorkspace::new();
+    let executor = executor(&workspace).await;
+    let no_match = executor
+        .execute(ToolRequest::new(
+            "bash",
+            serde_json::json!({"command":"printf 'Build complete\\n' | grep '^error'"}).to_string(),
+        ))
+        .await;
+    assert_eq!(
+        no_match.failure_kind(),
+        Some(xharness_tools::ToolFailureKind::CommandFailed)
+    );
+    let value: Value = serde_json::from_str(&no_match.output.unwrap().content).unwrap();
+    assert_eq!(
+        value["exit_code"], 1,
+        "no-match must not be silently reclassified"
+    );
+
+    for code in [0, 7] {
+        // Synthetic producers, not Rust compilation. Capturing the status before
+        // displaying a log preserves success and failure without blanket recovery.
+        let command = format!(
+            "(printf 'Build fixture\\n'; exit {code}) > build.log 2>&1; producer_status=$?; sed -n '1,8p' build.log; exit \"$producer_status\""
+        );
+        let result = executor
+            .execute(ToolRequest::new(
+                "bash",
+                serde_json::json!({"command":command}).to_string(),
+            ))
+            .await;
+        assert_eq!(result.is_ok(), code == 0);
+        let value: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        assert_eq!(value["exit_code"], code);
+        assert!(value["stdout"].as_str().unwrap().contains("Build fixture"));
+    }
+}

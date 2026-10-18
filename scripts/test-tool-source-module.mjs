@@ -71,3 +71,79 @@ test('Agent correction: validates both source and checkpoint before showing a ma
  assert.ok(b.plugin.agentCommunicationCopy(model,false).body.includes('files are not rolled back'))
  for(const invalid of [{...ack,source_agent_id:'other'},{...ack,checkpoint_seq:27},{...ack,filesystem_rollback:true},{...ack,agent_id:'source'}]) assert.equal(make(invalid).phase,'unconfirmed')
 })
+
+const processReceipt = (patch = {}) => ({kind:'foreground',stdout:'',stderr:'',exit_code:1,signal:null,success:false,...patch})
+const processEnvelope = receipt => ({ok:false,error:`shell command exited with code ${receipt.exit_code}`,truncated:false,content:JSON.stringify(receipt)})
+const shellResult = (receipt, patch = {}) => settled({
+ isError:true, meta:receipt,
+ content:[{type:'text',text:JSON.stringify(processEnvelope(receipt))}], ...patch,
+})
+
+test('Shell errors: current metadata, wrapped and legacy direct receipts show diagnostics without changing raw evidence',()=>{
+ const receipt=processReceipt({exit_code:101,stdout:'Compiling fixture\n\u001b[31merror[E0599]: no method named fixture\u001b[0m\n  --> src/main.rs:7:1\n'})
+ const raw=JSON.stringify(processEnvelope(receipt))
+ for(const toolName of ['bash','pwsh']) for(const block of [
+  shellResult(receipt),
+  shellResult(receipt,{meta:undefined}),
+  shellResult(receipt,{meta:undefined,content:[{type:'text',text:JSON.stringify(receipt)}]}),
+  shellResult(receipt,{resultView:{card:'terminal',exitCode:101,output:receipt.stdout}}),
+ ]){
+  const model=b.plugin.toolRowModel(toolName,block)
+  assert.equal(model.state,'error')
+  assert.equal(model.errorSummary,'Exit 101 · error[E0599]: no method named fixture')
+  assert.equal(model.output,b.plugin.resultText(block),'expanded/raw output must remain exact')
+ }
+ assert.equal(b.plugin.resultText(shellResult(receipt)),raw)
+})
+
+test('Shell errors: no-match exit one remains non-success and never invents a build failure',()=>{
+ for(const stdout of ['', 'manual pem\n', 'parse added\n']){
+  const block=shellResult(processReceipt({stdout}))
+  const before=JSON.stringify(block)
+  const model=b.plugin.toolRowModel('bash',block)
+  assert.equal(model.errorSummary,'Exit 1')
+  assert.equal(model.state,'error')
+  assert.equal(JSON.stringify(block),before,'presentation must not mutate evidence or status')
+ }
+ const successful=settled({meta:processReceipt({exit_code:0,success:true}),content:[{type:'text',text:'Build complete'}]})
+ assert.equal(b.plugin.toolRowModel('bash',successful).state,'ok')
+ assert.equal(b.plugin.toolRowModel('bash',successful).errorSummary,null)
+})
+
+test('Shell errors: interrupted, permission, unknown tools and malformed records retain their contracts',()=>{
+ const receipt=processReceipt({stderr:'permission denied\n'})
+ const stopped=shellResult(receipt,{error:{name:'Cancelled',code:'interrupted'}})
+ assert.equal(b.plugin.toolRowModel('bash',stopped).state,'stopped')
+ assert.equal(b.plugin.toolRowModel('bash',stopped).errorSummary,null)
+ const denied=settled({isError:true,content:[{type:'text',text:JSON.stringify({ok:false,error:'Approval required',truncated:false,content:''})}]})
+ assert.equal(b.plugin.toolRowModel('bash',denied).errorSummary,'Approval required')
+ for(const name of ['read','agent','unknown']){
+  const block=shellResult(receipt)
+  assert.equal(b.plugin.toolRowModel(name,block).errorSummary,JSON.stringify(processEnvelope(receipt)))
+ }
+ for(const meta of [null,[],{}, {...receipt,exit_code:'1'}, {...receipt,stdout:3}, {...receipt,kind:'background'}]){
+  const block=settled({isError:true,meta,content:[{type:'text',text:'original failure'}]})
+  assert.equal(b.plugin.toolRowModel('bash',block).errorSummary,'original failure')
+ }
+ const signal=shellResult(processReceipt({exit_code:null,signal:9,stderr:'terminated\n'}))
+ assert.equal(b.plugin.toolRowModel('bash',signal).errorSummary,'Signal 9 · terminated')
+ const timed=shellResult(processReceipt({termination:'timedout',exit_code:null,signal:9}))
+ assert.equal(b.plugin.toolRowModel('bash',timed).errorSummary,'Timed out')
+ const cancelled=shellResult(processReceipt({termination:'cancelled',exit_code:null}))
+ assert.equal(b.plugin.toolRowModel('bash',cancelled).errorSummary,'Cancelled')
+})
+
+test('Shell errors: bounded preview, empty output and legacy terminal status never hide full diagnostics',()=>{
+ const output='warning\n'+'x'.repeat(400000)+'\nerror[E0063]: missing field\n'
+ const view={card:'terminal',output,exitCode:101}
+ const block=settled({resultView:view,isError:true,content:[{type:'text',text:output}]})
+ assert.equal(b.plugin.toolRowModel('bash',block).errorSummary,'Exit 101 · error[E0063]: missing field')
+ assert.equal(b.plugin.terminalCardModel(block).card.output,output)
+ const legacy=settled({resultView:{card:'terminal',output:'error: build stopped',exitCode:101}})
+ assert.equal(b.plugin.toolRowModel('bash',legacy).errorSummary,'Exit 101 · error: build stopped')
+ assert.equal(b.plugin.GenericToolCard({toolName:'bash',block:legacy,t:x=>x,openFile(){}}).props.state,'error')
+ const empty=shellResult(processReceipt(),{content:[]})
+ assert.equal(b.plugin.toolRowModel('bash',empty).errorSummary,'Exit 1')
+ const long=shellResult(processReceipt({stderr:'error: '+'e'.repeat(10000)}))
+ assert.ok(b.plugin.toolRowModel('bash',long).errorSummary.length<=252)
+})

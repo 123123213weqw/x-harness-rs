@@ -10,6 +10,7 @@
 // contract only forwards it (type-definition authority stays with the layer
 // that produces the values).
 import {isRecord, isUnknownArray} from '../../value-guards'
+import {shellErrorSummary} from './shell-error-summary'
 import { abbreviateHomePath } from '../../runtime'
 import type { ToolCallBlock, ToolResultNode } from '../../types'
 
@@ -236,7 +237,9 @@ export function toolRowModel(toolName: string, block: ToolCallBlock, cwd?: strin
   // call with blank content has nothing to expand, and a blank first line
   // would erase the collapsed error row's summary slot.
   const output = done ? (resultText(block) || null) : null
-  const errorSummary = state === 'error' && output !== null ? firstLine(output) : null
+  const errorSummary = done
+    ? shellErrorSummary(toolName, block, output ?? '')
+      ?? (state === 'error' && output !== null ? firstLine(output) : null) : null
   return {
     variant,
     title: toolTitle ?? VARIANT_TITLES[variant],
