@@ -1354,7 +1354,8 @@ impl Runner {
                 self.request.provider.model_name(),
             )
             .with_step(self.step)
-            .with_tools(context_tools.to_vec());
+            .with_tools(context_tools.to_vec())
+            .with_tool_result_limit_bytes(self.request.config.tool_result_limit_bytes);
         if origins.len() == working.source_message_count {
             let mut genuine = Vec::new();
             let mut source = 0usize;
@@ -5050,7 +5051,9 @@ impl Runner {
                     execution.model_text = crate::tool::tool_result_with_archive(
                         &execution.result,
                         &reference,
-                        limit.min(xharness_session::TOOL_ARCHIVE_THRESHOLD_BYTES),
+                        // Archival decides where the original lives, not how
+                        // much of an already bounded observation the model sees.
+                        limit,
                     )
                     .map_err(RunFailure::Failed)?;
                     continue;
