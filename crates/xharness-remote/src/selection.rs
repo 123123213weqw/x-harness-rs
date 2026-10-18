@@ -437,7 +437,14 @@ mod tests {
         .unwrap();
         assert!(retained);
         assert_eq!(pending_epoch, before);
+        // SQL visibility does not synchronize with destruction of the owned
+        // policy fence: the connection mutex is released before that fence.
+        // Observe its bounded release before asserting the published epoch.
+        let committed_policy = tokio::time::timeout(Duration::from_secs(3), gate.read())
+            .await
+            .expect("committed selection retained its policy writer");
         assert!(gate.epoch() > before);
+        drop(committed_policy);
         let scope = Subscription {
             principal: "p".into(),
             sender,
