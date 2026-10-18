@@ -66,6 +66,10 @@ async fn discover(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> 
                 "name": model.model_display_name,
                 "provider": model.provider,
             });
+            if let Some(supported) = model.image_input {
+                value["imageInput"] = json!(supported);
+            }
+            value["imageInputCapability"] = model.image_input_capability;
             if let Some(maximum) = model.context_window.effective_hard_max() {
                 value["contextWindow"] = json!(maximum);
             }

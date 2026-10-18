@@ -38,6 +38,8 @@ export const llmModelsValueSchema = z.object({
 
 /** DiscoveredModelView row of llm.discoverModels. */
 export const discoveredModelViewSchema = z.object({
+  imageInput: z.boolean().optional(),
+  imageInputCapability: z.unknown().optional(),
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   contextWindow: z.number().int().positive().optional(),
