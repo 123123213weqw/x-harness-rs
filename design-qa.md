@@ -1,110 +1,60 @@
-# Swarm option 1 — design QA
+# Composer polish: design QA
 
-## Comparison artifacts
+## Scope and visual truth
 
-- Source visual truth: `docs/design/swarm/option-1.png`, selected by the user.
-- Implementation: `http://127.0.0.1:3291/`, actual source Swarm component on
-  the source platform, with explicitly synthetic team/conversation data.
-- Final screenshot: `docs/evidence/swarm-ui-20261015/desktop.png`.
-- Source and final screenshot: 1487 × 1058 pixels; CSS viewport 1487 × 1058;
-  DPR 1. Full-page capture avoids the in-app browser viewport capture cropping
-  at its surrounding panel edge. No image scaling or pixel mask was applied.
-- State: light theme, open team, three existing workers, one recorded turn.
-  The source is a concept, not a proven runtime state. Its semantic activity
-  names and acceptance claims are not copied into production.
-- The source and implementation were emitted together in the same comparison
-  input, first before spacing corrections and again after the final revision.
-  Full-resolution header, member labels, controls and composer are readable;
-  no extra crop was needed to assess those regions.
-- Additional evidence: `mobile.png` (390 × 844), `dark.png` (1487 × 1058),
-  in `docs/evidence/swarm-ui-20261015/`.
+- Source direction: `/Users/wangyue/.codex/generated_images/01a0ff04-b83f-7f10-92b1-540a4e1a2cd6/exec-e7f3a906-d2b1-4841-ac4c-7dd424591951.png` (1536 × 1024 raster pixels).
+- The user's latest instruction takes precedence: keep the original input layout, apply surrounding visual polish. This is not a pixel clone of the generated composer.
+- Original input references: `/var/folders/jb/vq4jn1w94dsc2tt35tfkrvkr0000gn/T/codex-clipboard-374efe60-a47e-4271-a917-c1a985710b15.png` and `/var/folders/jb/vq4jn1w94dsc2tt35tfkrvkr0000gn/T/codex-clipboard-314ce2b5-c582-495a-8f35-3d7aaaf7683b.png`.
+- Implementation: `http://127.0.0.1:3296/?polish&dark`; new-session variant adds `&hero`. Production components and input machine; synthetic Host projections only, no live requests.
+- Browser capture viewport: 1280 × 720 CSS pixels, screenshots 1280 × 720 pixels (1×). Original design is an illustrative two-state board, not a same-density browser capture. Comparisons align content regions; no pixel-equality claim.
 
-## Findings and comparison history
+## Evidence
 
-1. **[P2, fixed] Desktop composition drift.** First comparison:
-   `desktop-before.png` had a 272-pixel rail, smaller body text and insufficient
-   center insets compared with the selected concept. Updated to a 320-pixel
-   rail, 44-pixel heading inset, 27-pixel title and 18-pixel preview conversation
-   copy. The final paired comparison aligns the three major regions, heading
-   baseline and two-line coordinator message. Production continues to use its
-   original conversation typography rather than changing all chats.
-2. **[P1, fixed] Narrow rail inherited the absent second grid track.**
-   `mobile-before.png` showed a 33-pixel clipped overlay. Absolute positioning
-   still inherited `grid-column:2`. Explicit row-2/column-1 placement now keeps
-   the rail below the live-height header at a usable width. `mobile.png`
-   confirms the fix. Both browser engines assert rail width and header bounds.
-   Container queries also cover a narrow center caused by a docked workspace,
-   not just a small application window.
-3. **[P1, fixed, preview shell only] Dark sidebar contrast.** `dark-before.png`
-   used a light fallback behind light labels. Replaced it with the existing
-   sidebar theme token; `dark.png` confirms readable labels and matching dark
-   surfaces. No native sidebar business logic was changed.
+All paths below are under this worktree's ignored `dist/design-qa/` directory.
+
+- First pass: `active-dark.png`, full combined comparison `comparison-before.png`.
+- Final active state: `active-dark-final.png`; cropped input card `composer-card.png`.
+- Final new session: `hero-dark.png`; light mode: `active-light.png`.
+- Full composition comparison: `comparison-final.png` places the reference and both rendered states together, cropping browser-only canvas from the rendered regions.
+- Focused comparison: `comparison-tasks.png` compares task count, state markers, alignment and completed-title strike. Crops are normalized to fit adjacent panels; source type size is not a CSS-size specification.
+
+## Comparison history
+
+1. First pass found two P2 issues: nested task/queue docks inherited standalone width calculations, misaligning their left edges; the isolated preview transcript had an unthemed heading in dark mode.
+2. Fix: composer-scoped full-width rules in the dock styles, with matching inner padding; preview chrome uses the existing theme foreground and background tokens. Standalone dock widths remain supported. InputBar source and stylesheet were not modified.
+3. Re-captured the same active dark state after the fix. `comparison-final.png` and `comparison-tasks.png` show aligned task, Goal and queue rows and readable dark-preview text. No remaining actionable P0/P1/P2 findings within the agreed scope.
 
 ## Required fidelity surfaces
 
-- **Fonts/typography:** existing product/system sans-serif stack, 27-pixel
-  semibold heading, 16-pixel member names and smaller secondary observations.
-  These preserve the mock's hierarchy. Native product icons and text are
-  sharp; no raster text is used. The preview body wraps to two lines as in the
-  concept; exact timestamp copy is omitted rather than fabricating real time.
-- **Spacing/layout rhythm:** 338-pixel preview sidebar and 320-pixel team rail;
-  generous center whitespace, a subtle rail divider and bottom composer.
-  The production shell retains its existing rounded surfaces and native
-  composer. Narrow panes collapse the rail rather than compress the chat.
-- **Colors/tokens:** monochrome product tokens, white/light gray in light mode,
-  dark surfaces in dark mode. No new accent palette or gradient was added.
-- **Image/asset fidelity:** existing product vector icon library is reused.
-  The generated concept contains approximate product symbols; those are not
-  traced or replaced by new hand-drawn art. The concept PNG is evidence only,
-  not a background. All shipped UI remains actual text, controls and vectors.
-- **Copy/content:** same example objective and discussion in the isolated
-  preview. Deliberate implementation constraints: “Pause membership” instead
-  of broad “Pause”; observed “Waiting” instead of invented “Reviewing”;
-  “Recorded results / Turn finished” instead of unsupported acceptance claims.
-  The previously removed search control stays removed. Refresh, existing-worker
-  linking and New controls are actual phase-one capabilities, not decoration.
+- **Typography:** existing product font stack, native UI sizing, wrapping and focus behavior retained. Compact counts use tabular numerals. Long task titles wrap rather than disappearing behind ellipses. The larger generated-board typography is not imposed on the existing composer.
+- **Spacing:** flat checklist/Goal/queue surfaces with consistent composer insets; no decorative vertical dividers added. The original hero/compact toolbar positions, writing surface, Send/Stop positions and slot registration order remain intact.
+- **Colors:** existing light/dark tokens; neutral completed-task text and strikethrough. Existing semantic access-warning color is intentionally retained rather than hiding permission state.
+- **Asset fidelity:** existing product orbital vector icon replaces the smaller model glyph; no raster approximation or external icon dependency. Existing checklist/status glyphs remain in use. The generated board is an art-direction reference, not a requirement to replace the product icon system.
+- **Copy:** original Local/workspace labels, model names, reasoning labels and Goal wording retained. Existing Progress title remains for the durable task plan. Preview sample tasks correspond to the reference's three states. No hardcoded task content enters production.
 
-## Interaction and console evidence
+## Interactions and regression coverage
 
-- Actual source component in Chromium and WebKit: create/select a team,
-  pause/resume metadata without stopping a running worker, link an existing
-  child, open worker conversation, close/reopen, retain an unsent draft,
-  isolate owner changes including a delayed old-owner response, and guard
-  against duplicate creation after a lost acknowledgement.
-- Compact rail toggle and Escape dismissal work. Both engines assert no
-  horizontal overflow and usable rail geometry, including a docked pane.
-- Full generated graph boots in both engines; Swarm open/close preserves
-  the original composer draft. Ordinary-chat pixels still match the immutable
-  frozen reference after the existing narrowly reviewed geometry projections.
-- Preview console has its intentional `Host boot intentionally disabled`
-  exception, used to isolate the real platform from Host startup. No unexpected
-  page errors occurred in either engine. Browser tooling's own telemetry
-  network failures are outside the page under test and were not treated as
-  product success/failure evidence.
+- Manual in-app-browser inspection: task collapse/expand, original model menu, hero Local/workspace labels, light/dark states. No browser warning/error logs on the inspected final light page.
+- Automated Chromium and WebKit: 20 light/dark viewport cases each (1280 down to 320 CSS pixels), long model names, file chooser, Stop/Queue/Send, draft/caret retention, Goal edit/budget, task default expansion, completed strikethrough, keyboard disclosure, long task wrapping, queue edit/remove and hero/active textarea continuity.
+- Shipped Progress runtime tests in both engines: empty/clear, ordered statuses, completion count, strikethrough, keyboard collapse, literal unsafe-looking titles, parallel items and narrow layouts.
+- Full-graph Chromium/WebKit differential acceptance passes with byte-exact frozen pixels after the existing narrow projections plus the approved additive hero model icon. The actual icon is independently checked for visibility, 18px geometry, viewBox and pinned stock path hash; frozen assets and pixel tolerances are unchanged.
+- Strict TypeScript and repository-only production build pass. Conversation, Goal and model-selection source suites pass 53 tests; reviewed stylesheet changes are explicitly pinned without changing the frozen reference or the InputBar hash.
+- The installed app has not been restarted, replaced or deployed. No live agents or user queues were mutated. Backend behavior is outside this visual task.
 
-## Intentional deviations and remaining scope
+## Intentional deviations and remaining gaps
 
-This is an implementation of the selected layout, not a claim that the concept
-has become an autonomous team. Production reuses the existing conversation.
-The standalone preview's conversation/sidebar are fixture context, plainly
-labeled in the footer. Status reads refresh on open, focus or explicit refresh;
-this slice does not claim a live worker-event subscription. No coordinator
-loop, worker spawning, result-routing acceptance or real-model Swarm run has
-been completed here. Runtime lifecycle/restart evidence remains separate.
+- The generated board puts Goal before tasks and shows an execution row above both examples. Existing runtime slot order and active-chat layout are preserved instead of restructuring conversation behavior.
+- The current product's original hero and compact input layouts differ from each other. They remain different as explicitly requested, including their model/reasoning controls.
+- This is a component preview, not a full signed desktop installation or a live-server end-to-end acceptance run.
 
 ## Implementation checklist
 
-- [x] Apply coordinator-center / team-right layout.
-- [x] Preserve the normal conversation and opt-in `/swarm` entry.
-- [x] Bind only supported lifecycle operations to typed RPC.
-- [x] Fix composition, compact clipping and dark preview contrast.
-- [x] Compare source and revised capture in the same comparison input.
-- [x] Verify both browser engines and full-graph ordinary-chat parity.
-- [x] Retain source art and acceptance captures in the repository.
+- [x] Keep original InputBar TSX/CSS and handlers unchanged.
+- [x] Retain Local/workspace language labels.
+- [x] Reuse the product orbital model icon.
+- [x] Flatten and align task/Goal/queue surfaces.
+- [x] Show legacy tasks by default and strike completed titles.
+- [x] Verify light/dark, keyboard actions and narrow layouts.
+- [x] Keep fixtures outside production and regenerate production assets.
 
-## Follow-up polish
-
-- [P3] Revisit density after real multi-worker event routing exists. Do not add
-  invented status labels or a fake live activity stream to fill empty space.
-
-final result: passed
+**Final result: passed**
