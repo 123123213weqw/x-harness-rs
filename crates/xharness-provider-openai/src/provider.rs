@@ -636,8 +636,9 @@ impl OpenAiProvider {
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| ProviderError::new(e.to_string()))?;
-        let mut image_tokens = xharness_token::image_estimate(&messages)
-            .map_err(|e| ProviderError::new(e.to_string()))?;
+        let mut image_tokens =
+            crate::image_budget::estimate(&self.config.base_url, &self.config.model, &messages)
+                .map_err(|e| ProviderError::new(e.to_string()))?;
         if image_tokens != 0 {
             // request_body has not expanded content_blocks yet. Keep their
             // accompanying text outside the learned text ratio so a large
@@ -2156,3 +2157,6 @@ mod network_wait_certificate_tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod image_budget_tests;
