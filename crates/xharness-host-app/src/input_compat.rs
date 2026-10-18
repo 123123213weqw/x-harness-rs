@@ -109,4 +109,75 @@ mod tests {
             Some(true)
         );
     }
+
+    #[test]
+    fn current_models_resolve_only_through_implemented_exact_protocols() {
+        let mut routes = vec![
+            (
+                "https://api.deepseek.com",
+                "openai-completions",
+                "deepseek-flash",
+            ),
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai",
+                "openai-completions",
+                "gemini-3.8-flash",
+            ),
+            ("https://api.x.ai/v1", "openai-completions", "grok-4.7"),
+        ];
+        for api in ["openai-completions", "openai-responses"] {
+            for model in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"] {
+                routes.push(("https://api.openai.com/v1", api, model));
+            }
+            for base in ["https://api.moonshot.cn/v1", "https://api.moonshot.ai/v1"] {
+                routes.push((base, api, "kimi-k3"));
+            }
+        }
+        for base in [
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+            "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1",
+        ] {
+            for model in ["qwen3.8-max", "qwen3.8-flash"] {
+                routes.push((base, "openai-completions", model));
+            }
+        }
+        for (base, api, model) in routes {
+            let found = resolve(base, api, model, None);
+            assert_eq!(found.supported, Some(true), "{base}/{api}/{model}");
+            assert_eq!(found.provenance["source"], "documented");
+            assert_eq!(found.provenance["checkedOn"], "2026-10-18");
+            assert_eq!(
+                resolve(base, api, model, Some(false)).supported,
+                Some(false)
+            );
+            assert_eq!(
+                resolve("https://proxy.test/v1", api, model, None).supported,
+                None
+            );
+        }
+        for model in [
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+        ] {
+            for api in [
+                "openai-completions",
+                "openai-responses",
+                "anthropic-messages",
+            ] {
+                assert_eq!(
+                    resolve("https://api.anthropic.com/v1", api, model, None).supported,
+                    None,
+                    "catalog facts must not enable an unimplemented adapter: {api}/{model}"
+                );
+            }
+        }
+        assert_eq!(
+            resolve("https://api.x.ai/v1", "openai-responses", "grok-4.7", None).supported,
+            None
+        );
+    }
 }

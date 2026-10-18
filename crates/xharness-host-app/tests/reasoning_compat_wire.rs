@@ -1,11 +1,13 @@
 //! Bundled profiles through the real Rust adapter and a local HTTP capture.
 //! Official endpoint resolution is tested separately; no real keys/billing.
 use serde_json::Value;
+use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
 use tokio_util::sync::CancellationToken;
+use xharness_attachments::{AttachmentStore, ContentBlock, MemoryAttachmentStore, Upload};
 use xharness_core::{AgentMessage, ModelProvider, ProviderRequest};
 use xharness_host_app::reasoning_compat::resolve;
 use xharness_provider_openai::{
@@ -14,7 +16,19 @@ use xharness_provider_openai::{
 
 #[tokio::test]
 async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch() {
-    for (official, api, model) in [
+    let catalog: Value = serde_json::from_str(reasonmap::CATALOG_JSON).unwrap();
+    let current = [
+        "deepseek-flash",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gemini-3.8-flash",
+        "qwen3.8-max",
+        "qwen3.8-flash",
+        "kimi-k3",
+        "grok-4.7",
+    ];
+    let mut cases = vec![
         (
             "https://api.deepseek.com",
             "openai-completions",
@@ -40,10 +54,29 @@ async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch
             "openai-completions",
             "glm-5.3",
         ),
-    ] {
+    ];
+    for route in catalog["routes"].as_array().unwrap() {
+        let api = route["api"].as_str().unwrap();
+        if !matches!(api, "openai-completions" | "openai-responses") {
+            continue;
+        }
+        let base = route["base_urls"][0].as_str().unwrap();
+        for model in current {
+            let case = (base, api, model);
+            if route["models"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::from(model))
+                && !cases.contains(&case)
+            {
+                cases.push(case);
+            }
+        }
+    }
+    for (official, api, model) in cases {
         let profile = resolve(official, api, model).unwrap().profile;
         let efforts = profile["efforts"].as_array().unwrap();
-        let default = profile["default_effort"].as_str().unwrap();
+        let default = profile["default_effort"].as_str();
         for selected in efforts
             .iter()
             .map(|e| Some(e["id"].as_str().unwrap()))
@@ -83,7 +116,7 @@ async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch
                 (path, body)
             });
             let reasoning = OpenAiReasoningProfile::new(
-                Some(default.to_owned()),
+                default.map(str::to_owned),
                 efforts.iter().map(|e| {
                     (
                         e["id"].as_str().unwrap().to_owned(),
@@ -102,8 +135,35 @@ async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch
                     .with_reasoning_profile(reasoning),
             )
             .unwrap();
+            let store = Arc::new(MemoryAttachmentStore::default());
+            let mut message = AgentMessage::user("wire fixture");
+            let image = current.contains(&model);
+            if image {
+                let attachment = store
+                    .put(
+                        "current-model-wire",
+                        Upload {
+                            media_type: "image/png".into(),
+                            data: include_bytes!(
+                                "../../xharness-attachments/tests/fixtures/red-blue.png"
+                            )
+                            .to_vec(),
+                        },
+                    )
+                    .await
+                    .unwrap();
+                message = message.with_content_blocks(vec![
+                    ContentBlock::Text {
+                        text: "wire fixture".into(),
+                    },
+                    ContentBlock::Image { attachment },
+                ]);
+            }
+            let adapter = adapter
+                .with_attachments(store)
+                .with_image_support(Some(image));
             let request = ProviderRequest {
-                messages: vec![AgentMessage::user("wire fixture")],
+                messages: vec![message],
                 tools: vec![],
                 step: 1,
                 reasoning_effort: selected.map(str::to_owned),
@@ -119,12 +179,17 @@ async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch
             .unwrap();
             drop(stream);
             let (path, body) = server.await.unwrap();
-            let expected = &efforts
-                .iter()
-                .find(|e| e["id"] == selected.unwrap_or(default))
-                .unwrap()["request_patch"];
-            for (key, value) in expected.as_object().unwrap() {
-                assert_eq!(&body[key], value, "{model}/{selected:?}: {body}");
+            let expected = selected.or(default).map(|effort| {
+                &efforts.iter().find(|e| e["id"] == effort).unwrap()["request_patch"]
+            });
+            if let Some(expected) = expected {
+                for (key, value) in expected.as_object().unwrap() {
+                    assert_eq!(&body[key], value, "{model}/{selected:?}: {body}");
+                }
+            } else {
+                assert!(body.get("reasoning_effort").is_none());
+                assert!(body.get("reasoning").is_none());
+                assert!(body.get("thinking").is_none());
             }
             assert_eq!(body["model"], model);
             assert_eq!(body["stream"], true);
@@ -138,9 +203,24 @@ async fn every_curated_level_and_default_transmits_exact_protocol_specific_patch
                 assert!(body.get("reasoning").is_none());
                 assert!(body.get("chat_template_kwargs").is_none());
                 assert_eq!(body["max_tokens"], 1024);
-                if selected == Some("off") || model == "glm-4.7" {
+                if expected.is_none_or(|patch| patch.get("reasoning_effort").is_none()) {
                     assert!(body.get("reasoning_effort").is_none());
                 }
+            }
+            if image {
+                let (part, url) = if api == "openai-responses" {
+                    let part = &body["input"][0]["content"][1];
+                    assert_eq!(part["type"], "input_image");
+                    (part, &part["image_url"])
+                } else {
+                    let part = &body["messages"][0]["content"][1];
+                    assert_eq!(part["type"], "image_url");
+                    (part, &part["image_url"]["url"])
+                };
+                assert!(
+                    url.as_str().unwrap().starts_with("data:image/png;base64,"),
+                    "{model}: {part}"
+                );
             }
         }
     }
@@ -203,6 +283,6 @@ fn browser_fixture_is_exactly_the_pinned_catalog_not_another_ui_enum() {
     assert_eq!(fixture["packageVersion"], "0.4.0");
     assert_eq!(
         fixture["gitRevision"],
-        "160ff392ae74af14205ba1dd0c7d0538d4777e97"
+        "44159024c3c7a16d175d2cb3a5d665c39fe47d63"
     );
 }

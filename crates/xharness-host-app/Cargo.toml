@@ -17,7 +17,7 @@ qrcode = { version = "=0.14.1", default-features = false, features = ["svg"] }
 xharness-channel-telegram = { path = "../xharness-channel-telegram" }
 xharness-mobile = { path = "../xharness-mobile" }
 # Independent reasoning and modality metadata; pinned to the tested source commit.
-reasonmap = { git = "https://github.com/123123213weqw/reasonmap", rev = "160ff392ae74af14205ba1dd0c7d0538d4777e97", version = "=0.4.0" }
+reasonmap = { git = "https://github.com/123123213weqw/reasonmap", rev = "44159024c3c7a16d175d2cb3a5d665c39fe47d63", version = "=0.4.0" }
 fs2 = "0.4.3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 xharness-attachments = { path = "../xharness-attachments" }

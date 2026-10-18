@@ -46,6 +46,31 @@ attachment lookup, fork authorization, and opaque provider items retain their
 existing implementations. No automatic conversion of an image to a text stub.
 File attachments remain files and do not implicitly become image inputs.
 
+## Current-model coverage (checked 2026-10-18)
+
+Reasonmap `2026-10-18.2` records documented image inputs for these current-line
+models through protocols implemented by XHarness:
+
+- OpenAI: `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-luna` (Chat and Responses).
+- DeepSeek: `deepseek-flash` (Chat and Responses; the current rolling Flash ID).
+- Google: `gemini-3.8-flash` (OpenAI-compatible Chat).
+- Qwen: `qwen3.8-max`, `qwen3.8-flash` (DashScope compatible Chat).
+- Kimi: `kimi-k3` (Chat and Responses).
+- Grok: `grok-4.7` (the catalog's documented Chat route).
+
+These are nine current model IDs, not a restriction to nine configurable models
+or a guarantee of provider/account availability. Exact route/explicit-override
+rules above still apply. Legacy GPT-5.4 and the retired DeepSeek vision-exp alias
+retain compatibility metadata; they are not current recommended targets.
+
+Reasonmap also records current Claude Fable 5.1, Opus/Sonnet/Haiku 5.5 image
+capability on native Messages. XHarness has no native Messages image adapter in
+this change: those four catalog facts must not be presented as runnable support.
+Grok's Responses reasoning route is not added by inference from its Chat route.
+No active model setting, credential, server deployment, budget or reasoning
+default is changed. Official per-model sources live in Reasonmap's
+`docs/INPUT-MODALITIES.md`; these facts are documented, not live-accepted.
+
 ## Acceptance
 
 - [x] Separate Reasonmap schema and documented initial image records.

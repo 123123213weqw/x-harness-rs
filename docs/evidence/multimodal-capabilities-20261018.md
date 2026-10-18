@@ -11,7 +11,7 @@ Rebased after upstream PR #348; only generated asset indices conflicted. They
 were regenerated from the merged source. The complete Rust test/Clippy batch,
 UI build/type checks, model/settings browsers, and upstream native-browser
 visibility regressions were rerun successfully after the rebase.
-Reasonmap executable-source pin: `160ff392ae74af14205ba1dd0c7d0538d4777e97`.
+Initial Reasonmap executable-source pin: `160ff392ae74af14205ba1dd0c7d0538d4777e97`.
 Reasonmap review: https://github.com/123123213weqw/reasonmap/pull/1
 
 ## Validation
@@ -90,3 +90,41 @@ Remote/local source hashes were checked again on the integrated snapshot.
 - `rebased-test-browser-access-webkit.log`: `ff3b235ca5d3c2745b9563bd67b3fb9d6bfff3608e6ab0ef1b8c043a662f322f`
 - `rebased-test-browser-native-bridge-chromium.log`: `5f7a4bb721d0cc0a1b71bd7ef1ba4eddad58ced6dea8faa135d9a42ba51bee2a`
 - `rebased-test-browser-native-bridge-webkit.log`: `9e123e80ea70a901d0194d6fc671b92ea8aa0b16eb573710658f81a56dd3f990`
+
+## Current-model expansion
+
+Reasonmap `2026-10-18.2` is pinned at executable source
+`44159024c3c7a16d175d2cb3a5d665c39fe47d63`
+([catalog PR #2](https://github.com/123123213weqw/reasonmap/pull/2)).
+Thirteen current-line model IDs have documented image input; nine work through
+XHarness's existing Chat/Responses adapters. Four Claude IDs remain native
+Messages catalog facts, not runnable XHarness routes. Legacy GPT-5.4 and the
+retired DeepSeek vision-exp alias remain compatibility-only, not recommended
+targets. Active user model settings and server deployments are unchanged.
+
+After source sync, WZU_Server passed 760 selected XHarness Rust tests (9 existing
+opt-in cases ignored) and the same all-target, warnings-denied Clippy batch. The
+wire fixture now sends real PNG data through the real adapter to a local capture
+server: 75 image requests across 14 current-model/protocol pairs, covering each
+effort and provider/catalog default without changing the model ID. A missing
+Astra default remains absent on the wire; OpenAI off is not confused with
+DeepSeek's different off patch. These are fake-server contract tests, not live
+provider acceptance. An initial expanded fixture still assumed DeepSeek-style
+off encoding for every vendor; that test-only assertion was replaced with checks
+against each catalog patch, and the complete suite was rerun successfully.
+
+Reasonmap passed 12 catalog tests, one doctest and Clippy; six offline Python
+regressions passed. Chromium and WebKit passed the full catalog effort selector
+matrix; strict TypeScript and the architecture gate passed. Remote SHA-256
+comparison matched all five changed executable/config artifacts. No Rust
+compilation or paid model call ran on the Mac. Automatic candidate builds remain
+paused; no release, merge or deployment was performed by this update.
+
+Full logs remain outside the public tree; SHA-256:
+
+- `reasonmap-current-models.log`: `2892c89ed51a41b07a832a4afa3bc8641420f5e10aba91b105a135112834e0af`
+- `xharness-current-models.log`: `30632738482f818095cd545d07aab8b7f1190c4edadc7f964d2bec6405c764b1`
+- `current-models-browser-chromium.log`: `1d51692814551604dae3417ab3f3d7d20fb1c095d1a08c894896e6ba020b4298`
+- `current-models-browser-webkit.log`: `ac4a39c75bd527f94b6ff91167df0baf33f485140f703e34eaf7c213a3a0037d`
+- `current-models-typecheck.log`: `d9c05db99b601ebce54191a08919805d02b97e6eb2ed5fd9270efd48037f851d`
+- `current-models-source-hashes.log`: `89776785f091a33c634e35502fa1c66de033b5b20dd0a9b3f8484c32ace35174`
