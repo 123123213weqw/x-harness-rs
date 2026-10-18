@@ -13,3 +13,15 @@
 .xh-progress-card [data-plan-status="completed"] { color: var(--dsw-alias-label-tertiary); opacity: .65; }
 .xh-progress-card [data-plan-status="completed"] .xh-progress-item { text-decoration: line-through; }
 .xh-progress-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Keep task progress flat, full-width and separate from the writing surface. */
+.xh-progress-dock{max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));padding:0}
+.xh-progress-card{max-width:none;border:0;border-radius:0;background:transparent}
+.xh-progress-card summary{gap:8px;padding:6px 12px;min-height:24px}
+.xh-progress-card ol{padding:0 12px 8px;max-height:168px}
+.xh-progress-card li{align-items:flex-start;min-height:26px;padding:1px 0;line-height:26px}
+.xh-progress-card [data-plan-status="completed"]{opacity:1}
+.xh-progress-card [data-plan-status="completed"] .xh-progress-item{text-decoration-thickness:1px}
+[data-composer-card] .xh-progress-dock{width:100%;max-width:none;margin:0}
+[data-composer-card] .xh-progress-card summary{padding-left:0;padding-right:0}
+[data-composer-card] .xh-progress-card ol{padding-left:0;padding-right:0}

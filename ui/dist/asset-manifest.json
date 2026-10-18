@@ -650,7 +650,7 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "f924ef6ae8cbbd065d45ce19c550153b6dfe8777bb8fb4b850a72b6aceee9865",
+      "sha256": "fe340908122888e4ead0e772378c3731b8269395e3951976202f5cf13f7a5d5b",
       "bytes": 28767
     },
     "desktop-bootstrap.js": {
@@ -678,7 +678,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "03f486588c70b1480bbe6cbdbdc6da2e590178748cf7f8db1988f309f12537a1",
+      "sha256": "81fd95b154a0661960f7019174ed25af886497f02c85b205aa9c8f1fd8ae9eb7",
       "bytes": 28280
     },
     "logo-motion.css": {
@@ -790,8 +790,8 @@
       "bytes": 59312
     },
     "plugins/@xharness/dsh-client-ui-conversation/client.js": {
-      "sha256": "8c5609f01a28fea2721f2c3ddfd7753818370aa369e1e5173fc34d00f1b457fd",
-      "bytes": 737884
+      "sha256": "b2b7b67d1e77bb665377d44dc241c1261c4ee28a1f4ebbf7c172c0f087078bc3",
+      "bytes": 738599
     },
     "plugins/@xharness/dsh-client-ui-cordis/client.js": {
       "sha256": "de9d0ab71274171567afab653709ee6de7c628b09b9e209de82dd63021d5f959",
@@ -802,8 +802,8 @@
       "bytes": 21837
     },
     "plugins/@xharness/dsh-client-ui-goal/client.js": {
-      "sha256": "889591efe4cf8ad2118fecccfbc7cb2266666b6fb881a6e15e6bb5e1b086eaa0",
-      "bytes": 35259
+      "sha256": "15f8037770128062b0a9e18c3ca174cd98e3a89aedf1c8a0e8297f439ec41107",
+      "bytes": 36332
     },
     "plugins/@xharness/dsh-client-ui-input-trigger/client.js": {
       "sha256": "a1c00319eb51afcc61d9cd40b13bafc9137c51b3ffd2d911d51bf4ccf3e6c617",
@@ -822,8 +822,8 @@
       "bytes": 39175
     },
     "plugins/@xharness/dsh-client-ui-model-selection/client.js": {
-      "sha256": "d822889f3cbd3df7e216e0218ad15ea5a9cd20ec2d0046ce7f10b661a665f52f",
-      "bytes": 102229
+      "sha256": "4603905e71138dbb52fb4c8992fd1ba9b0b88dad1f412f53fc99b707e95f11da",
+      "bytes": 102513
     },
     "plugins/@xharness/dsh-client-ui-permission-presets/client.js": {
       "sha256": "1bb6f43be67efbe620153db759bdb8f4cb9d3d6d9ad7b9b9fdb54f5a5c697c9c",
