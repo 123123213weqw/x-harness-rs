@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Separate cold display readiness from execution readiness and bound source-validated history/metrics maintenance without retaining a complete Session.",
+  "compatibility": "RPC shapes, pagination cursors, existing journal/catalogue/checkpoint formats and execution recovery validation remain unchanged. Optional Store methods fall back for other backends. Only an identical validated catalogue source may repair an index or metric snapshot; scans never mint a runtime recovery stamp. Parsed index caching is entry/byte bounded and source/sidecar invalidated. Cache publication is best effort, including read-only filesystems. Native, persistence and Windows checks remain required.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/catalog_scan.rs": {
+      "before": null,
+      "after": "522a9497f4f47ceeeaf0e91b4a753d325efe07659b2e82e5c4bba229b908c3dc"
+    },
+    "crates/xharness-session-jsonl/src/history_index.rs": {
+      "before": "18f0127ff36d3612d044d429c821e23aba3edf7df42f3a192e38694faca8303a",
+      "after": "13d7eae4c282c5f34c8fc8ac5483f427020038e971f138648b12dd315fc3700e"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "fa9094f50cb05ddd33e56e13fe7849a3f03ccd94fbde4beade242ba0ab011d93",
+      "after": "74d9c52e4fb0199bd785badc229f93d216738d12bfe6ec94d3aed0c21a2c1b44"
+    },
+    "crates/xharness-session-jsonl/tests/cold_history.rs": {
+      "before": null,
+      "after": "681f4c518ddb357dd3b7e79bc1e0e66307de2bd94ce2833eb10fa765654ad878"
+    },
+    "crates/xharness-session/src/store.rs": {
+      "before": "b9025e5eb77fda0a5e2f54b5a0d832a8e3c3f48bed20b977390d899f28716cee",
+      "after": "0b40d2838e83f0907101ea99da7b1c9bc3b973fc58aaf573fc90feed1670a234"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

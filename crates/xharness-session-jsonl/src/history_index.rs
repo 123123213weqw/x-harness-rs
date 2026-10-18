@@ -1,15 +1,17 @@
 //! Disposable offset index. Only a successful full replay may publish it;
 //! no recovery or mutation path ever reads it as authoritative state.
 use super::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use xharness_session::{EventData, SessionHistoryWindow};
 
 const VERSION: u32 = 3;
 const MAX_INDEX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
+// Tiny sidecars cost less to decode than three extra fingerprint samples.
+const MIN_CACHED_INDEX_BYTES: u64 = 16 * 1024;
 const MAX_WINDOW_BYTES: u64 = 32 * 1024 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     offset: u64,
@@ -20,7 +22,7 @@ struct Record {
     sha256: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Builder {
     records: Vec<Record>,
@@ -36,9 +38,9 @@ pub(super) struct Builder {
     estimated_bytes: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Index {
+pub(super) struct Index {
     version: u32,
     session_id: String,
     fingerprint: FileFingerprint,
@@ -48,11 +50,102 @@ struct Index {
     data: Builder,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Envelope {
     sha256: String,
     index: Index,
+}
+
+/// Parsed acceleration only; never a Session or an execution/recovery stamp.
+/// Charging four times the serialized size conservatively covers owned fields
+/// and collection overhead. This is an accounted-byte ceiling, not an RSS cap.
+#[derive(Debug)]
+pub(super) struct Cache {
+    entries: HashMap<PathBuf, CachedIndex>,
+    pub max_bytes: usize,
+    pub max_entries: usize,
+    clock: u64,
+}
+#[derive(Debug)]
+struct CachedIndex {
+    sidecar: FileFingerprint,
+    index: Arc<Index>,
+    bytes: usize,
+    touched: u64,
+}
+impl Default for Cache {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_bytes: 8 * 1024 * 1024,
+            max_entries: 4,
+            clock: 0,
+        }
+    }
+}
+impl Cache {
+    pub fn stats(&self) -> CacheStats {
+        CacheStats {
+            entries: self.entries.len(),
+            accounted_bytes: self.entries.values().map(|e| e.bytes).sum(),
+            max_bytes: self.max_bytes,
+        }
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+    fn get(
+        &mut self,
+        path: &Path,
+        sidecar: FileFingerprint,
+        source: FileFingerprint,
+        id: &str,
+        next: u64,
+    ) -> Option<Arc<Index>> {
+        self.clock = self.clock.wrapping_add(1);
+        if let Some(entry) = self.entries.get_mut(path) {
+            if entry.sidecar == sidecar
+                && entry.index.fingerprint == source
+                && entry.index.session_id == id
+                && entry.index.next_seq == next
+            {
+                entry.touched = self.clock;
+                return Some(entry.index.clone());
+            }
+        }
+        self.entries.remove(path);
+        None
+    }
+    fn insert(&mut self, path: &Path, sidecar: FileFingerprint, index: Arc<Index>, bytes: usize) {
+        self.entries.remove(path);
+        if bytes > self.max_bytes || self.max_entries == 0 {
+            return;
+        }
+        while self.entries.len() >= self.max_entries
+            || self.stats().accounted_bytes.saturating_add(bytes) > self.max_bytes
+        {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.touched)
+                .map(|(p, _)| p.clone())
+            else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+        self.clock = self.clock.wrapping_add(1);
+        self.entries.insert(
+            path.to_owned(),
+            CachedIndex {
+                sidecar,
+                index,
+                bytes,
+                touched: self.clock,
+            },
+        );
+    }
 }
 
 pub(super) struct ReplayedSource {
@@ -170,6 +263,10 @@ impl Builder {
     /// Best effort only. Failing to publish an acceleration index MUST NOT
     /// turn a successful authoritative replay into a storage failure.
     pub(super) fn publish(self, journal: &Path, session: &Session, source: ReplayedSource) {
+        self.publish_cursor(journal, &session.header().id, session.next_seq(), source);
+    }
+
+    fn publish_cursor(self, journal: &Path, id: &str, next_seq: u64, source: ReplayedSource) {
         if self.disabled
             || source.needs_separator
             || journal.extension().is_none_or(|x| x != "jsonl")
@@ -182,57 +279,78 @@ impl Builder {
         if original.len != source.valid_len {
             return;
         }
-        let _ = (|| -> Result<(), StoreError> {
-            if file_fingerprint(journal)? != Some(original) {
-                return Ok(());
-            }
-            let index = Index {
-                version: VERSION,
-                session_id: session.header().id.clone(),
-                fingerprint: original,
-                format_version: source.format_version,
-                header_len: source.header_len,
-                next_seq: session.next_seq(),
-                data: self,
-            };
-            let body = serde_json::to_vec(&index).map_err(|e| backend_message(e.to_string()))?;
-            if body.len() as u64 > MAX_INDEX_BYTES {
-                return Ok(());
-            }
-            let bytes = serde_json::to_vec(&Envelope {
-                sha256: format!("{:x}", Sha256::digest(&body)),
-                index,
-            })
-            .map_err(|e| backend_message(e.to_string()))?;
-            if bytes.len() as u64 > MAX_INDEX_BYTES {
-                return Ok(());
-            }
-            let dest = path(journal);
-            // Fixed staging name is protected by both existing per-session locks.
-            let tmp = dest.with_extension("history-index.tmp");
-            let result = (|| {
-                let mut file = secure_open_options()
-                    .write(true)
-                    .create_new(true)
-                    .open(&tmp)
-                    .map_err(|e| backend_error("stage history index", &tmp, e))?;
-                file.write_all(&bytes)
-                    .and_then(|_| file.sync_all())
-                    .map_err(|e| backend_error("write history index", &tmp, e))?;
-                drop(file);
-                if dest.exists() {
-                    replace_compacted_file(&dest, &tmp)?;
-                } else {
-                    fs::rename(&tmp, &dest)
-                        .map_err(|e| backend_error("publish history index", &dest, e))?;
-                }
-                sync_parent_directory(journal)
-            })();
-            // A stale staging file may prevent publication, never history reads.
-            let _ = fs::remove_file(&tmp);
-            result
-        })();
+        if file_fingerprint(journal).ok().flatten() != Some(original) {
+            return;
+        }
+        let index = Index {
+            version: VERSION,
+            session_id: id.to_owned(),
+            fingerprint: original,
+            format_version: source.format_version,
+            header_len: source.header_len,
+            next_seq,
+            data: self,
+        };
+        let _ = publish_index(journal, &index);
     }
+}
+
+fn publish_index(journal: &Path, index: &Index) -> Result<(), StoreError> {
+    #[derive(Serialize)]
+    struct Output<'a> {
+        sha256: String,
+        index: &'a Index,
+    }
+    let body = serde_json::to_vec(index).map_err(|e| backend_message(e.to_string()))?;
+    if body.len() as u64 > MAX_INDEX_BYTES {
+        return Err(backend_message("history index exceeds its byte budget"));
+    }
+    let bytes = serde_json::to_vec(&Output {
+        sha256: format!("{:x}", Sha256::digest(&body)),
+        index,
+    })
+    .map_err(|e| backend_message(e.to_string()))?;
+    if bytes.len() as u64 > MAX_INDEX_BYTES {
+        return Err(backend_message("history index exceeds its byte budget"));
+    }
+    let sidecar = path(journal);
+    // Unexpected filesystem objects are not replaced even for a cache write.
+    if fs::symlink_metadata(&sidecar).is_ok_and(|m| !m.is_file() || m.file_type().is_symlink()) {
+        return Err(backend_message(
+            "history index publication refuses a non-regular sidecar",
+        ));
+    }
+    write_projection_file(&sidecar, &bytes, "history-index")
+}
+
+/// Repair only an exact catalogue source. A failed optional sidecar write
+/// does not prevent serving the verified in-memory index for this request.
+/// An unindexable source retains the caller's original full-replay fallback.
+pub(super) fn repair(
+    journal: &Path,
+    catalog: &CatalogRecord,
+) -> Result<Option<Arc<Index>>, StoreError> {
+    let mut builder = Builder::default();
+    let source = catalog_scan::scan(journal, catalog, |offset, line, batch| {
+        builder.record(offset, line, batch);
+        Ok(!builder.disabled)
+    })?;
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let index = Arc::new(Index {
+        version: VERSION,
+        session_id: catalog.entry.header.id.clone(),
+        fingerprint: catalog.fingerprint,
+        format_version: source.format_version,
+        header_len: source.header_len,
+        next_seq: catalog.entry.next_seq,
+        data: builder,
+    });
+    // Cache publication remains best-effort, just like normal replay. Never
+    // turn a valid read-only journal into an error because its cache is unwritable.
+    let _ = publish_index(journal, &index);
+    Ok(Some(index))
 }
 
 fn valid(index: &Index, id: &str, fingerprint: FileFingerprint, next: u64) -> bool {
@@ -361,32 +479,87 @@ fn read_batch(
     Ok(Some(batch))
 }
 
-/// Called under the ordinary process/advisory locks. Any unusable sidecar or
-/// bounded-window overflow returns None and leaves the journal untouched.
-pub(super) fn read(
+fn resident_weight(index: &Index, serialized: usize) -> usize {
+    let data = &index.data;
+    let mut bytes = std::mem::size_of::<Index>()
+        .saturating_add(index.session_id.capacity())
+        .saturating_add(
+            data.records
+                .capacity()
+                .saturating_mul(std::mem::size_of::<Record>()),
+        )
+        .saturating_add(
+            data.messages
+                .capacity()
+                .saturating_mul(std::mem::size_of::<u64>()),
+        );
+    for record in &data.records {
+        bytes = bytes.saturating_add(record.sha256.capacity());
+    }
+    // Charge BTree node links/spare capacity per entry, not just JSON length.
+    for key in data.inbox.keys() {
+        bytes = bytes.saturating_add(key.capacity()).saturating_add(96);
+    }
+    for key in data.calls.keys() {
+        bytes = bytes.saturating_add(key.capacity()).saturating_add(96);
+    }
+    for (key, values) in &data.compactions {
+        bytes = bytes
+            .saturating_add(key.capacity())
+            .saturating_add(112)
+            .saturating_add(values.capacity().saturating_mul(std::mem::size_of::<u64>()));
+    }
+    bytes = bytes.saturating_add(data.completed.len().saturating_mul(80));
+    bytes.max(serialized.saturating_mul(4))
+}
+
+fn load_index(
     journal: &Path,
+    sidecar: &Path,
     id: &str,
+    fingerprint: FileFingerprint,
     next: u64,
-    before: Option<u64>,
-    max: usize,
-) -> Result<Option<SessionHistoryWindow>, StoreError> {
-    let Some(fingerprint) = file_fingerprint(journal)? else {
-        return Ok(None);
-    };
-    let sidecar = path(journal);
-    let m = match fs::symlink_metadata(&sidecar) {
+    cache: &StdMutex<Cache>,
+) -> Result<Option<Arc<Index>>, StoreError> {
+    let m = match fs::symlink_metadata(sidecar) {
         Ok(v) => v,
         Err(_) => return Ok(None),
     };
     if !m.is_file() || m.file_type().is_symlink() || m.len() > MAX_INDEX_BYTES {
         return Ok(None);
     }
+    let cacheable = {
+        let mut cache = cache
+            .lock()
+            .map_err(|_| backend_message("history index cache is poisoned"))?;
+        let enabled = m.len() >= MIN_CACHED_INDEX_BYTES
+            && cache.max_entries > 0
+            && (m.len() as usize).saturating_mul(4) <= cache.max_bytes;
+        if !enabled {
+            cache.entries.remove(journal);
+        }
+        enabled
+    };
+    let original_sidecar = if cacheable {
+        file_fingerprint(sidecar)?
+    } else {
+        None
+    };
+    if let Some(stamp) = original_sidecar {
+        if let Some(index) = cache
+            .lock()
+            .map_err(|_| backend_message("history index cache is poisoned"))?
+            .get(journal, stamp, fingerprint, id, next)
+        {
+            return Ok(Some(index));
+        }
+    }
     let mut bytes = Vec::new();
-    let file = match secure_open_options().read(true).open(&sidecar) {
+    let file = match secure_open_options().read(true).open(sidecar) {
         Ok(v) => v,
         Err(_) => return Ok(None),
     };
-    if ensure_regular_file(&file, &sidecar, "history index").is_err() {
+    if ensure_regular_file(&file, sidecar, "history index").is_err() {
         return Ok(None);
     }
     if file
@@ -408,6 +581,69 @@ pub(super) fn read(
     {
         return Ok(None);
     }
+    let index = Arc::new(index);
+    if let Some(original) = original_sidecar {
+        if file_fingerprint(sidecar)? != Some(original)
+            || file_fingerprint(journal)? != Some(fingerprint)
+        {
+            return Ok(None);
+        }
+        cache
+            .lock()
+            .map_err(|_| backend_message("history index cache is poisoned"))?
+            .insert(
+                journal,
+                original,
+                index.clone(),
+                resident_weight(&index, bytes.len()),
+            );
+    }
+    Ok(Some(index))
+}
+
+pub(super) fn available(
+    journal: &Path,
+    id: &str,
+    next: u64,
+    cache: &StdMutex<Cache>,
+) -> Result<bool, StoreError> {
+    let Some(source) = file_fingerprint(journal)? else {
+        return Ok(false);
+    };
+    Ok(load_index(journal, &path(journal), id, source, next, cache)?.is_some())
+}
+
+/// Called under the ordinary process/advisory locks. Any unusable sidecar or
+/// bounded-window overflow returns None and leaves the journal untouched.
+pub(super) fn read(
+    journal: &Path,
+    id: &str,
+    next: u64,
+    before: Option<u64>,
+    max: usize,
+    cache: &StdMutex<Cache>,
+) -> Result<Option<SessionHistoryWindow>, StoreError> {
+    let Some(fingerprint) = file_fingerprint(journal)? else {
+        return Ok(None);
+    };
+    let sidecar = path(journal);
+    let Some(index) = load_index(journal, &sidecar, id, fingerprint, next, cache)? else {
+        return Ok(None);
+    };
+    read_prepared(journal, &index, before, max)
+}
+
+pub(super) fn read_prepared(
+    journal: &Path,
+    index: &Index,
+    before: Option<u64>,
+    max: usize,
+) -> Result<Option<SessionHistoryWindow>, StoreError> {
+    let fingerprint = index.fingerprint;
+    let next = index.next_seq;
+    if file_fingerprint(journal)? != Some(fingerprint) {
+        return Ok(None);
+    }
     let end = before.unwrap_or(next).min(next);
     let messages = index.data.messages.partition_point(|&s| s < end);
     let start = if messages >= max.max(1) {
@@ -427,7 +663,7 @@ pub(super) fn read(
         if index.data.records[n].first >= end {
             break;
         }
-        let Some(batch) = read_batch(&mut file, journal, &index, n, &mut remaining)? else {
+        let Some(batch) = read_batch(&mut file, journal, index, n, &mut remaining)? else {
             return Ok(None);
         };
         events.extend(
@@ -481,7 +717,7 @@ pub(super) fn read(
         .collect();
     let mut context = Vec::new();
     for n in records {
-        let Some(batch) = read_batch(&mut file, journal, &index, n, &mut remaining)? else {
+        let Some(batch) = read_batch(&mut file, journal, index, n, &mut remaining)? else {
             return Ok(None);
         };
         context.extend(batch.events.into_iter().filter(|e| needed.contains(&e.seq)));
@@ -496,7 +732,7 @@ pub(super) fn read(
         events,
         context,
         initial_request_header_seq: index.data.initial_request,
-        completed_steps: index.data.completed.into_iter().collect(),
+        completed_steps: index.data.completed.iter().copied().collect(),
     }))
 }
 
@@ -534,6 +770,41 @@ mod tests {
                 ..Builder::default()
             },
         }
+    }
+
+    #[test]
+    fn parsed_index_lru_tracks_hits_and_evicts_by_both_limits() {
+        let mut cache = Cache {
+            max_bytes: 20,
+            max_entries: 2,
+            ..Cache::default()
+        };
+        let index = Arc::new(sample());
+        let stamp = index.fingerprint;
+        cache.insert(Path::new("a"), stamp, index.clone(), 10);
+        cache.insert(Path::new("b"), stamp, index.clone(), 10);
+        let hit = cache
+            .get(Path::new("a"), stamp, stamp, "bounds", 2)
+            .unwrap();
+        assert!(
+            Arc::ptr_eq(&hit, &index),
+            "reuse parsed allocation, not a deep clone"
+        );
+        cache.insert(Path::new("c"), stamp, index.clone(), 10);
+        assert!(!cache.entries.contains_key(Path::new("b")));
+        assert_eq!(cache.stats().accounted_bytes, 20);
+        cache.insert(Path::new("large"), stamp, index.clone(), 21);
+        assert_eq!(cache.stats().entries, 2);
+        let mut changed = stamp;
+        changed.len += 1;
+        assert!(cache
+            .get(Path::new("a"), changed, stamp, "bounds", 2)
+            .is_none());
+        assert!(!cache.entries.contains_key(Path::new("a")));
+        assert!(cache
+            .get(Path::new("c"), stamp, changed, "bounds", 2)
+            .is_none());
+        assert_eq!(cache.stats().entries, 0);
     }
 
     #[test]
