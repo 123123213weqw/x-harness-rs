@@ -4099,6 +4099,41 @@
       ],
       "env": {},
       "weight": 30
+    },
+    {
+      "id": "contract-171",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-new-session-reuse.mjs"
+      ],
+      "env": {},
+      "weight": 30
+    },
+    {
+      "id": "browser-236",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-new-session-reuse-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 45
+    },
+    {
+      "id": "browser-237",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-new-session-reuse-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 45
     }
   ]
 }
