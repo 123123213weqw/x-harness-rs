@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 /** Entire generated graph and genuine platform/Core, using only built-in fixture transport. */
 import assert from 'node:assert/strict'
@@ -6,7 +7,7 @@ import {resolve,sep} from 'node:path'
 import {createRequire} from 'node:module'
 const implementation=process.env.UI_TEST_IMPL??'source',engine=process.env.UI_TEST_BROWSER??'chromium'
 assert.ok(['source','legacy'].includes(implementation));assert.ok(['chromium','webkit'].includes(engine))
-const base=resolve(implementation==='source'?'ui/dist':'ui/reference/master-a613970')
+const base=implementation==='source'?fixtureUiRoot():resolve('ui/reference/master-a613970')
 const referenceLayout=process.env.UI_BOOT_REFERENCE_LAYOUT==='true'
 assert.ok(!referenceLayout||implementation==='source','only the new shell has the approved regional chrome delta')
 // The user-requested rounded shell is a post-migration presentation change.

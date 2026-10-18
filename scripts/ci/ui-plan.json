@@ -4088,6 +4088,17 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 30
+    },
+    {
+      "id": "contract-170",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-ui-fixture-boundary.mjs"
+      ],
+      "env": {},
+      "weight": 30
     }
   ]
 }
