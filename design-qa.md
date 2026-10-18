@@ -37,6 +37,7 @@ All paths below are under this worktree's ignored `dist/design-qa/` directory.
 - Manual in-app-browser inspection: task collapse/expand, original model menu, hero Local/workspace labels, light/dark states. No browser warning/error logs on the inspected final light page.
 - Automated Chromium and WebKit: 20 light/dark viewport cases each (1280 down to 320 CSS pixels), long model names, file chooser, Stop/Queue/Send, draft/caret retention, Goal edit/budget, task default expansion, completed strikethrough, keyboard disclosure, long task wrapping, queue edit/remove and hero/active textarea continuity.
 - Shipped Progress runtime tests in both engines: empty/clear, ordered statuses, completion count, strikethrough, keyboard collapse, literal unsafe-looking titles, parallel items and narrow layouts.
+- Full-graph Chromium/WebKit differential acceptance passes with byte-exact frozen pixels after the existing narrow projections plus the approved additive hero model icon. The actual icon is independently checked for visibility, 18px geometry, viewBox and pinned stock path hash; frozen assets and pixel tolerances are unchanged.
 - Strict TypeScript and repository-only production build pass. Conversation, Goal and model-selection source suites pass 53 tests; reviewed stylesheet changes are explicitly pinned without changing the frozen reference or the InputBar hash.
 - The installed app has not been restarted, replaced or deployed. No live agents or user queues were mutated. Backend behavior is outside this visual task.
 
