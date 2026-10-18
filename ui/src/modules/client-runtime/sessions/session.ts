@@ -70,6 +70,8 @@ export class Session implements SessionFace {
   xhHistoryOwner: HistoryCache | undefined
   private xhRestoreBaseSeq: number | undefined
   private historyOpenTarget: HistoryOpenTarget | undefined
+  private historyGeneration = new AbortController()
+  private historyRangeRead: AbortController | undefined
   private xhPendingOperations = 0
   private xhLiveRecoveryAt: number | undefined
   private events: SessionWireEvent[] = []
@@ -413,9 +415,16 @@ export class Session implements SessionFace {
     }
   }
 
+  /** Invalidate only history reads; model, tool, and mutation requests have separate owners. */
+  private advanceHistoryGeneration(): void {
+    this.openGeneration++
+    this.historyGeneration.abort()
+    this.historyGeneration = new AbortController()
+  }
+
   /** Invalidate dead-transport work before any new-generation frame arrives. */
   invalidateConnectionGeneration(): void {
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.openPromise = null
     this.loadingOlder = false
     this.stitching = false
@@ -430,7 +439,7 @@ export class Session implements SessionFace {
   async resync(): Promise<void> {
     if (this.openState === 'cold') return
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.loadingOlder = false
     this.stitching = false
     this.openPromise = null
@@ -835,7 +844,7 @@ export class Session implements SessionFace {
 
   private async retryHistory(): Promise<void> {
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.loadingOlder = false
     this.stitching = false
     this.openPromise = null
@@ -864,6 +873,9 @@ export class Session implements SessionFace {
     }
     this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
       : target === undefined ? undefined : { kind: 'latest' }
+    // A cold reader choosing latest no longer needs the pending older page.
+    // A reconnect with committed history still restores that window atomically.
+    if (this.events.length === 0 && this.historyRestoreTarget() === undefined) this.historyRangeRead?.abort()
   }
 
   private historyRestoreTarget(): number | undefined {
@@ -882,10 +894,16 @@ export class Session implements SessionFace {
     while (hasMore && entries[0] !== undefined && entries[0].event.seq > target) {
       const beforeSeq = entries[0].event.seq
       let response: RpcResponse<HistoryValue>
-      try { response = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES }) }
+      const read = new AbortController()
+      this.historyRangeRead = read
+      try { response = await this.history({ beforeSeq, maxMessages: PAGE_MESSAGES }, read.signal) }
       catch (error) {
         if (generation !== this.openGeneration || this.historyRestoreTarget() === undefined) return value
+        // Latest may have been superseded by a new bookmark before abort settled.
+        if (read.signal.aborted) continue
         throw error
+      } finally {
+        if (this.historyRangeRead === read) this.historyRangeRead = undefined
       }
       if (generation !== this.openGeneration) return value
       const { result } = response
@@ -915,7 +933,7 @@ export class Session implements SessionFace {
   unloadHistory(): boolean {
     if (this.xhHistoryOwner === undefined || this.xhHistoryOwner.protected(this)) return false
     if (this.events.length) this.xhRestoreBaseSeq = this.baseSeq
-    this.openGeneration++
+    this.advanceHistoryGeneration()
     this.openPromise = null
     this.openState = 'cold'
     this.openError = null
@@ -976,14 +994,16 @@ export class Session implements SessionFace {
   }
 
   /** Select ordinary or addressed history transport from the stored browser fact. */
-  private history(payload: { beforeSeq?: number; maxMessages?: number }): Promise<RpcResponse<{
+  private history(payload: { beforeSeq?: number; maxMessages?: number }, signal?: AbortSignal): Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: ProjectionsBaseline | undefined
   }>> {
+    const readSignal = signal === undefined ? this.historyGeneration.signal
+      : AbortSignal.any([this.historyGeneration.signal, signal])
     return this.address === undefined
-      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-      : this.api.subagents.history({ ...this.address, ...payload })
+      ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, readSignal)
+      : this.api.subagents.history({ ...this.address, ...payload }, readSignal)
   }
 }
 

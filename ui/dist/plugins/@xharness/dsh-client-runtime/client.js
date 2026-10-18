@@ -4897,6 +4897,7 @@ class Session {
         this.api = api;
         this.remote = remote;
         this.options = options;
+        this.historyGeneration = new AbortController();
         this.xhPendingOperations = 0;
         this.events = [];
         /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -5203,9 +5204,15 @@ class Session {
             }
         }
     }
+    /** Invalidate only history reads; model, tool, and mutation requests have separate owners. */
+    advanceHistoryGeneration() {
+        this.openGeneration++;
+        this.historyGeneration.abort();
+        this.historyGeneration = new AbortController();
+    }
     /** Invalidate dead-transport work before any new-generation frame arrives. */
     invalidateConnectionGeneration() {
-        this.openGeneration++;
+        this.advanceHistoryGeneration();
         this.openPromise = null;
         this.loadingOlder = false;
         this.stitching = false;
@@ -5222,7 +5229,7 @@ class Session {
             return;
         if (this.events.length)
             this.xhRestoreBaseSeq = this.baseSeq;
-        this.openGeneration++;
+        this.advanceHistoryGeneration();
         this.loadingOlder = false;
         this.stitching = false;
         this.openPromise = null;
@@ -5649,7 +5656,7 @@ class Session {
     async retryHistory() {
         if (this.events.length)
             this.xhRestoreBaseSeq = this.baseSeq;
-        this.openGeneration++;
+        this.advanceHistoryGeneration();
         this.loadingOlder = false;
         this.stitching = false;
         this.openPromise = null;
@@ -5677,6 +5684,10 @@ class Session {
         }
         this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
             : target === undefined ? undefined : { kind: 'latest' };
+        // A cold reader choosing latest no longer needs the pending older page.
+        // A reconnect with committed history still restores that window atomically.
+        if (this.events.length === 0 && this.historyRestoreTarget() === undefined)
+            this.historyRangeRead?.abort();
     }
     historyRestoreTarget() {
         // Reconnect/gap repair owns an already committed window: keep it atomic and
@@ -5696,13 +5707,22 @@ class Session {
         while (hasMore && entries[0] !== undefined && entries[0].event.seq > target) {
             const beforeSeq = entries[0].event.seq;
             let response;
+            const read = new AbortController();
+            this.historyRangeRead = read;
             try {
-                response = await this.history({ beforeSeq, maxMessages: exports.PAGE_MESSAGES });
+                response = await this.history({ beforeSeq, maxMessages: exports.PAGE_MESSAGES }, read.signal);
             }
             catch (error) {
                 if (generation !== this.openGeneration || this.historyRestoreTarget() === undefined)
                     return value;
+                // Latest may have been superseded by a new bookmark before abort settled.
+                if (read.signal.aborted)
+                    continue;
                 throw error;
+            }
+            finally {
+                if (this.historyRangeRead === read)
+                    this.historyRangeRead = undefined;
             }
             if (generation !== this.openGeneration)
                 return value;
@@ -5738,7 +5758,7 @@ class Session {
             return false;
         if (this.events.length)
             this.xhRestoreBaseSeq = this.baseSeq;
-        this.openGeneration++;
+        this.advanceHistoryGeneration();
         this.openPromise = null;
         this.openState = 'cold';
         this.openError = null;
@@ -5793,10 +5813,12 @@ class Session {
         };
     }
     /** Select ordinary or addressed history transport from the stored browser fact. */
-    history(payload) {
+    history(payload, signal) {
+        const readSignal = signal === undefined ? this.historyGeneration.signal
+            : AbortSignal.any([this.historyGeneration.signal, signal]);
         return this.address === undefined
-            ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
-            : this.api.subagents.history({ ...this.address, ...payload });
+            ? this.api.sessions.history({ sessionId: this.sessionId, ...payload }, readSignal)
+            : this.api.subagents.history({ ...this.address, ...payload }, readSignal);
     }
 }
 exports.Session = Session;
