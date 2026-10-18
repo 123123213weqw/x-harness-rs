@@ -1,6 +1,7 @@
 //! Streaming Chat Completions and Responses API support.
 
 mod calibration_store;
+mod image_budget;
 pub use calibration_store::CalibrationStore;
 mod network;
 pub use network::client_builder_for_endpoint;
