@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "source": "Actual source client compiled by the repository builder against existing V100 Host; backend RPC read validation, not a screenshot",
+  "workers": 12,
+  "progress": {
+    "total": 13,
+    "pending": 0,
+    "assigned": 0,
+    "accepted": 13,
+    "failed": 0
+  },
+  "lastUsedModel": {
+    "provider": "deepseek",
+    "model": "deepseek-flash"
+  },
+  "latestRecordedActivity": {
+    "text": "Turn completed",
+    "time": 1792162105057
+  },
+  "publicAnswer": {
+    "text": "CHECKSUM=7260\n\nSource values in range order: RANGE_01=55, RANGE_02=155, RANGE_03=255, RANGE_04=355, RANGE_05=455, RANGE_06=555, RANGE_07=655, RANGE_08=755, RANGE_09=855, RANGE_10=955, RANGE_11=1055, RANGE_12=1155.",
+    "truncated": false
+  },
+  "taskResult": {
+    "taskId": "swarm-task-1792162063599-2312",
+    "title": "Scale checksum",
+    "turn": 3,
+    "outcome": "completed",
+    "summary": "CHECKSUM=7260 verified. All twelve source values correct in range order: RANGE_01=55, RANGE_02=155, RANGE_03=255, RANGE_04=355, RANGE_05=455, RANGE_06=555, RANGE_07=655, RANGE_08=755, RANGE_09=855, RANGE_10=955, RANGE_11=1055, RANGE_12=1155. Independently recomputed total 55+155+255+355+455+555+655+755+855+955+1055+1155=7260. Correct.",
+    "truncated": false
+  },
+  "noAdditionalModelUsageOrTurns": true
+}

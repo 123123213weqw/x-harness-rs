@@ -1,13 +1,19 @@
 //! Protocol for delegation. Transport, tools and UI share this typed boundary;
 //! implementations must reuse the durable agent inbox rather than a job queue.
+mod tasks;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use tasks::{AgentTaskCommand, TaskReviewOutcome};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AgentOperation {
+    Tasks {
+        swarm_id: String,
+        command: AgentTaskCommand,
+    },
     Start {
         task: String,
         #[serde(default)]
@@ -51,6 +57,10 @@ impl AgentOperation {
             }
         }
         match self {
+            Self::Tasks { swarm_id, command } => {
+                text(swarm_id, "swarm_id", 256)?;
+                command.validate()?;
+            }
             Self::Start {
                 task,
                 label,

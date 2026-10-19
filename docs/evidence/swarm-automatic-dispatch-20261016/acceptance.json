@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "completedAtUtc": "2026-10-16T14:12:32.996016+00:00",
+  "scope": "Human-enabled automatic Swarm dispatch; existing task claim/outbox/Agent runtime only",
+  "branch": "feat/swarm-task-board-20261016",
+  "base": "8a1fe4b232c883d852f878192260e8c51a1c0d9a",
+  "sourceState": "uncommitted; not pushed, merged, installed or released",
+  "rust": {
+    "host": "WZU_Server",
+    "remoteDirectory": "~/codex-build/x-harness-rs/swarm-task-board-20261016",
+    "localCompilation": false,
+    "packages": [
+      "xharness-control",
+      "xharness-agent",
+      "xharness-session",
+      "xharness-session-jsonl",
+      "xharness-api",
+      "xharness-host",
+      "xharness-host-app"
+    ],
+    "fullSelectedRegressions": true,
+    "hostUnitTests": {
+      "passed": 373,
+      "ignored": 7
+    },
+    "hostAppUnitTests": {
+      "passed": 104,
+      "ignored": 2
+    },
+    "newAutoDispatchTests": 8,
+    "additionalRepeatRuns": 3,
+    "matchingSuccessfulAutoDispatchExecutions": 32,
+    "clippy": "--locked -p xharness-control -p xharness-agent -p xharness-host -p xharness-host-app --all-targets -- -D warnings",
+    "provider": "Deterministic synthetic provider; real Host, Control/session stores and inbox execution",
+    "preExistingIgnoredTests": "Not claimed as passed; see complete log"
+  },
+  "local": {
+    "fmt": "passed",
+    "gitDiffCheck": "passed",
+    "architecture": "41 crates / 9 processors; content-bound record passed",
+    "architectureUnitTests": 27,
+    "uiContractNavigationTypeTests": 47,
+    "browsers": [
+      "Chromium",
+      "WebKit"
+    ],
+    "uiBuildCheck": "60 modules / 190 assets; strict TypeScript"
+  },
+  "verified": [
+    "Default off; missing eligibility stays manual; only distinct linked workers accepted",
+    "Native model-facing Agent tool cannot enable dispatch",
+    "Exclusive task claim and one unfinished task per worker under racing/manual dispatch",
+    "Stop/pause/incomplete turns park work; disabling does not cancel a committed claim",
+    "Native lineage fence precedes parent/child admission lanes",
+    "Cold restart retains opt-in and claim identity without duplicate execution",
+    "Actual listener executes ready work and advances dependencies only after exact-result acceptance",
+    "Failed review keeps dependents blocked",
+    "Normal/worker tool schemas, ordinary conversation navigation and drafts remain unchanged",
+    "UI enable/disable and explicit routing use production component/client with synthetic RPC",
+    "32 local/remote source input hashes matched before and after final validation"
+  ],
+  "notClaimed": [
+    "Paid-model task quality",
+    "New worker creation or automatic profiles",
+    "Retry/reassignment of failures or uncertain effects",
+    "Live task-board subscription; existing explicit/focus refresh remains",
+    "macOS/Windows native release acceptance",
+    "Deployment, restart, commit, push, PR creation, merge or release"
+  ],
+  "inputSha256": {
+    "config/architecture-changes/swarm-task-board-v1.json": "0d5bf953c6424d3465a48afa0bec75be7b5daf2ee7c88ce5b0b9f6fc552e8ff1",
+    "config/architecture-host-modules.json": "c9b68a241fe6275735d33a1b7f291e6bf147a2127f236e10219770316e821a0e",
+    "crates/xharness-agent/src/delegation.rs": "740756c0294c6eadfb7d3d814f53e4c3f094ad5026eb1ea7c7f07113967e8199",
+    "crates/xharness-agent/src/delegation/tasks.rs": "f24c4ad018a90f9dc060136ac022df85322f095bfb10011d8df0b20ec3f31d6b",
+    "crates/xharness-agent/src/lib.rs": "6c71ba639f4bb6415248dc98994561bab11fa101f29a51c4ad578c570d7c6654",
+    "crates/xharness-control/src/swarm.rs": "977ad7e13b4557c5f115306c1d416a9357fc755c980708586a0945fcb253bb40",
+    "crates/xharness-control/src/swarm/tasks.rs": "e62f9003536448ad5c2ec8ef721f85675253a88c7e67ebee48d28e55f5085786",
+    "crates/xharness-host-app/src/lib.rs": "6eb445828f6ffb07f5c0dae39a8ea3dbfaaf666200f5904e6d2a3c4b7dfb354f",
+    "crates/xharness-host/src/delegation.rs": "3b3d13b194c31a86acecddf94bb403a53791efb09d719b6eedb2f08aa0d4abba",
+    "crates/xharness-host/src/delegation/tasks.rs": "c5c9fbb5711f511a99f04bb3f46078decf32dc72cf35de5929efbeb45d4280db",
+    "crates/xharness-host/src/driver.rs": "faffb3ee1aa1f03003f5856cad93d4f1c07f4f24121ad7a88eee2a2316e73629",
+    "crates/xharness-host/src/lib.rs": "0793c60eeae84f6a704c13ba284f551b2195fc7066016a85eb0cde85e06036f2",
+    "crates/xharness-host/src/rpc.rs": "ef8ddc1efa7f71e1f98ed6668b0fd9e40123a312492ee754cbb1e5652e175bcf",
+    "crates/xharness-host/src/rpc/swarm.rs": "0cf715c3ed415f012d833690221df76b0906eadb10bad17b516ee14939a0ab3c",
+    "crates/xharness-host/src/rpc/swarm_tasks.rs": "ba9b93a5a019fb298952365773d172966172c534b72b8f5036f7939ab584939f",
+    "crates/xharness-host/src/swarm_processor.rs": "fec13a2bc74459fcff7b35f13c8a775b641b29fb671ee5cbb2cd8646691f5d1e",
+    "crates/xharness-host/src/swarm_tasks.rs": "23e79f00c7ffcad982c87ddad8fc946790b28ad20a56ced87ed07c907b8dfeaa",
+    "crates/xharness-host/src/swarm_tasks/access.rs": "84674108be74981718481dc66f2113a09ebad7634495aa3da93b55a1a13e3ef3",
+    "crates/xharness-host/src/swarm_tasks/coordinator_tests.rs": "3b16b617908060d27ed89d9cca591cb5bc098bdb7551d6d93b2d0cc84dbcb6ee",
+    "crates/xharness-host/src/swarm_tasks/dispatch.rs": "8dcf4fdf6bcbc34b955e0eab68e8dfeb80e5dc715ac4cdc99de6e24513a075b0",
+    "crates/xharness-host/src/swarm_tasks/dispatch_tests.rs": "85fd1fc8bdfdf2ba91e900253e3696188b49a50c65789f62132387a22f9d1342",
+    "crates/xharness-host/src/swarm_tasks/evidence.rs": "0273384fd320331e7092d9f9f2f1219094266966c127634ad3bee272be676a3d",
+    "crates/xharness-host/src/swarm_tasks/service.rs": "093c45171a373ebb83af716b1235b2cc35dfa4d8a73aff884fd945a6c93f97f6",
+    "crates/xharness-host/src/swarm_tests.rs": "89349c6920d59253171e52a92ef01a3847b1c251df84579f4de4c31e3b06716c",
+    "docs/specs/swarm-automatic-dispatch.md": "9889e30cee1a04cbf31c184cf0e913937f18a50c0e08bb34d1181bd7440339e3",
+    "scripts/fixtures/swarm-preview.js": "c50688a9dfdd57cc19ebc2440f8689ae34683fc297682a82c556586f1502e2fc",
+    "scripts/test-swarm-client.mjs": "9c21f4e1d186a14ded55ed07bcf6e550f5488e6843f10f89a541fdc1664cc0d2",
+    "scripts/test-swarm-ui-browser.mjs": "bf8c8fbc2a9a717a2fbefc87d983c38687198bab0bcd4cc366ff9d19a54dfd86",
+    "ui/src/modules/swarm/Swarm.css": "a9f98c15ad6050dbbb9a724b53af9ab4268fd9246793934292f7fad8df0fa1d8",
+    "ui/src/modules/swarm/TaskBoard.tsx": "2f172fa614d220662e84eaf8c8636ab048c13a731bb51a7059f3288880e71f90",
+    "ui/src/modules/swarm/client.ts": "64130e35809c3ae2e7ffecb66c86c969a3be5fd66a4b0e715785e38e8b8dc510",
+    "ui/src/modules/swarm/index.tsx": "5dea93dc7d2e6f62dd41ec19768f8da0528d554c0be3bb1cbdd706aafe350629"
+  },
+  "artifactSha256": {
+    "ui/dist/asset-manifest.json": "d110e6f42573011437f8962c1d0c24555229e88d5bdbf1eecb77194c66ea97d1",
+    "ui/dist/client-graph.json": "d34d4f36d86d3cb235839b3703774ddc0472f75b6fd65448fa7ac7b9b91ca157",
+    "ui/dist/index.html": "dc1779aa6a2bc33484c30231be2d870f33bca98b5900db21d9a82302d66f0769",
+    "ui/dist/plugins/@xlang/xharness-client-ui-swarm/client.js": "1a7a9f1a615af3fe8baa062f93016d632496a6e70994d182af369cc80d19e1ac"
+  },
+  "rawCaptureSha256": {
+    "rust-regression-repeats-clippy.log": "a0bf26890443ff5a3b36558dab1d8f589fe31845470b37a89a39995386888b6e",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "architecture-unit.log": "30e2a3b27564201c79ffccf9f6b338a3cfefc9be9759fbf349e9d66a619ba81b",
+    "ui-contracts.log": "574bd3130c344fb0957b35b413b48c851c702bb6c12906eee0efffb2400228ee",
+    "ui-chromium.log": "b5e0e444850f8fde64c60aacc5d3e8d4514661e48abaffaa0222d87e17740187",
+    "ui-webkit.log": "a83e312a11289330a705392dc32be5cce115b3aac6d00537b418c2f85cb4342e",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d"
+  },
+  "evidenceSha256": {
+    "ui-contracts.log": "574bd3130c344fb0957b35b413b48c851c702bb6c12906eee0efffb2400228ee",
+    "architecture.log": "2f1d0ba50d77f1bb6bbcfbc4c5ec7dc01ee4d61bb7ce40753f612dcb1808f9ab",
+    "ui-chromium.log": "b5e0e444850f8fde64c60aacc5d3e8d4514661e48abaffaa0222d87e17740187",
+    "rust-regression-repeats-clippy.log": "7a8bec24fdd783031d8c331eedadc556aefe4d8a9ae1313d5712bc482dcb7f23",
+    "automatic-routing-light.png": "53697c314d9071fa22ec9c4252bb3690092a3a180ac0606501bb3dc50b27e450",
+    "ui-webkit.log": "a83e312a11289330a705392dc32be5cce115b3aac6d00537b418c2f85cb4342e",
+    "architecture-unit.log": "30e2a3b27564201c79ffccf9f6b338a3cfefc9be9759fbf349e9d66a619ba81b",
+    "ui-build-check.log": "889bc1c84b57861e6fdf167d3ba53041f307dd0776603097704227edd127484d"
+  },
+  "historicalEvidence": "Earlier task-board, UI and coordinator evidence describes earlier source snapshots. This record binds the final automatic-dispatch snapshot; earlier source hashes are not rewritten."
+}

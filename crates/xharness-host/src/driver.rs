@@ -184,6 +184,11 @@ impl BasicHost {
         }
     }
 
+    /// Share notification lifetime without exposing the lifetime owner's fields.
+    pub(crate) fn background_listener_cancellation(&self) -> tokio_util::sync::CancellationToken {
+        self.background_listener_lifetime.stop.clone()
+    }
+
     /// Stop background notification listeners. Already-admitted turns remain
     /// Runtime-owned and must be drained by AgentRuntime::shutdown separately.
     /// Terminal and idempotent; this Host does not restart its listeners.

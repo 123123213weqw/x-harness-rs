@@ -70,7 +70,7 @@
       "stateOwner": "Durable Swarm identity, lifecycle and membership policy",
       "source": "swarm_processor.rs",
       "entrypoint": "rpc/swarm.rs",
-      "allowedConsumers": [],
+      "allowedConsumers": ["swarm_tasks.rs", "swarm_tasks/access.rs", "swarm_tasks/service.rs"],
       "allowedCrates": ["xharness_control"]
     }
   ]

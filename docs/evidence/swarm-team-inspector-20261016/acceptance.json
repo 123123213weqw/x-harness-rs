@@ -1,0 +1,54 @@
+{
+  "implemented": true,
+  "scope": "Frontend-only team inspector using existing RPC/runtime",
+  "checks": {
+    "contractsNavigationTypePolicy": {
+      "passed": true,
+      "tests": 51
+    },
+    "chromium": true,
+    "webkit": true,
+    "repositoryBuild": {
+      "modules": 60,
+      "assets": 190
+    },
+    "deterministicBuild": true,
+    "architecture": {
+      "crates": 41,
+      "processors": 9,
+      "unitTests": 27
+    },
+    "diffWhitespace": true
+  },
+  "live": {
+    "endpoint": "http://127.0.0.1:3293/",
+    "source": "Existing isolated V100 Host with completed 12-worker DeepSeek test",
+    "workers": 12,
+    "acceptedTasks": 13,
+    "readOnlyRpcPassed": true,
+    "additionalModelUsageOrTurns": false,
+    "overviewObservedInBrowser": true,
+    "finalWorkerDetailsVisualCheck": "blocked: in-app browser webview stopped attaching after final public-history decoder fix; final parser verified against actual V100 RPC instead",
+    "screenshotCaptured": false,
+    "previewOpenRequest": "queued by Codex panel tool",
+    "finalPreviewRefresh": "blocked: V100 connection stopped responding; bounded rsync timed out and local-forward readiness request timed out after 5 seconds. Previous corrected decoder deployment and live RPC validation succeeded before this outage."
+  },
+  "fixes": [
+    "Healthy catalog-derived parent/child/mode address works before first navigation; no changes to session manager",
+    "History decoder reads actual assistant/message data.message.content and excludes reasoning parts"
+  ],
+  "unchanged": [
+    "Rust/runtime",
+    "RPC schemas",
+    "normal chats",
+    "installed desktop app"
+  ],
+  "notPerformed": [
+    "commit",
+    "push",
+    "PR",
+    "merge",
+    "release",
+    "another paid model run"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add durable task ownership, coordinator-only Agent commands and human-enabled automatic dispatch through the shared claim service and existing inbox runtime.",
+  "compatibility": "Old snapshots default to empty tasks and autoDispatch=false; tasks without explicit eligible workers stay manual. Session and inbox formats stay unchanged. Normal/worker Agent schemas are unchanged. Exact assignment review unlocks dependencies. No automatic retry, reassignment, worker creation or additional model loop. Remote recovery, race, pause/stop, UI, Host-app and Agent regressions verify the boundary.",
+  "paths": {
+    "config/architecture-host-modules.json": {
+      "before": "2235ed5dba0bcee120bc5c414948913032eb211d8e9f3f30a8ef5e1d4500cc18",
+      "after": "c9b68a241fe6275735d33a1b7f291e6bf147a2127f236e10219770316e821a0e"
+    },
+    "crates/xharness-control/src/swarm.rs": {
+      "before": "69c9bb4c5903ea00296374927925999e4dd8735633214bf9a32f6dec36b6695f",
+      "after": "977ad7e13b4557c5f115306c1d416a9357fc755c980708586a0945fcb253bb40"
+    },
+    "crates/xharness-control/src/swarm/tasks.rs": {
+      "before": null,
+      "after": "e62f9003536448ad5c2ec8ef721f85675253a88c7e67ebee48d28e55f5085786"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

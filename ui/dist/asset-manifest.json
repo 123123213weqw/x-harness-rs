@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "files": {
     ".xharness-ui-output.json": {
-      "sha256": "4aa3ecd9e967b55d6b4c8c83c63e5480163e0e7a04339e55b21abdd697941393",
-      "bytes": 40467
+      "sha256": "3b5a4811318f0db3a383709ebcd8f8d88cc54931dc942176e13a26ff9549f7db",
+      "bytes": 40576
     },
     "app-icon-512.png": {
       "sha256": "c83d3f2d9d3fcb981793fa6e29d7ff7608bd791d015a87fdf517a7549de5ba8f",
@@ -650,7 +650,7 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "588478a23c05889472465338b8b75f6377f2fc1e5d3f4aae82f11da1ab1b169b",
+      "sha256": "cc66009b5fbfd95663e1dddc4e2783b522adbbb79a9181b1491c09a22b941d54",
       "bytes": 28782
     },
     "desktop-bootstrap.js": {
@@ -678,7 +678,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "eadcdb9c8f07c70e7f32e3a4b372e1216a87ab2bf9aae616bed7e2a149b2c616",
+      "sha256": "b0deecfa715cb60ce2d87c8c1c582de32316972503f32dc9f9d55f522e9e990a",
       "bytes": 28286
     },
     "logo-motion.css": {
@@ -978,8 +978,8 @@
       "bytes": 14771
     },
     "plugins/@xlang/xharness-client-ui-swarm/client.js": {
-      "sha256": "8490e34abee921dbf2ce871e7ffc5fcb8ad437f5ed70b7cb0dcf2639226fabb5",
-      "bytes": 29453
+      "sha256": "c641c1a0ffe8e16b9d15a2d7b1ab5976c6648d972a687a6e1ae31dd3cd32d666",
+      "bytes": 72518
     },
     "plugins/@xlang/xharness-client-ui-tasks/client.js": {
       "sha256": "e366cc2f067f4240a9ff62b4f96a9394ee25853b3418ff10e3de0f58511821f4",
