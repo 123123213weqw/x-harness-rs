@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 
+mod mixed;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireFeatures {
@@ -102,6 +104,7 @@ struct Sample {
 #[derive(Debug, Default)]
 pub struct Calibration {
     scopes: BTreeMap<String, VecDeque<Sample>>,
+    mixed_scopes: BTreeMap<String, VecDeque<Sample>>,
 }
 pub const CALIBRATION_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 pub const MAX_CALIBRATION_BYTES: usize = 2 * 1024 * 1024;
@@ -122,27 +125,38 @@ fn digest(value: &str) -> bool {
 struct Snapshot {
     version: u32,
     scopes: BTreeMap<String, VecDeque<Sample>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    mixed_scopes: BTreeMap<String, VecDeque<Sample>>,
 }
+
+fn snapshot_scopes(
+    scopes: &BTreeMap<String, VecDeque<Sample>>,
+) -> BTreeMap<String, VecDeque<Sample>> {
+    scopes
+        .iter()
+        .filter(|(scope, _)| digest(scope))
+        .map(|(scope, rows)| {
+            (
+                scope.clone(),
+                rows.iter()
+                    .filter(|s| digest(&s.request_id))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
 impl Calibration {
     /// Only hashed identities and numeric features are serializable. Reject
     /// arbitrary caller identifiers instead of accidentally persisting text.
     pub fn snapshot(&self) -> Result<Vec<u8>, String> {
-        let scopes = self
-            .scopes
-            .iter()
-            .filter(|(scope, _)| digest(scope))
-            .map(|(scope, rows)| {
-                (
-                    scope.clone(),
-                    rows.iter()
-                        .filter(|s| digest(&s.request_id))
-                        .cloned()
-                        .collect(),
-                )
-            })
-            .collect();
-        serde_json::to_vec(&Snapshot { version: 1, scopes })
-            .map_err(|_| "invalid calibration snapshot".into())
+        serde_json::to_vec(&Snapshot {
+            version: 2,
+            scopes: snapshot_scopes(&self.scopes),
+            mixed_scopes: snapshot_scopes(&self.mixed_scopes),
+        })
+        .map_err(|_| "invalid calibration snapshot".into())
     }
     pub fn restore(bytes: &[u8]) -> Result<Self, String> {
         Self::restore_at(bytes, now_ms())
@@ -153,36 +167,48 @@ impl Calibration {
         }
         let mut snapshot: Snapshot =
             serde_json::from_slice(bytes).map_err(|_| "invalid calibration snapshot")?;
-        if snapshot.version != 1 || snapshot.scopes.len() > 64 {
+        if !matches!(snapshot.version, 1 | 2)
+            || (snapshot.version == 1 && !snapshot.mixed_scopes.is_empty())
+            || snapshot.scopes.len() > 64
+            || snapshot.mixed_scopes.len() > 64
+        {
             return Err("unsupported calibration snapshot".into());
         }
-        for (scope, rows) in &mut snapshot.scopes {
-            if !digest(scope) || rows.len() > 32 {
-                return Err("invalid calibration scope".into());
-            }
-            let mut ids = std::collections::BTreeSet::new();
-            for s in rows.iter() {
-                if !digest(&s.request_id)
-                    || !ids.insert(&s.request_id)
-                    || s.actual == 0
-                    || s.actual > 1_000_000_000_000
-                    || s.features.image_tokens != 0
-                    || s.features.units() > 1_000_000_000_000
-                {
-                    return Err("invalid calibration sample".into());
+        for (scopes, mixed) in [
+            (&mut snapshot.scopes, false),
+            (&mut snapshot.mixed_scopes, true),
+        ] {
+            for (scope, rows) in scopes.iter_mut() {
+                if !digest(scope) || rows.len() > 32 {
+                    return Err("invalid calibration scope".into());
                 }
+                let mut ids = std::collections::BTreeSet::new();
+                for s in rows.iter() {
+                    if !digest(&s.request_id)
+                        || !ids.insert(&s.request_id)
+                        || s.actual == 0
+                        || s.actual > 1_000_000_000_000
+                        || (s.features.image_tokens != 0) != mixed
+                        || s.features.image_tokens > 1_000_000_000_000
+                        || s.features.units() > 1_000_000_000_000
+                    {
+                        return Err("invalid calibration sample".into());
+                    }
+                }
+                rows.retain(|s| {
+                    s.observed_at_ms <= now && now - s.observed_at_ms <= CALIBRATION_TTL_MS
+                });
             }
-            rows.retain(|s| {
-                s.observed_at_ms <= now && now - s.observed_at_ms <= CALIBRATION_TTL_MS
-            });
+            scopes.retain(|_, rows| !rows.is_empty());
         }
-        snapshot.scopes.retain(|_, rows| !rows.is_empty());
         Ok(Self {
             scopes: snapshot.scopes,
+            mixed_scopes: snapshot.mixed_scopes,
         })
     }
     pub fn invalidate(&mut self, scope: &str) {
         self.scopes.remove(scope);
+        self.mixed_scopes.remove(scope);
     }
 
     // Only text-only observations identify the text price. A mixed response's
@@ -217,7 +243,14 @@ impl Calibration {
     }
 
     pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
-        let (text_tokens, text_accuracy) = self.estimate_text(scope, features);
+        let (mut text_tokens, text_accuracy) = self.estimate_text(scope, features);
+        // Mixed totals are never text measurements. Only a mixed query may
+        // reuse their conservative upper envelope when pure-text training is cold.
+        if features.image_tokens != 0 && text_accuracy == TokenCountAccuracy::Estimated {
+            if let Some(upper) = self.mixed_text_upper(scope, features) {
+                text_tokens = text_tokens.min(upper);
+            }
+        }
         ProviderInputTokenCount {
             counter: format!("wire-calibration/v1:{scope}"),
             input_tokens: text_tokens.saturating_add(features.image_tokens),
@@ -234,14 +267,7 @@ impl Calibration {
             return;
         }
         if features.image_tokens != 0 {
-            let (text_tokens, accuracy) = self.estimate_text(scope, &features);
-            if accuracy == TokenCountAccuracy::Calibrated
-                && actual > text_tokens.saturating_add(features.image_tokens)
-            {
-                // An underestimated mixed request invalidates the reused text
-                // distribution too. Never learn a text ratio from its total.
-                self.invalidate(scope);
-            }
+            self.observe_mixed(scope, request_id, features, actual);
             return;
         }
         if self.scopes.len() >= 64 && !self.scopes.contains_key(scope) {
@@ -255,6 +281,7 @@ impl Calibration {
         // A violated upper estimate invalidates the learned distribution immediately.
         if prior.accuracy == TokenCountAccuracy::Calibrated && actual > prior.input_tokens {
             rows.clear();
+            self.mixed_scopes.remove(scope);
         }
         rows.push_back(Sample {
             observed_at_ms: now_ms(),
@@ -631,3 +658,6 @@ mod snapshot_tests {
         assert!(Calibration::restore(&serde_json::to_vec(&invalid).unwrap()).is_err());
     }
 }
+
+#[cfg(test)]
+mod mixed_tests;

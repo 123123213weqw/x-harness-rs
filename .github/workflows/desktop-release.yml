@@ -141,6 +141,7 @@ jobs:
           python3 -B scripts/test-desktop-release.py
           python3 -B scripts/test-desktop-release-build.py
           python3 -B scripts/test-desktop-candidates.py
+          python3 -B scripts/test-desktop-candidate-idle.py
           python3 -B scripts/test-macos-signing.py
           python3 -B scripts/test-windows-desktop-bundle.py
           python3 -B scripts/test-unified-desktop-release.py

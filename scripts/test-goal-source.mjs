@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {goalCases,goalFixture,compileGoal,legacyGoal} from './goal-test-harness.mjs';
 import {json} from './conversation-test-harness.mjs';
 import {descendants} from './conversation-test-hooks.mjs';
 const source=compileGoal().bytes.toString();
-test('goal preserves existing ABI/styles and adds the independent Progress surface',()=>{const next=goalFixture(source),old=goalFixture(legacyGoal);assert.deepEqual(Object.keys(next.plugin).filter(key=>key!=='ProgressDock').sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));assert.deepEqual(json(next.styles.filter(style=>!style.dataset.pluginCss.endsWith('/ProgressDock.css'))),json(old.styles));});
+test('goal preserves existing ABI/styles and adds the independent Progress surface',()=>{const next=goalFixture(source),old=goalFixture(legacyGoal);assert.deepEqual(Object.keys(next.plugin).filter(key=>key!=='ProgressDock').sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));const reviewed=readFileSync(new URL('../ui/src/modules/goal/GoalBar.css',import.meta.url),'utf8');
+ assert.equal(createHash('sha256').update(reviewed).digest('hex'),'8aa3fe65cd673b446190f4059e43757e94f6669cea9f354ae0128d6006e498b1','reviewed flat Goal styling');
+ const expected=old.styles.map(style=>style.dataset.pluginCss.endsWith('/GoalBar.module.css')?{...style,textContent:reviewed}:style);
+ assert.deepEqual(json(next.styles.filter(style=>!style.dataset.pluginCss.endsWith('/ProgressDock.css'))),json(expected));});
 for(const [label,impl] of [['source',source],['legacy',legacyGoal]])for(const[name,check]of Object.entries(goalCases))test(label+': '+name,()=>check(impl));
 test('source: provider backoff is visible without replacing pause/resume controls',()=>{
   const f=goalFixture(source),projection=f.projection('network_backoff');

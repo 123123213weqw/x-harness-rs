@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Verify that stable working-set selection metadata survives cold JSONL reload even when full request-body capture is disabled.",
+  "compatibility": "No journal schema, event type or request-body retention change. The optional body-free workingSetSelection option must remain present in metadata-only request headers, and older headers remain readable unchanged.",
+  "paths": {
+    "crates/xharness-session-jsonl/tests/jsonl.rs": {
+      "before": "a4d07a1c637fce060cf387b949f94503d0e7dfc59c88105b259a0d991605cbe5",
+      "after": "214e78ae5bf9b564fee608cc98be85729ba8366a298820f9eed05683b9e8eb12"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "persistence"
+  ]
+}
