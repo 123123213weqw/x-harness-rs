@@ -10,6 +10,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import ssl
 import stat
@@ -29,6 +30,63 @@ SPEC.loader.exec_module(m)
 
 
 class HarnessTests(unittest.TestCase):
+    @staticmethod
+    def install_call_arguments(source):
+        """Inspect these controlled Rust fixtures without compiling Rust locally."""
+        arguments = []
+        for match in re.finditer(r'updater::desktop_install_update\s*\(', source):
+            start = match.end()
+            depth = 1
+            fields = []
+            field = start
+            for index in range(start, len(source)):
+                character = source[index]
+                if character == '(':
+                    depth += 1
+                elif character == ')':
+                    depth -= 1
+                    if depth == 0:
+                        fields.append(source[field:index].strip())
+                        arguments.append(fields)
+                        break
+                elif character == ',' and depth == 1:
+                    fields.append(source[field:index].strip())
+                    field = index + 1
+            else:
+                raise AssertionError('Unterminated desktop_install_update fixture call')
+        return arguments
+
+    def assert_fixture_install_contract(self, source, expected_count):
+        calls = self.install_call_arguments(source)
+        self.assertEqual(len(calls), expected_count)
+        for arguments in calls:
+            self.assertEqual(len(arguments), 4, 'Fixture must pass the placement argument')
+            self.assertEqual(arguments[:2], ['app.clone()', 'app.state()'])
+            self.assertIn(arguments[2], ('true', 'false'))
+            self.assertEqual(arguments[3], 'None', 'Unix fixtures retain current-placement behavior')
+        # Keep both the rejected no-consent and confirmed-install paths exercised.
+        self.assertTrue(any(arguments[2] == 'false' for arguments in calls))
+        self.assertTrue(any(arguments[2] == 'true' for arguments in calls))
+
+    def test_native_driver_install_calls_match_production_signature(self):
+        updater = (m.REPO / 'apps/desktop/src-tauri/src/updater.rs').read_text()
+        signature = re.search(r'pub async fn desktop_install_update\((.*?)\)\s*->',
+                              updater, re.DOTALL)
+        self.assertIsNotNone(signature)
+        parameters = re.findall(r'^\s*([a-z_]+)\s*:', signature.group(1), re.MULTILINE)
+        self.assertEqual(parameters, ['app', 'state', 'confirm_stop', 'placement'])
+        self.assertRegex(signature.group(1), r'placement:\s*Option<String>')
+        for name, count in [('unix-update-driver.rs', 4), ('linux-update-driver.rs', 3)]:
+            with self.subTest(fixture=name):
+                source = (HERE / 'fixtures' / name).read_text()
+                self.assert_fixture_install_contract(source, count)
+                # Reproduce the old three-argument call: the ordinary PR contract
+                # suite must fail before the native rehearsal reaches rustc.
+                stale = source.replace('app.state(), true, None)', 'app.state(), true)', 1)
+                self.assertNotEqual(stale, source)
+                with self.assertRaisesRegex(AssertionError, 'placement argument'):
+                    self.assert_fixture_install_contract(stale, count)
+
     def test_reqwest_existing_features_are_preserved_and_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             desktop = pathlib.Path(tmp)

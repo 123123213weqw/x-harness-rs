@@ -119,7 +119,7 @@ async fn exercise(app: AppHandle) {
     phase(a.or(b).unwrap(), "available");
     record(json!({"concurrentCheckRejected":true}));
     assert!(
-        updater::desktop_install_update(app.clone(), app.state(), true)
+        updater::desktop_install_update(app.clone(), app.state(), true, None)
             .await
             .is_err()
     );
@@ -139,7 +139,7 @@ async fn exercise(app: AppHandle) {
     );
     host_running(&app);
     assert!(
-        updater::desktop_install_update(app.clone(), app.state(), false)
+        updater::desktop_install_update(app.clone(), app.state(), false, None)
             .await
             .is_err()
     );
@@ -147,7 +147,7 @@ async fn exercise(app: AppHandle) {
     record(json!({"unconfirmedInstallRejected":true}));
     phase(updater::desktop_update_status(app.state()), "downloaded");
     record(json!({"installConfirmed":true}));
-    updater::desktop_install_update(app.clone(), app.state(), true)
+    updater::desktop_install_update(app.clone(), app.state(), true, None)
         .await
         .unwrap();
     panic!("successful install must restart the process");
