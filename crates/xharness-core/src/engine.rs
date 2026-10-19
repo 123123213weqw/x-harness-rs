@@ -413,6 +413,9 @@ impl LoopEngine {
             failed_compactions: HashMap::new(),
             workset_pressure: false,
             workset_input_sample: None,
+            workset_selection: None,
+            workset_restored: false,
+            workset_reselect: false,
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -566,6 +569,9 @@ struct Runner {
     recent_input_growth: VecDeque<u64>,
     failed_compactions: HashMap<String, String>,
     workset_pressure: bool,
+    workset_selection: Option<crate::context_working_set::StableSelection>,
+    workset_restored: bool,
+    workset_reselect: bool,
     /// Complete request price before the first disposable projection. Local
     /// byte heuristics select candidates only, and must use comparable units.
     workset_input_sample: Option<(u64, u64)>,
@@ -789,6 +795,7 @@ impl Runner {
             self.step += 1;
             self.journal_step_start().await?;
             let mut pressure_attempted = false;
+            let mut working_set_attempted = false;
             let (provider_request, prepared, context_tools, token_budget, context_origins) = loop {
                 let tool_definitions = self.tool_definitions().await;
                 let context_tools = tool_definitions
@@ -829,9 +836,10 @@ impl Runner {
                 {
                     TokenBudgetCheck::Ready(report) => {
                         if let Some(report) = &report {
-                            if context_tools
-                                .iter()
-                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                            if !working_set_attempted
+                                && context_tools.iter().any(|t| {
+                                    t.get("name").and_then(Value::as_str) == Some("history")
+                                })
                                 && self
                                     .activate_working_set(
                                         report.estimate.total_input_tokens,
@@ -841,6 +849,7 @@ impl Runner {
                                     )
                                     .await?
                             {
+                                working_set_attempted = true;
                                 continue;
                             }
                         }
@@ -917,9 +926,10 @@ impl Runner {
                         context_window_tokens,
                         error,
                     } => {
-                        if context_tools
-                            .iter()
-                            .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                        if !working_set_attempted
+                            && context_tools
+                                .iter()
+                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
                             && self
                                 .activate_working_set(
                                     current_input_tokens,
@@ -929,6 +939,7 @@ impl Runner {
                                 )
                                 .await?
                         {
+                            working_set_attempted = true;
                             continue;
                         }
                         let maximum = self
@@ -1312,7 +1323,7 @@ impl Runner {
     // policy, continuations and runtime notices identical avoids undercounting
     // a candidate that would grow again immediately after its replacement.
     async fn prepare_context(
-        &self,
+        &mut self,
         context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
@@ -1329,6 +1340,24 @@ impl Runner {
                         RunFailure::Failed(format!("working set journal load failed: {error}"))
                     })?
                     .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
+                if !self.workset_restored {
+                    self.workset_selection =
+                        session
+                            .events()
+                            .iter()
+                            .rev()
+                            .find_map(|event| {
+                                if let SessionEventData::RequestHeader { header } = event.data() {
+                                    Some(header.options.get("workingSetSelection").and_then(
+                                        crate::context_working_set::StableSelection::restore,
+                                    ))
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten();
+                    self.workset_restored = true;
+                }
                 working_plan = xharness_session::session_plan(&session);
                 let surface = session.derive_surface_messages();
                 attribution = crate::context_composition::aligned_origins(
@@ -1341,8 +1370,63 @@ impl Runner {
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
-        self.prepare_context_with_sources(
-            context_messages,
+        let history_available = context_tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
+        let working = if history_available && !origins.is_empty() {
+            if let Some(selection) = &self.workset_selection {
+                if !selection
+                    .matches(&context_messages, &origins)
+                    .map_err(|error| RunFailure::Failed(error.to_string()))?
+                {
+                    // Compaction/edit/prompt changes invalidate the optional cache.
+                    // Count the new full surface before deciding whether to retire.
+                    self.workset_selection = None;
+                    self.workset_pressure = false;
+                    self.workset_reselect = false;
+                    self.workset_input_sample = None;
+                }
+            }
+            if !self.workset_reselect {
+                if let Some(selection) = &self.workset_selection {
+                    match xharness_context::reuse_working_set(
+                        context_messages.clone(),
+                        &origins,
+                        selection.ranges(),
+                    ) {
+                        Ok(working) => working,
+                        Err(_) => {
+                            // Optional saved metadata must not break a valid chat.
+                            // Preserve all input and let admission decide again.
+                            self.workset_selection = None;
+                            self.workset_pressure = false;
+                            self.workset_input_sample = None;
+                            ContextSurface::identity(context_messages)
+                        }
+                    }
+                } else {
+                    ContextSurface::identity(context_messages)
+                }
+            } else {
+                let working = self.project_working_set_retaining(
+                    context_messages.clone(),
+                    &origins,
+                    context_tools,
+                )?;
+                self.workset_selection = crate::context_working_set::StableSelection::capture(
+                    &context_messages,
+                    &origins,
+                    &working,
+                )
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+                self.workset_reselect = false;
+                working
+            }
+        } else {
+            ContextSurface::identity(context_messages)
+        };
+        self.prepare_context_with_working(
+            working,
             context_tools,
             &origins,
             &attribution,
@@ -1351,28 +1435,17 @@ impl Runner {
         .await
     }
 
-    async fn prepare_context_with_sources(
+    async fn prepare_context_with_working(
         &self,
-        mut context_messages: Vec<AgentMessage>,
+        working: ContextSurface,
         context_tools: &[Value],
         origins: &[Option<xharness_context::WorkingSetSource>],
         attribution: &[xharness_token::ContextMessageOrigin],
         working_plan: Option<&xharness_session::SessionPlan>,
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
-        // Retirement is allowed only with a real session-bound recovery tool.
-        // A custom executor without history must remain lossless/fail closed.
-        let history_available = context_tools
-            .iter()
-            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
-        let working = if history_available && !origins.is_empty() {
-            self.project_working_set(context_messages, origins, context_tools)?
-        } else {
-            ContextSurface::identity(context_messages)
-        };
         let working_attribution =
             crate::context_composition::project_origins(attribution, &working);
-        context_messages = working.messages.clone();
-        let mut context_request = ContextRequest::new(context_messages)
+        let mut context_request = ContextRequest::new(working.messages.clone())
             .with_target(
                 self.request.provider.provider_name(),
                 self.request.provider.model_name(),
@@ -1478,6 +1551,32 @@ impl Runner {
         sources: &[Option<xharness_context::WorkingSetSource>],
         tools: &[Value],
     ) -> Result<ContextSurface, RunFailure> {
+        self.project_working_set_ranges(messages, sources, tools, &[])
+    }
+
+    fn project_working_set_retaining(
+        &self,
+        messages: Vec<AgentMessage>,
+        sources: &[Option<xharness_context::WorkingSetSource>],
+        tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        self.project_working_set_ranges(
+            messages,
+            sources,
+            tools,
+            self.workset_selection
+                .as_ref()
+                .map_or(&[], |selection| selection.ranges()),
+        )
+    }
+
+    fn project_working_set_ranges(
+        &self,
+        messages: Vec<AgentMessage>,
+        sources: &[Option<xharness_context::WorkingSetSource>],
+        tools: &[Value],
+        retired_ranges: &[(usize, usize)],
+    ) -> Result<ContextSurface, RunFailure> {
         let available = self
             .request
             .token_guard
@@ -1507,7 +1606,7 @@ impl Runner {
         let calibrated =
             |tokens| xharness_context::calibrate_working_set_tokens(tokens, local, measured);
         let tool_cost = local_tool_cost(tools)?;
-        xharness_context::project_working_set(
+        xharness_context::project_working_set_retaining(
             messages,
             sources,
             &xharness_context::WorkingSetConfig {
@@ -1518,6 +1617,7 @@ impl Runner {
                 hot_input_budget: Some(calibrated(available).saturating_sub(tool_cost)),
                 retain_checkpoints: 2,
             },
+            retired_ranges,
         )
         .map_err(|error| RunFailure::Failed(error.to_string()))
     }
@@ -1529,7 +1629,7 @@ impl Runner {
         prepared: &ContextSurface,
         tools: &[Value],
     ) -> Result<bool, RunFailure> {
-        if self.workset_pressure || self.journal.is_none() {
+        if self.workset_reselect || self.journal.is_none() {
             return Ok(false);
         }
         let Some(config) = &self.request.compaction else {
@@ -1561,6 +1661,7 @@ impl Runner {
                 .map_err(|error| RunFailure::Failed(error.to_string()))?
                 .saturating_add(local_tool_cost(tools)?);
             self.workset_pressure = true;
+            self.workset_reselect = true;
             self.workset_input_sample = Some((local, input));
             return Ok(true);
         }
@@ -1727,6 +1828,7 @@ impl Runner {
 
     async fn run_manual_compaction(&mut self, command_id: &str) -> Result<LoopStatus, RunFailure> {
         self.workset_pressure = true;
+        self.workset_reselect = true;
         let outcome = async {
             let tool_definitions = self.tool_definitions().await;
             let context_tools = tool_definitions
@@ -2139,6 +2241,7 @@ impl Runner {
         let checkpoint_seq = commit_next_seq
             .checked_add(2)
             .ok_or_else(|| RunFailure::Failed("compaction sequence overflow".into()))?;
+        let mut candidate_selection = None;
         let validation: Result<Option<bool>, RunFailure> = async {
             let mut candidate = surface
                 .iter()
@@ -2173,9 +2276,23 @@ impl Runner {
                 .len()
                 .saturating_sub(candidate_origins.len());
             candidate_origins.splice(0..0, std::iter::repeat_n(None, prefix_len));
+            let working = if tools
+                .iter()
+                .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"))
+            {
+                self.project_working_set(prefixed_candidate.clone(), &candidate_origins, &tools)?
+            } else {
+                ContextSurface::identity(prefixed_candidate.clone())
+            };
+            candidate_selection = crate::context_working_set::StableSelection::capture(
+                &prefixed_candidate,
+                &candidate_origins,
+                &working,
+            )
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
             let prepared = self
-                .prepare_context_with_sources(
-                    prefixed_candidate,
+                .prepare_context_with_working(
+                    working,
                     &tools,
                     &candidate_origins,
                     &[],
@@ -2316,6 +2433,10 @@ impl Runner {
             return Ok(CompactionOutcome::Interrupted);
         }
         self.reload_journal_messages().await?;
+        // Reuse exactly the candidate admitted before this atomic commit.
+        self.workset_selection = candidate_selection;
+        self.workset_reselect = false;
+        self.workset_restored = true;
         let context_tools_sha256 = sha256_json(&context_tools)?;
         self.debug("compaction.end", || {
             json!({
@@ -3140,6 +3261,13 @@ impl Runner {
         header
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
+        if let Some(selection) = &self.workset_selection {
+            header.options.insert(
+                "workingSetSelection".into(),
+                serde_json::to_value(selection)
+                    .map_err(|error| RunFailure::Failed(error.to_string()))?,
+            );
+        }
         header.options.insert(
             "context".to_owned(),
             json!({
