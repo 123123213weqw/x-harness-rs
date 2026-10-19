@@ -123,17 +123,17 @@ async fn exercise(app: AppHandle) {
         let package = app.path().app_cache_dir().unwrap().join("updater-v1/current/package.bin");
         let original = fs::read(&package).unwrap();
         fs::write(&package, b"corrupted-after-download").unwrap();
-        assert!(updater::desktop_install_update(app.clone(), app.state(), true).await.is_err());
+        assert!(updater::desktop_install_update(app.clone(), app.state(), true, None).await.is_err());
         host_running(&app);
         record(json!({"cachedTamperRejectedBeforeHostStop":true}));
         fs::write(&package, original).unwrap();
         phase(updater::desktop_check_update(app.clone(), app.state()).await.unwrap(), "downloaded");
         // Download while ready is a no-op, not another HTTP package transfer.
         phase(updater::desktop_download_update(app.clone(), app.state()).await.unwrap(), "downloaded");
-        assert!(updater::desktop_install_update(app.clone(), app.state(), false).await.is_err());
+        assert!(updater::desktop_install_update(app.clone(), app.state(), false, None).await.is_err());
         host_running(&app);
         record(json!({"unconfirmedInstallRejected":true}));
-        updater::desktop_install_update(app.clone(), app.state(), true).await.unwrap();
+        updater::desktop_install_update(app.clone(), app.state(), true, None).await.unwrap();
         panic!("successful install must restart the process");
     }
     assert!(updater::desktop_download_update(app.clone(), app.state())
@@ -177,7 +177,7 @@ async fn exercise(app: AppHandle) {
     phase(a.or(b).unwrap(), "available");
     record(json!({"concurrentCheckRejected":true}));
     assert!(
-        updater::desktop_install_update(app.clone(), app.state(), true)
+        updater::desktop_install_update(app.clone(), app.state(), true, None)
             .await
             .is_err()
     );
