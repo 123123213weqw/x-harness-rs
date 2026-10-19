@@ -98,18 +98,18 @@ impl DesktopState {
         // Finder/Explorer-launched apps do not reliably inherit shell exports.
         // Reuse the existing private secret-file convention for optional web
         // search, even when there is no providers.json.
-        let inherited_exa_key = env::var("EXA_API_KEY")
+        let inherited_deepseek_key = env::var("DEEPSEEK_API_KEY")
             .ok()
             .is_some_and(|key| !key.trim().is_empty());
-        let projected_exa_key = provider_env
+        let projected_deepseek_key = provider_env
             .iter()
-            .any(|(name, value)| name == "EXA_API_KEY" && !value.trim().is_empty());
-        if !inherited_exa_key && !projected_exa_key {
-            if let Some(key) = provider_secret_candidates(&app_config, "EXA_API_KEY")
+            .any(|(name, value)| name == "DEEPSEEK_API_KEY" && !value.trim().is_empty());
+        if !inherited_deepseek_key && !projected_deepseek_key {
+            if let Some(key) = provider_secret_candidates(&app_config, "DEEPSEEK_API_KEY")
                 .into_iter()
                 .find_map(|path| read_nonempty_secret(&path))
             {
-                provider_env.push(("EXA_API_KEY".to_owned(), key));
+                provider_env.push(("DEEPSEEK_API_KEY".to_owned(), key));
             }
         }
         Ok(Self {

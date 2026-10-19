@@ -24,6 +24,16 @@ pub trait ModelSettingsBackend: Send + Sync + 'static {
         self.prepare(section).await
     }
     async fn credential_info(&self, reference: &str) -> Result<Value, String>;
+    /// Optional credential-only path. The Host calls this only after proving
+    /// no configured model references the key; true means the write completed.
+    /// Existing backends retain their registry-aware behavior by default.
+    async fn write_auxiliary_credential(
+        &self,
+        _reference: &str,
+        _value: Option<&str>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
     async fn set_credential(
         &self,
         reference: &str,

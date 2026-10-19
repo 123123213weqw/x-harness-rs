@@ -326,6 +326,22 @@ impl ModelSettingsBackend for NativeModelSettings {
             None => Ok(json!({"configured":false,"writable":true})),
         }
     }
+    async fn write_auxiliary_credential(
+        &self,
+        reference: &str,
+        value: Option<&str>,
+    ) -> Result<bool, String> {
+        if self.environment_key(reference).is_some() {
+            return Err("An environment/process credential overrides this reference; change it outside the app".into());
+        }
+        if let Some(value) = value {
+            validate_credential_value(value)?;
+            self.credentials.set(reference, value).await?;
+        } else {
+            self.credentials.delete(reference).await?;
+        }
+        Ok(true)
+    }
     async fn set_credential(
         &self,
         reference: &str,
@@ -335,9 +351,7 @@ impl ModelSettingsBackend for NativeModelSettings {
         if self.environment_key(reference).is_some() {
             return Err("An environment/process credential overrides this reference; change it outside the app".to_owned());
         }
-        if value.trim() != value || value.len() > 4096 || value.chars().any(char::is_control) {
-            return Err("API key contains whitespace/control characters or is too long".to_owned());
-        }
+        validate_credential_value(value)?;
         let registry = self
             .prepare_with_key(section, Some((reference, Some(value))), false)
             .await?;
@@ -471,6 +485,18 @@ impl ModelSettingsBackend for NativeModelSettings {
             .take(512)
             .collect::<Vec<_>>();
         Ok(json!({"models":models}))
+    }
+}
+
+fn validate_credential_value(value: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.trim() != value
+        || value.len() > 4096
+        || value.chars().any(char::is_control)
+    {
+        Err("API key contains whitespace/control characters or is too long".into())
+    } else {
+        Ok(())
     }
 }
 

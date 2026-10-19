@@ -1,13 +1,12 @@
 /**
- * The web-search provider's card: its endpoint, its per-request search budget,
- * and the key — which is written through the credentials domain, never into
- * the settings section, so the literal never rides a response.
+ * DeepSeek search preferences plus a write-only key. The switch uses settings;
+ * only the key uses the credentials domain, so its literal never rides a response.
  */
 
 import type { PropsLocale } from '../views-types'
 import type {Selector} from './contracts'
 import type {CardActions} from './card-form'
-import { SecretField, ValueField } from './fields'
+import { BooleanField, SecretField } from './fields'
 import { PluginCard } from './PluginCard'
 import type { WebSearchCardState } from './web-search-card-controller'
 
@@ -47,30 +46,13 @@ export function WebSearchCard(props: WebSearchCardProps) {
         stateLabel={state.apiKeyConfigured ? t('webSearchApiKeySet') : t('webSearchApiKeyUnset')}
         onEdit={(text) => { props.edit('apiKey', text) }}
       />
-      <ValueField
-        id="plugin-config-web-search-endpoint"
-        label={t('webSearchBaseUrl')}
-        hint={t('webSearchBaseUrlHint')}
-        overriddenLabel={t('overridden')}
-        resetLabel={t('reset')}
-        invalidLabel={t('invalidNumber')}
+      <BooleanField
+        id="plugin-config-web-search-enabled"
+        label={t('webSearchEnabled')}
+        hint={t('webSearchEnabledHint')}
         disabled={disabled}
-        {...state.baseURL}
-        onEdit={(text) => { props.edit('baseURL', text) }}
-        onReset={() => { props.resetField('baseURL') }}
-      />
-      <ValueField
-        id="plugin-config-web-search-max-uses"
-        label={t('webSearchMaxUses')}
-        hint={t('webSearchMaxUsesHint')}
-        overriddenLabel={t('overridden')}
-        resetLabel={t('reset')}
-        invalidLabel={t('invalidNumber')}
-        numeric
-        disabled={disabled}
-        {...state.maxUses}
-        onEdit={(text) => { props.edit('maxUses', text) }}
-        onReset={() => { props.resetField('maxUses') }}
+        text={state.enabled.text}
+        onEdit={text => { props.edit('enabled', text) }}
       />
     </PluginCard>
   )

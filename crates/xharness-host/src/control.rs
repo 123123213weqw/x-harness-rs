@@ -167,6 +167,9 @@ impl BasicHost {
                     &mut namespace.value,
                     &namespace.base,
                 );
+            } else if settings.namespace == crate::WEB_SEARCH_SETTINGS_NAMESPACE {
+                namespace.user = crate::web_search_settings::restored_section(&namespace.user);
+                namespace.value = crate::web_search_settings::restored_section(&settings.value);
             } else {
                 namespace.value = settings.value.clone();
             }
@@ -204,6 +207,7 @@ impl BasicHost {
         };
         if receipt.method == method && receipt.fingerprint == fingerprint {
             let mut response = receipt.response.clone();
+            crate::web_search_settings::restore_receipt_view(&mut response);
             if response["ns"] == crate::MODEL_SETTINGS_NAMESPACE && response.get("schema").is_none()
             {
                 response["schema"] = crate::model_settings_schema();
@@ -242,9 +246,11 @@ impl BasicHost {
         let fingerprint = mutation_fingerprint(method, payload);
         let revision = self.state.read().await.control_revision;
         let mut receipt_response = response.clone();
-        if receipt_response["ns"] == crate::MODEL_SETTINGS_NAMESPACE {
+        if receipt_response["ns"] == crate::MODEL_SETTINGS_NAMESPACE
+            || receipt_response["ns"] == crate::WEB_SEARCH_SETTINGS_NAMESPACE
+        {
             // The schema is executable-version metadata, not user state. Its
-            // apiKeyEnv dictionary key maps to a schema node ID, which must not
+            // apiKeyEnv dictionary key maps to a schema description, which must not
             // be confused with a persisted credential reference/value. Rebuild
             // this static field on replay instead of weakening secret checks.
             receipt_response

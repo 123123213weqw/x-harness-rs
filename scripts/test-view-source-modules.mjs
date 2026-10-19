@@ -139,6 +139,21 @@ for (const name of modules) {
     const one = context(); const two = context()
     before.apply(one.ctx); after.apply(two.ctx)
     const namespaces = normalized(one.namespaces)
+    if (name === 'settings-plugins') {
+      // Reviewed DeepSeek-only search card: no endpoint or Messages maxUses.
+      // Keep every unrelated locale entry and all published slot identities frozen.
+      for (const locale of ['en','zh']) {
+        const copy = namespaces[0].dictionaries[locale]
+        for (const key of ['webSearchBaseUrl','webSearchBaseUrlHint','webSearchMaxUses','webSearchMaxUsesHint']) delete copy[key]
+        Object.assign(copy, {
+          webSearchTitle:'DeepSeek web search',
+          webSearchDescription:'Search the web independently of the selected chat model.',
+          webSearchApiKey:'DeepSeek API key',
+          webSearchEnabled:'Enable web search',
+          webSearchEnabledHint:'Applies to every tool-capable chat model. Changes affect subsequent searches.',
+        })
+      }
+    }
     if (name === 'sidebar') {
       Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
@@ -755,6 +770,37 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
 }
 
 test('source: root frame retains current-master workspace.item root-list declaration',()=>{const env=context();current.entry('layout').apply(env.ctx);assert.deepEqual(normalized(env.registrations[0].spec.children['workspace.item']),{kind:'list',scope:'root'})})
+
+test('source: DeepSeek search switch is staged, saved and reset without legacy endpoint/count fields',async()=>{
+ const env=context(),web=pluginScope({enabled:true,apiKeyEnv:'DEEPSEEK_API_KEY'})
+ env.ctx.settingsScope.bind=spec=>spec.namespace==='web-search-deepseek'?web.scope:pluginScope({}).scope
+ current.entry('settings-plugins').apply(env.ctx)
+ const face=env.registrations.find(entry=>entry.spec.key==='web-search-deepseek').spec.inject()
+ const snapshot=()=>face.hooks.webSearchCard.getSnapshot()
+ assert.equal(snapshot().enabled.text,'true')
+ assert.equal('baseURL' in snapshot(),false);assert.equal('maxUses' in snapshot(),false)
+ face.edit('enabled','false');assert.equal(snapshot().dirty,true);assert.equal(web.writes.length,0)
+ face.save();assert.equal(web.writes[0].field,'enabled');assert.equal(web.writes[0].value,false)
+ web.settle(0,true);await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(snapshot().enabled.text,'false');assert.equal(snapshot().dirty,false)
+ face.resetField('enabled');face.save();web.settle(1,true);await new Promise(resolve=>setImmediate(resolve))
+ assert.equal(snapshot().enabled.text,'true')
+ assert.throws(()=>face.edit('baseURL','https://example.com/'),/no field/)
+ assert.throws(()=>face.edit('maxUses','2'),/no field/)
+})
+
+test('source: a rejected search-key replacement cannot look saved merely because an older key exists',async()=>{
+ const env=context(),web=pluginScope({enabled:true})
+ env.ctx.settingsScope.bind=spec=>spec.namespace==='web-search-deepseek'?web.scope:pluginScope({}).scope
+ env.ctx.get('connection').api.credentials.describe=async()=>({result:{ok:true,value:{credentials:{DEEPSEEK_API_KEY:{configured:true,writable:true}}}}})
+ env.ctx.get('connection').api.credentials.set=async()=>({result:{ok:false,error:{code:'settings_rejected',message:'fixture refusal'}}})
+ current.entry('settings-plugins').apply(env.ctx)
+ const face=env.registrations.find(entry=>entry.spec.key==='web-search-deepseek').spec.inject()
+ await new Promise(resolve=>setImmediate(resolve))
+ face.edit('apiKey','new-test-key');face.save();await new Promise(resolve=>setImmediate(resolve))
+ const state=face.hooks.webSearchCard.getSnapshot()
+ assert.equal(state.apiKeyConfigured,true);assert.equal(state.failed,true);assert.equal(state.apiKey.text,'new-test-key');assert.equal(state.dirty,true)
+})
 
 test('settings shell owns model-menu navigation and releases its event subscription',()=>{
  const env=context();let listeners=new Set();let off=0;
