@@ -43,6 +43,7 @@ fn main() {
             "desktop_set_deep_diagnostics",
             "desktop_check_update",
             "desktop_update_status",
+            "desktop_update_preflight",
             "desktop_download_update",
             "desktop_install_update",
             "desktop_set_computer_activity",
