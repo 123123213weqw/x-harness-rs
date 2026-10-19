@@ -1,5 +1,5 @@
 {
-  "rev": "18f75e13321518c2",
+  "rev": "83bfa61f0faca3a1",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -27,8 +27,8 @@
     },
     {
       "id": "@xharness/dsh-client-runtime",
-      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=f2bbcff92ff5b720",
-      "rev": "f2bbcff92ff5b720",
+      "url": "/plugins/@xharness/dsh-client-runtime/client.js?rev=16c673554f5ef12f",
+      "rev": "16c673554f5ef12f",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-typert-registry",
@@ -342,8 +342,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-tool",
-      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=2658a4d66bb8c1f3",
-      "rev": "2658a4d66bb8c1f3",
+      "url": "/plugins/@xharness/dsh-client-ui-tool/client.js?rev=0e02906e14be0d98",
+      "rev": "0e02906e14be0d98",
       "inject": [
         "@xharness/dsh-client-connection",
         "@xharness/dsh-client-runtime",
@@ -721,8 +721,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-schedule",
-      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=23098e056b27ad0b",
-      "rev": "23098e056b27ad0b",
+      "url": "/plugins/@xlang/xharness-client-ui-schedule/client.js?rev=925fea45cd124d0a",
+      "rev": "925fea45cd124d0a",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-client-locale",
@@ -733,7 +733,8 @@
         "@xharness/dsh-client-ui-primitives",
         "react",
         "react-dom",
-        "react/jsx-runtime"
+        "react/jsx-runtime",
+        "zod"
       ]
     },
     {
@@ -913,8 +914,8 @@
     },
     {
       "id": "@xlang/xharness-client-ui-swarm",
-      "url": "/plugins/@xlang/xharness-client-ui-swarm/client.js?rev=8490e34abee921db",
-      "rev": "8490e34abee921db",
+      "url": "/plugins/@xlang/xharness-client-ui-swarm/client.js?rev=c641c1a0ffe8e16b",
+      "rev": "c641c1a0ffe8e16b",
       "inject": [
         "@xharness/dsh-client-ui-layout",
         "@xharness/dsh-client-ui-primitives",

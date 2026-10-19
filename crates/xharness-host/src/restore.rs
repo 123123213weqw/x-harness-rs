@@ -926,7 +926,9 @@ impl BasicHost {
                 created_at: header.created_at_ms,
                 updated_at: indexed.map_or(header.created_at_ms, |e| e.updated_at_ms),
                 running: false,
-                blank: indexed.is_none_or(|e| e.blank),
+                // Unknown legacy history is not proof of an empty draft.
+                // New Session may reuse this flag before replay finishes.
+                blank: indexed.is_some_and(|e| e.blank),
                 parent_session_id: indexed.and_then(|e| e.parent_session_id.clone()),
                 origin: indexed.and_then(|e| e.origin.clone()),
                 cwd: cwd.clone(),
@@ -1219,6 +1221,11 @@ impl BasicHost {
             }
         }
         self.queue_title(session_id);
+        // Replay resolves conservative catalogue facts, including an unknown
+        // legacy draft becoming confirmed empty. Refresh list consumers too.
+        self.push_host(serde_json::json!({
+            "type": "host/remote-event", "event": "xharness/catalog-updated", "args": [],
+        }));
         Ok(())
     }
 }
@@ -1877,6 +1884,18 @@ mod tests {
             .await
             .unwrap();
         store.create(SessionHeader::new("legacy")).await.unwrap();
+        store
+            .create(SessionHeader::new("legacy-used"))
+            .await
+            .unwrap();
+        store
+            .append(
+                "legacy-used",
+                xharness_session::Revision::ZERO,
+                closed_text_turn(1, "Old question", "Old answer"),
+            )
+            .await
+            .unwrap();
         store.create(SessionHeader::new("damaged")).await.unwrap();
         std::io::Write::write_all(
             &mut std::fs::OpenOptions::new()
@@ -1889,19 +1908,33 @@ mod tests {
         let host = BasicHost::without_provider(config(&dir));
         let (necessary, deferred) = host.prepare_startup_catalog(store).await.unwrap();
         assert_eq!(necessary, vec!["indexed-pending"]);
-        assert_eq!(deferred.len(), 2);
+        assert_eq!(deferred.len(), 3);
         let state = host.state.read().await;
-        assert_eq!(state.sessions.len(), 4);
+        assert_eq!(state.sessions.len(), 5);
         assert_eq!(
             state.sessions["indexed-idle"].title.as_deref(),
             Some("Indexed title")
         );
         assert!(state.sessions.values().all(|session| session.restoring));
+        assert!(state.sessions["indexed-idle"].blank);
+        assert!(!state.sessions["legacy"].blank);
+        assert!(!state.sessions["legacy-used"].blank);
+        assert!(!state.sessions["damaged"].blank);
         drop(state);
         host.hydrate_session("indexed-pending").await.unwrap();
         assert!(!host.state.read().await.sessions["indexed-pending"].restoring);
+        let mut updates = host.event_gateway.subscribe_host();
         host.hydrate_session("legacy").await.unwrap();
         assert!(!host.state.read().await.sessions["legacy"].restoring);
+        assert!(host.state.read().await.sessions["legacy"].blank);
+        assert_eq!(
+            updates.try_recv().unwrap().payload["event"],
+            "xharness/catalog-updated"
+        );
+        host.hydrate_session("legacy").await.unwrap();
+        assert!(updates.try_recv().is_err());
+        host.hydrate_session("legacy-used").await.unwrap();
+        assert!(!host.state.read().await.sessions["legacy-used"].blank);
         assert!(host.hydrate_session("damaged").await.is_err());
         assert!(host.state.read().await.sessions["damaged"].restoring);
         host.hydrate_session("indexed-idle").await.unwrap();

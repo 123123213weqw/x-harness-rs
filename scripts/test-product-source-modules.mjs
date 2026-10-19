@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import vm from 'node:vm'
 import {stripReviewedJobStyle, jobStyleId} from './fixtures/reviewed-job-ui-contract.mjs'
+import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -49,7 +50,7 @@ function harness(source, name, options = {}) {
   const api = {createPluginClient: () => (method, params) => {requests.push({method, params}); return Promise.resolve({})}, errorMessage: error => error?.message ?? String(error), isUnsupportedEndpoint: () => false}
   const primitives = {Button: 'Button', Modal: 'Modal', IconFolderClose16: 'Folder', IconChevronRightOutline14: 'Right', IconChevronDownOutline14: 'Down', useAnchoredPosition: () => null}
   const jsx = (type, props, key) => react.createElement(type, {...props, ...(key === undefined ? {} : {key})}, props?.children)
-  const externals = {react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: react.Fragment}, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api, '@xharness/dsh-client-runtime/client': runtimePath}
+  const externals = {zod: sharedVendors.zod, react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: react.Fragment}, 'react-dom': {createPortal: value => value}, '@xharness/dsh-client-ui-primitives': primitives, '@xlang/xharness-client-plugin-api': api, '@xharness/dsh-client-runtime/client': runtimePath}
   const globals = {window, document, console, TextEncoder, AbortController, Element: ElementStub, HTMLElement: ElementStub, Node: ElementStub,
     MutationObserver: class {observe() {} disconnect() {}}, setTimeout: window.setTimeout, clearTimeout: window.clearTimeout, sessionStorage: window.localStorage,
     atob, Uint8Array, Date, Promise, setInterval: () => 1, clearInterval() {}, navigator: {clipboard: {writeText: async () => {}}}, ...options.globals}

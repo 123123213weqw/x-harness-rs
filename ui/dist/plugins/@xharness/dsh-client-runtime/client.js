@@ -3621,10 +3621,22 @@ class SessionManager {
             store = new projection_store_1.ProjectionValueStore();
             // List rows project off store keys (title); any-key changes re-enter
             // the manager's own batched rebuild channel.
+            const observedStore = store;
             store.subscribeAny(() => { this.notifier.markDirty(); });
+            store.faceOf('sessionListMetadata').subscribe(() => { this.reconcileBlank(sessionId, observedStore); });
             this.projectionStores.set(sessionId, store);
         }
         return store;
+    }
+    /** A replayed history's non-blank fact also governs New Session reuse. */
+    reconcileBlank(sessionId, store) {
+        const metadata = store.get('sessionListMetadata');
+        if (!(0, value_guards_1.isRecord)(metadata) || metadata.blank !== false)
+            return;
+        if (this.summaries.some(summary => summary.sessionId === sessionId && summary.blank)) {
+            this.recordMutation({ kind: 'engaged', sessionId });
+        }
+        this.sessions.get(sessionId)?.handleBlank(false);
     }
     /**
      * Refresh one direct-child catalog, reusing its in-flight request.
@@ -3774,14 +3786,20 @@ class SessionManager {
                     // from overwriting a newer push frame or tail baseline.
                     for (const s of result.value.items) {
                         const block = s.projections;
-                        if (block === undefined)
+                        const store = block === undefined
+                            ? this.projectionStores.get(s.sessionId)
+                            : this.projectionStore(s.sessionId);
+                        if (store === undefined)
                             continue;
-                        const store = this.projectionStore(s.sessionId);
-                        const values = block.values;
-                        if (!(0, value_guards_1.isRecord)(values))
-                            throw new Error('invalid session-list projection values');
-                        for (const key of Object.keys(values))
-                            store.apply(key, values[key], block.asOfSeq);
+                        if (block !== undefined) {
+                            const values = block.values;
+                            if (!(0, value_guards_1.isRecord)(values))
+                                throw new Error('invalid session-list projection values');
+                            for (const key of Object.keys(values))
+                                store.apply(key, values[key], block.asOfSeq);
+                        }
+                        if (s.blank)
+                            this.reconcileBlank(s.sessionId, store);
                     }
                 }
                 else {
@@ -4055,7 +4073,10 @@ class SessionManager {
             // not the Session is instantiated (list rows read the 'title' key). The
             // synchronous markDirty keeps the list snapshot same-tick fresh (the
             // store's own any-key channel is microtask-batched).
-            this.projectionStore(frame.sessionId).apply(frame.key, frame.value, frame.seq);
+            const store = this.projectionStore(frame.sessionId);
+            store.apply(frame.key, frame.value, frame.seq);
+            if (frame.key === 'sessionListMetadata')
+                this.reconcileBlank(frame.sessionId, store);
             this.notifier.markDirty();
             return;
         }
@@ -4195,6 +4216,9 @@ class SessionManager {
                     ...(frame.agentPreset !== undefined ? { agentPreset: frame.agentPreset } : {}),
                 });
                 this.sessions.get(frame.sessionId)?.handleBlank(frame.blank);
+                const store = this.projectionStores.get(frame.sessionId);
+                if (store !== undefined)
+                    this.reconcileBlank(frame.sessionId, store);
                 if (frame.origin === 'subagent' && frame.parentSessionId !== undefined) {
                     this.markCatalogParentExpandable(frame.parentSessionId);
                 }

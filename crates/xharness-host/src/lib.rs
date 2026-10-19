@@ -67,6 +67,7 @@ mod state;
 mod statecheck;
 mod subagent_processor;
 mod swarm_processor;
+mod swarm_tasks;
 mod titles;
 mod workspace_processor;
 

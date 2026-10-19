@@ -356,10 +356,22 @@ export class SessionManager {
       store = new ProjectionValueStore()
       // List rows project off store keys (title); any-key changes re-enter
       // the manager's own batched rebuild channel.
+      const observedStore = store
       store.subscribeAny(() => { this.notifier.markDirty() })
+      store.faceOf('sessionListMetadata').subscribe(() => { this.reconcileBlank(sessionId, observedStore) })
       this.projectionStores.set(sessionId, store)
     }
     return store
+  }
+
+  /** A replayed history's non-blank fact also governs New Session reuse. */
+  private reconcileBlank(sessionId: SessionId, store: ProjectionValueStore): void {
+    const metadata = store.get('sessionListMetadata')
+    if (!isRecord(metadata) || metadata.blank !== false) return
+    if (this.summaries.some(summary => summary.sessionId === sessionId && summary.blank)) {
+      this.recordMutation({ kind: 'engaged', sessionId })
+    }
+    this.sessions.get(sessionId)?.handleBlank(false)
   }
 
   /**
@@ -507,11 +519,16 @@ export class SessionManager {
           // from overwriting a newer push frame or tail baseline.
           for (const s of result.value.items) {
             const block = s.projections
-            if (block === undefined) continue
-            const store = this.projectionStore(s.sessionId)
-            const values: unknown = block.values
-            if (!isRecord(values)) throw new Error('invalid session-list projection values')
-            for (const key of Object.keys(values)) store.apply(key, values[key], block.asOfSeq)
+            const store = block === undefined
+              ? this.projectionStores.get(s.sessionId)
+              : this.projectionStore(s.sessionId)
+            if (store === undefined) continue
+            if (block !== undefined) {
+              const values: unknown = block.values
+              if (!isRecord(values)) throw new Error('invalid session-list projection values')
+              for (const key of Object.keys(values)) store.apply(key, values[key], block.asOfSeq)
+            }
+            if (s.blank) this.reconcileBlank(s.sessionId, store)
           }
         } else {
           this.listState = 'error'
@@ -793,7 +810,9 @@ export class SessionManager {
       // not the Session is instantiated (list rows read the 'title' key). The
       // synchronous markDirty keeps the list snapshot same-tick fresh (the
       // store's own any-key channel is microtask-batched).
-      this.projectionStore(frame.sessionId).apply(frame.key, frame.value, frame.seq)
+      const store = this.projectionStore(frame.sessionId)
+      store.apply(frame.key, frame.value, frame.seq)
+      if (frame.key === 'sessionListMetadata') this.reconcileBlank(frame.sessionId, store)
       this.notifier.markDirty()
       return
     }
@@ -922,6 +941,8 @@ export class SessionManager {
           ...(frame.agentPreset !== undefined ? { agentPreset: frame.agentPreset } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
+        const store = this.projectionStores.get(frame.sessionId)
+        if (store !== undefined) this.reconcileBlank(frame.sessionId, store)
         if (frame.origin === 'subagent' && frame.parentSessionId !== undefined) {
           this.markCatalogParentExpandable(frame.parentSessionId)
         }

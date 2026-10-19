@@ -2,11 +2,11 @@
   "schema": 1,
   "kind": "compatible-addition",
   "reason": "Replace Exa production search with the official DeepSeek Search API using independent durable preferences and native credential storage.",
-  "compatibility": "Preserve web_search/query/limit/result and anonymous web_fetch contracts, existing app identity, process isolation, updater channels, and secret validation. Desktop only projects the explicit DEEPSEEK_API_KEY reference instead of EXA_API_KEY.",
+  "compatibility": "Preserve web_search query/limit/result and anonymous web_fetch, app identity, process isolation, updater channels and secret validation. Keep the reviewed Windows migration update-preflight capability unchanged while projecting only the explicit DEEPSEEK_API_KEY reference instead of EXA_API_KEY.",
   "paths": {
     "apps/desktop/src-tauri/src/sidecar.rs": {
-      "before": "9497976cc053f23d05dee831c5f39c0e3e56bf6cc88d6dee55b5df6363694c7e",
-      "after": "f9c892c3d59a20b5a65df1a49838e882b53bc19964913012d6721c02182950f4"
+      "before": "d8a132f89b191672eff69ea829fefdad685da5b66f947bbdaa9bab1465745a2c",
+      "after": "bee8ce8f00d23448a6479b0f10fce77415fed323d84ad114918a649e6f659889"
     }
   },
   "regressions": [

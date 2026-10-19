@@ -3,3 +3,4 @@
 export * from './index'
 export { Session } from './sessions/session'
 export { SessionManager } from './sessions/manager'
+export { WorkspaceRuntime } from './workspaces/service'

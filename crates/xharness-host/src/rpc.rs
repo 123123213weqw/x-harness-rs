@@ -36,6 +36,7 @@ pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
 mod swarm;
+mod swarm_tasks;
 pub(crate) mod turn;
 mod wire;
 mod workspace;
@@ -159,6 +160,12 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "swarm/tasks" {
+            return Some(match swarm_tasks::call(self, rpc_id, &payload).await {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
+            });
+        }
         if endpoint == "swarm/manage" {
             return Some(match swarm::manage(self, rpc_id, &payload).await {
                 Ok(value) => RpcResult::success(value),

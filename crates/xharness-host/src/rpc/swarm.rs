@@ -1,11 +1,12 @@
 //! Opt-in metadata RPC. Never hydrates actors, submits prompts or resumes workers.
 use super::bad_request;
+use crate::swarm_tasks::access::{journal, observe, owned};
 use crate::{swarm_processor::SwarmProcessor, BasicHost};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use xharness_api::{RpcError, RpcId};
-use xharness_control::{ControlEvent, SwarmSnapshot, SwarmStatus};
-use xharness_session::{EventData, Session, TurnEndReason};
+use xharness_control::{ControlEvent, SwarmStatus};
+use xharness_session::EventData;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -33,6 +34,11 @@ enum Command {
         expected_revision: u64,
         child_session_id: String,
     },
+    SetDispatch {
+        swarm_id: String,
+        expected_revision: u64,
+        enabled: bool,
+    },
     SetStatus {
         swarm_id: String,
         expected_revision: u64,
@@ -48,6 +54,14 @@ pub(super) async fn manage(
     let request: Request = serde_json::from_value(payload.clone())
         .map_err(|e| bad_request(format!("invalid Swarm request: {e}")))?;
     let owner = &request.owner_session_id;
+    // Same order as task delivery: team admission, then the short Control commit.
+    let _team_gate = match &request.command {
+        Command::SetStatus { swarm_id, .. } | Command::SetDispatch { swarm_id, .. } => Some(
+            host.lock_admission(&format!("swarm-admission:{swarm_id}"))
+                .await,
+        ),
+        _ => None,
+    };
     // Match the existing Control mutation protocol: one durable batch + receipt.
     let mutation = !matches!(request.command, Command::List | Command::Inspect { .. });
     let control_guard = if mutation {
@@ -102,6 +116,17 @@ pub(super) async fn manage(
             (
                 SwarmProcessor::create(id.clone(), owner.clone(), workspace, objective),
                 id,
+            )
+        }
+        Command::SetDispatch {
+            swarm_id,
+            expected_revision,
+            enabled,
+        } => {
+            owned(host, &swarm_id, owner).await?;
+            (
+                SwarmProcessor::dispatch(swarm_id.clone(), expected_revision, enabled),
+                swarm_id,
             )
         }
         Command::SetStatus {
@@ -173,6 +198,12 @@ pub(super) async fn manage(
         xharness_control::SwarmChange::StatusChanged {
             expected_revision, ..
         }
+        | xharness_control::SwarmChange::DispatchChanged {
+            expected_revision, ..
+        }
+        | xharness_control::SwarmChange::TaskChanged {
+            expected_revision, ..
+        }
         | xharness_control::SwarmChange::MemberAttached {
             expected_revision, ..
         } => expected_revision + 1,
@@ -186,98 +217,4 @@ pub(super) async fn manage(
         response,
     )
     .await
-}
-async fn owned(host: &BasicHost, id: &str, owner: &str) -> Result<SwarmSnapshot, RpcError> {
-    SwarmProcessor::owned(&host.state.read().await.swarms, id, owner)
-        .cloned()
-        .map_err(bad_request)
-}
-async fn journal(host: &BasicHost, id: &str) -> Result<Option<Session>, RpcError> {
-    host.agent_runtime
-        .authoritative_session(id)
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))
-}
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-enum WorkerActivity {
-    Unavailable,
-    Running,
-    AwaitingApproval,
-    AwaitingAnswer,
-    NeedsReconciliation,
-    DispatchPaused,
-    Queued,
-    Idle,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkerObservation {
-    session_id: String,
-    activity: WorkerActivity,
-    session_revision: Option<u64>,
-    last_turn_end: Option<TurnEndReason>,
-    unresolved_tool_calls: Vec<String>,
-    pending_messages: usize,
-}
-async fn observe(host: &BasicHost, id: &str) -> Result<WorkerObservation, RpcError> {
-    let (deleted, running, paused) = {
-        let state = host.state.read().await;
-        (
-            state.deleted_sessions.contains(id),
-            state.sessions.get(id).is_some_and(|s| s.running),
-            state.sessions.get(id).is_some_and(|s| s.dispatch_paused),
-        )
-    };
-    let session = if deleted {
-        None
-    } else {
-        journal(host, id).await?
-    };
-    let mut observation = WorkerObservation {
-        session_id: id.into(),
-        activity: WorkerActivity::Unavailable,
-        session_revision: None,
-        last_turn_end: None,
-        unresolved_tool_calls: Vec::new(),
-        pending_messages: 0,
-    };
-    let Some(session) = session else {
-        return Ok(observation);
-    };
-    observation.session_revision = Some(session.revision().get());
-    let inbox = xharness_agent::InboxProjection::from_session(&session)
-        .map_err(|e| RpcError::internal(e.to_string()))?;
-    observation.pending_messages = inbox.next_turn().len() + inbox.next_step().len();
-    let mut open_turn = false;
-    for event in session.events() {
-        match event.data() {
-            EventData::TurnStart { .. } => open_turn = true,
-            EventData::TurnEnd { reason, .. } => {
-                open_turn = false;
-                observation.last_turn_end = Some(reason.clone());
-            }
-            _ => {}
-        }
-    }
-    observation.unresolved_tool_calls = xharness_session::incomplete_tool_calls(session.events())
-        .into_iter()
-        .map(|p| p.call.id)
-        .collect();
-    observation.activity = if running {
-        WorkerActivity::Running
-    } else if !session.pending_tool_approvals().is_empty() {
-        WorkerActivity::AwaitingApproval
-    } else if !session.pending_user_questions().is_empty() {
-        WorkerActivity::AwaitingAnswer
-    } else if open_turn || !observation.unresolved_tool_calls.is_empty() {
-        WorkerActivity::NeedsReconciliation
-    } else if paused || session.dispatch_paused() {
-        WorkerActivity::DispatchPaused
-    } else if observation.pending_messages > 0 {
-        WorkerActivity::Queued
-    } else {
-        WorkerActivity::Idle
-    };
-    Ok(observation)
 }

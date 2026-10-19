@@ -1,0 +1,20 @@
+{
+  "base": "1b853347b22ba4c6df4e1a70241a1518c4058880",
+  "remote": "WZU_Server",
+  "matchingRustAndBuildInputs": 508,
+  "rustTestTargets": 56,
+  "passed": 925,
+  "failed": 0,
+  "ignored": 15,
+  "clippy": "passed: --all-targets -- -D warnings",
+  "uiModules": 61,
+  "uiAssets": 190,
+  "uiContractsPassed": 51,
+  "chromium": "passed",
+  "webkit": "passed",
+  "architectureCrates": 46,
+  "architectureProcessors": 30,
+  "architectureUnitTestsPassed": 30,
+  "paidProviderRerun": false,
+  "nativeReleaseAcceptance": false
+}
