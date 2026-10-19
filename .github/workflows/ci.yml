@@ -130,6 +130,7 @@ jobs:
       - run: python -B scripts/test-release-orchestrator.py
       - run: python -B scripts/test-release-service.py
       - run: python -B scripts/test-desktop-candidates.py
+      - run: python -B scripts/test-desktop-candidate-idle.py
       - run: python -B scripts/test-ci-tiering.py
       - run: python -B scripts/test-macos-signing.py
       - run: python -B scripts/test-macos-stable-signing.py
