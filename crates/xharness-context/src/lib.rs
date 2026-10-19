@@ -14,7 +14,8 @@ use xharness_session::{ContentBlock, Message, MessageRole};
 mod working_set;
 pub use working_set::{
     approximate_working_set_tokens, calibrate_working_set_tokens, project_working_set,
-    WorkingSetConfig, WorkingSetSource, WorkingSetSourceKind,
+    project_working_set_retaining, reuse_working_set, WorkingSetConfig, WorkingSetSource,
+    WorkingSetSourceKind,
 };
 
 /// Maximum raw image bytes materialized into one model request. This is a
@@ -44,6 +45,12 @@ pub struct ContextRequest {
     /// continuations must not establish a new user-request boundary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genuine_user_indices: Option<Vec<usize>>,
+    /// Execution's per-result UTF-8 byte limit. The newest contiguous tool
+    /// batch is preserved within this limit; older or oversized results remain
+    /// prunable. `None` retains legacy pruning for callers without a limit.
+    /// This does not replace admission against the whole request's token budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_result_limit_bytes: Option<usize>,
 }
 
 impl ContextRequest {
@@ -55,6 +62,7 @@ impl ContextRequest {
             step: 0,
             tools: Vec::new(),
             genuine_user_indices: None,
+            tool_result_limit_bytes: None,
         }
     }
 
@@ -80,6 +88,11 @@ impl ContextRequest {
 
     pub fn with_genuine_user_indices(mut self, indices: Vec<usize>) -> Self {
         self.genuine_user_indices = Some(indices);
+        self
+    }
+
+    pub fn with_tool_result_limit_bytes(mut self, limit: usize) -> Self {
+        self.tool_result_limit_bytes = Some(limit);
         self
     }
 }
@@ -308,6 +321,8 @@ impl ContextPolicy for IdentityContextPolicy {
 /// Reasoning in the current user turn, every tool call's arguments and all
 /// provider-owned replay items stay byte-for-byte intact. Do not replace file
 /// contents with omission markers or add private fields to executable inputs.
+/// The newest tool batch also stays intact within the caller's execution limit,
+/// so the model can consume bounded structured observations before they age.
 /// Large input histories are handled by the separate whole-history compaction
 /// coordinator, which creates a clearly framed summary instead of fake calls.
 /// This is deliberately model-free, so it also protects the request used to
@@ -361,6 +376,14 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
                 .rposition(|message| message.role == MessageRole::User)
         };
 
+        // Only the trailing batch has not yet been consumed by an assistant.
+        // Its execution budget is explicit: imported/oversized results do not
+        // gain an unlimited exemption, and prior batches remain prunable.
+        let fresh_tools_start = request
+            .messages
+            .iter()
+            .rposition(|message| message.role != MessageRole::Tool)
+            .map_or(0, |index| index + 1);
         let mut messages = request.messages;
         let mut edits = Vec::new();
         for (index, message) in messages.iter_mut().enumerate() {
@@ -389,6 +412,13 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
             }
 
             if message.role != MessageRole::Tool {
+                continue;
+            }
+            if index >= fresh_tools_start
+                && request
+                    .tool_result_limit_bytes
+                    .is_some_and(|limit| message.content.len() <= limit)
+            {
                 continue;
             }
             let Some(pruned) = self.pruner.prune(&message.content) else {
@@ -433,7 +463,7 @@ impl ContextPolicy for ToolResultPruningContextPolicy {
         }
 
         Ok(ContextSurface::transformed(
-            ContextPolicyId::new("context-history-pruning", 3),
+            ContextPolicyId::new("context-history-pruning", 4),
             source_message_count,
             messages,
             edits,
@@ -622,6 +652,72 @@ mod tests {
             .unwrap();
         assert_eq!(surface.messages, source);
         assert!(surface.edits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fresh_tool_batch_is_intact_within_execution_limit_then_ages_into_pruning() {
+        let content =
+            json!({"frame_id":"frame", "ref":"n40", "text":"x".repeat(10_000)}).to_string();
+        let source = vec![
+            Message::tool("old", &content),
+            Message::assistant("inspect again"),
+            Message::tool("fresh-a", &content),
+            Message::tool("fresh-b", &content),
+        ];
+        let policy = ToolResultPruningContextPolicy::default();
+        let surface = policy
+            .prepare(
+                ContextRequest::new(source.clone()).with_tool_result_limit_bytes(content.len()),
+            )
+            .await
+            .unwrap();
+        surface.validate().unwrap();
+        assert_eq!(surface.policy.version, 4);
+        assert_ne!(surface.messages[0].content, content);
+        assert_eq!(surface.messages[1..], source[1..]);
+        assert_eq!(surface.edits.len(), 1);
+        assert_eq!(surface.edits[0].source_start, 0);
+
+        let mut consumed = source.clone();
+        consumed.push(Message::assistant("done"));
+        let aged = policy
+            .prepare(ContextRequest::new(consumed).with_tool_result_limit_bytes(content.len()))
+            .await
+            .unwrap();
+        aged.validate().unwrap();
+        assert_eq!(aged.edits.len(), 3);
+        for index in [0, 2, 3] {
+            assert_ne!(aged.messages[index].content, content);
+            assert_eq!(
+                aged.messages[index].tool_call_id,
+                source[index].tool_call_id
+            );
+            assert_eq!(source[index].content, content, "history remains immutable");
+        }
+    }
+
+    #[tokio::test]
+    async fn fresh_tool_exemption_uses_bytes_and_never_exempts_oversized_results() {
+        let content = "é".repeat(5000);
+        let limit = content.len() - 1;
+        assert!(content.chars().count() < limit);
+        let source = vec![Message::tool("oversized", &content)];
+        let policy = ToolResultPruningContextPolicy::new(ToolResultPrunerConfig {
+            threshold_chars: 512,
+            head_chars: 128,
+            tail_chars: 64,
+        })
+        .unwrap();
+        let surface = policy
+            .prepare(ContextRequest::new(source.clone()).with_tool_result_limit_bytes(limit))
+            .await
+            .unwrap();
+        surface.validate().unwrap();
+        assert_eq!(surface.edits.len(), 1);
+        assert_eq!(surface.messages[0].tool_call_id, source[0].tool_call_id);
+        let envelope: Value = serde_json::from_str(&surface.messages[0].content).unwrap();
+        assert_eq!(envelope["format"], "tool_result_pruned/v1");
+        assert_ne!(envelope["content"], content);
     }
 
     fn completed_call(
@@ -958,7 +1054,7 @@ mod tests {
                 .prepare(ContextRequest::new(source.clone()))
                 .await
                 .unwrap();
-            assert_eq!(surface.policy.version, 3);
+            assert_eq!(surface.policy.version, 4);
             assert_eq!(surface.messages, source);
             assert!(surface.edits.is_empty());
         }

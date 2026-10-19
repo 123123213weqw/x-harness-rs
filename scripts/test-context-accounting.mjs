@@ -1,6 +1,6 @@
 import {sharedVendors} from './fixtures/shared-source-vendors.mjs'
 import {verifyConversationArtifact,legacyConversation} from './conversation-artifact-test.mjs';
-import {verifyConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs';
+import {verifyConnectionArtifact,verifyFixtureConnectionArtifact,exposeConnection} from './connection-artifact-test.mjs';
 import {conversationFixture} from './fixtures/conversation-source-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -21,10 +21,13 @@ x=fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'});as
 for(const p of [{}, {projectedTokens:1,contextWindow:0},{projectedTokens:NaN,contextWindow:1},{pressureTokens:-1,contextWindow:100}])assert.equal(fn(p),null);
 assert.equal(fn({pressureTokens:0,contextWindow:100}).usedTokens,0);
 console.log('context accounting: actual/estimate/unknown/zero/capacity/idempotence passed');
-const connection=readFileSync(new URL('../ui/dist/plugins/@xharness/dsh-client-connection/client.js',import.meta.url),'utf8');
+const productionConnection=verifyConnectionArtifact();
+assert.doesNotMatch(productionConnection,/FixtureApiClient|function contextPressureOf\(/,'release connection excludes fixture reducers');
+assert.throws(()=>exposeConnection(productionConnection,['contextPressureOf']),/explicit fixture build/);
+const connection=verifyFixtureConnectionArtifact();
 const connectionGolden=readFileSync(new URL('../ui/reference/master-a613970/plugins/@xharness/dsh-client-connection/client.js',import.meta.url));assert.equal(patchContextCompositionConnection(connectionGolden).toString(),connectionGolden.toString());
 const replaySource=connection.slice(connection.indexOf('function contextPressureOf(log) {'),connection.indexOf('\n\t\tfunction projectionValuesOf'));
-let connectionRegistration;let replay;if(connection.startsWith('// Generated')){vm.runInNewContext(exposeConnection(verifyConnectionArtifact(),['contextPressureOf']),{window:{__ModuleLoader__:{load:r=>connectionRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});replay=connectionRegistration.factory(id=>id==='zod'?sharedVendors.zod:id==='@xharness/cordis'?{Service:class{}}:{}).contextPressureOf;}else replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
+let connectionRegistration;let replay;if(connection.startsWith('// Generated')){vm.runInNewContext(exposeConnection(connection,['contextPressureOf'],{variant:'fixture'}),{window:{__ModuleLoader__:{load:r=>connectionRegistration=r}},console,URL,AbortController,setTimeout,clearTimeout});replay=connectionRegistration.factory(id=>id==='zod'?sharedVendors.zod:id==='@xharness/cordis'?{Service:class{}}:{}).contextPressureOf;}else replay=vm.runInNewContext('('+replaySource+')',{usageSampleOf:e=>e.type==='assistant/chunk'?{...e.data,usage:e.data.chunk.usage}:undefined});
 const event=(type,data)=>({type,data});
 const start=step=>event('step/start',{turn:1,step});
 const usage=(step,n)=>event('assistant/chunk',{turn:1,step,chunk:{type:'usage',usage:{inputTokens:n,cacheReadTokens:100,outputTokens:0}}});
@@ -133,3 +136,43 @@ assert.equal(entry.rev,createHash('sha256').update(bytes).digest('hex').slice(0,
 const html=readFileSync(new URL('../ui/dist/index.html',import.meta.url),'utf8');
 assert.ok(html.includes(entry.url));
 console.log('context meter: stable slot / no stale reading / unavailable / measured / bilingual / revision passed');
+
+// Authorship is independent of role, and old role-only snapshots are never
+// relabelled as human-authored. Execute the actual shipped expanded panel.
+const expanded=conversationFixture(bundle,['ContextMeter','en'],{react:{useState:()=>[true,()=>{}]}}).api;
+function textOf(node) {
+  if(node===null||node===undefined||typeof node==='boolean')return '';
+  if(typeof node==='string'||typeof node==='number')return String(node);
+  if(Array.isArray(node))return node.map(textOf).join('');
+  return textOf(node.props?.children);
+}
+function descendants(node,type,result=[]) {
+  if(Array.isArray(node)){for(const child of node)descendants(child,type,result);return result;}
+  if(!node||typeof node!=='object')return result;
+  if(node.type===type)result.push(node);
+  descendants(node.props?.children,type,result);return result;
+}
+function categoryPanel(composition) {
+ const tree=expanded.ContextMeter({useProjection:()=>({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported',composition}),t:key=>expanded.en[key]??key});
+ const labels=descendants(tree,'dt').map(textOf), amounts=descendants(tree,'dd').map(textOf);
+ return {tree,labels,amounts};
+}
+const origins={attributionVersion:2,systemTokens:5,userTokens:2,agentReportTokens:40,runtimeContextTokens:20,checkpointTokens:10,unattributedTokens:3,assistantTokens:10,toolResultTokens:5,toolDefinitionTokens:4,protocolTokens:1,totalInputTokens:100,accuracy:'estimated'};
+const authored=categoryPanel(origins);
+assert.deepEqual(authored.labels,['System prompt','Your messages','Agent reports','Runtime context','Checkpoints','Unattributed context','Assistant','Tool results','Tools','Protocol overhead']);
+assert.equal(authored.amounts[1],'≈10');assert.equal(authored.amounts[2],'≈200');
+assert.equal(authored.amounts.reduce((sum,value)=>sum+Number(value.slice(1)),0),500,'rows scale to the measured total, not cumulative billing');
+const legacyPanel=categoryPanel(composition);
+assert.ok(legacyPanel.labels.includes('User-role history (source unknown)'));
+assert.ok(!legacyPanel.labels.includes('Your messages'),'legacy role totals cannot claim human authorship');
+const absentHuman=categoryPanel({...origins,userTokens:0});
+assert.ok(!absentHuman.labels.includes('Your messages'));
+assert.ok(absentHuman.labels.includes('Agent reports'));
+const invalidPanel=categoryPanel({...origins,userTokens:NaN,agentReportTokens:Infinity,runtimeContextTokens:-1});
+assert.ok(!invalidPanel.labels.includes('Your messages'));assert.ok(!invalidPanel.labels.includes('Agent reports'));assert.ok(!invalidPanel.labels.includes('Runtime context'));
+const newEvents=[start(1),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,estimate:{totalInputTokens:100}},contextComposition:origins}}}),usage(1,400),event('user/message',{})];
+const newReplay=replay(newEvents);
+assert.equal(JSON.stringify(newReplay.composition),JSON.stringify(origins));
+assert.equal(newReplay.pressureTokens,500);assert.equal(newReplay.phase,'history_changed');
+assert.equal(replay([...newEvents,start(2)]).composition,undefined);
+console.log('context provenance: human / agent / runtime / checkpoint / unknown / legacy / invalid / measured total / replay passed');

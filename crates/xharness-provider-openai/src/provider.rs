@@ -22,7 +22,7 @@ use xharness_core::{
     ModelProvider, ProviderError, ProviderEvent, ProviderInputTokenCount,
     ProviderNetworkDiagnostics, ProviderRequest, ProviderStream,
 };
-use xharness_debug::{DebugEvent, DebugRecorder, DebugScope};
+use xharness_debug::{DebugRecorder, DebugScope};
 use xharness_token::WireFeatures;
 
 use crate::{
@@ -636,8 +636,21 @@ impl OpenAiProvider {
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| ProviderError::new(e.to_string()))?;
-        let image_tokens = xharness_token::image_estimate(&messages)
-            .map_err(|e| ProviderError::new(e.to_string()))?;
+        let mut image_tokens =
+            crate::image_budget::estimate(&self.config.base_url, &self.config.model, &messages)
+                .map_err(|e| ProviderError::new(e.to_string()))?;
+        if image_tokens != 0 {
+            // request_body has not expanded content_blocks yet. Keep their
+            // accompanying text outside the learned text ratio so a large
+            // image caption cannot disappear behind text calibration.
+            for block in request.messages.iter().flat_map(|m| &m.content_blocks) {
+                if let xharness_attachments::ContentBlock::Text { text } = block {
+                    image_tokens = image_tokens
+                        .saturating_add(text.len() as u64)
+                        .saturating_add(64);
+                }
+            }
+        }
         Ok((
             scope,
             request_id,
@@ -805,15 +818,18 @@ impl ModelProvider for OpenAiProvider {
             Ok(capabilities) => capabilities,
             Err(error) if self.config.context_window_fallback.is_some() => {
                 self.debug
-                    .record_lossy(DebugEvent::new(
+                    .record_lossy_with(
                         "provider.openai",
                         "capability.fallback",
-                        serde_json::json!({
-                            "model": &self.config.model,
-                            "error": error.message,
-                            "source": "deployment_declared_fallback",
-                        }),
-                    ))
+                        DebugScope::default(),
+                        || {
+                            serde_json::json!({
+                                "model": &self.config.model,
+                                "error": error.message,
+                                "source": "deployment_declared_fallback",
+                            })
+                        },
+                    )
                     .await;
                 self.fallback_capabilities()
             }
@@ -851,7 +867,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.request",
-            json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
+            || json!({"endpoint": self.config.token_count_endpoint(), "body": image_safe_trace(&body)}),
         )
         .await;
         let request_builder = self
@@ -870,7 +886,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.response_status",
-            json!({"status": status.as_u16()}),
+            || json!({"status": status.as_u16()}),
         )
         .await;
         if matches!(status.as_u16(), 404 | 405 | 501) {
@@ -895,7 +911,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "token_count.response_body",
-            json!({"body": &body}),
+            || json!({"body": &body}),
         )
         .await;
         let value: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
@@ -928,15 +944,13 @@ impl ModelProvider for OpenAiProvider {
         let calibration = self.calibration.clone();
         let mut observation = NetworkObservation::new(&self.config.endpoint());
         let body = self.multimodal_body(&request, false, &cancellation).await?;
-        self.trace(
-            &request.debug_scope,
-            "request",
+        self.trace(&request.debug_scope, "request", || {
             json!({
                 "endpoint": self.config.endpoint(),
                 "protocol": format!("{:?}", self.config.protocol),
                 "body": image_safe_trace(&body),
-            }),
-        )
+            })
+        })
         .await;
         let request_builder = self
             .client
@@ -969,7 +983,7 @@ impl ModelProvider for OpenAiProvider {
         self.trace(
             &request.debug_scope,
             "response_status",
-            json!({"status": status.as_u16()}),
+            || json!({"status": status.as_u16()}),
         )
         .await;
         if !status.is_success() {
@@ -980,7 +994,7 @@ impl ModelProvider for OpenAiProvider {
             self.trace(
                 &request.debug_scope,
                 "response_error",
-                json!({"status": code, "body": &body}),
+                || json!({"status": code, "body": &body}),
             )
             .await;
             let detail = if body.is_empty() {
@@ -1021,25 +1035,27 @@ impl ModelProvider for OpenAiProvider {
                         received_bytes = received_bytes.saturating_add(
                             u64::try_from(chunk.len()).unwrap_or(u64::MAX),
                         );
-                        debug.record_lossy(DebugEvent::new(
+                        debug.record_lossy_with(
                             "provider.openai",
                             "sse.chunk",
-                            json!({
+                            debug_scope.clone(),
+                            || json!({
                                 "bytes": chunk.len(),
                                 "content": String::from_utf8_lossy(&chunk),
                             }),
-                        ).with_scope(debug_scope.clone())).await;
+                        ).await;
                         match parser.feed_bytes(chunk, false) {
                             Ok(events) => {
                                 for event in events {
                                     match normalizer.consume(event) {
                                         Ok(provider_events) => {
                                             for provider_event in provider_events {
-                                                debug.record_lossy(DebugEvent::new(
+                                                debug.record_lossy_with(
                                                     "provider.openai",
                                                     "stream.event",
-                                                    provider_event_payload(&provider_event),
-                                                ).with_scope(debug_scope.clone())).await;
+                                                    debug_scope.clone(),
+                                                    || provider_event_payload(&provider_event),
+                                                ).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
                                                     calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
@@ -1067,11 +1083,11 @@ impl ModelProvider for OpenAiProvider {
                     Some(Err(error)) => {
                         let elapsed = stream_started.elapsed();
                         let kind = reqwest_error_kind(&error);
-                        let source_chain = reqwest_error_source_chain(&error);
-                        debug.record_lossy(DebugEvent::new(
+                        debug.record_lossy_with(
                             "provider.openai",
                             "stream.transport_error",
-                            json!({
+                            debug_scope.clone(),
+                            || json!({
                                 "kind": kind,
                                 "elapsedMs": elapsed.as_millis(),
                                 "receivedChunks": received_chunks,
@@ -1080,9 +1096,9 @@ impl ModelProvider for OpenAiProvider {
                                 "isConnect": error.is_connect(),
                                 "isDecode": error.is_decode(),
                                 "isBody": error.is_body(),
-                                "sourceChain": source_chain,
+                                "sourceChain": reqwest_error_source_chain(&error),
                             }),
-                        ).with_scope(debug_scope.clone())).await;
+                        ).await;
                         yield Err(observation.failure(ProviderError::retryable(format!(
                             "OpenAI stream interrupted after {} ({kind}; received {received_chunks} chunks / {received_bytes} bytes): {}",
                             format_duration(elapsed),
@@ -1100,11 +1116,12 @@ impl ModelProvider for OpenAiProvider {
                         match normalizer.consume(event) {
                             Ok(provider_events) => {
                                             for provider_event in provider_events {
-                                                debug.record_lossy(DebugEvent::new(
+                                                debug.record_lossy_with(
                                                     "provider.openai",
                                                     "stream.event",
-                                                    provider_event_payload(&provider_event),
-                                                ).with_scope(debug_scope.clone())).await;
+                                                    debug_scope.clone(),
+                                                    || provider_event_payload(&provider_event),
+                                                ).await;
                                                 if let ProviderEvent::Completed { usage: Some(usage), .. } = &provider_event {
                                                     let actual=usage.input_tokens.saturating_add(usage.cache_read_tokens).saturating_add(usage.cache_write_tokens);
                                                     calibration.observe(count_features.0.clone(),count_features.1.clone(),count_features.2.clone(),actual).await;
@@ -1297,12 +1314,14 @@ fn format_duration(duration: Duration) -> String {
 }
 
 impl OpenAiProvider {
-    async fn trace(&self, scope: &DebugScope, event: &str, payload: Value) {
+    fn trace(
+        &self,
+        scope: &DebugScope,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         self.debug
-            .record_lossy(
-                DebugEvent::new("provider.openai", event, payload).with_scope(scope.clone()),
-            )
-            .await;
+            .record_lossy_with("provider.openai", event, scope.clone(), payload)
     }
 }
 
@@ -1853,6 +1872,43 @@ mod multimodal_tests {
     }
 
     #[tokio::test]
+    async fn image_caption_allowance_is_not_scaled_by_the_text_ratio() {
+        use xharness_token::{ConservativeByteMeter, TokenBudget, TokenCountAccuracy, TokenGuard};
+
+        for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+            let (provider, mut request) = fixture(protocol).await;
+            let image = request.messages[1].content_blocks[1].clone();
+            for i in 0..8 {
+                request.messages = vec![AgentMessage::user(format!("{i} {}", "x".repeat(900_000)))];
+                let (scope, id, features) = provider.count_features(&request).unwrap();
+                provider
+                    .calibration
+                    .observe(scope, id, features, 225_000)
+                    .await;
+            }
+            let text = provider.estimate_input_tokens(&request).unwrap();
+            assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+            request
+                .messages
+                .push(AgentMessage::user("").with_content_blocks(vec![
+                    ContentBlock::Text {
+                        text: "c".repeat(900_000),
+                    },
+                    image,
+                ]));
+            let mixed = provider.estimate_input_tokens(&request).unwrap();
+            assert!(mixed.input_tokens >= text.input_tokens + 900_000 + 4096);
+            assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+            let guard = TokenGuard::new(
+                Arc::new(ConservativeByteMeter),
+                TokenBudget::new(1_048_576, 65_536),
+            )
+            .unwrap();
+            assert!(guard.check_provider_count(&mixed).is_err());
+        }
+    }
+
+    #[tokio::test]
     async fn seventeen_small_images_are_not_a_hard_request_failure() {
         for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
             let (provider, mut request) = fixture(protocol).await;
@@ -2101,3 +2157,6 @@ mod network_wait_certificate_tests {
         )));
     }
 }
+
+#[cfg(test)]
+mod image_budget_tests;

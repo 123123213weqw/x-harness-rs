@@ -3,7 +3,9 @@
 // UI_TEST_DEPS points at a directory with node_modules/{playwright,react,react-dom}.
 // Does not connect to a running Harness or load any user conversations.
 import assert from 'node:assert/strict'
-import {mkdirSync,readFileSync} from 'node:fs'
+import {mkdirSync,readFileSync,readdirSync} from 'node:fs'
+import {exposeConversation} from './conversation-artifact-test.mjs'
+import {installOwnedViewPlatform} from './fixtures/owned-view-platform-browser.mjs'
 import { createRequire } from 'node:module'
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -197,6 +199,51 @@ try {
       await bounded(`${tab} empty/short`)
     }
   }
+  // The real React component must expose provenance, not just role buckets.
+  const meterPage=await browser.newPage({viewport:{width:600,height:900}})
+  await installOwnedViewPlatform(meterPage,'source')
+  meterPage.on('pageerror',error=>errors.push(error.message))
+  await meterPage.evaluate(()=>{document.getElementById('root').replaceChildren();document.getElementById('root').hidden=true;window.registrations={};window.__ModuleLoader__={load:registration=>{registrations[registration.id]=registration}}})
+  for(const name of readdirSync(join(repo,'ui/dist/plugins/@xharness'))) {
+    let artifact=readFileSync(join(repo,'ui/dist/plugins/@xharness',name,'client.js'),'utf8')
+    if(name==='dsh-client-ui-conversation')artifact=exposeConversation(artifact,['ContextMeter','en'])
+    await meterPage.addScriptTag({content:artifact})
+  }
+  await meterPage.evaluate(()=>{
+    const cache={};function load(id){if(staticModules[id])return staticModules[id];const name=id.endsWith('/client')?id.slice(0,-7):id;return cache[name]??=registrations[name].factory(load)}
+    const conversation=load('@xharness/dsh-client-ui-conversation/client')
+    const themeCtx={effect:fn=>fn(),provide:(name,value)=>{themeCtx[name]=value},on:()=>{},emit:()=>{},settingsScope:{bind:()=>({subscribe:()=>()=>{},getSnapshot:()=>({value:{preference:'light'}})})},locale:{register:()=>()=>{}},slots:{inject:()=>{}}}
+    load('@xharness/dsh-client-ui-theme/client').apply(themeCtx)
+    for(const [name,value] of Object.entries(themeCtx.theme.getTheme().active.tokens))document.documentElement.style.setProperty(name,value)
+    const mount=document.createElement('div');document.body.appendChild(mount)
+    mount.style.cssText='position:fixed;right:24px;bottom:24px;width:28px;height:28px'
+    const root=ReactDOM.createRoot(mount)
+    document.body.style.cssText='font:14px system-ui;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)'
+    window.renderMeter=composition=>ReactDOM.flushSync(()=>root.render(React.createElement(conversation.ContextMeter,{
+      useProjection:()=>({contextWindow:1000,pressureTokens:500,pressureAccuracy:'provider_reported',phase:'history_changed',composition}),
+      t:(key,params)=>Object.entries(params??{}).reduce((text,[name,value])=>text.replace('{'+name+'}',String(value)),conversation.en[key]??key),
+    })))
+  })
+  const composition={attributionVersion:2,systemTokens:5,userTokens:2,agentReportTokens:40,runtimeContextTokens:20,checkpointTokens:10,unattributedTokens:3,assistantTokens:10,toolResultTokens:5,toolDefinitionTokens:4,protocolTokens:1}
+  await meterPage.evaluate(composition=>renderMeter(composition),composition)
+  await meterPage.getByRole('button').click()
+  const panel=meterPage.getByRole('dialog')
+  assert.deepEqual(await panel.locator('dt').allTextContents(),['System prompt','Your messages','Agent reports','Runtime context','Checkpoints','Unattributed context','Assistant','Tool results','Tools','Protocol overhead'])
+  assert.ok((await panel.innerText()).includes('500 / 1K'))
+  assert.equal((await panel.locator('dd').allTextContents())[1],'≈10')
+  assert.equal((await panel.locator('dd').allTextContents())[2],'≈200')
+  for(const width of [600,360]) {
+    await meterPage.setViewportSize({width,height:900})
+    assert.ok(await panel.evaluate(element=>{const box=element.getBoundingClientRect();return box.left>=0&&box.right<=innerWidth&&box.top>=0&&box.bottom<=innerHeight}),'category panel remains within the viewport')
+  }
+  if(screenshotDir)await meterPage.screenshot({path:join(screenshotDir,`${engine}-context-provenance.png`)})
+  await meterPage.evaluate(composition=>renderMeter({...composition,attributionVersion:undefined}),composition)
+  assert.equal(await panel.getByText('Your messages',{exact:true}).count(),0)
+  assert.equal(await panel.getByText('User-role history (source unknown)',{exact:true}).count(),1)
+  await meterPage.keyboard.press('Escape')
+  assert.equal(await meterPage.getByRole('dialog').count(),0)
+  await meterPage.close()
+  cases+=3
   assert.deepEqual(errors, [], 'no render exceptions')
   console.log(`${engine}: ${cases} layout cases passed (switching, live snapshots, tools, resize, composer, empty)`)
 } finally { await browser.close() }

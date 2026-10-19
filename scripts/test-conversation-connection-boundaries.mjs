@@ -9,10 +9,11 @@ import {loadOwnedCordisRuntime} from './fixtures/owned-view-cordis-runtime.mjs'
 import {exposeModuleUnit} from './fixtures/module-unit-scope.mjs'
 const id='@xharness/dsh-client-connection',source=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/client-connection/index.ts'}]).get(id).bytes.toString(),frozen=readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8')
 function evaluate(bytes,fixture=false,externals={}){let row;const context={window:{location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},__ModuleLoader__:{load:value=>row=value}},location:{origin:'http://connection.test',hostname:'connection.test',search:fixture?'?fixture=1':''},console,AbortController,AbortSignal,URL,URLSearchParams,Date,fetch,Response,Headers,Request,crypto:globalThis.crypto,structuredClone,queueMicrotask,setTimeout,clearTimeout,setInterval,clearInterval};vm.runInNewContext(bytes,context);return row.factory(name=>{if(name==='zod')return sharedVendors.zod;if(name in externals)return externals[name];throw Error(name)})}
+const fixtureSource=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/client-connection/fixture-entry.ts'}],{variant:'fixture'}).get(id).bytes.toString()
 const apis=[evaluate(frozen),evaluate(source)],json=value=>JSON.parse(JSON.stringify(value))
 const surfaceName='contracts/core/session/surface',names=['isSurfaceEvent','isAppendSurfaceEvent','isReplacementSurfaceEvent','deriveEventMessage','foldSurface','SurfaceManager']
 const frozenMarkers=evaluate(readFileSync('ui/reference/master-a613970/plugins/@xharness/dsh-client-runtime/client.js','utf8').replace('return module.exports;','Object.assign(exports,{isSurfaceEvent,isAppendSurfaceEvent,isReplacementSurfaceEvent});return module.exports;'),false,{'@xharness/cordis':loadOwnedCordisRuntime(),'@xharness/dsh-client-ui-slots':{}})
-const surfaceApis=[frozen,source].map((bytes,index)=>Object.fromEntries(names.filter(name=>index===1||name!=='SurfaceManager').map(name=>[name,index===0&&name.startsWith('is')?frozenMarkers[name]:evaluate(exposeModuleUnit(bytes,'client-connection',surfaceName,name))[name]])))
+const surfaceApis=[frozen,fixtureSource].map((bytes,index)=>Object.fromEntries(names.filter(name=>index===1||name!=='SurfaceManager').map(name=>[name,index===0&&name.startsWith('is')?frozenMarkers[name]:evaluate(exposeModuleUnit(bytes,'client-connection',surfaceName,name,index===1?'fixture-entry':'index'))[name]])))
 const raw=(type,data,seq,surfaceOp='append',extra={})=>({type,data,seq,time:1000+seq,surfaceOp,...extra})
 const message=(id,role='user',content=[{type:'text',text:'kept'}])=>({id,role,content,source:{kind:'foreign-provider',extension:{keep:true}},foreign:{opaque:'value'}})
 
@@ -22,11 +23,11 @@ test('latest-native archive metadata stays absent on old payloads and preserves 
  const a=await read(old,values[0]),b=await read(next,values[0]);assert.deepEqual(json(b),json(a));assert.equal(Object.hasOwn(b,'archivedSessions'),false,'missing metadata is not fabricated as []')
  assert.deepEqual(json(await read(next,values[1])),values[1],'actual native metadata, nullable title and zero timestamp survive typed decoding')
  await assert.rejects(read(next,{...values[1],archivedSessions:[{sessionId:'s',title:7,updatedAt:0}]}),/Invalid input/)
- for(const bytes of[frozen,source]){const api=evaluate(bytes,true),provided={};api.apply({provide:(name,value)=>provided[name]=value,effect:fn=>fn()});const listed=(await provided.connection.api.workspace.list({})).result.value;assert.equal(Object.hasOwn(listed,'archivedSessions'),false,'unchanged fixture does not invent new native fields')}
+ for(const bytes of[frozen,fixtureSource]){const api=evaluate(bytes,true),provided={};api.apply({provide:(name,value)=>provided[name]=value,effect:fn=>fn()});const listed=(await provided.connection.api.workspace.list({})).result.value;assert.equal(Object.hasOwn(listed,'archivedSessions'),false,'unchanged fixture does not invent new native fields')}
 })
 
 test('frozen/source in-process fork carrier retains parent/origin in session list and host frames without pretending the HTTP schema changed',async()=>{
- for(const bytes of[frozen,source]){
+ for(const bytes of[frozen,fixtureSource]){
   const provided={};evaluate(bytes,true).apply({provide:(name,value)=>provided[name]=value});const api=provided.connection.api
   const history=(await api.sessions.history({sessionId:'fx-alpha',maxMessages:1000})).result.value.events;const before=history.find(entry=>entry.event.type==='user/message'&&entry.event.data.source.kind==='user').event.seq
   const abort=new AbortController(),stream=api.events.host({},abort.signal)[Symbol.asyncIterator](),frame=stream.next()
@@ -38,7 +39,7 @@ test('frozen/source in-process fork carrier retains parent/origin in session lis
 
 test('fixture generic RPC routes root capabilities before session-only decoders and rejects unsupported calls explicitly',async()=>{
  const results=[]
- for(const bytes of[frozen,source]){
+ for(const bytes of[frozen,fixtureSource]){
   const provided={};evaluate(bytes,true).apply({provide:(name,value)=>provided[name]=value});const rpc=provided.connection.rpc
   const rootErrors=[]
   for(const [channel,endpoint,payload]of[
@@ -56,7 +57,7 @@ test('fixture generic RPC routes root capabilities before session-only decoders 
   results.push({rootErrors,list:json(list),execute:json(execute),files:json(files)})
  }
  assert.deepEqual(results[1],results[0],'erased root RPC and legitimate scoped calls retain the immutable fixture ABI')
- const provided={};evaluate(source,true).apply({provide:(name,value)=>provided[name]=value});const rpc=provided.connection.rpc
+ const provided={};evaluate(fixtureSource,true).apply({provide:(name,value)=>provided[name]=value});const rpc=provided.connection.rpc
  for(const[endpoint,args]of[
   ['commands/list',{agentId:42}],['commands/execute',{agentId:'fx-alpha',line:12}],
   ['commands/execute',{agentId:'fx-alpha',line:'/echo',images:'invalid'}],

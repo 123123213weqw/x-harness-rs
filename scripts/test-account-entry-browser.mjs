@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 /** Real assembled UI, fixture transport only; no sign-in or native permissions. */
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
@@ -8,7 +9,7 @@ const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/xharness-model-ui-tests', 'package.json'))
 const browser = await require('playwright')[engine].launch({ headless: true })
-const base = resolve('ui/dist')
+const base = fixtureUiRoot()
 const types = { '.html': 'text/html', '.js': 'application/javascript', '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.wasm': 'application/wasm' }
 try {
   for (const lang of ['zh-CN', 'en-US']) for (const theme of ['light', 'dark']) {

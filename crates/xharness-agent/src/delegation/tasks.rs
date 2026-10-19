@@ -110,7 +110,7 @@ impl AgentTaskCommand {
                 }
                 text(task_id, 256)?;
                 text(execution_ref, 256)?;
-                text(summary, 32768)?;
+                text(summary, 8192)?;
             }
         }
         Ok(())
@@ -121,6 +121,30 @@ impl AgentTaskCommand {
 mod tests {
     use crate::AgentOperation;
     use serde_json::json;
+    #[test]
+    fn swarm_review_summary_matches_durable_result_byte_limit() {
+        for (summary, valid) in [
+            ("a".repeat(8192), true),
+            ("a".repeat(8193), false),
+            ("é".repeat(4096), true),
+            ("é".repeat(4097), false),
+        ] {
+            let operation: AgentOperation = serde_json::from_value(json!({
+                "action": "tasks",
+                "swarm_id": "s",
+                "command": {
+                    "action": "review",
+                    "expected_revision": 1,
+                    "task_id": "task",
+                    "execution_ref": "execution",
+                    "outcome": "completed",
+                    "summary": summary
+                }
+            }))
+            .unwrap();
+            assert_eq!(operation.validate().is_ok(), valid);
+        }
+    }
     #[test]
     fn swarm_commands_are_strict_and_do_not_accept_caller_or_execution_forgery_fields() {
         for command in [

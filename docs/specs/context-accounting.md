@@ -24,16 +24,17 @@
 4. 401/403、坏响应等非重试错误不掩盖；严格模式可关闭瞬态降级。取消和暂停仍优先中断计数，不继续发生成请求。
 5. 即使降级，也必须执行 `输入 + 最低输出保留 + 安全边界 <= 有效上下文容量`（期望输出预留可向下调节，实际选择的输出不能越过剩余容量）。估算不是精确保证；服务端拒绝仍走已有有界 overflow/Compact 恢复，不绕过预算。
 
-## 本地校准
+## Local calibration
 
-- 首次使用按完整编码请求的 UTF-8 内容与协议结构保守计量，不固定除以 4。
-- 特征分为普通 ASCII、工具/结构化 ASCII、非 ASCII、协议开销和图片预算。
-- 每个配置作用域最多保存 32 个数字样本，最多 64 个作用域；不保存提示词和密钥，不落盘。重启或新 Provider 实例冷启动。
-- 当前请求与样本大小相差不超过 2 倍，字符/结构分布距离小于 0.30，至少 8 个相似样本才校准。
-- 校准取相似样本中最大实际 token/特征单位比率，再乘 1.25，加 256 token。结果标记 `calibrated`，**不是统计置信区间，也不是精确 tokenizer**。
-- 重复请求指纹不重复学习。发现实际值突破估算，立即清除该作用域；服务端 context overflow 清空当前 Adapter 校准。
-- 图片请求不参与文本校准，沿用独立图片估算；新分布、新工具 schema、新模型/端点/推理配置重新预热。不会把文本压缩比套用到图片。
-- 请求前估算和响应后的观察分别扫描完整请求；无额外远程模型摘要调用。
+- Cold input uses complete encoded-request UTF-8 content and protocol framing; it never assumes a fixed bytes-per-token divisor.
+- Features distinguish ordinary ASCII, structured/tool ASCII, non-ASCII, framing and independent image allowances.
+- Pure-text and mixed-request observations occupy separate bounded caches: up to 64 scopes and 32 numeric samples per scope in each partition. Neither partition evicts observations from the other.
+- Reuse requires at least eight same-scope samples, no older than seven days, within 2x request size and a text-distribution distance below 0.30. Scope identity still covers endpoint, model, tool schema and reasoning controls.
+- Pure-text reuse takes the highest reported-input/feature-unit ratio, multiplies by 1.25 and adds 256 tokens. This remains a conservative estimate, not a statistical confidence interval or exact tokenizer.
+- If pure-text reuse is unavailable for an image-containing request, comparable mixed completions may supply a separate upper envelope. It uses the **entire** reported input, including cache and images, as its numerator. Never subtract a guessed image cost. Add the current independent image/caption allowance in full, and never use mixed observations to discount a text-only request.
+- Mixed requests remain `estimated`. Duplicate bodies cannot satisfy warmup more than once; a higher repeated mixed usage that violates a learned bound still invalidates it. Genuine provider context overflow clears both partitions for that scope.
+- The Host persists only hashed identities and numeric features. Snapshot v2 preserves both partitions and reads valid v1 text caches. Downgrading to a v1-only binary safely discards this disposable cache and cold-starts; no conversations, settings or credentials are migrated or deleted. Corrupt/oversized snapshots remain non-fatal. The existing cache filename and 2 MiB cap are unchanged.
+- No extra provider probe, model call, transcript edit or compaction-threshold relaxation is introduced.
 
 ## 无损工具编码
 
@@ -88,3 +89,68 @@ Host 实时增量 fold 和前端历史 replay 使用同样的精度/生命周期
 **预算算法未变**：硬准入仍使用 `context - minimum_output - safety_margin`；
 通过后实际选择的输出长度随剩余空间调节，不能把期望预留误当成始终固定的硬扣除。
 测试覆盖预留 512 / 最低输出 64 的不同值、准入边界 928 可用 / 929 拒绝。
+
+
+## Display attribution v2 (2026-10-17)
+
+The context total still comes from request admission or normalized provider usage.
+The display-only composition now records `attributionVersion: 2` and separates
+`userTokens` (verified human-origin admissions), `agentReportTokens`,
+`runtimeContextTokens`, `checkpointTokens`, and `unattributedTokens`. Category
+shares remain estimates; matching their sum to the total does not establish
+independent tokenizer accuracy. No model request, budget, or durable message is
+rewritten by this display calculation.
+
+Classification follows recorded inbox source metadata at consumption time.
+Both direct sources and the Host RPC metadata wrapper are supported. Checkpoints
+follow explicit `surface_replace` events, not text markers or ID prefixes.
+Working-set history references and transient continuation/control notices are
+runtime context. Provenance is mapped through each actual projection before
+composite audit edits replace the mapping. Missing, ambiguous, or unrecognized
+provenance is never silently claimed as human authorship.
+
+Existing recorded compositions without version 2 remain readable but show
+**User-role history (source unknown)** rather than **Your messages**. New requests
+can classify retained old messages where durable source metadata exists. The
+original logs and old estimated buckets are not retroactively rewritten. Live
+and history-replayed projections carry the same small numeric composition;
+provider-reported totals, stale-history indicators, and estimate labels remain
+independent and unchanged.
+
+Working-plan snapshots inserted into a prepared request are runtime context.
+Their insertion updates the attribution vector at the same exact index, so
+the following genuine human message retains its durable authorship category.
+This does not change the snapshot bytes, request ordering, or admission budget.
+
+## Mixed text/image admission (2026-10-18)
+
+Reading a screenshot must not switch the entire retained text history from a
+warm calibrated estimate to byte counting. The request estimate is:
+
+```text
+compatible text estimate + independent conservative image allowance
+```
+
+- Text reuse still requires eight unexpired, same-scope, text-only samples within
+  the existing size/distribution bounds. A mixed query with cold or incompatible
+  text can now use the separate mixed upper envelope described above; until
+  that partition warms up it retains the byte fallback. The 1.25 multiplier and 256-token reserve are unchanged.
+- A mixed request remains `estimated`, not `calibrated` or exact: its image price
+  is not measured. Exact provider counters still take priority.
+- Mixed usage cannot identify the text price. Do not subtract an estimated image
+  allowance from reported total usage to manufacture a text observation.
+- If complete mixed usage exceeds the reused-text-plus-image estimate, invalidate
+  that scope and persist the invalidation. Normal mixed completions neither train
+  nor evict the text-only observations. They may train the separate mixed
+  partition. Snapshot v2 reads legacy v1 text observations, while mixed totals
+  are never accepted as persisted text samples.
+- Caption blocks not yet expanded by the wire encoder are reserved separately at
+  conservative UTF-8 byte cost plus framing; text calibration cannot erase them.
+- Hard input/output/safety budgets, compaction thresholds, image pixel allowance policy,
+  prompt content, attachment encoding, and the running user's state are unchanged.
+
+Regression coverage includes first/repeated/removed images, cold starts, distribution
+drift, scope isolation, saturation and genuine overflow, underestimated mixed usage,
+cache-inclusive HTTP usage through Chat Completions and Responses, and restart.
+The numeric-only first-image fixture holds the recorded pre-image text fixed to
+isolate the accounting transition; it is not a new live model or game-quality test.

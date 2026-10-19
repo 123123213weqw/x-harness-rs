@@ -644,6 +644,10 @@ def isolate_base_updater_timers(path):
     # A second browser timer must not inject unrelated operations mid-assertion.
     require(path.is_file() and not path.is_symlink(), 'Missing regular base updater UI')
     text = path.read_text(encoding='utf-8')
+    path.write_text(isolated_base_updater_text(text), encoding='utf-8')
+
+
+def isolated_base_updater_text(text):
     # Approved frozen/TS generations only (manual check and background prepare).
     # Do not match arbitrary timers or weaken drift/duplicate checks. In prepare
     # builds also isolate online/backoff entry points via their one shared wrapper.
@@ -682,7 +686,41 @@ def isolate_base_updater_timers(path):
     if wrapper is not None:
         text = text.replace(wrapper, '    const prepare = () => {}; // Isolated base only: native driver owns preparation.\n', 1)
     text = text.replace(initial, '\n    // Isolated base: native driver owns automatic checks.\n', 1)
-    path.write_text(text.replace(periodic, '\n    // Production target timers remain unmodified.\n', 1), encoding='utf-8')
+    return text.replace(periodic, '\n    // Production target timers remain unmodified.\n', 1)
+
+
+def prepare_base_ui(directory):
+    """Instrument only a verified disposable base, preserving packaging checks.
+
+    The signed target is never passed here. Reject stale or fixture input before
+    changing bytes; refresh only the two assets changed by timer isolation.
+    """
+    directory = pathlib.Path(directory)
+    require(directory.is_dir() and not directory.is_symlink(), 'Missing regular disposable UI directory')
+    checker = REPO / 'scripts/check-production-ui.mjs'
+    run(['node', checker, directory])
+    updater = directory / 'desktop-updater.js'
+    index = directory / 'index.html'
+    inventory_path = directory / 'asset-manifest.json'
+    inventory = read_json(inventory_path)
+    original_hash = digest(updater)
+    text = isolated_base_updater_text(updater.read_text(encoding='utf-8'))
+    replacement = text.encode('utf-8')
+    new_hash = hashlib.sha256(replacement).hexdigest()
+    html = index.read_text(encoding='utf-8')
+    anchor = '/desktop-updater.js?rev=' + original_hash[:16]
+    require(html.count(anchor) == 1, 'Base updater HTML revision anchor drifted')
+    html = html.replace(anchor, '/desktop-updater.js?rev=' + new_hash[:16], 1)
+    # Validate both entries before writing any disposable asset. Do not turn
+    # arbitrary stale inventory entries into newly trusted hashes.
+    require(all(name in inventory['files'] for name in ('desktop-updater.js', 'index.html')),
+            'Base updater inventory entries missing')
+    for name, data in [('desktop-updater.js', replacement), ('index.html', html.encode('utf-8'))]:
+        inventory['files'][name] = {'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+    updater.write_bytes(replacement)
+    index.write_bytes(html.encode('utf-8'))
+    write_json(inventory_path, inventory)
+    run(['node', checker, directory])
 
 
 def prepare_reqwest_dependency(desktop):
@@ -754,7 +792,7 @@ def prepare(args):
                         'credentials*', 'id_rsa*', 'id_ed25519*', '__pycache__'))
     if (source / 'ui/dist').is_dir():
         shutil.copytree(source / 'ui/dist', root / 'source/ui/dist', symlinks=True)
-    isolate_base_updater_timers(root / 'source/ui/dist/desktop-updater.js')
+    prepare_base_ui(root / 'source/ui/dist')
     desktop = root / 'source/apps/desktop/src-tauri'
     shutil.copy2(REPO / 'scripts/fixtures/unix-update-driver.rs', desktop / 'src/rehearsal.rs')
     path = desktop / 'src/sidecar.rs'

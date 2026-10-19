@@ -502,7 +502,12 @@ mod tests {
                 .get_mut(id)
                 .unwrap()
                 .admissions
-                .insert("already-finished".into(), queued());
+                .insert(
+                    "already-finished".into(),
+                    crate::admission_cache::AdmissionReceipt {
+                        fingerprint: Some("finished".into()),
+                    },
+                );
         }
         let response = delete(
             &host,

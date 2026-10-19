@@ -1,0 +1,165 @@
+{
+  "requests": [
+    {
+      "afterRestart": false,
+      "coldEstimate": 283196,
+      "estimate": 283196,
+      "protocol": "chat_completions",
+      "reportedInput": 54253,
+      "step": 1
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 284136,
+      "estimate": 284136,
+      "protocol": "chat_completions",
+      "reportedInput": 54433,
+      "step": 2
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 285076,
+      "estimate": 285076,
+      "protocol": "chat_completions",
+      "reportedInput": 54613,
+      "step": 3
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 286016,
+      "estimate": 286016,
+      "protocol": "chat_completions",
+      "reportedInput": 54793,
+      "step": 4
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 286956,
+      "estimate": 286956,
+      "protocol": "chat_completions",
+      "reportedInput": 54973,
+      "step": 5
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 287896,
+      "estimate": 287896,
+      "protocol": "chat_completions",
+      "reportedInput": 55153,
+      "step": 6
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 288836,
+      "estimate": 288836,
+      "protocol": "chat_completions",
+      "reportedInput": 55333,
+      "step": 7
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 289776,
+      "estimate": 289776,
+      "protocol": "chat_completions",
+      "reportedInput": 55513,
+      "step": 8
+    },
+    {
+      "afterRestart": true,
+      "coldEstimate": 290716,
+      "estimate": 70904,
+      "protocol": "chat_completions",
+      "reportedInput": 55693,
+      "step": 9
+    },
+    {
+      "afterRestart": true,
+      "coldEstimate": 291656,
+      "estimate": 71130,
+      "protocol": "chat_completions",
+      "reportedInput": 55873,
+      "step": 10
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 283261,
+      "estimate": 283261,
+      "protocol": "responses",
+      "reportedInput": 54253,
+      "step": 1
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 284201,
+      "estimate": 284201,
+      "protocol": "responses",
+      "reportedInput": 54433,
+      "step": 2
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 285141,
+      "estimate": 285141,
+      "protocol": "responses",
+      "reportedInput": 54613,
+      "step": 3
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 286081,
+      "estimate": 286081,
+      "protocol": "responses",
+      "reportedInput": 54793,
+      "step": 4
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 287021,
+      "estimate": 287021,
+      "protocol": "responses",
+      "reportedInput": 54973,
+      "step": 5
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 287961,
+      "estimate": 287961,
+      "protocol": "responses",
+      "reportedInput": 55153,
+      "step": 6
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 288901,
+      "estimate": 288901,
+      "protocol": "responses",
+      "reportedInput": 55333,
+      "step": 7
+    },
+    {
+      "afterRestart": false,
+      "coldEstimate": 289841,
+      "estimate": 289841,
+      "protocol": "responses",
+      "reportedInput": 55513,
+      "step": 8
+    },
+    {
+      "afterRestart": true,
+      "coldEstimate": 290781,
+      "estimate": 70904,
+      "protocol": "responses",
+      "reportedInput": 55693,
+      "step": 9
+    },
+    {
+      "afterRestart": true,
+      "coldEstimate": 291721,
+      "estimate": 71130,
+      "protocol": "responses",
+      "reportedInput": 55873,
+      "step": 10
+    }
+  ],
+  "scope": "synthetic input-accounting only; not model quality"
+}

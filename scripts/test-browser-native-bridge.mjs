@@ -1,5 +1,6 @@
 import {installOwnedViewHtml} from './fixtures/owned-view-platform-browser.mjs'
 import {ownedViewModuleTestInput} from './owned-view-module-test-input.mjs'
+import {compileSourceModules} from './build-source-modules.mjs'
 // Mock only the Tauri boundary; exercise the shipped React browser pane.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -98,10 +99,13 @@ try {
   await page.getByRole('region', { name: '下载记录' }).getByText('已完成', { exact: true }).waitFor()
   await page.getByRole('button', { name: '下载记录' }).click()
   // A queued reload acts as a barrier after React/layout observers and native work.
-  const flush = async () => {
+  const flush = async (keepPopup = false) => {
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     const count = await page.evaluate(() => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length)
-    await page.getByRole('button', { name: '刷新', exact: true }).click()
+    const reload = page.getByRole('button', { name: '刷新', exact: true })
+    // A real pointerdown outside ContextMeter dismisses it before inspection.
+    if (keepPopup) await reload.dispatchEvent('click')
+    else await reload.click()
     await page.waitForFunction(count => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length > count, count)
   }
   // Width/height alone do not report a sidebar/layout position-only shift.
@@ -187,9 +191,53 @@ try {
   await page.getByRole('button', { name: '下载记录', exact: true }).click()
   await flush()
   assert.equal(await page.evaluate(start => commands.slice(start).filter(call => call.command === 'desktop_browser_navigate' && call.args.url === 'https://example.net/').length, blockedStart), 1)
+  // Reproduce the reported context-ring popup with the actual component and
+  // platform primitives, not a hand-built dialog or a CSS-class exception.
+  const meterId = '@xharness/test-browser-context-meter'
+  const meter = compileSourceModules(resolve('ui'), [
+    { id: '@xharness/dsh-client-ui-conversation', source: 'src/modules/conversation/index.ts' },
+    { id: meterId, source: 'src/modules/conversation/skeleton/ContextMeter.tsx' },
+  ]).get(meterId)
+  await page.addScriptTag({ content: meter.bytes.toString() })
+  await page.evaluate(() => {
+    const { ContextMeter } = registration.factory(id => staticModules[id])
+    const anchor = document.createElement('div'); anchor.id = 'context-meter'
+    anchor.style.cssText = 'position:fixed;left:900px;top:500px;width:28px'
+    document.body.append(anchor)
+    window.meterRoot = ReactDOM.createRoot(anchor)
+    meterRoot.render(React.createElement(ContextMeter, {
+      useProjection: () => ({ pressureTokens: 206000, contextWindow: 1000000, composition: { systemTokens: 1600, userTokens: 846, assistantTokens: 67800, toolResultTokens: 128000, toolDefinitionTokens: 7400 } }),
+      t: key => key,
+    }))
+  })
+  const meterButton = page.locator('#context-meter button')
+  const meterPanel = page.locator('#context-meter [role="dialog"]')
+  for (let repeat = 0; repeat < 3; repeat++) {
+    const start = await page.evaluate(() => commands.length)
+    await meterButton.click(); await meterPanel.waitFor()
+    const outside = await meterPanel.boundingBox()
+    const nativePage = await page.locator('.xhbrowser-content').boundingBox()
+    assert.ok(outside.x > nativePage.x + nativePage.width, 'the context popup must be outside the native page in this reproduction')
+    await flush(true)
+    assert.equal(await meterPanel.isVisible(), true, 'the barrier must not dismiss the popup')
+    assert.equal(await page.evaluate(() => activeTab), 'browser:1', 'opening chat-local context usage must not blank the browser')
+    await resize(); await flush(true)
+    const calls = await page.evaluate(start => commands.slice(start), start)
+    assert.equal(calls.some(call => call.command === 'desktop_browser_activate' && call.args.tabId === null), false, 'a non-overlapping context popup must not transiently hide the page')
+    assert.equal(calls.some(call => call.command === 'desktop_browser_navigate'), false, 'context inspection must not reload the page')
+    // If layout actually places the popup over the native child, yield until
+    // it moves away. Do not remove the existing native occlusion protection.
+    await page.evaluate(() => document.getElementById('context-meter').style.left = '480px')
+    await flush(true); assert.equal(await page.evaluate(() => activeTab), null)
+    await page.evaluate(() => document.getElementById('context-meter').style.left = '900px')
+    await flush(true); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+    await page.keyboard.press('Escape'); await meterPanel.waitFor({ state: 'detached' })
+    await flush()
+  }
+  await page.evaluate(() => { meterRoot.unmount(); document.getElementById('context-meter').remove() })
   // Global modal composition: dismissing a pane popover must not expose a modal.
   await page.evaluate(() => {
-    const dialog = document.createElement('div'); dialog.role = 'alertdialog'; dialog.textContent = 'A modal'; document.querySelector('[data-shell-overlay]').append(dialog)
+    const dialog = document.createElement('div'); dialog.role = 'alertdialog'; dialog.setAttribute('aria-modal', 'true'); dialog.textContent = 'A modal'; document.querySelector('[data-shell-overlay]').append(dialog)
   })
   await assertHidden()
   await page.getByRole('button', { name: '下载记录', exact: true }).click()
@@ -213,22 +261,59 @@ try {
   await resize(); await assertHidden()
   await page.evaluate(() => document.getElementById('portal-menu').remove())
   await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
-  const addSurface = async ({ role = '', parent = 'body', style = '', child = false } = {}) => page.evaluate(({ role, parent, style, child }) => {
+  const addSurface = async ({ role = '', modal, parent = 'body', style = '', child = false } = {}) => page.evaluate(({ role, modal, parent, style, child }) => {
     const wrapper = document.createElement('div'); wrapper.id = 'layer-fixture'
     const card = child ? document.createElement('div') : wrapper
     if (role) card.setAttribute('role', role)
+    if (modal !== undefined) card.setAttribute('aria-modal', String(modal))
     card.textContent = 'Global UI'
     card.style.cssText = 'position:fixed;left:450px;top:200px;width:200px;height:100px;z-index:100;background:white;' + style
     if (child) wrapper.append(card)
     document.querySelector(parent).append(wrapper)
-  }, { role, parent, style, child })
+  }, { role, modal, parent, style, child })
   const removeSurface = async () => {
     await page.evaluate(() => document.getElementById('layer-fixture').remove())
     await flush(); assert.equal(await page.evaluate(() => window.activeTab), 'browser:1')
   }
   // Current settings are body-portaled, not children of data-shell-overlay.
-  await addSurface({ role: 'dialog', child: true, style: 'left:700px' })
+  await addSurface({ role: 'dialog', modal: true, child: true, style: 'left:700px' })
   await assertHidden() // Modals own the entire app, even outside the page rect.
+  await removeSurface()
+  // Both explicit and implicit nonmodal dialogs are geometry-scoped. Changing
+  // modality in place must still take/release app-wide native ownership.
+  for (const role of ['dialog', 'alertdialog']) for (const modal of [undefined, false]) {
+    await addSurface({ role, modal, child: true, style: 'left:700px' })
+    const start = await page.evaluate(() => commands.length)
+    await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+    assert.equal(await page.evaluate(start => commands.slice(start).some(call => call.command === 'desktop_browser_activate' && call.args.tabId === null), start), false)
+    await page.evaluate(() => document.querySelector('#layer-fixture > div').setAttribute('aria-modal', 'true'))
+    await assertHidden()
+    await page.evaluate(() => document.querySelector('#layer-fixture > div').setAttribute('aria-modal', 'false'))
+    await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+    await page.evaluate(() => document.querySelector('#layer-fixture > div').style.left = '450px')
+    await assertHidden(); await removeSurface()
+  }
+  // Native <dialog> modality does not depend on an ARIA annotation. A closed
+  // dialog is inert; show() uses overlap, showModal() owns the whole window.
+  await page.evaluate(() => {
+    const dialog = document.createElement('dialog'); dialog.id = 'layer-fixture'
+    dialog.textContent = 'Native dialog'
+    dialog.style.cssText = 'position:fixed;left:700px;top:200px;margin:0;width:200px;height:100px'
+    document.body.append(dialog)
+  })
+  await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+  await page.evaluate(() => document.getElementById('layer-fixture').show())
+  await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+  await page.evaluate(() => document.getElementById('layer-fixture').style.left = '450px')
+  await assertHidden()
+  await page.evaluate(() => document.getElementById('layer-fixture').close())
+  await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
+  await page.evaluate(() => { const dialog = document.getElementById('layer-fixture'); dialog.style.left = '700px'; dialog.showModal() })
+  // A genuine modal makes the toolbar inert, so do not use a real pointer to
+  // reach the test barrier. Programmatic click still drains the native queue.
+  await flush(true); assert.equal(await page.evaluate(() => activeTab), null)
+  await page.evaluate(() => document.getElementById('layer-fixture').close())
+  await flush(); assert.equal(await page.evaluate(() => activeTab), 'browser:1')
   await removeSurface()
   for (const surface of [
     { role: 'listbox', child: true },

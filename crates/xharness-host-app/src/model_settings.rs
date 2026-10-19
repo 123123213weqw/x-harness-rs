@@ -449,6 +449,22 @@ impl ModelSettingsBackend for NativeModelSettings {
                     if let Some(value) = configured.or_else(|| remote_profiles.get(id).cloned()) {
                         item["reasoning"] = value;
                     }
+                    let configured_model = profile
+                        .filter(|p| p.base_url == base && p.api == api)
+                        .and_then(|p| p.models.iter().find(|model| model.id == id));
+                    let upstream = configured_model
+                        .and_then(|m| m.upstream_model.as_deref())
+                        .unwrap_or(id);
+                    let images = crate::input_compat::resolve(
+                        base,
+                        api,
+                        upstream,
+                        configured_model.and_then(|m| m.image_input),
+                    );
+                    if let Some(supported) = images.supported {
+                        item["imageInput"] = json!(supported);
+                    }
+                    item["imageInputCapability"] = images.provenance;
                     item
                 })
             })

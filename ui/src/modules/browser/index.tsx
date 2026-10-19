@@ -124,9 +124,11 @@ const pageOrigin = (address: string) => {
 }
 // Native child views cannot participate in CSS stacking. Yield only while
 // a rendered modal or a floating UI surface covers their page rectangle.
-// ARIA surfaces and body portals share this policy; no hashed CSS names.
-const MODAL_SURFACE = '[role="dialog"], [role="alertdialog"], [aria-modal="true"]'
-const OVERLAY_SURFACE = `${MODAL_SURFACE}, [role="menu"], [role="listbox"], [role="tooltip"], [popover], [data-xh-overlay]`
+// A dialog role describes a surface, not modality: chat-local context/note
+// popovers must not blank an unrelated native page. Native showModal() and
+// explicit ARIA modals still own the whole app, irrespective of overlap.
+const MODAL_SURFACE = 'dialog:modal, [aria-modal="true"]'
+const OVERLAY_SURFACE = `${MODAL_SURFACE}, dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [popover], [data-xh-overlay]`
 const floating = (element: Element) => ['fixed', 'absolute'].includes(getComputedStyle(element).position)
 function browserSurfaces(content: Element) {
   const surfaces = new Set(document.querySelectorAll(OVERLAY_SURFACE))
@@ -182,7 +184,7 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
       || [...record.addedNodes, ...record.removedNodes].some(relevant))) schedule()
   })
   observer.observe(document.body, { childList: true, subtree: true, attributes: true,
-    attributeFilter: ['style', 'class', 'hidden', 'inert', 'role', 'aria-modal', 'aria-hidden', 'popover', 'data-xh-overlay'] })
+    attributeFilter: ['style', 'class', 'hidden', 'inert', 'open', 'role', 'aria-modal', 'aria-hidden', 'popover', 'data-xh-overlay'] })
   window.addEventListener('scroll', schedule, true)
   const settled = (event: Event) => { if (relevant(event.target)) schedule() }
   document.addEventListener('transitionend', settled)

@@ -224,6 +224,27 @@ impl BasicHost {
                 {
                     if tail.checkpoint.header == header {
                         if let Some(record) = crate::restore_checkpoint::restore(self, &tail) {
+                            // Upgrade a verified legacy idle checkpoint without
+                            // loading its full transcript. The store can only
+                            // attach values to an identical, source-bound idle
+                            // catalogue; it cannot change recovery metadata.
+                            if let Ok(Some(entry)) = store.catalog_entry(&session_id).await {
+                                if !entry.needs_recovery
+                                    && entry.next_seq == tail.next_seq
+                                    && entry.header == header
+                                {
+                                    let _ = store
+                                        .publish_catalog_presentation(
+                                            entry,
+                                            xharness_session::HistoryPresentation {
+                                                schema: crate::state::HISTORY_PRESENTATION_SCHEMA
+                                                    .to_owned(),
+                                                values: record.history_presentation_values(),
+                                            },
+                                        )
+                                        .await;
+                                }
+                            }
                             let mut state = self.state.write().await;
                             attach_workspace(
                                 &mut state,
@@ -236,7 +257,11 @@ impl BasicHost {
                             } else {
                                 state.goals.remove(&session_id);
                             }
-                            state.sessions.insert(session_id, record);
+                            state.sessions.insert(session_id.clone(), record);
+                            state.enforce_projection_budget(
+                                &session_id,
+                                self.config.session_event_cache_total_bytes,
+                            );
                             report.restored_sessions += 1;
                             report.checkpoint_restored_sessions += 1;
                             report.checkpoint_tail_events += tail.events.len();
@@ -461,6 +486,11 @@ impl BasicHost {
                 events: tail.events,
                 event_base_seq: tail.base_seq,
                 event_cache_bytes: tail.bytes,
+                event_cache_weights: tail.event_bytes,
+                event_cache_resident_bytes: tail.resident_bytes,
+                event_cache_resident_weights: tail.event_resident_bytes,
+                event_cache_touched: 0,
+                projected_model: None,
                 metrics,
                 catalog_metrics: None,
                 messages,
@@ -486,27 +516,38 @@ impl BasicHost {
             }
             // The journal is authoritative; a failed rebuild only means next
             // startup must treat this session as unknown and replay it.
-            if let Err(error) = store
-                .publish_catalog_entry(SessionCatalogEntry {
-                    header: header.clone(),
-                    updated_at_ms: updated_at,
-                    title: record.title.clone(),
-                    agent_preset: record.agent_preset.clone(),
-                    parent_session_id: record.parent_session_id.clone(),
-                    origin: record.origin.clone(),
-                    model_provider: route.provider.clone(),
-                    model: route.model.clone(),
-                    reasoning_effort: route.reasoning_effort.clone(),
-                    context_window_tokens: route.context_window_tokens,
-                    permission_preset: permission.as_str().to_owned(),
-                    plan_active,
-                    blank,
-                    next_seq: session.next_seq(),
-                    needs_recovery,
-                    metric_snapshot: Some(record.metrics.catalog_snapshot()),
-                })
-                .await
-            {
+            let catalog_entry = SessionCatalogEntry {
+                header: header.clone(),
+                updated_at_ms: updated_at,
+                title: record.title.clone(),
+                agent_preset: record.agent_preset.clone(),
+                parent_session_id: record.parent_session_id.clone(),
+                origin: record.origin.clone(),
+                model_provider: route.provider.clone(),
+                model: route.model.clone(),
+                reasoning_effort: route.reasoning_effort.clone(),
+                context_window_tokens: route.context_window_tokens,
+                permission_preset: permission.as_str().to_owned(),
+                plan_active,
+                blank,
+                next_seq: session.next_seq(),
+                needs_recovery,
+                metric_snapshot: Some(record.metrics.catalog_snapshot()),
+            };
+            let published = if needs_recovery {
+                store.publish_catalog_entry(catalog_entry).await
+            } else {
+                store
+                    .publish_catalog_presentation(
+                        catalog_entry,
+                        xharness_session::HistoryPresentation {
+                            schema: crate::state::HISTORY_PRESENTATION_SCHEMA.to_owned(),
+                            values: record.history_presentation_values(),
+                        },
+                    )
+                    .await
+            };
+            if let Err(error) = published {
                 report.issues.push(HostRestoreIssue {
                     session_id: session_id.clone(),
                     message: format!("catalog publication failed: {error}"),
@@ -516,6 +557,10 @@ impl BasicHost {
                 let mut state = self.state.write().await;
                 attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
                 state.sessions.insert(session_id.clone(), record);
+                state.enforce_projection_budget(
+                    &session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 if let Some(goal) = goal {
                     state.goals.insert(session_id.clone(), goal);
                 }
@@ -900,6 +945,11 @@ impl BasicHost {
                 events: Vec::new(),
                 event_base_seq: 0,
                 event_cache_bytes: 0,
+                event_cache_weights: Vec::new(),
+                event_cache_resident_bytes: 0,
+                event_cache_resident_weights: Vec::new(),
+                event_cache_touched: 0,
+                projected_model: None,
                 metrics: MetricsProjectionState::default(),
                 catalog_metrics: indexed.and_then(|e| {
                     xharness_projection::metrics::catalog_metric_values(
@@ -910,7 +960,7 @@ impl BasicHost {
                 messages: Vec::new(),
                 queue: VecDeque::new(),
                 projected_queue: Vec::new(),
-                admissions: BTreeMap::new(),
+                admissions: crate::admission_cache::AdmissionCache::new(true),
                 mutation_receipts: BTreeMap::new(),
                 authoritative_seq: indexed.map(|e| e.next_seq),
                 control: None,
@@ -922,6 +972,10 @@ impl BasicHost {
             }
             attach_workspace(&mut state, &session_id, &cwd, header.created_at_ms);
             state.sessions.insert(session_id.clone(), record);
+            state.enforce_projection_budget(
+                &session_id,
+                self.config.session_event_cache_total_bytes,
+            );
             drop(state);
             if indexed.is_some_and(|e| e.needs_recovery) {
                 necessary.push(header.id);
@@ -1036,20 +1090,45 @@ impl BasicHost {
         let Some(mut entry) = store.catalog_entry(session_id).await? else {
             return Ok(());
         };
-        let Some(session) = store.load(session_id).await? else {
-            return Ok(());
-        };
-        if entry.next_seq != session.next_seq() {
-            return Ok(());
+        struct MetricsFold(MetricsProjectionState);
+        impl xharness_session::CatalogMetricsFold for MetricsFold {
+            fn apply(&mut self, events: &[xharness_session::LoggedEvent]) {
+                for event in events {
+                    self.0.apply_logged(event);
+                }
+            }
+            fn snapshot(&self) -> Value {
+                self.0.catalog_snapshot()
+            }
         }
-        let snapshot = MetricsProjectionState::rebuild_logged(session.events()).catalog_snapshot();
-        entry.metric_snapshot = Some(snapshot.clone());
-        // The disk store rechecks its source fingerprint under the writer lock.
-        // Failed/racing publication never replaces the authoritative journal.
-        store.publish_catalog_entry(entry).await?;
+        let expected_next = entry.next_seq;
+        let snapshot = match store
+            .repair_catalog_metrics(
+                entry.clone(),
+                Box::new(MetricsFold(MetricsProjectionState::default())),
+            )
+            .await?
+        {
+            Some(snapshot) => snapshot,
+            None => {
+                // Optional Store seam: unsupported or changed sources retain
+                // the full-load path, including normal semantic validation.
+                let Some(session) = store.load(session_id).await? else {
+                    return Ok(());
+                };
+                if entry.next_seq != session.next_seq() {
+                    return Ok(());
+                }
+                let snapshot =
+                    MetricsProjectionState::rebuild_logged(session.events()).catalog_snapshot();
+                entry.metric_snapshot = Some(snapshot.clone());
+                store.publish_catalog_entry(entry).await?;
+                snapshot
+            }
+        };
         let mut state = self.state.write().await;
         if let Some(record) = state.sessions.get_mut(session_id) {
-            if record.restoring && record.next_event_seq() == session.next_seq() {
+            if record.restoring && record.next_event_seq() == expected_next {
                 record.catalog_metrics = Some(snapshot);
             }
         }
@@ -1060,7 +1139,10 @@ impl BasicHost {
         Ok(())
     }
 
-    async fn session_restore_gate(&self, session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    pub(crate) async fn session_restore_gate(
+        &self,
+        session_id: &str,
+    ) -> Arc<tokio::sync::Mutex<()>> {
         let mut gates = self.lazy_restore_gates.lock().await;
         gates.retain(|_, gate| gate.strong_count() > 0);
         gates
@@ -1308,25 +1390,47 @@ pub(crate) fn restored_queue(inbox: &InboxProjection) -> Vec<QueuedPrompt> {
     items
 }
 
-pub(crate) fn restored_admissions(session: &Session) -> BTreeMap<String, QueuedPrompt> {
-    let session_id = &session.header().id;
-    let mut admissions = BTreeMap::new();
-    for event in session.events() {
+pub(crate) fn restored_admission(
+    session: &Session,
+    rpc_id: &str,
+) -> Option<crate::admission_cache::AdmissionReceipt> {
+    session.events().iter().rev().find_map(|event| {
         let EventData::AgentInboxSpliced { inserted, .. } = event.data() else {
-            continue;
+            return None;
         };
-        for input in inserted {
-            let metadata = input.source.as_ref().and_then(Value::as_object);
-            let belongs_to_session = metadata
-                .and_then(|value| value.get("rpcSessionId"))
-                .and_then(Value::as_str)
-                == Some(session_id.as_str());
-            if !belongs_to_session {
-                continue;
-            }
-            let prompt = restored_prompt(input);
-            if prompt.fingerprint.is_some() {
-                admissions.insert(prompt.id.clone(), prompt);
+        inserted
+            .iter()
+            .rev()
+            .filter(|input| input.id == rpc_id)
+            .find_map(|input| admission_receipt(session, input).map(|(_, receipt)| receipt))
+    })
+}
+
+fn admission_receipt<'a>(
+    session: &Session,
+    input: &'a xharness_session::InboxMessage,
+) -> Option<(&'a str, crate::admission_cache::AdmissionReceipt)> {
+    let metadata = input.source.as_ref()?;
+    if metadata.get("rpcSessionId")?.as_str()? != session.header().id {
+        return None;
+    }
+    let fingerprint = metadata.get("rpcFingerprint")?.as_str()?.to_owned();
+    Some((
+        &input.id,
+        crate::admission_cache::AdmissionReceipt {
+            fingerprint: Some(fingerprint),
+        },
+    ))
+}
+
+pub(crate) fn restored_admissions(session: &Session) -> crate::admission_cache::AdmissionCache {
+    let mut admissions = crate::admission_cache::AdmissionCache::new(true);
+    for event in session.events() {
+        if let EventData::AgentInboxSpliced { inserted, .. } = event.data() {
+            for input in inserted {
+                if let Some((id, receipt)) = admission_receipt(session, input) {
+                    admissions.insert(id.to_owned(), receipt);
+                }
             }
         }
     }
@@ -1469,6 +1573,7 @@ mod tests {
     struct CountedSnapshotRuntime {
         store: Arc<dyn Store>,
         loads: AtomicUsize,
+        idle_checkpoints: bool,
     }
 
     #[async_trait]
@@ -1481,6 +1586,9 @@ mod tests {
         }
         fn has_authoritative_sessions(&self) -> bool {
             true
+        }
+        fn supports_idle_restore_checkpoint(&self) -> bool {
+            self.idle_checkpoints
         }
         async fn authoritative_session(
             &self,
@@ -1980,6 +2088,11 @@ mod tests {
                 false
             );
         }
+        assert_eq!(
+            legacy_disk.cache_stats().entries,
+            0,
+            "metric repair must stream without a Session"
+        );
         assert!(legacy_disk
             .catalog_entry("usage-history")
             .await
@@ -2722,6 +2835,639 @@ mod tests {
         }
     }
 
+    async fn cold_history_fixture(
+        label: &str,
+    ) -> (
+        std::path::PathBuf,
+        Arc<xharness_session_jsonl::JsonlSessionStore>,
+        Arc<BasicHost>,
+        Arc<CountedSnapshotRuntime>,
+        Value,
+    ) {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let dir = std::env::temp_dir().join(format!(
+            "xharness-cold-display-{label}-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let store = Arc::new(
+            JsonlSessionStore::new(&dir)
+                .unwrap()
+                .with_cache_limits(0, 0)
+                .for_runtime(),
+        );
+        let mut header = SessionHeader::new("cold");
+        header.cwd = Some(dir.to_string_lossy().into_owned());
+        store.create(header).await.unwrap();
+        let mut revision = Revision::ZERO;
+        for turn in 1..=8 {
+            let mut turn_events = closed_text_turn(turn, "reader request", "complete answer");
+            for event in &mut turn_events {
+                if let EventData::AssistantMessage { usage, .. } = event.data_mut() {
+                    *usage = Some(
+                        serde_json::json!({"inputTokens": turn * 10, "cacheReadTokens": 90, "cacheWriteTokens": 3, "outputTokens": 5}),
+                    );
+                }
+            }
+            revision = store
+                .append("cold", revision, turn_events)
+                .await
+                .unwrap()
+                .revision;
+        }
+        use xharness_session::{
+            GoalChange, GoalChangeKind, GoalPhase, GoalSnapshot, GoalSnapshotChange,
+            GoalSnapshotOperation,
+        };
+        let mut goals: Vec<SessionEvent> = [
+            (GoalSnapshotOperation::Create, GoalPhase::Active, 1),
+            (GoalSnapshotOperation::Complete, GoalPhase::Complete, 2),
+        ]
+        .into_iter()
+        .map(|(operation, phase, revision)| {
+            EventData::GoalChange {
+                change: GoalChange::Snapshot(GoalSnapshotChange {
+                    kind: GoalChangeKind::GoalChange,
+                    version: 1,
+                    operation,
+                    goal: GoalSnapshot {
+                        id: "cold-goal".into(),
+                        revision,
+                        objective: "preserve completed Goal".into(),
+                        phase,
+                        blocked_reason: None,
+                        max_goal_rounds: 8,
+                    },
+                    rounds_started: 0,
+                    created_at: 1,
+                    updated_at: revision,
+                }),
+            }
+            .into()
+        })
+        .collect();
+        goals.push(
+            EventData::SessionPlanUpdated {
+                plan: xharness_session::SessionPlan {
+                    revision: 1,
+                    items: vec![xharness_session::PlanItem {
+                        id: "verify".into(),
+                        title: "Preserve working plan".into(),
+                        status: xharness_session::PlanItemStatus::Completed,
+                    }],
+                },
+            }
+            .into(),
+        );
+        store.append("cold", revision, goals).await.unwrap();
+        let producer = BasicHost::with_agent_runtime(
+            config(&dir),
+            Arc::new(OfflineSnapshotRuntime {
+                store: store.clone(),
+            }),
+        );
+        producer.restore_from_store(store.clone()).await.unwrap();
+        assert!(producer.lazy_store.set(store.clone()).is_ok());
+        let expected = producer
+            .call(
+                RpcId::new("reference"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId":"cold", "maxMessages":2}),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(expected),
+        } = expected
+        else {
+            panic!("reference history failed")
+        };
+        // A fresh store and Host: no warm snapshot or recovered Agent can hide
+        // an accidental first-open replay. This runtime has no idle checkpoint.
+        let fresh = Arc::new(
+            JsonlSessionStore::new(&dir)
+                .unwrap()
+                .with_cache_limits(0, 0)
+                .for_runtime(),
+        );
+        let runtime = Arc::new(CountedSnapshotRuntime {
+            store: fresh.clone(),
+            loads: AtomicUsize::new(0),
+            idle_checkpoints: false,
+        });
+        let cold = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
+        let (necessary, deferred) = cold.prepare_startup_catalog(fresh.clone()).await.unwrap();
+        assert!(necessary.is_empty() && deferred.is_empty());
+        assert!(cold.state.read().await.sessions["cold"].restoring);
+        assert!(cold.state.read().await.sessions["cold"].projection_values().get("goal").is_none(),
+            "cold mux/catalogue must not poison the Goal at the same sequence before the real baseline");
+        (dir, fresh, cold, runtime, expected)
+    }
+
+    #[tokio::test]
+    async fn cold_history_page_and_model_picker_do_not_hydrate_or_change_public_values() {
+        let (dir, store, host, runtime, expected) = cold_history_fixture("read").await;
+        let (history, models, skills) = tokio::join!(
+            host.call(
+                RpcId::new("cold-page"),
+                RpcMethod::SessionHistory,
+                json!({"sessionId":"cold", "maxMessages":2}),
+                CancellationToken::new()
+            ),
+            host.call(
+                RpcId::new("cold-models"),
+                RpcMethod::SessionModels,
+                json!({"sessionId":"cold", "refreshCapabilities":false}),
+                CancellationToken::new()
+            ),
+            host.call(
+                RpcId::new("cold-skills"),
+                RpcMethod::SkillList,
+                json!({"sessionId":"cold"}),
+                CancellationToken::new()
+            ),
+        );
+        let RpcResult::Success {
+            value: Some(actual),
+        } = history
+        else {
+            panic!("cold history failed: {history:?}")
+        };
+        let mut expected = expected;
+        expected["projections"]["values"]["sessionListMetadata"]["restoring"] = json!(true);
+        assert_eq!(
+            actual, expected,
+            "cold display retains business projections without claiming execution readiness"
+        );
+        assert!(matches!(models, RpcResult::Success { .. }));
+        assert!(matches!(skills, RpcResult::Success { .. }));
+        assert_eq!(
+            actual["projections"]["values"]["goal"]["goal"]["phase"],
+            "complete"
+        );
+        let mut page = actual;
+        let mut pages = 1;
+        while page["hasMore"] == true {
+            let before = page["events"][0]["event"]["seq"].as_u64().unwrap();
+            let next = host
+                .call(
+                    RpcId::new(format!("page-{pages}")),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":"cold", "maxMessages":2,"beforeSeq":before}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success { value: Some(next) } = next else {
+                panic!("older cold page failed")
+            };
+            assert!(next["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|e| e["event"]["seq"].as_u64().unwrap() < before));
+            page = next;
+            pages += 1;
+            assert!(pages < 32);
+        }
+        assert!(pages > 1);
+        assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+        assert!(
+            host.state.read().await.sessions["cold"].restoring,
+            "viewing must not certify execution recovery"
+        );
+        assert_eq!(store.cache_stats().entries, 0);
+        // Mutation still crosses the original recovery gate.
+        let renamed = host
+            .call(
+                RpcId::new("rename"),
+                RpcMethod::SessionRename,
+                json!({"sessionId":"cold", "title":"explicit mutation"}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(renamed, RpcResult::Success { .. }), "{renamed:?}");
+        assert!(!host.state.read().await.sessions["cold"].restoring);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cold_history_repairs_missing_indexes_without_runtime_recovery() {
+        for damage in ["missing", "corrupt", "unwritable"] {
+            let (dir, store, host, runtime, mut expected) = cold_history_fixture(damage).await;
+            let index = dir.join("cold.history-index");
+            std::fs::remove_file(&index).unwrap();
+            if damage == "corrupt" {
+                std::fs::write(&index, b"broken").unwrap();
+            }
+            if damage == "unwritable" {
+                std::fs::create_dir(&index).unwrap();
+            }
+            let result = host
+                .call(
+                    RpcId::new("repair-index"),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":"cold", "maxMessages":2}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success {
+                value: Some(actual),
+            } = result
+            else {
+                panic!("{result:?}")
+            };
+            expected["projections"]["values"]["sessionListMetadata"]["restoring"] = json!(true);
+            assert_eq!(actual, expected);
+            assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+            assert_eq!(store.cache_stats().entries, 0);
+            assert!(host.state.read().await.sessions["cold"].restoring);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn streaming_catalog_metrics_match_full_replay_for_usage_and_task_plan_history() {
+        let (dir, store, _, _, expected) = cold_history_fixture("metrics-stream").await;
+        let path = dir.join("cold.catalog");
+        let mut catalog: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        catalog["entry"]
+            .as_object_mut()
+            .unwrap()
+            .remove("metricSnapshot");
+        std::fs::write(&path, serde_json::to_vec(&catalog).unwrap()).unwrap();
+        let runtime = Arc::new(CountedSnapshotRuntime {
+            store: store.clone(),
+            loads: AtomicUsize::new(0),
+            idle_checkpoints: false,
+        });
+        let host = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
+        host.prepare_startup_catalog(store.clone()).await.unwrap();
+        host.backfill_startup_metrics().await;
+        let state = host.state.read().await;
+        let actual = state.sessions["cold"].projection_values();
+        for key in [
+            "tokenUsage",
+            "dailyTokenUsage",
+            "sessionStats",
+            "contextPressure",
+        ] {
+            assert_eq!(actual[key], expected["projections"]["values"][key], "{key}");
+        }
+        assert!(state.startup_issues.is_empty());
+        assert!(state.sessions["cold"].restoring);
+        assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+        assert_eq!(store.cache_stats().entries, 0);
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cold_history_invalid_acceleration_keeps_recovery_fallback() {
+        for damage in [
+            "missing-presentation",
+            "schema",
+            "catalog",
+            "needs-recovery",
+            "oversize",
+        ] {
+            let (dir, store, host, _runtime, expected) = cold_history_fixture(damage).await;
+            let path = dir.join(if matches!(damage, "missing-presentation" | "schema") {
+                "cold.history-presentation"
+            } else {
+                "cold.catalog"
+            });
+            let mut catalog: Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            match damage {
+                "missing-presentation" => {
+                    catalog.as_object_mut().unwrap().remove("presentation");
+                }
+                "schema" => catalog["presentation"]["schema"] = json!("future.schema"),
+                "catalog" => catalog["version"] = json!(999),
+                "index" => {
+                    std::fs::write(dir.join("cold.history-index"), b"corrupt").unwrap();
+                }
+                "needs-recovery" => catalog["entry"]["needsRecovery"] = json!(true),
+                "oversize" => {
+                    let entry = store.catalog_entry("cold").await.unwrap().unwrap();
+                    store.load("cold").await.unwrap();
+                    store
+                        .publish_catalog_presentation(
+                            entry,
+                            xharness_session::HistoryPresentation {
+                                schema: crate::state::HISTORY_PRESENTATION_SCHEMA.to_owned(),
+                                values: json!({"tooLarge": "x".repeat(1024*1024)}),
+                            },
+                        )
+                        .await
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            if !matches!(damage, "index" | "oversize") {
+                std::fs::write(&path, serde_json::to_vec(&catalog).unwrap()).unwrap();
+            }
+            let result = host
+                .call(
+                    RpcId::new("fallback"),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":"cold", "maxMessages":2}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success {
+                value: Some(actual),
+            } = result
+            else {
+                panic!("{damage}: {result:?}")
+            };
+            assert_eq!(
+                actual, expected,
+                "{damage} must not truncate or fabricate history"
+            );
+            assert!(
+                !host.state.read().await.sessions["cold"].restoring,
+                "{damage} must enter recovery"
+            );
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_history_legacy_checkpoint_seeds_display_for_the_next_restart_without_replay() {
+        use xharness_session_jsonl::JsonlSessionStore;
+        let (dir, store, _, _, expected) = cold_history_fixture("legacy-checkpoint").await;
+        let producer = BasicHost::with_agent_runtime(
+            config(&dir),
+            Arc::new(CountedSnapshotRuntime {
+                store: store.clone(),
+                loads: AtomicUsize::new(0),
+                idle_checkpoints: true,
+            }),
+        );
+        producer.restore_from_store(store).await.unwrap();
+        assert!(dir.join("cold.recovery-checkpoint").exists());
+        std::fs::remove_file(dir.join("cold.history-presentation")).unwrap();
+        for restart in 0..2 {
+            let store = Arc::new(
+                JsonlSessionStore::new(&dir)
+                    .unwrap()
+                    .with_cache_limits(0, 0)
+                    .for_runtime(),
+            );
+            let runtime = Arc::new(CountedSnapshotRuntime {
+                store: store.clone(),
+                loads: AtomicUsize::new(0),
+                idle_checkpoints: true,
+            });
+            let host = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
+            let (needed, deferred) = host.prepare_startup_catalog(store.clone()).await.unwrap();
+            assert!(needed.is_empty() && deferred.is_empty());
+            let result = host
+                .call(
+                    RpcId::new("checkpoint-page"),
+                    RpcMethod::SessionHistory,
+                    json!({"sessionId":"cold","maxMessages":2}),
+                    CancellationToken::new(),
+                )
+                .await;
+            let RpcResult::Success {
+                value: Some(actual),
+            } = result
+            else {
+                panic!("{result:?}")
+            };
+            let mut expected = expected.clone();
+            expected["projections"]["values"]["sessionListMetadata"]["restoring"] =
+                json!(restart == 1);
+            assert_eq!(actual, expected);
+            assert_eq!(
+                host.state.read().await.sessions["cold"].restoring,
+                restart == 1
+            );
+            assert_eq!(runtime.loads.load(Ordering::SeqCst), 0);
+            assert_eq!(store.cache_stats().entries, 0);
+            assert!(store
+                .cold_history_window("cold", crate::state::HISTORY_PRESENTATION_SCHEMA, None, 2)
+                .await
+                .unwrap()
+                .is_some());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    struct StartupReadProbe {
+        inner: Arc<dyn Store>,
+        loads: AtomicUsize,
+    }
+    #[async_trait]
+    impl Store for StartupReadProbe {
+        async fn list_headers(&self) -> Result<Vec<SessionHeader>, xharness_session::StoreError> {
+            panic!(
+                "Job discovery must not fully scan idle journals before checking their catalogue"
+            )
+        }
+        async fn scan_startup_candidates(
+            &self,
+        ) -> Result<
+            (Vec<SessionHeader>, Vec<xharness_session::UnreadableSession>),
+            xharness_session::StoreError,
+        > {
+            self.inner.scan_startup_candidates().await
+        }
+        async fn catalog_entry(
+            &self,
+            id: &str,
+        ) -> Result<Option<SessionCatalogEntry>, xharness_session::StoreError> {
+            self.inner.catalog_entry(id).await
+        }
+        async fn create(
+            &self,
+            header: SessionHeader,
+        ) -> Result<Session, xharness_session::StoreError> {
+            self.inner.create(header).await
+        }
+        async fn load(&self, id: &str) -> Result<Option<Session>, xharness_session::StoreError> {
+            self.loads.fetch_add(1, Ordering::SeqCst);
+            self.inner.load(id).await
+        }
+        async fn append(
+            &self,
+            id: &str,
+            expected: Revision,
+            events: Vec<SessionEvent>,
+        ) -> Result<xharness_session::AppendReceipt, xharness_session::StoreError> {
+            self.inner.append(id, expected, events).await
+        }
+        async fn inspect(
+            &self,
+            id: &str,
+        ) -> Result<Option<xharness_session::SessionInspection>, xharness_session::StoreError>
+        {
+            self.inner.inspect(id).await
+        }
+        async fn flush(&self, id: &str) -> Result<Revision, xharness_session::StoreError> {
+            self.inner.flush(id).await
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_history_job_discovery_skips_only_verified_idle_journals() {
+        use crate::job_continuation::{records, JobContinuationController};
+        for kind in ["idle", "missing", "stale", "pending", "corrupt-tail"] {
+            let (dir, store, host, _, _) = cold_history_fixture(kind).await;
+            if kind == "missing" {
+                std::fs::remove_file(dir.join("cold.catalog")).unwrap();
+            }
+            if kind == "pending" || kind == "stale" {
+                let mut pending_entry = store.catalog_entry("cold").await.unwrap().unwrap();
+                let session = store.load("cold").await.unwrap().unwrap();
+                store
+                    .append(
+                        "cold",
+                        session.revision(),
+                        vec![EventData::JobContinuation {
+                            record: Box::new(xharness_session::JobContinuationRecord {
+                                version: 1,
+                                id: "continuation".into(),
+                                job_id: "lost-job".into(),
+                                continuation: "observe terminal status".into(),
+                                state: xharness_session::JobContinuationState::Registered,
+                                completion: None,
+                            }),
+                        }
+                        .into()],
+                    )
+                    .await
+                    .unwrap();
+                if kind == "pending" {
+                    assert!(store.catalog_entry("cold").await.unwrap().is_none());
+                    pending_entry.next_seq = store.load("cold").await.unwrap().unwrap().next_seq();
+                    pending_entry.needs_recovery = true;
+                    store.publish_catalog_entry(pending_entry).await.unwrap();
+                }
+            }
+            if kind == "corrupt-tail" {
+                use std::io::Write;
+                std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(dir.join("cold.jsonl"))
+                    .unwrap()
+                    .write_all(b"invalid committed record\n")
+                    .unwrap();
+            }
+            let probe = Arc::new(StartupReadProbe {
+                inner: store.clone(),
+                loads: AtomicUsize::new(0),
+            });
+            let controller = JobContinuationController::new(
+                Arc::new(xharness_jobs::JobRegistry::with_defaults()),
+                probe.clone(),
+                &host,
+            );
+            controller.pause_delivery();
+            let recovered = controller.recover().await;
+            if kind == "corrupt-tail" {
+                assert!(
+                    recovered.is_err(),
+                    "unreadable unknown work must be reported"
+                );
+            } else {
+                recovered.unwrap();
+            }
+            assert_eq!(
+                probe.loads.load(Ordering::SeqCst) == 0,
+                kind == "idle",
+                "{kind}"
+            );
+            if kind == "pending" || kind == "stale" {
+                assert_eq!(
+                    records(&store.load("cold").await.unwrap().unwrap())["lost-job"].state,
+                    xharness_session::JobContinuationState::Settled,
+                    "pending work is still recovered"
+                );
+            }
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_history_namespaced_mutations_recover_before_admission() {
+        for endpoint in ["commands/execute", "goals/clear"] {
+            let (dir, _, host, _, _) =
+                cold_history_fixture(endpoint.replace('/', "-").as_str()).await;
+            let listed = host
+                .call_dynamic(
+                    RpcId::new("list"),
+                    "commands/list",
+                    json!({"args":{"agentId":"cold"}}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(listed, Some(RpcResult::Success { .. })));
+            assert!(host.state.read().await.sessions["cold"].restoring);
+            let payload = if endpoint == "commands/execute" {
+                json!({"args":{"agentId":"cold","line":"/permission","images":[]}})
+            } else {
+                json!({"args":{"agentId":"cold","ref":{"id":"cold-goal","revision":2}}})
+            };
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(15),
+                host.call_dynamic(
+                    RpcId::new("mutation"),
+                    endpoint,
+                    payload,
+                    CancellationToken::new(),
+                ),
+            )
+            .await
+            .expect("recovery must run before admission locks");
+            assert!(
+                matches!(result, Some(RpcResult::Success { .. })),
+                "{result:?}"
+            );
+            assert!(!host.state.read().await.sessions["cold"].restoring);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn cold_history_races_with_rename_without_a_partial_cut_or_deadlock() {
+        let (dir, _, host, _, _) = cold_history_fixture("race").await;
+        let work = async {
+            let mut reads = tokio::task::JoinSet::new();
+            for n in 0..12 {
+                let host = host.clone();
+                reads.spawn(async move {
+                    host.call(
+                        RpcId::new(format!("reader-{n}")),
+                        RpcMethod::SessionHistory,
+                        json!({"sessionId":"cold", "maxMessages":2}),
+                        CancellationToken::new(),
+                    )
+                    .await
+                });
+            }
+            let mutation = host
+                .call(
+                    RpcId::new("race-rename"),
+                    RpcMethod::SessionRename,
+                    json!({"sessionId":"cold", "title":"new title"}),
+                    CancellationToken::new(),
+                )
+                .await;
+            assert!(matches!(mutation, RpcResult::Success { .. }));
+            while let Some(read) = reads.join_next().await {
+                assert!(matches!(read.unwrap(), RpcResult::Success { .. }));
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(15), work)
+            .await
+            .expect("cold presentation/admission lock order deadlocked");
+        assert!(!host.state.read().await.sessions["cold"].restoring);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn indexed_history_rpc_equals_full_replay_and_all_invalid_indices_fall_back() {
         use xharness_session_jsonl::JsonlSessionStore;
@@ -2752,6 +3498,7 @@ mod tests {
         let runtime = Arc::new(CountedSnapshotRuntime {
             store: store.clone(),
             loads: AtomicUsize::new(0),
+            idle_checkpoints: false,
         });
         let host = BasicHost::with_agent_runtime(config(&dir), runtime.clone());
         host.restore_from_store(store.clone()).await.unwrap();

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { FocusEvent, KeyboardEvent, RefCallback } from 'react'
-import { IconChevronDownOutline14, IconChevronRightOutline14, IconCheckOutline16, IconWarningOutline16, IconThinkOutline14, Toast } from '@xharness/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, IconChevronRightOutline14, IconCheckOutline16, IconWarningOutline16, IconThinkOutline16, Toast } from '@xharness/dsh-client-ui-primitives'
 import type { ModelSelection, ModelSelectProps } from './contracts'
 import { ContextPane, ContextRow, ReasoningStatus } from './ContextPane'
 import { css } from './styles'
@@ -129,7 +129,7 @@ function ModelSelect({ locked, compact = false, available, directory, load, sele
   return <div ref={rootRef} className={classes(css.root, compact && css.compact)} onKeyDown={onKeyDown} onBlur={onBlur}>
     <button ref={triggerRef} data-xh-model-control="model" type="button" className={css.trigger} aria-label={triggerAria} aria-haspopup="menu" aria-expanded={open && openerRef.current === 'model'} aria-controls={open && openerRef.current === 'model' ? `${id}-menu` : undefined}
       title={compact ? `${modelLabel} · ${effortTriggerLabel}` : triggerLabel} disabled={locked || busy} onClick={() => { if (open && openerRef.current === 'model') close(); else show('model') }}>
-      <span className={css.modelIcon} aria-hidden><IconThinkOutline14 /></span><span className={css.triggerLabel}>{modelLabel}</span><IconChevronDownOutline14 className={classes(css.chevron, open && openerRef.current === 'model' && css.chevronOpen)} />
+      <span className={css.modelIcon} aria-hidden><IconThinkOutline16 /></span><span className={css.triggerLabel}>{modelLabel}</span><IconChevronDownOutline14 className={classes(css.chevron, open && openerRef.current === 'model' && css.chevronOpen)} />
     </button>
     {!compact && <button ref={effortTriggerRef} data-xh-model-control="effort" type="button" className={classes(css.trigger, css.triggerEffort)} aria-label={effortTriggerLabel}
       aria-haspopup="menu" aria-expanded={open && openerRef.current === 'effort'} aria-controls={open && openerRef.current === 'effort' ? `${id}-menu` : undefined}

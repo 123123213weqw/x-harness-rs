@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "files": {
     ".xharness-ui-output.json": {
-      "sha256": "eb60ec094b665905e48314a0eabdadb005d4ebe0e29bbac364310da5fde1023d",
-      "bytes": 59
+      "sha256": "cd06934f20270b36f04f6a143d9c9de749760344f05cf38a2e1aba4b5c87fb1a",
+      "bytes": 40423
     },
     "app-icon-512.png": {
       "sha256": "c83d3f2d9d3fcb981793fa6e29d7ff7608bd791d015a87fdf517a7549de5ba8f",
@@ -650,7 +650,7 @@
       "bytes": 93
     },
     "client-graph.json": {
-      "sha256": "bec27340923cc52002089ccb3147174185627ea71b536325498925c3c2b28e3d",
+      "sha256": "0bd228d37684e979791fe8a2271fcb3d366278ebe51500a42ab85d9d17f1f970",
       "bytes": 28767
     },
     "desktop-bootstrap.js": {
@@ -678,7 +678,7 @@
       "bytes": 4729
     },
     "index.html": {
-      "sha256": "ea85f1b2ac193fb58c903e3190b05322fe8cb94211100b01c461572c1aac1faf",
+      "sha256": "4476370550aa230aa099bc1c6d60fa925ec0e41026530f4cf0dd19cf67a1db8b",
       "bytes": 28280
     },
     "logo-motion.css": {
@@ -754,8 +754,8 @@
       "bytes": 84888
     },
     "plugins/@xharness/dsh-client-connection/client.js": {
-      "sha256": "98f04593f0093ae6a57bd05410f6b8c6b0931ba65e787aec345a0458987d6da6",
-      "bytes": 337799
+      "sha256": "523b951045a972d0e18008431f1dee1d4f6eb5c2d9886f6250b73ba897f44f5f",
+      "bytes": 134730
     },
     "plugins/@xharness/dsh-client-hmr/client.js": {
       "sha256": "c8348588a17097f5ff0a9798febbca83b76dea7c65fc050f8eec40446180ca28",
@@ -770,8 +770,8 @@
       "bytes": 18939
     },
     "plugins/@xharness/dsh-client-runtime/client.js": {
-      "sha256": "387fcf3fd78a31a6a6449cdbbd8919b21d6541a67e5aa9b44d6af65d24abe8a2",
-      "bytes": 454809
+      "sha256": "f2bbcff92ff5b7205aa695436350e1fa81463e0766fdd0158b3abf887785dde1",
+      "bytes": 456157
     },
     "plugins/@xharness/dsh-client-ui-agent-preset/client.js": {
       "sha256": "d323ea922a1d5bee0772a6df74e01b6207ded6c92180e1f2eec5b719a972e2e4",
@@ -790,8 +790,8 @@
       "bytes": 59312
     },
     "plugins/@xharness/dsh-client-ui-conversation/client.js": {
-      "sha256": "0e808b12a766f50d7ee924740d3d7b144eeb2216ed5c19be607cde260d7d825a",
-      "bytes": 736545
+      "sha256": "b2b7b67d1e77bb665377d44dc241c1261c4ee28a1f4ebbf7c172c0f087078bc3",
+      "bytes": 738599
     },
     "plugins/@xharness/dsh-client-ui-cordis/client.js": {
       "sha256": "de9d0ab71274171567afab653709ee6de7c628b09b9e209de82dd63021d5f959",
@@ -802,8 +802,8 @@
       "bytes": 21837
     },
     "plugins/@xharness/dsh-client-ui-goal/client.js": {
-      "sha256": "889591efe4cf8ad2118fecccfbc7cb2266666b6fb881a6e15e6bb5e1b086eaa0",
-      "bytes": 35259
+      "sha256": "15f8037770128062b0a9e18c3ca174cd98e3a89aedf1c8a0e8297f439ec41107",
+      "bytes": 36332
     },
     "plugins/@xharness/dsh-client-ui-input-trigger/client.js": {
       "sha256": "a1c00319eb51afcc61d9cd40b13bafc9137c51b3ffd2d911d51bf4ccf3e6c617",
@@ -822,8 +822,8 @@
       "bytes": 39175
     },
     "plugins/@xharness/dsh-client-ui-model-selection/client.js": {
-      "sha256": "d822889f3cbd3df7e216e0218ad15ea5a9cd20ec2d0046ce7f10b661a665f52f",
-      "bytes": 102229
+      "sha256": "4603905e71138dbb52fb4c8992fd1ba9b0b88dad1f412f53fc99b707e95f11da",
+      "bytes": 102513
     },
     "plugins/@xharness/dsh-client-ui-permission-presets/client.js": {
       "sha256": "1bb6f43be67efbe620153db759bdb8f4cb9d3d6d9ad7b9b9fdb54f5a5c697c9c",
@@ -846,8 +846,8 @@
       "bytes": 53342
     },
     "plugins/@xharness/dsh-client-ui-settings-models/client.js": {
-      "sha256": "75ac736cc65765c358a33e204a7ef9e49cb763f91a70cab911ff10fca0bb5697",
-      "bytes": 173238
+      "sha256": "bbeca6c12440d3a565c136238711add497587a15a56e3c714af36b66cb72e449",
+      "bytes": 173711
     },
     "plugins/@xharness/dsh-client-ui-settings-plugin-inventory/client.js": {
       "sha256": "7ab5dab9511d05a8a48581d2380e07a9307b04eb3c546485fd938dd9893a4dd1",
@@ -886,8 +886,8 @@
       "bytes": 168020
     },
     "plugins/@xharness/dsh-client-ui-trajectory/client.js": {
-      "sha256": "67fcc1b2825fab7a76d265b0f63f3d6b6873e24c2d47a536f1a02f47980c4649",
-      "bytes": 512332
+      "sha256": "756b747c77d3f09187d4a77f9defbe29762dd4c6264d62901d98200da61dbe3f",
+      "bytes": 512434
     },
     "plugins/@xharness/dsh-client-ui-user-questions/client.js": {
       "sha256": "307ec76f3198fe786e32b561975597bf822d613fdd24093491152a4eca06df36",
@@ -922,8 +922,8 @@
       "bytes": 77323
     },
     "plugins/@xlang/xharness-client-ui-browser/client.js": {
-      "sha256": "94d4b175cf0ebe8b6bb9f470bd3be44107b5ec99996639bfcb2e68f2f0eb34f1",
-      "bytes": 94137
+      "sha256": "8789fdedb03a4260076c05d83cb69392b46d2153317a2929bc96c1f8f8888ee8",
+      "bytes": 94325
     },
     "plugins/@xlang/xharness-client-ui-code-review/client.js": {
       "sha256": "59e97d964d0b215e0ea01f6bb22be4e1f9c593b90e642bf2828bd18c666c7817",

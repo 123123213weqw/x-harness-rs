@@ -2,6 +2,7 @@
 
 mod checkpoint;
 mod compaction;
+mod context_composition;
 mod context_working_set;
 pub use checkpoint::CheckpointConfig;
 mod engine;
@@ -22,7 +23,7 @@ pub use xharness_context::{
     MAX_REQUEST_IMAGE_BYTES,
 };
 pub use xharness_token::{
-    ConservativeByteMeter, ContextComposition, ProviderInputTokenCount, TokenBreakdown,
-    TokenBudget, TokenBudgetError, TokenBudgetReport, TokenCountAccuracy, TokenEstimateRequest,
-    TokenGuard, TokenMeter, TokenMeterError,
+    ConservativeByteMeter, ContextComposition, ContextMessageOrigin, ProviderInputTokenCount,
+    TokenBreakdown, TokenBudget, TokenBudgetError, TokenBudgetReport, TokenCountAccuracy,
+    TokenEstimateRequest, TokenGuard, TokenMeter, TokenMeterError,
 };

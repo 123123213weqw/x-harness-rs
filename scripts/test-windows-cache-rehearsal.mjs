@@ -75,5 +75,6 @@ assert.ok(js.includes('assert.ok(corruptPackageRejected'),'PASS requires observe
 assert.ok(js.includes('if (error instanceof UpdatePreparationError) throw error'),'Invalid candidate/verification state must fail immediately')
 assert.ok(js.includes("'update-samples.json'"),'Preserve native updater phase/progress evidence')
 assert.ok(wf.includes('persist-credentials: false'))
+assert.ok(wf.includes("m.prepare_base_ui(pathlib.Path('ui/dist'))"), 'Disposable Windows UI must refresh only verified instrumentation assets')
 for(const forbidden of ['secrets.','contents: write','pull_request_target','ignoreHTTPSErrors','NODE_TLS_REJECT_UNAUTHORIZED'])assert.ok(!wf.includes(forbidden))
 console.log(`${cases} Windows cache rehearsal provenance/isolation cases passed; no production release evidence claim.`)

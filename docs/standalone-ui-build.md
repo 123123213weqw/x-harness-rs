@@ -13,7 +13,7 @@ npm run check:build --prefix ui
 ```
 
 `scripts/rebuild-ui.sh` 只是上述安装与构建的无参数包装器。
-`scripts/assemble-static-ui.mjs` 的参数仅为 `--out-dir PATH` 和 `--check`；旧的外部目录参数会明确拒绝。
+`scripts/assemble-static-ui.mjs` accepts `--out-dir PATH`, `--check`, and the explicit `--variant production|fixture`. External source-directory arguments remain rejected. See [UI build variants](ui-build-variants.md) for the production/preview boundary.
 `UPSTREAM_HARNESS_DIR` 不参与构建。
 
 ## 输入与产物

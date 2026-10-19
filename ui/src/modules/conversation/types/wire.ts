@@ -59,7 +59,7 @@ export interface SessionEventMap {
  'unknown': unknown
 }
 export type SessionEvent<Type extends keyof SessionEventMap = keyof SessionEventMap> = { [K in Type]: { type: K; seq: number; time: number; data: SessionEventMap[K]; surfaceOp?: unknown; sourceEventSeqs?: readonly number[] | undefined } }[Type]
-export interface ContextComposition { systemTokens: number; userTokens: number; assistantTokens: number; toolResultTokens: number; toolDefinitionTokens: number; mcpToolDefinitionTokens: number; protocolTokens: number }
+export interface ContextComposition { attributionVersion?: number; agentReportTokens?: number; runtimeContextTokens?: number; checkpointTokens?: number; unattributedTokens?: number; systemTokens: number; userTokens: number; assistantTokens: number; toolResultTokens: number; toolDefinitionTokens: number; mcpToolDefinitionTokens: number; protocolTokens: number }
 export interface ContextPressureProjection { projectedTokens?: (number) | undefined; pressureTokens?: (number) | undefined; contextWindow?: (number) | undefined; pressureAccuracy?: (string) | undefined; projectedAccuracy?: (string) | undefined; accuracy?: (string) | undefined; phase?: (string) | undefined; composition?: (ContextComposition) | undefined }
 export interface TokenUsageProjection { uncachedInputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; outputTokens: number }
 export interface PermissionSelect { pending?: (boolean) | undefined; activeValue?: (string) | undefined; currentValue: string; options: readonly { value: string; name: string; description?: (string) | undefined }[] }

@@ -1,6 +1,8 @@
 use std::sync::{atomic::Ordering, Arc};
 use xharness_projection::metrics::web_token_usage_from_core;
-use xharness_projection::{project_session_event_range, project_session_event_tail_from};
+#[cfg(test)]
+use xharness_projection::project_session_event_tail_from;
+use xharness_projection::{prepare_session_tail_update, project_session_event_range};
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, OwnedMutexGuard};
@@ -42,6 +44,8 @@ struct ProjectionInputs {
     cache_base_seq: u64,
     created_at: u64,
     schedules_hydrated: bool,
+    restoring: bool,
+    projected_model: Option<crate::state::ModelSelection>,
     route: ModelRoute,
 }
 
@@ -52,6 +56,8 @@ impl ProjectionInputs {
             cache_base_seq: record.event_base_seq,
             created_at: record.created_at,
             schedules_hydrated: record.schedules_hydrated,
+            restoring: record.restoring,
+            projected_model: record.projected_model.clone(),
             route: ModelRoute {
                 provider: record.model.provider.clone(),
                 model: record.model.model.clone(),
@@ -63,13 +69,34 @@ impl ProjectionInputs {
 
     fn matches(&self, record: &crate::state::SessionRecord) -> bool {
         self.cursor == record.authoritative_seq
-            && self.cache_base_seq == record.event_base_seq
+            // Another session may evict this display prefix while preparation
+            // runs. The journal cursor still certifies the delta; applying it
+            // to a shorter suffix is safe, but never resurrect a stale cursor.
+            && self.cache_base_seq <= record.event_base_seq
             && self.created_at == record.created_at
             && self.schedules_hydrated == record.schedules_hydrated
+            && self.restoring == record.restoring
+            && self.projected_model == record.projected_model
             && self.route.provider == record.model.provider
             && self.route.model == record.model.model
             && self.route.reasoning_effort == record.model.reasoning_effort
             && self.route.context_window_tokens == record.model.context_window_tokens
+    }
+
+    fn already_projected(&self, next_seq: u64) -> bool {
+        self.cursor == Some(next_seq)
+            && self.schedules_hydrated
+            && !self.restoring
+            && self.reusable_route()
+    }
+
+    fn reusable_route(&self) -> bool {
+        self.projected_model.as_ref().is_some_and(|model| {
+            model.provider == self.route.provider
+                && model.model == self.route.model
+                && model.reasoning_effort == self.route.reasoning_effort
+                && model.context_window_tokens == self.route.context_window_tokens
+        })
     }
 }
 
@@ -384,6 +411,13 @@ impl BasicHost {
                 })?;
                 ProjectionInputs::capture(record)
             };
+            // Several stream notices can refer to the same latest snapshot.
+            // Rebuilding it again clones and serializes the entire resident
+            // history without producing any new durable events. Cold records
+            // and changed routes must still pass through full hydration.
+            if inputs.already_projected(session.next_seq()) {
+                return Ok(true);
+            }
             let route = &inputs.route;
             let permission = restored_permission(&session);
             let agent_preset = restored_agent_preset(&session);
@@ -408,10 +442,12 @@ impl BasicHost {
                     .sessions
                     .get(session_id)
                     .is_some_and(|record| record.running));
-            let tail = project_session_event_tail_from(
+            let tail = prepare_session_tail_update(
                 &session,
                 route,
                 inputs.cache_base_seq,
+                inputs.cursor,
+                inputs.reusable_route(),
                 self.config.session_event_cache_capacity,
                 self.config.session_event_cache_bytes,
             );
@@ -476,12 +512,12 @@ impl BasicHost {
                             updates.push(update);
                         }
                     }
-                    record.replace_authoritative_tail(
-                        tail.base_seq,
-                        tail.next_seq,
-                        tail.events,
-                        tail.bytes,
+                    record.apply_tail_update(
+                        tail,
+                        self.config.session_event_cache_capacity,
+                        self.config.session_event_cache_bytes,
                     );
+                    record.projected_model = Some(record.model.clone());
                     // Durable Runtime derives provider messages from the journal on demand.
                     // Do not retain a second transcript for every idle conversation.
                     record.messages.clear();
@@ -527,6 +563,10 @@ impl BasicHost {
                 } else {
                     state.goals.remove(session_id);
                 }
+                state.enforce_projection_budget(
+                    session_id,
+                    self.config.session_event_cache_total_bytes,
+                );
                 (
                     new_events,
                     queue_changed,
@@ -641,7 +681,30 @@ impl BasicHost {
         if let Some(checkpoint) = checkpoint {
             let _ = store.publish_recovery_checkpoint(checkpoint).await;
         }
-        if let Err(error) = store.publish_catalog_entry(entry).await {
+        let presentation = {
+            let state = self.state.read().await;
+            state
+                .sessions
+                .get(&session.header().id)
+                .filter(|record| {
+                    !entry.needs_recovery
+                        && !record.restoring
+                        && record.next_event_seq() == session.next_seq()
+                })
+                .map(|record| xharness_session::HistoryPresentation {
+                    schema: crate::state::HISTORY_PRESENTATION_SCHEMA.to_owned(),
+                    values: record.history_presentation_values(),
+                })
+        };
+        let published = match presentation {
+            Some(presentation) => {
+                store
+                    .publish_catalog_presentation(entry, presentation)
+                    .await
+            }
+            None => store.publish_catalog_entry(entry).await,
+        };
+        if let Err(error) = published {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
             eprintln!("xharness catalogue update skipped: {error}");
@@ -867,14 +930,7 @@ impl BasicHost {
                 if let Some(session) = state.sessions.get_mut(session_id) {
                     session.admissions.insert(
                         rpc_id.as_str().to_owned(),
-                        QueuedPrompt {
-                            id: rpc_id.as_str().to_owned(),
-                            text: text.clone(),
-                            content: content.clone(),
-                            source: source.clone(),
-                            fingerprint,
-                            placement: QueuePlacement::Steering,
-                        },
+                        crate::admission_cache::AdmissionReceipt { fingerprint },
                     );
                 }
             }
@@ -934,14 +990,7 @@ impl BasicHost {
             });
             session.admissions.insert(
                 rpc_id.as_str().to_owned(),
-                QueuedPrompt {
-                    id: rpc_id.as_str().to_owned(),
-                    text,
-                    content,
-                    source,
-                    fingerprint,
-                    placement: QueuePlacement::Queued,
-                },
+                crate::admission_cache::AdmissionReceipt { fingerprint },
             );
             if !session.running && !session.dispatch_paused {
                 let (control_tx, control_rx) = mpsc::channel(64);

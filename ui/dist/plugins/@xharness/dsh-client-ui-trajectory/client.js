@@ -1572,6 +1572,8 @@ exports.modelReasoningSchema = zod_1.z.object({
 });
 /** One advisory model entry inside a provider group. */
 exports.modelCatalogModelSchema = zod_1.z.object({
+    imageInput: zod_1.z.boolean().optional(),
+    imageInputCapability: zod_1.z.unknown().optional(),
     reasoningCapability: zod_1.z.unknown().optional(),
     contextWindow: zod_1.z.number().int().positive().optional(),
     contextWindowSource: zod_1.z.string().optional(),

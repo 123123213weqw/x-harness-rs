@@ -492,6 +492,10 @@ pub struct ModelReasoning {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCatalogEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_input: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_input_capability: Option<Value>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -820,6 +824,10 @@ pub struct LlmModelsResponse {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredModelView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_input: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_input_capability: Option<Value>,
     pub id: String,
     #[serde(default)]
     pub name: Option<String>,

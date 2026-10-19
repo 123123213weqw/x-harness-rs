@@ -22,7 +22,7 @@ use xharness_compaction::{
     frame_summary, BasicCompactionPlanner, CompactionDecision, CompactionPlan, CompactionRequest,
     CompactionTrigger, ModelTarget, SurfaceNode, SurfaceNodeKind,
 };
-use xharness_debug::{DebugEvent, DebugScope};
+use xharness_debug::DebugScope;
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionEndOutcome, CompactionProgress,
     CompactionStage, EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval,
@@ -413,6 +413,9 @@ impl LoopEngine {
             failed_compactions: HashMap::new(),
             workset_pressure: false,
             workset_input_sample: None,
+            workset_selection: None,
+            workset_restored: false,
+            workset_reselect: false,
         };
         let runner_journal = Arc::clone(&event_journal);
         tokio::spawn(async move {
@@ -566,6 +569,9 @@ struct Runner {
     recent_input_growth: VecDeque<u64>,
     failed_compactions: HashMap<String, String>,
     workset_pressure: bool,
+    workset_selection: Option<crate::context_working_set::StableSelection>,
+    workset_restored: bool,
+    workset_reselect: bool,
     /// Complete request price before the first disposable projection. Local
     /// byte heuristics select candidates only, and must use comparable units.
     workset_input_sample: Option<(u64, u64)>,
@@ -616,15 +622,14 @@ impl UserRequestScope {
 
 impl Runner {
     async fn run(mut self) -> LoopResult {
-        self.debug(
-            "run.start",
+        self.debug("run.start", || {
             json!({
                 "provider": self.request.provider.provider_name(),
                 "model": self.request.provider.model_name(),
                 "messageCount": self.request.messages.len(),
                 "maxSteps": self.request.config.max_steps,
-            }),
-        )
+            })
+        })
         .await;
         if let Some(error) = self.startup_error.take() {
             self.messages = self.request.messages.clone();
@@ -633,15 +638,14 @@ impl Runner {
                     error: error.clone(),
                 })
                 .await;
-            self.debug(
-                "run.end",
+            self.debug("run.end", || {
                 json!({
                     "status": LoopStatus::Failed,
                     "finalText": "",
                     "messages": &self.messages,
                     "error": &error,
-                }),
-            )
+                })
+            })
             .await;
             return LoopResult {
                 status: LoopStatus::Failed,
@@ -721,8 +725,7 @@ impl Runner {
                 .await;
         }
         let _ = self.snapshot(phase, self.tool_batch_complete).await;
-        self.debug(
-            "run.end",
+        self.debug("run.end", || {
             json!({
                 "status": status,
                 "finalText": &self.final_text,
@@ -731,8 +734,8 @@ impl Runner {
                 "stepUsage": &self.step_usage,
                 "finishReason": &self.finish_reason,
                 "error": &error,
-            }),
-        )
+            })
+        })
         .await;
         LoopResult {
             status,
@@ -792,7 +795,8 @@ impl Runner {
             self.step += 1;
             self.journal_step_start().await?;
             let mut pressure_attempted = false;
-            let (provider_request, prepared, context_tools, token_budget) = loop {
+            let mut working_set_attempted = false;
+            let (provider_request, prepared, context_tools, token_budget, context_origins) = loop {
                 let tool_definitions = self.tool_definitions().await;
                 let context_tools = tool_definitions
                     .iter()
@@ -801,16 +805,18 @@ impl Runner {
                     .map_err(|error| {
                         RunFailure::Failed(format!("could not serialize tool schema: {error}"))
                     })?;
-                let prepared = self
+                let crate::context_composition::PreparedContext {
+                    surface: prepared,
+                    origins: context_origins,
+                } = self
                     .prepare_context(self.messages.clone(), &context_tools)
                     .await?;
-                self.debug(
-                    "context.prepared",
+                self.debug("context.prepared", || {
                     json!({
                         "surface": &prepared,
                         "tools": &context_tools,
-                    }),
-                )
+                    })
+                })
                 .await;
                 let mut provider_request = ProviderRequest {
                     messages: prepared.messages.clone(),
@@ -830,9 +836,10 @@ impl Runner {
                 {
                     TokenBudgetCheck::Ready(report) => {
                         if let Some(report) = &report {
-                            if context_tools
-                                .iter()
-                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                            if !working_set_attempted
+                                && context_tools.iter().any(|t| {
+                                    t.get("name").and_then(Value::as_str) == Some("history")
+                                })
                                 && self
                                     .activate_working_set(
                                         report.estimate.total_input_tokens,
@@ -842,6 +849,7 @@ impl Runner {
                                     )
                                     .await?
                             {
+                                working_set_attempted = true;
                                 continue;
                             }
                         }
@@ -883,7 +891,7 @@ impl Runner {
                                     Err(error) => {
                                         self.debug(
                                             "compaction.pressure_failed",
-                                            json!({"error": error.to_string()}),
+                                            || json!({"error": error.to_string()}),
                                         )
                                         .await;
                                         return Err(error);
@@ -905,16 +913,23 @@ impl Runner {
                                     .map_or(remaining, |limit| limit.min(remaining)),
                             );
                         }
-                        break (provider_request, prepared, context_tools, report);
+                        break (
+                            provider_request,
+                            prepared,
+                            context_tools,
+                            report,
+                            context_origins,
+                        );
                     }
                     TokenBudgetCheck::Exceeded {
                         current_input_tokens,
                         context_window_tokens,
                         error,
                     } => {
-                        if context_tools
-                            .iter()
-                            .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
+                        if !working_set_attempted
+                            && context_tools
+                                .iter()
+                                .any(|t| t.get("name").and_then(Value::as_str) == Some("history"))
                             && self
                                 .activate_working_set(
                                     current_input_tokens,
@@ -924,6 +939,7 @@ impl Runner {
                                 )
                                 .await?
                         {
+                            working_set_attempted = true;
                             continue;
                         }
                         let maximum = self
@@ -972,8 +988,7 @@ impl Runner {
                 }
             };
             if self.request.debug.enabled() {
-                self.debug(
-                    "provider.request.prepared",
+                self.debug("provider.request.prepared", || {
                     json!({
                         "request": {
                             "messages": &provider_request.messages,
@@ -982,12 +997,17 @@ impl Runner {
                             "maxOutputTokens": provider_request.max_output_tokens,
                         },
                         "tokenBudget": &token_budget,
-                    }),
-                )
+                    })
+                })
                 .await;
             }
-            self.journal_request_header(&prepared, &context_tools, token_budget.as_ref())
-                .await?;
+            self.journal_request_header(
+                &prepared,
+                &context_tools,
+                token_budget.as_ref(),
+                &context_origins,
+            )
+            .await?;
 
             let mut model = match self.model_round(provider_request).await {
                 Ok(model) => model,
@@ -1303,11 +1323,12 @@ impl Runner {
     // policy, continuations and runtime notices identical avoids undercounting
     // a candidate that would grow again immediately after its replacement.
     async fn prepare_context(
-        &self,
+        &mut self,
         context_messages: Vec<AgentMessage>,
         context_tools: &[Value],
-    ) -> Result<ContextSurface, RunFailure> {
+    ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         let mut origins = Vec::new();
+        let mut attribution = Vec::new();
         let mut working_plan = None;
         {
             if let Some(journal) = &self.journal {
@@ -1319,47 +1340,119 @@ impl Runner {
                         RunFailure::Failed(format!("working set journal load failed: {error}"))
                     })?
                     .ok_or_else(|| RunFailure::Failed("working set session disappeared".into()))?;
+                if !self.workset_restored {
+                    self.workset_selection =
+                        session
+                            .events()
+                            .iter()
+                            .rev()
+                            .find_map(|event| {
+                                if let SessionEventData::RequestHeader { header } = event.data() {
+                                    Some(header.options.get("workingSetSelection").and_then(
+                                        crate::context_working_set::StableSelection::restore,
+                                    ))
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten();
+                    self.workset_restored = true;
+                }
                 working_plan = xharness_session::session_plan(&session);
                 let surface = session.derive_surface_messages();
+                attribution = crate::context_composition::aligned_origins(
+                    &session,
+                    &surface,
+                    &context_messages,
+                );
                 let sources = crate::context_working_set::sources(&session, &surface);
                 origins =
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
-        self.prepare_context_with_sources(
-            context_messages,
+        let history_available = context_tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
+        let working = if history_available && !origins.is_empty() {
+            if let Some(selection) = &self.workset_selection {
+                if !selection
+                    .matches(&context_messages, &origins)
+                    .map_err(|error| RunFailure::Failed(error.to_string()))?
+                {
+                    // Compaction/edit/prompt changes invalidate the optional cache.
+                    // Count the new full surface before deciding whether to retire.
+                    self.workset_selection = None;
+                    self.workset_pressure = false;
+                    self.workset_reselect = false;
+                    self.workset_input_sample = None;
+                }
+            }
+            if !self.workset_reselect {
+                if let Some(selection) = &self.workset_selection {
+                    match xharness_context::reuse_working_set(
+                        context_messages.clone(),
+                        &origins,
+                        selection.ranges(),
+                    ) {
+                        Ok(working) => working,
+                        Err(_) => {
+                            // Optional saved metadata must not break a valid chat.
+                            // Preserve all input and let admission decide again.
+                            self.workset_selection = None;
+                            self.workset_pressure = false;
+                            self.workset_input_sample = None;
+                            ContextSurface::identity(context_messages)
+                        }
+                    }
+                } else {
+                    ContextSurface::identity(context_messages)
+                }
+            } else {
+                let working = self.project_working_set_retaining(
+                    context_messages.clone(),
+                    &origins,
+                    context_tools,
+                )?;
+                self.workset_selection = crate::context_working_set::StableSelection::capture(
+                    &context_messages,
+                    &origins,
+                    &working,
+                )
+                .map_err(|error| RunFailure::Failed(error.to_string()))?;
+                self.workset_reselect = false;
+                working
+            }
+        } else {
+            ContextSurface::identity(context_messages)
+        };
+        self.prepare_context_with_working(
+            working,
             context_tools,
             &origins,
+            &attribution,
             working_plan.as_ref(),
         )
         .await
     }
 
-    async fn prepare_context_with_sources(
+    async fn prepare_context_with_working(
         &self,
-        mut context_messages: Vec<AgentMessage>,
+        working: ContextSurface,
         context_tools: &[Value],
         origins: &[Option<xharness_context::WorkingSetSource>],
+        attribution: &[xharness_token::ContextMessageOrigin],
         working_plan: Option<&xharness_session::SessionPlan>,
-    ) -> Result<ContextSurface, RunFailure> {
-        // Retirement is allowed only with a real session-bound recovery tool.
-        // A custom executor without history must remain lossless/fail closed.
-        let history_available = context_tools
-            .iter()
-            .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
-        let working = if history_available && !origins.is_empty() {
-            self.project_working_set(context_messages, origins, context_tools)?
-        } else {
-            ContextSurface::identity(context_messages)
-        };
-        context_messages = working.messages.clone();
-        let mut context_request = ContextRequest::new(context_messages)
+    ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
+        let working_attribution =
+            crate::context_composition::project_origins(attribution, &working);
+        let mut context_request = ContextRequest::new(working.messages.clone())
             .with_target(
                 self.request.provider.provider_name(),
                 self.request.provider.model_name(),
             )
             .with_step(self.step)
-            .with_tools(context_tools.to_vec());
+            .with_tools(context_tools.to_vec())
+            .with_tool_result_limit_bytes(self.request.config.tool_result_limit_bytes);
         if origins.len() == working.source_message_count {
             let mut genuine = Vec::new();
             let mut source = 0usize;
@@ -1398,6 +1491,8 @@ impl Runner {
             .validate()
             .map_err(|error| RunFailure::Failed(error.to_string()))?;
         self.validate_prompt_surface(&prepared)?;
+        let mut attribution =
+            crate::context_composition::project_origins(&working_attribution, &prepared);
         if !working.edits.is_empty() {
             // Keep source-coordinate retirement evidence in a separate audited
             // surface, rather than mixing two policies' incompatible indexes.
@@ -1423,10 +1518,12 @@ impl Runner {
         if let Some(note) =
             crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
         {
-            crate::plan_context::insert(&mut prepared.messages, note);
+            let index = crate::plan_context::insert(&mut prepared.messages, note);
+            attribution.insert(index, xharness_token::ContextMessageOrigin::RuntimeContext);
         }
         if let Some(continuation) = self.pending_continuation.clone() {
             prepared.messages.push(continuation);
+            attribution.push(xharness_token::ContextMessageOrigin::RuntimeContext);
         }
         // Runtime controls are transient, not new user history. Add AFTER
         // policy projection so compaction/custom policies cannot remove
@@ -1439,7 +1536,13 @@ impl Runner {
                     .with_id(format!("execution-notice-{}-{}", self.run_id, self.step)),
             );
         }
-        Ok(prepared)
+        if self.checkpoint.pending_notice.is_some() {
+            attribution.push(xharness_token::ContextMessageOrigin::RuntimeContext);
+        }
+        Ok(crate::context_composition::PreparedContext {
+            surface: prepared,
+            origins: attribution,
+        })
     }
 
     fn project_working_set(
@@ -1447,6 +1550,32 @@ impl Runner {
         messages: Vec<AgentMessage>,
         sources: &[Option<xharness_context::WorkingSetSource>],
         tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        self.project_working_set_ranges(messages, sources, tools, &[])
+    }
+
+    fn project_working_set_retaining(
+        &self,
+        messages: Vec<AgentMessage>,
+        sources: &[Option<xharness_context::WorkingSetSource>],
+        tools: &[Value],
+    ) -> Result<ContextSurface, RunFailure> {
+        self.project_working_set_ranges(
+            messages,
+            sources,
+            tools,
+            self.workset_selection
+                .as_ref()
+                .map_or(&[], |selection| selection.ranges()),
+        )
+    }
+
+    fn project_working_set_ranges(
+        &self,
+        messages: Vec<AgentMessage>,
+        sources: &[Option<xharness_context::WorkingSetSource>],
+        tools: &[Value],
+        retired_ranges: &[(usize, usize)],
     ) -> Result<ContextSurface, RunFailure> {
         let available = self
             .request
@@ -1477,7 +1606,7 @@ impl Runner {
         let calibrated =
             |tokens| xharness_context::calibrate_working_set_tokens(tokens, local, measured);
         let tool_cost = local_tool_cost(tools)?;
-        xharness_context::project_working_set(
+        xharness_context::project_working_set_retaining(
             messages,
             sources,
             &xharness_context::WorkingSetConfig {
@@ -1488,6 +1617,7 @@ impl Runner {
                 hot_input_budget: Some(calibrated(available).saturating_sub(tool_cost)),
                 retain_checkpoints: 2,
             },
+            retired_ranges,
         )
         .map_err(|error| RunFailure::Failed(error.to_string()))
     }
@@ -1499,7 +1629,7 @@ impl Runner {
         prepared: &ContextSurface,
         tools: &[Value],
     ) -> Result<bool, RunFailure> {
-        if self.workset_pressure || self.journal.is_none() {
+        if self.workset_reselect || self.journal.is_none() {
             return Ok(false);
         }
         let Some(config) = &self.request.compaction else {
@@ -1531,6 +1661,7 @@ impl Runner {
                 .map_err(|error| RunFailure::Failed(error.to_string()))?
                 .saturating_add(local_tool_cost(tools)?);
             self.workset_pressure = true;
+            self.workset_reselect = true;
             self.workset_input_sample = Some((local, input));
             return Ok(true);
         }
@@ -1607,7 +1738,7 @@ impl Runner {
                     Err(error) if error.retryable && guard.allows_counter_fallback() => {
                         fallback_reason = Some("transient_counter_failure".to_owned());
                         provider.input_counter_failed();
-                        self.debug("token_count.fallback",json!({"reason":"transient_counter_failure","status":error.http_status})).await;
+                        self.debug("token_count.fallback",|| json!({"reason":"transient_counter_failure","status":error.http_status})).await;
                         break None;
                     }
                     Err(error) => {
@@ -1697,6 +1828,7 @@ impl Runner {
 
     async fn run_manual_compaction(&mut self, command_id: &str) -> Result<LoopStatus, RunFailure> {
         self.workset_pressure = true;
+        self.workset_reselect = true;
         let outcome = async {
             let tool_definitions = self.tool_definitions().await;
             let context_tools = tool_definitions
@@ -1708,7 +1840,8 @@ impl Runner {
                 })?;
             let prepared = self
                 .prepare_context(self.messages.clone(), &context_tools)
-                .await?;
+                .await?
+                .surface;
             let provider_request = ProviderRequest {
                 messages: prepared.messages.clone(),
                 tools: tool_definitions,
@@ -1966,8 +2099,7 @@ impl Runner {
             true,
         )
         .await?;
-        self.debug(
-            "compaction.start",
+        self.debug("compaction.start", || {
             json!({
                 "compactionId": &compaction_id,
                 "trigger": trigger,
@@ -1975,8 +2107,8 @@ impl Runner {
                 "currentInputTokens": current_input_tokens,
                 "reasoningEffort": &self.request.compaction_reasoning_effort,
                 "toolCount": 0,
-            }),
-        )
+            })
+        })
         .await;
 
         // Cache deterministic failure for this exact source within the run;
@@ -2109,6 +2241,7 @@ impl Runner {
         let checkpoint_seq = commit_next_seq
             .checked_add(2)
             .ok_or_else(|| RunFailure::Failed("compaction sequence overflow".into()))?;
+        let mut candidate_selection = None;
         let validation: Result<Option<bool>, RunFailure> = async {
             let mut candidate = surface
                 .iter()
@@ -2143,14 +2276,30 @@ impl Runner {
                 .len()
                 .saturating_sub(candidate_origins.len());
             candidate_origins.splice(0..0, std::iter::repeat_n(None, prefix_len));
+            let working = if tools
+                .iter()
+                .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"))
+            {
+                self.project_working_set(prefixed_candidate.clone(), &candidate_origins, &tools)?
+            } else {
+                ContextSurface::identity(prefixed_candidate.clone())
+            };
+            candidate_selection = crate::context_working_set::StableSelection::capture(
+                &prefixed_candidate,
+                &candidate_origins,
+                &working,
+            )
+            .map_err(|error| RunFailure::Failed(error.to_string()))?;
             let prepared = self
-                .prepare_context_with_sources(
-                    prefixed_candidate,
+                .prepare_context_with_working(
+                    working,
                     &tools,
                     &candidate_origins,
+                    &[],
                     xharness_session::session_plan(&session).as_ref(),
                 )
-                .await?;
+                .await?
+                .surface;
             let request = ProviderRequest {
                 messages: prepared.messages.clone(),
                 tools: tool_definitions,
@@ -2167,7 +2316,7 @@ impl Runner {
                 TokenBudgetCheck::Ready(report) => {
                     progress.input_tokens_after =
                         report.as_ref().map(|r| r.estimate.total_input_tokens);
-                    self.debug("compaction.candidate_budget", json!({"budget":report}))
+                    self.debug("compaction.candidate_budget", || json!({"budget":report}))
                         .await;
                     if progress
                         .input_tokens_after
@@ -2284,16 +2433,20 @@ impl Runner {
             return Ok(CompactionOutcome::Interrupted);
         }
         self.reload_journal_messages().await?;
-        self.debug(
-            "compaction.end",
+        // Reuse exactly the candidate admitted before this atomic commit.
+        self.workset_selection = candidate_selection;
+        self.workset_reselect = false;
+        self.workset_restored = true;
+        let context_tools_sha256 = sha256_json(&context_tools)?;
+        self.debug("compaction.end", || {
             json!({
                 "compactionId": &compaction_id,
                 "shadowedTokens": plan.range.shadowed_token_count,
                 "checkpointTokens": checkpoint_tokens,
                 "visibleMessages": self.messages.len(),
-                "toolsSha256": sha256_json(&context_tools)?,
-            }),
-        )
+                "toolsSha256": context_tools_sha256,
+            })
+        })
         .await;
         Ok(CompactionOutcome::Applied)
     }
@@ -2413,7 +2566,7 @@ impl Runner {
         .await?;
         self.debug(
             "compaction.skipped",
-            json!({"reason":reason,"trigger":trigger}),
+            || json!({"reason":reason,"trigger":trigger}),
         )
         .await;
         if trigger == CompactionTrigger::ContextOverflow {
@@ -2528,12 +2681,11 @@ impl Runner {
                 result = &mut summary => break result?,
             }
         };
-        self.debug(
-            "compaction.summary_completed",
+        self.debug("compaction.summary_completed", || {
             json!({
                 "calls": output.calls, "splits": output.splits, "usage": output.usage,
-            }),
-        )
+            })
+        })
         .await;
         Ok(CompactionSummaryOutput {
             progress: CompactionProgress {
@@ -2999,6 +3151,7 @@ impl Runner {
         surface: &ContextSurface,
         tools: &[Value],
         token_budget: Option<&TokenBudgetReport>,
+        origins: &[xharness_token::ContextMessageOrigin],
     ) -> Result<(), RunFailure> {
         if self.journal.is_none() {
             return Ok(());
@@ -3079,18 +3232,22 @@ impl Runner {
                 tools: tools.to_vec(),
                 ..TokenEstimateRequest::default()
             };
-            for message in &surface.messages {
+            let mut conversation_origins = Vec::new();
+            for (index, message) in surface.messages.iter().enumerate() {
                 if let Ok(encoded) = serde_json::to_value(message) {
                     if message.role == Role::System {
                         estimate_request.system_messages.push(encoded);
                     } else {
                         estimate_request.conversation_messages.push(encoded);
+                        conversation_origins.push(origins.get(index).copied().unwrap_or_default());
                     }
                 }
             }
-            if let Ok(composition) =
-                ContextComposition::estimate(&estimate_request, report.estimate.total_input_tokens)
-            {
+            if let Ok(composition) = ContextComposition::estimate_with_origins(
+                &estimate_request,
+                report.estimate.total_input_tokens,
+                &conversation_origins,
+            ) {
                 header.options.insert(
                     "contextComposition".to_owned(),
                     serde_json::to_value(composition).map_err(|error| {
@@ -3104,6 +3261,16 @@ impl Runner {
         header
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
+        if let Some(selection) = &self.workset_selection {
+            if let Some(metadata) = selection
+                .metadata()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?
+            {
+                header
+                    .options
+                    .insert("workingSetSelection".into(), metadata);
+            }
+        }
         header.options.insert(
             "context".to_owned(),
             json!({
@@ -3868,18 +4035,21 @@ impl Runner {
             step: self.step,
             kind,
         };
-        self.debug("loop.event", json!({"event": &event})).await;
+        self.debug("loop.event", || json!({"event": &event})).await;
         self.event_journal
             .append(event)
             .map_err(|error| RunFailure::Failed(format!("could not serialize loop event: {error}")))
     }
 
-    async fn debug(&self, event: &str, payload: Value) {
+    fn debug(
+        &self,
+        event: &str,
+        payload: impl FnOnce() -> Value,
+    ) -> impl std::future::Future<Output = ()> + Send + '_ {
         let scope = self.debug_scope();
         self.request
             .debug
-            .record_lossy(DebugEvent::new("core", event, payload).with_scope(scope))
-            .await;
+            .record_lossy_with("core", event, scope, payload)
     }
 
     fn debug_scope(&self) -> DebugScope {
@@ -4971,7 +5141,7 @@ impl Runner {
             if approval.response.send(Ok(runtime)).is_err() {
                 self.debug(
                     "approval.delivery_expired",
-                    json!({"executionId":approval.execution_id}),
+                    || json!({"executionId":approval.execution_id}),
                 )
                 .await;
             }
@@ -5054,7 +5224,9 @@ impl Runner {
                     execution.model_text = crate::tool::tool_result_with_archive(
                         &execution.result,
                         &reference,
-                        limit.min(xharness_session::TOOL_ARCHIVE_THRESHOLD_BYTES),
+                        // Archival decides where the original lives, not how
+                        // much of an already bounded observation the model sees.
+                        limit,
                     )
                     .map_err(RunFailure::Failed)?;
                     continue;

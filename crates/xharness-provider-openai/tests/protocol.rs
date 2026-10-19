@@ -467,6 +467,21 @@ async fn native_http_provider_streams_both_protocols() {
         for expected in ["request", "response_status", "sse.chunk", "stream.event"] {
             assert!(trace.iter().any(|event| event.event == expected));
         }
+        let request_trace = trace.iter().find(|event| event.event == "request").unwrap();
+        assert_eq!(request_trace.payload["body"]["model"], "test-model");
+        assert!(trace.iter().any(|event| {
+            event.event == "sse.chunk"
+                && event.payload["bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes > 0)
+                && event.payload["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("hello"))
+        }));
+        assert!(trace.iter().any(|event| {
+            event.event == "stream.event"
+                && event.payload == json!({"type": "text_delta", "delta": "hello"})
+        }));
         assert!(trace.iter().all(|event| {
             event.scope.session_id.as_deref() == Some("provider-session")
                 && event.scope.run_id.as_deref() == Some("provider-run")
@@ -1304,6 +1319,158 @@ async fn completed_http_usage_survives_restart_and_overflow_invalidates_disk() {
     }
 }
 
+#[tokio::test]
+async fn first_image_keeps_text_calibration_through_http_restart_and_usage_drift() {
+    use std::sync::Arc;
+    use xharness_attachments::{AttachmentStore, ContentBlock, MemoryAttachmentStore, Upload};
+    use xharness_token::{ConservativeByteMeter, TokenBudget, TokenCountAccuracy, TokenGuard};
+
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "xh-first-image-{}-{}",
+            std::process::id(),
+            address.port()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("cache.json");
+        let server = tokio::spawn(async move {
+            for i in 0..10 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let raw = read_http_request(&mut socket).await;
+                let raw = String::from_utf8(raw).unwrap();
+                assert_eq!(raw.contains("data:image/png;base64,"), i >= 8);
+                let actual = if i < 8 {
+                    225_000
+                } else if i == 8 {
+                    225_100
+                } else {
+                    480_000
+                };
+                let usage = match protocol {
+                    OpenAiProtocol::ChatCompletions => json!({
+                        "prompt_tokens":actual,"completion_tokens":1,
+                        "prompt_tokens_details":{"cached_tokens":200_000}
+                    }),
+                    OpenAiProtocol::Responses => json!({
+                        "input_tokens":actual,"output_tokens":1,
+                        "input_tokens_details":{"cached_tokens":200_000}
+                    }),
+                };
+                let body = usage_fixture(protocol, usage);
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let store = Arc::new(MemoryAttachmentStore::default());
+        let image = store
+            .put(
+                "image-fixture",
+                Upload {
+                    media_type: "image/png".into(),
+                    data: include_bytes!("../../xharness-attachments/tests/fixtures/red-blue.png")
+                        .to_vec(),
+                },
+            )
+            .await
+            .unwrap();
+        let config =
+            OpenAiProviderConfig::new(protocol, format!("http://{address}/v1"), "", "fixture");
+        let provider = OpenAiProvider::new(config.clone())
+            .unwrap()
+            .with_attachments(store.clone())
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        let mut request = ProviderRequest {
+            messages: vec![],
+            tools: vec![],
+            step: 1,
+            reasoning_effort: None,
+            max_output_tokens: Some(64),
+            debug_scope: Default::default(),
+        };
+        for i in 0..8 {
+            request.messages = vec![AgentMessage::user(format!(
+                "fixture-{i} {}",
+                "x".repeat(900_000)
+            ))];
+            let mut stream = provider
+                .stream(request.clone(), CancellationToken::new())
+                .await
+                .unwrap();
+            while let Some(event) = stream.next().await {
+                event.unwrap();
+            }
+        }
+        let text = provider.estimate_input_tokens(&request).unwrap();
+        assert_eq!(text.accuracy, TokenCountAccuracy::Calibrated);
+        request.messages.push(
+            AgentMessage::user("")
+                .with_content_blocks(vec![ContentBlock::Image { attachment: image }]),
+        );
+        let mixed = provider.estimate_input_tokens(&request).unwrap();
+        assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+        assert!(mixed.input_tokens > text.input_tokens);
+        assert!(mixed.input_tokens < text.input_tokens + 5000);
+        assert!(mixed.input_tokens >= 225_100);
+        let guard = TokenGuard::new(
+            Arc::new(ConservativeByteMeter),
+            TokenBudget::new(1_048_576, 65_536),
+        )
+        .unwrap();
+        let report = guard.check_provider_count(&mixed).unwrap();
+        assert!(report.estimate.total_input_tokens < 1_048_576 * 4 / 5);
+        drop(provider);
+        let restored = OpenAiProvider::new(config.clone())
+            .unwrap()
+            .with_attachments(store.clone())
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        assert_eq!(restored.estimate_input_tokens(&request).unwrap(), mixed);
+        // Good mixed usage must preserve, but not train or evict, the text samples.
+        let mut stream = restored
+            .stream(request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        while let Some(event) = stream.next().await {
+            event.unwrap();
+        }
+        assert_eq!(restored.estimate_input_tokens(&request).unwrap(), mixed);
+        // Complete HTTP usage, including cache reads, invalidates a violated bound.
+        let mut stream = restored
+            .stream(request.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        while let Some(event) = stream.next().await {
+            event.unwrap();
+        }
+        assert!(
+            restored
+                .estimate_input_tokens(&request)
+                .unwrap()
+                .input_tokens
+                > 900_000
+        );
+        drop(restored);
+        let restarted = OpenAiProvider::new(config)
+            .unwrap()
+            .with_attachments(store)
+            .with_calibration_store(Arc::new(CalibrationStore::open(path.clone())));
+        assert!(
+            restarted
+                .estimate_input_tokens(&request)
+                .unwrap()
+                .input_tokens
+                > 900_000
+        );
+        let disk = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&disk).unwrap()["scopes"],
+            json!({})
+        );
+        server.await.unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 #[test]
 fn local_server_reasoning_aliases_do_not_mask_or_duplicate_streamed_thoughts() {
     for (delta, expected) in [
@@ -1446,3 +1613,102 @@ async fn local_reasoning_recipes_reach_http_without_rewriting_messages_or_tools(
         }
     }
 }
+
+#[tokio::test]
+async fn trace_mode_preserves_large_escaped_wire_request_and_normalized_events() {
+    for protocol in [OpenAiProtocol::ChatCompletions, OpenAiProtocol::Responses] {
+        let mut previous = None;
+        for tracing in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let raw = read_http_request(&mut socket).await;
+                let split = raw.windows(4).position(|part| part == b"\r\n\r\n").unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+                let frames = match protocol {
+                    OpenAiProtocol::ChatCompletions => vec![
+                        json!({"choices":[{"delta":{"content":"output λ😀\n\"\\","reasoning_content":"reasoning λ😀"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":2}}}),
+                    ],
+                    OpenAiProtocol::Responses => vec![
+                        json!({"type":"response.output_text.delta","delta":"output λ😀\n\"\\"}),
+                        json!({"type":"response.completed","response":{"output":[],"usage":{"input_tokens":20,"output_tokens":6,"input_tokens_details":{"cached_tokens":4},"output_tokens_details":{"reasoning_tokens":2}}}}),
+                    ],
+                };
+                let mut sse = frames
+                    .into_iter()
+                    .map(|frame| format!("data: {frame}\n\n"))
+                    .collect::<String>();
+                if protocol == OpenAiProtocol::ChatCompletions {
+                    sse.push_str("data: [DONE]\n\n");
+                }
+                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse}", sse.len());
+                socket.write_all(response.as_bytes()).await.unwrap();
+                body
+            });
+            let sink = std::sync::Arc::new(MemoryDebugSink::default());
+            let recorder = if tracing {
+                DebugRecorder::new(sink.clone())
+            } else {
+                DebugRecorder::disabled()
+            };
+            let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+                protocol,
+                format!("http://{address}/v1"),
+                "fixture",
+                "test-model",
+            ))
+            .unwrap()
+            .with_debug(recorder);
+            let request = ProviderRequest {
+                messages: vec![AgentMessage::user(
+                    "large λ😀 \" \\ \n \t \0 input ".repeat(4096),
+                )],
+                tools: Vec::new(),
+                step: 1,
+                reasoning_effort: None,
+                max_output_tokens: None,
+                debug_scope: DebugScope::default().with_session("wire-parity"),
+            };
+            let expected = build_openai_request(protocol, "test-model", &request);
+            let mut stream = provider
+                .stream(request, CancellationToken::new())
+                .await
+                .unwrap();
+            let mut events = Vec::new();
+            while let Some(event) = stream.next().await {
+                events.push(event.unwrap());
+            }
+            assert!(matches!(
+                events.last(),
+                Some(ProviderEvent::Completed { .. })
+            ));
+            let body = server.await.unwrap();
+            assert_eq!(body, expected);
+            let trace = sink.events().await;
+            if tracing {
+                assert_eq!(
+                    trace
+                        .iter()
+                        .find(|event| event.event == "request")
+                        .unwrap()
+                        .payload["body"],
+                    body
+                );
+            } else {
+                assert!(trace.is_empty());
+            }
+            if let Some((previous_body, previous_events)) = previous.take() {
+                assert_eq!(body, previous_body);
+                assert_eq!(events, previous_events);
+            }
+            previous = Some((body, events));
+        }
+    }
+}
+
+#[path = "protocol/mixed_calibration.rs"]
+mod mixed_calibration;
+
+#[path = "protocol/mixed_calibration_live.rs"]
+mod mixed_calibration_live;
