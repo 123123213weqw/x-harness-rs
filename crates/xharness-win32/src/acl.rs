@@ -158,3 +158,83 @@ fn merge_access(path: &Path, sid: &Sid, mode: i32, permissions: u32) -> Result<(
 fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
 }
+
+/// Query replacement access without opening a running executable for writing.
+/// Uses this process token; callers must separately detect elevated sessions.
+pub fn can_replace_file(path: &Path) -> Result<bool, Win32Error> {
+    use crate::OwnedWin32Handle;
+    use std::mem;
+    use windows_sys::Win32::{
+        Security::{
+            AccessCheck, DuplicateToken, SecurityImpersonation, GENERIC_MAPPING,
+            GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PRIVILEGE_SET, TOKEN_DUPLICATE,
+            TOKEN_QUERY,
+        },
+        System::Threading::{GetCurrentProcess, OpenProcessToken},
+    };
+    let path = wide_path(path);
+    let mut descriptor = ptr::null_mut();
+    // SAFETY: security outputs live until freed by LocalAllocation.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(Win32Error::code("GetNamedSecurityInfoW", status));
+    }
+    let _descriptor = LocalAllocation(descriptor);
+    let mut raw = 0;
+    // SAFETY: live process and valid output slot.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &mut raw) }
+        == 0
+    {
+        return Err(Win32Error::last("OpenProcessToken"));
+    }
+    // SAFETY: unique ownership of newly opened token.
+    let token = unsafe { OwnedWin32Handle::from_raw(raw) }
+        .ok_or_else(|| Win32Error::last("OpenProcessToken"))?;
+    let mut raw = 0;
+    // SAFETY: valid primary token and output slot. AccessCheck requires impersonation token.
+    if unsafe { DuplicateToken(token.as_raw(), SecurityImpersonation, &mut raw) } == 0 {
+        return Err(Win32Error::last("DuplicateToken"));
+    }
+    // SAFETY: unique ownership of newly duplicated token.
+    let impersonation = unsafe { OwnedWin32Handle::from_raw(raw) }
+        .ok_or_else(|| Win32Error::last("DuplicateToken"))?;
+    let mapping = GENERIC_MAPPING {
+        GenericRead: 0x120089,
+        GenericWrite: FILE_GENERIC_WRITE,
+        GenericExecute: 0x1200a0,
+        GenericAll: 0x1f01ff,
+    };
+    // AccessCheck can report multiple privileges; fixed aligned, bounded buffer.
+    let mut privileges = [0usize; 128];
+    let mut len = mem::size_of_val(&privileges) as u32;
+    let mut granted = 0;
+    let mut allowed = 0;
+    // SAFETY: live descriptor/token and aligned sufficiently sized privilege buffer.
+    if unsafe {
+        AccessCheck(
+            descriptor,
+            impersonation.as_raw(),
+            FILE_GENERIC_WRITE | DELETE,
+            &mapping,
+            privileges.as_mut_ptr().cast::<PRIVILEGE_SET>(),
+            &mut len,
+            &mut granted,
+            &mut allowed,
+        )
+    } == 0
+    {
+        return Err(Win32Error::last("AccessCheck"));
+    }
+    Ok(allowed != 0)
+}
