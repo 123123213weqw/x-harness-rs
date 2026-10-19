@@ -2407,3 +2407,41 @@ async fn harness_snapshot_rejects_redirects_and_is_private() {
     assert!(store.harness_header("private-surface", 3).await.is_err());
     assert_eq!(fs::read(&saved).unwrap(), b"untouched");
 }
+
+#[tokio::test]
+async fn stable_working_set_metadata_survives_cold_metadata_only_store_without_request_bodies() {
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    store.create(header("stable-selection")).await.unwrap();
+    let selection = serde_json::json!({
+        "version":1,"sourceMessages":3,
+        "sourceSha256":"a".repeat(64),"retiredRanges":[[1,3]],
+    });
+    let mut request = large_request();
+    request
+        .options
+        .insert("workingSetSelection".into(), selection.clone());
+    let compact = store.archive_request(request).await.unwrap();
+    assert!(compact.input.is_empty());
+    store
+        .append("stable-selection", Revision::ZERO, audited_turn(1, compact))
+        .await
+        .unwrap();
+    drop(store);
+    for _ in 0..2 {
+        let cold = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+        let session = cold.load("stable-selection").await.unwrap().unwrap();
+        let restored = session
+            .events()
+            .iter()
+            .find_map(|event| match event.data() {
+                EventData::RequestHeader { header } => Some(header),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(restored.options["workingSetSelection"], selection);
+        assert!(
+            restored.input.is_empty() && restored.system.is_none() && restored.tools.is_empty()
+        );
+    }
+}

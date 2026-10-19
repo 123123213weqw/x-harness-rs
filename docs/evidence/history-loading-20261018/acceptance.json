@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-18",
+  "base": "c219e6e5eb3ba9c89bce083d556c245980379e32",
+  "scope": "UI history-read cancellation only; no Host protocol, model, tool, goal, or durable-history mutations",
+  "confirmed_defects": [
+    "Superseded history generations invalidate results but previously left their HTTP reads running.",
+    "Explicit latest intent previously waited for an irrelevant pending bookmark page to settle."
+  ],
+  "live_observation": {
+    "app_version": "0.2.51",
+    "symptom": "nginx chat stays at Loading history while activity projections advance",
+    "journal": "approximately 40 MB and over 53000 events at initial inspection",
+    "profiling": "WebKit main-thread WebSocket/microtask allocation and GC; Host also replayed journals",
+    "sole_root_cause_proven": false
+  },
+  "repair": {
+    "generation_death": "Abort only that session\u2019s obsolete history reads before opening a fresh generation.",
+    "latest_intent": "Abort pending cold bookmark pagination and use its already validated tail.",
+    "preserved": [
+      "atomic replacement of committed windows",
+      "reader anchors",
+      "late-generation guards",
+      "per-session isolation",
+      "live-event stitching",
+      "prompt and model/tool execution ownership",
+      "existing transport deadlines"
+    ]
+  },
+  "red_before_fix": {
+    "new_tests_run": 4,
+    "failed": 4,
+    "reason": "No history AbortSignal was supplied; blocked obsolete reads could not be cancelled."
+  },
+  "regression": {
+    "history_tests": {
+      "passed": 20,
+      "failed": 0
+    },
+    "full_restore": {
+      "projected_events": 100000,
+      "page_size": 50,
+      "pages": 2000,
+      "live_events_during_restore": 20,
+      "final_events": 100020,
+      "ordered_unique_lossless": true
+    },
+    "browsers": {
+      "chromium": "passed",
+      "webkit": "passed",
+      "scenario": "Virtual 100000-message paged journal; real Runtime, Conversation definitions and ChatView; blocked older read cancelled by latest intent.",
+      "requests": 2,
+      "committed_rows": 51,
+      "bounded_virtual_rows": true
+    },
+    "ci_entries": [
+      "contract-099",
+      "browser-228",
+      "browser-229"
+    ],
+    "lifecycle_recovery": "passed",
+    "atomic_rollback": {
+      "passed": 2,
+      "failed": 0
+    },
+    "fixture_boundary": {
+      "passed": 8,
+      "failed": 0
+    },
+    "architecture": "freeze and dependency boundary passed",
+    "architecture_tests": {
+      "passed": 30,
+      "failed": 0,
+      "python": "3.11"
+    },
+    "production_build": "passed: 61 modules, 190 assets",
+    "build_check": "passed: production output matches the owned TypeScript source",
+    "foundation": {
+      "full_run": {
+        "passed": 122,
+        "failed": 1,
+        "failure": "Unchanged strict HMR SSE lifecycle test asserted two async reloads after a fixed 30ms sleep; second reload was still at prefetch under concurrent test load."
+      },
+      "isolated_failure_rerun": {
+        "passed": 1,
+        "failed": 0,
+        "tests_modified": false
+      },
+      "history_cases_in_full_run": "passed"
+    },
+    "history_cache": {
+      "chromium_checks": 32,
+      "frozen_source_differential": {
+        "passed": 5,
+        "failed": 0
+      }
+    }
+  },
+  "deployment": {
+    "app_restarted": false,
+    "host_restarted": false,
+    "agents_cancelled": false,
+    "installed_files_changed": false,
+    "live_fix_applied": false,
+    "nginx_journal_advanced_during_work": true
+  },
+  "limits": [
+    "Synthetic read cancellation and pagination evidence does not establish the sole cause of the live nginx incident.",
+    "The actual running app has not loaded this patch; no post-deployment speed or memory improvement is claimed.",
+    "The 100000-event full restore uses the real Session/assembler boundary with opaque synthetic rows; browser rendering separately exercises real Chat definitions over the bounded tail.",
+    "No model API calls or Rust compilation were needed for this TypeScript-only change."
+  ],
+  "status": "History cancellation repair and targeted regressions verified; running-app deployment deliberately not performed; sole live bottleneck attribution remains unproven."
+}

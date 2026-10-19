@@ -1,5 +1,5 @@
 import { isChatData, isChatNode } from '../contract/chat-node-codec'
-import { memo, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { JsonBlock } from '../primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots'
 import type { ChatNode } from '../contract/chat-nodes'
@@ -28,7 +28,7 @@ type RoutedChatNodeOwner = {
 }[ChatNode['kind']]
 
 /** Resident, independently subscribed entry before the first loaded work row. */
-export function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, foldedTools, toggleTurnProcess, t }: Pick<
+export const TurnProcessSummarySeat = memo(function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, foldedTools, toggleTurnProcess, t }: Pick<
   ChatNodeSeatProps, 'nodeKey' | 'useSession' | 'expandedTurns' | 'foldedTools' | 'toggleTurnProcess' | 't'
 >) {
   const node = useSession(snapshot => snapshot.chat.nodes.get(nodeKey))
@@ -53,7 +53,7 @@ export function TurnProcessSummarySeat({ nodeKey, useSession, expandedTurns, fol
       : <TurnProcessSummary turn={currentTurn} data={tail} t={t}
         collapsed={!(expandedTurns?.has(currentTurn.turn) ?? false)} onToggle={() => { toggleTurnProcess(currentTurn.turn) }} />}
   </TranscriptWindowRow>
-}
+})
 
 /** Subscribe and dispatch one stable Context key without observing sibling Nodes. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
@@ -70,14 +70,14 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     : turnProcessPresentation(routedNode, tail, expandedTurns?.has(turn ?? -1) ?? false)
   // This seat, not its heavy/windowed child, owns display choices. Whole-turn
   // folding must not erase Think/Tool/Compaction/native-details expansion.
-  const presentationState = useRef<TranscriptValues>(new Map())
+  const [presentationState] = useState<TranscriptValues>(() => new Map<string, unknown>())
   const processMode = useProcessMode()
   const previousMode = useRef(processMode)
   // Lightweight seats remain resident even when their heavy child is folded.
   // Reset defaults on an explicit mode switch, including currently unmounted
   // cards; otherwise expanded -> auto -> expanded can revive a stale choice.
   if (previousMode.current !== processMode) {
-    presentationState.current.clear()
+    presentationState.clear()
     previousMode.current = processMode
   }
   const owner = useMemo<ChatNodeOwnerProps | null>(() => node === undefined
@@ -110,7 +110,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   return (
     <TranscriptWindowRow
       keepMounted={keepMounted ?? false}
-      presentationState={presentationState.current}
+      presentationState={presentationState}
       className={css.flowItem}
       data-chat-anchor-key={node.key}
       data-chat-anchor-seq={node.anchorSeq}

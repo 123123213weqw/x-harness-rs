@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Connect existing image transports to independently documented input modality capabilities.",
+  "compatibility": "Optional image metadata preserves legacy model responses and boolean overrides; Loop, session persistence, approval, sandbox, and installer behavior are unchanged. Unknown image routes now fail before admission instead of diverging across gates.",
+  "paths": {
+    "crates/xharness-api/src/protocol.rs": {
+      "before": "02f13ab714c5b264b90fd6482f9e6af1d68b314c2c230ffc0e389bba14106492",
+      "after": "7f55633a42831a749c5f21d086ec2b261df29f7404a22a70d38f0af3a5fb04d5"
+    },
+    "crates/xharness-api/tests/contract.rs": {
+      "before": "76043e43ec1a7ec46e1ac4d458d12fa8b8e51cac0787b166a47fec7bff9a083a",
+      "after": "bc614e3040351f6129481d0d5acba93d75f8a00da1d95c3976eb7705cab4734e"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

@@ -64,6 +64,14 @@
       "entrypoint": "rpc/workspace.rs",
       "allowedConsumers": [],
       "allowedCrates": ["xharness_api", "xharness_control"]
+    },
+    {
+      "id": "swarms",
+      "stateOwner": "Durable Swarm identity, lifecycle and membership policy",
+      "source": "swarm_processor.rs",
+      "entrypoint": "rpc/swarm.rs",
+      "allowedConsumers": [],
+      "allowedCrates": ["xharness_control"]
     }
   ]
 }

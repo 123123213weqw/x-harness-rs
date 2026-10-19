@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { File } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { exposeConversation } from './conversation-artifact-test.mjs'
 import { compile, harness, legacySource, legacyTest, json, tick, controller, editorFixture } from './conversation-test-harness.mjs'
@@ -14,14 +15,25 @@ const compactionTerminalLocales = {
  en: {'xh.compact.skipped': 'Compaction skipped', 'xh.compact.cancelled': 'Compaction interrupted'},
  zh: {'xh.compact.skipped': '压缩已跳过', 'xh.compact.cancelled': '压缩已中断'},
 };
+const contextProvenanceLocales = {
+ en: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+ zh: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
+ assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
  for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
   assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
   delete normalized[key];
  }
+ for (const [key, expected] of Object.entries(contextProvenanceLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'provenance labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} provenance label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ delete normalized['stats.title'];
  return normalized;
 }
 function stateContext(def,state,matches){return{key:def.kind+':c',id:'c',state,matches,start:matches.find(m=>m.role==='start'),locations:[],target:'chat'}}
@@ -35,9 +47,26 @@ test('reviewed compaction locale additions reject missing or changed labels with
    assert.throws(()=>baselineProductCopy(language,missing),/terminal label/);
    assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect terminal label'}),/terminal label/);
   }
+  const missingStats = {...current}; delete missingStats['stats.title'];
+  assert.throws(()=>baselineProductCopy(language,missingStats),/statistics label/);
+  assert.throws(()=>baselineProductCopy(language,{...current,'stats.title':'incorrect'}),/statistics label/);
   const unexpected = baselineProductCopy(language,{...current,'xh.compact.unreviewed':'Unreviewed'});
   assert.equal(unexpected['xh.compact.unreviewed'],'Unreviewed');
   assert.notDeepEqual(unexpected,normalized,'unreviewed additions must remain visible to the strict dictionary comparison');
+ }
+});
+
+test('reviewed provenance labels reject missing, changed and unrelated locale deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  for(const key of Object.keys(contextProvenanceLocales[language])) {
+   const missing={...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/provenance label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'wrong attribution'}),/provenance label/);
+  }
+  const unrelated=baselineProductCopy(language,{...current,'context.unreviewed':'unexpected'});
+  assert.equal(unrelated['context.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
  }
 });
 
@@ -80,7 +109,24 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  const assistantId='@xharness/dsh-client-ui-conversation/AssistantMarkdown.module.css';
  assert.equal(nextCss[assistantId],readFileSync(new URL('../ui/src/modules/conversation/chat/AssistantMarkdown.css',import.meta.url),'utf8'));
  expectedCss[assistantId] += "\n.xh-tool-preparing{min-width:0;max-width:100%;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;overflow:hidden;font-size:13px;line-height:1.5;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}\n.xh-tool-preparing-toggle{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}\n.xh-tool-preparing-toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}\n.xh-tool-preparing-toggle:focus-visible,.xh-tool-preparing-preview-head button:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n.xh-tool-preparing-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-tertiary);animation:xh-tool-input-pulse 1.5s ease-in-out infinite}\n.xh-tool-preparing-title{flex:1;min-width:0;overflow-wrap:anywhere}.xh-tool-preparing-title code{margin-left:7px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dsw-alias-label-secondary)}\n.xh-tool-preparing-metrics{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}.xh-tool-preparing-chevron{flex:none;width:12px;text-align:center;color:var(--dsw-alias-label-tertiary)}\n.xh-tool-preparing-body{border-top:1px solid var(--dsw-alias-border-l2);padding:10px 12px 12px}.xh-tool-preparing-notice{margin:0 0 10px;color:var(--dsw-alias-label-secondary);font-size:12px}\n.xh-tool-preparing-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;color:var(--dsw-alias-label-tertiary);font-size:11px}.xh-tool-preparing-preview-head button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;padding:3px 5px;border-radius:4px}\n.xh-tool-preparing-input{max-height:260px;overflow:auto;margin:0;padding:10px;border-radius:7px;background:var(--dsw-alias-markdown-code-block);color:var(--dsw-alias-label-primary);font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:2}\n.xh-tool-preparing-limit{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:11px}\n@keyframes xh-tool-input-pulse{50%{opacity:.35}}\n@media(prefers-reduced-motion:reduce){.xh-tool-preparing-dot{animation:none}}\n@media(max-width:480px){.xh-tool-preparing-toggle{flex-wrap:wrap}.xh-tool-preparing-title{flex-basis:calc(100% - 40px)}.xh-tool-preparing-metrics{margin-left:16px;flex:1}.xh-tool-preparing-input{max-height:200px}}\n";
- assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reasoning and primary-foreground deltas');
+ // Reviewed composer styling: pin each intentionally changed sheet explicitly,
+ // rather than weakening frozen-style parity for unrelated components.
+ const composerStyles = {
+  'skeleton/InputBar': '62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d',
+  'chat/StatsLine': 'eab66196169a782ec6d580f699fc2398c429baa105576b82b0dc0d834898ee60',
+  'skeleton/ContextMeter': '7a712d895a114ee0a5cddc1cdbc55692e6d6b52289ef4409e927809bbc694ff2',
+  'skeleton/PermissionSelect': 'e91048346a2948571cfa55321fd43f8a22cf96c0b0b89b4bd4882736a29eda74',
+  'skeleton/TodoPanel': 'aaf719207bee33d33551031960513e1d0c8b7b01bb35a807a362f7b75e849fdc',
+  'queue/QueueDock': '3835c9f5eb3ccf4c71fdb5b6b9db96a37b726c6017a43770f537de092e32c1e2',
+ };
+ for(const [name,sha] of Object.entries(composerStyles)) {
+  const id='@xharness/dsh-client-ui-conversation/'+name.split('/').at(-1)+'.module.css';
+  const source=readFileSync(new URL('../ui/src/modules/conversation/'+name+'.css',import.meta.url),'utf8');
+  assert.equal(createHash('sha256').update(source).digest('hex'),sha,'reviewed composer style '+name);
+  assert.equal(nextCss[id],source,'emitted composer style is source-fresh');
+  expectedCss[id]=source;
+ }
+ assert.deepEqual({...nextCss,[reasoningId]:oldCss[reasoningId]},expectedCss,'every stylesheet and tag preserves its frozen bytes except the explicit reviewed product deltas');
  const tailStyle=h=>h.styles.find(s=>s.dataset.pluginCss.endsWith('/TurnTailNodeView.module.css')).textContent;
  assert.ok(tailStyle(next).startsWith(tailStyle(old)),'existing footer styles are preserved before the new summary rules');
  const argumentLocales={"en": {"tool.arguments.generating": "Generating tool input", "tool.arguments.received": "{size} received", "tool.arguments.elapsed": "{seconds}s", "tool.arguments.notExecuted": "The model is still generating input. The tool has not executed yet.", "tool.arguments.preview": "Input preview", "tool.arguments.raw": "Raw JSON", "tool.arguments.showPreview": "Show preview", "tool.arguments.showRaw": "Show raw JSON", "tool.arguments.waiting": "Waiting for input…", "tool.arguments.truncated": "Preview limited to {count} characters. The actual tool input is not truncated."}, "zh": {"tool.arguments.generating": "正在生成工具参数", "tool.arguments.received": "已接收 {size}", "tool.arguments.elapsed": "{seconds} 秒", "tool.arguments.notExecuted": "模型仍在生成参数，工具尚未执行。", "tool.arguments.preview": "内容预览", "tool.arguments.raw": "原始 JSON", "tool.arguments.showPreview": "查看内容预览", "tool.arguments.showRaw": "查看原始 JSON", "tool.arguments.waiting": "等待参数内容…", "tool.arguments.truncated": "仅预览前 {count} 个字符，实际工具参数未被截断。"}};
@@ -90,7 +136,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  for(const [language,expected] of [['en','Reviewing on your behalf…'],['zh','正在代你审核…']])assert.equal(apis[1].plugin[language]['approval.reviewing'],expected);
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.en[key]])),{'message.foldedTools':'{count} completed operations','message.expandedTools':'Earlier completed operations · {count}'})
  assert.deepEqual(Object.fromEntries(['message.foldedTools','message.expandedTools'].map(key=>[key,apis[1].plugin.zh[key]])),{'message.foldedTools':'已收起 {count} 个完成的操作','message.expandedTools':'较早的已完成操作 · {count}'})
- assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime'].sort());
+ assert.deepEqual(compiled.out.get('@xharness/dsh-client-ui-conversation').external.sort(),['@xharness/cordis','@xharness/dsh-client-runtime/client','@xharness/dsh-client-ui-primitives','@xharness/dsh-client-ui-slots','react','react-dom','react/jsx-runtime','zod'].sort());
 });
 test('complete apply registration: keyed nodes, resident shell, overlays, docks, hooks and latest-master keyed seats',()=>{
  const receipts=[];for(const {plugin:api} of apis){const slots=[],defs=[],views=[],dicts=[],effects=[],events=[];

@@ -68,28 +68,13 @@ pub(crate) async fn prompt(
             part.get("type").and_then(Value::as_str),
             Some("image" | "image_ref")
         )
-    }) {
-        let state = host.state.read().await;
-        if let Some(session) = state.sessions.get(&session_id) {
-            let unsupported = state
-                .settings
-                .get(crate::MODEL_SETTINGS_NAMESPACE)
-                .and_then(|ns| ns.value["providers"][&session.model.provider]["models"].as_array())
-                .and_then(|models| {
-                    models
-                        .iter()
-                        .find(|m| m["id"].as_str() == Some(&session.model.model))
-                })
-                .and_then(|model| model["imageInput"].as_bool())
-                == Some(false);
-            if unsupported {
-                return Err(rpc_error(
-                    RpcErrorCode::AttachmentError,
-                    "current model does not support images",
-                    json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
-                ));
-            }
-        }
+    }) && !host.session_accepts_images(&session_id).await
+    {
+        return Err(rpc_error(
+            RpcErrorCode::AttachmentError,
+            "current model does not support images or image capability is unknown; configure image input for this exact route",
+            json!({"reason":"MODEL_DOES_NOT_SUPPORT_IMAGES"}),
+        ));
     }
 
     // Attachment materialization is deliberately after receipt lookup:
@@ -121,17 +106,47 @@ pub(crate) async fn duplicate_admission(
     rpc_id: &str,
     fingerprint: &str,
 ) -> Result<bool, RpcError> {
-    let state = host.state.read().await;
-    let session = state
-        .sessions
-        .get(session_id)
-        .ok_or_else(|| session_not_found(session_id))?;
-    let Some(previous) = session.admissions.get(rpc_id) else {
+    let cached = {
+        let state = host.state.read().await;
+        state
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| session_not_found(session_id))?
+            .admissions
+            .get(rpc_id)
+            .cloned()
+    };
+    let receipt = if cached.is_some() || !host.agent_runtime.has_authoritative_sessions() {
+        cached
+    } else {
+        // A bounded hot-cache miss is unknown, never proof of non-admission.
+        // Inspect durable metadata without rebuilding or cloning prompt bodies.
+        let durable = host
+            .agent_runtime
+            .authoritative_session(session_id)
+            .await
+            .map_err(crate::driver::agent_runtime_error)?
+            .ok_or_else(|| RpcError::internal("durable admission journal unavailable"))?;
+        let receipt = crate::restore::restored_admission(&durable, rpc_id);
+        if let Some(receipt) = &receipt {
+            host.state
+                .write()
+                .await
+                .sessions
+                .get_mut(session_id)
+                .ok_or_else(|| session_not_found(session_id))?
+                .admissions
+                .insert(rpc_id.to_owned(), receipt.clone());
+        }
+        receipt
+    };
+    let Some(previous) = receipt else {
         return Ok(false);
     };
     if previous.fingerprint.as_deref() == Some(fingerprint) {
         return Ok(true);
     }
+
     Err(rpc_error(
         RpcErrorCode::SessionConflict,
         "rpc id was already admitted with a different prompt payload",

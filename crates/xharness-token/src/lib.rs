@@ -35,14 +35,36 @@ pub struct TokenBreakdown {
     pub total_input_tokens: u64,
 }
 
-/// Display-only composition of one prepared request. The category shares are
-/// local estimates even when `total_input_tokens` comes from an exact provider
-/// count: provider counters generally return one number, not role buckets.
+/// Display-only provenance supplied by the owning conversation journal.
+/// A provider role or model-authored text cannot establish human authorship.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ContextMessageOrigin {
+    Human,
+    AgentReport,
+    RuntimeContext,
+    Checkpoint,
+    #[default]
+    Unknown,
+}
+
+/// Display-only composition of one prepared request. Provider counters return
+/// one total; category shares remain local estimates, not tokenizer readings.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextComposition {
+    /// Version 2 separates human authorship from the provider's user role.
+    #[serde(default)]
+    pub attribution_version: u32,
     pub system_tokens: u64,
     pub user_tokens: u64,
+    #[serde(default)]
+    pub agent_report_tokens: u64,
+    #[serde(default)]
+    pub runtime_context_tokens: u64,
+    #[serde(default)]
+    pub checkpoint_tokens: u64,
+    #[serde(default)]
+    pub unattributed_tokens: u64,
     pub assistant_tokens: u64,
     pub tool_result_tokens: u64,
     pub tool_definition_tokens: u64,
@@ -52,26 +74,47 @@ pub struct ContextComposition {
 }
 
 impl ContextComposition {
-    /// Allocate an authoritative or estimated total across disjoint request
-    /// components. Integer remainders are assigned deterministically so the
-    /// displayed segments always sum to the reported request total.
+    /// Without journal provenance user-role inputs are explicitly unattributed.
     pub fn estimate(
         request: &TokenEstimateRequest,
         total_input_tokens: u64,
     ) -> Result<Self, TokenMeterError> {
-        let mut weights = [0_u64; 6];
+        Self::estimate_with_origins(request, total_input_tokens, &[])
+    }
+
+    /// Origins align with conversation_messages, excluding system messages.
+    /// Missing or misaligned provenance cannot classify an input as human.
+    /// Largest-remainder allocation preserves the original request total.
+    pub fn estimate_with_origins(
+        request: &TokenEstimateRequest,
+        total_input_tokens: u64,
+        origins: &[ContextMessageOrigin],
+    ) -> Result<Self, TokenMeterError> {
+        let mut weights = [0_u64; 10];
         for message in &request.system_messages {
             weights[0] = weights[0]
                 .saturating_add(encoded_len(message)?)
                 .saturating_add(image_estimate(std::slice::from_ref(message))?)
                 .saturating_add(8);
         }
-        for message in &request.conversation_messages {
+        for (index, message) in request.conversation_messages.iter().enumerate() {
+            let origin = if origins.len() == request.conversation_messages.len() {
+                origins[index]
+            } else {
+                ContextMessageOrigin::Unknown
+            };
             let bucket = match message.get("role").and_then(Value::as_str) {
-                Some("user") => 1,
+                Some("user") => match origin {
+                    ContextMessageOrigin::Human => 1,
+                    ContextMessageOrigin::AgentReport => 6,
+                    ContextMessageOrigin::RuntimeContext => 7,
+                    ContextMessageOrigin::Checkpoint => 8,
+                    ContextMessageOrigin::Unknown => 9,
+                },
                 Some("tool") => 3,
                 Some("system") => 0,
-                _ => 2,
+                Some("assistant") => 2,
+                _ => 9,
             };
             weights[bucket] = weights[bucket]
                 .saturating_add(encoded_len(message)?)
@@ -85,11 +128,11 @@ impl ContextComposition {
         }
         weights[5] = encoded_len(&(&request.provider, &request.model))?.saturating_add(32);
         let weight_total: u128 = weights.iter().map(|weight| u128::from(*weight)).sum();
-        let mut allocated = [0_u64; 6];
+        let mut allocated = [0_u64; 10];
         if weight_total == 0 {
             allocated[5] = total_input_tokens;
         } else {
-            let mut remainders = [(0_u128, 0_usize); 6];
+            let mut remainders = [(0_u128, 0_usize); 10];
             let mut allocated_total = 0_u64;
             for (index, weight) in weights.iter().enumerate() {
                 let numerator = u128::from(*weight) * u128::from(total_input_tokens);
@@ -106,8 +149,13 @@ impl ContextComposition {
             }
         }
         Ok(Self {
+            attribution_version: 2,
             system_tokens: allocated[0],
             user_tokens: allocated[1],
+            agent_report_tokens: allocated[6],
+            runtime_context_tokens: allocated[7],
+            checkpoint_tokens: allocated[8],
+            unattributed_tokens: allocated[9],
             assistant_tokens: allocated[2],
             tool_result_tokens: allocated[3],
             tool_definition_tokens: allocated[4],
@@ -549,12 +597,14 @@ mod tests {
         assert_eq!(composition.total_input_tokens, 1_001);
         assert_eq!(composition.accuracy, TokenCountAccuracy::Estimated);
         assert!(composition.system_tokens > 0);
-        assert!(composition.user_tokens > 0);
+        assert_eq!(composition.user_tokens, 0);
+        assert!(composition.unattributed_tokens > 0);
         assert!(composition.assistant_tokens > 0);
         assert!(composition.tool_result_tokens > 0);
         assert!(composition.tool_definition_tokens > 0);
         assert_eq!(
             composition.system_tokens
+                + composition.unattributed_tokens
                 + composition.user_tokens
                 + composition.assistant_tokens
                 + composition.tool_result_tokens
@@ -569,6 +619,76 @@ mod tests {
             0
         );
     }
+    #[test]
+    fn composition_separates_human_reports_runtime_and_checkpoints() {
+        use ContextMessageOrigin::{AgentReport, Checkpoint, Human, RuntimeContext, Unknown};
+        let origins = [Human, AgentReport, RuntimeContext, Checkpoint, Unknown];
+        let request = TokenEstimateRequest {
+            conversation_messages: origins
+                .iter()
+                .map(|_| json!({"role":"user","content":"same protocol role and text"}))
+                .collect(),
+            ..TokenEstimateRequest::default()
+        };
+        for total in [0, 1, 9, 105_139, u64::MAX] {
+            let composition =
+                ContextComposition::estimate_with_origins(&request, total, &origins).unwrap();
+            let values = [
+                composition.system_tokens,
+                composition.user_tokens,
+                composition.agent_report_tokens,
+                composition.runtime_context_tokens,
+                composition.checkpoint_tokens,
+                composition.unattributed_tokens,
+                composition.assistant_tokens,
+                composition.tool_result_tokens,
+                composition.tool_definition_tokens,
+                composition.protocol_tokens,
+            ];
+            assert_eq!(
+                values.iter().map(|value| u128::from(*value)).sum::<u128>(),
+                u128::from(total)
+            );
+            assert_eq!(composition.attribution_version, 2);
+            assert_eq!(composition.accuracy, TokenCountAccuracy::Estimated);
+            if total > 100 {
+                assert!(composition.user_tokens > 0);
+                assert!(composition.agent_report_tokens > 0);
+                assert!(composition.runtime_context_tokens > 0);
+                assert!(composition.checkpoint_tokens > 0);
+                assert!(composition.unattributed_tokens > 0);
+            }
+        }
+        let unknown = ContextComposition::estimate(&request, 10_000).unwrap();
+        assert_eq!(unknown.user_tokens, 0);
+        assert!(unknown.unattributed_tokens > 0);
+        let misaligned =
+            ContextComposition::estimate_with_origins(&request, 10_000, &[Human]).unwrap();
+        assert_eq!(misaligned, unknown);
+    }
+
+    #[test]
+    fn provenance_cannot_reclassify_assistant_tools_or_unknown_roles_as_human() {
+        let request = TokenEstimateRequest {
+            conversation_messages: vec![
+                json!({"role":"assistant","content":"answer"}),
+                json!({"role":"tool","content":"result"}),
+                json!({"role":"unexpected","content":"unknown"}),
+            ],
+            ..TokenEstimateRequest::default()
+        };
+        let composition = ContextComposition::estimate_with_origins(
+            &request,
+            10_000,
+            &[ContextMessageOrigin::Human; 3],
+        )
+        .unwrap();
+        assert_eq!(composition.user_tokens, 0);
+        assert!(composition.assistant_tokens > 0);
+        assert!(composition.tool_result_tokens > 0);
+        assert!(composition.unattributed_tokens > 0);
+    }
+
     #[test]
     fn exceeded_reports_desired_and_minimum_output_without_changing_admission() {
         let guard = TokenGuard::conservative(TokenBudget {

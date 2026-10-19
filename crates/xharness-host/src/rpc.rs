@@ -24,6 +24,7 @@ mod scoped_automation;
 mod scoped_catalogue;
 mod scoped_events;
 pub(crate) mod scoped_interaction;
+mod session_plan;
 pub(crate) use interaction::respond_review;
 mod memory;
 mod model;
@@ -34,6 +35,7 @@ mod session_import;
 pub(crate) mod session_lifecycle;
 mod settings;
 mod subagent;
+mod swarm;
 pub(crate) mod turn;
 mod wire;
 mod workspace;
@@ -54,7 +56,8 @@ impl ApiBackend for BasicHost {
         cancellation: CancellationToken,
     ) -> RpcResult {
         // A catalogue entry is not a recovered Agent. Hydrate exactly once
-        // before any session-scoped read or mutation can observe partial state.
+        // before mutations or runtime reads. Presentation-only reads own a
+        // source-validated fast path and fall back to this same recovery gate.
         let target = if matches!(
             method,
             RpcMethod::SubagentHistory | RpcMethod::SubagentPrompt | RpcMethod::SubagentInterrupt
@@ -65,7 +68,12 @@ impl ApiBackend for BasicHost {
         };
         // Permanent deletion verifies cold work read-only before recovery can
         // activate it; its owner hydrates only the verified idle closure.
-        if let Some(session_id) = target.filter(|_| method != RpcMethod::SessionDelete) {
+        let display_read = matches!(method, RpcMethod::SessionHistory | RpcMethod::SkillList)
+            || (method == RpcMethod::SessionModels
+                && payload.get("refreshCapabilities").and_then(Value::as_bool) != Some(true));
+        if let Some(session_id) =
+            target.filter(|_| method != RpcMethod::SessionDelete && !display_read)
+        {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
@@ -119,7 +127,8 @@ impl ApiBackend for BasicHost {
             | RpcMethod::AgentPresetCopy
             | RpcMethod::AgentPresetOpenDocument
             | RpcMethod::AgentPresetRemove) => preset::call(self, rpc_id, method, &payload).await,
-            method @ (RpcMethod::GoalCreate
+            method @ (RpcMethod::GoalUpdatePlan
+            | RpcMethod::GoalCreate
             | RpcMethod::GoalEdit
             | RpcMethod::GoalPause
             | RpcMethod::GoalResume
@@ -150,6 +159,12 @@ impl ApiBackend for BasicHost {
         payload: Value,
         _cancellation: CancellationToken,
     ) -> Option<RpcResult> {
+        if endpoint == "swarm/manage" {
+            return Some(match swarm::manage(self, rpc_id, &payload).await {
+                Ok(value) => RpcResult::success(value),
+                Err(error) => RpcResult::failure(error),
+            });
+        }
         if endpoint == "workspace/memory" {
             // Settings must remain repairable even if session hydration fails.
             return Some(match memory::call(self, rpc_id, &payload).await {
@@ -191,7 +206,27 @@ impl ApiBackend for BasicHost {
                 Err(error) => RpcResult::failure(error),
             });
         }
-        if let Some(session_id) = payload.get("sessionId").and_then(Value::as_str) {
+        // Namespaced mutations carry the session under args.agentId rather
+        // than sessionId. Viewing a cold page must not bypass their recovery.
+        let nested_mutation = matches!(
+            endpoint,
+            "commands/execute"
+                | "goals/create"
+                | "goals/edit"
+                | "goals/pause"
+                | "goals/resume"
+                | "goals/complete"
+                | "goals/clear"
+        );
+        let target = if nested_mutation {
+            payload
+                .get("args")
+                .and_then(|args| args.get("agentId"))
+                .and_then(Value::as_str)
+        } else {
+            payload.get("sessionId").and_then(Value::as_str)
+        };
+        if let Some(session_id) = target {
             if let Err(error) = self.hydrate_session(session_id).await {
                 return Some(RpcResult::failure(rpc_error(
                     xharness_api::RpcErrorCode::Internal,
@@ -342,8 +377,8 @@ impl ApiBackend for BasicHost {
             .await
             .map_err(crate::driver::agent_runtime_error)?
             .ok_or_else(|| RpcError::internal("authoritative receipt journal unavailable"))?;
-        let admissions = crate::restore::restored_admissions(&durable);
-        match admissions.get(rpc_id.as_str()) {
+        let receipt = crate::restore::restored_admission(&durable, rpc_id.as_str());
+        match receipt.as_ref() {
             Some(previous) if previous.fingerprint.as_deref() == Some(&fingerprint) => {
                 Ok(Some(RpcResult::success(json!({"accepted": true}))))
             }
@@ -549,6 +584,64 @@ fn mux_events_filtered(host: &BasicHost, scope: Option<String>) -> EventStream {
 mod edit_admission_tests {
     use super::*;
     use crate::{HostConfig, NoTools};
+
+    struct ImageRuntime(Option<bool>);
+    #[async_trait::async_trait]
+    impl crate::AgentRuntime for ImageRuntime {
+        fn has_available_route(&self) -> bool {
+            true
+        }
+        fn can_route(&self, _: &crate::ModelRoute) -> bool {
+            true
+        }
+        fn model_catalog(&self) -> Vec<crate::ModelDescriptor> {
+            vec![crate::ModelDescriptor::new("p", "Provider", "m", "Model")
+                .with_image_input(self.0, json!({"source":"documented"}))]
+        }
+        async fn start_turn(
+            &self,
+            _: crate::AgentTurnRequest,
+        ) -> Result<Box<dyn crate::RunningTurn>, crate::AgentRuntimeError> {
+            panic!("image admission test must not call a model")
+        }
+    }
+    #[tokio::test]
+    async fn image_admission_and_tool_gate_use_active_route_not_raw_settings() {
+        for supported in [None, Some(false), Some(true)] {
+            let root = std::env::temp_dir()
+                .join(format!("xh-images-{}-{supported:?}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let mut config = HostConfig::new(&root);
+            config.provider_id = "p".into();
+            config.model_id = "m".into();
+            let host = BasicHost::with_agent_runtime(config, Arc::new(ImageRuntime(supported)));
+            let created = session_lifecycle::create(&host, &json!({"cwd":root}))
+                .await
+                .unwrap();
+            let id = created["sessionId"].as_str().unwrap();
+            // Contradictory, unactivated settings must not override active metadata.
+            host.state
+                .write()
+                .await
+                .settings
+                .get_mut(crate::MODEL_SETTINGS_NAMESPACE)
+                .unwrap()
+                .value = json!({"providers":{"p":{"models":[{"id":"m","imageInput":supported != Some(true)}]}}});
+            assert_eq!(
+                host.session_accepts_images(id).await,
+                supported == Some(true)
+            );
+            if supported != Some(true) {
+                let error = turn::prompt(&host, RpcId::new("no-image"), &json!({
+                    "sessionId":id,"mode":"queue","content":[{"type":"image_ref","attachmentId":"missing"}]
+                })).await.unwrap_err();
+                assert!(error.message.contains("image capability is unknown"));
+                assert!(host.state.read().await.sessions[id].queue.is_empty());
+            }
+            assert!(!host.session_accepts_images("missing-session").await);
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
 
     #[tokio::test]
     async fn edit_admission_rejects_running_invalid_flags_and_text_only_models() {

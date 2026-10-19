@@ -416,6 +416,18 @@ mod tests {
             Arc::new(xharness_agent::MemoryLeaseManager::default()),
             128,
         ));
+        let mut registry = xharness_host::ModelRegistry::new();
+        registry
+            .register(xharness_host::RegisteredModel::new(
+                xharness_host::ModelDescriptor::new("p", "Provider", "m", "Media fixture")
+                    .with_image_input(
+                        Some(true),
+                        json!({"state":"supported","source":"configured"}),
+                    ),
+                provider.clone(),
+            ))
+            .unwrap();
+        runtime.replace_model_registry(registry);
         let host = BasicHost::with_agent_runtime(durable_config(&root), runtime.clone());
         tools.host.set(Arc::downgrade(&host)).unwrap();
         host.install_model_settings(Arc::new(Settings), json!({"providers":{"p":{"baseURL":"http://127.0.0.1:1","api":"openai-completions","models":[{"id":"m","imageInput":true}]}}})).await.unwrap();

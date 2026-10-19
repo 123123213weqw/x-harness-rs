@@ -1,0 +1,48 @@
+{
+  "case": "already_completed",
+  "arm": "on_demand_get",
+  "repeat": 1,
+  "infrastructure_error": null,
+  "score": {
+    "passed": true,
+    "violations": [],
+    "tool_calls": 0,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1400,
+        "completion_tokens": 76,
+        "total_tokens": 1476,
+        "prompt_tokens_details": {
+          "cached_tokens": 1152
+        },
+        "prompt_cache_hit_tokens": 1152,
+        "prompt_cache_miss_tokens": 248
+      },
+      "elapsed_seconds": 1.193,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "a2f603dd-81aa-4709-a16c-8c139233d605"
+    }
+  ],
+  "trace": [],
+  "answer": "刚才的清单状态如下：\n\n- **修复 parser**：已完成（代码已改）\n- **验证 parser**：已完成（`npm test -- parser` 通过，12 项测试，退出码 0）\n- **提交 / 发布**：未做，按你的要求保持未提交、未发布\n\n没有待办项，也没有正在进行的步骤。",
+  "final_plan": {
+    "revision": 6,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "completed"
+      }
+    ]
+  }
+}

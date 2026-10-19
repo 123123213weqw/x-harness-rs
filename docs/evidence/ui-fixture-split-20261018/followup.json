@@ -1,0 +1,601 @@
+{
+  "featureHeadBeforeFix": "32795d8d70c9bf1d03d0e1d0a97e9b960a77408b",
+  "integratedMaster": "c9d8f2ed93957405bef22c44671d7d8dd63b8bf5",
+  "conflictsResolvedByRebuilding": [
+    "ui/dist/asset-manifest.json",
+    "ui/dist/client-graph.json",
+    "ui/dist/index.html",
+    "ui/dist/plugins/@xharness/dsh-client-connection/client.js"
+  ],
+  "checks": {
+    "contextAccounting": {
+      "passed": true,
+      "productionExclusionAssertionsAdded": true
+    },
+    "messageEdit": {
+      "passed": true,
+      "editorAssertions": 94,
+      "goldenSchemaHashBootContracts": 3
+    },
+    "boundaries": {
+      "tests": 15,
+      "pass": 15,
+      "fail": 0
+    },
+    "foundation": {
+      "tests": 123,
+      "pass": 123,
+      "fail": 0
+    },
+    "sourceBuilder": {
+      "tests": 28,
+      "pass": 28,
+      "fail": 0
+    },
+    "ciSuite": {
+      "tests": 14,
+      "pass": 14,
+      "fail": 0
+    }
+  },
+  "contractShards": [
+    {
+      "shard": 2,
+      "ok": true,
+      "commands": [
+        {
+          "id": "contract-005",
+          "argv": [
+            "node",
+            "scripts/test-product-source-modules.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-008",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-reasoning-summary.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-013",
+          "argv": [
+            "node",
+            "scripts/test-attachment-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-014",
+          "argv": [
+            "node",
+            "scripts/test-settings-models-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-021",
+          "argv": [
+            "node",
+            "scripts/test-conversation-service-boundaries.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-022",
+          "argv": [
+            "node",
+            "scripts/test-conversation-main-differential.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-027",
+          "argv": [
+            "node",
+            "scripts/test-question-source-module.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-031",
+          "argv": [
+            "node",
+            "scripts/test-product-brand-copy.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-036",
+          "argv": [
+            "node",
+            "scripts/test-trajectory-source-module.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-045",
+          "argv": [
+            "node",
+            "scripts/test-profile-plugin.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-046",
+          "argv": [
+            "node",
+            "scripts/test-plugin-center.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-051",
+          "argv": [
+            "node",
+            "scripts/test-compaction-ui.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-092",
+          "argv": [
+            "node",
+            "scripts/test-compaction-terminal-outcomes.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-055",
+          "argv": [
+            "node",
+            "scripts/test-conversation-scroll-follow.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-057",
+          "argv": [
+            "node",
+            "scripts/test-brand-headline.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-063",
+          "argv": [
+            "node",
+            "scripts/test-context-accounting.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-065",
+          "argv": [
+            "node",
+            "scripts/test-assistant-visibility-lifecycle.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-066",
+          "argv": [
+            "node",
+            "scripts/test-retry-turn-projection.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-070",
+          "argv": [
+            "node",
+            "scripts/test-live-answer-recovery.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-071",
+          "argv": [
+            "node",
+            "scripts/test-startup-catalog-refresh.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-073",
+          "argv": [
+            "node",
+            "--check",
+            "scripts/assemble-static-ui.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-075",
+          "argv": [
+            "node",
+            "scripts/test-upstream-ui-experience.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-076",
+          "argv": [
+            "node",
+            "scripts/test-workspace-directory.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-085",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-shell-navigation.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-088",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-typography.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-091",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-question-answer-queue.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-170",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-ui-fixture-boundary.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        }
+      ]
+    },
+    {
+      "shard": 3,
+      "ok": true,
+      "commands": [
+        {
+          "id": "contract-003",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-ui-migration-reference.mjs",
+            "scripts/test-owned-ui-type-policy.mjs",
+            "scripts/test-source-module-builder.mjs",
+            "scripts/test-plugin-api-types.mjs",
+            "scripts/test-owned-script-assets.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-012",
+          "argv": [
+            "node",
+            "scripts/test-model-selection-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-017",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-highlighter-lifecycle.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-024",
+          "argv": [
+            "node",
+            "scripts/test-conversation-connection-boundaries.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-025",
+          "argv": [
+            "node",
+            "scripts/test-layout-workspace-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-026",
+          "argv": [
+            "node",
+            "scripts/test-layout-workspace-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-028",
+          "argv": [
+            "node",
+            "scripts/test-tool-source-module.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-030",
+          "argv": [
+            "node",
+            "scripts/test-turn-process.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-032",
+          "argv": [
+            "node",
+            "scripts/test-adaptive-tool-fold.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-033",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-session-terminal-contract.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-040",
+          "argv": [
+            "node",
+            "scripts/test-attachments.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-041",
+          "argv": [
+            "node",
+            "scripts/test-conversation-message-edit.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-047",
+          "argv": [
+            "node",
+            "scripts/test-terminal-plugin.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-048",
+          "argv": [
+            "node",
+            "scripts/test-tasks-plugin.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-052",
+          "argv": [
+            "node",
+            "scripts/test-compaction-progress.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-056",
+          "argv": [
+            "node",
+            "scripts/test-computer-ui.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-069",
+          "argv": [
+            "node",
+            "scripts/test-ui-lifecycle-recovery.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-074",
+          "argv": [
+            "node",
+            "scripts/test-model-controls.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-077",
+          "argv": [
+            "node",
+            "scripts/test-browser-ui.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-079",
+          "argv": [
+            "node",
+            "scripts/test-workspace-created-at.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-086",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-tool-argument-progress.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-090",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-managed-connection-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-094",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-model-capability-refresh.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-096",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-file-display-source.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-098",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-remote-settings-contract.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-099",
+          "argv": [
+            "node",
+            "--test",
+            "scripts/test-history-open-target.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        },
+        {
+          "id": "contract-98",
+          "argv": [
+            "node",
+            "scripts/test-swarm-client.mjs"
+          ],
+          "ok": true,
+          "exitCode": 0
+        }
+      ]
+    }
+  ],
+  "pixelParity": [
+    {
+      "browser": "chromium",
+      "implementationRuns": 3,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "regionalChrome": true,
+      "workNavigation": true,
+      "pixelSha256": "58c5b67026ee083e1b9c2924b3bace0e932b006c2f8683eb6bad0064052c71e9",
+      "actualPixelSha256": "a117580e496035b26039d9829964af20f8e4efdd3d8c44938bef6f0c73920d61"
+    },
+    {
+      "browser": "webkit",
+      "implementationRuns": 3,
+      "fullGraph": true,
+      "controls": "providers + model + effort + context",
+      "effortChange": true,
+      "regionalChrome": true,
+      "workNavigation": true,
+      "pixelSha256": "535993a16903625ecd318302064bb8697c952fb20f8b848588a05f014dd01d34",
+      "actualPixelSha256": "cec5869ec0af27d58eff8cf277281dbb26bf30d7509d44878aa994eda74f37c1"
+    }
+  ],
+  "giteeMirrorRetry": {
+    "runId": 39090970972,
+    "attempt": 2,
+    "conclusion": "success",
+    "workflowChanged": false
+  },
+  "noRustSourceDifferenceAgainstMaster": true,
+  "releaseOrDeploymentPerformed": false,
+  "freshHeadCiStillRequired": true,
+  "inputs": {
+    "scripts/connection-artifact-test.mjs": "76a992ed3bc277840c54916c967125aafd97992a93af50d94b62733f5115e870",
+    "scripts/test-context-accounting.mjs": "6b63cbee4033c116703e3e4e9098c99b16bc7b9c2fe2f0cdd35fc945b276969f",
+    "scripts/test-conversation-message-edit.mjs": "fce7641eb092da2be87f619370e14e5d25de9a526a8c4663664d62c707c400de",
+    "scripts/test-ui-fixture-boundary.mjs": "d4e7211beb7fe95a987cedb769a02edfb23b07f1d4eb016bdfcb2c89a3d18686",
+    "ui/dist/plugins/@xharness/dsh-client-connection/client.js": "523b951045a972d0e18008431f1dee1d4f6eb5c2d9886f6250b73ba897f44f5f",
+    "ui/dist/.xharness-ui-output.json": "717a5457582444029ad6ee0650250f656d0fd18b412aeab4669569cc4baabd21"
+  }
+}

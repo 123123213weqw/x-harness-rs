@@ -1,1 +1,6 @@
-.PvwIvW_root{text-align:center;max-width:var(--dsh-chat-content-width);box-sizing:border-box;width:100%;padding:4px calc(var(--dsh-composer-side-clearance) + 16px) 0px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis;margin:0 auto;font-size:12px;line-height:20px;display:block;overflow:hidden}.PvwIvW_sep{color:var(--dsw-alias-separator-primary);margin:0 10px}
+.PvwIvW_root{position:static;flex:none;box-sizing:border-box;min-width:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;font-variant-numeric:tabular-nums}
+.PvwIvW_summary{display:flex;align-items:center;justify-content:center;width:32px;height:32px;cursor:pointer;border:0;background:transparent;color:inherit;padding:0;border-radius:50%}
+.PvwIvW_summary svg{width:18px;height:18px}
+.PvwIvW_summary:hover,.PvwIvW_root[data-expanded]>.PvwIvW_summary{background:var(--dsw-alias-interactive-bg-hover)}
+.PvwIvW_summary:focus-visible{outline:2px solid var(--dsw-alias-border-l3);outline-offset:2px}
+.PvwIvW_details{position:absolute;z-index:100;bottom:calc(100% + 10px);left:0;box-sizing:border-box;width:max-content;min-width:min(220px,100%);max-width:min(340px,100%);max-height:min(300px,60vh);overflow:auto;display:grid;gap:6px;padding:12px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-specific-menu);box-shadow:var(--dsw-shadow-lv3);overflow-wrap:anywhere}

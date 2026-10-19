@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 /** Paired full generated UI startup, fixture carrier only; NOT native Tauri or OS-cold startup. */
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
@@ -7,7 +8,7 @@ import {resolve, sep, extname} from 'node:path'
 
 const baseline = process.env.UI_STARTUP_BASELINE
 assert.ok(baseline, 'UI_STARTUP_BASELINE must name the preserved, same-commit original ui/dist')
-const roots = {baseline: resolve(baseline), optimized: resolve('ui/dist')}
+const roots = {baseline: resolve(baseline), optimized: fixtureUiRoot()}
 const output = resolve(process.env.UI_STARTUP_RESULTS ?? '/tmp/xh-ui-startup-results')
 const repetitions = Number(process.env.UI_STARTUP_REPEATS ?? 5)
 const session = process.env.UI_STARTUP_SESSION ?? null

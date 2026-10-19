@@ -27,7 +27,7 @@ import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
 /** Full composed props: runtime share + child-slot render share + store share. */
-export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center'> {
+export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'workspace.item' | 'work.center.tasks' | 'work.center.automations' | 'work.center.executions' | 'review.center' | 'assistant.center' | 'swarm.center'> {
   useSessions<T>(select: (state: import('../views-types').SessionSnapshot) => T): T
   useStore<T>(select: (state: import('./stores').LayoutState) => T): T
   actions: import('./service').PanelActions
@@ -35,8 +35,8 @@ export interface AppFrameProps extends PropsRenderSlots<'sidebar' | 'conversatio
 }
 
 /** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}><div className={css.regionSurface}>{props.children}</div></div>
+function CenterColumn(props: { children?: ReactNode; swarm?: boolean }) {
+  return <div className={css.centerCol}><div className={css.regionSurface} data-swarm-container={props.swarm||undefined}>{props.children}</div></div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
@@ -109,6 +109,7 @@ export function AppFrame({
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [assistantVisible,setAssistantVisible]=useState(false)
+  const [swarmVisible,setSwarmVisible]=useState(false)
   const { route: { page: centerPage } } = useSyncExternalStore(navigation.subscribe, navigation.getSnapshot)
   const closeCenterPage = navigation.close
   useEffect(() => navigation.mount(window), [navigation])
@@ -319,7 +320,7 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; the strict details entry naturally renders
             empty while no session is current. */}
-        <CenterColumn><div className="xhfeature-shell"><div className="xhassistant-seat" hidden={centerPage !== 'assistant'}>{centerPage === 'assistant' && renderSlot('assistant.center', {showConversation:setAssistantVisible})}</div><div className="xhwork-conversation" hidden={centerPage !== 'chat' && !(centerPage==='assistant'&&assistantVisible)} aria-label={centerPage==='assistant'?'Little X chat':undefined}>{renderSlot('conversation', {})}</div>
+        <CenterColumn swarm={centerPage==='swarm'}><div className="xhfeature-shell" data-swarm-active={centerPage==='swarm'||undefined}><div className="xhswarm-seat" hidden={centerPage!=='swarm'}>{centerPage==='swarm'&&renderSlot('swarm.center',{showConversation:setSwarmVisible})}</div><div className="xhassistant-seat" hidden={centerPage !== 'assistant'}>{centerPage === 'assistant' && renderSlot('assistant.center', {showConversation:setAssistantVisible})}</div><div className="xhwork-conversation" hidden={centerPage !== 'chat' && !(centerPage==='assistant'&&assistantVisible) && !(centerPage==='swarm'&&swarmVisible)} aria-label={centerPage==='assistant'?'Little X chat':undefined}>{renderSlot('conversation', {})}</div>
         {centerPage === 'plugins' && <main style={{flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)'}}>
           <button type="button" style={{cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit'}}
             aria-label="Back to chat" onClick={closeCenterPage}>← {navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'}</button>

@@ -1,3 +1,4 @@
+import { sharedSourceVendors, sharedVendors } from './fixtures/shared-source-vendors.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -34,7 +35,7 @@ function compiledEntry(name, entry = 'index') {
   let bytes = compiledEntries.get(key)
   if (bytes === undefined) {
     const id = `foundation-acceptance:${key}`
-    bytes = compileSourceModules(join(repo, 'ui'), [{ id, source: `src/modules/${key}.ts` }]).get(id).bytes.toString()
+    bytes = compileSourceModules(join(repo, 'ui'), [{ id, source: `src/modules/${key}.ts` }], {variant: entry === 'fixture-entry' ? 'fixture' : 'production'}).get(id).bytes.toString()
     compiledEntries.set(key, bytes)
   }
   return bytes
@@ -56,7 +57,9 @@ function sourceModule(name, globals = {}, externals = {}, entry = 'index') {
     window:{...globals.window,__ModuleLoader__:{load(value){registration=value}}}}
   const realm=vm.createContext(context)
   vm.runInContext(compiledEntry(name,entry),realm)
+  const vendors=sharedSourceVendors(realm)
   const exports=registration.factory(spec => {
+    if (spec in vendors) return vendors[spec]
     if (spec in externals) return externals[spec]
     throw new Error(`Unexpected source external import ${spec}`)
   })
@@ -433,7 +436,31 @@ test('source: structured inspect catalogs retain baseline data without an extern
     const module={exports:{}};const compiled=ts.transpileModule(baseline,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText
     vm.runInNewContext(`(function(module,exports){${compiled}\n})`,{})(module,module.exports)
     const current=sourceModule('cordis-client-runner',{},viewExternals,entry)
-    for(const key of keys)assert.equal(JSON.stringify(current[key]),JSON.stringify(module.exports[key]),`${entry}.${key} catalog mismatch`)
+    for(const key of keys) {
+      let value=current[key]
+      if(entry==='slot-catalog'&&key==='CLIENT_SLOT_API') {
+        const placements={
+          'conversation.input.dock':[['A full-width row of its own, stacked above the composer card','A full-width row of its own, in the composer card header'],['readout under the card, and','readout inside the toolbar, and']],
+          'conversation.composer.dock':[
+            ["The band under the composer card, inside the bar's width column — the seat for an ambient readout about the conversation (the shipped stats line lives here).",'Compact readouts inside the composer toolbar (the shipped statistics disclosure lives here).'],
+            ["The band under the composer card, inside the bar's width column — the\nseat for an ambient readout about the conversation (the shipped stats\nline lives here). Same InputZone owner share as the other\nregions. Anything the user must click belongs in the tool row instead\n(`conversation.input.left` / `.right`); anything needing its own line",'Compact readouts inside the composer toolbar (the shipped statistics\ndisclosure lives here). Same InputZone owner share as the other\nregions. Keep contributions compact; general actions belong in\n`conversation.input.left` / `.right`, and content needing its own line'],
+            ['above the card belongs in','above the textarea belongs in'],
+          ],
+        }
+        value=value.map(row=>{
+          const changes=placements[row.key]
+          if(!changes)return row
+          const before=module.exports[key].find(item=>item.key===row.key),normalized={...row}
+          for(const field of ['summary','doc']) {
+            const expected=changes.reduce((text,[from,to])=>text.replaceAll(from,to),before[field])
+            assert.equal(row[field],expected,'reviewed composer placement copy: '+row.key+'.'+field)
+            normalized[field]=before[field]
+          }
+          return normalized
+        })
+      }
+      assert.equal(JSON.stringify(value),JSON.stringify(module.exports[key]),`${entry}.${key} catalog mismatch`)
+    }
   }
 })
 
@@ -558,7 +585,7 @@ function connectionGlobals(search = '?fixture') {
     console:{warn(){},error(){}},__zod_globalConfig:zod.z.core.config()}
 }
 function connectionFixture(label, search='?fixture', moreGlobals={}) {
-  const globals={...connectionGlobals(search),...moreGlobals};const api=label==='legacy'?legacy('client-connection',globals):sourceModule('client-connection',globals)
+  const globals={...connectionGlobals(search),...moreGlobals};const api=label==='legacy'?legacy('client-connection',globals):sourceModule('client-connection',globals,{},search.includes('fixture')?'fixture-entry':'index')
   let handle;api.apply({provide(name,value){assert.equal(name,'connection');handle=value}})
   return {api,handle,globals}
 }
@@ -578,7 +605,8 @@ function legacyConnectionSchemas(names) {
   // initializes English through another package. Initialize the same pinned
   // SDK in this exact realm before evaluating the immutable frozen factory.
   vm.runInContext(compiledEntry('client-connection','contracts/host/apiproxy/api/rpc.schema'),realm)
-  registration.factory(()=>{throw Error('schema SDK unexpectedly requires external')})
+  const vendors=sharedSourceVendors(realm)
+  registration.factory(name=>{assert.ok(name in vendors);return vendors[name]})
   vm.runInContext(code.replace('return module.exports;',hook),realm)
   return rememberSchemaRealm(registration.factory(()=>{throw Error('connection unexpectedly requires external')}).__schemas,realm)
 }
@@ -647,17 +675,17 @@ test('connection: fixture mutations, edit-before-user forks and generic Remote f
   assert.deepEqual(traces[1],traces[0])
 })
 
-test('connection: production compiler packages the whole entry and Zod without an external loader escape',async()=>{
+test('connection: production compiler declares the pinned platform Zod singleton',async()=>{
   const id='@xharness/dsh-client-connection';const row={id,source:'src/modules/client-connection/index.ts'};const built=compileSourceModules(join(repo,'ui'),[row]).get(id)
-  assert.deepEqual(built.external,[]);assert.ok(built.sources.includes('npm:zod@4.4.3'));assert.ok(built.sources.includes('src/modules/client-connection/fixture.ts'))
-  let registration;const globals=connectionGlobals('?fixture');vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
-  assert.equal(registration.id,id);const api=registration.factory(request=>{throw Error(`Unexpected production loader request ${request}`)});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
+  assert.deepEqual(built.external,['zod']);assert.ok(!built.sources.includes('npm:zod@'+JSON.parse(readFileSync(join(repo,'ui/source-vendors.json'))).packages.zod.version));assert.ok(!built.sources.includes('src/modules/client-connection/fixture.ts'))
+  let registration;const globals={...connectionGlobals('?fixture'),fetch:async(_url,init)=>({ok:true,json:async()=>({type:'server-response',rpcId:JSON.parse(init.body).rpcId,result:{ok:true,value:{version:'test',cwd:'/test',attachedSessions:0,home:'/home/test',canOpenPath:false}}})})};vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
+  assert.equal(registration.id,id);const api=registration.factory(request=>{assert.ok(request in sharedVendors);return sharedVendors[request]});let connection;api.apply({provide(_name,value){connection=value}});assert.equal((await connection.api.host.describe({})).result.ok,true)
 })
 
 function runtimeFixture(label, globals={}, suppliedApi) {
   const ctx=new Core.Context(),trace=[];const inherited={...connectionGlobals(''),Map,Set,queueMicrotask,process:{env:{NODE_ENV:'production'}},...globals}
   const core=sourceModule('platform',inherited,{},'slots/index')
-  const externals={'@xharness/cordis':Core,'@xharness/dsh-client-ui-slots':core}
+  const externals={...sharedVendors,'@xharness/cordis':Core,'@xharness/dsh-client-ui-slots':core}
   const api=suppliedApi?suppliedApi(externals):(label==='legacy'?legacy('client-runtime',inherited,externals):sourceModule('client-runtime',inherited,externals))
   ctx.provide('remote',{commands:{execute:async()=>({ok:true,value:undefined})},$dispatch:(event,args)=>trace.push(['dispatch',event,args])})
   ctx.provide('typert',{contexts:{registerClient(_name,provider){return ctx.provide('identity',provider.identity)}}})
@@ -747,7 +775,7 @@ test('runtime: Conversation registries and incremental assembler retain prepend 
 
 test('runtime: production compiler bundles genuine pinned Immer and bootstraps without a process/global package escape',async()=>{
   const id='@xharness/dsh-client-runtime';const built=compileSourceModules(join(repo,'ui'),[{id,source:'src/modules/client-runtime/index.ts'}]).get(id)
-  assert.deepEqual(built.external,['@xharness/cordis','@xharness/dsh-client-ui-slots']);assert.ok(built.sources.includes('vendor:immer@10.2.0'));assert.ok(built.sources.includes('src/modules/client-runtime/sessions/session.ts'));assert.ok(!built.sources.some(path=>path.includes('Documents/Codex')))
+  assert.deepEqual(built.external,['@xharness/cordis','@xharness/dsh-client-ui-slots','zod']);assert.ok(built.sources.includes('vendor:immer@10.2.0'));assert.ok(built.sources.includes('src/modules/client-runtime/sessions/session.ts'));assert.ok(!built.sources.some(path=>path.includes('Documents/Codex')))
   const globals=connectionGlobals('');let registration;vm.runInNewContext(built.bytes.toString(),{...globals,window:{__ModuleLoader__:{load(value){registration=value}}},Promise,AbortController,AbortSignal,URL,Error})
   const f=runtimeFixture('source',{},externals=>registration.factory(spec=>{assert.ok(spec in externals,`production external ${spec}`);return externals[spec]}));const fixture=connectionFixture('source');let sinks;f.services.set('connection',{api:fixture.handle.api,start(value){sinks=value;return{stop(){}}}});f.api.apply(f.ctx);sinks.onConnected();await drain();assert.equal(f.services.get('sessions').list.getSnapshot().phase,'ready')
   // Readiness of the two baseline RPCs precedes the runtime-owned initial

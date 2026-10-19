@@ -53,8 +53,8 @@ try {
     const hook = select => select(R.useSyncExternalStore(fn => session.subscribe(fn), () => session.getSnapshot()))
     let root
     window.mount = () => {
-      const props = { sessionId: 'reader', useSession: hook, useSessions: select => select({ byId: {} }), useStore: select => select({}), t: k => k,
-        chatScroll: memory.forSession('reader'), fileMentions: () => undefined, openFile: async () => {}, loadImage: async () => '', inspectCall: () => {}, forkAt: () => {}, editMessage: () => {},
+      const props = { sessionId: session.sessionId, useSession: hook, useSessions: select => select({ byId: {} }), useStore: select => select({}), t: k => k,
+        chatScroll: memory.forSession(session.sessionId), fileMentions: () => undefined, openFile: async () => {}, loadImage: async () => '', inspectCall: () => {}, forkAt: () => {}, editMessage: () => {},
         loadOlder: () => session.loadOlder(), renderSlot: (_slot, owner) => R.createElement('div', { 'data-heavy-message': owner.node.key, style: { height: 140, borderBottom: '1px solid gray' } }, 'Message ' + owner.node.anchorSeq) }
       root = D.createRoot(document.getElementById('root'))
       D.flushSync(() => root.render(R.createElement('div', { 'data-conversation-scroll': '', style: { height: 650, overflowY: 'auto', overflowAnchor: 'none' } }, R.createElement(ui.ChatView, props))))
@@ -146,6 +146,44 @@ try {
   assert.equal((await page.evaluate(() => state())).bookmark, null)
   assert.ok(await port.evaluate(e => e.scrollHeight - e.clientHeight - e.scrollTop < 2))
   await page.evaluate(() => unmount())
+  // A 100,000-message journal must still open only its tail. Abort a held
+  // older page through the real Session API while live events keep arriving.
+  await page.evaluate(() => {
+    window.largeCalls = []; window.largeAborted = false
+    manager.api.sessions.history = async (payload, signal) => {
+      largeCalls.push(payload.beforeSeq ?? null)
+      if (payload.beforeSeq !== undefined) {
+        await new Promise((resolve, reject) => {
+          const abort = () => { largeAborted = true; reject(signal.reason) }
+          signal?.addEventListener('abort', abort, { once: true })
+          if (signal?.aborted) abort()
+        })
+      }
+      const start = 99_950
+      return { result: { ok: true, value: { events: Array.from({ length: 50 }, (_, i) => ({ event: {
+        seq: start + i, time: start + i, type: 'user/message', surfaceOp: 'append',
+        data: { id: 'large-' + (start + i), source: { kind: 'user' }, content: [{ type: 'text', text: 'Large message ' + (start + i) }] },
+      } })), hasMore: true } } }
+    }
+    manager.summaries.push({ sessionId: 'large', running: true, blank: false })
+    manager.select('large'); window.session = manager.get('large')
+    memory.forSession('large').save({ anchorKey: 'user:large-0', anchorSeq: 0, anchorTop: 0, scrollTop: 0 })
+    window.largeOpening = session.open(); mount()
+  })
+  await page.waitForFunction(() => largeCalls.length === 2)
+  assert.equal(await page.getByText('chat.loadingHistory', { exact: true }).count(), 1)
+  await page.evaluate(async () => {
+    session.acceptLiveEvent({ seq: 100_000, time: 100_000, type: 'user/message', surfaceOp: 'append',
+      data: { id: 'large-live', source: { kind: 'user' }, content: [{ type: 'text', text: 'Live while history loads' }] } })
+    memory.requestFollow('large'); await largeOpening
+  })
+  await page.waitForFunction(() => session.getSnapshot().openState === 'open'); await settle()
+  assert.deepEqual(await page.evaluate(() => ({ calls: largeCalls, aborted: largeAborted,
+    loaded: session.events.length, last: session.events.at(-1).seq, hasMore: session.hasMore })),
+    { calls: [null, 99_950], aborted: true, loaded: 51, last: 100_000, hasMore: true })
+  assert.equal(await page.getByText('chat.loadingHistory', { exact: true }).count(), 0)
+  assert.ok(await page.locator('[data-heavy-message]').count() < 30, 'large conversation still uses bounded virtual rows')
+  await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark' }))
+  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
 } finally { await browser.close() }

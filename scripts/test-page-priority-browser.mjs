@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 /** Page priority regressions run the owned graph with isolated fixture transport. */
 import assert from 'node:assert/strict'
@@ -7,7 +8,7 @@ import {createRequire} from 'node:module'
 
 const engine=process.env.UI_TEST_BROWSER??'chromium'
 assert.ok(['chromium','webkit'].includes(engine))
-const base=resolve('ui/dist')
+const base=fixtureUiRoot()
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
 const require=createRequire(resolve(deps,'package.json'))
 const browser=await require('playwright')[engine].launch({headless:true})

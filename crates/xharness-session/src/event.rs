@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -690,6 +690,9 @@ impl ToolResultData {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum EventData {
+    /// Independent working-plan snapshot; not provider text or a Goal transition.
+    #[serde(rename = "session/plan-updated")]
+    SessionPlanUpdated { plan: crate::SessionPlan },
     #[serde(rename = "job/continuation")]
     JobContinuation {
         record: Box<crate::JobContinuationRecord>,
@@ -1098,36 +1101,48 @@ const fn is_zero(value: &usize) -> bool {
     *value == 0
 }
 
-/// An event waiting to receive its durable log coordinates.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct SessionEvent(pub EventData);
+/// An event waiting to receive its durable log coordinates. Immutable payloads
+/// are shared across receipts, reader snapshots and copy-on-write log prefixes.
+/// Mutation explicitly detaches, preserving each older snapshot's exact value.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionEvent(Arc<EventData>);
 
 impl SessionEvent {
-    pub const fn new(data: EventData) -> Self {
-        Self(data)
+    pub fn new(data: EventData) -> Self {
+        Self(Arc::new(data))
     }
 
-    pub const fn data(&self) -> &EventData {
+    pub fn data(&self) -> &EventData {
         &self.0
     }
 
-    /// Mutate an unpublished event before it receives durable coordinates.
-    /// Persisted [`LoggedEvent`] values remain immutable; this seam exists so
-    /// stream producers can coalesce adjacent token fragments into one bounded
-    /// checkpoint instead of creating one durable record per provider delta.
-    pub const fn data_mut(&mut self) -> &mut EventData {
-        &mut self.0
+    /// Mutate an unpublished event, detaching any shared immutable payload.
+    pub fn data_mut(&mut self) -> &mut EventData {
+        Arc::make_mut(&mut self.0)
     }
 
     pub fn into_data(self) -> EventData {
-        self.0
+        match Arc::try_unwrap(self.0) {
+            Ok(data) => data,
+            Err(data) => (*data).clone(),
+        }
     }
 }
 
+// Keep the exact existing journal envelope, with no Arc tag or wire version.
+impl Serialize for SessionEvent {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.data().serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for SessionEvent {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        EventData::deserialize(deserializer).map(Self::new)
+    }
+}
 impl From<EventData> for SessionEvent {
     fn from(value: EventData) -> Self {
-        Self(value)
+        Self::new(value)
     }
 }
 
@@ -1142,7 +1157,7 @@ pub struct LoggedEvent {
 }
 
 impl LoggedEvent {
-    pub const fn data(&self) -> &EventData {
+    pub fn data(&self) -> &EventData {
         self.event.data()
     }
 }
@@ -1173,3 +1188,7 @@ mod harness_view_tests {
         assert_eq!(header.input.len(), 2, "the actual request is not mutated");
     }
 }
+
+#[cfg(test)]
+#[path = "event_sharing_tests.rs"]
+mod sharing_tests;

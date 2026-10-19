@@ -62,6 +62,7 @@ mod state;
 #[cfg(test)]
 mod statecheck;
 mod subagent_processor;
+mod swarm_processor;
 mod titles;
 mod workspace_processor;
 
@@ -131,6 +132,10 @@ pub struct HostConfig {
     /// event larger than this budget is delivered live and remains durable,
     /// but is not pinned in Host memory.
     pub session_event_cache_bytes: usize,
+    /// Shared estimated-resident-byte ceiling across durable display tails. This is not
+    /// an RSS limit; snapshots, running tools and provider inputs are separate.
+    /// Zero disables resident display tails without deleting durable history.
+    pub session_event_cache_total_bytes: usize,
 }
 
 impl HostConfig {
@@ -161,6 +166,7 @@ impl HostConfig {
             event_capacity: 2_048,
             session_event_cache_capacity: 2_048,
             session_event_cache_bytes: 16 * 1024 * 1024,
+            session_event_cache_total_bytes: 64 * 1024 * 1024,
         }
     }
 }
@@ -255,6 +261,12 @@ pub trait SessionToolFactory: Send + Sync + 'static {
         _references: &[xharness_session::goal::GoalEvidence],
     ) -> Result<bool, String> {
         Ok(false)
+    }
+
+    /// Release session-scoped caches after its actor has been permanently
+    /// retired. Do not shut down shared services or unrelated conversations.
+    async fn release_session(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
     }
 
     /// Release factory-owned resources that outlive one Tool batch, such as
@@ -510,6 +522,15 @@ impl BasicHost {
         let Some(s) = state.sessions.get(id) else {
             return false;
         };
+        if let Some(model) = self
+            .agent_runtime
+            .model_catalog()
+            .iter()
+            .find(|model| model.provider == s.model.provider && model.model == s.model.model)
+        {
+            return model.image_input == Some(true);
+        }
+        // Compatibility for runtimes without descriptors. Unknown is not permission.
         state
             .settings
             .get(crate::MODEL_SETTINGS_NAMESPACE)
@@ -519,3 +540,5 @@ impl BasicHost {
             == Some(true)
     }
 }
+
+mod admission_cache;

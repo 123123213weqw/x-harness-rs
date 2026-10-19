@@ -559,3 +559,46 @@ async fn github_review_endpoints_use_the_existing_two_segment_http_surface() {
         assert_eq!(body["result"]["value"]["endpoint"], endpoint);
     }
 }
+
+#[tokio::test]
+async fn lazy_trace_preserves_large_escaped_rpc_payloads_in_off_and_full_modes() {
+    let payload = json!({"text":"Δ✓\n\\\"\0".repeat(16000),"nested":{"empty":[],"null":null}});
+    let mut expected = None;
+    for enabled in [false, true] {
+        let sink = Arc::new(MemoryDebugSink::default());
+        let debug = if enabled {
+            DebugRecorder::new(sink.clone())
+        } else {
+            DebugRecorder::disabled()
+        };
+        let router = api_router_with_debug(Arc::new(FixtureBackend), debug.clone());
+        let response = router.oneshot(post("/api/session.list", json!({"type":"client-request","rpcId":"large-json","method":"session.list","payload":payload}))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["result"]["value"]["payload"], payload);
+        if let Some(previous) = &expected {
+            assert_eq!(&body, previous);
+        } else {
+            expected = Some(body);
+        }
+        debug.flush().await.unwrap();
+        let events = sink.events().await;
+        if enabled {
+            let request = events
+                .iter()
+                .find(|event| event.event == "rpc.request")
+                .unwrap();
+            assert_eq!(request.payload["body"]["payload"], payload);
+            let response = events
+                .iter()
+                .find(|event| event.event == "rpc.response")
+                .unwrap();
+            assert_eq!(response.payload["result"]["value"]["payload"], payload);
+        } else {
+            assert!(events.is_empty());
+        }
+    }
+}

@@ -1,12 +1,14 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 import {openAccountSettings} from './fixtures/open-account-settings.mjs'
 /** Entire generated graph and genuine platform/Core, using only built-in fixture transport. */
 import assert from 'node:assert/strict'
 import {readFileSync,existsSync,mkdirSync} from 'node:fs'
 import {resolve,sep} from 'node:path'
 import {createRequire} from 'node:module'
+import {createHash} from 'node:crypto'
 const implementation=process.env.UI_TEST_IMPL??'source',engine=process.env.UI_TEST_BROWSER??'chromium'
 assert.ok(['source','legacy'].includes(implementation));assert.ok(['chromium','webkit'].includes(engine))
-const base=resolve(implementation==='source'?'ui/dist':'ui/reference/master-a613970')
+const base=implementation==='source'?fixtureUiRoot():resolve('ui/reference/master-a613970')
 const referenceLayout=process.env.UI_BOOT_REFERENCE_LAYOUT==='true'
 assert.ok(!referenceLayout||implementation==='source','only the new shell has the approved regional chrome delta')
 // The user-requested rounded shell is a post-migration presentation change.
@@ -28,12 +30,14 @@ const referenceLayoutCss=`
  [data-slot="conversation.hero.runtimeEnvironment"] > span:has(>button[data-xh-runtime-environment]){display:none!important}
 `
 
-// Project only the user-approved adjacent effort entry for frozen pixels.
+// Project only the approved adjacent effort entry and additive hero model
+// icon for frozen pixels. The actual icon is pinned and exercised below.
 // Real source controls are counted and exercised separately below. No mask,
 // golden overwrite, or tolerance change is used.
 const referenceReasoningCss=`
  .AbPDjW_root{display:block!important;gap:normal!important;max-width:none!important;flex-wrap:nowrap!important}
  button[data-xh-model-control="effort"]{display:none!important}
+ .AbPDjW_root:not(.AbPDjW_compact) .AbPDjW_modelIcon{display:none!important}
 `
 
 const deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
@@ -75,6 +79,11 @@ try{
   assert.equal(await projectedMenu.count(),1,'reference lane projects exactly the reviewed slot Menu wrapper')
   assert.equal(await projectedMenu.evaluate(node=>getComputedStyle(node).display),'none','projection removes the exact new Menu flex item')
  }
+ if(implementation==='source') {
+  const icon=page.locator('[data-xh-model-control="model"] .AbPDjW_modelIcon')
+  assert.equal(await icon.count(),1,'exactly the approved hero model glyph, not a general icon mask')
+  assert.equal(await icon.evaluate(node=>getComputedStyle(node).display),referenceLayout?'none':'flex','only the frozen-geometry lane projects out this additive icon')
+ }
  if(process.env.UI_BOOT_RECEIPT_DIR){
   await page.evaluate(()=>document.fonts.ready);mkdirSync(process.env.UI_BOOT_RECEIPT_DIR,{recursive:true});
   await page.screenshot({path:resolve(process.env.UI_BOOT_RECEIPT_DIR,engine+'-'+implementation+(referenceLayout?'-reference-layout.png':'-full-boot.png')),animations:'disabled',caret:'hide'})
@@ -84,6 +93,15 @@ try{
  // all source interaction assertions exercise the real two-control layout.
  await page.locator('style[data-approved-reasoning-projection]').evaluateAll(nodes=>nodes.forEach(node=>node.remove()))
  if(implementation==='source')assert.equal(await page.locator('._84hhiq_regionSurface').count(),3,'each owned column has its own surface')
+ if(implementation==='source') {
+  const glyph=page.locator('[data-xh-model-control="model"] .AbPDjW_modelIcon svg')
+  assert.equal(await glyph.getAttribute('viewBox'),'0 0 16 16')
+  const geometry=await glyph.evaluate(node=>({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height,paths:[...node.querySelectorAll('path')].map(path=>path.getAttribute('d')).join('\n')}))
+  assert.equal(geometry.width,18,'actual hero icon remains visible at the reviewed size')
+  assert.equal(geometry.height,18)
+  assert.equal(createHash('sha256').update(geometry.paths).digest('hex'),'9e9451a2aebc02847fb4ed4bbe62b4faf3303c614b3e3414c7a6775303f61685','reviewed product orbital glyph, not an arbitrary replacement')
+ }
+
  const early=await page.evaluate(()=>{
   const navigation=document.querySelectorAll('[data-xharness-work-nav],.xhtask-trigger')
   const sidebarSearch=document.querySelectorAll('button[aria-label="Search sessions"]')
@@ -160,6 +178,16 @@ try{
   await work.waitFor()
   await work.getByRole('button',{name:'Back to chat',exact:true}).click()
   assert.equal(await composer.inputValue(),'Retain draft across Work center','real Core and generated slots keep the composer mounted')
+  // Opt-in Swarm uses the same fixed conversation slot, not a second chat runtime.
+  // Built-in Host fixture intentionally has no Swarm records; lifecycle RPCs
+  // are covered separately against the typed synthetic adapter and Rust Host.
+  await page.evaluate(()=>window.dispatchEvent(new Event('xharness:swarm:open')))
+  await page.getByRole('heading',{name:'Swarm',exact:true}).waitFor()
+  await page.getByRole('heading',{name:'Keep your team together',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Back to chat',exact:true}).click()
+  await page.getByRole('heading',{name:'Swarm',exact:true}).waitFor({state:'detached'})
+  assert.equal(await composer.inputValue(),'Retain draft across Work center','Swarm open/close preserves the original composer draft')
+
  }
  // Built-in fixture has no live HMR SSE server; WebKit may cancel that
  // optional connection after its isolated 404. Do not ignore static failures.

@@ -789,12 +789,45 @@ enum StopTrigger {
 /// and supervisor cancellation, without interfering with normal output drain.
 struct CaptureTaskCleanup(Vec<tokio::task::AbortHandle>);
 
-impl Drop for CaptureTaskCleanup {
-    fn drop(&mut self) {
+impl CaptureTaskCleanup {
+    fn abort(&self) {
         for task in &self.0 {
             task.abort();
         }
     }
+}
+
+impl Drop for CaptureTaskCleanup {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+async fn drain_captures(
+    stdout_task: &mut tokio::task::JoinHandle<io::Result<CapturedOutput>>,
+    stderr_task: &mut tokio::task::JoinHandle<io::Result<CapturedOutput>>,
+    grace: Duration,
+    cleanup: &CaptureTaskCleanup,
+) -> Result<(CapturedOutput, CapturedOutput), ProcessError> {
+    let captures = async { tokio::join!(stdout_task, stderr_task) };
+    tokio::pin!(captures);
+    let (stdout_result, stderr_result) = match time::timeout(grace, &mut captures).await {
+        Ok(results) => results,
+        Err(_) => {
+            // The join may already own one completed output. Preserve it while
+            // aborting and reaping the other task; polling its consumed handle
+            // again would panic instead of publishing the cleanup failure.
+            cleanup.abort();
+            let _ = captures.await;
+            return Err(ProcessError::CaptureDrainTimedOut {
+                grace_ms: grace.as_millis(),
+            });
+        }
+    };
+    Ok((
+        capture_result("stdout", stdout_result)?,
+        capture_result("stderr", stderr_result)?,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -875,21 +908,13 @@ async fn supervise(
     #[cfg(windows)]
     wait_for_windows_tree_exit(&process_tree_guard.tree, capture_drain_grace).await?;
 
-    let captures = async { tokio::join!(&mut stdout_task, &mut stderr_task) };
-    let (stdout_result, stderr_result) = match time::timeout(capture_drain_grace, captures).await {
-        Ok(results) => results,
-        Err(_) => {
-            stdout_task.abort();
-            stderr_task.abort();
-            let _ = stdout_task.await;
-            let _ = stderr_task.await;
-            return Err(ProcessError::CaptureDrainTimedOut {
-                grace_ms: capture_drain_grace.as_millis(),
-            });
-        }
-    };
-    let stdout = capture_result("stdout", stdout_result)?;
-    let stderr = capture_result("stderr", stderr_result)?;
+    let (stdout, stderr) = drain_captures(
+        &mut stdout_task,
+        &mut stderr_task,
+        capture_drain_grace,
+        &_capture_cleanup,
+    )
+    .await?;
     process_tree_guard.disarm();
     let output = ProcessOutput {
         pid,
@@ -1416,5 +1441,56 @@ mod capture_cleanup_tests {
         let output = (&mut task).await.unwrap().unwrap();
         assert_eq!(output.text, "tail output\n");
         assert_eq!(output.bytes_read, 12);
+    }
+
+    async fn asymmetric_drain_timeout(completed_stream: &'static str) {
+        let live = LiveOutputState::new(1024, 1024);
+        let weak = Arc::downgrade(&live);
+        let mut complete = tokio::spawn(capture(
+            &b"complete\n"[..],
+            1024,
+            DebugRecorder::disabled(),
+            0,
+            completed_stream,
+            live.clone(),
+        ));
+        let pending_stream = if completed_stream == "stdout" {
+            "stderr"
+        } else {
+            "stdout"
+        };
+        let (mut pending, dropped) = pending_capture(live, pending_stream);
+        time::timeout(Duration::from_secs(3), async {
+            while !complete.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("completed capture did not finish");
+        let cleanup = CaptureTaskCleanup(vec![complete.abort_handle(), pending.abort_handle()]);
+        let grace = Duration::from_millis(20);
+        let result = if completed_stream == "stdout" {
+            drain_captures(&mut complete, &mut pending, grace, &cleanup).await
+        } else {
+            drain_captures(&mut pending, &mut complete, grace, &cleanup).await
+        };
+        assert!(matches!(
+            result,
+            Err(ProcessError::CaptureDrainTimedOut { grace_ms: 20 })
+        ));
+        assert!(complete.is_finished());
+        assert!(pending.is_finished());
+        assert_released(dropped).await;
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn drain_timeout_after_stdout_completion_reaps_stderr_without_repolling_stdout() {
+        asymmetric_drain_timeout("stdout").await;
+    }
+
+    #[tokio::test]
+    async fn drain_timeout_after_stderr_completion_reaps_stdout_without_repolling_stderr() {
+        asymmetric_drain_timeout("stderr").await;
     }
 }

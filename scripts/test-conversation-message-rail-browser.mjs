@@ -1,10 +1,11 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 // Exercise in-conversation message navigation against the isolated Host fixture.
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve, sep, extname } from 'node:path'
 import { createRequire } from 'node:module'
 
-const base = resolve(process.env.UI_TEST_DIST ?? 'ui/dist')
+const base = fixtureUiRoot()
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps', 'package.json'))
 const engine = process.env.UI_TEST_BROWSER ?? 'chromium'
 assert.ok(['chromium', 'webkit'].includes(engine))

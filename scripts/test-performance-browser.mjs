@@ -1,3 +1,4 @@
+import {fixtureUiRoot} from './fixtures/ui-fixture-build.mjs'
 /** Genuine generated graph; only the built-in fixture baseline is enriched
  * with the shared Rust wire fixture. No production component is mocked. */
 import assert from 'node:assert/strict'
@@ -6,7 +7,7 @@ import {resolve,sep,extname} from 'node:path'
 import {createRequire} from 'node:module'
 const reception=process.argv.includes('--reception')
 const engine=process.env.UI_TEST_BROWSER??'chromium',deps=process.env.UI_TEST_DEPS??'/Users/wangyue/codex-build/xharness-plugin-migration/ui-browser-deps'
-const require=createRequire(resolve(deps,'package.json')),base=resolve('ui/dist'),fixture=JSON.parse(readFileSync(reception ? 'protocol/fixtures/performance-reception-v1.json' : 'protocol/fixtures/performance-timeline-v1.json','utf8'))
+const require=createRequire(resolve(deps,'package.json')),base=fixtureUiRoot(),fixture=JSON.parse(readFileSync(reception ? 'protocol/fixtures/performance-reception-v1.json' : 'protocol/fixtures/performance-timeline-v1.json','utf8'))
 const connectionPath='/plugins/@xharness/dsh-client-connection/client.js'
 const marker="values['sessionStats'] = sessionStatsOf(log);"
 const browser=await require('playwright')[engine].launch({headless:true})

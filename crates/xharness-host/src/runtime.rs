@@ -61,6 +61,10 @@ pub struct ModelDescriptor {
     pub reasoning: Option<ModelReasoning>,
     /// Provenance/state for discovery; no vendor wire patches enter the UI.
     pub reasoning_capability: serde_json::Value,
+    /// Effective image admission for the exact active route. None means unknown.
+    pub image_input: Option<bool>,
+    /// Separate modality provenance; reasoning overrides never affect this field.
+    pub image_input_capability: serde_json::Value,
     /// Capability snapshot reported by the exact deployment, or an explicitly
     /// labelled deployment fallback when the Provider cannot advertise it.
     pub context_window: ContextWindowCapability,
@@ -133,6 +137,8 @@ impl ModelDescriptor {
             model_display_name: model_display_name.into(),
             reasoning: None,
             reasoning_capability: serde_json::json!({"state":"unknown"}),
+            image_input: None,
+            image_input_capability: serde_json::json!({"state":"unknown","source":"unknown"}),
             context_window: ContextWindowCapability::default(),
         }
     }
@@ -144,6 +150,16 @@ impl ModelDescriptor {
 
     pub fn with_context_window(mut self, context_window: ContextWindowCapability) -> Self {
         self.context_window = context_window;
+        self
+    }
+
+    pub fn with_image_input(
+        mut self,
+        supported: Option<bool>,
+        provenance: serde_json::Value,
+    ) -> Self {
+        self.image_input = supported;
+        self.image_input_capability = provenance;
         self
     }
 
@@ -1406,7 +1422,9 @@ impl DurableLoopAgentRuntime {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tokio::select! {
+                        biased;
                         _=goals.shutdown.cancelled()=>break,
+                        _=handle.closed()=>break,
                         _=tick.tick()=>{
                             if handle.status()!=xharness_agent::AgentStatus::Idle {continue}
                             // Serialize retirement with re-attachment so resume cannot lose its watcher.
@@ -1487,6 +1505,13 @@ impl DurableLoopAgentRuntime {
         steer: bool,
     ) -> Result<PreparedDurableTurn, AgentRuntimeError> {
         let (input, input_id) = self.validate_turn_input(&request)?;
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1496,13 +1521,6 @@ impl DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         let events = handle.subscribe();
         let input = InboxMessage {
             id: input_id.clone(),
@@ -1600,6 +1618,35 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     }
 
     async fn delete_session_data(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        // The Host has committed its tombstone and still owns the session's
+        // admission fence. Reap the actor before removing files or caches.
+        self.supervisor
+            .retire(session_id, Duration::from_secs(8))
+            .await
+            .map_err(registry_error)?;
+        if let Some(schedules) = &self.schedules {
+            schedules
+                .retire_session(session_id)
+                .await
+                .map_err(|message| AgentRuntimeError::Preparation { message })?;
+        }
+        self.goals.handles.write().await.remove(session_id);
+        self.goals
+            .prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.goals.watched.lock().await.remove(session_id);
+        self.goals.retire_announcements(session_id).await;
+        self.prepared
+            .lock()
+            .await
+            .retain(|(id, _), _| id != session_id);
+        self.sessions.write().await.remove(session_id);
+        self.tool_factory
+            .release_session(session_id)
+            .await
+            .map_err(|message| AgentRuntimeError::Preparation { message })?;
         self.store
             .delete_session_data(session_id)
             .await
@@ -1704,6 +1751,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1713,13 +1767,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         self.attach_schedules(&handle).await?;
         Ok(handle)
     }
@@ -1963,6 +2010,13 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 model: request.route.model,
             });
         }
+        let mut header = SessionHeader::new(&request.session_id);
+        header.cwd = Some(request.cwd.clone());
+        let handle = self
+            .supervisor
+            .activate(header)
+            .await
+            .map_err(registry_error)?;
         self.sessions.write().await.insert(
             request.session_id.clone(),
             DurableSessionConfig {
@@ -1972,13 +2026,6 @@ impl AgentRuntime for DurableLoopAgentRuntime {
                 route: request.route,
             },
         );
-        let mut header = SessionHeader::new(&request.session_id);
-        header.cwd = Some(request.cwd);
-        let handle = self
-            .supervisor
-            .activate(header)
-            .await
-            .map_err(registry_error)?;
         // Ready is published only after startup reconcile_consumed finishes.
         // Reading the inbox while Starting can count an already-consumed steer
         // that the worker is concurrently deleting and fail Host reattachment.
@@ -2394,6 +2441,7 @@ mod tests {
 
     mod max_tokens_diagnostic;
     mod observer_tests;
+    mod retirement_tests;
 
     struct ScriptProvider {
         answers: Mutex<VecDeque<String>>,

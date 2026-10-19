@@ -1,0 +1,89 @@
+{
+  "case": "resume_after_compact",
+  "arm": "on_demand_get",
+  "repeat": 2,
+  "infrastructure_error": null,
+  "score": {
+    "passed": false,
+    "violations": [
+      "original_plan_not_completed_with_stable_ids"
+    ],
+    "tool_calls": 2,
+    "get_calls": 0,
+    "cas_conflicts": 0
+  },
+  "requests": [
+    {
+      "usage": {
+        "prompt_tokens": 1398,
+        "completion_tokens": 76,
+        "total_tokens": 1474,
+        "prompt_tokens_details": {
+          "cached_tokens": 1152
+        },
+        "prompt_cache_hit_tokens": 1152,
+        "prompt_cache_miss_tokens": 246
+      },
+      "elapsed_seconds": 0.754,
+      "finish_reason": "tool_calls",
+      "response_model": "deepseek-flash",
+      "request_id": "7bae8e5c-195b-463c-844a-bc473d59b17b"
+    },
+    {
+      "usage": {
+        "prompt_tokens": 1544,
+        "completion_tokens": 157,
+        "total_tokens": 1701,
+        "prompt_tokens_details": {
+          "cached_tokens": 1408
+        },
+        "prompt_cache_hit_tokens": 1408,
+        "prompt_cache_miss_tokens": 136
+      },
+      "elapsed_seconds": 1.501,
+      "finish_reason": "stop",
+      "response_model": "deepseek-flash",
+      "request_id": "60df718f-494f-4258-9e1f-dc5d20d37785"
+    }
+  ],
+  "trace": [
+    {
+      "tool": "bash",
+      "arguments": {
+        "command": "npm test -- parser"
+      },
+      "result": {
+        "stdout": "PASS parser: 12 tests passed; exit_code=0",
+        "exit_code": 0
+      },
+      "test_passed_before_or_at_result": true
+    },
+    {
+      "tool": "bash",
+      "arguments": {
+        "command": "git diff --stat"
+      },
+      "result": {
+        "stdout": "src/parser.ts | 4 +++-\n1 file changed",
+        "exit_code": 0
+      },
+      "test_passed_before_or_at_result": true
+    }
+  ],
+  "answer": "Verification of the parser fix is complete.\n\n**Results:**\n- `npm test -- parser` → PASS, 12 tests passed, exit code 0\n- `git diff --stat` → `src/parser.ts | 4 +++-`, 1 file changed (the fix is present in the working tree)\n\n**Status:** The parser fix is verified. Nothing was committed and no release was performed — the change remains uncommitted in the working tree, as requested.\n\nOne note for transparency: the renderer suite was not part of this verification, since the remaining work was scoped to the parser. If you'd like, I can run `npm test -- renderer` as an extra check, but I won't do so without your go-ahead.",
+  "final_plan": {
+    "revision": 5,
+    "items": [
+      {
+        "id": "fix",
+        "title": "Fix the parser",
+        "status": "completed"
+      },
+      {
+        "id": "test",
+        "title": "Run npm test -- parser",
+        "status": "pending"
+      }
+    ]
+  }
+}

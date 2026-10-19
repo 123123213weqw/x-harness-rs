@@ -1,3 +1,4 @@
+import {verifyConnectionArtifact,verifyFixtureConnectionArtifact} from './connection-artifact-test.mjs';
 import assert from 'node:assert/strict';
 import {verifyConversationArtifact,exposeConversation,legacyConversation} from './conversation-artifact-test.mjs';
 import {harness} from './conversation-test-harness.mjs';
@@ -121,12 +122,14 @@ for(const implementation of [{Editor:goldenEditor,fork:goldenFork},{Editor:actua
 }
 const graph=JSON.parse(readFileSync(new URL('ui/dist/client-graph.json',root)));
 const conversationBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-ui-conversation/client.js',root),'utf8');
-const connectionBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-connection/client.js',root),'utf8');
+const connectionBundle=verifyConnectionArtifact();
+const fixtureConnectionBundle=verifyFixtureConnectionArtifact();
+assert.doesNotMatch(connectionBundle,/FixtureApiClient/,'release connection must not ship the fake fork implementation');
 const runtimeBundle=readFileSync(new URL('ui/dist/plugins/@xharness/dsh-client-runtime/client.js',root),'utf8');
 const ancestors={byId:{parent:{id:'parent',displayTitle:'Parent',origin:'root'},child:{id:'child',displayTitle:'Child',origin:'fork',parentId:'parent'},agent:{id:'agent',displayTitle:'Agent',origin:'subagent',parentId:'child'}}};
 assert.deepEqual(JSON.parse(JSON.stringify(actual.deriveAncestry(ancestors,'agent'))).map(row=>row.id),['parent','child','agent']);
 assert.equal(actual.zh['message.editFork'],'编辑并 Fork 到新对话');
-assert.ok(/blank: !log\.slice\(0,\s*cut\)\.some\(\(?([a-zA-Z]+)\)? => \1\.type === ["']user\/message["']\)/.test(connectionBundle),'native connection fork computes blank from user history');
+assert.ok(/blank: !log\.slice\(0,\s*cut\)\.some\(\(?([a-zA-Z]+)\)? => \1\.type === ["']user\/message["']\)/.test(fixtureConnectionBundle),'fixture connection fork computes blank from user history');
 // The real emitted service→manager→API closure must carry the precise cut.
 // This is an actual distribution probe, not a whitespace anchor or a rebuilt test module.
 const runtimeGlobals={console,Promise,AbortController,AbortSignal,URL,queueMicrotask,setTimeout,clearTimeout};
