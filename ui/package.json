@@ -46,7 +46,7 @@
     "hast-util-to-html": "9.0.5",
     "hast-util-whitespace": "3.0.0",
     "html-void-elements": "3.0.0",
-    "js-tokens": "4.0.0",
+    "js-tokens": "10.0.0",
     "katex": "0.16.47",
     "longest-streak": "3.1.0",
     "loose-envify": "1.4.0",
