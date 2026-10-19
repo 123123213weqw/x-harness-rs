@@ -9203,6 +9203,13 @@ struct DensityMismatchCounter {
 
 impl DensityMismatchCounter {
     fn input_tokens(request: &ProviderRequest) -> u64 {
+        if request
+            .messages
+            .iter()
+            .any(|message| message.role == Role::Tool && message.content.contains("FORCE_PRESSURE"))
+        {
+            return 100000;
+        }
         if request.messages.iter().any(|message| {
             message.role == Role::Tool && message.content.contains("CALIBRATION_RAW_")
         }) {
@@ -10016,4 +10023,222 @@ async fn working_plan_snapshot_keeps_runtime_and_human_composition_aligned() {
     assert!(composition["runtimeContextTokens"].as_u64().unwrap() > 0);
     assert!(composition["userTokens"].as_u64().unwrap() > 0);
     assert_eq!(composition["unattributedTokens"], 0);
+}
+
+async fn stable_prefix_request(
+    id: &str,
+    store: Arc<EventMemorySessionStore>,
+    provider: Arc<DensityMismatchCounter>,
+    text: &str,
+) -> LoopRequest {
+    let mut request = LoopRequest::new(provider, vec![AgentMessage::user(text)]);
+    request.session_id = Some(id.into());
+    request.journal_store = Some(store);
+    request.token_guard = Some(
+        TokenGuard::conservative(TokenBudget {
+            context_window_tokens: 16384,
+            reserved_output_tokens: 1024,
+            minimum_output_tokens: 1024,
+            safety_margin_tokens: 1024,
+        })
+        .unwrap(),
+    );
+    request.compaction = Some(CompactionConfig {
+        retain_ratio: None,
+        retain_tokens: Some(0),
+        max_tokens: 512,
+        ..CompactionConfig::default()
+    });
+    install_tools(
+        &mut request,
+        vec![
+            TestToolSpec::new(
+                "read",
+                "read isolated fixtures",
+                json!({"type":"object"}),
+                |arguments, _| async move {
+                    if arguments["kind"] == "large" || arguments["kind"] == "force" {
+                        ToolResult::success(format!(
+                            "CALIBRATION_RAW_{}{}",
+                            if arguments["kind"] == "force" {
+                                "FORCE_PRESSURE"
+                            } else {
+                                ""
+                            },
+                            "x".repeat(8000)
+                        ))
+                    } else {
+                        ToolResult::success("fresh evidence ".repeat(300))
+                    }
+                },
+            ),
+            TestToolSpec::new(
+                "history",
+                "recover original evidence",
+                json!({"type":"object"}),
+                |_, _| async { ToolResult::success("available") },
+            ),
+        ],
+    )
+    .await;
+    request
+}
+
+fn stable_prefix_scripts(force_pressure: bool) -> Vec<Script> {
+    let mut scripts = vec![vec![
+        Ok(tool_delta(0, "first", "read", r#"{"kind":"large"}"#)),
+        Ok(completed_for_calls()),
+    ]];
+    for index in 0..6 {
+        scripts.push(vec![
+            Ok(tool_delta(
+                0,
+                &format!("fresh-{index}"),
+                "read",
+                &format!(r#"{{"kind":"fresh","index":{index}}}"#),
+            )),
+            Ok(completed_for_calls()),
+        ]);
+    }
+    if force_pressure {
+        scripts.push(vec![
+            Ok(tool_delta(0, "force", "read", r#"{"kind":"force"}"#)),
+            Ok(completed_for_calls()),
+        ]);
+    }
+    scripts.push(vec![
+        Ok(ProviderEvent::TextDelta("done".into())),
+        Ok(completed()),
+    ]);
+    scripts
+}
+
+#[tokio::test]
+async fn stable_working_set_prefix_survives_steps_continue_and_serialized_runner_restart() {
+    let id = "stable-prefix-restart";
+    let store = Arc::new(EventMemorySessionStore::default());
+    let provider = Arc::new(DensityMismatchCounter {
+        inner: ScriptProvider::new(stable_prefix_scripts(false)),
+        counted: Mutex::new(Vec::new()),
+    });
+    let (_, result) =
+        collect(LoopEngine.start(
+            stable_prefix_request(id, store.clone(), provider.clone(), "inspect only").await,
+        ))
+        .await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let sent = provider.inner.requests();
+    assert_eq!(sent.len(), 8);
+    for (index, pair) in sent[1..].windows(2).enumerate() {
+        let difference = pair[0]
+            .messages
+            .iter()
+            .zip(&pair[1].messages)
+            .enumerate()
+            .find(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i, format!("{a:?}"), format!("{b:?}")));
+        assert!(
+            pair[1].messages.starts_with(&pair[0].messages),
+            "step pair {index}: {difference:?}"
+        );
+    }
+    let snapshot = store.load(id).await.unwrap().unwrap();
+    assert!(snapshot.events().iter().any(|e|matches!(e.data(), SessionEventData::ToolResult{result,..} if result.content.contains("CALIBRATION_RAW_"))),"retirement must not delete durable evidence");
+    // Recreate the store and Runner from serialized, metadata-only journal facts.
+    // No in-memory selection or full request audit survives this boundary.
+    let events = snapshot
+        .events()
+        .iter()
+        .map(|e| match e.data() {
+            SessionEventData::RequestHeader { header } => SessionEventData::RequestHeader {
+                header: header.metadata_only(json!({"kind":"omitted","reason":"capture_disabled"})),
+            }
+            .into(),
+            _ => e.event.clone(),
+        })
+        .collect::<Vec<xharness_session::SessionEvent>>();
+    let bytes = serde_json::to_vec(&events).unwrap();
+    let restored_events = serde_json::from_slice(&bytes).unwrap();
+    let cold = Arc::new(EventMemorySessionStore::default());
+    cold.create(snapshot.header().clone()).await.unwrap();
+    cold.append(id, Revision::ZERO, restored_events)
+        .await
+        .unwrap();
+    let resumed = Arc::new(DensityMismatchCounter {
+        inner: ScriptProvider::new([vec![
+            Ok(ProviderEvent::TextDelta("continued".into())),
+            Ok(completed()),
+        ]]),
+        counted: Mutex::new(Vec::new()),
+    });
+    let (_, result) = collect(
+        LoopEngine.start(stable_prefix_request(id, cold, resumed.clone(), "continue").await),
+    )
+    .await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    assert_eq!(
+        resumed.counted.lock().unwrap().len(),
+        1,
+        "continuation must count the stable window, not re-trim full history first"
+    );
+    assert!(resumed.inner.requests()[0]
+        .messages
+        .starts_with(&sent.last().unwrap().messages));
+}
+
+#[tokio::test]
+async fn stable_working_set_fresh_pressure_rebalances_without_resurrecting_old_results() {
+    let store = Arc::new(EventMemorySessionStore::default());
+    let provider = Arc::new(DensityMismatchCounter {
+        inner: ScriptProvider::new(stable_prefix_scripts(true)),
+        counted: Mutex::new(Vec::new()),
+    });
+    let (_, result) = collect(LoopEngine.start(
+        stable_prefix_request("stable-rebalance", store, provider.clone(), "inspect only").await,
+    ))
+    .await;
+    assert_eq!(result.status, LoopStatus::Completed, "{:?}", result.error);
+    let sent = provider.inner.requests();
+    assert_eq!(sent.len(), 9);
+    let marker = |request: &ProviderRequest| {
+        request
+            .messages
+            .iter()
+            .find(|m| m.content.starts_with("<working_set_history>"))
+            .unwrap()
+            .content
+            .clone()
+    };
+    assert_eq!(
+        marker(&sent[1]),
+        marker(&sent[7]),
+        "reuse the same index until new pressure actually occurs"
+    );
+    assert_ne!(
+        marker(&sent[1]),
+        marker(&sent[8]),
+        "fresh pressure must still allow another safe retirement batch"
+    );
+    for request in sent {
+        assert!(
+            DensityMismatchCounter::input_tokens(&request)
+                + request.max_output_tokens.unwrap()
+                + 1024
+                <= 16384,
+            "unsafe requests must never reach generation"
+        );
+    }
+    let counted = provider.counted.lock().unwrap();
+    assert_eq!(
+        counted.iter().filter(|(_, n)| *n >= 15886).count(),
+        2,
+        "exactly the initial and fresh pressure requests require recount"
+    );
+    assert!(!counted
+        .last()
+        .unwrap()
+        .0
+        .messages
+        .iter()
+        .any(|m| m.role == Role::Tool && m.content.contains("CALIBRATION_RAW_")));
 }

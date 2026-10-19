@@ -14,7 +14,8 @@ use xharness_session::{ContentBlock, Message, MessageRole};
 mod working_set;
 pub use working_set::{
     approximate_working_set_tokens, calibrate_working_set_tokens, project_working_set,
-    WorkingSetConfig, WorkingSetSource, WorkingSetSourceKind,
+    project_working_set_retaining, reuse_working_set, WorkingSetConfig, WorkingSetSource,
+    WorkingSetSourceKind,
 };
 
 /// Maximum raw image bytes materialized into one model request. This is a

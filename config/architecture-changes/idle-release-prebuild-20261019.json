@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add idle admission and deduplication before existing signed release preparation, and enroll its portable regression in the existing update-channel contract job.",
+  "compatibility": "The CI change adds one Python test only. Required architecture/native/Windows jobs, application identity, wire and persistence contracts, signing, native acceptance and explicit promotion gates remain unchanged.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "59b10a33da178d71564743884562019134e6a4d8cfe6ab66abeee9d5fbe0db74",
+      "after": "feb2f97f69765caf670bc10019b25710dbeb9acdf0df7786fbebd209cf0a47db"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

@@ -13,3 +13,8 @@
 .AbPDjW_compact .AbPDjW_modelIcon{display:inline-flex}
 .AbPDjW_compact .AbPDjW_modelIcon svg{width:20px;height:20px}
 @container (max-width:520px){.AbPDjW_compact .AbPDjW_menu{left:auto;right:0;max-width:min(420px,100cqw);min-width:min(240px,100cqw)}}
+
+/* Reuse the product orbital glyph instead of introducing a new model logo. */
+.AbPDjW_modelIcon{display:inline-flex;flex:none;align-items:center;justify-content:center}
+.AbPDjW_modelIcon svg{width:18px;height:18px}
+.AbPDjW_compact .AbPDjW_modelIcon svg{width:20px;height:20px}

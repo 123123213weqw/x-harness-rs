@@ -125,6 +125,17 @@ pub fn project_working_set(
     sources: &[Option<WorkingSetSource>],
     config: &WorkingSetConfig,
 ) -> Result<ContextSurface, ContextError> {
+    project_working_set_retaining(messages, sources, config, &[])
+}
+
+/// Rebalance under fresh pressure without resurrecting previously retired units.
+/// Ranges use immutable source-message indexes and must cover whole safe units.
+pub fn project_working_set_retaining(
+    messages: Vec<Message>,
+    sources: &[Option<WorkingSetSource>],
+    config: &WorkingSetConfig,
+    retired_ranges: &[(usize, usize)],
+) -> Result<ContextSurface, ContextError> {
     if !config.pressure {
         return Ok(ContextSurface::identity(messages));
     }
@@ -141,14 +152,19 @@ pub fn project_working_set(
     let mut total = units
         .iter()
         .fold(0u64, |sum, unit| sum.saturating_add(unit.tokens));
-    let mut retired = vec![false; messages.len()];
+    let mut retired = retired_mask(&messages, &units, retired_ranges)?;
+    for unit in &units {
+        if retired[unit.start] {
+            total = total.saturating_sub(unit.tokens);
+        }
+    }
     let checkpoints = units
         .iter()
-        .filter(|unit| unit.kind == UnitKind::Checkpoint)
+        .filter(|unit| unit.kind == UnitKind::Checkpoint && !retired[unit.start])
         .count();
     let mut checkpoint_excess = checkpoints.saturating_sub(config.retain_checkpoints);
     for unit in &units {
-        if unit.kind == UnitKind::Checkpoint && checkpoint_excess > 0 {
+        if unit.kind == UnitKind::Checkpoint && !retired[unit.start] && checkpoint_excess > 0 {
             retire(*unit, &mut retired, &mut total);
             checkpoint_excess -= 1;
         }
@@ -157,7 +173,7 @@ pub fn project_working_set(
     let mut recent_remaining = config.recent_tokens;
     let mut recent = vec![false; units.len()];
     for (index, unit) in units.iter().enumerate().rev() {
-        if unit.kind == UnitKind::Checkpoint {
+        if unit.kind == UnitKind::Checkpoint || retired[unit.start] {
             continue;
         }
         if unit.tokens <= recent_remaining {
@@ -197,6 +213,7 @@ pub fn project_working_set(
             .rev()
             .filter(|(_, unit)| {
                 unit.kind == UnitKind::ClosedTools
+                    && !retired[unit.start]
                     && user_boundary.is_some_and(|boundary| unit.start > boundary)
             })
             .map(|(index, _)| index)
@@ -208,7 +225,7 @@ pub fn project_working_set(
             candidates.extend(
                 units
                     .iter()
-                    .rposition(|unit| unit.kind == UnitKind::ClosedTools),
+                    .rposition(|unit| unit.kind == UnitKind::ClosedTools && !retired[unit.start]),
             );
         }
         if let Some(mut used) = fixed.checked_add(reference_reserve) {
@@ -230,7 +247,7 @@ pub fn project_working_set(
         if total.saturating_add(reference_reserve) <= config.available_input_tokens {
             break;
         }
-        if unit.kind == UnitKind::ClosedTools && !recent[index] {
+        if unit.kind == UnitKind::ClosedTools && !retired[unit.start] && !recent[index] {
             retire(*unit, &mut retired, &mut total);
         }
     }
@@ -240,7 +257,7 @@ pub fn project_working_set(
         if total.saturating_add(reference_reserve) <= config.available_input_tokens {
             break;
         }
-        if unit.kind == UnitKind::Checkpoint {
+        if unit.kind == UnitKind::Checkpoint && !retired[unit.start] {
             retire(*unit, &mut retired, &mut total);
         }
     }
@@ -257,6 +274,66 @@ pub fn project_working_set(
         return Ok(ContextSurface::identity(messages));
     }
 
+    render_retired(messages, sources, &units, &retired)
+}
+
+/// Reuse a frozen retirement selection without running the eviction policy.
+/// The caller validates its source fingerprint before supplying these ranges.
+pub fn reuse_working_set(
+    messages: Vec<Message>,
+    sources: &[Option<WorkingSetSource>],
+    retired_ranges: &[(usize, usize)],
+) -> Result<ContextSurface, ContextError> {
+    if sources.len() != messages.len() {
+        return Err(ContextError::invalid_surface(
+            "working-set provenance length changed",
+        ));
+    }
+    let units = transaction_units(&messages, sources)?;
+    let retired = retired_mask(&messages, &units, retired_ranges)?;
+    render_retired(messages, sources, &units, &retired)
+}
+
+fn retired_mask(
+    messages: &[Message],
+    units: &[Unit],
+    ranges: &[(usize, usize)],
+) -> Result<Vec<bool>, ContextError> {
+    let mut retired = vec![false; messages.len()];
+    let mut end = 0;
+    for &(start, next) in ranges {
+        if start < end || start >= next || next > messages.len() {
+            return Err(ContextError::invalid_surface(
+                "invalid frozen retirement range",
+            ));
+        }
+        retired[start..next].fill(true);
+        end = next;
+    }
+    for unit in units {
+        let mask = &retired[unit.start..unit.end];
+        if mask.iter().any(|retired| *retired)
+            && (!mask.iter().all(|retired| *retired)
+                || !matches!(unit.kind, UnitKind::ClosedTools | UnitKind::Checkpoint))
+        {
+            return Err(ContextError::invalid_surface(
+                "frozen retirement crosses a protected transaction",
+            ));
+        }
+    }
+    Ok(retired)
+}
+
+fn render_retired(
+    messages: Vec<Message>,
+    sources: &[Option<WorkingSetSource>],
+    units: &[Unit],
+    retired: &[bool],
+) -> Result<ContextSurface, ContextError> {
+    if !retired.iter().any(|retired| *retired) {
+        return Ok(ContextSurface::identity(messages));
+    }
+    let reference = history_reference(&messages, sources, retired, units);
     let source_message_count = messages.len();
     let mut projected = Vec::with_capacity(messages.len());
     let mut edits = Vec::new();
@@ -1690,5 +1767,69 @@ mod tests {
         let second = project_working_set(messages.clone(), &sources, &config()).unwrap();
         assert_eq!(first, second);
         assert_eq!(serde_json::to_vec(&messages).unwrap(), original);
+    }
+    #[test]
+    fn frozen_selection_keeps_request_prefix_across_append_and_only_retires_on_pressure() {
+        let (mut messages, mut sources) = fixture();
+        let first = project_working_set(messages.clone(), &sources, &config()).unwrap();
+        let ranges = first
+            .edits
+            .iter()
+            .map(|edit| (edit.source_start, edit.source_end))
+            .collect::<Vec<_>>();
+        assert!(!ranges.is_empty());
+        for index in 0..8 {
+            let id = format!("new-{index}");
+            let start = 100 + index * 3;
+            messages.extend(batch(&id, 1000));
+            sources.extend([
+                origin(start, WorkingSetSourceKind::RawAssistant),
+                origin(start + 1, WorkingSetSourceKind::ToolResult),
+            ]);
+            let reused = reuse_working_set(messages.clone(), &sources, &ranges).unwrap();
+            assert!(
+                reused.messages.starts_with(&first.messages),
+                "append must not rewrite old messages or the recovery index"
+            );
+            assert_eq!(reference_json(&reused), reference_json(&first));
+            assert_eq!(
+                reused.messages.len(),
+                first.messages.len() + (index as usize + 1) * 2
+            );
+        }
+        let frozen = reuse_working_set(messages.clone(), &sources, &ranges).unwrap();
+        let rebalanced =
+            project_working_set_retaining(messages.clone(), &sources, &config(), &ranges).unwrap();
+        assert!(
+            rebalanced.messages.len() < frozen.messages.len(),
+            "a fresh pressure decision still reduces input"
+        );
+        assert!(
+            !rebalanced.messages.contains(&messages[1]),
+            "old retired work must never resurrect"
+        );
+        let raw = project_working_set(messages, &sources, &config()).unwrap();
+        assert_ne!(
+            reference_json(&raw),
+            reference_json(&first),
+            "positive control: the old per-step policy changes the early index"
+        );
+    }
+
+    #[test]
+    fn frozen_selection_rejects_partial_protected_unknown_and_out_of_bounds_ranges() {
+        let (messages, mut sources) = fixture();
+        for ranges in [
+            vec![(1, 2)],
+            vec![(0, 1)],
+            vec![(1, 99)],
+            vec![(3, 2)],
+            vec![(1, 3), (2, 3)],
+        ] {
+            assert!(reuse_working_set(messages.clone(), &sources, &ranges).is_err());
+        }
+        sources[2].as_mut().unwrap().outcome_unknown = true;
+        assert!(reuse_working_set(messages.clone(), &sources, &[(1, 3)]).is_err());
+        assert!(project_working_set_retaining(messages, &sources, &config(), &[(1, 3)]).is_err());
     }
 }

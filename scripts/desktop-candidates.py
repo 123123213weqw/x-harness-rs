@@ -197,15 +197,25 @@ def reuse_task(client, run_id, version, scope=None):
     return state
 
 
+def trusted_controller(env):
+    repo, scope = env['GITHUB_REPOSITORY'], env['RELEASE_SCOPE']
+    require(env.get('GITHUB_ACTIONS') == 'true' and env.get('RUNNER_ENVIRONMENT') == 'github-hosted'
+            and env.get('GITHUB_REF') == 'refs/heads/master'
+            and env.get('GITHUB_EVENT_NAME') in ('workflow_run', 'schedule', 'workflow_dispatch')
+            and env.get('GITHUB_WORKFLOW_REF') == repo + '/.github/workflows/' + WORKFLOW + '@refs/heads/master'
+            and re.fullmatch(r'[0-9a-f]{40}', env.get('GITHUB_SHA', ''))
+            and re.fullmatch(r'[1-9][0-9]*', env.get('GITHUB_RUN_ID', ''))
+            and re.fullmatch(r'[1-9][0-9]*', env.get('GITHUB_RUN_ATTEMPT', '')),
+            'Automatic preparation requires the trusted hosted master controller')
+    require(scope in SCOPES, 'Automatic preparation requires all four platforms; choose an explicit Mac signing policy')
+    return repo, scope
+
+
 def main():
     try:
         env = os.environ
-        repo, sha, scope = env['GITHUB_REPOSITORY'], env['TRIGGER_SOURCE_SHA'], env['RELEASE_SCOPE']
-        require(env.get('GITHUB_ACTIONS') == 'true' and env.get('RUNNER_ENVIRONMENT') == 'github-hosted'
-                and env.get('GITHUB_REF') == 'refs/heads/master' and env.get('GITHUB_EVENT_NAME') == 'workflow_run'
-                and env.get('GITHUB_WORKFLOW_REF') == repo + '/.github/workflows/' + WORKFLOW + '@refs/heads/master',
-                'Automatic preparation requires the trusted master workflow_run controller')
-        require(scope in SCOPES, 'Automatic preparation requires all four platforms; choose an explicit Mac signing policy')
+        repo, scope = trusted_controller(env)
+        sha = env['TRIGGER_SOURCE_SHA']
         client = CandidateGitHub(repo, scope, env.get('XHARNESS_FRIENDS_RELEASE_REPOSITORY'), env.get('XHARNESS_MACOS_PREVIEW_CERT_SHA1'))
         ci = eligible_ci(client, env['TRIGGER_CI_RUN_ID'], env['TRIGGER_CI_ATTEMPT'], sha)
         pin = client.publisher_pin() if scope == release.contract.MACOS_SELFSIGNED_SCOPE else None
@@ -214,6 +224,8 @@ def main():
         journal = service.restore_checkpoint(client, root, candidate_prefix(env['GITHUB_RUN_ID']),
                                              env['GITHUB_RUN_ID'], env['GITHUB_SHA'])
         if journal is None:
+            require(sha == env['GITHUB_SHA'] and client.master() == sha,
+                    'Master moved after idle admission; a fresh coordinator must select the new green master')
             journal = {'schema': 1, 'kind': 'automatic-candidate', 'repository': repo, 'source_sha': sha,
                        'ci': ci, 'scope': scope, 'publisher_pin': pin, 'allocations': []}
         validate_journal(journal, client, ci, sha, scope, pin)
