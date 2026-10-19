@@ -168,11 +168,6 @@ impl StableSelection {
             .iter()
             .map(|edit| (edit.source_start, edit.source_end))
             .collect::<Vec<_>>();
-        if retired_ranges.len() > 4096 {
-            return Err(xharness_context::ContextError::invalid_surface(
-                "too many working-set retirement ranges",
-            ));
-        }
         let source_messages = retired_ranges.last().map_or(0, |(_, end)| *end);
         if source_messages > messages.len() || sources.len() != messages.len() {
             return Err(xharness_context::ContextError::invalid_surface(
@@ -185,6 +180,19 @@ impl StableSelection {
             source_sha256: prefix_hash(&messages[..source_messages], &sources[..source_messages])?,
             retired_ranges,
         }))
+    }
+
+    /// Large selections can still be reused in memory. Optional durable
+    /// metadata has a fixed bound; a cold runner can safely recount full input.
+    pub(crate) fn metadata(
+        &self,
+    ) -> Result<Option<serde_json::Value>, xharness_context::ContextError> {
+        if self.retired_ranges.len() > 4096 {
+            return Ok(None);
+        }
+        serde_json::to_value(self)
+            .map(Some)
+            .map_err(|error| xharness_context::ContextError::invalid_surface(error.to_string()))
     }
 
     pub(crate) fn ranges(&self) -> &[(usize, usize)] {
@@ -264,7 +272,13 @@ mod stable_tests {
         let selection = StableSelection::capture(&messages, &sources, &surface)
             .unwrap()
             .unwrap();
-        let encoded = serde_json::to_value(selection).unwrap();
+        let encoded = selection.metadata().unwrap().unwrap();
+        let mut oversized = selection.clone();
+        oversized.retired_ranges = vec![(1, 3); 4097];
+        assert!(
+            oversized.metadata().unwrap().is_none(),
+            "metadata size must never reject a valid live request"
+        );
         assert!(!encoded.to_string().contains("PRIVATE_RESULT"));
         assert!(!encoded.to_string().contains("Do not publish"));
         let restored = StableSelection::restore(&encoded).unwrap();

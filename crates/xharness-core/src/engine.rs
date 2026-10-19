@@ -3262,11 +3262,14 @@ impl Runner {
             .options
             .insert("step".to_owned(), Value::from(self.step as u64));
         if let Some(selection) = &self.workset_selection {
-            header.options.insert(
-                "workingSetSelection".into(),
-                serde_json::to_value(selection)
-                    .map_err(|error| RunFailure::Failed(error.to_string()))?,
-            );
+            if let Some(metadata) = selection
+                .metadata()
+                .map_err(|error| RunFailure::Failed(error.to_string()))?
+            {
+                header
+                    .options
+                    .insert("workingSetSelection".into(), metadata);
+            }
         }
         header.options.insert(
             "context".to_owned(),
