@@ -1,22 +1,75 @@
-# Web Runtime 规范
+# Web Runtime specification
 
-**Crate：** `xharness-web`
-**状态：** Fetch Runtime 和可插拔 Search 已实现；内置 Exa Adapter。
+**Crate:** `xharness-web`
+**Status:** Anonymous fetch and pluggable search are implemented. DeepSeek is the only built-in search adapter.
 
-## Search 契约
+## Search contract
 
-`SearchProvider` 必须显式注入并具有稳定 Provider ID。未配置时 Search 必须返回
-`SearchUnavailable`；Runtime 禁止伪造本地搜索或暗中选择凭据。Query 不能为空。结果数
-默认 8，并限制在 1–20。归一化结果包含 Title、URL、Snippet 和可选 Publish Date。
+The model-facing tool remains `web_search(query, limit)` and returns
+`{provider, query, results: [{title, url, snippet, published_date?}]}`. The result
+limit defaults to 8 and is clamped to 1–20. `SearchProvider` remains the runtime
+boundary; it is explicitly injected and never fabricates a local search engine.
+Its additive `available()` readiness port defaults to true for existing providers.
 
-Host 已知没有 Search Provider 时，下一模型请求不应继续投影 `web_search`；`web_fetch` 是否
-可用独立判断。动态移除工具不改变 Registry 中的稳定定义，也不得把 Search 凭据写进 Prompt。
+### DeepSeek transport
 
-生产 Host 从非空 `EXA_API_KEY` 环境变量显式安装内置 Exa Adapter；桌面 Sidecar 复用既有
-`secrets/` 私有文件约定加载 `EXA_API_KEY`，不要求模型 Provider 配置文件存在。空值/缺席时
-Search 保持不可用，工具不投影。密钥只传入 Host 进程，不写入设置回执、Prompt 或诊断日志。
+The native Host calls the [DeepSeek Search API](https://api-docs.deepseek.com/api/search/)
+at the fixed `https://api.deepseek.com/v1/tools/search` endpoint. Requests contain
+only `query`, `count`, and `need_content: false`; no chat history, original user
+prompt, auxiliary model call, or selected chat-model credential is sent. Queries
+must be nonblank and at most 128 Unicode characters; oversized queries are
+rejected rather than silently truncated.
 
-## Fetch 契约
+Results retain provider order. Each `snippet` contains the provider's summary,
+falling back to its snippet when the summary is blank, capped at 1,000 Unicode
+characters. Titles are capped at 500 characters; URLs must be anonymous HTTP(S)
+and at most 2,048 bytes. Optional dates are bounded to 64 bytes. Missing/malformed
+`results`, invalid rows, and responses larger than 512 KiB fail explicitly; an
+empty result array is a valid successful search, not a provider failure.
+
+The adapter shares a connection pool, forbids redirects, uses a 10-second connect
+timeout, and bounds the entire call (including response reads and retry waits) to
+30 seconds. Cancellation interrupts all those stages. Transport failures and
+HTTP 408/429/5xx get at most three total attempts, with bounded backoff and numeric
+`Retry-After` respected within the overall deadline. Other HTTP errors fail
+without retries. Error bodies are not reflected into tool results or diagnostics.
+Search is an independently metered API, not an entitlement to free chat tokens.
+
+### Settings, credentials, and model independence
+
+The durable `web-search-deepseek` namespace accepts only `enabled` (default true)
+and `apiKeyEnv` (default `DEEPSEEK_API_KEY`). The existing plugin-settings card
+exposes an enable switch and write-only key control; it has no provider selector,
+custom endpoint, or per-model search configuration. Settings use the existing
+revision-fenced control log; the key uses the native credential store, never the
+settings document, receipt, prompt, or diagnostic log. Environment credentials
+are read-only in the UI. Finder/Explorer launches retain the existing private
+`secrets/DEEPSEEK_API_KEY` loading convention even without `providers.json`.
+
+Each search snapshots current settings and its explicit credential reference,
+resolving the environment first, then the OS credential store. The selected chat
+model is irrelevant: any tool-capable model can call the same search tool. A
+missing key, disabled setting, or invalid configuration hides `web_search` on the
+next Agent turn. Already-exposed calls recheck configuration and fail unavailable
+when disabled; an already-started request finishes against its original snapshot.
+Readiness is local and never probes the network or delays Host Ready with HTTP.
+
+Credential changes emit `credentials/updated`. When no configured model references
+a key, native writes touch only the credential store, not model discovery or
+registry activation. A shared model/search reference retains registry-aware
+validation. Backends that do not support this optional fast path keep the existing
+behavior. Literal keys never ride the credential response.
+
+Exa is removed. `EXA_API_KEY` is explicitly rejected as a search reference and is
+never silently reinterpreted as a DeepSeek key. Restored legacy display fields
+(`baseURL`, `maxUses`, literal `apiKey`) are omitted from the active projection;
+the original durable log is not rewritten. Invalid legacy references disable
+search rather than selecting a different account. Static schemas are rebuilt on
+receipt replay, preserving secret-field validation and exactly-once revision
+semantics.
+
+## Fetch contract (unchanged)
+
 
 Fetch 接收一个最长 2048 Byte 的匿名 HTTP(S) URL。禁止发送 Cookie、环境 Authorization
 或 Host Credential。Redirect 手工处理，默认最多 5 次，只允许相同 Scheme/Host/Port
@@ -58,7 +111,7 @@ Target、DNS、Redirect、Content Type、Size、Timeout、Provider、Transport �
   Article/Readability Engine。
 - 尚无带登录态 Browser、JavaScript 执行、Robots Policy、Download/Blob Store、Citation
   Object Model 或 Search Cache。
-- 内置 Search Adapter 目前只有 Exa。
+- DeepSeek is the only built-in search adapter; the DeepSeek Fetch API is not used. Existing anonymous fetch behavior is unchanged.
 
 ## 验收标准
 

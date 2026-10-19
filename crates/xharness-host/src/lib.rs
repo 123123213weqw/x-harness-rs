@@ -43,6 +43,10 @@ mod github_backend;
 mod github_review;
 mod model_processor;
 mod model_settings;
+mod web_search_settings;
+pub use web_search_settings::{
+    WebSearchSettings, DEEPSEEK_SEARCH_CREDENTIAL, WEB_SEARCH_SETTINGS_NAMESPACE,
+};
 #[cfg(test)]
 mod permission_tests;
 mod plugin_backend;

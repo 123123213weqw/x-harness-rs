@@ -820,6 +820,8 @@ impl HostState {
             },
         );
         let mut settings = BTreeMap::new();
+        let search = crate::web_search_settings::namespace();
+        settings.insert(search.ns.clone(), search);
         // Register before control-log replay: durable settings cannot reference
         // namespaces that only appear later when a UI plugin connects.
         for namespace in crate::preference_settings::namespaces() {

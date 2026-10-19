@@ -12,7 +12,7 @@
 import type { CredentialsApi as IApiClient } from './contracts'
 import type { SettingsScope, SettingsScopeSnapshot, SnapshotStore } from '../settings/contracts'
 import {
-  CardForm, numberField, textField,
+  CardForm,
   type CardActions, type CardFieldState, type CardShell,
 } from './card-form'
 
@@ -32,10 +32,8 @@ const API_KEY_FIELD = 'apiKey'
 export interface WebSearchSettings {
   /** Credential reference naming the environment key. */
   apiKeyEnv?: string
-  /** Provider endpoint; blank inherits the provider default. */
-  baseURL?: string
-  /** Maximum searches served within one request. */
-  maxUses?: number
+  /** Independent of the selected model. Missing inherits enabled. */
+  enabled?: boolean
 }
 
 /** What the credentials domain last reported, and for which reference. */
@@ -50,10 +48,8 @@ interface CredentialState {
 
 /** What the web-search card renders. */
 export interface WebSearchCardState extends CardShell {
-  /** Provider endpoint. */
-  baseURL: CardFieldState
-  /** Searches allowed per request. */
-  maxUses: CardFieldState
+  /** Staged search switch; saving applies it through durable Host settings. */
+  enabled: CardFieldState
   /** The staged credential, which starts blank on every load. */
   apiKey: CardFieldState
   /** Whether the Host reports a credential configured for the referenced key. */
@@ -86,7 +82,11 @@ export class WebSearchCardController {
   ) {
     this.form = new CardForm(
       scope,
-      [textField('baseURL'), numberField('maxUses')],
+      [{
+        field: 'enabled',
+        format: value => value === false ? 'false' : 'true',
+        parse: text => text === 'true' || text === 'false' ? { kind: 'set', value: text === 'true' } : undefined,
+      }],
       [{ field: API_KEY_FIELD, write: text => this.writeKey(text) }],
     )
     this.store = this.form.bind(() => this.projection())
@@ -97,8 +97,7 @@ export class WebSearchCardController {
   private projection(): WebSearchCardState {
     return {
       ...this.form.shell(),
-      baseURL: this.form.field('baseURL'),
-      maxUses: this.form.field('maxUses'),
+      enabled: this.form.field('enabled'),
       apiKey: this.form.field(API_KEY_FIELD),
       apiKeyConfigured: this.credential.configured,
       apiKeyWritable: this.credential.writable,
@@ -170,14 +169,18 @@ export class WebSearchCardController {
    * @returns whether the Host reports a configured credential afterwards.
    */
   private async writeKey(value: string): Promise<boolean> {
+    const reference = refOf(this.scope.getSnapshot())
     try {
-      await this.api.credentials.set({ ref: refOf(this.scope.getSnapshot()), value })
+      const response = await this.api.credentials.set({ ref: reference, value })
+      if (!response.result.ok) return false
     } catch (_credentialWriteFailure) {
-      // Refusals surface through the re-read below: the Host is the only
-      // authority on whether the key now exists.
+      return false
     }
+    // A pre-existing key is not evidence that this write succeeded, and a
+    // concurrent reference change must not acknowledge the wrong credential.
+    if (reference !== refOf(this.scope.getSnapshot())) return false
     await this.readCredential()
-    return this.credential.configured
+    return reference === this.credential.ref && this.credential.configured
   }
 }
 

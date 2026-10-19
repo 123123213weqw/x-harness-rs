@@ -133,6 +133,186 @@ async fn add(host: &BasicHost, p: Value) -> Value {
 }
 
 #[tokio::test]
+async fn search_settings_and_credentials_survive_restart_without_rebuilding_unrelated_models() {
+    use futures::StreamExt;
+    use xharness_host::WEB_SEARCH_SETTINGS_NAMESPACE;
+    use xharness_host_app::web_search::NativeSearch;
+    use xharness_web::SearchProvider;
+
+    #[derive(Default)]
+    struct ObservedCredentials {
+        inner: TestCredentials,
+        reads: AtomicU64,
+    }
+    #[async_trait]
+    impl CredentialStore for ObservedCredentials {
+        async fn get(&self, reference: &str) -> Result<Option<String>, String> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            self.inner.get(reference).await
+        }
+        async fn set(&self, reference: &str, value: &str) -> Result<(), String> {
+            self.inner.set(reference, value).await
+        }
+        async fn delete(&self, reference: &str) -> Result<(), String> {
+            self.inner.delete(reference).await
+        }
+    }
+    let dir = TempDir::new();
+    let keys = Arc::new(ObservedCredentials::default());
+    let sessions: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let (host, runtime) = fixture_with_store(&dir, keys.clone(), sessions.clone()).await;
+    add(&host, profile("http://127.0.0.1:12345/v1")).await;
+    // A model-linked credential must still activate the model registry.
+    rpc(
+        &host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_SETTINGS_TEST_KEY","value":"chat-key"}),
+    )
+    .await;
+    assert!(runtime.can_route(&ModelRoute::new("test-gateway", "coder")));
+    rpc(
+        &host,
+        RpcMethod::SettingsMutate,
+        json!({"ns":MODEL_SETTINGS_NAMESPACE,"expectedRevision":1,
+            "ops":[{"op":"set","path":["providers","other-gateway"],
+            "value":{"baseURL":"http://127.0.0.1:12346/v1","api":"openai-completions",
+                "models":[{"id":"other-model","contextWindow":32768}]}}]}),
+    )
+    .await;
+
+    let search = NativeSearch::new(keys.clone()).unwrap();
+    search.bind_host(&host).unwrap();
+    let payload = json!({"ns":WEB_SEARCH_SETTINGS_NAMESPACE,"expectedRevision":0,
+        "patch":{"enabled":true,"apiKeyEnv":"XHARNESS_INDEPENDENT_SEARCH_KEY"}});
+    let id = RpcId::new("search-settings-receipt");
+    let saved = host
+        .call(
+            id.clone(),
+            RpcMethod::SettingsUpdate,
+            payload.clone(),
+            CancellationToken::new(),
+        )
+        .await;
+    let RpcResult::Success { value: Some(saved) } = saved else {
+        panic!("{saved:?}")
+    };
+    assert_eq!(saved["revision"], 1);
+    let replayed = host
+        .call(
+            id.clone(),
+            RpcMethod::SettingsUpdate,
+            payload.clone(),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(replayed, RpcResult::Success { value: Some(ref value) } if value == &saved));
+    assert!(!search.available().await);
+
+    let reads = keys.reads.load(Ordering::Relaxed);
+    let mut events = host.host_events();
+    rpc(
+        &host,
+        RpcMethod::CredentialsSet,
+        json!({"ref":"XHARNESS_INDEPENDENT_SEARCH_KEY","value":"search-only-private-value"}),
+    )
+    .await;
+    assert_eq!(
+        keys.reads.load(Ordering::Relaxed),
+        reads,
+        "unrelated model keys must not be reloaded"
+    );
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.next())
+        .await
+        .unwrap()
+        .unwrap();
+    let event = serde_json::to_value(event).unwrap();
+    assert_eq!(event["payload"]["event"], "credentials/updated");
+    assert_eq!(
+        event["payload"]["args"],
+        json!(["XHARNESS_INDEPENDENT_SEARCH_KEY"])
+    );
+    assert!(search.available().await);
+    assert!(runtime.can_route(&ModelRoute::new("test-gateway", "coder")));
+    let created = rpc(&host, RpcMethod::SessionCreate, json!({"cwd":dir.0})).await;
+    for (provider, model) in [
+        ("test-gateway", "coder"),
+        ("other-gateway", "other-model"),
+        ("test-gateway", "coder"),
+    ] {
+        rpc(
+            &host,
+            RpcMethod::SessionSelectModel,
+            json!({"sessionId":created["sessionId"],"provider":provider,"model":model}),
+        )
+        .await;
+        let catalog = rpc(
+            &host,
+            RpcMethod::SessionModels,
+            json!({"sessionId":created["sessionId"]}),
+        )
+        .await;
+        assert_eq!(catalog["current"]["provider"], provider);
+        assert_eq!(catalog["current"]["model"], model);
+        assert!(
+            search.available().await,
+            "model selection must not change search readiness"
+        );
+    }
+
+    drop(events);
+    drop(search);
+    drop(host);
+    drop(runtime);
+    let (host, runtime) = fixture_with_store(&dir, keys.clone(), sessions).await;
+    let search = NativeSearch::new(keys.clone()).unwrap();
+    search.bind_host(&host).unwrap();
+    assert!(search.available().await);
+    assert_eq!(
+        host.web_search_settings().await.unwrap().api_key_env,
+        "XHARNESS_INDEPENDENT_SEARCH_KEY"
+    );
+    let replayed = host
+        .call(
+            id,
+            RpcMethod::SettingsUpdate,
+            payload,
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(matches!(replayed, RpcResult::Success { value: Some(ref value) } if value == &saved));
+    rpc(
+        &host,
+        RpcMethod::SettingsUpdate,
+        json!({"ns":WEB_SEARCH_SETTINGS_NAMESPACE,"expectedRevision":1,"patch":{"enabled":false}}),
+    )
+    .await;
+    assert!(!search.available().await);
+    rpc(
+        &host,
+        RpcMethod::CredentialsUnset,
+        json!({"ref":"XHARNESS_INDEPENDENT_SEARCH_KEY"}),
+    )
+    .await;
+    assert_eq!(
+        keys.inner
+            .get("XHARNESS_INDEPENDENT_SEARCH_KEY")
+            .await
+            .unwrap(),
+        None
+    );
+    assert!(runtime.can_route(&ModelRoute::new("test-gateway", "coder")));
+    // Only references, never key literals, can reach settings/receipts on disk.
+    for entry in std::fs::read_dir(dir.0.join("control")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            let text = std::fs::read_to_string(path).unwrap();
+            assert!(!text.contains("search-only-private-value"));
+            assert!(!text.contains("chat-key"));
+        }
+    }
+}
+
+#[tokio::test]
 async fn settings_credentials_routes_and_restart_are_one_pipeline() {
     let dir = TempDir::new();
     let keys = Arc::new(TestCredentials::default());
@@ -377,6 +557,63 @@ impl CredentialStore for UnavailableCredentials {
     async fn delete(&self, _: &str) -> Result<(), String> {
         Err("test credential store unavailable".to_owned())
     }
+}
+
+#[tokio::test]
+async fn auxiliary_search_key_preserves_validation_read_only_and_storage_failure_semantics() {
+    use xharness_host::ModelSettingsBackend;
+    let dir = TempDir::new();
+    let keys = Arc::new(TestCredentials::default());
+    let (host, runtime) = fixture(&dir, keys.clone()).await;
+    for (index, value) in ["", " spaced", "line\nbreak", &"x".repeat(4097)]
+        .into_iter()
+        .enumerate()
+    {
+        let result = host
+            .call(
+                RpcId::new(format!("invalid-search-key-{index}")),
+                RpcMethod::CredentialsSet,
+                json!({"ref":"XHARNESS_AUXILIARY_SEARCH_KEY","value":value}),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(result, RpcResult::Failure { .. }));
+    }
+    assert_eq!(
+        keys.get("XHARNESS_AUXILIARY_SEARCH_KEY").await.unwrap(),
+        None
+    );
+    let backend =
+        NativeModelSettings::new(runtime.clone(), keys.clone(), DebugRecorder::disabled())
+            .with_process_key(
+                "XHARNESS_AUXILIARY_SEARCH_KEY".into(),
+                "process-only".into(),
+            );
+    assert!(backend
+        .write_auxiliary_credential("XHARNESS_AUXILIARY_SEARCH_KEY", Some("new-value"))
+        .await
+        .is_err());
+    assert!(backend
+        .write_auxiliary_credential("XHARNESS_AUXILIARY_SEARCH_KEY", None)
+        .await
+        .is_err());
+    assert_eq!(
+        keys.get("XHARNESS_AUXILIARY_SEARCH_KEY").await.unwrap(),
+        None
+    );
+    let backend = NativeModelSettings::new(
+        runtime,
+        Arc::new(UnavailableCredentials),
+        DebugRecorder::disabled(),
+    );
+    assert!(backend
+        .write_auxiliary_credential("XHARNESS_AUXILIARY_SEARCH_KEY", Some("unsaved"))
+        .await
+        .is_err());
+    assert!(backend
+        .write_auxiliary_credential("XHARNESS_AUXILIARY_SEARCH_KEY", None)
+        .await
+        .is_err());
 }
 
 #[tokio::test]

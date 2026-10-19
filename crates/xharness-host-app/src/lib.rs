@@ -23,6 +23,7 @@ mod read_media;
 pub mod remote_admin;
 pub mod remote_control;
 pub mod tool_allowlist;
+pub mod web_search;
 pub use plugin_service::{open_product_plugin_manager, NativePluginBackend};
 mod input_compat;
 pub mod reasoning_compat;
@@ -48,17 +49,17 @@ use xharness_jobs::JobRegistry;
 use xharness_platform::{CapabilityReport, NativePlatform, PlatformConfig};
 use xharness_schedule::ScheduleManager;
 use xharness_tools::{ToolExecutor, ToolRegistry, ToolSpec};
-use xharness_web::{ExaSearchProvider, WebError, WebRuntime};
+use xharness_web::{DeepSeekSearchProvider, WebError, WebRuntime};
 
-/// Search remains opt-in: only a non-empty Exa key installs the provider and
+/// Search remains opt-in: only a non-empty DeepSeek key installs the provider and
 /// projects `web_search` to the model. The key is never put in tool metadata.
 pub fn configured_web_runtime(
-    exa_api_key: Option<String>,
+    deepseek_api_key: Option<String>,
     debug: DebugRecorder,
 ) -> Result<WebRuntime, WebError> {
     let mut web = WebRuntime::default().with_debug(debug);
-    if let Some(key) = exa_api_key.filter(|key| !key.trim().is_empty()) {
-        web = web.with_search_provider(Arc::new(ExaSearchProvider::new(key)?));
+    if let Some(key) = deepseek_api_key.filter(|key| !key.trim().is_empty()) {
+        web = web.with_search_provider(Arc::new(DeepSeekSearchProvider::new(key)?));
     }
     Ok(web)
 }
@@ -266,7 +267,7 @@ impl NativeToolFactory {
         let platform = self.platform(session_id, cwd, permission).await?;
         Ok(NativeToolReadiness {
             platform: platform.capability_report().await,
-            search_available: self.web.has_search_provider(),
+            search_available: self.web.search_available().await,
         })
     }
 }
@@ -860,7 +861,7 @@ mod tests {
     pub(crate) struct TempWorkspace(pub(crate) std::path::PathBuf);
 
     #[tokio::test]
-    async fn exa_search_is_projected_only_with_an_explicit_key() {
+    async fn deepseek_search_is_projected_only_with_an_explicit_key() {
         let workspace = TempWorkspace::new();
         let cwd = workspace.0.to_string_lossy();
         for (key, expected) in [

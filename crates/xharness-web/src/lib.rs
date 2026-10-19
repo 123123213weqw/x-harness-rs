@@ -5,6 +5,9 @@
 //! private network destinations. Search is explicit provider injection; there
 //! is no silent provider selection or fabricated local search engine.
 
+mod deepseek;
+pub use deepseek::DeepSeekSearchProvider;
+
 use std::{
     collections::HashSet,
     net::{IpAddr, SocketAddr},
@@ -166,6 +169,11 @@ pub enum WebError {
 pub trait SearchProvider: Send + Sync + 'static {
     fn id(&self) -> &str;
 
+    /// Local configuration readiness only; must not probe a remote endpoint.
+    async fn available(&self) -> bool {
+        true
+    }
+
     async fn search(
         &self,
         query: &str,
@@ -210,6 +218,13 @@ impl WebRuntime {
 
     pub const fn has_search_provider(&self) -> bool {
         self.search.is_some()
+    }
+
+    pub async fn search_available(&self) -> bool {
+        match &self.search {
+            Some(provider) => provider.available().await,
+            None => false,
+        }
     }
 
     pub async fn search(
@@ -530,75 +545,6 @@ impl std::fmt::Debug for WebRuntime {
     }
 }
 
-/// Exa Search API provider. The API key is never included in `Debug` output.
-#[derive(Clone)]
-pub struct ExaSearchProvider {
-    client: Client,
-    endpoint: Url,
-    api_key: Arc<str>,
-}
-
-impl ExaSearchProvider {
-    pub fn new(api_key: impl Into<String>) -> Result<Self, WebError> {
-        let endpoint = Url::parse("https://api.exa.ai/search")
-            .map_err(|error| WebError::InvalidUrl(error.to_string()))?;
-        Ok(Self {
-            client: Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(30))
-                .build()?,
-            endpoint,
-            api_key: Arc::from(api_key.into()),
-        })
-    }
-}
-
-impl std::fmt::Debug for ExaSearchProvider {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ExaSearchProvider")
-            .field("endpoint", &self.endpoint)
-            .field("api_key", &"<redacted>")
-            .finish()
-    }
-}
-
-#[derive(Serialize)]
-struct ExaRequest<'a> {
-    query: &'a str,
-    #[serde(rename = "numResults")]
-    num_results: usize,
-    contents: ExaContents,
-}
-
-#[derive(Serialize)]
-struct ExaContents {
-    text: ExaText,
-}
-
-#[derive(Serialize)]
-struct ExaText {
-    #[serde(rename = "maxCharacters")]
-    max_characters: usize,
-}
-
-#[derive(Deserialize)]
-struct ExaResponse {
-    #[serde(default)]
-    results: Vec<ExaResult>,
-}
-
-#[derive(Deserialize)]
-struct ExaResult {
-    #[serde(default)]
-    title: String,
-    url: String,
-    #[serde(default)]
-    text: String,
-    #[serde(default, rename = "publishedDate")]
-    published_date: Option<String>,
-}
-
 #[derive(Deserialize)]
 struct DnsJsonResponse {
     #[serde(rename = "Status")]
@@ -612,53 +558,6 @@ struct DnsJsonAnswer {
     #[serde(rename = "type")]
     record_type: u16,
     data: String,
-}
-
-#[async_trait]
-impl SearchProvider for ExaSearchProvider {
-    fn id(&self) -> &str {
-        "exa"
-    }
-
-    async fn search(
-        &self,
-        query: &str,
-        limit: usize,
-        cancellation: &CancellationToken,
-    ) -> Result<Vec<SearchResult>, WebError> {
-        let request = self
-            .client
-            .post(self.endpoint.clone())
-            .bearer_auth(self.api_key.as_ref())
-            .json(&ExaRequest {
-                query,
-                num_results: limit,
-                contents: ExaContents {
-                    text: ExaText {
-                        max_characters: 1_000,
-                    },
-                },
-            });
-        let response = tokio::select! {
-            _ = cancellation.cancelled() => return Err(WebError::Cancelled),
-            response = request.send() => response?,
-        };
-        let status = response.status();
-        if !status.is_success() {
-            return Err(WebError::Provider(format!("Exa returned HTTP {status}")));
-        }
-        let response: ExaResponse = response.json().await?;
-        Ok(response
-            .results
-            .into_iter()
-            .map(|result| SearchResult {
-                title: result.title,
-                url: result.url,
-                snippet: result.text,
-                published_date: result.published_date,
-            })
-            .collect())
-    }
 }
 
 fn parse_url(raw: &str) -> Result<Url, WebError> {

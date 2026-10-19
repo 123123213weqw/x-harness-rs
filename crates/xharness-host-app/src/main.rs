@@ -18,7 +18,7 @@ use xharness_host_app::config::{self, ModelDeployment, SingleModelDeployment};
 use xharness_host_app::hosted::{HostedBackend, HostedExecution};
 use xharness_host_app::hosted_bootstrap::HostedGoalBootstrap;
 use xharness_host_app::model_settings::{NativeCredentialStore, NativeModelSettings};
-use xharness_host_app::{configured_web_runtime, NativePluginBackend, NativeToolFactory};
+use xharness_host_app::{NativePluginBackend, NativeToolFactory};
 use xharness_provider_openai::OpenAiProtocol;
 use xharness_schedule::ScheduleManager;
 use xharness_server::{serve, web_router_full, StartupReadiness};
@@ -233,7 +233,13 @@ async fn run(
     );
     let questions = DurableQuestionHub::new(store.clone());
     let schedules = ScheduleManager::new(Arc::clone(&store));
-    let web = configured_web_runtime(env::var("EXA_API_KEY").ok(), debug.clone())?;
+    let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
+    let search = Arc::new(xharness_host_app::web_search::NativeSearch::new(
+        credentials.clone(),
+    )?);
+    let web = xharness_web::WebRuntime::default()
+        .with_debug(debug.clone())
+        .with_search_provider(search.clone());
     let tools = NativeToolFactory::new_with_questions_and_schedules(
         web,
         debug.clone(),
@@ -289,6 +295,7 @@ async fn run(
         Arc::clone(&control_store),
         questions,
     );
+    search.bind_host(&host)?;
     // Local gh credentials must never be exposed by a public unauthenticated Host.
     if args.bind.ip().is_loopback() {
         host.install_github(Arc::new(
@@ -343,7 +350,6 @@ async fn run(
         }
     }
 
-    let credentials = Arc::new(NativeCredentialStore::new(&args.state_dir)?);
     let calibration_path = args.state_dir.join("token-calibration-v1.json");
     let calibration = tokio::task::spawn_blocking(move || {
         xharness_provider_openai::CalibrationStore::open(calibration_path)
