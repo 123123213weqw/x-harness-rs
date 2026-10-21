@@ -260,14 +260,31 @@ mod tests {
     }
 
     fn root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "xharness-seeded-{}-{}",
-            std::process::id(),
+        root_at(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+        )
+    }
+
+    fn root_at(clock_nanos: u128) -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "xharness-seeded-{}-{}-{}",
+            std::process::id(),
+            clock_nanos,
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         ))
+    }
+
+    #[test]
+    fn test_roots_are_isolated_when_clock_ticks_repeat() {
+        // Windows clocks may return the same tick to concurrent test workers.
+        // A cleanup assertion must never inspect another test's staging file.
+        let first = root_at(0);
+        let second = root_at(0);
+        assert_ne!(first, second);
     }
 
     #[tokio::test]
