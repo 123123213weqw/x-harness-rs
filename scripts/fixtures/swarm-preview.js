@@ -30,6 +30,8 @@ window.addEventListener('preview-platform-ready',()=>{
    const tasks=fixture.tasks[team.id]??=[]
    if(c.action==='list'){
     if(fixture.taskReadError)throw Error('Fixture task board offline')
+    // Inject a concurrent write at the page request, not before a live poll.
+    if(c.afterTaskId&&fixture.bumpTaskPageRevisionOnce){fixture.bumpTaskPageRevisionOnce=false;team.revision++}
     const rows=tasks.filter(t=>(!c.afterTaskId||t.id>c.afterTaskId)&&(c.includeSettled||t.state.status!=='settled')).sort((a,b)=>a.id.localeCompare(b.id))
     const page=rows.slice(0,fixture.pageSize??c.limit),hasMore=rows.length>page.length
     value={swarmId:team.id,revision:team.revision,tasks:page.map(task=>({task,ready:team.status==='active'&&task.state.status==='pending'&&task.dependencies.every(id=>tasks.some(t=>t.id===id&&t.state.status==='settled'&&t.state.outcome==='completed'))})),hasMore,nextCursor:hasMore?page.at(-1).id:null}

@@ -85,9 +85,12 @@ try{
  await page.evaluate(()=>fixture.pageSize=2)
  await page.getByRole('button',{name:'Refresh tasks',exact:true}).click()
  await page.getByRole('button',{name:'Load more tasks',exact:true}).waitFor()
- await page.evaluate(()=>fixture.teams[0].revision++)
+ // Background inspection may run between Playwright calls. Change revision
+ // only when the next-page request starts so the stale-page guard is exercised.
+ await page.evaluate(()=>fixture.bumpTaskPageRevisionOnce=true)
  await page.getByRole('button',{name:'Load more tasks',exact:true}).click()
  await page.getByRole('alert').waitFor()
+ assert.equal(await page.evaluate(()=>fixture.bumpTaskPageRevisionOnce),false,'revision conflict was injected into the next-page request')
  assert.equal(await page.locator('.xhswarm-task-row').count(),0)
  await page.evaluate(()=>fixture.pageSize=undefined)
  await page.getByRole('button',{name:'Refresh tasks',exact:true}).click()
