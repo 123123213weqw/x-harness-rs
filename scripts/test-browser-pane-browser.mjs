@@ -33,6 +33,7 @@ try {
     function App() {
       const [item, setItem] = React.useState({ id: 'browser:1', kind: 'browser', entries: [], position: -1, title: '新标签页' })
       const [open, setOpen] = React.useState(true)
+      window.reopenBrowser=()=>setOpen(true)
       const [created, setCreated] = React.useState(0)
       return React.createElement(React.Fragment, null,
         React.createElement(components['browser-toggle']),
@@ -55,7 +56,8 @@ try {
   if (process.env.UI_TEST_IMPL !== 'legacy') assert.equal(await page.locator('.xhbrowser-footer, .xhbrowser-status-dot').count(), 0, 'web pane has no engine status strip or empty footer')
   const toolbar = page.locator('.xhbrowser-toolbar')
   assert.deepEqual(await toolbar.locator(':scope > *').evaluateAll(nodes => nodes.map(node => node.className)),
-    ['xhbrowser-nav', 'xhbrowser-annotate', 'xhbrowser-address-form', 'xhbrowser-actions', 'xhbrowser-more'])
+    ['xhbrowser-nav', 'xhbrowser-annotate', 'xhbrowser-address-form', 'xhbrowser-actions', 'xhbrowser-more',
+      ...(process.env.UI_TEST_IMPL==='legacy'?[]:['xhbrowser-icon'])])
   assert.equal(await page.getByRole('button', { name: '标注（尚未接入）' }).isDisabled(), true, 'preview must not imply annotation is implemented')
   await page.getByRole('button', { name: '下载记录' }).click()
   await page.getByRole('region', { name: '下载记录' }).getByText('网页版没有内置下载记录。').waitFor()
@@ -78,6 +80,19 @@ try {
   await page.waitForFunction(() => document.querySelector('#created')?.textContent === '1')
   await page.keyboard.press('Escape')
   await page.getByRole('textbox', { name: '网址' }).waitFor({ state: 'detached' })
+  if(process.env.UI_TEST_IMPL!=='legacy'){
+    await page.evaluate(()=>reopenBrowser())
+    const close=page.getByRole('button',{name:'关闭当前网页',exact:true})
+    await close.waitFor()
+    assert.equal(await close.locator('svg').count(),1,'the explicit close control is icon-only')
+    assert.equal(await close.innerText(),'')
+    await close.click()
+    await page.getByRole('textbox',{name:'网址'}).waitFor({state:'detached'})
+    await page.evaluate(()=>reopenBrowser())
+    await page.getByRole('button',{name:'更多浏览器操作',exact:true}).click()
+    await page.getByRole('button',{name:'关闭标签页',exact:true}).click()
+    await page.getByRole('textbox',{name:'网址'}).waitFor({state:'detached'})
+  }
   assert.deepEqual(errors, [])
   console.log(`${engine}: browser workspace item passed`)
 } finally { await browser.close() }

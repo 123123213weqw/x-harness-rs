@@ -155,6 +155,14 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             browser_lifecycle::ControlRequest::Status {} => {
                 Ok(browser_lifecycle::descriptor(&state, &request.owner))
             }
+            browser_lifecycle::ControlRequest::Close {} => {
+                if let Err(error) = state.delegated_tab(&request.owner) {
+                    return Ok(rejected_action(&error));
+                }
+                app.state::<browser_lifecycle::BrowserLifecycle>()
+                    .close(app, &request.owner)
+                    .await
+            }
             browser_lifecycle::ControlRequest::Open { url } => {
                 if let Err(error) = crate::browser::web_url(&url) {
                     return Ok(rejected_action(&error));
@@ -230,7 +238,7 @@ fn parse_action(arguments: Value) -> Result<browser_perform::PerformRequest, Val
 }
 
 fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, Value> {
-    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open; no navigation was scheduled"))
+    serde_json::from_value(arguments).map_err(|_| rejected_action("invalid native control arguments; describe control for status/open/close; no action was scheduled"))
 }
 
 #[cfg(test)]

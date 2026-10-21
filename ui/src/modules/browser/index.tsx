@@ -86,6 +86,7 @@ const glyph = (name: string, size = 16) => {
     chat: [h('path', { d: 'M20 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-4 2v-5.5a7.5 7.5 0 1 1 16-4Z', key: 1 })],
     download: [h('path', { d: 'M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3', key: 1 })],
     more: [h('circle', { cx: 5, cy: 12, r: 1, key: 1 }), h('circle', { cx: 12, cy: 12, r: 1, key: 2 }), h('circle', { cx: 19, cy: 12, r: 1, key: 3 })],
+    close: [h('path', {d:'m6 6 12 12M18 6 6 18',key:1})],
     external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
   }
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
@@ -220,6 +221,11 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     if (!native || !open || !contentRef.current) return
     const content = contentRef.current
     let disposed = false
+    let closing = false
+    const onClosing = (event:Event) => {
+      if(event instanceof CustomEvent&&objectValue(event.detail).id===item.id)closing=true
+    }
+    window.addEventListener('xharness:browser-closing',onClosing)
     let generation = 0
     let lastGeometry = ''
     let binding: {key: string; until: number} | null = null
@@ -231,7 +237,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     let locationFrame: number | null = null
     const send = (command: string, args: Record<string, unknown>) => native.core.invoke(command, args)
     const visible = () => {
-      if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
+      if (closing || disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current)) return false
       const content = contentRef.current
       const rect = content?.getBoundingClientRect()
       if (!content || !rect || rect.width < 1 || rect.height < 1) return false
@@ -252,7 +258,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
           // not occlusion. Hiding here would interrupt an otherwise valid
           // observe/perform pair. Actual overlays, closure and chat changes
           // still revoke presentation immediately after every native await.
-          if (!visible()) await hide()
+          if(closing) await send('desktop_browser_close',{tabId:item.id})
+          else if (!visible()) await hide()
           return false
         }
         if (!current()) {
@@ -373,7 +380,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       else if (payload.kind === 'blocked-url') setError(`已阻止非网页链接：${payload.value}`)
     }).then(fn => { if (disposed) fn(); else { unlisten = fn; eventsReady = true; requestAnimationFrame(syncBounds) } }).catch((error: unknown) => { if (!disposed) setError(String(error)) })
     return () => {
-      disposed = true; generation++; clearTimeout(renewalTimer); observer.disconnect(); stopWatchingSurfaces(); window.removeEventListener('resize', syncBounds); unlisten?.()
+      disposed = true; window.removeEventListener('xharness:browser-closing',onClosing); generation++; clearTimeout(renewalTimer); observer.disconnect(); stopWatchingSurfaces(); window.removeEventListener('resize', syncBounds); unlisten?.()
       if (locationFrame !== null) cancelAnimationFrame(locationFrame)
       if (nativeSyncRef.current === syncBounds) nativeSyncRef.current = null
       const requestId=itemRef.current.modelRequestId
@@ -381,7 +388,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         // Closing/switching chats cancels the rendezvous immediately, not after
         // its full load timeout. Native verifies the main caller and request ID.
         void native.core.invoke('desktop_browser_control_reply',{requestId,reply:{status:'failed'}}).catch(()=>{})
-        void invoke('desktop_browser_close',{tabId:item.id}).catch(()=>{})
+        closing=true
+        void native.core.invoke('desktop_browser_close',{tabId:item.id}).catch(()=>{})
       }
       void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
     }
@@ -470,7 +478,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         h('button', { type: 'button', className: 'xhbrowser-icon xhbrowser-download', 'aria-label': '下载记录',
           'aria-expanded': downloadsOpen, title: '下载记录', onClick: () => { setDownloadsOpen(value => !value); setMenuOpen(false) } }, glyph('download'))),
       h('button', { type: 'button', className: 'xhbrowser-more', 'aria-label': '更多浏览器操作', 'aria-expanded': menuOpen,
-        onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false) } }, glyph('more'))),
+        onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false) } }, glyph('more')),
+      button('关闭当前网页','close',onClose)),
     downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' },
       h('strong', null, '下载记录'),
       downloads.length ? downloads.map((entry, index) => h('div', { key: `${index}:${entry.name}` },
@@ -479,6 +488,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     menuOpen && h('div', { className: 'xhbrowser-menu' },
       h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false) } }, '新建标签页'),
       h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'),
+      h('button', { type: 'button', onClick: onClose }, '关闭标签页'),
       address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')),
     error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error),
     h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef },
@@ -513,7 +523,8 @@ export function apply(ctx: BrowserContext) {
     const onCloseTab = (event: Event) => {
       const id = event instanceof CustomEvent ? objectValue(event.detail).id : undefined
       if (typeof id !== 'string' || !id) return
-      void invoke('desktop_browser_close', { tabId: id }).catch(() => {})
+      // Closing must not wait behind an unrelated navigation/observation.
+      void native.core.invoke('desktop_browser_close', { tabId: id }).catch(() => {})
     }
     window.addEventListener('xharness:browser-close', onCloseTab)
     let unlisten: NativeUnlisten | null = null

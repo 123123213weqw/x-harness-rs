@@ -15,6 +15,7 @@ use crate::browser::{self, BrowserState};
 pub struct BrowserLifecycle(Mutex<HashMap<String, Pending>>);
 struct Pending {
     started: bool,
+    close_tab: Option<String>,
     owner: String,
     reply: oneshot::Sender<Result<Value, String>>,
 }
@@ -30,18 +31,20 @@ struct OpenEvent {
 pub enum ControlRequest {
     Status {},
     Open { url: String },
+    Close {},
 }
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ControlReply {
     Ready { tab_id: String },
     Failed {},
+    Closed { tab_id: String },
 }
 
 pub fn descriptor(state: &BrowserState, owner: &str) -> Value {
     json!({"available":true,"bound":state.delegated_tab(owner).is_ok(),"version":2,
         "engine":"tauri-webview","capabilities":{
-            "open":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"cross_origin_pointer":true,"global_os_input":false,
+            "open":true,"close":true,"observe":true,"dom_actions":true,"browser_input_actions":["click","move","key"],"cross_origin_pointer":true,"global_os_input":false,
             "native_input":true,"cross_origin_frames":false,
             "screenshot":true,"screenshot_scope":"system WebView viewport snapshot; accelerated media may be omitted","recording":false,"hidden_tab_actions":false
         },"constraints":["open requires the requesting chat to be visible; no focus stealing",
@@ -103,6 +106,7 @@ impl BrowserLifecycle {
                 request_id.clone(),
                 Pending {
                     started: false,
+                    close_tab: None,
                     owner: owner.to_owned(),
                     reply,
                 },
@@ -133,6 +137,49 @@ impl BrowserLifecycle {
         }
         result
     }
+    /// UI removes exactly the captured tab. A newer selection is not a new
+    /// target, and closure is acknowledged only after native destruction.
+    pub async fn close(&self, app: &AppHandle, owner: &str) -> Result<Value, String> {
+        let tab_id = app.state::<BrowserState>().delegated_tab(owner)?;
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).map_err(|_| "browser request entropy unavailable")?;
+        let request_id: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
+        let (reply, receive) = oneshot::channel();
+        {
+            let mut pending = self.0.lock().map_err(|_| "browser lifecycle unavailable")?;
+            if pending.len() >= 4 || pending.values().any(|call| call.owner == owner) {
+                return Err("browser control already pending; wait for its receipt".into());
+            }
+            pending.insert(
+                request_id.clone(),
+                Pending {
+                    started: true,
+                    close_tab: Some(tab_id.clone()),
+                    owner: owner.into(),
+                    reply,
+                },
+            );
+        }
+        let mut guard = Guard {
+            app: app.clone(),
+            request_id: request_id.clone(),
+            completed: false,
+        };
+        app.emit_to(
+            "main",
+            "xharness-browser-control-close",
+            json!({"requestId":request_id,"owner":owner,"tabId":tab_id}),
+        )
+        .map_err(|_| "browser UI unavailable")?;
+        let result = tokio::time::timeout(Duration::from_secs(10), receive)
+            .await
+            .map_err(|_| {
+                "browser close receipt timed out; effect unknown; check status before retrying"
+            })?
+            .map_err(|_| "browser close cancelled; effect unknown")?;
+        guard.completed = result.as_ref().is_ok_and(|receipt| receipt["ok"] == true);
+        result
+    }
 }
 
 #[tauri::command]
@@ -151,11 +198,24 @@ pub async fn desktop_browser_control_reply(
     let Some(call) = pending.get(&request_id) else {
         return Ok(false);
     };
-    let ready = matches!(reply, ControlReply::Ready { .. });
+    let ready = matches!(
+        reply,
+        ControlReply::Ready { .. } | ControlReply::Closed { .. }
+    );
     let result = match reply {
-        ControlReply::Failed {} => Ok(interrupted_receipt(call.started)),
+        ControlReply::Failed {} => Ok(if call.close_tab.is_some() {
+            json!({"ok":false,"effect":"unknown","message":"browser close was not confirmed; check status before retrying"})
+        } else {
+            interrupted_receipt(call.started)
+        }),
+        ControlReply::Closed { tab_id } => {
+            if call.close_tab.as_deref() != Some(tab_id.as_str()) {
+                return Ok(false);
+            }
+            app.state::<BrowserState>().closed_receipt(&tab_id)
+        }
         ControlReply::Ready { tab_id } => {
-            if tab_id != format!("browser:{request_id}") {
+            if call.close_tab.is_some() || tab_id != format!("browser:{request_id}") {
                 return Ok(false);
             }
             app.state::<BrowserState>()
@@ -180,6 +240,7 @@ mod tests {
     }
     #[test]
     fn lifecycle_contract_rejects_unknown_controls_and_fields() {
+        assert!(serde_json::from_value::<ControlRequest>(json!({"action":"close"})).is_ok());
         assert!(serde_json::from_value::<ControlRequest>(
             json!({"action":"open","url":"https://example.com"})
         )
@@ -187,6 +248,8 @@ mod tests {
         for value in [
             json!({"action":"open","url":"x","owner":"other"}),
             json!({"action":"eval","script":"x"}),
+            json!({"action":"close","tab_id":"x"}),
+            json!({"action":"close","owner":"other"}),
             json!({"action":"status","tab_id":"x"}),
         ] {
             assert!(serde_json::from_value::<ControlRequest>(value).is_err());
@@ -201,6 +264,7 @@ mod tests {
         let status = descriptor(&BrowserState::default(), "chat");
         assert_eq!(status["available"], true);
         assert_eq!(status["capabilities"]["native_input"], true);
+        assert_eq!(status["capabilities"]["close"], true);
         assert_eq!(status["capabilities"]["screenshot"], true);
         assert_eq!(status["bound"], false);
         for capability in [

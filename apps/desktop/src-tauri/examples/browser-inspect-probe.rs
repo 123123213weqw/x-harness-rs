@@ -299,6 +299,102 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
     {
         return Err("zero-tab native action lacked verified actual result".into());
     }
+
+    // A foreign owner cannot close the selected tab or trigger any UI request.
+    let denied_close = bridge_call(
+        connection,
+        "other-owner",
+        "control",
+        json!({"action":"close"}),
+    )
+    .await?;
+    if denied_close["result"]["effect"] != "not_started" {
+        return Err("foreign owner close was not rejected before dispatch".into());
+    }
+    let close_app = app.clone();
+    let close_listener = app.listen_any("xharness-browser-control-close", move |event| {
+        let value: Value = serde_json::from_str(event.payload()).unwrap();
+        let app = close_app.clone();
+        tauri::async_runtime::spawn(async move {
+            let main = app.get_webview("main").unwrap();
+            let id = value["requestId"].as_str().unwrap().to_owned();
+            let tab = value["tabId"].as_str().unwrap().to_owned();
+            // An early/forged receipt must not turn a live tab into success.
+            assert!(!browser_lifecycle::desktop_browser_control_reply(
+                app.clone(),
+                main.clone(),
+                app.state(),
+                id.clone(),
+                browser_lifecycle::ControlReply::Closed {
+                    tab_id: tab.clone()
+                }
+            )
+            .await
+            .unwrap());
+            assert!(!browser_lifecycle::desktop_browser_control_reply(
+                app.clone(),
+                main.clone(),
+                app.state(),
+                id.clone(),
+                browser_lifecycle::ControlReply::Closed {
+                    tab_id: "unrelated".into()
+                }
+            )
+            .await
+            .unwrap());
+            browser::desktop_browser_close(main.clone(), app.state(), tab.clone())
+                .await
+                .unwrap();
+            assert!(browser_lifecycle::desktop_browser_control_reply(
+                app.clone(),
+                main,
+                app.state(),
+                id,
+                browser_lifecycle::ControlReply::Closed { tab_id: tab }
+            )
+            .await
+            .unwrap());
+        });
+    });
+    let closed = bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"close"}),
+    )
+    .await?;
+    app.unlisten(close_listener);
+    if closed["result"]["state"] != "closed"
+        || closed["result"]["tab_id"] != opened["result"]["tab_id"]
+    {
+        return Err(format!(
+            "native close lacked exact confirmed target: {closed}"
+        ));
+    }
+    if bridge_call(connection, "probe-owner", "observe", json!({})).await?["ok"] != false
+        || bridge_call(
+            connection,
+            "probe-owner",
+            "control",
+            json!({"action":"status"}),
+        )
+        .await?["result"]["bound"]
+            != false
+    {
+        return Err("closed tab retained observation/binding access".into());
+    }
+    // Closing again is not permission to close a different tab.
+    if bridge_call(
+        connection,
+        "probe-owner",
+        "control",
+        json!({"action":"close"}),
+    )
+    .await?["result"]["effect"]
+        != "not_started"
+    {
+        return Err("repeated close was not scoped to the now-absent target".into());
+    }
     let interrupted = bridge_call(
         connection,
         "interrupted-owner",
@@ -317,7 +413,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
         opened["result"]["tab_id"].as_str().unwrap().into(),
     )
     .await?;
-    println!("Native lifecycle probe passed: zero-tab discovery -> abandoned-socket cancellation -> open -> native load/binding -> observe -> fill -> observe verification (test UI adapter, no model)");
+    println!("Native lifecycle probe passed: zero-tab discovery -> abandoned-socket cancellation -> open -> native load/binding -> observe -> fill -> observe verification -> owner-scoped close -> revoked access (test UI adapter, no model)");
     Ok(())
 }
 

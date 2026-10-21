@@ -12,10 +12,19 @@ export function modelBrowserOpen(raw:unknown):ModelBrowserOpen|undefined {
     return{requestId:value.requestId,owner:value.owner,url:url.href}
   }catch{return}
 }
+export interface ModelBrowserClose {requestId:string;owner:string;tabId:string}
+export function modelBrowserClose(raw:unknown):ModelBrowserClose|undefined {
+  const value=objectValue(raw)
+  if(typeof value.requestId!=='string'||!/^[0-9a-f]{32}$/.test(value.requestId)
+    ||typeof value.owner!=='string'||!value.owner||value.owner.length>128
+    ||typeof value.tabId!=='string'||!/^[A-Za-z0-9:_-]{1,64}$/.test(value.tabId))return
+  return {requestId:value.requestId,owner:value.owner,tabId:value.tabId}
+}
 export interface ModelBrowserUI {
   currentOwner():string
   ready():boolean
   open(request:ModelBrowserOpen):void
+  close(request:ModelBrowserClose):Promise<boolean>
   cancel(requestId:string):void
 }
 /** Always mounted at AppFrame, even when settings or another center occludes
@@ -42,6 +51,16 @@ export function listenModelBrowser(native:TauriBridge,ui:ModelBrowserUI):()=>voi
     }
     requests.add(request.requestId)
     ui.open(request)
+  })
+  bind('xharness-browser-control-close',raw=>{
+    const request=modelBrowserClose(raw)
+    if(!request||recent.includes(request.requestId))return
+    remember(request.requestId)
+    const reply=(closed:boolean)=>native.core.invoke('desktop_browser_control_reply',{
+      requestId:request.requestId,reply:closed?{status:'closed',tab_id:request.tabId}:{status:'failed'},
+    }).catch(()=>{})
+    if(ui.currentOwner()!==request.owner||!ui.ready()){void reply(false);return}
+    void ui.close(request).then(reply,()=>reply(false))
   })
   bind('xharness-browser-control-cancel',raw=>{
     if(typeof raw!=='string'||!/^[0-9a-f]{32}$/.test(raw))return

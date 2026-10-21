@@ -135,6 +135,7 @@ const glyph = (name, size = 16) => {
         chat: [h('path', { d: 'M20 11.5a7.5 7.5 0 0 1-7.5 7.5H8l-4 2v-5.5a7.5 7.5 0 1 1 16-4Z', key: 1 })],
         download: [h('path', { d: 'M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3', key: 1 })],
         more: [h('circle', { cx: 5, cy: 12, r: 1, key: 1 }), h('circle', { cx: 12, cy: 12, r: 1, key: 2 }), h('circle', { cx: 19, cy: 12, r: 1, key: 3 })],
+        close: [h('path', { d: 'm6 6 12 12M18 6 6 18', key: 1 })],
         external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
     };
     return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
@@ -295,6 +296,12 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
             return;
         const content = contentRef.current;
         let disposed = false;
+        let closing = false;
+        const onClosing = (event) => {
+            if (event instanceof CustomEvent && (0, runtime_types_1.objectValue)(event.detail).id === item.id)
+                closing = true;
+        };
+        window.addEventListener('xharness:browser-closing', onClosing);
         let generation = 0;
         let lastGeometry = '';
         let binding = null;
@@ -306,7 +313,7 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         let locationFrame = null;
         const send = (command, args) => native.core.invoke(command, args);
         const visible = () => {
-            if (disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current))
+            if (closing || disposed || sessionRef.current !== sessionId || itemRef.current.id !== item.id || !presentationRef.current.open || presentationRef.current.blocked || !currentAddress(itemRef.current))
                 return false;
             const content = contentRef.current;
             const rect = content?.getBoundingClientRect();
@@ -331,7 +338,9 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                     // not occlusion. Hiding here would interrupt an otherwise valid
                     // observe/perform pair. Actual overlays, closure and chat changes
                     // still revoke presentation immediately after every native await.
-                    if (!visible())
+                    if (closing)
+                        await send('desktop_browser_close', { tabId: item.id });
+                    else if (!visible())
                         await hide();
                     return false;
                 };
@@ -497,6 +506,7 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
             setError(String(error)); });
         return () => {
             disposed = true;
+            window.removeEventListener('xharness:browser-closing', onClosing);
             generation++;
             clearTimeout(renewalTimer);
             observer.disconnect();
@@ -512,7 +522,8 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
                 // Closing/switching chats cancels the rendezvous immediately, not after
                 // its full load timeout. Native verifies the main caller and request ID.
                 void native.core.invoke('desktop_browser_control_reply', { requestId, reply: { status: 'failed' } }).catch(() => { });
-                void invoke('desktop_browser_close', { tabId: item.id }).catch(() => { });
+                closing = true;
+                void native.core.invoke('desktop_browser_close', { tabId: item.id }).catch(() => { });
             }
             void invoke('desktop_browser_activate', { tabId: null }).catch(() => { });
         };
@@ -619,8 +630,8 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         onChange: (event) => { setDraft(event.target.value); setError(''); }, 'aria-label': '网址',
         placeholder: '搜索或输入网址', autoComplete: 'url', spellCheck: false })), h('div', { className: 'xhbrowser-actions', 'aria-label': '浏览器工具' }, button('回到聊天', 'chat', focusChat), h('button', { type: 'button', className: 'xhbrowser-icon xhbrowser-download', 'aria-label': '下载记录',
         'aria-expanded': downloadsOpen, title: '下载记录', onClick: () => { setDownloadsOpen(value => !value); setMenuOpen(false); } }, glyph('download'))), h('button', { type: 'button', className: 'xhbrowser-more', 'aria-label': '更多浏览器操作', 'aria-expanded': menuOpen,
-        onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false); } }, glyph('more'))), downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' }, h('strong', null, '下载记录'), downloads.length ? downloads.map((entry, index) => h('div', { key: `${index}:${entry.name}` }, h('span', null, entry.name), h('small', null, DOWNLOAD_LABELS[entry.kind])))
-        : h('p', null, native ? '本次会话还没有下载。' : '网页版没有内置下载记录。')), menuOpen && h('div', { className: 'xhbrowser-menu' }, h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false); } }, '新建标签页'), h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'), address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')), error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error), h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef }, !address ? h('div', { className: 'xhbrowser-home' }, h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '工具'), sessionId && h('form', { className: 'xhbrowser-file-form', onSubmit: (event) => { event.preventDefault(); if (filePath.trim())
+        onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false); } }, glyph('more')), button('关闭当前网页', 'close', onClose)), downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' }, h('strong', null, '下载记录'), downloads.length ? downloads.map((entry, index) => h('div', { key: `${index}:${entry.name}` }, h('span', null, entry.name), h('small', null, DOWNLOAD_LABELS[entry.kind])))
+        : h('p', null, native ? '本次会话还没有下载。' : '网页版没有内置下载记录。')), menuOpen && h('div', { className: 'xhbrowser-menu' }, h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false); } }, '新建标签页'), h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'), h('button', { type: 'button', onClick: onClose }, '关闭标签页'), address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')), error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error), h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef }, !address ? h('div', { className: 'xhbrowser-home' }, h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '工具'), sessionId && h('form', { className: 'xhbrowser-file-form', onSubmit: (event) => { event.preventDefault(); if (filePath.trim())
             (0, FilePane_1.openDisplayFile)(filePath.trim(), sessionId); } }, h('input', { value: filePath, onChange: (event) => setFilePath(event.currentTarget.value), placeholder: '输入文件路径', 'aria-label': '文件路径' }), h('button', { type: 'submit', disabled: !filePath.trim() }, '预览文件'), h('button', { type: 'button', onClick: () => (0, FilePane_1.openDisplayFile)(filePath.trim() || '.', sessionId, undefined, 'working') }, 'Git Diff')), h('div', { className: 'xhbrowser-tools' }, h('button', { type: 'button', onClick: focusChat }, '回到聊天'), h('button', { type: 'button', onClick: openTerminal }, '打开终端'))), recent.length > 0 && h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '最近访问'), h('div', { className: 'xhbrowser-recents' }, recent.map(site => h('button', {
         type: 'button', key: site.url, onClick: () => navigateTo(site.url), title: site.url,
     }, h('span', { className: 'xhbrowser-site-mark', 'aria-hidden': true }, glyph('globe', 16)), h('span', { className: 'xhbrowser-site-label' }, h('strong', null, site.host), site.path && h('small', null, site.path)))))), recent.length === 0 && h('p', { className: 'xhbrowser-home-hint' }, '在上方输入网址，访问过的网页会出现在这里。'))
@@ -640,7 +651,8 @@ function apply(ctx) {
             const id = event instanceof CustomEvent ? (0, runtime_types_1.objectValue)(event.detail).id : undefined;
             if (typeof id !== 'string' || !id)
                 return;
-            void invoke('desktop_browser_close', { tabId: id }).catch(() => { });
+            // Closing must not wait behind an unrelated navigation/observation.
+            void native.core.invoke('desktop_browser_close', { tabId: id }).catch(() => { });
         };
         window.addEventListener('xharness:browser-close', onCloseTab);
         let unlisten = null;

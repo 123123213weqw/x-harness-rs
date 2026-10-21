@@ -136,7 +136,11 @@ impl NativeBrowser {
         };
         let may_have_effect = op == "perform"
             || op == "input"
-            || (op == "control" && arguments.get("action").and_then(Value::as_str) == Some("open"));
+            || (op == "control"
+                && arguments
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .is_some_and(|action| matches!(action, "open" | "close")));
         let result = match self.request(owner, op, Value::Object(arguments), cancelled).await {
             Ok(result) => result,
             Err(error) if may_have_effect => return Err(format!("native browser effect: unknown; {error}; do not replay automatically; observe actual state before deciding")),
@@ -238,9 +242,10 @@ fn normalize_png(encoded: &str) -> Result<Vec<u8>, String> {
 
 pub(crate) fn tools() -> Vec<Value> {
     vec![
-        json!({"name":"control","description":"Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override.","inputSchema":{"oneOf":[
+        json!({"name":"control","description":"Discover this desktop browser even with zero tabs (action=status), or open an HTTP(S) page from scratch (action=open,url). Open expands this chat's sidebar and waits for native load and binding, returning state=ready and the actual URL. Then observe, perform, and observe to verify. Requires this chat to be visible; a background chat never steals focus. action=close closes only this chat's currently visible bound tab and removes it from the UI; it never closes another chat or the application. status reports real capabilities. Prefer observe/perform for DOM controls; use screenshot/input for visual targets, canvas, hover, key shortcuts and cross-origin iframe pixels. No cross-origin DOM traversal or recording. No arbitrary script or tab/owner override.","inputSchema":{"oneOf":[
             {"type":"object","additionalProperties":false,"properties":{"action":{"const":"status"}},"required":["action"]},
-            {"type":"object","additionalProperties":false,"properties":{"action":{"const":"open"},"url":{"type":"string","maxLength":4096}},"required":["action","url"]}
+            {"type":"object","additionalProperties":false,"properties":{"action":{"const":"open"},"url":{"type":"string","maxLength":4096}},"required":["action","url"]},
+            {"type":"object","additionalProperties":false,"properties":{"action":{"const":"close"}},"required":["action"]}
         ]}}),
         json!({"name":"observe","description":"Read the visible native tab bound to this chat; choose observe to inspect, then perform for an action when the task needs it. Bounded untrusted DOM evidence, CSS viewport geometry and one-shot refs. Use screenshot when DOM is insufficient; input sends browser-owned events, never global OS input. Page/main/dialog scopes; Follow next_text_offset, next_node_offset and per-select next_option_offset when non-null.","inputSchema":{"type":"object","additionalProperties":false,"properties":{"scope":{"type":"string","enum":["page","main","dialog"]},"text_offset":{"type":"integer","minimum":0,"maximum":1000000},"node_offset":{"type":"integer","minimum":0,"maximum":1000000},"option_offset":{"type":"integer","minimum":0,"maximum":1000000}}}}),
         json!({"name":"perform","description":"One DOM click/fill/select/scroll with the latest observed frame_id. Frame consumed even if callback is lost. Unknown effect requires observing before any retry. Applied is not task success. No script, selector, arbitrary tab, credentials or native OS input.","inputSchema":{"oneOf":[
@@ -577,8 +582,8 @@ mod tests {
                 .unwrap();
         let cancel = CancellationToken::new();
         cancel.cancel();
-        for (action, uncertain) in [("status", false), ("open", true)] {
-            let parameters = if action == "status" {
+        for (action, uncertain) in [("status", false), ("open", true), ("close", true)] {
+            let parameters = if action != "open" {
                 json!({"action":action})
             } else {
                 json!({"action":action,"url":"https://example.com/"})
@@ -707,5 +712,59 @@ mod tests {
         assert!(!failure.retryable);
         assert!(failure.message.contains("unknown"));
         server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn close_schema_and_gateway_keep_owner_and_require_confirmed_result() {
+        use std::sync::Arc;
+        use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+        let schema = tools()
+            .into_iter()
+            .find(|tool| tool["name"] == "control")
+            .unwrap();
+        assert!(schema["inputSchema"]["oneOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|variant| variant["properties"]["action"]["const"] == "close"));
+        for confirmed in [true, false] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let browser = Arc::new(NativeBrowser {
+                address: listener.local_addr().unwrap(),
+                token: "a".repeat(64),
+            });
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let length = stream.read_u32().await.unwrap() as usize;
+                let mut bytes = vec![0; length];
+                stream.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["owner"], "close-owner");
+                assert_eq!(request["op"], "control");
+                assert_eq!(request["arguments"], json!({"action":"close"}));
+                let result = if confirmed {
+                    json!({"ok":true,"effect":"applied","state":"closed","tab_id":"browser:target"})
+                } else {
+                    json!({"ok":false,"effect":"unknown","message":"close not confirmed"})
+                };
+                let bytes = serde_json::to_vec(&json!({"ok":true,"result":result})).unwrap();
+                stream.write_u32(bytes.len() as u32).await.unwrap();
+                stream.write_all(&bytes).await.unwrap();
+            });
+            let binding = crate::plugin_mcp::bind(
+                None,
+                None,
+                Some(browser),
+                None,
+                "close-owner".into(),
+                true,
+                None,
+            );
+            let registry = Arc::new(ToolRegistry::new());
+            registry.register(binding.spec).await.unwrap();
+            let result=ToolExecutor::new(registry).with_guards(vec![binding.guard]).execute(ToolRequest::new("plugin_mcp",
+                r#"{"action":"call","plugin":"@xharness/native-browser","server":"webview","tool":"control","arguments":{"action":"close"}}"#)).await;
+            assert_eq!(result.is_ok(), confirmed, "{result:?}");
+            server.await.unwrap();
+        }
     }
 }
