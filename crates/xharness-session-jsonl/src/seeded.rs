@@ -154,7 +154,7 @@ fn copy_fork_resources(root: &Path, session: &Session) -> Result<(), StoreError>
     for event in session.events() {
         match event.data() {
             xharness_session::EventData::ToolResult { result, .. } => {
-                let reference = serde_json::from_str::<serde_json::Value>(&result.content)
+                let reference = decode_owned_json::<serde_json::Value>(result.content.as_bytes())
                     .ok()
                     .and_then(|v| v.get("archive").cloned())
                     .and_then(|v| {

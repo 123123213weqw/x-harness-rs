@@ -10,7 +10,7 @@
     },
     "crates/xharness-session-jsonl/src/seeded.rs": {
       "before": null,
-      "after": "202bf772c05f576c0c0039a658735b54cdcd275eba8d14d31b470beecb308a01"
+      "after": "1ac8a2cb83451d07f5eec19fe6b9a04d711abab62599d0881b5202e0aa363020"
     },
     "crates/xharness-session/src/store.rs": {
       "before": "0b40d2838e83f0907101ea99da7b1c9bc3b973fc58aaf573fc90feed1670a234",
