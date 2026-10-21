@@ -39,6 +39,7 @@ mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
 mod results;
+mod seeded;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
@@ -1118,88 +1119,12 @@ impl Store for JsonlSessionStore {
     }
 
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError> {
-        let session_id = header.id.clone();
-        let (path, guard) = self.locked_path(&session_id).await?;
-        let cache = Arc::clone(&self.cache);
-        run_blocking(move || {
-            let _guard = guard;
-            let _file_lock = acquire_file_lock(&path)?;
-            let session = Session::new(header)?;
-            let record = HeaderRecord {
-                record: HEADER_RECORD.to_owned(),
-                format: FILE_FORMAT.to_owned(),
-                format_version: FILE_FORMAT_VERSION,
-                header: session.header().clone(),
-            };
-            let bytes = encode_line(&record, &path)?;
-            // Publish atomically. `create` used to open `<id>.jsonl` first and
-            // write the header second, so a crash in between left a zero-byte
-            // file under the very name startup discovery enumerates. Staging
-            // the bytes elsewhere and hard-linking them into place means the
-            // name only ever exists once it already has its header. The link is
-            // os-atomic and refuses to replace, which is the `create_new`
-            // contract `AlreadyExists` callers depend on.
-            static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let tmp = path.with_file_name(format!(
-                ".creating-{}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos(),
-                NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            let mut file = secure_open_options()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)
-                .map_err(|error| backend_error("create session staging file", &tmp, error))?;
-            let published = (|| -> Result<(), StoreError> {
-                file.write_all(&bytes)
-                    .and_then(|_| file.sync_all())
-                    .map_err(|error| backend_error("durably write session header", &tmp, error))?;
-                match fs::hard_link(&tmp, &path) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                        return Err(StoreError::AlreadyExists {
-                            session_id: session_id.clone(),
-                        });
-                    }
-                    Err(error) => {
-                        return Err(backend_error("publish session header", &path, error));
-                    }
-                }
-                sync_parent_directory(&path)?;
-                Ok(())
-            })();
-            drop(file);
-            // Only ever our own exclusively created staging file. A published
-            // session is never removed here.
-            let _ = fs::remove_file(&tmp);
-            published?;
-            let fingerprint = file_fingerprint(&path)?.ok_or_else(|| {
-                backend_message(format!(
-                    "session {} disappeared after creation",
-                    path.display()
-                ))
-            })?;
-            cache_store(
-                &cache,
-                &path,
-                fingerprint,
-                LoadedFile {
-                    session: session.clone(),
-                    format_version: FILE_FORMAT_VERSION,
-                    valid_len: fingerprint.len,
-                    needs_separator: false,
-                    estimated_bytes: 1024,
-                    journal_hash: Sha256::new_with_prefix(&bytes),
-                    audit_offsets: Arc::new(HashMap::new()),
-                },
-            )?;
-            Ok(session)
-        })
-        .await
+        validate_session_id(&header.id)?;
+        self.create_seeded(Session::new(header)?).await
+    }
+
+    async fn create_seeded(&self, session: Session) -> Result<Session, StoreError> {
+        self.publish_new_session(session).await
     }
 
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {

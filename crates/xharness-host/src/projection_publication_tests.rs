@@ -32,6 +32,16 @@ impl AgentRuntime for SnapshotRuntime {
                 message: error.to_string(),
             })
     }
+    async fn persist_fork_session(&self, session: Session) -> Result<(), AgentRuntimeError> {
+        self.0
+            .create_seeded(session)
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })?;
+        Ok(())
+    }
+
     async fn persist_session_events(
         &self,
         id: &str,
@@ -931,6 +941,192 @@ fn fork_of_subagent_does_not_restore_as_a_delegated_child() {
         .unwrap();
     assert_eq!(crate::delegation::restored_delegation(&session), None);
     assert!(!crate::delegation::restored_dispatch_paused(&session));
+}
+
+#[tokio::test]
+async fn fork_diagnosis_preserves_state_mutation_revision_boundaries() {
+    let (host, store) = fixture().await;
+    rpc_value(
+        &host,
+        RpcMethod::SessionRename,
+        json!({"sessionId": ID, "title": "renamed source"}),
+    )
+    .await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            source.revision(),
+            completed_turn(1, "after rename", &header),
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let child = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId": ID})).await;
+    let child_id = child["sessionId"].as_str().unwrap();
+    let copied = store.load(child_id).await.unwrap().unwrap();
+    assert!(copied
+        .events()
+        .iter()
+        .any(|event| matches!(event.data(), EventData::SessionMutationCommitted { .. })));
+    assert_eq!(
+        store.load(ID).await.unwrap().unwrap().events().len(),
+        copied.events().len() - 1
+    );
+}
+
+#[tokio::test]
+async fn fork_diagnosis_message_anchor_includes_completed_turn_end() {
+    let (host, store) = fixture().await;
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            source.revision(),
+            completed_turn(1, "message anchor", &header),
+        )
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let anchor = source
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), EventData::AssistantMessage { .. }))
+        .unwrap()
+        .seq;
+    let child = rpc_value(
+        &host,
+        RpcMethod::SessionFork,
+        json!({"sessionId": ID, "atSeq": anchor}),
+    )
+    .await;
+    let child_id = child["sessionId"].as_str().unwrap();
+    let copied = store.load(child_id).await.unwrap().unwrap();
+    assert!(
+        matches!(
+            copied.events()[copied.events().len() - 2].data(),
+            EventData::TurnEnd { .. }
+        ),
+        "a message-anchored fork must include the closing step/end and turn/end"
+    );
+    store
+        .append(
+            child_id,
+            copied.revision(),
+            completed_turn(2, "continue child", &header),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn fork_rejects_open_anchor_without_publishing_and_defaults_to_last_closed_turn() {
+    let (host, store) = fixture().await;
+    let header = RequestHeader::new("test", "test");
+    let source = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(ID, source.revision(), completed_turn(1, "closed", &header))
+        .await
+        .unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let open = completed_turn(2, "still running", &header);
+    store
+        .append(ID, source.revision(), open[..5].to_vec())
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let source = store.load(ID).await.unwrap().unwrap();
+    let result = host
+        .call(
+            RpcId::new("open-anchor"),
+            RpcMethod::SessionFork,
+            json!({"sessionId":ID,"atSeq":source.next_seq()-1}),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+    assert!(
+        matches!(result, RpcResult::Failure { error } if error.code == xharness_api::RpcErrorCode::ForkUnavailable)
+    );
+    assert_eq!(store.list_headers().await.unwrap().len(), 1);
+    for payload in [
+        json!({"sessionId":ID}),
+        json!({"sessionId":ID,"atSeq":u64::MAX}),
+    ] {
+        let child = rpc_value(&host, RpcMethod::SessionFork, payload).await;
+        let snapshot = store
+            .load(child["sessionId"].as_str().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!snapshot
+            .events()
+            .iter()
+            .any(|event| matches!(event.data(), EventData::TurnStart { turn: 2 })));
+        assert!(matches!(
+            snapshot.events()[snapshot.events().len() - 2].data(),
+            EventData::TurnEnd { turn: 1, .. }
+        ));
+    }
+    assert_eq!(store.load(ID).await.unwrap().unwrap(), source);
+}
+
+#[tokio::test]
+async fn fork_after_mutation_survives_jsonl_restart_and_fork_of_fork() {
+    let root = std::env::temp_dir().join(format!(
+        "xharness-fork-revisions-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let store: Arc<dyn Store> = Arc::new(JsonlSessionStore::new(&root).unwrap());
+    store.create(SessionHeader::new(ID)).await.unwrap();
+    let host = BasicHost::with_agent_runtime(
+        HostConfig::new(std::env::temp_dir()),
+        Arc::new(SnapshotRuntime(store.clone())),
+    );
+    host.restore_from_store(store.clone()).await.unwrap();
+    rpc_value(
+        &host,
+        RpcMethod::SessionRename,
+        json!({"sessionId":ID,"title":"source"}),
+    )
+    .await;
+    let source = store.load(ID).await.unwrap().unwrap();
+    let header = RequestHeader::new("test", "test");
+    store
+        .append(ID, source.revision(), completed_turn(1, "first", &header))
+        .await
+        .unwrap();
+    host.sync_authoritative_session(ID).await.unwrap();
+    let before = store.load(ID).await.unwrap().unwrap();
+    let first = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId":ID})).await;
+    let id = first["sessionId"].as_str().unwrap();
+    let child = store.load(id).await.unwrap().unwrap();
+    assert_eq!(&child.events()[..before.events().len()], before.events());
+    let second = rpc_value(&host, RpcMethod::SessionFork, json!({"sessionId":id})).await;
+    let second_id = second["sessionId"].as_str().unwrap();
+    let grandchild = store.load(second_id).await.unwrap().unwrap();
+    assert_eq!(&grandchild.events()[..child.events().len()], child.events());
+    assert_eq!(store.load(ID).await.unwrap().unwrap(), before);
+    drop(host);
+    drop(store);
+    let store = JsonlSessionStore::new(&root).unwrap();
+    assert_eq!(store.load(id).await.unwrap().unwrap(), child);
+    assert_eq!(store.load(second_id).await.unwrap().unwrap(), grandchild);
+    assert_eq!(store.list_headers().await.unwrap().len(), 3);
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]

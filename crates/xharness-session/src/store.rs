@@ -324,6 +324,15 @@ pub trait Store: Send + Sync + 'static {
     /// Atomically register an empty session. Existing ids are never replaced.
     async fn create(&self, header: SessionHeader) -> Result<Session, StoreError>;
 
+    /// Atomically publish a validated, complete new journal without flattening
+    /// its revisions, sequence numbers or timestamps. Existing ids are never
+    /// replaced; unsupported backends must fail before publishing anything.
+    async fn create_seeded(&self, _session: Session) -> Result<Session, StoreError> {
+        Err(StoreError::Backend {
+            message: "atomic seeded session creation is unsupported".into(),
+        })
+    }
+
     /// Load one complete logical snapshot.
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError>;
 
@@ -472,6 +481,50 @@ impl Store for MemorySessionStore {
             });
         }
         sessions.insert(session.header().id.clone(), session.clone());
+        Ok(session)
+    }
+
+    async fn create_seeded(&self, session: Session) -> Result<Session, StoreError> {
+        let mut sessions = self.sessions.write().await;
+        let id = session.header().id.clone();
+        if sessions.contains_key(&id) {
+            return Err(StoreError::AlreadyExists { session_id: id });
+        }
+        if let Some(crate::EventData::SessionForkOrigin {
+            parent_session_id, ..
+        }) = session.events().last().map(|event| event.data())
+        {
+            let mut archives = self.tool_archives.write().await;
+            let mut staged = HashMap::new();
+            for event in session.events() {
+                let crate::EventData::ToolResult { result, .. } = event.data() else {
+                    continue;
+                };
+                let reference = serde_json::from_str::<serde_json::Value>(&result.content)
+                    .ok()
+                    .and_then(|v| v.get("archive").cloned())
+                    .and_then(|v| serde_json::from_value::<crate::ToolArchiveRef>(v).ok());
+                if let Some(reference) = reference {
+                    let target = (id.clone(), reference.sha256.clone());
+                    if staged.contains_key(&target) {
+                        continue;
+                    }
+                    let text = archives
+                        .get(&(parent_session_id.clone(), reference.sha256.clone()))
+                        .ok_or_else(|| StoreError::Backend {
+                            message: "fork's referenced original tool result is unavailable".into(),
+                        })?;
+                    if crate::ToolArchiveRef::for_text(text)? != reference {
+                        return Err(StoreError::Backend {
+                            message: "fork tool archive reference mismatch".into(),
+                        });
+                    }
+                    staged.insert(target, text.clone());
+                }
+            }
+            archives.extend(staged);
+        }
+        sessions.insert(id, session.clone());
         Ok(session)
     }
 

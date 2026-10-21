@@ -576,6 +576,54 @@ pub(super) async fn rename(
     Ok(response)
 }
 
+#[derive(Clone, Copy)]
+enum ForkBoundary {
+    TurnStart,
+    TurnEnd,
+    StepEnd,
+    Other,
+}
+
+// Message anchors include their completed turn. Explicit closed-step anchors
+// retain the checkpoint-fork contract used by low-level retry experiments;
+// those callers own closing the interrupted turn before resuming execution.
+fn completed_fork_end(
+    events: impl Iterator<Item = (u64, ForkBoundary)>,
+    at_seq: Option<u64>,
+) -> Option<usize> {
+    let mut count = 0;
+    let mut last_seq = None;
+    let mut open_turn = false;
+    let mut closed = None;
+    let mut anchored = None;
+    for (index, (seq, boundary)) in events.enumerate() {
+        count = index + 1;
+        last_seq = Some(seq);
+        match boundary {
+            ForkBoundary::TurnStart => open_turn = true,
+            ForkBoundary::TurnEnd => {
+                open_turn = false;
+                closed = Some(count);
+            }
+            _ => {}
+        }
+        let exact_step = at_seq == Some(seq) && matches!(boundary, ForkBoundary::StepEnd);
+        let closing_turn = anchored.is_none()
+            && at_seq.is_some_and(|anchor| seq >= anchor)
+            && matches!(boundary, ForkBoundary::TurnEnd);
+        if exact_step || closing_turn {
+            anchored = Some(count);
+        }
+    }
+    if at_seq.is_some_and(|anchor| last_seq.is_some_and(|last| anchor <= last)) {
+        anchored
+    } else if open_turn {
+        closed
+    } else {
+        (count > 0).then_some(count)
+    }
+}
+
 pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
     let source_id = required_string(payload, "sessionId")?;
     let _source_guard = host.lock_admission(&source_id).await;
@@ -641,9 +689,27 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
                             .unwrap_or(index)
                     })
             } else {
-                at_seq
-                    .and_then(|seq| usize::try_from(seq.saturating_add(1)).ok())
-                    .map_or(source.events().len(), |end| end.min(source.events().len()))
+                completed_fork_end(
+                    source.events().iter().map(|event| {
+                        (
+                            event.seq,
+                            match event.data() {
+                                SessionEventData::TurnStart { .. } => ForkBoundary::TurnStart,
+                                SessionEventData::TurnEnd { .. } => ForkBoundary::TurnEnd,
+                                SessionEventData::StepEnd { .. } => ForkBoundary::StepEnd,
+                                _ => ForkBoundary::Other,
+                            },
+                        )
+                    }),
+                    at_seq,
+                )
+                .ok_or_else(|| {
+                    rpc_error(
+                        RpcErrorCode::ForkUnavailable,
+                        "the selected turn is not complete; choose a completed turn",
+                        json!({"sessionId": source_id}),
+                    )
+                })?
             };
             let next_turn = source.events()[..end]
                 .iter()
@@ -677,12 +743,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             (
                 project_session_event_range(&source, &projection_route, 0, end),
                 xharness_session::derive_messages(&source.events()[..end]),
-                Some(
-                    source.events()[..end]
-                        .iter()
-                        .map(|event| event.event.clone())
-                        .collect::<Vec<_>>(),
-                ),
+                Some(source.events()[..end].to_vec()),
                 next_turn,
                 historical_state,
             )
@@ -700,16 +761,28 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
                 .get(&source_id)
                 .ok_or_else(|| session_not_found(&source_id))?;
             let mut events = source.events.clone();
-            if let Some(at_seq) = at_seq {
-                let keep = usize::try_from(
-                    at_seq
-                        .saturating_add(1)
-                        .saturating_sub(source.event_base_seq),
+            let end = completed_fork_end(
+                events.iter().enumerate().map(|(index, event)| {
+                    (
+                        source.event_base_seq.saturating_add(index as u64),
+                        match event["type"].as_str() {
+                            Some("turn/start") => ForkBoundary::TurnStart,
+                            Some("turn/end") => ForkBoundary::TurnEnd,
+                            Some("step/end") => ForkBoundary::StepEnd,
+                            _ => ForkBoundary::Other,
+                        },
+                    )
+                }),
+                at_seq,
+            )
+            .ok_or_else(|| {
+                rpc_error(
+                    RpcErrorCode::ForkUnavailable,
+                    "the selected turn is not complete; choose a completed turn",
+                    json!({"sessionId": source_id}),
                 )
-                .unwrap_or(usize::MAX)
-                .min(events.len());
-                events.truncate(keep);
-            }
+            })?;
+            events.truncate(end);
             let next_turn = events
                 .iter()
                 .filter_map(|event| {
@@ -820,33 +893,53 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
         control: None,
         next_turn,
     };
-    let mut state = host.state.write().await;
-    state.sessions.insert(child_id.clone(), child);
-    state.enforce_projection_budget(&child_id, host.config.session_event_cache_total_bytes);
-    let mut changed_workspace = None;
-    for workspace in state.workspaces.values_mut() {
-        if workspace.session_ids.contains(&source_id) {
-            workspace.session_ids.insert(0, child_id.clone());
-            workspace.updated_at = iso_now();
-            changed_workspace = serde_json::to_value(workspace).ok();
-            break;
-        }
-    }
-    drop(state);
     let marker: SessionEvent = SessionEventData::SessionForkOrigin {
         parent_session_id: source_id.clone(),
         before_user_seq,
     }
     .into();
-    if let Some(mut events) = durable_events {
-        events.push(marker);
-        if let Err(error) = host.commit_session_events(&child_id, events).await {
-            host.state.write().await.sessions.remove(&child_id);
-            return Err(error);
-        }
+    let durable = if let Some(events) = durable_events {
+        let revision = events
+            .last()
+            .map_or(xharness_session::Revision::ZERO, |e| e.revision);
+        let mut header = xharness_session::SessionHeader::new(&child_id);
+        header.cwd = Some(cwd.clone());
+        let mut seed = xharness_session::Session::restore(header, revision, events)
+            .map_err(|error| RpcError::internal(format!("invalid fork history: {error}")))?;
+        seed.append(seed.revision(), marker.clone())
+            .map_err(|error| RpcError::internal(format!("invalid fork origin: {error}")))?;
+        host.agent_runtime
+            .persist_fork_session(seed)
+            .await
+            .map_err(agent_runtime_error)?;
+        true
+    } else {
+        false
+    };
+    // Publish neither the child nor workspace membership before its complete
+    // journal is durable. A failed seed cannot leave an empty child in the UI.
+    {
+        let mut state = host.state.write().await;
+        state.sessions.insert(child_id.clone(), child);
+        state.enforce_projection_budget(&child_id, host.config.session_event_cache_total_bytes);
+    }
+    if durable {
+        host.sync_authoritative_session(&child_id).await?;
     } else if let Err(error) = host.commit_session_events(&child_id, vec![marker]).await {
         host.state.write().await.sessions.remove(&child_id);
         return Err(error);
+    }
+    let mut changed_workspace = None;
+    {
+        let mut state = host.state.write().await;
+        for workspace in state.workspaces.values_mut() {
+            if workspace.session_ids.contains(&source_id) {
+                workspace.session_ids.insert(0, child_id.clone());
+                workspace.updated_at = iso_now();
+                changed_workspace = serde_json::to_value(workspace).ok();
+                break;
+            }
+        }
     }
     host.push_host(json!({
         "type": "host/session-added",

@@ -218,3 +218,18 @@ test('lazy input-shell editor construction preserves standard-kit materializatio
 test('permission pending feedback belongs to current versus next execution round',()=>{
  for(const value of [undefined,{}, {pending:true},{pending:true,activeValue:'read-only'},{pending:false,activeValue:'workspace-write'}])assert.equal(apis[1].plugin.permissionFeedback(value),apis[0].plugin.permissionFeedback(value));
 });
+
+
+test('message fork opens only after success and reports failures on the unchanged source', async()=>{
+ const api=apis[1].plugin,calls=[];
+ const hub={shell:id=>({notify:(kind,message)=>calls.push(['notify',id,kind,message])})};
+ const sessions={fork:async input=>{calls.push(['fork',input]);return 'child'},open:id=>calls.push(['open',id])};
+ await api.xhForkAt(hub,sessions,'source',12);
+ assert.deepEqual(json(calls),[['fork',{sessionId:'source',atSeq:12,increaseTitle:true}],['open','child']]);
+ calls.length=0;
+ for(const message of ['fork-unavailable: selected turn is open','could not publish fork history','fork child rename failed']){
+  await api.xhForkAt(hub,{...sessions,fork:async()=>{throw Error(message)}},'source',12);
+  const last=calls.at(-1);assert.equal(last[0],'notify');assert.equal(last[1],'source');assert.equal(last[2],'error');assert.ok(last[3].includes(message));
+ }
+ assert.equal(calls.some(row=>row[0]==='open'),false,'a failed fork must not change the active chat');
+})

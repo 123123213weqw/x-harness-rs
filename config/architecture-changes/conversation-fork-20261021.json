@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Conversation forks flatten revision-bound mutation receipts and can publish header-only failures or cut through an unfinished message turn.",
+  "compatibility": "Preserve JSONL format, event vocabulary, source revisions/timestamps, CAS/create-no-replace and strict lifecycle validation. Add atomic seeded creation; keep explicit closed-step checkpoints, ordinary model history, edit-fork behavior and scoped archive access. Existing native, Windows and persistence CI remains mandatory.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "74d9c52e4fb0199bd785badc229f93d216738d12bfe6ec94d3aed0c21a2c1b44",
+      "after": "25abbce8f95e57c854d355d7aeb657801df7e7906604ef013a73426aa991895f"
+    },
+    "crates/xharness-session-jsonl/src/seeded.rs": {
+      "before": null,
+      "after": "202bf772c05f576c0c0039a658735b54cdcd275eba8d14d31b470beecb308a01"
+    },
+    "crates/xharness-session/src/store.rs": {
+      "before": "0b40d2838e83f0907101ea99da7b1c9bc3b973fc58aaf573fc90feed1670a234",
+      "after": "79440c3c0e24ec909b71e184b0fe267822bb14c9ad231b39efeff8dbc81edb8f"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}
