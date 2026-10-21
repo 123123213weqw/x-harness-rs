@@ -187,6 +187,8 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
     const [browserRestored, setBrowserRestored] = (0, react_1.useState)(!window.__TAURI__?.core?.invoke);
     const restoredRef = (0, react_1.useRef)(browserRestored);
     restoredRef.current = browserRestored;
+    const spacesRef = (0, react_1.useRef)(spaces);
+    spacesRef.current = spaces;
     const space = spaces[spaceKey] ?? workspace_pane_1.xhWorkspaceEmpty;
     const nextWorkspaceId = (0, react_1.useRef)((0, workspace_pane_1.xhNextWorkspaceId)(spaces));
     (0, react_1.useEffect)(() => {
@@ -218,7 +220,21 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
                     modelRequestId: request.requestId, title: new URL(request.url).hostname, entries: [request.url], position: 0 };
                 setSpaces(all => ({ ...all, [request.owner]: (0, workspace_pane_1.xhWorkspaceOpen)(all[request.owner] ?? workspace_pane_1.xhWorkspaceEmpty, item, false) }));
             },
+            close: async (request) => {
+                const current = spacesRef.current[request.owner];
+                if (spaceKeyRef.current !== request.owner || current?.activeId !== request.tabId
+                    || !current.items.some(item => item.id === request.tabId && item.kind === 'browser'))
+                    return false;
+                // Remove presentation first so pending layout work observes unmount.
+                // Destruction must bypass the navigation queue, which may be awaiting
+                // a slow page callback. Exact owner+ID prevents closing its successor.
+                window.dispatchEvent(new CustomEvent('xharness:browser-closing', { detail: { id: request.tabId } }));
+                setSpaces(all => ({ ...all, [request.owner]: (0, workspace_pane_1.xhWorkspaceClose)(all[request.owner] ?? workspace_pane_1.xhWorkspaceEmpty, request.tabId) }));
+                await native.core.invoke('desktop_browser_close', { tabId: request.tabId });
+                return true;
+            },
             cancel: requestId => {
+                window.dispatchEvent(new CustomEvent('xharness:browser-closing', { detail: { id: `browser:${requestId}` } }));
                 setSpaces(all => Object.fromEntries(Object.entries(all).map(([owner, space]) => [owner,
                     space.items.some(item => item.modelRequestId === requestId) ? (0, workspace_pane_1.xhWorkspaceClose)(space, `browser:${requestId}`) : space])));
                 void native.core.invoke('desktop_browser_close', { tabId: `browser:${requestId}` }).catch(() => { });
@@ -242,8 +258,10 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
     const closeWorkspace = (id) => {
         if (id === 'tool')
             actions.closeDetails();
-        if (space.items.some(item => item.id === id && item.kind === 'browser'))
+        if (space.items.some(item => item.id === id && item.kind === 'browser')) {
+            window.dispatchEvent(new CustomEvent('xharness:browser-closing', { detail: { id } }));
             window.dispatchEvent(new CustomEvent('xharness:browser-close', { detail: { id } }));
+        }
         updateSpace(value => (0, workspace_pane_1.xhWorkspaceClose)(value, id));
     };
     (0, react_1.useEffect)(() => {
@@ -792,6 +810,7 @@ function workspaceDockVisibility(event) {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.modelBrowserOpen = modelBrowserOpen;
+exports.modelBrowserClose = modelBrowserClose;
 exports.listenModelBrowser = listenModelBrowser;
 const runtime_types_1 = require("../shared/runtime-types");
 function modelBrowserOpen(raw) {
@@ -808,6 +827,14 @@ function modelBrowserOpen(raw) {
     catch {
         return;
     }
+}
+function modelBrowserClose(raw) {
+    const value = (0, runtime_types_1.objectValue)(raw);
+    if (typeof value.requestId !== 'string' || !/^[0-9a-f]{32}$/.test(value.requestId)
+        || typeof value.owner !== 'string' || !value.owner || value.owner.length > 128
+        || typeof value.tabId !== 'string' || !/^[A-Za-z0-9:_-]{1,64}$/.test(value.tabId))
+        return;
+    return { requestId: value.requestId, owner: value.owner, tabId: value.tabId };
 }
 /** Always mounted at AppFrame, even when settings or another center occludes
  * the browser. Events never change the selected chat or borrow its identity. */
@@ -843,6 +870,20 @@ function listenModelBrowser(native, ui) {
         }
         requests.add(request.requestId);
         ui.open(request);
+    });
+    bind('xharness-browser-control-close', raw => {
+        const request = modelBrowserClose(raw);
+        if (!request || recent.includes(request.requestId))
+            return;
+        remember(request.requestId);
+        const reply = (closed) => native.core.invoke('desktop_browser_control_reply', {
+            requestId: request.requestId, reply: closed ? { status: 'closed', tab_id: request.tabId } : { status: 'failed' },
+        }).catch(() => { });
+        if (ui.currentOwner() !== request.owner || !ui.ready()) {
+            void reply(false);
+            return;
+        }
+        void ui.close(request).then(reply, () => reply(false));
     });
     bind('xharness-browser-control-cancel', raw => {
         if (typeof raw !== 'string' || !/^[0-9a-f]{32}$/.test(raw))

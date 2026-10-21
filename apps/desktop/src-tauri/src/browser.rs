@@ -119,6 +119,13 @@ struct BrowserTab {
 pub struct BrowserState(Mutex<BrowserInner>);
 
 impl BrowserState {
+    pub(super) fn closed_receipt(&self, tab_id: &str) -> Result<serde_json::Value, String> {
+        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.tabs.contains_key(tab_id) || inner.active.as_deref() == Some(tab_id) {
+            return Err("browser tab is not closed".into());
+        }
+        Ok(serde_json::json!({"ok":true,"effect":"applied","state":"closed","tab_id":tab_id}))
+    }
     pub(super) fn inspection_target(
         &self,
         tab_id: &str,
@@ -703,11 +710,19 @@ pub async fn desktop_browser_close(
     tab_id: String,
 ) -> Result<(), String> {
     ensure_main(&caller)?;
-    let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
-    if inner.active.as_deref() == Some(&tab_id) {
-        inner.active = None;
+    if !valid_tab_id(&tab_id) {
+        return Err("invalid browser tab".into());
     }
-    if let Some(tab) = inner.tabs.remove(&tab_id) {
+    let tab = {
+        let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active.as_deref() == Some(&tab_id) {
+            inner.active = None;
+        }
+        inner.tabs.remove(&tab_id)
+    };
+    // Native destruction may rendezvous with the UI thread. Do not hold the
+    // registry mutex across it; UI dispatch guards also inspect this registry.
+    if let Some(tab) = tab {
         tab.inspector.revoke();
         tab.webview.close().map_err(|error| error.to_string())?;
     }

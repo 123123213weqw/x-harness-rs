@@ -39,7 +39,7 @@ try{
      if(new URL(nativeTabs.get(args.tabId).url).origin!==args.expectedOrigin)throw Error('browser origin changed; synchronize the visible page again');
      return {origin:args.expectedOrigin,grant:{owner:args.owner,allowActions:true,remainingMs:600000}};
    }
-   if(command==='desktop_browser_control_reply')return args.reply.status==='ready'&&nativeTabs.get(args.reply.tab_id)?.loaded===true;
+   if(command==='desktop_browser_control_reply')return args.reply.status==='closed'?!nativeTabs.has(args.reply.tab_id):args.reply.status==='ready'&&nativeTabs.get(args.reply.tab_id)?.loaded===true;
  }},event:{listen:async(event,fn)=>{const set=nativeListeners.get(event)??new Set();set.add(fn);nativeListeners.set(event,set);return()=>set.delete(fn)}}};
  `})
  for(const id of ['@xharness/dsh-client-ui-layout','@xlang/xharness-client-ui-browser','@xharness/dsh-client-runtime'])await page.addScriptTag({content:ownedViewModuleTestInput(id)})
@@ -148,7 +148,7 @@ try{
  // In-flight open cancellation closes only that provisional tab, not history.
  await page.evaluate(()=>{
    const invoke=__TAURI__.core.invoke
-   __TAURI__.core.invoke=(command,args)=>command==='desktop_browser_navigate'?new Promise(resolve=>{window.releaseNavigation=()=>invoke(command,args).then(resolve)}):invoke(command,args)
+   __TAURI__.core.invoke=(command,args)=>{if(command!=='desktop_browser_navigate')return invoke(command,args);__TAURI__.core.invoke=invoke;return new Promise(resolve=>{window.releaseNavigation=()=>invoke(command,args).then(resolve)})}
    emitNative('xharness-browser-control-open',{requestId:'d'.repeat(32),owner:'chat-b',url:'https://pending.example/'})
  })
  await page.waitForFunction(()=>typeof window.releaseNavigation==='function')
@@ -166,6 +166,46 @@ try{
  await page.getByRole('alert').waitFor()
  assert.equal(await page.getByRole('alert').textContent(),'Native address updates are unavailable')
  assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+
+ // Model closure is exact-owner + active-tab scoped, not a tab/owner override.
+ for(const [id,owner,target] of [['1','chat-b',tabId],['2','chat-a','browser:unrelated']]){
+   await page.evaluate(({id,owner,target})=>emitNative('xharness-browser-control-close',{requestId:id.repeat(32),owner,tabId:target}),{id,owner,target})
+   await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id.repeat(32)&&c.args.reply.status==='failed'),id)
+   assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+ }
+ const closeId='3'.repeat(32)
+ await page.evaluate(({closeId,tabId})=>emitNative('xharness-browser-control-close',{requestId:closeId,owner:'chat-a',tabId}),{closeId,tabId})
+ await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='closed'),closeId)
+ await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ assert.equal(await page.evaluate(id=>nativeTabs.has(id),tabId),false)
+ await page.waitForFunction(()=>!JSON.parse(localStorage.getItem('xharness:browser-spaces-v1')??'{}')['chat-a'])
+ const next='4'.repeat(32)
+ await page.evaluate(id=>emitNative('xharness-browser-control-open',{requestId:id,owner:'chat-a',url:'https://next.example/'}),next)
+ await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='ready'),next)
+ await page.evaluate(({closeId,tabId})=>emitNative('xharness-browser-control-close',{requestId:closeId,owner:'chat-a',tabId}),{closeId,tabId})
+ assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://next.example/','late close cannot target its successor')
+ // Reproduce the old manual-close bug: native queue blocked by a page sample.
+ await page.evaluate(id=>{
+   const invoke=__TAURI__.core.invoke
+   __TAURI__.core.invoke=(command,args)=>{
+     if(command!=='desktop_browser_page_state')return invoke(command,args)
+     __TAURI__.core.invoke=invoke
+     return new Promise(resolve=>{window.releaseCloseSample=()=>resolve({url:'https://next.example/',loaded:true})})
+   }
+   emitNative('xharness-browser-event',{tabId:'browser:'+id,kind:'navigation-policy',value:''})
+ },next)
+ await page.waitForFunction(()=>typeof window.releaseCloseSample==='function')
+ await page.getByRole('button',{name:'关闭当前网页',exact:true}).click()
+ await page.waitForFunction(id=>!nativeTabs.has('browser:'+id),next,{timeout:2000})
+ await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.evaluate(()=>releaseCloseSample())
+ await page.waitForTimeout(100)
+ assert.equal(await page.evaluate(id=>nativeTabs.has('browser:'+id),next),false,'late callback cannot resurrect a manually closed page')
+ // The More menu also exposes closure; blank tabs are closable without native state.
+ await page.evaluate(()=>window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'browser',fresh:true}})))
+ await page.getByRole('button',{name:'更多浏览器操作',exact:true}).click()
+ await page.getByRole('button',{name:'关闭标签页',exact:true}).click()
+ await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
  await page.evaluate(()=>root.unmount())
  assert.deepEqual(errors,[])
  console.log(engine+': zero-tab → sidebar → load-before-promise → owner binding → ready; background/late/cancel/schema guards passed (mock transport)')

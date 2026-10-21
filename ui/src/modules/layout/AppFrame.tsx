@@ -123,6 +123,7 @@ export function AppFrame({
   const [spaces,setSpaces]=useState<BrowserSpaces>(xhLoadBrowserSpaces)
   const [browserRestored,setBrowserRestored]=useState(!window.__TAURI__?.core?.invoke)
   const restoredRef=useRef(browserRestored);restoredRef.current=browserRestored
+  const spacesRef=useRef(spaces);spacesRef.current=spaces
   const space=spaces[spaceKey]??xhWorkspaceEmpty
   const nextWorkspaceId=useRef(xhNextWorkspaceId(spaces))
   useEffect(()=>{
@@ -149,7 +150,20 @@ export function AppFrame({
           modelRequestId:request.requestId,title:new URL(request.url).hostname,entries:[request.url],position:0}
         setSpaces(all=>({...all,[request.owner]:xhWorkspaceOpen(all[request.owner]??xhWorkspaceEmpty,item,false)}))
       },
+      close:async request=>{
+        const current=spacesRef.current[request.owner]
+        if(spaceKeyRef.current!==request.owner||current?.activeId!==request.tabId
+          ||!current.items.some(item=>item.id===request.tabId&&item.kind==='browser'))return false
+        // Remove presentation first so pending layout work observes unmount.
+        // Destruction must bypass the navigation queue, which may be awaiting
+        // a slow page callback. Exact owner+ID prevents closing its successor.
+        window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id:request.tabId}}))
+        setSpaces(all=>({...all,[request.owner]:xhWorkspaceClose(all[request.owner]??xhWorkspaceEmpty,request.tabId)}))
+        await native.core.invoke('desktop_browser_close',{tabId:request.tabId})
+        return true
+      },
       cancel:requestId=>{
+        window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id:`browser:${requestId}`}}))
         setSpaces(all=>Object.fromEntries(Object.entries(all).map(([owner,space])=>[owner,
           space.items.some(item=>item.modelRequestId===requestId)?xhWorkspaceClose(space,`browser:${requestId}`):space])))
         void native.core.invoke('desktop_browser_close',{tabId:`browser:${requestId}`}).catch(()=>{})
@@ -171,7 +185,10 @@ export function AppFrame({
   }
   const closeWorkspace=(id:string|null):void=>{
     if(id==='tool')actions.closeDetails()
-    if(space.items.some(item=>item.id===id&&item.kind==='browser'))window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id}}))
+    if(space.items.some(item=>item.id===id&&item.kind==='browser')){
+      window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id}}))
+      window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id}}))
+    }
     updateSpace(value=>xhWorkspaceClose(value,id))
   }
   useEffect(()=>{
