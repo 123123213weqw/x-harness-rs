@@ -153,5 +153,28 @@ try {
  await page.evaluate(()=>document.activeElement?.blur());
  await page.locator('[data-counter="0"]').waitFor({state:'detached'});
  await scroll.evaluate(e=>{e.style.width='500px';e.scrollTop=0});await page.locator('[data-counter="1"]').waitFor();assert.equal(await page.locator('[data-counter="0"]').innerText(),'row 0 count 1');
+ // A visible conversation fork targets the real turn/end, not the prose or
+ // an interruption-frozen fractional message sequence. Failures stay visible.
+ if(impl==='source'){
+  await page.evaluate(()=>{
+   window.forkCalls=[];window.forkNotices=[];window.forkOpened=[];window.failFork=false;
+   const sessions={fork:async input=>{forkCalls.push(input);if(failFork)throw Error('fork persistence unavailable');return'child'},open:id=>forkOpened.push(id)};
+   const hub={shell:()=>({notify:(kind,message)=>forkNotices.push({kind,message})})};
+   renderComponent('TurnTailNodeView',{
+    node:{key:'fork-tail',location:{kind:'turn',turn:{}},data:{turn:1,seq:19,branchUnavailable:false,
+     closing:{time:100,blocks:[],finalNode:{seq:17.1}}}},
+    openFile:async()=>{},forkAt:seq=>{void plugin.xhForkAt(hub,sessions,'source',seq)},
+    renderSlot:()=>null,renderSlotChain:()=>null,t,
+    useSession:select=>select({chat:{locations:{getTurn:()=>['fork-tail']}}}),
+   });
+  });
+  const branch=page.getByRole('button',{name:await page.evaluate(()=>t('message.branch')),exact:true});
+  await branch.click();await page.waitForFunction(()=>forkOpened.length===1);
+  assert.deepEqual(await page.evaluate(()=>forkCalls),[{sessionId:'source',atSeq:19,increaseTitle:true}]);
+  await page.evaluate(()=>{window.failFork=true});await branch.click();
+  await page.waitForFunction(()=>forkNotices.length===1);
+  assert.equal(await page.evaluate(()=>forkOpened.length),1);
+  assert.ok((await page.evaluate(()=>forkNotices[0])).message.includes('fork persistence unavailable'));
+ }
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[]);console.log(`${engine} ${impl}: whole resident conversation + light/dark Send/Stop contrast + composer/menu/file send + editor/IDB + context ring + reasoning/compaction/checkpoint + approval/queue/permissions/silver hero/fork ancestry + transcript pin/evict/reflow passed`);
 } finally {await browser.close();await new Promise(r=>server.close(r))}

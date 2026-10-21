@@ -769,6 +769,14 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(false)
     }
 
+    /// Publish a complete, independently owned fork in one storage transaction.
+    /// The validated snapshot retains the original history revision boundaries.
+    async fn persist_fork_session(&self, _session: Session) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "atomic fork persistence is unsupported by this runtime".into(),
+        })
+    }
+
     /// Opt in only if an idle, closed Session has no custom recovery work
     /// beyond the standard durable inbox/interactions/Goal/schedules. Unknown
     /// runtime implementations keep authoritative full replay by default.
@@ -1935,6 +1943,15 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             .map_err(|e| AgentRuntimeError::Preparation {
                 message: format!("request audit unavailable: {e}"),
             })
+    }
+
+    async fn persist_fork_session(&self, session: Session) -> Result<(), AgentRuntimeError> {
+        self.store.create_seeded(session).await.map_err(|error| {
+            AgentRuntimeError::Preparation {
+                message: format!("could not publish fork history: {error}"),
+            }
+        })?;
+        Ok(())
     }
 
     async fn persist_session_events(

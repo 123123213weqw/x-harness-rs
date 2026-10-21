@@ -1,5 +1,5 @@
 import { XHarnessEditableInputBar } from './edit/EditableInputBar'
-import { xhEditMessage, xhForkMessage } from './edit/actions'
+import { xhEditMessage, xhForkMessage, xhForkAt } from './edit/actions'
 /** Registers the conversation components, shared store, and service callbacks. */
 import type { Context } from "./types/runtime"
 import { resolveSlotLabel } from "@xharness/dsh-client-ui-slots"
@@ -419,13 +419,7 @@ export function apply(ctx: Context): void {
           actions.setView('trajectory')
         },
         chatScroll: chatScrollMemory.forSession(sessionId),
-        forkAt: (seq) => {
-          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
-            .then((childId) => { sessions.open(childId) })
-            .catch(() => {
-              // Fork or child-rename failure keeps the source view untouched.
-            })
-        },
+        forkAt: (seq) => { void xhForkAt(inputHub, sessions, sessionId, seq) },
       }
     },
   }, ChatView)

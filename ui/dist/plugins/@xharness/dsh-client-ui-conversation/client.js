@@ -409,13 +409,7 @@ function apply(ctx) {
                     actions.setView('trajectory');
                 },
                 chatScroll: chatScrollMemory.forSession(sessionId),
-                forkAt: (seq) => {
-                    sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
-                        .then((childId) => { sessions.open(childId); })
-                        .catch(() => {
-                        // Fork or child-rename failure keeps the source view untouched.
-                    });
-                },
+                forkAt: (seq) => { void (0, actions_1.xhForkAt)(inputHub, sessions, sessionId, seq); },
             };
         },
     }, ChatView_1.ChatView);
@@ -2231,6 +2225,7 @@ function DraftAttachmentId(value) { return draftAttachmentIdSchema.parse(value);
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.xhEditMessage = xhEditMessage;
 exports.xhForkMessage = xhForkMessage;
+exports.xhForkAt = xhForkAt;
 const MessageEditor_1 = require("./MessageEditor");
 function xhEditMessage(hub, id, content) {
     const shell = hub.shell(id), editor = shell.xhEditor;
@@ -2263,6 +2258,16 @@ async function xhForkMessage(hub, sessions, id, seq, content) {
     if (!editor.state.editing)
         shell.notify('error', editor.state.error || 'Could not prepare fork draft');
     return childId;
+}
+/** Report a failed message fork without navigating away from its source. */
+async function xhForkAt(hub, sessions, id, seq) {
+    try {
+        const childId = await sessions.fork({ sessionId: id, atSeq: seq, increaseTitle: true });
+        sessions.open(childId);
+    }
+    catch (error) {
+        hub.shell(id).notify('error', String(error));
+    }
 }
 
 },
@@ -7379,7 +7384,7 @@ exports.TurnTailNodeView = (0, react_1.memo)(function TurnTailNodeView({ node, o
     const assistantActions = messageId === undefined
         ? null
         : renderSlot('conversation.chat.assistant-actions', { messageId });
-    return ((0, jsx_runtime_1.jsxs)("div", { className: TurnTailNodeView_styles_1.default.root, "data-turn-tail": data.turn, "data-time-hover-root": true, children: [tail, (0, jsx_runtime_1.jsx)(MessageIconActions_1.MessageIconActions, { text: (0, turn_assistant_1.assistantText)(closing.blocks), time: closing.time, ttftMs: data.ttftMs, tokensPerSecond: data.tokensPerSecond, clock: "end", onBranch: () => { forkAt(closing.finalNode.seq); }, branchUnavailable: data.branchUnavailable || hasLaterChatNode, className: TurnTailNodeView_styles_1.default.actions, extraActions: assistantActions, t: t })] }));
+    return ((0, jsx_runtime_1.jsxs)("div", { className: TurnTailNodeView_styles_1.default.root, "data-turn-tail": data.turn, "data-time-hover-root": true, children: [tail, (0, jsx_runtime_1.jsx)(MessageIconActions_1.MessageIconActions, { text: (0, turn_assistant_1.assistantText)(closing.blocks), time: closing.time, ttftMs: data.ttftMs, tokensPerSecond: data.tokensPerSecond, clock: "end", onBranch: () => { forkAt(data.seq); }, branchUnavailable: data.branchUnavailable || hasLaterChatNode, className: TurnTailNodeView_styles_1.default.actions, extraActions: assistantActions, t: t })] }));
 });
 
 },

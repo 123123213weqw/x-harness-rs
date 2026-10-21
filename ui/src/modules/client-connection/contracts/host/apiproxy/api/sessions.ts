@@ -355,7 +355,10 @@ export interface SessionsApi {
    * Forks a new session from a completed-turn prefix of the source. `atSeq`
    * anchors the cut: the boundary is the first `turn/end` at or after it
    * (a message's fork button passes the message seq, so the fork includes
-   * that whole turn); a boundary past the log end, or an omitted `atSeq`,
+   * that whole turn). An explicit step/end anchor is a low-level checkpoint
+   * cut: its caller must close/reconcile the interrupted turn before resuming.
+   * The conversation UI always sends its durable turn/end sequence. A boundary
+   * past the log end, or an omitted `atSeq`,
    * falls back to the source's last completed turn. An in-log anchor whose
    * turn is still open fails with `fork-unavailable` instead of clipping to
    * an earlier turn. The child inherits the source cwd, latest logged model
