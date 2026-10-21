@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 
@@ -28,6 +29,36 @@ EXTERNAL_BINARIES = [
 
 
 class WindowsDesktopBundleTests(unittest.TestCase):
+    def test_native_webview_com_types_match_the_wry_bridge(self) -> None:
+        packages = tomllib.loads((TAURI_ROOT / "Cargo.lock").read_text())["package"]
+
+        def package(name):
+            candidates = [p for p in packages if p["name"] == name]
+            self.assertEqual(len(candidates), 1, f"ambiguous package: {name}")
+            return candidates[0]
+
+        def dependency(owner, name):
+            refs = [d.split() for d in package(owner).get("dependencies", [])
+                    if d.split()[0] == name]
+            self.assertEqual(len(refs), 1, f"missing or ambiguous {owner} -> {name}")
+            return refs[0][1] if len(refs[0]) > 1 else package(name)["version"]
+
+        # Callback/controller values cross this boundary. Different crate
+        # versions produce distinct COM types despite identical interface names.
+        for name in ("webview2-com", "windows"):
+            self.assertEqual(dependency("xharness-desktop", name), dependency("wry", name), name)
+
+    def test_linux_deep_link_parser_uses_compatible_locked_api(self) -> None:
+        manifest = tomllib.loads((TAURI_ROOT / "Cargo.toml").read_text())
+        linux = manifest["target"]['cfg(target_os = "linux")']["dependencies"]
+        self.assertEqual(linux["rust-ini"], "=0.21.1")
+        packages = tomllib.loads((TAURI_ROOT / "Cargo.lock").read_text())["package"]
+        parsers = [p for p in packages if p["name"] == "rust-ini"]
+        self.assertEqual([p["version"] for p in parsers], ["0.21.1"])
+        deep_link = next(p for p in packages if p["name"] == "tauri-plugin-deep-link")
+        self.assertEqual([d for d in deep_link["dependencies"] if d.split()[0] == "rust-ini"],
+                         ["rust-ini"], "deep-link must use the constrained parser, not a second version")
+
     def test_composer_receives_html_file_drops(self) -> None:
         # Tauri defaults to intercepting WebView2 drops. The shared composer
         # consumes DOM File objects, not tauri://drag-drop path events.
