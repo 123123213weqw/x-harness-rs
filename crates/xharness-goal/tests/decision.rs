@@ -308,37 +308,45 @@ fn stale_reports_cannot_complete() {
     }
 }
 #[test]
-fn last_round_can_complete_but_cannot_start_more_work() {
-    for status in [
-        None,
-        Some(GoalReportStatus::Progress),
-        Some(GoalReportStatus::Complete),
-    ] {
-        let mut o = settled(status);
-        o.goal.as_mut().unwrap().snapshot.max_goal_rounds = 1;
-        if status == Some(GoalReportStatus::Complete) {
-            assert!(matches!(decision(&o), GoalDecision::Complete { .. }));
-        } else {
-            assert!(matches!(
-                decision(&o),
-                GoalDecision::Pause {
-                    reason: PauseReason::RoundBudget,
-                    ..
-                }
-            ));
+fn legacy_round_metadata_never_limits_progress_or_completion() {
+    for rounds in [1, 4, 255, 256, 257, 65_536, u64::MAX] {
+        for status in [
+            None,
+            Some(GoalReportStatus::Progress),
+            Some(GoalReportStatus::Complete),
+        ] {
+            let mut o = settled(status);
+            o.goal.as_mut().unwrap().snapshot.max_goal_rounds = 1;
+            o.rounds_started = rounds;
+            if status == Some(GoalReportStatus::Complete) {
+                assert!(matches!(decision(&o), GoalDecision::Complete { .. }));
+            } else {
+                assert!(matches!(decision(&o), GoalDecision::Continue { .. }));
+            }
         }
+        let mut rejected = settled(Some(GoalReportStatus::Complete));
+        rejected.goal.as_mut().unwrap().snapshot.max_goal_rounds = 1;
+        rejected.rounds_started = rounds;
+        rejected.completion_review = Some(review(ReviewVerdict::Rejected));
+        assert!(matches!(
+            decision(&rejected),
+            GoalDecision::Continue {
+                reason: ContinueReason::CompletionRejected,
+                ..
+            }
+        ));
+        // Removing the round limit must not bypass user-confirmation semantics.
+        rejected.completion_review = None;
+        rejected.goal.as_mut().unwrap().verification = VerificationMode::UserConfirm;
+        assert_eq!(
+            decision(&rejected),
+            GoalDecision::Wait {
+                reason: WaitReason::CompletionConfirmation
+            }
+        );
     }
-    let mut o = settled(Some(GoalReportStatus::Complete));
-    o.goal.as_mut().unwrap().snapshot.max_goal_rounds = 1;
-    o.completion_review = Some(review(ReviewVerdict::Rejected));
-    assert!(matches!(
-        decision(&o),
-        GoalDecision::Pause {
-            reason: PauseReason::RoundBudget,
-            ..
-        }
-    ));
 }
+
 #[test]
 fn duplicate_and_pending_intents_are_not_readmitted() {
     let mut o = settled(Some(GoalReportStatus::Progress));
@@ -426,13 +434,12 @@ fn protocol_stall_threshold_is_explicit_not_text_similarity() {
 }
 #[test]
 fn inconsistent_observation_is_rejected() {
-    for field in 0..5 {
+    for field in 0..4 {
         let mut o = settled(None);
         match field {
             0 => o.activation_epoch = 0,
             1 => o.empty_report_limit = 0,
-            2 => o.rounds_started = 257,
-            3 => o.rounds_started = 0,
+            2 => o.rounds_started = 0,
             _ => o.latest_turn.as_mut().unwrap().turn = 0,
         }
         assert!(decide(&o).is_err());
@@ -540,11 +547,11 @@ fn provider_recovery_deadline_budget_and_failure_scope_are_fenced() {
         }
     );
     o.unresolved_dependencies = false;
-    o.rounds_started = o.goal.as_ref().unwrap().snapshot.max_goal_rounds;
+    o.rounds_started = o.goal.as_ref().unwrap().snapshot.max_goal_rounds + 1;
     assert!(matches!(
         decision(&o),
-        GoalDecision::Pause {
-            reason: PauseReason::RoundBudget,
+        GoalDecision::Continue {
+            reason: ContinueReason::ProviderRecovery,
             ..
         }
     ));

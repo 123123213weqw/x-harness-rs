@@ -17,7 +17,7 @@ const STATES: Readonly<Record<string, GoalKey>> = {
   network_backoff: 'state.networkBackoff', paused: 'state.paused', blocked: 'state.blocked', complete: 'phase.complete',
 }
 const REASONS: Readonly<Record<string, string>> = {
-  round_budget: '轮数预算已到', cancelled: '用户停止', execution_error: '执行失败', step_limit: '步骤上限',
+  round_budget: '旧版本轮数限制，可手动继续', cancelled: '用户停止', execution_error: '执行失败', step_limit: '步骤上限',
   output_limit: '输出上限', outcome_unknown: '上轮结果未知，未自动重放', report_protocol_stalled: '连续缺少进展报告',
 }
 function stateLabel(goal: GoalSnapshot, projection: GoalProjection | null | undefined, t: PropsLocale<'goal'>['t']): string {
@@ -28,7 +28,7 @@ function stateLabel(goal: GoalSnapshot, projection: GoalProjection | null | unde
 }
 export function goalStatus(goal: GoalSnapshot, projection: GoalProjection | null | undefined, t: PropsLocale<'goal'>['t']): string {
   const execution = projection?.execution
-  return `${stateLabel(goal, projection, t)} · ${execution?.roundsStarted ?? goal.roundsStarted ?? 0}/${execution?.maxGoalRounds ?? goal.maxGoalRounds} ${t('rounds.unit')}`
+  return `${stateLabel(goal, projection, t)} · ${execution?.roundsStarted ?? projection?.roundsStarted ?? goal.roundsStarted ?? 0} ${t('rounds.unit')}`
 }
 export function goalTitle(goal: GoalSnapshot, projection: GoalProjection | null | undefined): string {
   const execution = projection?.execution; const report = execution?.report
@@ -42,47 +42,33 @@ interface ControlsProps extends Omit<GoalBarActions, 'onEdit' | 'onClear'>, Prop
   goal: GoalSnapshot; projection: GoalProjection | null | undefined
   runAction: RunAction; pending: boolean; actionError: string | null; beginEdit(): void; clearGoal(): Promise<void>
 }
-function GoalControls({goal, projection, onComplete, onResume, onPause, onBudget, clearGoal, runAction, pending, actionError, beginEdit, t}: ControlsProps) {
+function GoalControls({goal, projection, onComplete, onResume, onPause, clearGoal, runAction, pending, actionError, beginEdit, t}: ControlsProps) {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [surface, setSurface] = useState<'none' | 'budget' | 'clear'>('none')
-  const [budget, setBudget] = useState('')
-  const identity = useRef(goal.id)
+  const [clearOpen, setClearOpen] = useState(false)
   const moreRef = useRef<HTMLButtonElement>(null)
-  const budgetRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    identity.current = goal.id; setMenuOpen(false); setSurface('none'); setBudget('')
-    return () => {identity.current = ''}
-  }, [goal.id, goal.revision])
+  useEffect(() => {setMenuOpen(false); setClearOpen(false)}, [goal.id, goal.revision])
   const execution = projection?.execution
   const complete = goal.phase === 'complete'
   const confirmation = !complete && execution?.state === 'awaiting_confirmation'
   const resume = complete || goal.phase === 'paused' || goal.phase === 'blocked' || execution?.state === 'disabled' || confirmation
   const resumeLabel = complete ? t('action.reopen') : execution?.state === 'disabled' ? t('action.enable') : confirmation ? t('action.continue') : t('action.resume')
-  const openBudget = () => {
-    setMenuOpen(false); setBudget(String(execution?.maxGoalRounds ?? goal.maxGoalRounds)); setSurface('budget')
-  }
   const closeSurface = () => {
     if (pending) return
-    const previous = surface; setSurface('none')
-    if (previous === 'budget') budgetRef.current?.focus()
-    else moreRef.current?.focus()
+    setClearOpen(false); moreRef.current?.focus()
   }
   const items: MenuEntry[] = [
     {id: 'edit', label: t('action.edit'), icon: <IconEditOutline16 />, disabled: pending},
     ...(!complete ? [
-      {id: 'budget', label: t('action.budget'), disabled: pending},
       {id: 'complete', label: t('action.complete'), icon: <IconCheckOutline16 />, disabled: pending},
     ] : []),
     {id: 'separator', type: 'separator'},
     {id: 'clear', label: t('action.clear'), icon: <IconTrashOutline16 />, danger: true, disabled: pending},
   ]
-  const validBudget = Number.isSafeInteger(Number(budget)) && Number(budget) >= 1
   return <span className={css.controls} data-goal-runtime>
     <span className={css.label} title={goalStatus(goal, projection, t)}>{stateLabel(goal, projection, t)}</span>
-    <button ref={budgetRef} type="button" className={css.rounds} disabled={pending || complete} aria-label={t('action.budget')}
-      title={complete ? goalStatus(goal, projection, t) : t('action.budget')} onClick={openBudget}>
-      {execution?.roundsStarted ?? goal.roundsStarted ?? 0}/{execution?.maxGoalRounds ?? goal.maxGoalRounds} {t('rounds.unit')}
-    </button>
+    <span className={css.rounds} aria-label={t('rounds.label')} title={t('rounds.hint')}>
+      {execution?.roundsStarted ?? projection?.roundsStarted ?? goal.roundsStarted ?? 0} {t('rounds.unit')}
+    </span>
     {confirmation && <button type="button" className={css.iconBtn} disabled={pending} aria-label={t('action.confirm')} title={t('action.confirm')}
       onClick={() => {void runAction(onComplete)}}><IconCheckOutline16 size={16} /></button>}
     {resume ? <button type="button" className={css.iconBtn} disabled={pending} aria-label={resumeLabel} title={resumeLabel}
@@ -94,34 +80,14 @@ function GoalControls({goal, projection, onComplete, onResume, onPause, onBudget
         if (pending) return
         setMenuOpen(false)
         if (id === 'edit') beginEdit()
-        else if (id === 'budget') openBudget()
         else if (id === 'complete') {moreRef.current?.focus(); void runAction(onComplete)}
-        else if (id === 'clear') setSurface('clear')
+        else if (id === 'clear') setClearOpen(true)
       }}
       anchor={<button ref={moreRef} type="button" className={css.iconBtn} disabled={pending} aria-label={t('action.more')}
         title={t('action.more')} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => {setMenuOpen(value => !value)}}>
         <IconEllipsisOutline16 size={16} />
       </button>} />
-    <Modal open={surface === 'budget'} onClose={closeSurface} title={t('budget.title')} closeLabel={t('action.close')}
-      description={t('budget.hint')} className={css.dialog}>
-      <form onSubmit={async event => {
-        event.preventDefault()
-        if (!validBudget || pending) return
-        const started = goal.id; const result = await runAction(() => onBudget(Number(budget)))
-        if (result?.ok && identity.current === started) {setSurface('none'); budgetRef.current?.focus()}
-      }}>
-        <label className={css.budgetLabel}>{t('budget.label')}
-          <input className={css.budgetInput} type="number" min={1} step={1} value={budget} disabled={pending} autoFocus
-            onChange={event => {setBudget(event.target.value)}} />
-        </label>
-        {actionError !== null && <p className={css.error} role="alert">{actionError}</p>}
-        <div className={css.dialogActions}>
-          <Button size="sm" disabled={pending} onClick={closeSurface}>{t('action.cancelDialog')}</Button>
-          <Button size="sm" variant="primary" type="submit" disabled={pending || !validBudget}>{t('budget.save')}</Button>
-        </div>
-      </form>
-    </Modal>
-    <Modal open={surface === 'clear'} onClose={closeSurface} title={t('clear.title')} closeLabel={t('action.close')}
+    <Modal open={clearOpen} onClose={closeSurface} title={t('clear.title')} closeLabel={t('action.close')}
       description={t('clear.hint')} className={css.dialog}
       footer={<>
         <Button size="sm" disabled={pending} onClick={closeSurface}>{t('action.cancelDialog')}</Button>
@@ -134,7 +100,7 @@ function GoalControls({goal, projection, onComplete, onResume, onPause, onBudget
 export interface GoalBarProps extends GoalBarActions, PropsLocale<'goal'> {
   goal: GoalSnapshot | null | undefined; projection?: GoalProjection | null | undefined
 }
-export function GoalBar({goal, projection, onComplete, onBudget, onEdit, onPause, onResume, onClear, t}: GoalBarProps) {
+export function GoalBar({goal, projection, onComplete, onEdit, onPause, onResume, onClear, t}: GoalBarProps) {
   const [editing, setEditing] = useState(false); const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false); const [actionError, setActionError] = useState<string | null>(null)
   const [clearedGoalId, setClearedGoalId] = useState<string | null>(null)
@@ -173,7 +139,7 @@ export function GoalBar({goal, projection, onComplete, onBudget, onEdit, onPause
         <button type="button" className={css.iconBtn} disabled={pending} onClick={() => {setEditing(false)}} aria-label={t('action.cancel')} title={t('action.cancel')}><IconCloseOutline16 size={16} /></button>
       </form> : <>
         <button type="button" className={css.objective} title={t('action.edit')} aria-label={`${t('action.edit')}: ${goal.objective}`} disabled={pending} onClick={beginEdit}>{goal.objective}</button>
-        <GoalControls key={goal.id} goal={goal} projection={projection} onComplete={onComplete} onBudget={onBudget} onPause={onPause} onResume={onResume}
+        <GoalControls key={goal.id} goal={goal} projection={projection} onComplete={onComplete} onPause={onPause} onResume={onResume}
           clearGoal={async () => {
             if ((await runAction(onClear))?.ok) setClearedGoalId(goal.id)
           }} runAction={runAction} beginEdit={beginEdit} pending={pending} actionError={actionError} t={t} />
@@ -185,8 +151,8 @@ export function GoalBar({goal, projection, onComplete, onBudget, onEdit, onPause
 export interface GoalDockProps extends GoalBarActions, PropsLocale<'goal'> {
   useProjection(name: 'goal'): GoalProjection | null | undefined
 }
-export function GoalDock({useProjection, onEdit, onPause, onResume, onClear, onComplete, onBudget, t}: GoalDockProps) {
+export function GoalDock({useProjection, onEdit, onPause, onResume, onClear, onComplete, t}: GoalDockProps) {
   const projection = useProjection('goal')
   return <GoalBar goal={projection === undefined ? undefined : projection === null ? null : projection.goal} projection={projection} onEdit={onEdit} onPause={onPause}
-    onResume={onResume} onClear={onClear} onComplete={onComplete} onBudget={onBudget} t={t} />
+    onResume={onResume} onClear={onClear} onComplete={onComplete} t={t} />
 }

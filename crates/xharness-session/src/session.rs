@@ -1206,7 +1206,6 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                         || goal.objective.trim().is_empty()
                         || goal.revision == 0
                         || goal.max_goal_rounds == 0
-                        || change.rounds_started > goal.max_goal_rounds
                         || change.updated_at < change.created_at
                     {
                         return Err(lifecycle_error(
@@ -1286,7 +1285,6 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
                                                 | crate::GoalPhase::Complete
                                         )
                                         && goal.phase == crate::GoalPhase::Active
-                                        && change.rounds_started < goal.max_goal_rounds
                                 }
                                 crate::GoalSnapshotOperation::Complete => {
                                     same_definition

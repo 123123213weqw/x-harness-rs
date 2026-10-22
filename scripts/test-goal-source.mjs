@@ -7,7 +7,7 @@ import {json} from './conversation-test-harness.mjs';
 import {descendants} from './conversation-test-hooks.mjs';
 const source=compileGoal().bytes.toString();
 test('goal preserves existing ABI/styles and adds the independent Progress surface',()=>{const next=goalFixture(source),old=goalFixture(legacyGoal);assert.deepEqual(Object.keys(next.plugin).filter(key=>key!=='ProgressDock').sort(),Object.keys(old.plugin).sort());assert.deepEqual(json(next.plugin.inject),json(old.plugin.inject));const reviewed=readFileSync(new URL('../ui/src/modules/goal/GoalBar.css',import.meta.url),'utf8');
- assert.equal(createHash('sha256').update(reviewed).digest('hex'),'ca5a2ea3e9c8ca14000710bd98138585b414aefa010b3053f81d1231749bc2a2','reviewed compact Goal styling');
+ assert.equal(createHash('sha256').update(reviewed).digest('hex'),'bef7ba9b1de83bbf0895a259eebdf88e7e99f8262c951f6384989e3bf2b74437','reviewed compact Goal styling');
  const expected=old.styles.map(style=>style.dataset.pluginCss.endsWith('/GoalBar.module.css')?{...style,textContent:reviewed}:style);
  assert.deepEqual(json(next.styles.filter(style=>!style.dataset.pluginCss.endsWith('/ProgressDock.css'))),json(expected));});
 for(const [label,impl,cases] of [['source',source,compactGoalCases],['legacy',legacyGoal,goalCases]])for(const[name,check]of Object.entries(cases))test(label+': '+name,()=>check(impl));

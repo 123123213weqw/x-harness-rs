@@ -73,12 +73,6 @@ function apply(ctx) {
                     return noCurrentGoal;
                 return await ctx.remote.goals.resume(sessionId, ref);
             },
-            onBudget: async (maxGoalRounds) => {
-                const ref = refOf(sessionId);
-                if (ref === undefined)
-                    return noCurrentGoal;
-                return await ctx.remote.goals.edit(sessionId, ref, { maxGoalRounds });
-            },
             onComplete: async () => {
                 const ref = refOf(sessionId);
                 if (ref === undefined)
@@ -123,7 +117,7 @@ const STATES = {
     network_backoff: 'state.networkBackoff', paused: 'state.paused', blocked: 'state.blocked', complete: 'phase.complete',
 };
 const REASONS = {
-    round_budget: '轮数预算已到', cancelled: '用户停止', execution_error: '执行失败', step_limit: '步骤上限',
+    round_budget: '旧版本轮数限制，可手动继续', cancelled: '用户停止', execution_error: '执行失败', step_limit: '步骤上限',
     output_limit: '输出上限', outcome_unknown: '上轮结果未知，未自动重放', report_protocol_stalled: '连续缺少进展报告',
 };
 function stateLabel(goal, projection, t) {
@@ -135,7 +129,7 @@ function stateLabel(goal, projection, t) {
 }
 function goalStatus(goal, projection, t) {
     const execution = projection?.execution;
-    return `${stateLabel(goal, projection, t)} · ${execution?.roundsStarted ?? goal.roundsStarted ?? 0}/${execution?.maxGoalRounds ?? goal.maxGoalRounds} ${t('rounds.unit')}`;
+    return `${stateLabel(goal, projection, t)} · ${execution?.roundsStarted ?? projection?.roundsStarted ?? goal.roundsStarted ?? 0} ${t('rounds.unit')}`;
 }
 function goalTitle(goal, projection) {
     const execution = projection?.execution;
@@ -145,78 +139,46 @@ function goalTitle(goal, projection) {
         ...(report?.evidence ?? []).map(e => `${e.kind}: ${e.reference ?? e.execution_id}`),
     ].filter(Boolean).join('\n');
 }
-function GoalControls({ goal, projection, onComplete, onResume, onPause, onBudget, clearGoal, runAction, pending, actionError, beginEdit, t }) {
+function GoalControls({ goal, projection, onComplete, onResume, onPause, clearGoal, runAction, pending, actionError, beginEdit, t }) {
     const [menuOpen, setMenuOpen] = (0, react_1.useState)(false);
-    const [surface, setSurface] = (0, react_1.useState)('none');
-    const [budget, setBudget] = (0, react_1.useState)('');
-    const identity = (0, react_1.useRef)(goal.id);
+    const [clearOpen, setClearOpen] = (0, react_1.useState)(false);
     const moreRef = (0, react_1.useRef)(null);
-    const budgetRef = (0, react_1.useRef)(null);
-    (0, react_1.useEffect)(() => {
-        identity.current = goal.id;
-        setMenuOpen(false);
-        setSurface('none');
-        setBudget('');
-        return () => { identity.current = ''; };
-    }, [goal.id, goal.revision]);
+    (0, react_1.useEffect)(() => { setMenuOpen(false); setClearOpen(false); }, [goal.id, goal.revision]);
     const execution = projection?.execution;
     const complete = goal.phase === 'complete';
     const confirmation = !complete && execution?.state === 'awaiting_confirmation';
     const resume = complete || goal.phase === 'paused' || goal.phase === 'blocked' || execution?.state === 'disabled' || confirmation;
     const resumeLabel = complete ? t('action.reopen') : execution?.state === 'disabled' ? t('action.enable') : confirmation ? t('action.continue') : t('action.resume');
-    const openBudget = () => {
-        setMenuOpen(false);
-        setBudget(String(execution?.maxGoalRounds ?? goal.maxGoalRounds));
-        setSurface('budget');
-    };
     const closeSurface = () => {
         if (pending)
             return;
-        const previous = surface;
-        setSurface('none');
-        if (previous === 'budget')
-            budgetRef.current?.focus();
-        else
-            moreRef.current?.focus();
+        setClearOpen(false);
+        moreRef.current?.focus();
     };
     const items = [
         { id: 'edit', label: t('action.edit'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEditOutline16, {}), disabled: pending },
         ...(!complete ? [
-            { id: 'budget', label: t('action.budget'), disabled: pending },
             { id: 'complete', label: t('action.complete'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, {}), disabled: pending },
         ] : []),
         { id: 'separator', type: 'separator' },
         { id: 'clear', label: t('action.clear'), icon: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconTrashOutline16, {}), danger: true, disabled: pending },
     ];
-    const validBudget = Number.isSafeInteger(Number(budget)) && Number(budget) >= 1;
-    return (0, jsx_runtime_1.jsxs)("span", { className: GoalBar_styles_1.default.controls, "data-goal-runtime": true, children: [(0, jsx_runtime_1.jsx)("span", { className: GoalBar_styles_1.default.label, title: goalStatus(goal, projection, t), children: stateLabel(goal, projection, t) }), (0, jsx_runtime_1.jsxs)("button", { ref: budgetRef, type: "button", className: GoalBar_styles_1.default.rounds, disabled: pending || complete, "aria-label": t('action.budget'), title: complete ? goalStatus(goal, projection, t) : t('action.budget'), onClick: openBudget, children: [execution?.roundsStarted ?? goal.roundsStarted ?? 0, "/", execution?.maxGoalRounds ?? goal.maxGoalRounds, " ", t('rounds.unit')] }), confirmation && (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": t('action.confirm'), title: t('action.confirm'), onClick: () => { void runAction(onComplete); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { size: 16 }) }), resume ? (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": resumeLabel, title: resumeLabel, onClick: () => { void runAction(onResume); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPlayOutline16, { size: 16 }) })
+    return (0, jsx_runtime_1.jsxs)("span", { className: GoalBar_styles_1.default.controls, "data-goal-runtime": true, children: [(0, jsx_runtime_1.jsx)("span", { className: GoalBar_styles_1.default.label, title: goalStatus(goal, projection, t), children: stateLabel(goal, projection, t) }), (0, jsx_runtime_1.jsxs)("span", { className: GoalBar_styles_1.default.rounds, "aria-label": t('rounds.label'), title: t('rounds.hint'), children: [execution?.roundsStarted ?? projection?.roundsStarted ?? goal.roundsStarted ?? 0, " ", t('rounds.unit')] }), confirmation && (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": t('action.confirm'), title: t('action.confirm'), onClick: () => { void runAction(onComplete); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { size: 16 }) }), resume ? (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": resumeLabel, title: resumeLabel, onClick: () => { void runAction(onResume); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPlayOutline16, { size: 16 }) })
                 : (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": t('action.pause'), title: t('action.pauseHint'), onClick: () => { void runAction(onPause); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconPauseOutline16, { size: 16 }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Menu, { open: menuOpen, onClose: () => { setMenuOpen(false); }, items: items, portal: true, side: "top", align: "end", compact: true, onSelect: id => {
                     if (pending)
                         return;
                     setMenuOpen(false);
                     if (id === 'edit')
                         beginEdit();
-                    else if (id === 'budget')
-                        openBudget();
                     else if (id === 'complete') {
                         moreRef.current?.focus();
                         void runAction(onComplete);
                     }
                     else if (id === 'clear')
-                        setSurface('clear');
-                }, anchor: (0, jsx_runtime_1.jsx)("button", { ref: moreRef, type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": t('action.more'), title: t('action.more'), "aria-haspopup": "menu", "aria-expanded": menuOpen, onClick: () => { setMenuOpen(value => !value); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutline16, { size: 16 }) }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Modal, { open: surface === 'budget', onClose: closeSurface, title: t('budget.title'), closeLabel: t('action.close'), description: t('budget.hint'), className: GoalBar_styles_1.default.dialog, children: (0, jsx_runtime_1.jsxs)("form", { onSubmit: async (event) => {
-                        event.preventDefault();
-                        if (!validBudget || pending)
-                            return;
-                        const started = goal.id;
-                        const result = await runAction(() => onBudget(Number(budget)));
-                        if (result?.ok && identity.current === started) {
-                            setSurface('none');
-                            budgetRef.current?.focus();
-                        }
-                    }, children: [(0, jsx_runtime_1.jsxs)("label", { className: GoalBar_styles_1.default.budgetLabel, children: [t('budget.label'), (0, jsx_runtime_1.jsx)("input", { className: GoalBar_styles_1.default.budgetInput, type: "number", min: 1, step: 1, value: budget, disabled: pending, autoFocus: true, onChange: event => { setBudget(event.target.value); } })] }), actionError !== null && (0, jsx_runtime_1.jsx)("p", { className: GoalBar_styles_1.default.error, role: "alert", children: actionError }), (0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.dialogActions, children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: closeSurface, children: t('action.cancelDialog') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", variant: "primary", type: "submit", disabled: pending || !validBudget, children: t('budget.save') })] })] }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Modal, { open: surface === 'clear', onClose: closeSurface, title: t('clear.title'), closeLabel: t('action.close'), description: t('clear.hint'), className: GoalBar_styles_1.default.dialog, footer: (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: closeSurface, children: t('action.cancelDialog') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", variant: "primary", disabled: pending, onClick: () => { void clearGoal(); }, children: t('action.clear') })] }), children: actionError !== null && (0, jsx_runtime_1.jsx)("p", { className: GoalBar_styles_1.default.error, role: "alert", children: actionError }) })] });
+                        setClearOpen(true);
+                }, anchor: (0, jsx_runtime_1.jsx)("button", { ref: moreRef, type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, "aria-label": t('action.more'), title: t('action.more'), "aria-haspopup": "menu", "aria-expanded": menuOpen, onClick: () => { setMenuOpen(value => !value); }, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconEllipsisOutline16, { size: 16 }) }) }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Modal, { open: clearOpen, onClose: closeSurface, title: t('clear.title'), closeLabel: t('action.close'), description: t('clear.hint'), className: GoalBar_styles_1.default.dialog, footer: (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: closeSurface, children: t('action.cancelDialog') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", variant: "primary", disabled: pending, onClick: () => { void clearGoal(); }, children: t('action.clear') })] }), children: actionError !== null && (0, jsx_runtime_1.jsx)("p", { className: GoalBar_styles_1.default.error, role: "alert", children: actionError }) })] });
 }
-function GoalBar({ goal, projection, onComplete, onBudget, onEdit, onPause, onResume, onClear, t }) {
+function GoalBar({ goal, projection, onComplete, onEdit, onPause, onResume, onClear, t }) {
     const [editing, setEditing] = (0, react_1.useState)(false);
     const [draft, setDraft] = (0, react_1.useState)('');
     const [pending, setPending] = (0, react_1.useState)(false);
@@ -268,14 +230,14 @@ function GoalBar({ goal, projection, onComplete, onBudget, onEdit, onPause, onRe
         return null;
     const beginEdit = () => { setDraft(goal.objective); setEditing(true); };
     return (0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.dock, "data-goal-bar": true, children: [(0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.bar, title: goalTitle(goal, projection), children: [(0, jsx_runtime_1.jsx)("span", { className: GoalBar_styles_1.default.goalGlyph, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGoalOutline16, { size: 16 }) }), editing ? (0, jsx_runtime_1.jsxs)("form", { className: GoalBar_styles_1.default.editForm, onSubmit: event => { event.preventDefault(); void handleEdit(); }, children: [(0, jsx_runtime_1.jsx)("input", { className: GoalBar_styles_1.default.objectiveInput, type: "text", "aria-label": t('objective.aria'), value: draft, autoFocus: true, disabled: pending, onChange: event => { setDraft(event.target.value); }, onKeyDown: event => { if (event.key === 'Escape' && !pending)
-                                    setEditing(false); } }), (0, jsx_runtime_1.jsx)("button", { type: "submit", className: GoalBar_styles_1.default.iconBtn, disabled: pending || draft.trim() === '', "aria-label": t('action.save'), title: t('action.save'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { size: 16 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, onClick: () => { setEditing(false); }, "aria-label": t('action.cancel'), title: t('action.cancel'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 16 }) })] }) : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.objective, title: t('action.edit'), "aria-label": `${t('action.edit')}: ${goal.objective}`, disabled: pending, onClick: beginEdit, children: goal.objective }), (0, jsx_runtime_1.jsx)(GoalControls, { goal: goal, projection: projection, onComplete: onComplete, onBudget: onBudget, onPause: onPause, onResume: onResume, clearGoal: async () => {
+                                    setEditing(false); } }), (0, jsx_runtime_1.jsx)("button", { type: "submit", className: GoalBar_styles_1.default.iconBtn, disabled: pending || draft.trim() === '', "aria-label": t('action.save'), title: t('action.save'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { size: 16 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, onClick: () => { setEditing(false); }, "aria-label": t('action.cancel'), title: t('action.cancel'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 16 }) })] }) : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.objective, title: t('action.edit'), "aria-label": `${t('action.edit')}: ${goal.objective}`, disabled: pending, onClick: beginEdit, children: goal.objective }), (0, jsx_runtime_1.jsx)(GoalControls, { goal: goal, projection: projection, onComplete: onComplete, onPause: onPause, onResume: onResume, clearGoal: async () => {
                                     if ((await runAction(onClear))?.ok)
                                         setClearedGoalId(goal.id);
                                 }, runAction: runAction, beginEdit: beginEdit, pending: pending, actionError: actionError, t: t }, goal.id)] })] }), actionError !== null && (0, jsx_runtime_1.jsx)("div", { className: GoalBar_styles_1.default.error, role: "status", children: actionError })] });
 }
-function GoalDock({ useProjection, onEdit, onPause, onResume, onClear, onComplete, onBudget, t }) {
+function GoalDock({ useProjection, onEdit, onPause, onResume, onClear, onComplete, t }) {
     const projection = useProjection('goal');
-    return (0, jsx_runtime_1.jsx)(GoalBar, { goal: projection === undefined ? undefined : projection === null ? null : projection.goal, projection: projection, onEdit: onEdit, onPause: onPause, onResume: onResume, onClear: onClear, onComplete: onComplete, onBudget: onBudget, t: t });
+    return (0, jsx_runtime_1.jsx)(GoalBar, { goal: projection === undefined ? undefined : projection === null ? null : projection.goal, projection: projection, onEdit: onEdit, onPause: onPause, onResume: onResume, onClear: onClear, onComplete: onComplete, t: t });
 }
 
 },
@@ -291,9 +253,6 @@ const GoalBar_css_1 = __importDefault(require("./GoalBar.css"));
 const views_types_1 = require("../views-types");
 (0, views_types_1.installStyles)("@xharness/dsh-client-ui-goal/GoalBar.module.css", "@xharness/dsh-client-ui-goal", GoalBar_css_1.default);
 const styles = {
-    "budgetInput": "bgzwgq_budgetInput",
-    "budgetLabel": "bgzwgq_budgetLabel",
-    "dialogActions": "bgzwgq_dialogActions",
     "dialog": "bgzwgq_dialog",
     "editForm": "bgzwgq_editForm",
     "rounds": "bgzwgq_rounds",
@@ -314,7 +273,7 @@ exports.default = styles;
 // source: src/modules/goal/GoalBar.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "/* Same composer alignment and tokens; only the current action stays exposed. */\n.bgzwgq_dock{box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset));margin:0 auto}\n.bgzwgq_bar{box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));min-height:40px;margin:0 auto;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.bgzwgq_goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}\n.bgzwgq_objective{min-width:0;flex:1 1 120px;text-align:left;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:24px;border:0;background:transparent;padding:2px 0;cursor:pointer;border-radius:4px}\n.bgzwgq_objective:hover{color:var(--dsw-alias-label-secondary)}\n.bgzwgq_controls{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0}\n.bgzwgq_label{color:var(--dsw-alias-label-tertiary);min-width:0;max-width:145px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;font-size:12px;line-height:24px}\n.bgzwgq_rounds{border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;padding:2px 6px;border-radius:6px;cursor:pointer}\n.bgzwgq_rounds:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.bgzwgq_rounds:disabled{cursor:default}\n.bgzwgq_iconBtn{width:28px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex}\n.bgzwgq_iconBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.bgzwgq_iconBtn:disabled,.bgzwgq_objective:disabled{opacity:.4;cursor:default}\n.bgzwgq_objective:focus-visible,.bgzwgq_rounds:focus-visible,.bgzwgq_iconBtn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.bgzwgq_editForm{flex:1;min-width:0;display:flex;align-items:center;gap:6px}\n.bgzwgq_objectiveInput,.bgzwgq_budgetInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;color:var(--dsw-alias-label-primary);border-radius:8px;outline:none;padding:7px 10px;font:inherit;font-size:13px;line-height:20px}\n.bgzwgq_objectiveInput{flex:1;height:32px;width:100%}\n.bgzwgq_objectiveInput:focus,.bgzwgq_budgetInput:focus{border-color:var(--dsw-alias-state-business-primary)}\n.bgzwgq_error{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px;line-height:20px;margin:4px 0}\n.bgzwgq_dialog{width:min(360px,calc(100vw - 32px))}\n.bgzwgq_dialogActions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}\n.bgzwgq_budgetLabel{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--dsw-alias-label-primary)}\n.bgzwgq_budgetInput{width:100px}\n@media(max-width:520px){.bgzwgq_objective{flex-basis:calc(100% - 32px)}.bgzwgq_controls{flex:1;margin-left:24px}.bgzwgq_label{flex:1;max-width:none}}\n";
+exports.default = "/* Same composer alignment and tokens; only the current action stays exposed. */\n.bgzwgq_dock{box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset));margin:0 auto}\n.bgzwgq_bar{box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));min-height:40px;margin:0 auto;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.bgzwgq_goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}\n.bgzwgq_objective{min-width:0;flex:1 1 120px;text-align:left;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:24px;border:0;background:transparent;padding:2px 0;cursor:pointer;border-radius:4px}\n.bgzwgq_objective:hover{color:var(--dsw-alias-label-secondary)}\n.bgzwgq_controls{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0}\n.bgzwgq_label{color:var(--dsw-alias-label-tertiary);min-width:0;max-width:145px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;font-size:12px;line-height:24px}\n.bgzwgq_rounds{border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;padding:2px 6px;border-radius:6px;cursor:default}\n.bgzwgq_iconBtn{width:28px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex}\n.bgzwgq_iconBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.bgzwgq_iconBtn:disabled,.bgzwgq_objective:disabled{opacity:.4;cursor:default}\n.bgzwgq_objective:focus-visible,.bgzwgq_rounds:focus-visible,.bgzwgq_iconBtn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.bgzwgq_editForm{flex:1;min-width:0;display:flex;align-items:center;gap:6px}\n.bgzwgq_objectiveInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;color:var(--dsw-alias-label-primary);border-radius:8px;outline:none;padding:7px 10px;font:inherit;font-size:13px;line-height:20px}\n.bgzwgq_objectiveInput{flex:1;height:32px;width:100%}\n.bgzwgq_objectiveInput:focus{border-color:var(--dsw-alias-state-business-primary)}\n.bgzwgq_error{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px;line-height:20px;margin:4px 0}\n.bgzwgq_dialog{width:min(360px,calc(100vw - 32px))}\n@media(max-width:520px){.bgzwgq_objective{flex-basis:calc(100% - 32px)}.bgzwgq_controls{flex:1;margin-left:24px}.bgzwgq_label{flex:1;max-width:none}}\n";
 
 },
 "src/modules/views-types.js": function(module, exports, require) {
@@ -522,8 +481,9 @@ exports.zh = {
     'state.paused': '已暂停',
     'state.blocked': '需要帮助',
     'rounds.unit': '轮',
+    'rounds.label': '累计自动轮数',
+    'rounds.hint': '只统计已开始的自动轮次，不限制继续执行',
     'action.more': '更多目标操作',
-    'action.budget': '调整轮数预算',
     'action.complete': '标记完成',
     'action.confirm': '确认完成',
     'action.continue': '继续',
@@ -532,10 +492,6 @@ exports.zh = {
     'action.pauseHint': '暂停后续自动轮次，不会取消当前工具',
     'action.close': '关闭',
     'action.cancelDialog': '取消',
-    'budget.title': '轮数预算',
-    'budget.label': '最多自动轮数',
-    'budget.hint': '保存后暂停自动推进，确认后可继续。',
-    'budget.save': '保存预算',
     'clear.title': '清除目标？',
     'clear.hint': '聊天记录和已有文件不会删除。',
     'progress.title': '进度',
@@ -568,8 +524,9 @@ exports.en = {
     'state.paused': 'Paused',
     'state.blocked': 'Needs help',
     'rounds.unit': 'rounds',
+    'rounds.label': 'Automatic rounds started',
+    'rounds.hint': 'Started automatic turns only; this count never limits execution',
     'action.more': 'More goal actions',
-    'action.budget': 'Adjust round budget',
     'action.complete': 'Mark complete',
     'action.confirm': 'Confirm completion',
     'action.continue': 'Continue',
@@ -578,10 +535,6 @@ exports.en = {
     'action.pauseHint': 'Pause future automatic turns; current tools are not cancelled',
     'action.close': 'Close',
     'action.cancelDialog': 'Cancel',
-    'budget.title': 'Round budget',
-    'budget.label': 'Maximum automatic rounds',
-    'budget.hint': 'Saving pauses automatic progress. Resume when ready.',
-    'budget.save': 'Save budget',
     'clear.title': 'Clear goal?',
     'clear.hint': 'Chat history and existing files will be kept.',
     'progress.title': 'Progress',

@@ -168,7 +168,7 @@ for (const name of modules) {
         'progress.title':'进度', 'progress.pending':'待办',
         'progress.running':'进行中', 'progress.completed':'已完成',
       })
-      const compactKeys = ['phase.complete', 'state.disabled', 'state.running', 'state.queued', 'state.waiting', 'state.awaitingApproval', 'state.awaitingAnswer', 'state.awaitingConfirmation', 'state.networkBackoff', 'state.paused', 'state.blocked', 'rounds.unit', 'action.more', 'action.budget', 'action.complete', 'action.confirm', 'action.continue', 'action.reopen', 'action.enable', 'action.pauseHint', 'action.close', 'action.cancelDialog', 'budget.title', 'budget.label', 'budget.hint', 'budget.save', 'clear.title', 'clear.hint']
+      const compactKeys = ['phase.complete', 'state.disabled', 'state.running', 'state.queued', 'state.waiting', 'state.awaitingApproval', 'state.awaitingAnswer', 'state.awaitingConfirmation', 'state.networkBackoff', 'state.paused', 'state.blocked', 'rounds.unit', 'rounds.label', 'rounds.hint', 'action.more', 'action.complete', 'action.confirm', 'action.continue', 'action.reopen', 'action.enable', 'action.pauseHint', 'action.close', 'action.cancelDialog', 'clear.title', 'clear.hint']
       for (const lang of ['en','zh']) for (const key of compactKeys) {
         const value = two.namespaces[0].dictionaries[lang][key]
         assert.equal(typeof value, 'string', `compact Goal copy ${lang}:${key}`)
@@ -318,13 +318,15 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
     assert.deepEqual(normalized(env.trace), [{workspace: 'workspace'}, 'toggleSidebar'])
     assert.deepEqual(Object.keys(env.registrations[0].spec.children), ['sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.workspaces', 'sidebar.settings', 'sidebar.footer.action', ...(label==='source'?['sidebar.primary.action']:[])])
   })
-  test(`${label}: goal dock preserves completion/budget verbs, reads fresh CAS and projects command bubble`, async () => {
+  test(`${label}: goal dock preserves user-control verbs, reads fresh CAS and projects command bubble`, async () => {
     const env = context(); loader.entry('goal').apply(env.ctx)
     const actions = env.registrations[1].spec.inject('s')
-    await actions.onBudget(99); await actions.onComplete()
-    assert.deepEqual(normalized(env.trace), [{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}, {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
+    if(label==='legacy') await actions.onBudget(99)
+    else assert.equal('onBudget' in actions,false,'round statistics have no mutation action')
+    await actions.onComplete()
+    assert.deepEqual(normalized(env.trace), [...label==='legacy'?[{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}]:[], {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
     env.ctx.sessions.binding = () => undefined
-    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, 2)
+    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, label==='legacy'?2:1)
     const event = {type: 'command/run', seq: 4, time: 100, data: {name: 'goal', commandId: 'c', args: ' build tests  '}}
     const definition = env.ctx.definition
     const state = definition.start({}, {event})

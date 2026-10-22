@@ -444,7 +444,6 @@ impl GoalController {
         if !s.definition.execution_enabled
             || s.definition.snapshot.phase != GoalPhase::Active
             || s.running.is_some()
-            || s.rounds_started >= s.definition.snapshot.max_goal_rounds
             || claimed.len() != 1
             || open_turn(session).is_some()
         {
@@ -456,7 +455,10 @@ impl GoalController {
         }
         s.pending = None;
         s.running = Some(GoalRoundClaim { intent: p, turn });
-        s.rounds_started += 1;
+        s.rounds_started = s
+            .rounds_started
+            .checked_add(1)
+            .ok_or_else(|| GoalError::Invalid("goal round statistic overflow".into()))?;
         s.definition.snapshot.revision = s
             .definition
             .snapshot

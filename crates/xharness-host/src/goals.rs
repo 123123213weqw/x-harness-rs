@@ -1291,21 +1291,22 @@ mod tests {
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]
-    async fn slash_command_uses_real_goal_rpc_and_budget_stops_without_fake_completion() {
-        let (host, store, _) = setup("progress").await;
+    async fn legacy_round_limit_is_inert_and_retired_budget_command_cannot_mutate_goal() {
+        let (host, store, _) = setup("three").await;
         let created = call(
             &host,
             "create",
             RpcMethod::GoalCreate,
-            json!({"sessionId":"g","objective":"Keep checking","maxGoalRounds":2}),
+            json!({"sessionId":"g","objective":"Keep checking","maxGoalRounds":1}),
         )
         .await;
         assert!(created["ref"].is_object());
-        let session = wait(&host, &store, "paused").await;
-        assert_eq!(
-            execution_projection(&session)["pauseReason"],
-            "round_budget"
-        );
+        let session = wait(&host, &store, "complete").await;
+        let execution = execution_state(&session).unwrap();
+        assert_eq!(execution.rounds_started, 3);
+        assert_eq!(execution.definition.snapshot.max_goal_rounds, 1);
+        assert!(execution.pause_reason.is_none());
+        let before_command = crate::restore::restored_goal(&session).unwrap();
         let result = host
             .call_dynamic(
                 RpcId::new("show"),
@@ -1315,7 +1316,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(result.is_ok());
+        assert!(matches!(result, RpcResult::Success {value: Some(ref v)}
+            if v["result"]["text"].as_str().is_some_and(|text| text.contains("3 rounds") && !text.contains("3/1"))));
         let invalid = host
             .call_dynamic(
                 RpcId::new("invalid-budget"),
@@ -1338,11 +1340,13 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            matches!(edited,RpcResult::Success{value:Some(ref v)} if v["result"]["kind"]=="success")
+            matches!(edited,RpcResult::Success{value:Some(ref v)} if v["result"]["kind"]=="error" && v["result"]["text"].as_str().unwrap().contains("statistics only"))
         );
         let goal = crate::restore::restored_goal(&store.load("g").await.unwrap().unwrap()).unwrap();
-        assert_eq!(goal.max_goal_rounds, 4);
-        assert_eq!(goal.rounds_started, 2);
+        assert_eq!(goal.max_goal_rounds, 1);
+        assert_eq!(goal.rounds_started, 3);
+        assert_eq!(goal.revision, before_command.revision);
+        assert_eq!(goal.phase, GoalPhase::Complete);
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
     #[tokio::test]

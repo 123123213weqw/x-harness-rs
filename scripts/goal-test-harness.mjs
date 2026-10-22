@@ -83,7 +83,7 @@ export const compactGoalCases={
   assert.equal(menu(body).props.open,false)
   assert.deepEqual(json(menu(body).props.items.filter(item=>!item.type).map(item=>item.id)),['edit','clear'])
   assert.ok(button(body,'action.reopen'));assert.equal(button(body,'action.confirm'),undefined)
-  assert.equal(button(body,'action.budget').props.disabled,true)
+  assert.equal(button(body,'action.budget'),undefined)
   assert.equal(f.calls.length,0)
  },
  'running pause, paused/blocked resume, legacy enable and confirmation are exclusive':source=>{
@@ -98,7 +98,7 @@ export const compactGoalCases={
   const f=goalFixture(source),p=f.projection('blocked','blocked');p.goal.blockedReason={message:'need secret'}
   p.execution={...p.execution,pauseReason:'round_budget',pauseDetail:'quota',report:{summary:'tests passed',remaining:['review output'],evidence:[{kind:'artifact',reference:'tests.txt'},{kind:'execution',execution_id:'exec-1'}]}}
   const {tree,render}=compactControls(f,p)
-  for(const text of ['need secret','轮数预算已到','quota','tests passed','review output','artifact: tests.txt','execution: exec-1'])assert.ok(tree.props.children[0].props.title.includes(text))
+  for(const text of ['need secret','旧版本轮数限制，可手动继续','quota','tests passed','review output','artifact: tests.txt','execution: exec-1'])assert.ok(tree.props.children[0].props.title.includes(text))
   assert.match(JSON.stringify(render()),/state.blocked/)
   p.execution.state='host-future-state';assert.match(JSON.stringify(compactControls(f,p).render()),/host-future-state/)
  },
@@ -121,23 +121,26 @@ export const compactGoalCases={
   release({ok:false,error:{code:'old',message:'stale'}});assert.equal(await pending,undefined)
   assert.doesNotMatch(JSON.stringify(f.render(f.projection('blocked','blocked','g2'))),/stale/)
  },
- 'budget validates safe positive integers and dispatches once through existing action':async source=>{
-  const f=goalFixture(source),c=compactControls(f,f.projection())
-  button(c.render(),'action.budget').props.onClick()
-  for(const invalid of ['0','-1','1.5','9007199254740992','']){
-   let body=c.render();descendants(body,node=>node.type==='input')[0].props.onChange({target:{value:invalid}})
-   body=c.render();assert.equal(descendants(body,node=>node.props?.type==='submit')[0].props.disabled,true)
-   await descendants(body,node=>node.type==='form')[0].props.onSubmit({preventDefault(){}})
-  }
+ 'round count is read-only statistics without quota or a budget action':source=>{
+  const f=goalFixture(source),p=f.projection();p.execution.roundsStarted=257;p.execution.maxGoalRounds=1
+  const c=compactControls(f,p),body=c.render()
+  const statistics=descendants(body,node=>node.props?.['aria-label']==='rounds.label')[0]
+  assert.equal(statistics.type,'span');assert.equal(statistics.props.onClick,undefined)
+  assert.match(JSON.stringify(statistics),/257/);assert.doesNotMatch(JSON.stringify(statistics),/257\/1/)
+  assert.equal(button(body,'action.budget'),undefined)
+  assert.equal(menu(body).props.items.some(item=>item.id==='budget'),false)
+  assert.equal('onBudget' in c.props,false);assert.equal(f.calls.length,0)
+ },
+ 'legacy projections retain top-level round statistics without execution context':source=>{
+  const f=goalFixture(source),p=f.projection('paused','paused');delete p.execution;p.roundsStarted=257
+  const body=compactControls(f,p).render()
+  const count=descendants(body,node=>node.props?.['aria-label']==='rounds.label')[0]
+  assert.deepEqual(json(count.props.children),[257,' ','rounds.unit'])
   assert.equal(f.calls.length,0)
-  descendants(c.render(),node=>node.type==='input')[0].props.onChange({target:{value:'12'}})
-  await descendants(c.render(),node=>node.type==='form')[0].props.onSubmit({preventDefault(){}})
-  assert.deepEqual(json(f.calls),[{name:'onBudget',args:[12]}])
-  assert.equal(descendants(c.render(),node=>node.type==='Modal'&&node.props.title==='budget.title')[0].props.open,false)
  },
  'menu exposes user actions only, clear requires confirmation and stale clear cannot hide a new goal':async source=>{
   const f=goalFixture(source),p=f.projection(),c=compactControls(f,p)
-  let body=c.render();assert.deepEqual(json(menu(body).props.items.filter(item=>!item.type).map(item=>item.id)),['edit','budget','complete','clear'])
+  let body=c.render();assert.deepEqual(json(menu(body).props.items.filter(item=>!item.type).map(item=>item.id)),['edit','complete','clear'])
   menu(body).props.onSelect('clear');body=c.render()
   assert.equal(f.calls.length,0);assert.equal(descendants(body,node=>node.type==='Modal'&&node.props.title==='clear.title')[0].props.open,true)
   // A receipt from the old card must not clear a newly selected goal.
@@ -146,5 +149,15 @@ export const compactGoalCases={
   release({ok:true,value:{}});await receipt
   assert.notEqual(f.render(f.projection('running','active','new')),null)
  },
- 'injected mutations read current projection CAS, and absent goals never mutate':goalCases['injected mutations read current projection CAS, and absent goals never mutate'],
+ 'injected user actions read current projection CAS and expose no round budget':async source=>{
+  const f=goalFixture(source),registrations=[],calls=[];let projection=f.projection()
+  const verbs=Object.fromEntries(['edit','pause','resume','clear','complete'].map(name=>[name,async(...args)=>{calls.push({name,args});return {ok:true,value:{}}}]))
+  f.plugin.apply({conversationEvents:{register(){}},effect:fn=>fn(),locale:{register(){},bind:()=>key=>key},sessions:{binding:()=>({session:{projections:{faceOf:()=>({getSnapshot:()=>projection})}}})},remote:{goals:verbs},slots:{inject:(_name,fn)=>fn(),register:(spec,component)=>registrations.push({spec,component})}})
+  const actions=registrations.find(row=>row.spec.id==='goal').spec.inject('session')
+  projection={...projection,goal:{...projection.goal,id:'latest',revision:9}}
+  await actions.onResume();await actions.onEdit('new objective')
+  assert.deepEqual(json(calls),[{name:'resume',args:['session',{id:'latest',revision:9}]},{name:'edit',args:['session',{id:'latest',revision:9},{objective:'new objective'}]}])
+  assert.equal('onBudget' in actions,false);assert.equal('onCreate' in actions,false)
+  projection=null;assert.equal((await actions.onComplete()).error.code,'no-current-goal');assert.equal(calls.length,2)
+ },
 }

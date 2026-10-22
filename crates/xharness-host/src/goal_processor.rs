@@ -39,7 +39,8 @@ pub(crate) enum GoalDecisionError {
     GoalMissing,
     StaleReference,
     EmptyObjective,
-    InvalidRoundBudget,
+    // Validation of retired wire metadata only; never a runtime budget.
+    InvalidLegacyRoundMetadata,
     EmptyEdit,
     InvalidTransition {
         transition: GoalTransition,
@@ -72,7 +73,7 @@ impl GoalProcessor {
             return Err(GoalDecisionError::ExistingNonComplete);
         }
         let objective = validated_objective(objective)?;
-        validated_rounds(max_goal_rounds)?;
+        validated_legacy_rounds(max_goal_rounds)?;
         Ok(GoalMutation {
             goal: GoalState {
                 execution: None,
@@ -106,7 +107,7 @@ impl GoalProcessor {
             goal.objective = validated_objective(objective)?;
         }
         if let Some(rounds) = max_goal_rounds {
-            validated_rounds(rounds)?;
+            validated_legacy_rounds(rounds)?;
             goal.max_goal_rounds = rounds;
         }
         advance(&mut goal, now);
@@ -139,7 +140,7 @@ impl GoalProcessor {
                         | GoalPhase::Paused
                         | GoalPhase::Blocked
                         | GoalPhase::Complete
-                ) && goal.rounds_started < goal.max_goal_rounds,
+                ),
             ),
             GoalTransition::Complete => (
                 GoalSnapshotOperation::Complete,
@@ -180,9 +181,9 @@ fn validated_objective(objective: String) -> Result<String, GoalDecisionError> {
     }
 }
 
-fn validated_rounds(rounds: u64) -> Result<(), GoalDecisionError> {
+fn validated_legacy_rounds(rounds: u64) -> Result<(), GoalDecisionError> {
     if rounds == 0 {
-        Err(GoalDecisionError::InvalidRoundBudget)
+        Err(GoalDecisionError::InvalidLegacyRoundMetadata)
     } else {
         Ok(())
     }
@@ -256,7 +257,7 @@ mod tests {
         );
         assert_eq!(
             GoalProcessor::create(true, None, "g".into(), "x".into(), 0, 10).unwrap_err(),
-            GoalDecisionError::InvalidRoundBudget
+            GoalDecisionError::InvalidLegacyRoundMetadata
         );
     }
 
@@ -284,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn transition_matrix_preserves_budget_and_clears_block_reason() {
+    fn transition_matrix_preserves_metadata_and_clears_block_reason() {
         let paused = GoalProcessor::transition(
             Some(&goal(GoalPhase::Active)),
             &reference(),
@@ -314,12 +315,23 @@ mod tests {
             Err(GoalDecisionError::StaleReference)
         ));
 
-        let mut exhausted = goal(GoalPhase::Paused);
-        exhausted.rounds_started = exhausted.max_goal_rounds;
-        assert!(matches!(
-            GoalProcessor::transition(Some(&exhausted), &reference(), GoalTransition::Resume, 30),
-            Err(GoalDecisionError::InvalidTransition { .. })
-        ));
+        for rounds in [9, 10, 257, 1000] {
+            let mut exhausted = goal(GoalPhase::Paused);
+            exhausted.rounds_started = rounds;
+            let resumed = GoalProcessor::transition(
+                Some(&exhausted),
+                &reference(),
+                GoalTransition::Resume,
+                30,
+            )
+            .unwrap();
+            assert_eq!(resumed.goal.rounds_started, rounds);
+            assert_eq!(resumed.goal.phase, GoalPhase::Active);
+            assert_eq!(
+                resumed.goal.max_goal_rounds, 9,
+                "legacy metadata is preserved, not enforced"
+            );
+        }
     }
 
     #[test]

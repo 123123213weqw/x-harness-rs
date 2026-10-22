@@ -24,10 +24,7 @@ pub fn decide(o: &GoalObservation) -> Result<GoalDecision, GoalContractError> {
     }
     require(o.activation_epoch > 0, "activation_epoch")?;
     require(o.empty_report_limit > 0, "empty_report_limit")?;
-    require(
-        o.rounds_started <= g.snapshot.max_goal_rounds,
-        "rounds_started",
-    )?;
+    // rounds_started is a statistic; legacy max_goal_rounds is not a gate.
     let fence = GoalFence {
         session_revision: o.session_revision,
         goal_id: g.snapshot.id.clone(),
@@ -85,12 +82,6 @@ pub fn decide(o: &GoalObservation) -> Result<GoalDecision, GoalContractError> {
                         && r.attempts <= MAX_GOAL_PROVIDER_RETRIES
                 }) {
                     Some(retry) => {
-                        if o.rounds_started == g.snapshot.max_goal_rounds {
-                            return Ok(GoalDecision::Pause {
-                                fence,
-                                reason: PauseReason::RoundBudget,
-                            });
-                        }
                         if o.now_ms < retry.retry_at_ms {
                             return Ok(GoalDecision::Wait {
                                 reason: WaitReason::NetworkBackoff,
@@ -166,13 +157,6 @@ pub fn decide(o: &GoalObservation) -> Result<GoalDecision, GoalContractError> {
     if o.unresolved_dependencies {
         return Ok(GoalDecision::Wait {
             reason: WaitReason::Dependencies,
-        });
-    }
-    // This budget gates NEW work, not a valid completion at the final allowed round.
-    if o.rounds_started == g.snapshot.max_goal_rounds {
-        return Ok(GoalDecision::Pause {
-            fence,
-            reason: PauseReason::RoundBudget,
         });
     }
     if matches!(

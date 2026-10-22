@@ -18,16 +18,15 @@ window.addEventListener('preview-platform-ready',()=>{
   if(name==='clear')f.projection=null;
   else if(f.projection){
    const p=structuredClone(f.projection);p.goal.revision++;
-   if(name==='pause'||name==='budget'||name==='edit'){p.goal.phase='paused';p.execution.state='paused'}
+   if(name==='pause'||name==='edit'){p.goal.phase='paused';p.execution.state='paused'}
    if(name==='resume'){p.goal.phase='active';p.execution.state='running'}
    if(name==='complete'){p.goal.phase='complete';p.execution.state='complete'}
-   if(name==='budget'){p.goal.maxGoalRounds=args[0];p.execution.maxGoalRounds=args[0]}
    if(name==='edit')p.goal.objective=args[0];
    f.projection=p;
   }
   paint();return {ok:true,value:{}};
  };
- const actions={onBudget:action('budget'),onComplete:action('complete'),onPause:action('pause'),onResume:action('resume'),onClear:action('clear'),onEdit:action('edit')};
+ const actions={onComplete:action('complete'),onPause:action('pause'),onResume:action('resume'),onClear:action('clear'),onEdit:action('edit')};
  function App(){
   React.useEffect(()=>{document.body.toggleAttribute('data-ds-dark-theme',f.dark);document.documentElement.lang=f.lang},[f.dark,f.lang]);
   const t=key=>labels[f.lang][key]??key;

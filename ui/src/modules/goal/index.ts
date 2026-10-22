@@ -83,11 +83,6 @@ export function apply(ctx: GoalContext): void {
         if (ref === undefined) return noCurrentGoal
         return await ctx.remote.goals.resume(sessionId, ref)
       },
-      onBudget: async (maxGoalRounds) => {
-        const ref = refOf(sessionId)
-        if (ref === undefined) return noCurrentGoal
-        return await ctx.remote.goals.edit(sessionId, ref, { maxGoalRounds })
-      },
       onComplete: async () => {
         const ref = refOf(sessionId)
         if (ref === undefined) return noCurrentGoal

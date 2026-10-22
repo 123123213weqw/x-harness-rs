@@ -295,6 +295,7 @@ async fn hosted_listener_cannot_expose_ungated_remote_service() {
 struct FakeModel {
     address: String,
     requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    completions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for FakeModel {
@@ -310,10 +311,13 @@ impl FakeModel {
         let address = format!("http://{}/v1", listener.local_addr().unwrap());
         let requests = std::sync::Arc::new(AtomicUsize::new(0));
         let count = requests.clone();
+        let completions = std::sync::Arc::new(AtomicUsize::new(0));
+        let completion_requests = completions.clone();
         let task = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let count = count.clone();
+                let completions = completions.clone();
                 tokio::spawn(async move {
                     let mut data = Vec::new();
                     let mut buf = [0u8; 8192];
@@ -338,9 +342,39 @@ impl FakeModel {
                         }
                         assert!(data.len() < 1024 * 1024);
                     }
-                    let index = count.fetch_add(1, Ordering::SeqCst);
+                    // Count every provider call for the Prepared/Active gate,
+                    // but token-count probes must not consume scripted chat steps.
+                    count.fetch_add(1, Ordering::SeqCst);
+                    if data.starts_with(b"POST /v1/chat/completions/input_tokens ") {
+                        let body = r#"{"input_tokens":1024}"#;
+                        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);
+                        socket.write_all(response.as_bytes()).await.unwrap();
+                        return;
+                    }
+                    assert!(
+                        data.starts_with(b"POST /v1/chat/completions "),
+                        "unexpected fake provider endpoint"
+                    );
+                    let index = completions.fetch_add(1, Ordering::SeqCst);
                     let delta = if index == 0 {
-                        serde_json::json!({"tool_calls":[{"index":0,"id":"report-1","type":"function","function":{"name":"goal","arguments":serde_json::json!({"action":"report","report":{"status":"complete","summary":"Verified fixture","remaining":[],"evidence":[{"kind":"artifact","reference":"fixture.txt"}]}}).to_string()}}]})
+                        let end = data.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                        let request: serde_json::Value =
+                            serde_json::from_slice(&data[end + 4..]).unwrap();
+                        let names: Vec<_> = request["tools"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .filter_map(|tool| tool["function"]["name"].as_str())
+                            .collect();
+                        assert!(
+                            names.contains(&"goal_report"),
+                            "automatic Goal must receive the scoped report tool"
+                        );
+                        assert!(
+                            !names.contains(&"goal"),
+                            "the native deployment must not restore the retired lifecycle tool"
+                        );
+                        serde_json::json!({"tool_calls":[{"index":0,"id":"report-1","type":"function","function":{"name":"goal_report","arguments":serde_json::json!({"status":"complete","summary":"Verified fixture","remaining":[],"evidence":[{"kind":"artifact","reference":"fixture.txt"}]}).to_string()}}]})
                     } else {
                         serde_json::json!({"content":"Fixture verified."})
                     };
@@ -357,10 +391,43 @@ impl FakeModel {
         Self {
             address,
             requests,
+            completions: completion_requests,
             task,
         }
     }
 }
+#[tokio::test]
+async fn fake_provider_token_count_does_not_consume_the_report_response() {
+    let model = FakeModel::new().await;
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let counted: serde_json::Value = client
+        .post(format!("{}/chat/completions/input_tokens", model.address))
+        .json(&serde_json::json!({"messages":[]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(counted["input_tokens"], 1024);
+    let chat = client
+        .post(format!("{}/chat/completions", model.address))
+        .json(&serde_json::json!({"tools":[{"type":"function","function":{"name":"goal_report"}}]}))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(chat.contains("goal_report"));
+    assert_eq!(model.completions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        model.requests.load(Ordering::SeqCst),
+        2,
+        "token-count calls still count towards the execution gate assertions"
+    );
+}
+
 impl Fixture {
     fn bootstrap_file(&self) -> PathBuf {
         use xharness_host::{GoalBootstrapSpec, PermissionPreset};
@@ -433,6 +500,36 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
+    async fn goal_diagnostics(&self) -> serde_json::Value {
+        use xharness_session::Store;
+        let store =
+            xharness_session_jsonl::JsonlSessionStore::new(self.root.join("state/sessions"))
+                .unwrap();
+        let session = store
+            .load(self.spec.binding.root_session_id.as_str())
+            .await
+            .unwrap()
+            .unwrap();
+        serde_json::json!({"state":xharness_session::goal::execution_state(&session),"outcomes":session.events().iter().filter_map(|e|match e.data(){
+            xharness_session::EventData::ToolResult {result,..}=>Some(serde_json::json!({"tool_result":result})),
+            xharness_session::EventData::TurnEnd {reason,..}=>Some(serde_json::json!({"turn_end":reason})),
+            _=>None,
+        }).collect::<Vec<_>>()})
+    }
+    async fn goal_completed(&self) -> bool {
+        use xharness_session::Store;
+        let store =
+            xharness_session_jsonl::JsonlSessionStore::new(self.root.join("state/sessions"))
+                .unwrap();
+        let session = store
+            .load(self.spec.binding.root_session_id.as_str())
+            .await
+            .unwrap()
+            .unwrap();
+        xharness_session::goal::execution_state(&session).is_some_and(|state| {
+            state.definition.snapshot.phase == xharness_session::GoalPhase::Complete
+        })
+    }
     async fn goal_count(&self) -> usize {
         use xharness_session::Store;
         let store =
@@ -483,10 +580,23 @@ async fn full_prepared_bootstrap_is_gated_and_goal_is_not_recreated_on_restart()
         );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let completed = tokio::time::timeout(Duration::from_secs(10), async {
+        while !fixture.goal_completed().await {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await;
+    assert!(
+        completed.is_ok(),
+        "the scoped Goal report must really complete the Goal: {}",
+        fixture.goal_diagnostics().await
+    );
     assert_eq!(fixture.goal_count().await, 1);
     fixture.stop(&mut second).await;
-    let before = model.requests.load(Ordering::SeqCst);
+    // Startup may recount a restored context without executing it. Prepared
+    // checks above still cover ALL HTTP calls; restart must not generate work.
+    let before = model.completions.load(Ordering::SeqCst);
+    let rounds_before = fixture.goal_diagnostics().await["state"]["rounds_started"].clone();
     let _ = fs::remove_file(fixture.root.join("stop"));
     let _ = fs::remove_file(fixture.root.join("ready"));
     let mut third = fixture.spawn_bootstrap(&model);
@@ -494,9 +604,15 @@ async fn full_prepared_bootstrap_is_gated_and_goal_is_not_recreated_on_restart()
     tokio::time::sleep(Duration::from_millis(350)).await;
     assert_eq!(fixture.goal_count().await, 1);
     assert_eq!(
-        model.requests.load(Ordering::SeqCst),
+        model.completions.load(Ordering::SeqCst),
         before,
-        "confirmation-waiting Goal must not restart its work"
+        "completed Goal must not restart model generation"
+    );
+    assert!(fixture.goal_completed().await);
+    assert_eq!(
+        fixture.goal_diagnostics().await["state"]["rounds_started"],
+        rounds_before,
+        "startup token recount must not admit a new automatic round"
     );
     fixture.transition("seal-bootstrap", ExecutionPermit::Sealed);
     fixture.exit(&mut third, true).await;
