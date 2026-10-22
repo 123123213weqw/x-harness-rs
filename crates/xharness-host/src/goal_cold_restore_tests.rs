@@ -140,11 +140,11 @@ impl ModelProvider for ReportAfterRestart {
                 Ok(ProviderEvent::ToolCallDelta {
                     index: 0,
                     id: "after-restart-report".into(),
-                    name: "goal".into(),
-                    arguments_delta: json!({"action":"report","report":{
+                    name: "goal_report".into(),
+                    arguments_delta: json!({
                         "status":"complete","summary":"cold retry recovered",
                         "evidence":[{"kind":"artifact","reference":"test://cold-verified"}]
-                    }})
+                    })
                     .to_string(),
                 }),
                 Ok(ProviderEvent::Completed {

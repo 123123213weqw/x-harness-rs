@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Honor the user-requested removal of Goal round limits across decisions, claim, resume and durable session validation; the cumulative round count is statistics only.",
+  "compatibility": "Keep legacy snapshot fields, bootstrap fingerprints, RPC receipts, CAS and pause reasons readable without journal rewrites. New scheduling ignores historical round-limit metadata. Completion, dependency, approval, cancellation, OutcomeUnknown and bounded provider retry protections stay unchanged. Existing paused goals never auto-resume. Old binaries can reject newly appended counts beyond their old limits, so downgrade replay is not guaranteed. Validate Session/Goal/Agent/Host suites, wire contracts and native Windows CI.",
+  "paths": {
+    "crates/xharness-session/src/event.rs": {
+      "before": "89f72fff6fc64ad675b03124c5c486b7aca5bbfd45e63e8c0303086995e2708b",
+      "after": "252aff89dc54acded0e0cb5559921612c5fec2cd002cf8d4c93944f9e8684d00"
+    },
+    "crates/xharness-session/src/goal.rs": {
+      "before": "d930f40c2ba6a66095f043087f055e7c38e9d64839365f5cd7558b39956c07a5",
+      "after": "67b3eb57e011faa362acef12fce7327be4123e4d85c4f10cd105ee153d0afe93"
+    },
+    "crates/xharness-session/src/goal_validation.rs": {
+      "before": "b7955cd9759a8833f26986e49835f621025711facf30a2012360af78056983ee",
+      "after": "db368617475a4626ab25d0896a63aa1985bdded97709c58f5cd1dc70e54fc607"
+    },
+    "crates/xharness-session/src/session.rs": {
+      "before": "a95c5979726058b702e83355d110187f0d0b62048c7350c1150e37c63ad1119e",
+      "after": "0d3a61b216a226d4e67851c1cfb7753f886fa7794cd9114c4a3dc25953626e11"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

@@ -475,7 +475,7 @@ impl xharness_core::ModelProvider for OutageThenReport {
         }
         let events = if step == 3 {
             vec![
-            Ok(ProviderEvent::ToolCallDelta {index:0,id:"recovered-report".into(),name:"goal".into(),arguments_delta:json!({"action":"report","report":{"status":"complete","summary":"outage recovered","evidence":[{"kind":"artifact","reference":"test://verified"}]}}).to_string()}),
+            Ok(ProviderEvent::ToolCallDelta {index:0,id:"recovered-report".into(),name:"goal_report".into(),arguments_delta:json!({"status":"complete","summary":"outage recovered","evidence":[{"kind":"artifact","reference":"test://verified"}]}).to_string()}),
             Ok(ProviderEvent::Completed {finish_reason:Some(FinishReason::ToolCalls),usage:None,provider_items:vec![]}),
         ]
         } else {

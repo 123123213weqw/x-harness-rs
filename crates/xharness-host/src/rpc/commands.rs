@@ -402,8 +402,8 @@ async fn execute_goal(
             .as_ref()
             .map_or("Usage: /goal <objective>".into(), |g| {
                 format!(
-                    "Goal: {} ({:?}, {}/{})",
-                    g.objective, g.phase, g.rounds_started, g.max_goal_rounds
+                    "Goal: {} ({:?}, {} rounds)",
+                    g.objective, g.phase, g.rounds_started
                 )
             }))
     } else {
@@ -414,14 +414,9 @@ async fn execute_goal(
             "resume" => goal::transition(host, rpc, &payload, "active").await,
             "complete" => goal::transition(host, rpc, &payload, "complete").await,
             "clear" => goal::clear(host, rpc, &payload).await,
-            _ if input.starts_with("budget ") => match input[7..].trim().parse::<u64>() {
-                Ok(n) => {
-                    let mut p = payload;
-                    p["maxGoalRounds"] = json!(n);
-                    goal::edit(host, rpc, &p).await
-                }
-                Err(_) => Err(bad_request("budget must be a positive integer")),
-            },
+            _ if input == "budget" || input.starts_with("budget ") => Err(bad_request(
+                "Goal round limits have been removed; rounds are statistics only",
+            )),
             _ if input.starts_with("edit ") => {
                 let mut p = payload;
                 p["objective"] = json!(input[5..].trim());

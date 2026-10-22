@@ -41,7 +41,7 @@ const workspaces = store({items:[{workspaceId:'fixture',title:'Preview',sessionI
 const goal = { id:'preview-goal', revision:1, objective:'Improve the parser and verify the regression tests', phase:'paused', maxGoalRounds:256 }
 const projection = store({
   taskPlan:polished&&!hero?{revision:1,items:[{id:'review',title:'Review existing server',status:'completed'},{id:'routing',title:'Implement request routing',status:'in_progress'},{id:'tests',title:'Run load tests',status:'pending'}]}:null,
-  goal:query.has('minimal')||hero?null:{goal,roundsStarted:11,execution:{state:'paused',enabled:true,roundsStarted:11,maxGoalRounds:256}},
+  goal:query.has('minimal')||hero?null:{goal,roundsStarted:257,execution:{state:'paused',enabled:true,roundsStarted:257,maxGoalRounds:256}},
   sessionStats:{turns:185,steps:2446,llmMs:174192000,toolMs:31562000,ttftMs:40600,ttftSteps:1,decodeTokens:4400,decodeMs:100000},
   tokenUsage:{uncachedInputTokens:75000000,cacheReadTokens:6100000000,cacheWriteTokens:0,outputTokens:18000000},
   contextPressure:{pressureTokens:65000,contextWindow:262144},
@@ -52,7 +52,7 @@ const shell = new SessionInputShell({actx:{},defaultSink:async(text,images,mode)
 const useSession = hook(snapshot), useInput = hook(shell.state)
 const useProjection = (key, select) => { const values=useSyncExternalStore(projection.subscribe,projection.getSnapshot); return select ? select(values[key]) : values[key] }
 const goalAction = name => async value => { calls.push({goal:name,value}); return {ok:true,value:{}} }
-const goalProps = {useProjection,goalSessionId:'fixture',onCreate:goalAction('create'),onComplete:goalAction('complete'),onBudget:goalAction('budget'),onResume:goalAction('resume'),onPause:goalAction('pause'),onClear:goalAction('clear'),onEdit:goalAction('edit'),t:goalT}
+const goalProps = {useProjection,onComplete:goalAction('complete'),onResume:goalAction('resume'),onPause:goalAction('pause'),onClear:goalAction('clear'),onEdit:goalAction('edit'),t:goalT}
 const loadModels = async () => {}
 const selectModel = async value => { calls.push({model:value});directory.set({...directory.getSnapshot(),current:value});return true }
 const updateQueue = async (id,action) => {
@@ -87,7 +87,7 @@ window.__composerFixture = { calls, shell, snapshot, projection, directory, rend
   set: changes => flushSync(()=>{
     if ('locale' in changes) language.set(changes.locale)
     if('running' in changes || 'hero' in changes || 'removed' in changes || 'subagent' in changes) snapshot.set({...snapshot.getSnapshot(),...('running' in changes?{running:changes.running}:{}),...('removed' in changes?{removed:changes.removed}:{}),...('subagent' in changes?{subagent:changes.subagent}:{}),...('hero' in changes?{composerPhase:changes.hero?'blank':'active'}:{})})
-    if('goal' in changes) projection.set({...projection.getSnapshot(),goal:changes.goal?{goal,roundsStarted:11,execution:{state:'paused',enabled:true,roundsStarted:11,maxGoalRounds:256}}:null})
+    if('goal' in changes) projection.set({...projection.getSnapshot(),goal:changes.goal?{goal,roundsStarted:257,execution:{state:'paused',enabled:true,roundsStarted:257,maxGoalRounds:256}}:null})
     if('hero' in changes)sessions.set({...sessions.getSnapshot(),byId:{fixture:{...sessions.getSnapshot().byId.fixture,blank:changes.hero}}})
     if('queue' in changes)snapshot.set({...snapshot.getSnapshot(),queue:changes.queue})
     if('taskPlan' in changes) projection.set({...projection.getSnapshot(),taskPlan:changes.taskPlan})

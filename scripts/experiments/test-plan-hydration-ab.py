@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
+import json
 
 spec = importlib.util.spec_from_file_location('plan_ab', Path(__file__).with_name('plan-hydration-ab.py'))
 ab = importlib.util.module_from_spec(spec)
@@ -10,11 +12,17 @@ spec.loader.exec_module(ab)
 
 
 class PilotTest(unittest.TestCase):
-    def test_production_contract_is_loaded_not_reinvented(self):
-        tool = ab.production_tool()['function']
+    def test_archived_contract_requires_explicit_source_not_current_production(self):
+        with self.assertRaisesRegex(ValueError, 'retired'):
+            ab.archived_tool(None)
+        schema = {'type': 'object', 'properties': {'action': {'enum': ['get', 'update_plan']}, 'plan_revision': {'type': 'integer'}}}
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'archived-goal-tool.rs'
+            source.write_text('ToolDefinition::new("goal", "archived fixture", json!(' + json.dumps(schema) + '))')
+            tool = ab.archived_tool(source)['function']
         self.assertEqual(tool['name'], 'goal')
-        self.assertIn('update_plan', tool['parameters']['properties']['action']['enum'])
-        self.assertIn('plan_revision', tool['parameters']['properties'])
+        self.assertEqual(tool['description'], 'archived fixture')
+        self.assertEqual(tool['parameters'], schema)
 
     def test_correct_read_test_update_sequence(self):
         fixture = ab.fixtures()[0]

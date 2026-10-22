@@ -188,18 +188,36 @@ try {
     await page.getByRole('region', {name: label, exact: true}).waitFor()
     await summary.press('Escape')
   }
-  // Existing Goal editing and budget forms still fit the integrated header.
+  // Compact Goal user controls still fit the integrated header. Historical
+  // maxGoalRounds=256 metadata cannot impose a quota on the displayed count.
   await page.getByRole('button',{name:'Resume goal',exact:true}).click()
   assert.equal(await page.evaluate(()=>__composerFixture.calls.at(-1).goal),'resume')
-  await page.getByRole('button',{name:'Edit goal',exact:true}).click()
+  await page.getByRole('button',{name:'Edit goal: Improve the parser and verify the regression tests',exact:true}).click()
   await page.getByRole('textbox',{name:'Goal objective',exact:true}).fill('Updated preview goal')
   await page.getByRole('button',{name:'Save goal',exact:true}).click()
   await page.waitForFunction(()=>__composerFixture.calls.some(call=>call.goal==='edit'&&call.value==='Updated preview goal'))
-  await page.getByRole('button',{name:'预算',exact:true}).click()
-  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
-  await page.getByRole('spinbutton').fill('30')
-  await page.getByRole('button',{name:'保存轮数预算',exact:true}).click()
-  await page.waitForFunction(()=>__composerFixture.calls.some(call=>call.goal==='budget'&&call.value===30))
+  await page.getByRole('textbox',{name:'Goal objective',exact:true}).waitFor({state:'detached'})
+  const rounds=page.getByLabel('Automatic rounds started',{exact:true})
+  assert.equal((await rounds.innerText()).trim(),'257 rounds')
+  assert.equal(await rounds.evaluate(element=>element.tagName),'SPAN','round statistics are not a mutation control')
+  assert.equal(await page.locator('[data-goal-bar]').getByRole('spinbutton').count(),0)
+  for(const width of [375,320]) {
+    await page.setViewportSize({width,height:780})
+    await page.getByRole('button',{name:'More goal actions',exact:true}).click()
+    const goalMenu=page.getByRole('menu')
+    await goalMenu.waitFor()
+    assert.equal(await goalMenu.getByRole('menuitem').count(),3)
+    for(const name of ['Edit goal','Mark complete','Clear goal'])
+      assert.equal(await goalMenu.getByRole('menuitem',{name,exact:true}).isVisible(),true)
+    assert.equal(await goalMenu.getByRole('menuitem',{name:/budget|预算|round limit/i}).count(),0)
+    const menuBox=await goalMenu.boundingBox()
+    assert.ok(menuBox.x>=0&&menuBox.x+menuBox.width<=width+1&&menuBox.y>=0,JSON.stringify(menuBox))
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
+    await goalMenu.getByRole('menuitem',{name:'Edit goal',exact:true}).click()
+    await page.getByRole('textbox',{name:'Goal objective',exact:true}).press('Escape')
+    assert.equal(await page.getByRole('textbox',{name:'Goal objective',exact:true}).count(),0)
+  }
+  assert.equal(await page.evaluate(()=>__composerFixture.calls.some(call=>call.goal==='budget')),false)
   // Todo remains independent and fully readable; removing all docks leaves no empty header/footer.
   await set({todos:[{id:'1',content:'Verify parser cases',status:'in_progress'},{id:'2',content:'Review the result',status:'pending'}]})
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
@@ -286,5 +304,5 @@ try {
   assert.deepEqual(errors,[])
   writeFileSync(resolve(output,`${engine}-geometry.json`),JSON.stringify(readings,null,2)+'\n')
   writeFileSync(resolve(output,`${engine}-plan-geometry.json`),JSON.stringify(planReadings,null,2)+'\n')
-  console.log(`${engine}: plan clipping/floor/reading position; 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; draft/caret; Goal edit/budget; Todo; keyboard stats; menus; hero continuity passed`)
+  console.log(`${engine}: plan clipping/floor/reading position; 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; draft/caret; Goal edit/menu/read-only rounds; Todo; keyboard stats; menus; hero continuity passed`)
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve))}

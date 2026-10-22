@@ -3,6 +3,13 @@
 Implemented 2026-10-14 after the prompt-level DeepSeek A/B pilot. This is an
 additive context projection, not a reminder scheduler or another agent loop.
 
+As of 2026-10-22, ordinary Host turns no longer register the multi-action `goal`
+tool. The existing capability gate therefore disables this projection there;
+it must not suggest a retired `goal.get` operation. Persisted plan events,
+RPC/CAS and UI remain readable. This change does not introduce a replacement
+plan tool or rewrite historical plans. The contract below describes the retained
+capability-gated projection, not an always-on current Host feature.
+
 ## Integration contract
 
 - Use the latest validated `session/plan-updated` from the **current journal**.

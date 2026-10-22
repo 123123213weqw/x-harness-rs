@@ -1150,30 +1150,22 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        let fence = snapshot
-            .as_ref()
-            .and_then(xharness_session::goal::execution_state)
-            .filter(|s| {
-                s.definition.execution_enabled && (s.pending.is_some() || s.running.is_some())
-            })
-            .map(|s| (s.definition, s.activation_epoch));
-        if let Some(host) = self
-            .goals
-            .host
-            .get()
-            .filter(|_| self.tool_factory.allows_host_tool("goal"))
-        {
-            tool_executor
-                .registry()
-                .register(crate::goal_tool::spec(
-                    host.clone(),
-                    Arc::clone(&self.store),
-                    Arc::clone(&self.tool_factory),
-                    agent_id.into(),
-                    fence,
-                ))
-                .await
-                .map_err(|e| e.to_string())?;
+        if self.tool_factory.allows_host_tool("goal_report") {
+            if let Some(fence) = snapshot
+                .as_ref()
+                .and_then(|session| crate::goal_report_tool::fence(session, &input))
+            {
+                tool_executor
+                    .registry()
+                    .register(crate::goal_report_tool::spec(
+                        Arc::clone(&self.store),
+                        Arc::clone(&self.tool_factory),
+                        agent_id.into(),
+                        fence,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         }
         self.tool_factory.validate_executor(&tool_executor).await?;
         let mut request = LoopRequest::new(self.execution.provider(provider), input);

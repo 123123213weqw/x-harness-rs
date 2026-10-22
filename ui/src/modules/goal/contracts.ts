@@ -2,14 +2,14 @@ import type { ApiResult, ClientContext, ConversationNodeDefinition } from '../vi
 export interface GoalRef { id: string; revision: number }
 export interface GoalSnapshot extends GoalRef {
   objective: string; phase: 'active' | 'paused' | 'blocked' | 'complete'
-  maxGoalRounds: number; roundsStarted?: number; blockedReason?: { message: string }
+  roundsStarted?: number; blockedReason?: { message: string }
 }
 export interface GoalExecution {
   verificationMode?: 'agent_report' | 'user_confirm'
-  state: string; roundsStarted?: number; maxGoalRounds?: number; pauseReason?: string; pauseDetail?: string
+  state: string; roundsStarted?: number; pauseReason?: string; pauseDetail?: string
   report?: { summary?: string; remaining?: readonly string[]; evidence?: readonly { kind: string; reference?: string; execution_id?: string }[] }
 }
-export interface GoalProjection { goal: GoalSnapshot; execution?: GoalExecution }
+export interface GoalProjection { goal: GoalSnapshot; execution?: GoalExecution; roundsStarted?: number }
 export type GoalActionResult = ApiResult<unknown>
 export interface GoalBarActions {
   onEdit(objective: string): Promise<GoalActionResult>
@@ -17,12 +17,11 @@ export interface GoalBarActions {
   onResume(): Promise<GoalActionResult>
   onClear(): Promise<GoalActionResult>
   onComplete(): Promise<GoalActionResult>
-  onBudget(maxGoalRounds: number): Promise<GoalActionResult>
 }
 export interface GoalContext extends Omit<ClientContext, 'remote'> {
   sessions: { binding(id: string): { session: { projections: { faceOf(name: 'goal'): { getSnapshot(): GoalProjection | null | undefined } | undefined } } } | undefined }
   remote: ClientContext['remote'] & { goals: {
-    edit(id: string, ref: GoalRef, patch: { objective?: string; maxGoalRounds?: number }): Promise<GoalActionResult>
+    edit(id: string, ref: GoalRef, patch: { objective?: string }): Promise<GoalActionResult>
     pause(id: string, ref: GoalRef): Promise<GoalActionResult>
     resume(id: string, ref: GoalRef): Promise<GoalActionResult>
     clear(id: string, ref: GoalRef): Promise<GoalActionResult>

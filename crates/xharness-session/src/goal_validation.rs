@@ -124,7 +124,6 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                             || old.pending.is_some()
                             || old.running.is_some()
                             || old.admitted.contains(&p.key)
-                            || old.rounds_started >= g.goal.max_goal_rounds
                             || p.message_id.is_empty()
                             || p.key.goal_id != g.goal.id
                             || p.key.definition_revision != old.definition.definition_revision
@@ -149,7 +148,6 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                             || g.goal.phase != GoalPhase::Active
                             || old.pending.as_ref() != Some(&r.intent)
                             || old.running.is_some()
-                            || old.rounds_started >= g.goal.max_goal_rounds
                             || r.turn == 0
                         {
                             return Err(fail());
