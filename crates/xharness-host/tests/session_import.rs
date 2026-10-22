@@ -154,14 +154,19 @@ async fn preview_import_retry_restart_and_continue_use_only_native_tools() {
         let requests = provider.0.lock().unwrap();
         let r = &requests[0];
         // NoTools is the workspace factory; the durable runtime still injects
-        // its native goal/history tools. The source exec_command is not a tool.
+        // history reader, but no Goal tools in this ordinary imported turn.
+        // The source exec_command is not a tool.
         let mut names = r
             .tools
             .iter()
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>();
         names.sort_unstable();
-        assert_eq!(names, ["goal", "history"]);
+        assert_eq!(
+            names,
+            ["history"],
+            "ordinary imports must not gain Goal tools"
+        );
         assert!(r
             .messages
             .iter()

@@ -665,8 +665,8 @@ fn goal_prompt(s: &GoalExecutionState) -> String {
         ""
     };
     let completion_note = match s.definition.verification {
-        VerificationMode::AgentReport => "When the objective and acceptance criteria are met, call goal(action=report) with status=complete, evidence and no remaining work, then finish the turn. Your settled report ends this Goal automatically.",
-        VerificationMode::UserConfirm => "When the objective and acceptance criteria are met, report complete with evidence and finish the turn. This Goal waits for user confirmation.",
+        VerificationMode::AgentReport => "When the objective and acceptance criteria are met, call goal_report with status=complete, evidence and no remaining work, then finish the turn. Your settled report ends this Goal automatically. Only the user can manage the Goal through /goal or the Goal bar.",
+        VerificationMode::UserConfirm => "When the objective and acceptance criteria are met, call goal_report with status=complete and evidence, then finish the turn. This Goal waits for user confirmation. Only the user can manage the Goal through /goal or the Goal bar.",
     };
     format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n{completion_note}\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
 }
@@ -706,7 +706,8 @@ pub fn recorded_goal_report(session: &Session) -> Option<GoalReportBody> {
             if *call_turn != turn || call.id != result.call_id {
                 return false;
             }
-            // Read old journals without advertising a second tool in new requests.
+            // Keep both historical report carriers readable. New requests only
+            // advertise goal_report during an admitted automatic Goal turn.
             call.name == "goal_report"
                 || (call.name == "goal"
                     && serde_json::from_str::<serde_json::Value>(&call.arguments_json)

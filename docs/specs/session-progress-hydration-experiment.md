@@ -1,5 +1,10 @@
 # Working-plan hydration pilot — 2026-10-14
 
+Historical experiment: the ordinary model-facing `goal` tool was retired on
+2026-10-22. Reproduction now requires an explicitly supplied archived
+`goal_tool.rs` via `--legacy-goal-source`. This pilot and its recorded evidence
+do not describe the current production tool catalogue.
+
 ## Question and boundary
 
 Does providing the latest plan once after a compacted/resumed conversation improve
@@ -99,7 +104,7 @@ Opt-in live run; existing local keychain credential or locally configured
 `XHARNESS_EVAL_API_KEY` (never put it on the command line):
 
 ```sh
-python3 scripts/experiments/plan-hydration-ab.py --output /tmp/NEW-OUTPUT-DIRECTORY --repeats 2
+python3 scripts/experiments/plan-hydration-ab.py --legacy-goal-source /path/to/archived/goal_tool.rs --output /tmp/NEW-OUTPUT-DIRECTORY --repeats 2
 ```
 
 ## Implementation follow-up
