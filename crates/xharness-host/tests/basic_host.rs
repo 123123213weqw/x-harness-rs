@@ -96,6 +96,7 @@ impl ModelProvider for CapturingProvider {
 struct CompactingPolicy;
 
 struct GatedAdmissionRuntime {
+    active_scopes: Arc<AtomicU64>,
     inner: LoopAgentRuntime,
     entered: Arc<AtomicBool>,
     release: Arc<Notify>,
@@ -163,8 +164,24 @@ impl AgentRuntime for CatalogRuntime {
     }
 }
 
+struct TestReadScope(Arc<AtomicU64>);
+impl xharness_session::SessionReadScope for TestReadScope {}
+impl Drop for TestReadScope {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 #[async_trait]
 impl AgentRuntime for GatedAdmissionRuntime {
+    fn admission_read_scope(
+        &self,
+        _id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        self.active_scopes.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(TestReadScope(self.active_scopes.clone())))
+    }
+
     fn has_available_route(&self) -> bool {
         self.inner.has_available_route()
     }
@@ -1332,7 +1349,9 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
     let entered = Arc::new(AtomicBool::new(false));
     let release = Arc::new(Notify::new());
     let admitted_message_id = Arc::new(Mutex::new(None));
+    let active_scopes = Arc::new(AtomicU64::new(0));
     let runtime = Arc::new(GatedAdmissionRuntime {
+        active_scopes: active_scopes.clone(),
         inner: LoopAgentRuntime::new(
             "test",
             "test-model",
@@ -1383,6 +1402,7 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
     .await
     .expect("session.prompt never reached runtime admission");
     assert!(entered.load(Ordering::SeqCst));
+    assert_eq!(active_scopes.load(Ordering::SeqCst), 1);
     assert!(
         !prompt.is_finished(),
         "HTTP receipt escaped before admission"
@@ -1394,6 +1414,7 @@ async fn session_prompt_waits_for_runtime_admission_and_passes_the_rpc_message_i
 
     release.notify_one();
     assert!(prompt.await.unwrap().is_ok());
+    assert_eq!(active_scopes.load(Ordering::SeqCst), 0);
     let _ = std::fs::remove_dir_all(root);
 }
 

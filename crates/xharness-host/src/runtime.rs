@@ -706,6 +706,14 @@ pub trait AgentRuntime: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Optional admission-lifetime reuse; not a lock or a durability receipt.
+    fn admission_read_scope(
+        &self,
+        _session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        Ok(Box::new(()))
+    }
+
     /// Load one immutable authoritative cut. Ephemeral runtimes return `None`;
     /// durable runtimes return the current Session when it has been created.
     async fn authoritative_session(
@@ -1887,6 +1895,17 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         Some(self.goals.changes.subscribe())
     }
 
+    fn admission_read_scope(
+        &self,
+        session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, AgentRuntimeError> {
+        self.store
+            .read_scope(session_id)
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })
+    }
+
     async fn authoritative_session(
         &self,
         session_id: &str,
@@ -2431,6 +2450,7 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    mod admission_performance_tests;
     mod dispatch_tests;
     use std::{
         collections::VecDeque,

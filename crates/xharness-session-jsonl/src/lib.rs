@@ -38,6 +38,7 @@ mod catalog_scan;
 mod harness_snapshot;
 mod history_index;
 mod recovery_checkpoint;
+mod replay_scope;
 mod results;
 mod seeded;
 
@@ -215,6 +216,7 @@ impl ValidatedStamp {
 #[derive(Debug)]
 struct SnapshotCache {
     entries: HashMap<PathBuf, CachedFile>,
+    scopes: replay_scope::Cache,
     /// A bounded-size logical cursor independent of the heavyweight Session
     /// cache. Large journals can be evicted while catalogue publication still
     /// verifies it describes the exact file version the Host loaded.
@@ -223,16 +225,19 @@ struct SnapshotCache {
     max_entries: usize,
     clock: u64,
     runtime_audit_view: bool,
+    authoritative_replays: usize,
 }
 impl Default for SnapshotCache {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            scopes: replay_scope::Cache::default(),
             catalog_stamps: HashMap::new(),
             max_bytes: 128 * 1024 * 1024,
             max_entries: 16,
             clock: 0,
             runtime_audit_view: false,
+            authoritative_replays: 0,
         }
     }
 }
@@ -603,6 +608,7 @@ impl JsonlSessionStore {
             let mut cache = self.cache.lock().unwrap();
             cache.runtime_audit_view = true;
             cache.entries.clear();
+            cache.scopes.clear_snapshots();
         }
         self
     }
@@ -612,6 +618,7 @@ impl JsonlSessionStore {
             c.max_bytes = max_bytes;
             c.max_entries = max_entries;
             c.entries.clear();
+            c.scopes.clear_snapshots();
         }
         self
     }
@@ -635,6 +642,29 @@ impl JsonlSessionStore {
             accounted_bytes: c.entries.values().map(|e| e.loaded.estimated_bytes).sum(),
             max_bytes: c.max_bytes,
         }
+    }
+
+    /// Full authoritative cache-miss replays, for bounded performance diagnostics.
+    /// The counter never records message bodies or changes replay behavior.
+    pub fn authoritative_replay_count(&self) -> usize {
+        self.cache.lock().unwrap().authoritative_replays
+    }
+
+    /// Bound temporary admission reuse independently of the resident LRU. Zero
+    /// disables this optional acceleration; authoritative behavior is unchanged.
+    pub fn with_replay_scope_cache_limit(self, max_bytes: usize) -> Self {
+        {
+            let mut cache = self.cache.lock().unwrap();
+            cache.scopes.clear_snapshots();
+            cache.scopes.max_bytes = max_bytes.min(replay_scope::MAX_BYTES);
+        }
+        self
+    }
+
+    /// Temporary admission snapshots are separately bounded and released with
+    /// their guards, never promoted into the resident LRU on scope completion.
+    pub fn replay_scope_cache_stats(&self) -> CacheStats {
+        self.cache.lock().unwrap().scopes.stats()
     }
 
     pub fn root(&self) -> &Path {
@@ -695,6 +725,13 @@ impl JsonlSessionStore {
 
 #[async_trait]
 impl Store for JsonlSessionStore {
+    fn read_scope(
+        &self,
+        session_id: &str,
+    ) -> Result<Box<dyn xharness_session::SessionReadScope>, StoreError> {
+        replay_scope::begin(self.session_path(session_id)?, Arc::clone(&self.cache))
+    }
+
     async fn repair_catalog_metrics(
         &self,
         expected: SessionCatalogEntry,
@@ -1300,10 +1337,32 @@ impl Store for JsonlSessionStore {
         run_blocking(move || {
             let _guard = guard;
             let _file_lock = acquire_file_lock(&path)?;
-            let Some(loaded) = take_file_cached(&path, &owned_id, &cache)? else {
+            let Some(source_fingerprint) = file_fingerprint(&path)? else {
+                cache_remove(&cache, &path)?;
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
                 });
+            };
+            // Append/load already validated this exact file. Keep the tiny
+            // stamp even when its Session exceeds the snapshot LRU budget:
+            // durability needs an fsync, not another O(history) replay.
+            let validated_revision = cache
+                .lock()
+                .map_err(|_| backend_message("session snapshot cache is poisoned"))?
+                .catalog_stamps
+                .get(&path)
+                .filter(|stamp| stamp.fingerprint == source_fingerprint)
+                .map(|stamp| stamp.revision);
+            let (loaded, revision) = if let Some(revision) = validated_revision {
+                (None, revision)
+            } else {
+                let loaded = take_file_cached(&path, &owned_id, &cache)?.ok_or_else(|| {
+                    StoreError::NotFound {
+                        session_id: owned_id.clone(),
+                    }
+                })?;
+                let revision = loaded.session.revision();
+                (Some(loaded), revision)
             };
             let file = secure_open_options()
                 .read(true)
@@ -1313,6 +1372,17 @@ impl Store for JsonlSessionStore {
                     backend_error("open session for durability flush", &path, error)
                 })?;
             ensure_regular_file(&file, &path, "session log")?;
+            let opened_fingerprint = fingerprint_from_metadata(
+                &path,
+                &file
+                    .metadata()
+                    .map_err(|error| backend_error("inspect session before flush", &path, error))?,
+            )?;
+            if opened_fingerprint != source_fingerprint {
+                cache_remove(&cache, &path)?;
+                return Err(backend_message("session changed before durability flush"));
+            }
+
             file.sync_all()
                 .map_err(|error| backend_error("sync session data", &path, error))?;
             sync_parent_directory(&path)?;
@@ -1322,8 +1392,13 @@ impl Store for JsonlSessionStore {
                     .metadata()
                     .map_err(|error| backend_error("inspect flushed session", &path, error))?,
             )?;
-            let revision = loaded.session.revision();
-            cache_store(&cache, &path, fingerprint, loaded)?;
+            if fingerprint != source_fingerprint {
+                cache_remove(&cache, &path)?;
+                return Err(backend_message("session changed during durability flush"));
+            }
+            if let Some(loaded) = loaded {
+                cache_store(&cache, &path, fingerprint, loaded)?;
+            }
             Ok(revision)
         })
         .await
@@ -1551,6 +1626,9 @@ fn load_file_cached(
         c.clock = c.clock.wrapping_add(1);
         let touched = c.clock;
         runtime_audit_view = c.runtime_audit_view;
+        if let Some(loaded) = c.scopes.load(path, fingerprint) {
+            return Ok(Some(loaded));
+        }
         if let Some(entry) = c
             .entries
             .get_mut(path)
@@ -1562,6 +1640,7 @@ fn load_file_cached(
                 .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
             return Ok(Some(loaded));
         }
+        c.authoritative_replays = c.authoritative_replays.saturating_add(1);
     }
     let loaded = load_file_mode(path, session_id, runtime_audit_view)?;
     let Some(loaded) = loaded else {
@@ -1598,6 +1677,9 @@ fn take_file_cached(
     let mut c = cache
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
+    if let Some(loaded) = c.scopes.take(path, fingerprint) {
+        return Ok(Some(loaded));
+    }
     if let Some(entry) = c
         .entries
         .remove(path)
@@ -1606,6 +1688,7 @@ fn take_file_cached(
         return Ok(Some(entry.loaded));
     }
     let runtime_audit_view = c.runtime_audit_view;
+    c.authoritative_replays = c.authoritative_replays.saturating_add(1);
     drop(c);
     load_file_mode(path, session_id, runtime_audit_view)
 }
@@ -1620,6 +1703,7 @@ fn cache_store(
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
     c.entries.remove(path);
+    c.scopes.remove_snapshot(path);
     // The stamp is tiny and retained even when a multi-gigabyte snapshot is
     // too large for the LRU. Failed/stale publishers simply leave the index
     // unknown; the journal remains authoritative.
@@ -1629,6 +1713,7 @@ fn cache_store(
     c.catalog_stamps
         .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
     if loaded.estimated_bytes > c.max_bytes || c.max_entries == 0 {
+        c.scopes.store(path, fingerprint, loaded);
         return Ok(());
     }
     while c.entries.len() >= c.max_entries
@@ -1667,6 +1752,7 @@ fn cache_remove(cache: &StdMutex<SnapshotCache>, path: &Path) -> Result<(), Stor
         .lock()
         .map_err(|_| backend_message("session snapshot cache is poisoned"))?;
     cache.entries.remove(path);
+    cache.scopes.remove_snapshot(path);
     cache.catalog_stamps.remove(path);
     Ok(())
 }
@@ -2370,3 +2456,6 @@ mod shared_payload_weight_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod admission_tests;

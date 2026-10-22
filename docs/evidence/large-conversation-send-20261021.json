@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-21",
+  "status": "Implemented locally and verified on remote Linux; no installed application replacement, live chat mutation, PR, merge or deployment.",
+  "base": "d0565d4b0950b099f26da445832da8fbb6d24766",
+  "source_sha256": {
+    "crates/xharness-host/src/rpc/turn.rs": "8a5ef8178b94b94b3b773789ee87cf116f5f33b3e461620e4b3da22eb0901c02",
+    "crates/xharness-host/src/runtime.rs": "12824f13ccd493ffd04b4b3e5bcfef26cfbc22ad71d4608cb0e5706f40cbe66d",
+    "crates/xharness-host/src/runtime/tests/dispatch_tests.rs": "2584e87cf6e760206e76c29516829c70de9ea2543741131a906e09de566e5725",
+    "crates/xharness-host/tests/basic_host.rs": "8736e4401c4479ad689818b63a1dc395680e48ee65317a8f81df9e37fe969d19",
+    "crates/xharness-session-jsonl/src/lib.rs": "9da15bdbfb02f01f2e23280d2438d81bdbb3adc0167547b68cb4997ce9284a0e",
+    "crates/xharness-session-jsonl/tests/jsonl.rs": "c555c2c2147322c483e416086a7d359deb6424e282749359f3abcc7d205b81b8",
+    "crates/xharness-session/src/store.rs": "6dadfa8070410e5b6a708a59bed6845bc184cca9ecff249e006a2479990c7be0",
+    "crates/xharness-session-jsonl/src/replay_scope.rs": "f7553e9f3245d515843ececc53564a0ec268f0b0df4afc884b337dcc13fc8ff7",
+    "crates/xharness-session-jsonl/src/admission_tests.rs": "29060794350cdce32874f31ed9079e7fd2e0c0d60d7bc0ddea808b9f8359c54b",
+    "crates/xharness-host/src/runtime/tests/admission_performance_tests.rs": "014773990cd70962c954cc90db72283ba27b812a94b208df736a6f4ff40e79df"
+  },
+  "observed_local_journal_metadata": {
+    "events": 115583,
+    "file_mib": 69.28,
+    "conservative_runtime_serialized_mib": 63.37,
+    "three_times_serialized_mib_before_fixed_overhead": 190.1,
+    "default_snapshot_budget_mib": 128,
+    "scope": "read-only metadata/size inspection; no user journal copied to remote"
+  },
+  "cause": "Oversized snapshots are deliberately not retained in the bounded LRU. DurableInbox append awaits flush, which previously replayed the journal again even when the exact file revision was already validated. Other admission stages can still perform full loads.",
+  "fix": "Retain exact-fingerprint validated snapshots only for one Host session.prompt admission scope, covering duplicate lookup, inbox reads/append, schedule attachment and Host projection. Drop reuse on success/error/cancellation. Preserve all existing locks, CAS/full semantic validation, authoritative reads and fsync-before-receipt timing. Flush may reuse its tiny validated revision stamp without a replay. No history trimming or journal/RPC format changes; no asynchronous early acknowledgement.",
+  "remote": "WZU_Server:~/codex-build/x-harness-rs/",
+  "regression": {
+    "red_before_fix": "oversized_conversation_flush_reuses_validated_stamp_without_replay: 3 unexpected full replays",
+    "ignored_opt_in_tests": 3,
+    "clippy": "cargo clippy --locked -p xharness-session -p xharness-session-jsonl -p xharness-host --all-targets -- -D warnings: passed",
+    "format": "cargo fmt --all -- --check: passed",
+    "architecture": "dependency/freeze check with explicit base SHA: passed",
+    "architecture_tests": "30 passed with Python 3.14 (system Python 3.9 lacks Path.write_text newline argument)",
+    "new_cases": [
+      "oversized snapshot has no heavyweight cache entry; repeated warm flush does not replay",
+      "restarted store validates once before trusting a stamp",
+      "other-writer append invalidates stamp and returns current revision",
+      "corruption/removal fail closed",
+      "replacement revalidates",
+      "torn-tail recovery remains read-only",
+      "Unix symlink replacement rejected without modifying target",
+      "one authoritative replay across real Host RPC / durable runtime admission",
+      "idempotent duplicate and conflicting same-id retry",
+      "queued input executes exactly once after independent store/runtime restart",
+      "temporary reuse byte/path limits and cancellation cleanup",
+      "external writes, stale CAS, invalid append and immutable old snapshots during scoped reuse"
+    ],
+    "full_affected_suite": "cargo test --locked -p xharness-session -p xharness-session-jsonl -p xharness-agent -p xharness-host: passed",
+    "unique_tests_passed_excluding_nested_subprocess_duplicates": 704,
+    "opt_in_tests_ignored_in_full_suite": 11
+  },
+  "synthetic_release_ab": {
+    "command": "cargo test --release --locked -p xharness-session-jsonl --test jsonl large_conversation_send_storage_performance_acceptance -- --ignored --nocapture",
+    "events_before_receipt": 115003,
+    "bytes_after_receipt": 68774756,
+    "before_ms": {
+      "load": 1193,
+      "append": 1116,
+      "flush": 1247
+    },
+    "after_ms": {
+      "load": 1200,
+      "append": 1109,
+      "flush": 139
+    },
+    "limits": "One paired synthetic storage run, same remote host, optimized build. Not a real-chat end-to-end measurement, provider benchmark, latency distribution or Windows/macOS acceptance. Append uses a valid stream event surrogate rather than a real Host prompt."
+  },
+  "remaining": [
+    "An initial cold replay still scales with journal size; this is not a claim of constant-time arbitrary-history admission. Quota exhaustion or external mutation falls back to authoritative replay.",
+    "Desktop browser click-to-bubble / real model TTFT and Windows/macOS execution acceptance not run.",
+    "No PR, merge, deployment, restart or live conversation mutation performed for this change."
+  ],
+  "bounds": {
+    "resident_snapshot_lru_mib": 128,
+    "additional_transient_reuse_logical_mib_max": 512,
+    "max_concurrent_scoped_paths": 4,
+    "scope_quota_behavior": "Best-effort fallback to original full validation; entry and byte limits never reject admission or claim an absent receipt. Guard nesting counts leases. Budget may be lowered to zero, not raised above the hard ceiling. Logical accounting is not an allocator RSS guarantee."
+  },
+  "real_rpc_cold_projection_release_ab": {
+    "description": "Real BasicHost ApiBackend SessionPrompt / durable runtime / JSONL, isolated synthetic journals and fake provider; not desktop HTTP/UI or external model test. Host projection initially behind; both arms include prior flush optimization. One paired run per size on shared WZU_Server.",
+    "rows": [
+      {
+        "chunk_events": 1000,
+        "baseline_ms": 127,
+        "scoped_ms": 51,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      },
+      {
+        "chunk_events": 10000,
+        "baseline_ms": 996,
+        "scoped_ms": 237,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      },
+      {
+        "chunk_events": 115000,
+        "baseline_ms": 10929,
+        "scoped_ms": 2676,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      }
+    ],
+    "command": "cargo test --release --locked -p xharness-host --lib large_history_rpc_performance_acceptance -- --ignored --nocapture"
+  },
+  "real_rpc_warm_projection_release_ab": {
+    "description": "Current browser projection prehydrated to model a long-used chat. Real internal ApiBackend RPC / durable runtime / JSONL, not desktop click-to-bubble latency. Fake provider, no external model calls. Snapshot LRU forced to 1 KiB to isolate the over-budget path at all sizes; 115k case also exceeds the production default 128 MiB. Both arms retain the prior flush fix. One paired run per size on shared WZU_Server, not a latency distribution.",
+    "rows": [
+      {
+        "chunk_events": 1000,
+        "baseline_ms": 86,
+        "scoped_ms": 17,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      },
+      {
+        "chunk_events": 10000,
+        "baseline_ms": 772,
+        "scoped_ms": 101,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      },
+      {
+        "chunk_events": 115000,
+        "baseline_ms": 8951,
+        "scoped_ms": 1162,
+        "baseline_full_replays": 8,
+        "scoped_full_replays": 1
+      }
+    ],
+    "extra_cold_projection_scoped_115k_ms": 2703,
+    "latest_specialized_regression": "oversized_history_rpc_replays_once_and_recovers_queued_input_exactly_once: passed again after benchmark refinements",
+    "latest_clippy": "xharness-host --all-targets -- -D warnings: passed again",
+    "stage_coverage": "Standalone storage benchmark has load/append/flush timing; real RPC acceptance measures whole backend admission and authoritative replay count. No frontend click-to-request timing or model TTFT is asserted."
+  },
+  "scope_of_completion": "Repeated full replay within one admitted prompt is fixed and regression-tested. This does not implement constant-time incremental journal validation, remove first cold load, defer projection after ack, or claim live-installed/Windows/macOS UI acceptance."
+}
