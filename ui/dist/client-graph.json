@@ -1,5 +1,5 @@
 {
-  "rev": "741f49571d5878a3",
+  "rev": "f179d2264aaa7039",
   "entries": [
     {
       "id": "@xharness/dsh-typert-registry",
@@ -542,8 +542,8 @@
     },
     {
       "id": "@xharness/dsh-client-ui-goal",
-      "url": "/plugins/@xharness/dsh-client-ui-goal/client.js?rev=15f8037770128062",
-      "rev": "15f8037770128062",
+      "url": "/plugins/@xharness/dsh-client-ui-goal/client.js?rev=d9274aab1145ed6d",
+      "rev": "d9274aab1145ed6d",
       "inject": [
         "@xharness/dsh-client-runtime",
         "@xharness/dsh-api-remotes",
