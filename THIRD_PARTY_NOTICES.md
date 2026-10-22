@@ -69,3 +69,14 @@ stylesheet) is the unmodified @xterm/xterm 5.5.0 UMD build.
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
 Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
+
+## ZCode loading motion and Lucide Loader glyph
+
+`ui/src/modules/conversation/chat/LoadingIndicator.tsx` and its stylesheet adapt
+ZCode's ChatLoading visual behavior (HTML wrapper rotation, static SVG and fade-in)
+to XHarness's own theme and authoritative turn state. No ZCode runtime is bundled.
+
+- Source: https://github.com/zai-org/ZCode (Apache License 2.0)
+- Loader glyph: Lucide, including Feather-derived icons (ISC / MIT)
+- Full icon notices: `docs/licenses/lucide-loader.txt`; also preserved inline in
+  the component and generated conversation bundle.

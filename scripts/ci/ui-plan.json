@@ -4134,6 +4134,41 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 45
+    },
+    {
+      "id": "contract-172",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-loading-indicator.mjs"
+      ],
+      "env": {},
+      "weight": 5
+    },
+    {
+      "id": "browser-238",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-loading-indicator-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 10
+    },
+    {
+      "id": "browser-239",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-loading-indicator-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 10
     }
   ]
 }
