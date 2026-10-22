@@ -1,0 +1,41 @@
+{
+  "scope": "ZCode-style spinner integrated into production ChatView; Host lifecycle and tool execution unchanged",
+  "sourceSha256": {
+    "ui/src/modules/conversation/chat/LoadingIndicator.tsx": "e0d24e448bf09afa5acfcefe0e024e62f2c4e7203f5044bc7294bc5da86e54ba",
+    "ui/src/modules/conversation/chat/LoadingIndicator.css": "a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e",
+    "ui/src/modules/conversation/chat/ChatView.tsx": "568d269523d8e73ee9ff7e4bf7487a55db75d85543a030ff2e8b9e0fe8012edb",
+    "ui/src/modules/conversation/chat/ChatView.css": "ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647"
+  },
+  "validation": {
+    "unitAndContracts": {
+      "tests": 27,
+      "failures": 0
+    },
+    "previewBrowsers": [
+      "chromium",
+      "webkit"
+    ],
+    "productionChatViewBrowsers": [
+      "chromium",
+      "webkit"
+    ],
+    "productionChatChecks": [
+      "spinner follows authoritative running state",
+      "no visible Working text",
+      "elapsed clock retained",
+      "rotor DOM and animation persist through streaming publication and elapsed tick",
+      "reduced motion",
+      "idle unmount",
+      "existing turn process regressions"
+    ],
+    "uiBuild": "passed: 61 modules, 190 assets",
+    "deterministicBuildCheck": "passed",
+    "motionPlugin": "passed",
+    "typecheck": "passed",
+    "ciTieringTests": 10,
+    "architectureFreeze": "passed"
+  },
+  "nativeRustBuild": "not required: no Rust changes; no local Rust compilation performed",
+  "installedApplicationChanged": false,
+  "automaticCandidateBuilds": "left paused"
+}

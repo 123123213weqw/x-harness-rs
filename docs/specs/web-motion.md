@@ -44,3 +44,28 @@ ZCode `ConversationBottomDockTransition` 的参数：进场 0.26s、退场 0.18s
 时钟。监听器只接受自身的退场动画，子节点或进场动画不能误关；看门狗按退场令牌时长加余量计算（至少 1s），兜底
 标签页隐藏或样式丢失导致的事件缺席。重新打开会取消旧关闭；减少动态效果时
 立即关闭。ESC、遮罩点击与按钮走同一路径。
+
+## 轻量等待指示器（正式聊天入口与独立预览）
+
+复用 ZCode `ChatLoading` 的视觉节奏：16px、中性低对比图标，外层 HTML
+容器以 1s 匀速旋转，整体以 900ms `cubic-bezier(.16,1,.3,1)` 淡入。
+颜色使用 XHarness 自己的主题令牌，深浅色共用组件；不引入 ZCode 的 React
+上下文、国际化服务或运行时依赖。
+
+Loader 图标来自 Lucide（ISC，包含 Feather 派生图标的 MIT 声明）；完整版权与
+许可声明保留在 `docs/licenses/lucide-loader.txt`。
+
+- `LoadingIndicator` 只接受宿主传来的 `active` 与本地化 `label`，不推断
+  Agent、工具、审批或网络状态。`active=false` 时不挂载。
+- 对外只有 `role=status` 和无障碍标签；默认不显示 Working 文案、时间或百分比。
+- 不使用 JS 定时器、逐帧 React 更新或额外日志。旋转与淡入分属两层，互不覆盖；
+  `prefers-reduced-motion` 同时关闭两层动画。
+- 正式 ChatView 的 TurnStatus 用该组件替换 Working 扫光文字，仍由原有
+  `running` 状态控制显隐；保留 `_turnStatus` 活动门控，不能破坏流式文本动效。
+  不改变工具、审批或 Host 生命周期。15 秒后的原有耗时显示、turn/start 时间锚点
+  与计时器清理逻辑保持不变；逐秒计时与流式重渲染不能重挂载旋转图标。
+- 独立预览不能连接 Host/模型、执行工具、保存会话或更改正式应用。
+- 预览覆盖等待模型、工具准备、等待确认和完成；等待确认与完成不显示旋转。
+
+验收：组件开关、标签、无定时器、16px 尺寸、1s 匀速、900ms 淡入、主题继承、
+减少动态效果、重复渲染不重启动画，以及 Chromium/WebKit 的状态切换与窄屏布局。

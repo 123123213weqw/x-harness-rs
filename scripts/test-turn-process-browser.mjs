@@ -139,12 +139,33 @@ try {
    render()
   }
  })
+ // The actual ChatView owns the spinner: streaming and the elapsed clock must
+ // retain its DOM/animation identity; only authoritative idle removes it.
+ const rotor = page.locator('[data-xh-loading-rotor]')
+ await rotor.waitFor()
+ assert.equal(await rotor.count(), 1)
+ assert.equal(await page.locator('[data-xh-loading-indicator]').getAttribute('aria-label'), 'Working…')
+ assert.equal(await page.locator('[data-xh-loading-indicator]').textContent(), '')
+ await page.evaluate(() => {
+  window.initialRotor = document.querySelector('[data-xh-loading-rotor]')
+  window.initialRotation = initialRotor.getAnimations()[0]
+  window.initialRotationTime = initialRotation.currentTime
+  publish() // streaming/chat publication without a new turn
+ })
+ await page.waitForFunction(() => initialRotation.currentTime > initialRotationTime + 1000)
+ assert.equal(await page.evaluate(() => document.querySelector('[data-xh-loading-rotor]') === initialRotor && initialRotor.getAnimations()[0] === initialRotation), true)
+ assert.equal(await page.locator('[class$="_turnStatusClock"]').count(), 1)
+ assert.equal(await page.locator('[class$="_turnStatus"]').getByText('Working…', {exact:true}).count(), 0)
+ await page.emulateMedia({reducedMotion:'reduce'})
+ assert.deepEqual(await rotor.evaluate(e => [getComputedStyle(e).animationName, getComputedStyle(e.parentElement).animationName]), ['none','none'])
+ await page.emulateMedia({reducedMotion:'no-preference'})
  // In-flight process stays visible even if Session running briefly flips false.
  assert.equal(await page.locator('[data-turn-process-summary]').count(),0)
  const scroll=page.locator('[data-conversation-scroll]')
  const finalThink=page.locator('[data-chat-flow-key="final1"] [data-variant=think] button')
  await finalThink.waitFor();await finalThink.click();assert.equal(await finalThink.getAttribute('aria-expanded'),'true')
  await page.evaluate(()=>snapshot.set({...snapshot.getSnapshot(),running:false}))
+ await rotor.waitFor({state:'detached'})
  await page.locator('[data-chat-flow-key="a1"]').waitFor({state:'attached'})
  await page.evaluate(()=>finish())
  const summary=page.locator('[data-turn-process-summary="1"]')
