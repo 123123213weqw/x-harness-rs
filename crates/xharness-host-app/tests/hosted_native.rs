@@ -296,6 +296,7 @@ struct FakeModel {
     address: String,
     requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     completions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    titles: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
 }
 impl Drop for FakeModel {
@@ -313,11 +314,14 @@ impl FakeModel {
         let count = requests.clone();
         let completions = std::sync::Arc::new(AtomicUsize::new(0));
         let completion_requests = completions.clone();
+        let titles = std::sync::Arc::new(AtomicUsize::new(0));
+        let title_requests = titles.clone();
         let task = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let count = count.clone();
                 let completions = completions.clone();
+                let titles = titles.clone();
                 tokio::spawn(async move {
                     let mut data = Vec::new();
                     let mut buf = [0u8; 8192];
@@ -356,10 +360,16 @@ impl FakeModel {
                         "unexpected fake provider endpoint"
                     );
                     let index = completions.fetch_add(1, Ordering::SeqCst);
+                    let end = data.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                    let request: serde_json::Value =
+                        serde_json::from_slice(&data[end + 4..]).unwrap();
+                    if request["tools"].as_array().is_none_or(Vec::is_empty) {
+                        assert!(request["messages"][0]["content"].as_str().is_some_and(|s|
+                            s.starts_with("Summarize the task in the supplied conversation excerpts")),
+                            "tool-free requests must be the known auto-title worker, not hidden Goal work");
+                        titles.fetch_add(1, Ordering::SeqCst);
+                    }
                     let delta = if index == 0 {
-                        let end = data.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
-                        let request: serde_json::Value =
-                            serde_json::from_slice(&data[end + 4..]).unwrap();
                         let names: Vec<_> = request["tools"]
                             .as_array()
                             .unwrap()
@@ -392,6 +402,7 @@ impl FakeModel {
             address,
             requests,
             completions: completion_requests,
+            titles: title_requests,
             task,
         }
     }
@@ -516,6 +527,26 @@ impl Fixture {
             _=>None,
         }).collect::<Vec<_>>()})
     }
+    async fn title_completed(&self) -> bool {
+        use xharness_session::Store;
+        let store =
+            xharness_session_jsonl::JsonlSessionStore::new(self.root.join("state/sessions"))
+                .unwrap();
+        let session = store
+            .load(self.spec.binding.root_session_id.as_str())
+            .await
+            .unwrap()
+            .unwrap();
+        session.events().iter().any(|event| {
+            matches!(
+                event.data(),
+                xharness_session::EventData::SessionTitleGeneration {
+                    phase: xharness_session::TitleGenerationPhase::Completed,
+                    ..
+                }
+            )
+        })
+    }
     async fn goal_completed(&self) -> bool {
         use xharness_session::Store;
         let store =
@@ -592,6 +623,17 @@ async fn full_prepared_bootstrap_is_gated_and_goal_is_not_recreated_on_restart()
         fixture.goal_diagnostics().await
     );
     assert_eq!(fixture.goal_count().await, 1);
+    // The native Host also owns an asynchronous, once-per-session title worker.
+    // Let that independent work commit before testing a completed Goal restart;
+    // otherwise the restart legitimately backfills the title for the first time.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !fixture.title_completed().await {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+    })
+    .await
+    .expect("native auto-title must finish before the restart boundary");
+    assert_eq!(model.titles.load(Ordering::SeqCst), 1);
     fixture.stop(&mut second).await;
     // Startup may recount a restored context without executing it. Prepared
     // checks above still cover ALL HTTP calls; restart must not generate work.
@@ -609,6 +651,12 @@ async fn full_prepared_bootstrap_is_gated_and_goal_is_not_recreated_on_restart()
         "completed Goal must not restart model generation"
     );
     assert!(fixture.goal_completed().await);
+    assert!(fixture.title_completed().await);
+    assert_eq!(
+        model.titles.load(Ordering::SeqCst),
+        1,
+        "the title must not be generated twice either"
+    );
     assert_eq!(
         fixture.goal_diagnostics().await["state"]["rounds_started"],
         rounds_before,
