@@ -19,7 +19,9 @@
 .xh-progress-card{max-width:none;border:0;border-radius:0;background:transparent}
 .xh-progress-card summary{gap:8px;padding:6px 12px;min-height:24px}
 .xh-progress-card ol{padding:0 12px 8px;max-height:168px}
-.xh-progress-card li{align-items:flex-start;min-height:26px;padding:1px 0;line-height:26px}
+/* Anchor hidden status labels inside the list's clipping boundary, not the
+   outer composer: offscreen rows must not create phantom page overflow. */
+.xh-progress-card li{position:relative;align-items:flex-start;min-height:26px;padding:1px 0;line-height:26px}
 .xh-progress-card [data-plan-status="completed"]{opacity:1}
 .xh-progress-card [data-plan-status="completed"] .xh-progress-item{text-decoration-thickness:1px}
 [data-composer-card] .xh-progress-dock{width:100%;max-width:none;margin:0}
