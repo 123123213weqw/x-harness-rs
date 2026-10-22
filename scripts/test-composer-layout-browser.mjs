@@ -15,7 +15,7 @@ const engine=process.env.UI_TEST_BROWSER??'chromium',browser=await require('play
 const server=composerPreview(),output=resolve(process.env.UI_TEST_OUTPUT??'dist/composer-layout')
 mkdirSync(output,{recursive:true})
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
-const readings=[]
+const readings=[],planReadings=[]
 try {
   const page=await browser.newPage({viewport:{width:1280,height:780}}),errors=[]
   page.on('pageerror',error=>errors.push(error.message))
@@ -27,6 +27,72 @@ try {
     const box=el=>{const {x,y,width,height}=el.getBoundingClientRect();return {x,y,width,height}}
     return {viewport:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth,card:box(card),toolbar:box(toolbar),actions:box(actions),buttons:[...actions.children].map(box),model:[...document.querySelectorAll('[data-xh-model-control]')].map(box),goalInCard:card.contains(document.querySelector('[data-goal-bar]')),statsInCard:card.contains(document.querySelector('[data-composer-stats]'))}
   })
+  const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+  const planFlow=()=>page.evaluate(()=>{
+    const port=document.querySelector('[data-conversation-scroll]'),seat=document.querySelector('[data-composer-seat]')
+    const transcript=document.querySelector('.preview-transcript'),card=document.querySelector('[data-composer-card]')
+    const box=el=>{const {top,bottom,height}=el.getBoundingClientRect();return {top,bottom,height}}
+    return {port:box(port),seat:box(seat),card:box(card),top:port.scrollTop,height:port.scrollHeight,
+      expectedHeight:Math.max(port.clientHeight,Math.ceil(transcript.getBoundingClientRect().height+seat.getBoundingClientRect().height))}
+  })
+  const assertPlanFlow=async(label,pinned=false)=>{
+    await settle()
+    const flow=await planFlow()
+    planReadings.push({label,...flow})
+    assert.ok(Math.abs(flow.height-flow.expectedHeight)<=2,`${label}: clipped plan rows must not create phantom page height: ${JSON.stringify(flow)}`)
+    if(pinned)assert.ok(Math.abs(flow.seat.bottom-flow.port.bottom)<=1&&flow.card.top>=flow.port.top&&flow.card.bottom<=flow.port.bottom,`${label}: composer must stay visible at the real scroll floor: ${JSON.stringify(flow)}`)
+    return flow
+  }
+  // Accessibility-only status labels must be clipped by the plan's own list,
+  // not positioned against the composer and counted in the outer scrollport.
+  // This previously added hundreds of pixels of empty scrollable space and
+  // scrolled the sticky input out of view in both Chromium and WebKit.
+  const longPlan=Array.from({length:18},(_,index)=>({id:`layout-${index}`,status:'pending',
+    title:`P${Math.floor(index/4)} · Validate the worker environment and request routing: `+'wrapped plan context '.repeat(4)}))
+  await set({goal:false,stats:false,running:false,todos:[],dark:true})
+  for(const [width,height]of [[1100,640],[375,640],[320,480]]) {
+    await page.setViewportSize({width,height})
+    await set({taskPlan:{revision:1,items:longPlan}})
+    await assertPlanFlow(`18-item plan ${width}x${height}`)
+    assert.equal(await page.locator('[data-plan-item]').count(),18)
+    assert.equal(await page.locator('.xh-progress-sr').count(),18,'keep the nonvisual status labels')
+    await page.locator('[data-conversation-scroll]').evaluate(el=>{el.scrollTop=el.scrollHeight})
+    await assertPlanFlow(`18-item plan floor ${width}x${height}`,true)
+    await page.locator('.xh-progress-card ol').evaluate(el=>{el.scrollTop=el.scrollHeight})
+    await assertPlanFlow(`inner list scroll ${width}x${height}`,true)
+    if(width===1100)await page.screenshot({path:resolve(output,`${engine}-plan-contained.png`)})
+    const summary=page.locator('.xh-progress-card summary')
+    await summary.click()
+    assert.equal(await page.locator('.xh-progress-card').getAttribute('open'),null)
+    await assertPlanFlow(`collapsed plan ${width}x${height}`,true)
+    await summary.click()
+    await page.locator('[data-conversation-scroll]').evaluate(el=>{el.scrollTop=el.scrollHeight})
+    await assertPlanFlow(`reopened plan ${width}x${height}`,true)
+  }
+  // Long-history reading, plan updates and collapse must not steal the reader's
+  // position. Keep the actual input node/draft/selection across those updates.
+  await page.setViewportSize({width:1100,height:640})
+  await page.evaluate(()=>{document.querySelector('.preview-transcript').style.height='4000px'})
+  await page.locator('[data-conversation-scroll]').evaluate(el=>{el.scrollTop=el.scrollHeight})
+  await assertPlanFlow('long history floor',true)
+  await page.screenshot({path:resolve(output,`${engine}-plan-long-history.png`)})
+  const planDraft=page.locator('textarea')
+  await planDraft.fill('Keep the draft while the plan changes')
+  await planDraft.evaluate(el=>{el.dataset.planIdentity='preserved';el.setSelectionRange(8,13)})
+  await page.locator('[data-conversation-scroll]').evaluate(el=>{el.scrollTop-=800})
+  const reading=(await assertPlanFlow('long history reading')).top
+  await set({taskPlan:{revision:2,items:longPlan.map((item,index)=>index===0?{...item,status:'completed'}:item)}})
+  assert.ok(Math.abs((await assertPlanFlow('plan status update')).top-reading)<=1)
+  await page.locator('.xh-progress-card summary').click()
+  assert.ok(Math.abs((await assertPlanFlow('collapse while reading')).top-reading)<=1)
+  await page.locator('.xh-progress-card summary').click()
+  assert.ok(Math.abs((await assertPlanFlow('expand while reading')).top-reading)<=1)
+  assert.equal(await planDraft.getAttribute('data-plan-identity'),'preserved')
+  assert.equal(await planDraft.inputValue(),'Keep the draft while the plan changes')
+  assert.deepEqual(await planDraft.evaluate(el=>[el.selectionStart,el.selectionEnd]),[8,13])
+  await planDraft.fill('')
+  await page.evaluate(()=>{document.querySelector('.preview-transcript').style.removeProperty('height')})
+  await set({taskPlan:null,goal:true,stats:true,running:true,dark:false})
   for(const dark of [false,true]) for(const width of [1280,900,720,600,560,540,520,430,375,320]) {
     await page.setViewportSize({width,height:780})
     await set({dark})
@@ -219,5 +285,6 @@ try {
   assert.equal(await input.inputValue(),'Hero transition draft')
   assert.deepEqual(errors,[])
   writeFileSync(resolve(output,`${engine}-geometry.json`),JSON.stringify(readings,null,2)+'\n')
-  console.log(`${engine}: 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; draft/caret; Goal edit/budget; Todo; keyboard stats; menus; hero continuity passed`)
+  writeFileSync(resolve(output,`${engine}-plan-geometry.json`),JSON.stringify(planReadings,null,2)+'\n')
+  console.log(`${engine}: plan clipping/floor/reading position; 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; draft/caret; Goal edit/budget; Todo; keyboard stats; menus; hero continuity passed`)
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve))}
