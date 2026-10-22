@@ -1143,6 +1143,9 @@ impl SessionToolFactory for RestrictedHostTools {
 
 #[tokio::test]
 async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
+    // Bootstrap requires a genuinely absolute workspace on every target OS.
+    let workspace = std::env::temp_dir().to_str().unwrap().to_owned();
+    assert!(std::path::Path::new(&workspace).is_absolute());
     struct FixtureGate(bool);
     impl crate::ExecutionGate for FixtureGate {
         fn require_active(&self) -> Result<(), String> {
@@ -1191,7 +1194,7 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                             acceptance_criteria: vec![],
                             max_goal_rounds: 2,
                             created_at_ms: 1,
-                            workspace: "/tmp".into(),
+                            workspace: workspace.clone(),
                             provider: "test".into(),
                             model: "test-model".into(),
                             reasoning_effort: None,
@@ -1227,7 +1230,7 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                     sessions: Arc::new(RwLock::new(HashMap::from([(
                         "restricted".into(),
                         DurableSessionConfig {
-                            cwd: "/tmp".into(),
+                            cwd: workspace.clone(),
                             permission: PermissionPreset::DangerFullAccess,
                             prompt: None,
                             route: ModelRoute::new("test", "test-model"),
