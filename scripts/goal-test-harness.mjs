@@ -66,3 +66,85 @@ export const goalCases={
   const inject=registrations.find(row=>row.spec.name==='conversation.input.dock').spec.inject,actions=inject('session');projection={...projection,goal:{...projection.goal,id:'latest',revision:9}};await actions.onResume();await actions.onBudget(12);assert.deepEqual(json(calls),[{name:'resume',args:['session',{id:'latest',revision:9}]},{name:'edit',args:['session',{id:'latest',revision:9},{maxGoalRounds:12}]}]);projection=null;assert.equal((await actions.onComplete()).error.code,'no-current-goal');assert.equal(calls.length,2);assert.equal('onCreate' in actions,false);
  },
 };
+
+// New compact layout has its own structural contract. The frozen layout above
+// remains tested separately; shared RPC/deduplication semantics are unchanged.
+const compactControls=(f,projection,overrides={})=>{
+ const tree=f.render(projection,overrides),control=f.controls(tree)
+ return {tree,props:control.props,render:()=>f.invoke('controls',()=>control.type(control.props))}
+}
+const menu=tree=>descendants(tree,node=>node.type==='Menu')[0]
+export const compactGoalCases={
+ 'silent absent, visible completion and collapsed secondary actions':source=>{
+  const f=goalFixture(source);assert.equal(f.render(undefined),null);assert.equal(f.render(null),null)
+  const {tree,render}=compactControls(f,f.projection('complete','complete')),body=render()
+  assert.equal(descendants(tree,node=>'data-goal-bar' in (node.props??{})).length,1)
+  assert.equal(descendants(tree,node=>node.type==='details').length,0)
+  assert.equal(menu(body).props.open,false)
+  assert.deepEqual(json(menu(body).props.items.filter(item=>!item.type).map(item=>item.id)),['edit','clear'])
+  assert.ok(button(body,'action.reopen'));assert.equal(button(body,'action.confirm'),undefined)
+  assert.equal(button(body,'action.budget').props.disabled,true)
+  assert.equal(f.calls.length,0)
+ },
+ 'running pause, paused/blocked resume, legacy enable and confirmation are exclusive':source=>{
+  const f=goalFixture(source)
+  for(const [state,phase,primary]of [['running','active','action.pause'],['paused','paused','action.resume'],['blocked','blocked','action.resume'],['disabled','active','action.enable'],['awaiting_confirmation','active','action.continue'],['complete','complete','action.reopen']]){
+   const body=compactControls(f,f.projection(state,phase)).render()
+   assert.ok(button(body,primary));assert.equal(!!button(body,'action.confirm'),state==='awaiting_confirmation')
+   if(primary!=='action.pause')assert.equal(button(body,'action.pause'),undefined)
+  }
+ },
+ 'status title retains reasons, reports, dependency evidence and future states':source=>{
+  const f=goalFixture(source),p=f.projection('blocked','blocked');p.goal.blockedReason={message:'need secret'}
+  p.execution={...p.execution,pauseReason:'round_budget',pauseDetail:'quota',report:{summary:'tests passed',remaining:['review output'],evidence:[{kind:'artifact',reference:'tests.txt'},{kind:'execution',execution_id:'exec-1'}]}}
+  const {tree,render}=compactControls(f,p)
+  for(const text of ['need secret','轮数预算已到','quota','tests passed','review output','artifact: tests.txt','execution: exec-1'])assert.ok(tree.props.children[0].props.title.includes(text))
+  assert.match(JSON.stringify(render()),/state.blocked/)
+  p.execution.state='host-future-state';assert.match(JSON.stringify(compactControls(f,p).render()),/host-future-state/)
+ },
+ 'same-render dedupe, pending lock, network/rejected action and retry':async source=>{
+  const f=goalFixture(source);let release,count=0;const p=f.projection('paused','paused')
+  const c=compactControls(f,p,{onResume:async()=>{count++;return new Promise(resolve=>release=resolve)}})
+  button(c.render(),'action.resume').props.onClick();button(c.render(),'action.resume').props.onClick();assert.equal(count,1)
+  assert.equal(button(compactControls(f,p).render(),'action.resume').props.disabled,true)
+  release({ok:false,error:{code:'offline',message:'failed'}});await tick()
+  const retry=compactControls(f,p);assert.equal(button(retry.render(),'action.resume').props.disabled,false)
+  assert.match(JSON.stringify(retry.tree),/failed.*offline/)
+  assert.equal((await retry.props.runAction(async()=>{throw Error('network')})).error.code,'network')
+  assert.equal((await retry.props.runAction(async()=>({ok:true,value:{}}))).ok,true)
+ },
+ 'old pending receipt cannot paint or lock a replacement goal':async source=>{
+  const f=goalFixture(source);let release;const first=compactControls(f,f.projection())
+  const pending=first.props.runAction(()=>new Promise(resolve=>release=resolve))
+  compactControls(f,f.projection('blocked','blocked','g2'))
+  const next=compactControls(f,f.projection('blocked','blocked','g2'));assert.equal(button(next.render(),'action.resume').props.disabled,false)
+  release({ok:false,error:{code:'old',message:'stale'}});assert.equal(await pending,undefined)
+  assert.doesNotMatch(JSON.stringify(f.render(f.projection('blocked','blocked','g2'))),/stale/)
+ },
+ 'budget validates safe positive integers and dispatches once through existing action':async source=>{
+  const f=goalFixture(source),c=compactControls(f,f.projection())
+  button(c.render(),'action.budget').props.onClick()
+  for(const invalid of ['0','-1','1.5','9007199254740992','']){
+   let body=c.render();descendants(body,node=>node.type==='input')[0].props.onChange({target:{value:invalid}})
+   body=c.render();assert.equal(descendants(body,node=>node.props?.type==='submit')[0].props.disabled,true)
+   await descendants(body,node=>node.type==='form')[0].props.onSubmit({preventDefault(){}})
+  }
+  assert.equal(f.calls.length,0)
+  descendants(c.render(),node=>node.type==='input')[0].props.onChange({target:{value:'12'}})
+  await descendants(c.render(),node=>node.type==='form')[0].props.onSubmit({preventDefault(){}})
+  assert.deepEqual(json(f.calls),[{name:'onBudget',args:[12]}])
+  assert.equal(descendants(c.render(),node=>node.type==='Modal'&&node.props.title==='budget.title')[0].props.open,false)
+ },
+ 'menu exposes user actions only, clear requires confirmation and stale clear cannot hide a new goal':async source=>{
+  const f=goalFixture(source),p=f.projection(),c=compactControls(f,p)
+  let body=c.render();assert.deepEqual(json(menu(body).props.items.filter(item=>!item.type).map(item=>item.id)),['edit','budget','complete','clear'])
+  menu(body).props.onSelect('clear');body=c.render()
+  assert.equal(f.calls.length,0);assert.equal(descendants(body,node=>node.type==='Modal'&&node.props.title==='clear.title')[0].props.open,true)
+  // A receipt from the old card must not clear a newly selected goal.
+  let release;const old=compactControls(f,p,{onClear:()=>new Promise(resolve=>release=resolve)})
+  const receipt=old.props.clearGoal();f.render(f.projection('running','active','new'))
+  release({ok:true,value:{}});await receipt
+  assert.notEqual(f.render(f.projection('running','active','new')),null)
+ },
+ 'injected mutations read current projection CAS, and absent goals never mutate':goalCases['injected mutations read current projection CAS, and absent goals never mutate'],
+}

@@ -159,7 +159,7 @@ for (const name of modules) {
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
     }
     if (name === 'goal') {
-      // Working-plan copy is additive; compare all frozen Goal copy unchanged.
+      // Reviewed plan/compact controls are additive; frozen Goal copy stays exact.
       Object.assign(namespaces[0].dictionaries.en, {
         'progress.title':'Progress', 'progress.pending':'Pending',
         'progress.running':'In progress', 'progress.completed':'Completed',
@@ -168,6 +168,14 @@ for (const name of modules) {
         'progress.title':'进度', 'progress.pending':'待办',
         'progress.running':'进行中', 'progress.completed':'已完成',
       })
+      const compactKeys = ['phase.complete', 'state.disabled', 'state.running', 'state.queued', 'state.waiting', 'state.awaitingApproval', 'state.awaitingAnswer', 'state.awaitingConfirmation', 'state.networkBackoff', 'state.paused', 'state.blocked', 'rounds.unit', 'action.more', 'action.budget', 'action.complete', 'action.confirm', 'action.continue', 'action.reopen', 'action.enable', 'action.pauseHint', 'action.close', 'action.cancelDialog', 'budget.title', 'budget.label', 'budget.hint', 'budget.save', 'clear.title', 'clear.hint']
+      for (const lang of ['en','zh']) for (const key of compactKeys) {
+        const value = two.namespaces[0].dictionaries[lang][key]
+        assert.equal(typeof value, 'string', `compact Goal copy ${lang}:${key}`)
+        assert.ok(value.trim())
+        assert.equal(key in namespaces[0].dictionaries[lang], false, 'new keys cannot replace frozen Goal copy')
+        namespaces[0].dictionaries[lang][key] = value
+      }
     }
     if (name === 'settings-general') {
       // Reviewed account-menu addition minus its redundant visual caption.
@@ -402,8 +410,17 @@ test('source: goal completion stays visible and same-render action dedupe surviv
   const api = current.entry('goal'); const goal = {id: 'g', revision: 2, objective: 'Done', phase: 'complete', maxGoalRounds: 100}
   const handlers = Object.fromEntries(['onComplete', 'onBudget', 'onEdit', 'onPause', 'onResume', 'onClear'].map(name => [name, async () => ({ok: true, value: null})]))
   const view = api.GoalBar({goal, projection: {goal, execution: {state: 'complete', roundsStarted: 2}}, ...handlers, t: key => key})
-  assert.notEqual(view, null); assert.equal(view.props.children.props.children[1].props.children, '已完成 · 2/100 轮')
-  const controls = view.props.children.props.children[4].props.children.at(-1)
+  assert.notEqual(view, null)
+  const findControls = node => {
+    if (!node || typeof node !== 'object') return undefined
+    if (node.props?.runAction) return node
+    for (const child of [node.props?.children].flat(Infinity)) {
+      const found = findControls(child); if (found) return found
+    }
+  }
+  const controls = findControls(view)
+  assert.equal(controls.props.goal.phase, 'complete')
+  assert.equal(controls.props.projection.execution.roundsStarted, 2)
   let settle; let requests = 0
   const runAction = controls.props.runAction
   const inFlight = runAction(() => {requests++; return new Promise(resolve => {settle = resolve})})

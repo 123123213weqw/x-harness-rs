@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url'
 const impl=process.env.UI_TEST_IMPL??'artifact';assert.ok(['artifact','source','legacy'].includes(impl));
 const root = fileURLToPath(new URL('../', import.meta.url))
 const dist = resolve(process.env.UI_TEST_DIST??resolve(root,impl==='legacy'?'ui/reference/master-a613970':'ui/dist'))
+if(impl!=='legacy'){
+  verifyArtifact('@xharness/dsh-client-ui-goal')
+  const {runCompactGoalBrowser}=await import('./fixtures/goal-compact-browser.mjs')
+  await runCompactGoalBrowser()
+}else{
 const goalSource=readFileSync(resolve(dist,'plugins/@xharness/dsh-client-ui-goal/client.js'),'utf8')
 if(impl!=='legacy')assert.equal(goalSource,verifyArtifact('@xharness/dsh-client-ui-goal'),'actual Goal artifact is strict-source fresh')
 const require = createRequire(resolve(process.env.UI_TEST_DEPS ?? '/tmp/ui-tests', 'package.json'))
@@ -118,3 +123,5 @@ try {
   assert.deepEqual(errors.filter(e=>e!=='owned feature fixture: stop Host boot'),[]);
   console.log(engine+' '+impl+': upstream GoalDock/GoalBar single inline card, confirm, retry, stale pending action, complete, blocked resume, legacy enable, narrow layout passed');
 } finally {await browser.close()}
+
+}
