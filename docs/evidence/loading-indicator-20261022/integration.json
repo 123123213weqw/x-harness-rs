@@ -33,7 +33,12 @@
     "motionPlugin": "passed",
     "typecheck": "passed",
     "ciTieringTests": 10,
-    "architectureFreeze": "passed"
+    "architectureFreeze": "passed",
+    "conversationSourceContracts": {
+      "tests": 23,
+      "failures": 0
+    },
+    "productBrandAndLicenseContract": "passed"
   },
   "nativeRustBuild": "not required: no Rust changes; no local Rust compilation performed",
   "installedApplicationChanged": false,
