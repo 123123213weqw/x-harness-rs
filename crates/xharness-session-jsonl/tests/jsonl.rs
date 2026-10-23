@@ -2445,3 +2445,68 @@ async fn stable_working_set_metadata_survives_cold_metadata_only_store_without_r
         );
     }
 }
+
+/// Isolated synthetic send-path storage benchmark, never a real conversation.
+#[tokio::test]
+#[ignore = "explicit remote large-conversation send performance acceptance"]
+async fn large_conversation_send_storage_performance_acceptance() {
+    use std::time::Instant;
+    use xharness_session::AssistantChunk;
+    let dir = TestDir::new();
+    let store = JsonlSessionStore::new(dir.path()).unwrap().for_runtime();
+    let id = "large-send-benchmark";
+    store.create(header(id)).await.unwrap();
+    let mut events = vec![
+        turn_start(1),
+        user_message("synthetic task"),
+        EventData::StepStart { turn: 1, step: 1 }.into(),
+    ];
+    for _ in 0..115_000 {
+        events.push(
+            EventData::AssistantChunk {
+                turn: 1,
+                step: 1,
+                chunk: AssistantChunk::TextDelta("synthetic stream data ".repeat(20)),
+            }
+            .into(),
+        );
+    }
+    let revision = store
+        .append(id, Revision::ZERO, events)
+        .await
+        .unwrap()
+        .revision;
+    assert_eq!(
+        store.cache_stats().entries,
+        0,
+        "must exceed the default 128 MiB cache"
+    );
+    let start = Instant::now();
+    store.load(id).await.unwrap().unwrap();
+    let load = start.elapsed();
+    let start = Instant::now();
+    store
+        .append(
+            id,
+            revision,
+            vec![EventData::AssistantChunk {
+                turn: 1,
+                step: 1,
+                chunk: AssistantChunk::TextDelta("new message receipt surrogate".into()),
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    let append = start.elapsed();
+    let start = Instant::now();
+    store.flush(id).await.unwrap();
+    let flush = start.elapsed();
+    println!(
+        "SEND_STORAGE_BENCH bytes={} load_ms={} append_ms={} flush_ms={}",
+        fs::metadata(dir.session_file(id)).unwrap().len(),
+        load.as_millis(),
+        append.as_millis(),
+        flush.as_millis()
+    );
+}

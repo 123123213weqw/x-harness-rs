@@ -44,6 +44,15 @@ pub(crate) async fn prompt(
     }
     let fingerprint = prompt_fingerprint(&mode, &content, client_time_zone.as_deref());
     let _admission_guard = host.lock_admission(&session_id).await;
+    // Reuse only source-validated cuts during this receipt. The scope neither
+    // serializes other writers nor skips CAS/validation/fsync and is released
+    // on success, error or cancellation before returning to the caller.
+    let _read_scope = host
+        .agent_runtime
+        .admission_read_scope(&session_id)
+        // Optional cache setup cannot turn a valid retry into a new error.
+        // Authoritative operations below still enforce every store failure.
+        .unwrap_or_else(|_| Box::new(()));
     if duplicate_admission(host, &session_id, rpc_id.as_str(), &fingerprint).await? {
         return Ok(json!({"accepted": true}));
     }
