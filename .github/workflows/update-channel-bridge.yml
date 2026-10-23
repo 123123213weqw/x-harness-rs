@@ -34,7 +34,7 @@ jobs:
       XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY: ${{ vars.XHARNESS_BRIDGE_UPSTREAM_PUBLIC_KEY }}
       XHARNESS_FRIENDS_PUBLIC_KEY: ${{ secrets.XHARNESS_FRIENDS_PUBLIC_KEY }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
