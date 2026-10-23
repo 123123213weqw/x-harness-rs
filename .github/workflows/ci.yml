@@ -49,6 +49,7 @@ jobs:
           python3 -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-desktop-build-cache.py
+          python3 -B scripts/test-ci-browser-runtime.py
       - name: Browser routing fixture and oracle regression (offline)
         run: python3 -B scripts/experiments/test-browser-routing-ab.py
       - uses: actions/upload-artifact@v7
@@ -288,6 +289,15 @@ jobs:
     name: UI browser / ${{ matrix.browser }} / shard ${{ matrix.shard }}
     needs: ui-build
     runs-on: ubuntu-latest
+    # Exact lockfile-matched browsers and OS libraries: no per-shard apt downloads.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -315,13 +325,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ui-tests"
           cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/ui-tests/"
           (cd "$RUNNER_TEMP/ui-tests" && npm ci --ignore-scripts)
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ui-browser-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('scripts/ui-test-deps/package-lock.json') }}
-      # Runtime Linux libraries are still installed on every fresh runner.
-      - name: Install selected browser and system libraries
-        run: node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps ${{ matrix.browser }}
+      - name: Verify pinned browser image and real launch
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: node scripts/ci/check-browser-image.mjs ${{ matrix.browser }}
       - uses: actions/download-artifact@v8
         with:
           name: ui-build-${{ github.sha }}
@@ -345,6 +352,15 @@ jobs:
   ui-parity:
     name: UI / committed and rebuilt strict pixel parity
     runs-on: ubuntu-latest
+    # Exact lockfile-matched browsers and OS libraries: no per-shard apt downloads.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -362,12 +378,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ui-tests"
           cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/ui-tests/"
           (cd "$RUNNER_TEMP/ui-tests" && npm ci --ignore-scripts)
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ui-browser-${{ runner.os }}-both-${{ hashFiles('scripts/ui-test-deps/package-lock.json') }}
-      - name: Install both browsers and system libraries
-        run: node "$RUNNER_TEMP/ui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - name: Verify pinned browser image and real launch
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/ui-tests
+        run: node scripts/ci/check-browser-image.mjs chromium,webkit
       - name: Strict committed platform and full plugin graph parity
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/ui-tests

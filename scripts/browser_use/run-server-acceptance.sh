@@ -12,7 +12,7 @@ npm ci --prefix plugins/browser-use --ignore-scripts --no-audit --no-fund
 rm -rf plugins/browser-use/dist
 npm run build --prefix plugins/browser-use
 node --test scripts/browser_use/policy-contract.test.mjs scripts/browser_use/protocol-contract.test.mjs
-node --test scripts/browser_use/reference-guidance.test.mjs scripts/browser_use/backend-isolation.test.mjs
+node --test scripts/browser_use/reference-guidance.test.mjs scripts/browser_use/backend-isolation.test.mjs scripts/browser_use/screenshot-stability.test.mjs
 status=0
 BROWSER_ACCEPTANCE_EVIDENCE=docs/evidence/browser-use-parity-engine-20261022.json node scripts/browser_use/acceptance.mjs || status=1
 BROWSER_STDIO_EVIDENCE=docs/evidence/browser-use-parity-stdio-20261022.json node scripts/browser_use/stdio.mjs || status=1

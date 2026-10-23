@@ -2,7 +2,7 @@ import { chromium } from "playwright";
 import type { Browser, BrowserContext, Dialog, Download, ElementHandle, Frame, Locator, Page } from "playwright";
 import { NetworkPolicy } from "./network-policy.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, rm, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { BrowserCommand, BrowserReceipt, EngineOptions, Target } from "./types.js";
 export type { BrowserCommand, BrowserReceipt, EngineOptions, Target } from "./types.js";
@@ -10,6 +10,8 @@ export type { BrowserCommand, BrowserReceipt, EngineOptions, Target } from "./ty
 declare global {
   interface Window { __xharnessGeometry?: { revision: number } }
 }
+
+class CaptureInvalidated extends Error {}
 
 function documentGeometry(): string {
   let state = window.__xharnessGeometry;
@@ -269,6 +271,64 @@ export class BrowserUseEngine {
       throw error;
     }
   }
+  /** Retry only discarded read-only captures, never the preceding action.
+   * A parent's DOMContentLoaded does not settle its child-frame navigations.
+   * Every attempt still validates navigation and geometry; continuously moving
+   * pages fail after three attempts without publishing an actionable raster. */
+  private async captureScreenshot(tab: Tab, fullPage: boolean) {
+    delete tab.screenshot;
+    const deadline = performance.now() + 10000;
+    for (let attempt = 0; ; attempt++) {
+      const epoch = tab.epoch;
+      const id = `screenshot-${randomUUID()}`;
+      const path = resolve(this.artifactRoot, `${id}.png`);
+      try {
+        const geometry = await Promise.all(tab.page.frames().map(async frame => {
+          try { return { frame, stamp: await frame.evaluate(documentGeometry) }; }
+          catch (error) {
+            if (epoch !== tab.epoch || frame.isDetached()) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+            throw error;
+          }
+        }));
+        let dimensions: { width: number; height: number };
+        try { dimensions = await tab.page.evaluate(full => ({ width: full ? document.documentElement.scrollWidth : innerWidth, height: full ? document.documentElement.scrollHeight : innerHeight }), fullPage); }
+        catch (error) {
+          if (epoch !== tab.epoch) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+          throw error;
+        }
+        if (dimensions.width > 8192 || dimensions.height > 8192 || dimensions.width * dimensions.height > 16000000) throw new Error("Screenshot dimensions exceed image budget; use viewport screenshot");
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) throw new Error("Screenshot capture budget exhausted; capture again");
+        let png: Buffer;
+        try { png = await tab.page.screenshot({ path, fullPage, scale: "css", caret: "initial", timeout: remaining }); }
+        catch (error) {
+          if (epoch !== tab.epoch) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+          throw error;
+        }
+        const image = { width: png.readUInt32BE(16), height: png.readUInt32BE(20), mimeType: "image/png", byteLength: png.length };
+        if (image.byteLength > 8 * 1024 * 1024 || image.width > 8192 || image.height > 8192 || image.width * image.height > 16000000) throw new Error("Screenshot exceeds image budget");
+        if (epoch !== tab.epoch) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+        for (const captured of geometry) {
+          if (captured.frame.isDetached()) throw new CaptureInvalidated("Layout changed during screenshot; capture again");
+          let stamp: string;
+          try { stamp = await captured.frame.evaluate(documentGeometry); }
+          catch (error) {
+            if (epoch !== tab.epoch || captured.frame.isDetached()) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+            throw error;
+          }
+          if (captured.stamp !== stamp) throw new CaptureInvalidated("Layout changed during screenshot; capture again");
+        }
+        if (epoch !== tab.epoch) throw new CaptureInvalidated("Navigation during screenshot; capture again");
+        const viewport = tab.page.viewportSize();
+        if (!viewport) throw new Error("No viewport geometry available");
+        tab.screenshot = { id, epoch, width: viewport.width, height: viewport.height, actionable: !fullPage, geometry };
+        return { screenshotId: id, path, image, viewport, scale: 1, fullPage, coordinateSpace: "CSS viewport", actionable: !fullPage, url: safeUrl(tab.page.url()) };
+      } catch (error) {
+        await rm(path, { force: true });
+        if (!(error instanceof CaptureInvalidated) || attempt >= 2 || performance.now() >= deadline) throw error;
+      }
+    }
+  }
   private async observe(tab: Tab, nodeOffset = 0, textOffset = 0, selectedFrame?: string, frameOffset = 0, scope: "page" | "main" | "dialog" = "page"): Promise<unknown> {
     if (!Number.isSafeInteger(nodeOffset) || nodeOffset < 0 || !Number.isSafeInteger(textOffset) || textOffset < 0) throw new Error("Offsets must be nonnegative integers");
     if (tab.dialog) return { tabId: tab.id, url: visibleUrl(tab.page.url()), contentTrust: "untrusted webpage evidence", pointer: tab.pointer ? { button: tab.pointer.button, screenshotId: tab.pointer.screenshot.id } : null, dialog: { type: tab.dialog.type(), message: tab.dialog.message().slice(0, 500) }, nodes: [], frames: [], observationId: "", requiresDialogResolution: true };
@@ -439,21 +499,7 @@ export class BrowserUseEngine {
         result = { entries, next: entries.at(-1)?.seq ?? command.after ?? 0, boundedRetention: 200 };
       } else if (command.action === "screenshot") {
         if (tab.dialog) throw new Error("Resolve the pending JavaScript dialog before screenshot");
-        const epoch = tab.epoch;
-        const geometry = await Promise.all(tab.page.frames().map(async frame => ({ frame, stamp: await frame.evaluate(documentGeometry) })));
-        const id = `screenshot-${randomUUID()}`;
-        const path = resolve(this.artifactRoot, `${id}.png`);
-        const dimensions = await tab.page.evaluate(fullPage => ({ width: fullPage ? document.documentElement.scrollWidth : innerWidth, height: fullPage ? document.documentElement.scrollHeight : innerHeight }), command.fullPage ?? false);
-        if (dimensions.width > 8192 || dimensions.height > 8192 || dimensions.width * dimensions.height > 16000000) throw new Error("Screenshot dimensions exceed image budget; use viewport screenshot");
-        const png = await tab.page.screenshot({ path, fullPage: command.fullPage ?? false, scale: "css", caret: "initial", timeout: 10000 });
-        const image = { width: png.readUInt32BE(16), height: png.readUInt32BE(20), mimeType: "image/png", byteLength: png.length };
-        if (image.byteLength > 8 * 1024 * 1024 || image.width > 8192 || image.height > 8192 || image.width * image.height > 16000000) throw new Error("Screenshot exceeds image budget");
-        if (epoch !== tab.epoch) throw new Error("Navigation during screenshot; capture again");
-        for (const captured of geometry) if (captured.frame.isDetached() || captured.stamp !== await captured.frame.evaluate(documentGeometry)) throw new Error("Layout changed during screenshot; capture again");
-        const viewport = tab.page.viewportSize();
-        if (!viewport) throw new Error("No viewport geometry available");
-        tab.screenshot = { id, epoch, width: viewport.width, height: viewport.height, actionable: !command.fullPage, geometry };
-        result = { screenshotId: id, path, image, viewport, scale: 1, fullPage: command.fullPage ?? false, coordinateSpace: "CSS viewport", actionable: !command.fullPage, url: safeUrl(tab.page.url()) };
+        result = await this.captureScreenshot(tab, command.fullPage ?? false);
       } else if (command.action === "dialog") {
         const dialog = tab.dialog;
         if (!dialog) throw new Error("No pending dialog");

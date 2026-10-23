@@ -97,6 +97,14 @@ jobs:
   browser-contract:
     if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -108,12 +116,14 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gui-tests"
           cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/gui-tests/"
           npm ci --prefix "$RUNNER_TEMP/gui-tests" --ignore-scripts
-          node "$RUNNER_TEMP/gui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+      - name: Verify pinned browser image and real launch
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/gui-tests
+        run: node scripts/ci/check-browser-image.mjs chromium,webkit
       - name: Build locked Browser Use runtime
         run: |
           npm ci --prefix plugins/browser-use --ignore-scripts
           npm run build --prefix plugins/browser-use
-          node plugins/browser-use/node_modules/playwright/cli.js install --with-deps chromium
       - name: Real Chromium MCP regression (no API spending)
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/gui-tests

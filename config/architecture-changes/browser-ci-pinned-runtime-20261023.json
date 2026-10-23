@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Avoid verified 36-minute Ubuntu mirror dependency downloads consuming the browser shard timeout; run the existing tests in a reviewed immutable Playwright image.",
+  "compatibility": "Keep the same locked Playwright 1.61.1 package and Chromium/WebKit executables, strict before/after pixel parity, every existing source/legacy browser shard, unchanged job timeouts, exact-run UI artifact verification, native Linux/Windows/macOS gates and the fail-closed aggregate. Add version/digest coupling and actual browser launch/PNG checks. No production deployment, runtime permissions or merge protections change; fresh hosted CI is still required before merge.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "feb2f97f69765caf670bc10019b25710dbeb9acdf0df7786fbebd209cf0a47db",
+      "after": "128e5c37cdf7c1596e5166a44eaf253ab27567f218ea9d7d750988ce5fefaedb"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

@@ -81,6 +81,14 @@ blindly. Receipt outcomes are `not-started`, `possibly-applied`, `applied`;
 `applied` describes dispatch completion, **not task completion**. Pending dialogs
 and failed post-observations require checking real page state before retrying.
 
+A late iframe navigation can invalidate an in-progress screenshot after the
+parent's DOMContentLoaded. Only this discarded read-only capture may be retried
+(at most three attempts, sharing the existing PNG timeout budget). Each attempt
+rechecks navigation and layout, removes discarded PNGs, and never repeats the
+preceding click/navigation. Continuously changing pages still fail without
+publishing an actionable screenshot; unrelated errors and image budgets are not
+retried.
+
 Legacy `frame_id/ref`, `select(value)` and paged snake_case observation arguments
 remain accepted at the MCP boundary. New semantic commands do not automatically
 capture both DOM and screenshots after every action. Password values are
