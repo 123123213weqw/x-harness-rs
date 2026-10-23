@@ -343,6 +343,9 @@ at the deadline rather than hanging the queue.
 
 `navigation-stability.test.mjs` covers deterministic event orderings and twelve
 real Chromium blocked-redirect/allowed-parent cycles with zero forbidden requests.
+The fixture waits for its child-frame load before asserting a single observation;
+production observations racing navigation still reject stale snapshots. Eight
+additional stress batches (96 cycles) passed after fixing that fixture boundary.
 The old engine fails three deterministic boundary tests; the live baseline race
 did not reproduce in twelve trials, so this is not a claim of deterministic live
 reproduction. Current engine/MCP/legacy acceptance is 24/24, 6/6 and 30/30; see

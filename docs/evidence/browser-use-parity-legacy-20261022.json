@@ -19,7 +19,7 @@
       "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
       "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
       "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
-      "scripts/browser_use/navigation-stability.test.mjs": "9b8dfe7a2c92288017e6659dfc395658630628ad1999596e4c63c3ab1ffd8bf1",
+      "scripts/browser_use/navigation-stability.test.mjs": "3aee6d6bff44f9e375878522b3312ab8bc2bd913ea69125274e575ffc43301db",
       "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
       "scripts/browser_use/provenance.mjs": "b025bc8123b1fb060701df7bf3eecd8a2d4de5bb34522f01e7857154abf79200",
       "scripts/browser_use/run-server-acceptance.sh": "be188e24bbd0ed348b82314a7d6d3b2f5def94d8fb736b57d0c11112a0b83920",
@@ -50,7 +50,7 @@
       "chromiumExecutable": "/home/wzu/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
     }
   },
-  "generatedAt": "2026-10-23T13:23:04.561Z",
+  "generatedAt": "2026-10-23T13:37:23.231Z",
   "source": "scripts/gui_bench/test_browser.mjs",
   "sourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e",
   "expectedSourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e",

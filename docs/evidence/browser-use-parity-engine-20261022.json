@@ -20,7 +20,7 @@
       "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
       "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
       "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
-      "scripts/browser_use/navigation-stability.test.mjs": "9b8dfe7a2c92288017e6659dfc395658630628ad1999596e4c63c3ab1ffd8bf1",
+      "scripts/browser_use/navigation-stability.test.mjs": "3aee6d6bff44f9e375878522b3312ab8bc2bd913ea69125274e575ffc43301db",
       "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
       "scripts/browser_use/provenance.mjs": "b025bc8123b1fb060701df7bf3eecd8a2d4de5bb34522f01e7857154abf79200",
       "scripts/browser_use/run-server-acceptance.sh": "be188e24bbd0ed348b82314a7d6d3b2f5def94d8fb736b57d0c11112a0b83920",
@@ -51,7 +51,7 @@
       "chromiumExecutable": "/home/wzu/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
     }
   },
-  "generatedAt": "2026-10-23T13:22:04.983Z",
+  "generatedAt": "2026-10-23T13:36:24.241Z",
   "node": "v20.20.2",
   "platform": "linux",
   "architecture": "x64",
@@ -68,63 +68,63 @@
       "title": "native and ARIA custom controls use trusted browser input",
       "status": "passed",
       "facts": {},
-      "durationMs": 1735
+      "durationMs": 1976
     },
     {
       "id": "form",
       "title": "fill, keyboard, native select and check update actual page state",
       "status": "passed",
       "facts": {},
-      "durationMs": 631
+      "durationMs": 641
     },
     {
       "id": "frames",
       "title": "semantic snapshots and targets pierce open shadow roots and permitted iframes",
       "status": "passed",
       "facts": {},
-      "durationMs": 1661
+      "durationMs": 1538
     },
     {
       "id": "ambiguous",
       "title": "ambiguous locators fail without guessing or dispatching",
       "status": "passed",
       "facts": {},
-      "durationMs": 387
+      "durationMs": 396
     },
     {
       "id": "overlay",
       "title": "blocked actions fail before dispatch; a deliberate dismissal allows progress",
       "status": "passed",
       "facts": {},
-      "durationMs": 1215
+      "durationMs": 1298
     },
     {
       "id": "delayed",
       "title": "semantic action waits for a delayed target instead of requiring a fixed sleep",
       "status": "passed",
       "facts": {},
-      "durationMs": 781
+      "durationMs": 835
     },
     {
       "id": "scroll",
       "title": "actionability scrolls below-fold targets into view",
       "status": "passed",
       "facts": {},
-      "durationMs": 439
+      "durationMs": 503
     },
     {
       "id": "ref-replay",
       "title": "a mutating reference is consumed once and cannot duplicate an effect",
       "status": "passed",
       "facts": {},
-      "durationMs": 1254
+      "durationMs": 1327
     },
     {
       "id": "replaced",
       "title": "identity validation rejects an autonomous same-looking replacement without consuming the observation first",
       "status": "passed",
       "facts": {},
-      "durationMs": 1285
+      "durationMs": 1320
     },
     {
       "id": "tabs",
@@ -134,7 +134,7 @@
         "popupClick": {
           "action": "click",
           "outcome": "applied",
-          "tabId": "tab-6e46d53d-469d-433f-82e9-5e0a38a93617",
+          "tabId": "tab-f68bb631-a259-483f-918a-204e1d192848",
           "result": {},
           "replaySafe": false
         },
@@ -145,9 +145,9 @@
             "replaySafe": true,
             "result": [
               {
-                "tabId": "tab-6e46d53d-469d-433f-82e9-5e0a38a93617",
+                "tabId": "tab-f68bb631-a259-483f-918a-204e1d192848",
                 "selected": true,
-                "url": "http://127.0.0.1:46749/",
+                "url": "http://127.0.0.1:36233/",
                 "title": "Browser acceptance tabs"
               }
             ]
@@ -158,22 +158,22 @@
             "replaySafe": true,
             "result": [
               {
-                "tabId": "tab-6e46d53d-469d-433f-82e9-5e0a38a93617",
+                "tabId": "tab-f68bb631-a259-483f-918a-204e1d192848",
                 "selected": true,
-                "url": "http://127.0.0.1:46749/",
+                "url": "http://127.0.0.1:36233/",
                 "title": "Browser acceptance tabs"
               },
               {
-                "tabId": "tab-a7f5148e-5b55-4504-8b23-82c187380c19",
+                "tabId": "tab-e2977c1b-702a-4812-884c-e2420d91f5b1",
                 "selected": false,
-                "url": "http://127.0.0.1:46749/popup",
+                "url": "http://127.0.0.1:36233/popup",
                 "title": "Popup details"
               }
             ]
           }
         ]
       },
-      "durationMs": 812
+      "durationMs": 801
     },
     {
       "id": "dialogs",
@@ -185,14 +185,14 @@
           "replaySafe": false
         }
       },
-      "durationMs": 1123
+      "durationMs": 1179
     },
     {
       "id": "screenshot",
       "title": "viewport PNG geometry and raster click coordinates agree",
       "status": "passed",
       "facts": {},
-      "durationMs": 1237
+      "durationMs": 1422
     },
     {
       "id": "pointer-gesture",
@@ -206,7 +206,7 @@
             "replaySafe": false,
             "error": {
               "code": "operation_rejected",
-              "message": "Pointer is held in tab-fe04d59d-3fe4-4468-97e3-d4035118b77d; release left with mouse up and screenshotId screenshot-b52ad14d-acd0-4585-8dd2-2115819533ea before another effect"
+              "message": "Pointer is held in tab-dd4b3657-bb02-4c6f-bc38-42db2c1adc8a; release left with mouse up and screenshotId screenshot-ce3306a6-f82e-4dc6-b464-1dcabe57c832 before another effect"
             }
           },
           {
@@ -215,13 +215,13 @@
             "replaySafe": false,
             "error": {
               "code": "operation_rejected",
-              "message": "Pointer is held in tab-fe04d59d-3fe4-4468-97e3-d4035118b77d; release left with mouse up and screenshotId screenshot-b52ad14d-acd0-4585-8dd2-2115819533ea before another effect"
+              "message": "Pointer is held in tab-dd4b3657-bb02-4c6f-bc38-42db2c1adc8a; release left with mouse up and screenshotId screenshot-ce3306a6-f82e-4dc6-b464-1dcabe57c832 before another effect"
             }
           }
         ],
         "nativeClickCount": 2
       },
-      "durationMs": 2680
+      "durationMs": 2815
     },
     {
       "id": "raster-invalidated",
@@ -235,21 +235,21 @@
       "title": "autonomous DOM layout changes revoke captured coordinate frames before dispatch",
       "status": "passed",
       "facts": {},
-      "durationMs": 667
+      "durationMs": 474
     },
     {
       "id": "upload",
       "title": "uploads are limited to the operator artifact root, including symlinks",
       "status": "passed",
       "facts": {},
-      "durationMs": 453
+      "durationMs": 419
     },
     {
       "id": "download",
       "title": "download bytes and untrusted filenames cannot escape the artifact root",
       "status": "passed",
       "facts": {},
-      "durationMs": 1341
+      "durationMs": 1365
     },
     {
       "id": "origin",
@@ -261,7 +261,7 @@
             {
               "seq": 31,
               "event": "failed",
-              "url": "http://127.0.0.1:34465/redirect-destination",
+              "url": "http://127.0.0.1:36695/redirect-destination",
               "error": "BlockedByClient: native Fetch.failRequest acknowledged",
               "source": "native-policy"
             }
@@ -273,14 +273,14 @@
         "popupTerminalFailure": {
           "seq": 31,
           "event": "failed",
-          "url": "http://127.0.0.1:34465/redirect-destination",
+          "url": "http://127.0.0.1:36695/redirect-destination",
           "error": "BlockedByClient: native Fetch.failRequest acknowledged",
           "source": "native-policy"
         },
         "redirectChainOutcome": "possibly-applied",
         "popupTabCount": 2
       },
-      "durationMs": 1331
+      "durationMs": 1365
     },
     {
       "id": "cancel-fetch",
@@ -302,77 +302,77 @@
             {
               "seq": 1,
               "event": "response",
-              "url": "http://127.0.0.1:34859/",
+              "url": "http://127.0.0.1:42793/",
               "method": "GET",
               "status": 200
             },
             {
               "seq": 2,
               "event": "failed",
-              "url": "http://127.0.0.1:33527/frame",
+              "url": "http://127.0.0.1:42763/frame",
               "error": "net::ERR_BLOCKED_BY_CLIENT"
             },
             {
               "seq": 3,
               "event": "response",
-              "url": "http://127.0.0.1:34859/frame",
+              "url": "http://127.0.0.1:42793/frame",
               "method": "GET",
               "status": 200
             },
             {
               "seq": 4,
               "event": "response",
-              "url": "http://127.0.0.1:34859/event",
+              "url": "http://127.0.0.1:42793/event",
               "method": "POST",
               "status": 204
             },
             {
               "seq": 5,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/event",
+              "url": "http://127.0.0.1:42793/event",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 6,
               "event": "response",
-              "url": "http://127.0.0.1:34859/popup",
+              "url": "http://127.0.0.1:42793/popup",
               "method": "GET",
               "status": 200
             },
             {
               "seq": 7,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/pending-fetch",
+              "url": "http://127.0.0.1:42793/pending-fetch",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 8,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/pending-fetch",
+              "url": "http://127.0.0.1:42793/pending-fetch",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 9,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/pending-fetch",
+              "url": "http://127.0.0.1:42793/pending-fetch",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 10,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/pending-fetch",
+              "url": "http://127.0.0.1:42793/control",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 11,
               "event": "failed",
-              "url": "http://127.0.0.1:34859/control",
+              "url": "http://127.0.0.1:42793/pending-fetch",
               "error": "net::ERR_ABORTED"
             },
             {
               "seq": 12,
               "event": "failed",
-              "url": "http://127.0.0.1:33527/frame",
+              "url": "http://127.0.0.1:42763/frame",
               "error": "BlockedByClient: native Fetch.failRequest acknowledged",
               "source": "native-policy"
             }
@@ -382,28 +382,28 @@
         },
         "foreignRequests": []
       },
-      "durationMs": 854
+      "durationMs": 850
     },
     {
       "id": "logs",
       "title": "bounded console and network observations retain useful facts without URL query secrets",
       "status": "passed",
       "facts": {},
-      "durationMs": 485
+      "durationMs": 442
     },
     {
       "id": "bounded",
       "title": "large pages have bounded observations, pagination and no password values",
       "status": "passed",
       "facts": {},
-      "durationMs": 3368
+      "durationMs": 3251
     },
     {
       "id": "bounded-small",
       "title": "minimum configured observation budget remains a hard bound",
       "status": "passed",
       "facts": {},
-      "durationMs": 1249
+      "durationMs": 1213
     },
     {
       "id": "bounded-cjk",
@@ -545,14 +545,14 @@
         "textCharacters": 4044,
         "retainedLogs": 1
       },
-      "durationMs": 38964
+      "durationMs": 38183
     },
     {
       "id": "navigation-ref",
       "title": "navigation revokes previous references and subsequent reading still works",
       "status": "passed",
       "facts": {},
-      "durationMs": 2135
+      "durationMs": 2320
     }
   ]
 }

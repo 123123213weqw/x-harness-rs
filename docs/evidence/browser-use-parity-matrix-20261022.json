@@ -184,7 +184,7 @@
       "remaining": "Scripted provider inspects actual image input; not an LLM reasoning/vision-quality test. Requires this Host version, not only JavaScript plugin installation."
     }
   ],
-  "updatedFromEvidenceAt": "2026-10-23T13:23:04.660Z",
+  "updatedFromEvidenceAt": "2026-10-23T13:37:23.334Z",
   "acceptanceGates": {
     "passed": true,
     "gates": {

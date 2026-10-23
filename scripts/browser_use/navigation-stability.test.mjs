@@ -79,8 +79,12 @@ test('real blocked redirect chains settle before the next allowed parent navigat
    assert.equal(failed.outcome,'possibly-applied');assert.equal(failed.replaySafe,false);
    const recovered=await engine.execute({action:'navigate',url:fixture.origin+'/iframe-redirect-page?id=origin'});
    assert.equal(recovered.outcome,'applied',JSON.stringify(recovered));
+   // Successful navigate promises DOMContentLoaded, not completion of the child
+   // redirect. Settle this controlled fixture before asserting one snapshot;
+   // concurrent navigation must still invalidate observations, never be ignored.
+   await page.waitForLoadState('load',{timeout:3000});
    const observed=await engine.execute({action:'observe'});
-   assert.equal(observed.outcome,'applied');assert.match(observed.result.text,/Allowed parent/);
+   assert.equal(observed.outcome,'applied',JSON.stringify({iteration,observed}));assert.match(observed.result.text,/Allowed parent/);
    assert.equal(fixture.foreignRequests.length,0,'all direct/redirected iframe traffic remains blocked');
   }
   assert.equal(parentRequests,12,'each explicit allowed navigation is dispatched once');
