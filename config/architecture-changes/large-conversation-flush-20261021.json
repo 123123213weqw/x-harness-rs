@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Avoid repeated authoritative JSONL replay across one real Host prompt admission, including oversized snapshots, without weakening persistence or changing RPC/execution semantics.",
+  "compatibility": "No RPC/event/journal format changes. Store/AgentRuntime add optional no-op-default admission read scopes. JSONL reuses complete source-validated snapshots only during a scope, with exact fingerprints, per-file locks, normal CAS/full semantic validation and mandatory fsync; scopes confer no authority or lock across awaits. The resident 128 MiB LRU is unchanged; extra transient reuse is separately capped at four scopes and 512 MiB logical bytes per store, with correctness-preserving fallback on quota exhaustion and release on success/error/cancellation. The optional limit can be set to zero. Cold replay and changed files still validate fully. Windows remains required coverage, not claimed complete.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/admission_tests.rs": {
+      "before": null,
+      "after": "6fe901a764df11d5c0f6198f299fae958a81d363760ad4a8d142fd14aec646e1"
+    },
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "25abbce8f95e57c854d355d7aeb657801df7e7906604ef013a73426aa991895f",
+      "after": "9da15bdbfb02f01f2e23280d2438d81bdbb3adc0167547b68cb4997ce9284a0e"
+    },
+    "crates/xharness-session-jsonl/src/replay_scope.rs": {
+      "before": null,
+      "after": "f7553e9f3245d515843ececc53564a0ec268f0b0df4afc884b337dcc13fc8ff7"
+    },
+    "crates/xharness-session-jsonl/tests/jsonl.rs": {
+      "before": "214e78ae5bf9b564fee608cc98be85729ba8366a298820f9eed05683b9e8eb12",
+      "after": "c555c2c2147322c483e416086a7d359deb6424e282749359f3abcc7d205b81b8"
+    },
+    "crates/xharness-session/src/store.rs": {
+      "before": "79440c3c0e24ec909b71e184b0fe267822bb14c9ad231b39efeff8dbc81edb8f",
+      "after": "6dadfa8070410e5b6a708a59bed6845bc184cca9ecff249e006a2479990c7be0"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}

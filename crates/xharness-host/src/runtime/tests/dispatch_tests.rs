@@ -5,7 +5,9 @@ use std::time::Duration;
 use xharness_api::{ApiBackend, RpcId, RpcMethod, RpcResult};
 use xharness_session::{EventData, InboxMessage, InboxTarget, Revision};
 
-fn fixture(store: Arc<dyn Store>) -> (Arc<crate::BasicHost>, Arc<DurableLoopAgentRuntime>) {
+pub(super) fn fixture(
+    store: Arc<dyn Store>,
+) -> (Arc<crate::BasicHost>, Arc<DurableLoopAgentRuntime>) {
     let runtime = Arc::new(DurableLoopAgentRuntime::new(
         "test",
         "test-model",
@@ -24,7 +26,7 @@ fn fixture(store: Arc<dyn Store>) -> (Arc<crate::BasicHost>, Arc<DurableLoopAgen
         runtime,
     )
 }
-async fn wait_idle(host: &crate::BasicHost, store: &Arc<dyn Store>, id: &str) {
+pub(super) async fn wait_idle(host: &crate::BasicHost, store: &Arc<dyn Store>, id: &str) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let session = store.load(id).await.unwrap().unwrap();

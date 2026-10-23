@@ -142,9 +142,21 @@ pub trait CatalogMetricsFold: Send + 'static {
     fn snapshot(&self) -> serde_json::Value;
 }
 
+/// Optional short-lived read reuse. Dropping the guard releases temporary
+/// snapshots; it grants no locks, authority, durability or stale-read immunity.
+pub trait SessionReadScope: Send {}
+impl SessionReadScope for () {}
+
 /// Durable append-only storage seam.
 #[async_trait]
 pub trait Store: Send + Sync + 'static {
+    /// Reuse validated snapshots within one bounded admission operation. Stores
+    /// may decline acceleration. Every read/append must still check the current
+    /// source and normal CAS/semantic validation; no lock spans caller awaits.
+    fn read_scope(&self, _session_id: &str) -> Result<Box<dyn SessionReadScope>, StoreError> {
+        Ok(Box::new(()))
+    }
+
     /// Optional batch-at-a-time repair of a previously source-validated
     /// catalogue's metrics. Some is returned only after atomically publishing
     /// the complete snapshot against the identical catalogue and journal.
