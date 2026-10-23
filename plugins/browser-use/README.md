@@ -329,3 +329,22 @@ The GUI acceptance workflow now builds the locked plugin before invoking it and
 runs the server acceptance suite in addition to the unchanged browser contracts.
 It uses the repository's locked test dependencies instead of an ad-hoc Playwright
 install. Hosted GitHub CI still needs to run when this candidate is submitted.
+
+### Rejected navigation settlement
+
+A rejected navigation can still commit an error document after Playwright returns.
+The engine passively waits for a **future main-frame commit and load**, resetting
+the barrier on a newer main navigation, with one bounded two-second deadline.
+Reading the previous document's already-loaded state is not completion evidence.
+Success adds no wait, and all Page listeners/timers are removed on every exit.
+The original rejection/uncertain receipt remains unchanged: no automatic replay,
+URL substitution or weakened origin policy. A missing terminal event still exits
+at the deadline rather than hanging the queue.
+
+`navigation-stability.test.mjs` covers deterministic event orderings and twelve
+real Chromium blocked-redirect/allowed-parent cycles with zero forbidden requests.
+The old engine fails three deterministic boundary tests; the live baseline race
+did not reproduce in twelve trials, so this is not a claim of deterministic live
+reproduction. Current engine/MCP/legacy acceptance is 24/24, 6/6 and 30/30; see
+`docs/evidence/browser-use-navigation-settlement-20261023.json`. Native platform
+and real-account acceptance limitations above still apply.

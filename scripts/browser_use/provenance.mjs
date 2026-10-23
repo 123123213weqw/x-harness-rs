@@ -27,6 +27,7 @@ export const sourcePaths = [
   'scripts/browser_use/evidence-gate.test.mjs',
   'scripts/browser_use/policy-contract.test.mjs',
   'scripts/browser_use/screenshot-stability.test.mjs',
+  'scripts/browser_use/navigation-stability.test.mjs',
   'scripts/browser_use/run-server-acceptance.sh',
   'scripts/gui_bench/test_browser.mjs',
   'scripts/gui_bench/fixtures/index.html',

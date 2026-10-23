@@ -260,15 +260,44 @@ export class BrowserUseEngine {
     return candidate;
   }
   private async navigateSettled(page: Page, operation: () => Promise<unknown>): Promise<void> {
-    // Chromium can reject a blocked redirect before its error document commits.
-    // Settle that same attempt before accepting the next explicit navigation;
-    // never replay the failed request or substitute another URL.
-    const committed = page.waitForEvent("framenavigated", { predicate: frame => frame === page.mainFrame(), timeout: 2000 }).catch(() => undefined);
+    // A rejected Chromium navigation can still be committing its error document.
+    // waitForLoadState may read the PREVIOUS document's already-loaded state.
+    // Observe a future main-frame commit/load instead; never replay the effect.
+    let committed = false, loaded = false;
+    let wake: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const notify = () => { const current = wake; wake = undefined; current?.(); };
+    const requested = (request: import("playwright").Request) => {
+      if (!request.isNavigationRequest()) return;
+      try { if (request.frame() !== page.mainFrame()) return; } catch { return; }
+      committed = false; loaded = false; notify();
+    };
+    const navigated = (frame: Frame) => {
+      if (frame !== page.mainFrame()) return;
+      committed = true; loaded = false; notify();
+    };
+    const completed = () => { if (committed) { loaded = true; notify(); } };
+    page.on("request", requested);
+    page.on("framenavigated", navigated);
+    page.on("load", completed);
+    page.on("close", notify);
     try { await operation(); }
     catch (error) {
-      await committed;
-      await page.waitForLoadState("domcontentloaded", { timeout: 2000 }).catch(() => {});
+      const deadline = performance.now() + 2000;
+      while (!loaded && !page.isClosed()) {
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) break;
+        await new Promise<void>(resolve => { wake = resolve; timer = setTimeout(resolve, remaining); });
+        if (timer) clearTimeout(timer);
+        timer = undefined; wake = undefined;
+      }
       throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+      page.off("request", requested);
+      page.off("framenavigated", navigated);
+      page.off("load", completed);
+      page.off("close", notify);
     }
   }
   /** Retry only discarded read-only captures, never the preceding action.

@@ -1,0 +1,97 @@
+{
+  "schema": "xharness.browser-navigation-settlement.v1",
+  "recordedAt": "2026-10-23T13:27:34.330826+00:00",
+  "status": "isolated-linux-regressions-passed-awaiting-fresh-hosted-ci",
+  "reviewedHead": "2f6db076902476c0a9f38689e7d7a9f05328d31b",
+  "failure": {
+    "workflowRun": 39897706449,
+    "job": 120231861687,
+    "check": "browser-contract",
+    "enginePassed": 23,
+    "engineCases": 24,
+    "failedCase": "origin",
+    "symptom": "The next allowed navigation was interrupted by the previous rejected redirect committing chrome-error://chromewebdata/.",
+    "rootCauseBoundary": "waitForLoadState can return the previous document state; first commit/load can be superseded by another main navigation."
+  },
+  "repair": {
+    "waitFor": "future main-frame commit and load, reset on each main-frame navigation request",
+    "waitOnlyAfterRejection": true,
+    "settlementDeadlineMs": 2000,
+    "cleanup": "remove all four Page listeners and timer on success, rejection, timeout and close",
+    "originalErrorPreserved": true,
+    "effectReplayed": false,
+    "originPolicyChanged": false,
+    "acceptanceAssertionsRelaxed": false,
+    "rustChangedByRepair": false
+  },
+  "validation": {
+    "host": "WZU_Server",
+    "isolation": "dedicated source checkout; controlled localhost fixtures; no real profiles or user pages",
+    "node": "v20.20.2",
+    "playwright": "1.61.1",
+    "baselineLiveStress": {
+      "cycles": 12,
+      "failed": 0,
+      "interpretation": "The live CI race is intermittent; these trials do not claim a local live reproduction."
+    },
+    "oldEngineNewDeterministicBoundaryTests": {
+      "passed": 4,
+      "failed": 3,
+      "liveTestPassed": 1,
+      "total": 8,
+      "interpretation": "Expected negative control: early commit, superseding navigation, and successful no-navigation listener cleanup fail on the old implementation."
+    },
+    "fixedNavigationRegression": {
+      "passed": 8,
+      "failed": 0,
+      "deterministic": 7,
+      "realChromium": {
+        "blockedThenAllowedCycles": 12,
+        "forbiddenRequests": 0,
+        "allowedParentRequests": 12,
+        "uncertainFailureReceiptPreserved": true
+      }
+    },
+    "completeServerRunner": {
+      "exitCode": 0,
+      "evidenceValidator": 26,
+      "policyAndProtocol": 13,
+      "guidanceIsolationScreenshotNavigation": 18,
+      "engine": {
+        "passed": 24,
+        "cases": 24
+      },
+      "mcpStdio": {
+        "passed": 6,
+        "cases": 6
+      },
+      "unchangedLegacy": {
+        "passed": 30,
+        "checks": 30
+      }
+    }
+  },
+  "logs": {
+    "baseline-race.log": {
+      "sha256": "dcb0c05867464498502e94d0c09335e00c515b8f1c5c086fb9c3bedcbee4f1b7"
+    },
+    "old-navigation-regression.log": {
+      "sha256": "6ac7c9584a1ba4500f200ce94064c319470388a5148e2775a3e4f3d7d7872a1d"
+    },
+    "repaired-server-acceptance.log": {
+      "sha256": "d277bf3d45aafb648d22bb9d87d7f21192341ea20d47b9ff0ce04278d8a2799b"
+    }
+  },
+  "currentSourceEvidence": [
+    "docs/evidence/browser-use-parity-engine-20261022.json",
+    "docs/evidence/browser-use-parity-stdio-20261022.json",
+    "docs/evidence/browser-use-parity-legacy-20261022.json",
+    "docs/evidence/browser-use-parity-matrix-20261022.json"
+  ],
+  "limitations": [
+    "Live redirect race did not reproduce in 12 baseline trials; deterministic boundary red/green tests plus the CI failure trace motivate the repair.",
+    "This tests isolated background Chromium, not native macOS WKWebView or Windows WebView2 interaction.",
+    "Real accounts, live-model two-backend routing/handoff, complete ZCode parity and performance superiority remain unaccepted.",
+    "A bounded passive wait cannot guarantee settlement of a navigation that never completes; the original failure remains visible and is never automatically replayed."
+  ]
+}

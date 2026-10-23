@@ -179,12 +179,12 @@
       "cases": [
         "plugin_mcp::browser_e2e::real_browser_mcp_image_reaches_provider_request_and_durable_history"
       ],
-      "status": "passed-explicit-server-integration-with-scripted-provider",
-      "evidence": "docs/evidence/browser-use-parity-rust-media-20261022.json",
+      "status": "missing-evidence",
+      "evidence": "docs/evidence/browser-use-parity-engine-20261022.json",
       "remaining": "Scripted provider inspects actual image input; not an LLM reasoning/vision-quality test. Requires this Host version, not only JavaScript plugin installation."
     }
   ],
-  "updatedFromEvidenceAt": "2026-10-22T13:39:16.669Z",
+  "updatedFromEvidenceAt": "2026-10-23T13:23:04.660Z",
   "acceptanceGates": {
     "passed": true,
     "gates": {
