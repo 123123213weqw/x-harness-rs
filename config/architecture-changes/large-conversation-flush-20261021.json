@@ -6,7 +6,7 @@
   "paths": {
     "crates/xharness-session-jsonl/src/admission_tests.rs": {
       "before": null,
-      "after": "29060794350cdce32874f31ed9079e7fd2e0c0d60d7bc0ddea808b9f8359c54b"
+      "after": "6fe901a764df11d5c0f6198f299fae958a81d363760ad4a8d142fd14aec646e1"
     },
     "crates/xharness-session-jsonl/src/lib.rs": {
       "before": "25abbce8f95e57c854d355d7aeb657801df7e7906604ef013a73426aa991895f",

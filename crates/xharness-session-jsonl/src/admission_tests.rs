@@ -11,7 +11,19 @@ impl Fixture {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        Self(std::env::temp_dir().join(format!("xh-flush-{}-{nonce}", std::process::id())))
+        Self::at_time(nonce)
+    }
+
+    fn at_time(nonce: u128) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "xh-flush-{}-{nonce}-{sequence}",
+            std::process::id()
+        ));
+        // Never let this fixture's cleanup own a pre-existing directory.
+        fs::create_dir(&path).unwrap();
+        Self(path)
     }
 }
 impl Drop for Fixture {
@@ -19,6 +31,50 @@ impl Drop for Fixture {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
+#[test]
+fn admission_fixtures_are_isolated_when_clock_ticks_repeat() {
+    let first = Fixture::at_time(0);
+    let second = Fixture::at_time(0);
+    assert_ne!(first.0, second.0, "a clock tick is not a unique test ID");
+
+    let fixtures = std::thread::scope(|scope| {
+        let handles = (0..16)
+            .map(|_| scope.spawn(|| Fixture::at_time(0)))
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let paths = fixtures
+        .iter()
+        .map(|fixture| fixture.0.clone())
+        .collect::<Vec<_>>();
+    let unique = paths.iter().collect::<std::collections::HashSet<_>>();
+    assert_eq!(unique.len(), paths.len());
+    for fixture in &fixtures {
+        assert!(
+            fixture.0.is_dir(),
+            "the fixture must exclusively own its directory"
+        );
+        fs::write(fixture.0.join("marker"), b"owned by this test").unwrap();
+    }
+
+    drop(first);
+    assert!(
+        second.0.is_dir(),
+        "dropping another fixture must not remove this one"
+    );
+    drop(second);
+    for path in &paths {
+        assert!(path.join("marker").is_file());
+    }
+    drop(fixtures);
+    for path in paths {
+        assert!(!path.exists(), "each owned directory must be cleaned up");
+    }
+}
+
 fn replays(store: &JsonlSessionStore) -> usize {
     store.cache.lock().unwrap().authoritative_replays
 }

@@ -11,7 +11,7 @@
     "crates/xharness-session-jsonl/tests/jsonl.rs": "c555c2c2147322c483e416086a7d359deb6424e282749359f3abcc7d205b81b8",
     "crates/xharness-session/src/store.rs": "6dadfa8070410e5b6a708a59bed6845bc184cca9ecff249e006a2479990c7be0",
     "crates/xharness-session-jsonl/src/replay_scope.rs": "f7553e9f3245d515843ececc53564a0ec268f0b0df4afc884b337dcc13fc8ff7",
-    "crates/xharness-session-jsonl/src/admission_tests.rs": "29060794350cdce32874f31ed9079e7fd2e0c0d60d7bc0ddea808b9f8359c54b",
+    "crates/xharness-session-jsonl/src/admission_tests.rs": "6fe901a764df11d5c0f6198f299fae958a81d363760ad4a8d142fd14aec646e1",
     "crates/xharness-host/src/runtime/tests/admission_performance_tests.rs": "014773990cd70962c954cc90db72283ba27b812a94b208df736a6f4ff40e79df"
   },
   "observed_local_journal_metadata": {
@@ -134,5 +134,14 @@
     "latest_clippy": "xharness-host --all-targets -- -D warnings: passed again",
     "stage_coverage": "Standalone storage benchmark has load/append/flush timing; real RPC acceptance measures whole backend admission and authoritative replay count. No frontend click-to-request timing or model TTFT is asserted."
   },
-  "scope_of_completion": "Repeated full replay within one admitted prompt is fixed and regression-tested. This does not implement constant-time incremental journal validation, remove first cold load, defer projection after ack, or claim live-installed/Windows/macOS UI acceptance."
+  "scope_of_completion": "Repeated full replay within one admitted prompt is fixed and regression-tested. This does not implement constant-time incremental journal validation, remove first cold load, defer projection after ack, or claim live-installed/Windows/macOS UI acceptance.",
+  "review_follow_up_20261023": {
+    "change": "Make admission fixture directories unique across repeated clock ticks with an atomic sequence and exclusive directory creation.",
+    "regression": "admission_fixtures_are_isolated_when_clock_ticks_repeat uses a fixed clock for sequential and parallel allocations and verifies cleanup isolation.",
+    "negative_control": "On WZU_Server, the pre-fix naming algorithm fails deterministically because two fixed-clock fixtures have identical paths.",
+    "scope": "Test-fixture isolation only; production source and the original performance measurements are unchanged. Follow-up validation is recorded separately from those measurements.",
+    "remote_suite": "WZU_Server: cargo test --locked -p xharness-session -p xharness-session-jsonl -p xharness-agent -p xharness-host: passed; 705 unique parent-suite tests, 11 existing opt-in tests ignored (nested subprocess executions not double-counted).",
+    "clippy": "WZU_Server: cargo clippy --locked -p xharness-session -p xharness-session-jsonl -p xharness-agent -p xharness-host --all-targets -- -D warnings: passed.",
+    "local_checks": "cargo fmt --all -- --check, git diff --check and architecture dependency/content-binding checks against the PR base: passed; no local Rust compilation."
+  }
 }
