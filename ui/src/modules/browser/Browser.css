@@ -54,3 +54,11 @@
 .xhbrowser-downloads>strong{display:block;margin-bottom:9px}.xhbrowser-downloads>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l2,#444)}.xhbrowser-downloads>div span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhbrowser-downloads small{flex:none;color:var(--dsw-alias-label-tertiary,#999)}.xhbrowser-downloads p{margin:0;color:var(--dsw-alias-label-tertiary,#999)}
 @container(max-width:420px){.xhbrowser-annotate{width:33px;padding:0}.xhbrowser-annotate span{display:none}}
 @container(max-width:390px){.xhbrowser-toolbar{gap:4px;padding:0 7px}.xhbrowser-nav .xhbrowser-icon,.xhbrowser-actions .xhbrowser-icon{width:23px}.xhbrowser-more,.xhbrowser-annotate{width:29px}.xhbrowser-home{padding:22px 16px}.xhbrowser-tools{grid-template-columns:1fr}}
+/* Reserve the border outside the child WebView's measured rectangle: native
+   views cannot be overlaid with renderer CSS. No layout shift while active. */
+.xhbrowser-pane[data-model-observer=true]{border:2px solid transparent;transition:border-color 120ms ease-out}
+.xhbrowser-pane[data-model-active=true]{border-color:var(--dsw-alias-label-primary,#eee)}
+.xhbrowser-model-activity{display:inline-grid;place-items:center;flex:none;width:18px;color:var(--dsw-alias-label-primary,#eee)}
+.xhbrowser-model-activity[data-active=false]{visibility:hidden}
+.xhbrowser-activity-label{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){.xhbrowser-pane[data-model-observer=true]{transition:none}}

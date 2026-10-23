@@ -117,6 +117,14 @@ impl BrowserLifecycle {
             request_id: request_id.clone(),
             completed: false,
         };
+        let _activity = crate::browser_activity::Activity::start(
+            owner,
+            &format!("browser:{request_id}"),
+            crate::browser_activity::Operation::Open,
+            |event| {
+                let _ = app.emit_to("main", "xharness-browser-activity", event);
+            },
+        );
         app.emit_to(
             "main",
             "xharness-browser-control-open",
@@ -165,6 +173,14 @@ impl BrowserLifecycle {
             request_id: request_id.clone(),
             completed: false,
         };
+        let _activity = crate::browser_activity::Activity::start(
+            owner,
+            &tab_id,
+            crate::browser_activity::Operation::Close,
+            |event| {
+                let _ = app.emit_to("main", "xharness-browser-activity", event);
+            },
+        );
         app.emit_to(
             "main",
             "xharness-browser-control-close",

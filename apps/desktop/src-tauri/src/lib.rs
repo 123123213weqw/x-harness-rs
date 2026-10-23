@@ -1,5 +1,6 @@
 mod account_callback;
 mod browser;
+mod browser_activity;
 mod browser_bridge;
 mod browser_delegation;
 mod browser_inspect;

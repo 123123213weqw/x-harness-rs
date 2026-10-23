@@ -1,4 +1,5 @@
 import {installShellSessionsFixture} from './fixtures/shell-navigation-browser.mjs'
+import './test-browser-activity.mjs'
 // Real AppFrame/BrowserPane; fake ONLY the Tauri transport. Not a native input
 // or engine acceptance test. Never equate Playwright WebKit with WKWebView.
 import assert from 'node:assert/strict'
@@ -73,6 +74,38 @@ try{
  assert(index('desktop_browser_navigate')<index('desktop_browser_delegate'))
  assert(index('desktop_browser_delegate')<index('desktop_browser_control_reply'))
  assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://example.com/')
+ // Presentation comes from authenticated native invocation metadata, not
+ // page loading, queued text or generic/headless MCP activity.
+ await page.waitForFunction(()=>nativeListeners.get('xharness-browser-activity')?.size===1)
+ const pane=page.locator('.xhbrowser-pane')
+ await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane')?.dataset.modelActive)
+ assert.equal(await pane.getAttribute('data-model-active'),null)
+ const beforeActivity=await page.locator('.xhbrowser-content').boundingBox()
+ const activity={id:'101',backend:'embedded',owner:'chat-a',tabId,operation:'observe',phase:'started'}
+ for(const patch of [{backend:'headless'},{owner:'chat-b'},{tabId:'browser:other'}]){
+   await page.evaluate(value=>emitNative('xharness-browser-activity',value),{...activity,...patch})
+   assert.equal(await pane.getAttribute('data-model-active'),null)
+ }
+ await page.evaluate(value=>emitNative('xharness-browser-activity',value),activity)
+ await page.waitForFunction(()=>document.querySelector('.xhbrowser-pane')?.dataset.modelActive==='true')
+ await pane.getByRole('status').waitFor()
+ assert.deepEqual(await page.locator('.xhbrowser-content').boundingBox(),beforeActivity,'activity never shifts or resizes the native child rectangle')
+ assert.equal(await pane.evaluate(node=>getComputedStyle(node).borderTopWidth),'2px')
+ await page.emulateMedia({reducedMotion:'reduce'})
+ assert.equal(await pane.evaluate(node=>getComputedStyle(node).transitionDuration),'0s')
+ for(const [theme,color,expected] of [['light','#171717','rgb(23, 23, 23)'],['dark','#eeeeee','rgb(238, 238, 238)']]){
+   await page.evaluate(({theme,color})=>{document.documentElement.style.setProperty('--dsw-alias-label-primary',color);document.documentElement.dataset.activityTestTheme=theme},{theme,color})
+   assert.equal(await pane.evaluate(node=>getComputedStyle(node).borderTopColor),expected)
+ }
+ await page.evaluate(()=>document.documentElement.style.removeProperty('--dsw-alias-label-primary'))
+ await page.evaluate(value=>{
+   emitNative('xharness-browser-activity',{...value,id:'102',operation:'input'})
+   emitNative('xharness-browser-activity',{...value,phase:'finished'})
+ },activity)
+ assert.equal(await pane.getAttribute('data-model-active'),'true','one finish cannot clear another active call')
+ await page.evaluate(value=>emitNative('xharness-browser-activity',{...value,id:'102',phase:'finished'}),activity)
+ await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane')?.dataset.modelActive)
+ assert.deepEqual(await page.locator('.xhbrowser-content').boundingBox(),beforeActivity)
  // Completed request cannot be replayed or deleted by a late cancel.
  await page.evaluate(requestId=>emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://example.com/'}),requestId)
  await page.waitForTimeout(50)

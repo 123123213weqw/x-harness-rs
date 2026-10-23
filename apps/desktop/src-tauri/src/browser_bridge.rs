@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, Semaphore};
@@ -180,6 +180,19 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         }
         Err(error) => return Err(error),
     };
+    let operation = match &request.op {
+        Operation::Observe => crate::browser_activity::Operation::Observe,
+        Operation::Perform => crate::browser_activity::Operation::Perform,
+        Operation::Screenshot => crate::browser_activity::Operation::Screenshot,
+        Operation::Input => crate::browser_activity::Operation::Input,
+        Operation::List | Operation::Control => unreachable!(),
+    };
+    let _activity =
+        crate::browser_activity::Activity::start(&request.owner, &tab, operation, |event| {
+            // Only the trusted shell receives metadata, never a guest page. Event
+            // delivery is best-effort and must not change the invocation's result.
+            let _ = app.emit_to("main", "xharness-browser-activity", event);
+        });
     match request.op {
         Operation::Screenshot => {
             if request.arguments != json!({}) {

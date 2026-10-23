@@ -1,0 +1,214 @@
+{
+  "schema": "xharness.browser-use.interface-repair-acceptance.v1",
+  "generatedAt": "2026-10-22T13:50:48.329Z",
+  "environment": "Isolated V100 checkout; no live app restart, deployment or running-agent interruption.",
+  "changes": [
+    "Action-specific schema and parser share pre-dispatch validation; target variants require exact fields and reject mixed forms.",
+    "Actionable field-path errors with canonical examples; no sensitive argument-value echo.",
+    "Reference errors explain observation replacement/consumption, pagination and ambiguity without relaxing any guard."
+  ],
+  "regression": {
+    "passed": true,
+    "evidenceIntegrityTests": 26,
+    "policyTests": 7,
+    "protocolContractGroups": 6,
+    "canonicalExamples": 97,
+    "legacyExamples": 10,
+    "schemaBytes": 15124,
+    "referenceGuidanceNativeTests": 3,
+    "engineCases": 24,
+    "stdioCases": 6,
+    "unchangedLegacyChecks": 30,
+    "initialAttempt": "Legacy runner could not start because UI_TEST_DEPS pointed to an absent dependency. No assertions changed. Full aggregate rerun used the plugin own pinned Playwright dependency directory.",
+    "logs": {
+      "gates-initial.log": "cc53c61672789ddddef20b131d2766a2800f2700f463d21e8dfc349f8a485106",
+      "gates-final.log": "0af5bb5219873353fb685054045fc15ac8a76d7f9c623132d1b041002cdd03f9"
+    },
+    "sourceHashes": {
+      "plugins/browser-use/src/protocol.ts": "a0d51d872ba8f521141594242fec82fdb4baa688a5a68600e26389e60b694283",
+      "plugins/browser-use/src/protocol-schema.ts": "20b87a689fff8cb033e190e2bd51c02fe1631ff1a4c247a12dd1b1492c9f54f1",
+      "plugins/browser-use/src/engine.ts": "2201621078dc400da7b213d2cf50cdd98c30c0039f7b028f64e104b6f2325d6a",
+      "scripts/browser_use/protocol-contract.test.mjs": "18619dcf7d7b10a0b1b94bf02f25c6321b27a63a0acff83fe256be5a0348fb5c",
+      "scripts/browser_use/reference-guidance.test.mjs": "77eb49d4cfdf5666a04e33c9d10cf101402e78529ac005cc5a35da7ccdd4f3a5",
+      "scripts/browser_use/stdio.mjs": "ae6825fad3f514a24e1a946cba79aa90e3bac79d24b0a4e57ab5f60dd66dc6cf"
+    }
+  },
+  "modelAb": {
+    "primary": "docs/evidence/browser-use-parity-model-ab-interface-fix-20261022.json",
+    "before": "docs/evidence/browser-use-parity-model-ab-20261022.json",
+    "all48TrialsComplete": true,
+    "unchangedTaskSeedsGoalsAndScenarioHashes": true,
+    "unchangedRunnerFixtureAndReferenceAdapterHashes": true,
+    "modelParametersIdentical": true,
+    "concurrency": 4,
+    "modelRequestsLimit": 25,
+    "toolActionsLimit": 40,
+    "secondsLimit": 300,
+    "terminalPassiveSettlementMs": 500,
+    "candidateBefore": {
+      "trials": 24,
+      "passed": 21,
+      "failed": 3,
+      "successRate": 0.875,
+      "meanElapsedMs": 20995,
+      "medianElapsedMs": 16162,
+      "modelLatencyMs": 391640,
+      "toolLatencyMs": 90040,
+      "toolCalls": 312,
+      "providerAttempts": 295,
+      "providerErrors": 0,
+      "imageCalls": 17,
+      "toolTextBytes": 599496,
+      "usage": {
+        "prompt_tokens": 2790161,
+        "completion_tokens": 47804,
+        "total_tokens": 2837965,
+        "prompt_cache_hit_tokens": 2548736,
+        "prompt_cache_miss_tokens": 241425
+      }
+    },
+    "candidateAfter": {
+      "trials": 24,
+      "passed": 24,
+      "failed": 0,
+      "successRate": 1,
+      "meanElapsedMs": 18347,
+      "medianElapsedMs": 15096.5,
+      "modelLatencyMs": 322419,
+      "toolLatencyMs": 97250,
+      "toolCalls": 259,
+      "providerAttempts": 252,
+      "providerErrors": 0,
+      "imageCalls": 6,
+      "toolTextBytes": 605824,
+      "usage": {
+        "prompt_tokens": 3134734,
+        "completion_tokens": 39716,
+        "total_tokens": 3174450,
+        "prompt_cache_hit_tokens": 2898176,
+        "prompt_cache_miss_tokens": 236558
+      }
+    },
+    "referenceConcurrent": {
+      "trials": 24,
+      "passed": 23,
+      "failed": 1,
+      "successRate": 0.9583333333333334,
+      "meanElapsedMs": 19140,
+      "medianElapsedMs": 12560.5,
+      "modelLatencyMs": 406259,
+      "toolLatencyMs": 47848,
+      "toolCalls": 298,
+      "providerAttempts": 282,
+      "providerErrors": 0,
+      "imageCalls": 10,
+      "toolTextBytes": 1356473,
+      "usage": {
+        "prompt_tokens": 4509013,
+        "completion_tokens": 48786,
+        "total_tokens": 4557799,
+        "prompt_cache_hit_tokens": 4046208,
+        "prompt_cache_miss_tokens": 462805
+      }
+    },
+    "referenceIntegrity": {
+      "passed": true,
+      "originalRevision": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
+      "originalFiles": 11,
+      "buildFiles": 8,
+      "sourceManifestSha256": "80d3d54fc887ef5d3e89e90cd1766fcb735e7254342842c53c50cec018e825f1",
+      "buildManifestSha256": "eb016bd7ca15ba7741c211dff4150a10dfe885a3bb3e62392faa5f90bdfad2f4",
+      "adapterSha256": "e01a0323c449e66e65c664fca2c761f6440d729a8059889da30b20b82dfe2edf"
+    },
+    "limits": [
+      "Small generated stochastic suite; not proof of universal superiority.",
+      "Native tool schemas and Playwright dependency versions differ.",
+      "Viewport1280x800 is requested in bootstrap, not guaranteed for subsequent original reference newTab: primary follow-up modal-rules-1-reference A17 getState reports1280x720. Thus no strict viewport-controlled horizontal ranking is claimed. Candidate before/after uses the same context-wide viewport.",
+      "Full48-trial/11-PNG hash audit ran on V100; only selected complete raw traces were copied locally. Complete raw evidence remains on V100."
+    ]
+  },
+  "recoveredCases": [
+    {
+      "file": "catalogue-0-candidate.json",
+      "sha256": "9e90c30067b604219652985960068eeed215c887b049f072f8956a69649d37e4",
+      "actions": 17,
+      "pageScore": {
+        "success": true,
+        "criteria": {
+          "noUnsafeAction": true,
+          "exactCandidatesVisible": true,
+          "priceAscending": true,
+          "comparedCorrectPair": true,
+          "shortlistedBestBattery": true
+        },
+        "failedCriteria": [],
+        "classification": "passed",
+        "attribution": "Task-state evidence only. Runner must separately classify model decisions, insufficient observation and tool failures.",
+        "passed": true
+      },
+      "terminalSettlement": {
+        "maximumMs": 500,
+        "elapsedMs": 0,
+        "successObservedBeforeClose": true
+      }
+    },
+    {
+      "file": "modal-rules-0-candidate.json",
+      "sha256": "cd150ae773b843eed67fb5f3df23a8efeeabd937d4ee55e46fba4b8a4f7a667f",
+      "actions": 22,
+      "pageScore": {
+        "success": true,
+        "criteria": {
+          "noUnsafeAction": true,
+          "selectedCompatibleService": true,
+          "overlayClosed": true
+        },
+        "failedCriteria": [],
+        "classification": "passed",
+        "attribution": "Task-state evidence only. Runner must separately classify model decisions, insufficient observation and tool failures.",
+        "passed": true
+      },
+      "terminalSettlement": {
+        "maximumMs": 500,
+        "elapsedMs": 0,
+        "successObservedBeforeClose": true
+      }
+    },
+    {
+      "file": "modal-rules-2-candidate.json",
+      "sha256": "47df1d482573712dae15c22293bc71bd653f8c107bb4a2f63e142008ea913b44",
+      "actions": 25,
+      "pageScore": {
+        "success": true,
+        "criteria": {
+          "noUnsafeAction": true,
+          "selectedCompatibleService": true,
+          "overlayClosed": true
+        },
+        "failedCriteria": [],
+        "classification": "passed",
+        "attribution": "Task-state evidence only. Runner must separately classify model decisions, insufficient observation and tool failures.",
+        "passed": true
+      },
+      "terminalSettlement": {
+        "maximumMs": 500,
+        "elapsedMs": 0,
+        "successObservedBeforeClose": true
+      }
+    }
+  ],
+  "referenceFailureReview": {
+    "file": "modal-rules-1-reference.json",
+    "sha256": "12f8c0be869e56229f37da2409dfb8f3a021ab04973249f172289640589edd69",
+    "findings": [
+      "A8 snapshot contained correct service supporting Canada.",
+      "A10/A20/A25 stale refs were rejected; recovery snapshots returned fresh refs.",
+      "Model explored other services and never completed shortlist; 25 requests/26 actions exhausted. Final selected empty and modal closed.",
+      "A17 getState reports1280x720 for the native newTab, a viewport confound disclosed separately."
+    ],
+    "attribution": "Decision/exploration and native stale-ref recovery costs; no evidence of a valid call being mis-executed; not a teardown false negative."
+  },
+  "deployed": false,
+  "committed": false,
+  "rustScope": "This follow-up changes TypeScript/plugin contract and JavaScript tests only. Previous Rust Host media acceptance is retained as historical evidence; no new Rust compilation or full Host E2E rerun is claimed in this follow-up."
+}

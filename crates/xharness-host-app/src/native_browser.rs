@@ -326,6 +326,9 @@ mod tests {
                 let browser = &index["capabilities"][0];
                 assert_eq!(browser["plugin"], PLUGIN);
                 assert_eq!(browser["server"], SERVER);
+                assert_eq!(browser["backend"], "embedded");
+                assert_eq!(browser["visibility"], "user-visible");
+                assert_eq!(browser["session"], "chat-bound-visible-tab");
                 assert!(browser["description"]
                     .as_str()
                     .unwrap()

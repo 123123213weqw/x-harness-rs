@@ -1,0 +1,556 @@
+{
+  "schema": "xharness.browser-use.acceptance.v1",
+  "referenceCommit": "3c5b227649371507ddc4eb46ac5133afe6db1cab",
+  "provenance": {
+    "sourceHashes": {
+      "plugins/browser-use/.claude-plugin/plugin.json": "5107d3fcd4fb0a7225c348be4073f1b5c3d1777b51686926b02b779778429033",
+      "plugins/browser-use/.mcp.json": "b4cb7293e5fb2e2a518f531042d0c68b68742940e53cfede4d93f816174efb45",
+      "plugins/browser-use/package-lock.json": "06170278c4527c5ca7c1c2903fe99cf05208d62c506cba2e1c21f7f9b7f7122b",
+      "plugins/browser-use/package.json": "f3243a205b4cabb6699d2ed5a620e3023a800418563c4391a67881e351ad2bcf",
+      "plugins/browser-use/server.mjs": "5f031f06eea0b6972c1ff7980c634233309a26d12ca49d29b4ba1b183d0a19d1",
+      "plugins/browser-use/src/cdp-policy-bridge.ts": "46adcaaf39061a6cdbd1d81eec2092ffe8b3357cfc2d498b994bd1fba8278f61",
+      "plugins/browser-use/src/engine.ts": "2201621078dc400da7b213d2cf50cdd98c30c0039f7b028f64e104b6f2325d6a",
+      "plugins/browser-use/src/network-policy.ts": "c2b2afd84fe5d6befb463378f9653b1fc7e7ccc4fa2e73530b033dd0f3147f0b",
+      "plugins/browser-use/src/protocol-schema.ts": "20b87a689fff8cb033e190e2bd51c02fe1631ff1a4c247a12dd1b1492c9f54f1",
+      "plugins/browser-use/src/protocol.ts": "a0d51d872ba8f521141594242fec82fdb4baa688a5a68600e26389e60b694283",
+      "plugins/browser-use/src/types.ts": "9fa76e0b4f25232b00608da85517544c381f5f789f1afabf2dc2ff95defc775b",
+      "plugins/browser-use/tsconfig.json": "12a59d06f0ace3524867fd6b214449b66444ae89ebcce86248c50c0ebb0b49ba",
+      "scripts/browser_use/acceptance.mjs": "7540dbead50b47e6511ced719867450a631fc7b9db5d3a65422b735ef9a9003c",
+      "scripts/browser_use/evidence-gate.test.mjs": "468505f165eab1c5407f188ad74d2e5a0bd9233cc171f156e2b27a6e4b843d8c",
+      "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
+      "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
+      "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
+      "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
+      "scripts/browser_use/provenance.mjs": "5865d4d06e95207519601c8ee9cb6c688da23e337e1aec9dbde339a5f3cb60f4",
+      "scripts/browser_use/run-server-acceptance.sh": "8ff42ca81bbbceb9a35e4c9e4bb23d147463d874d089b0671ebcc62e87428501",
+      "scripts/browser_use/stdio.mjs": "ae6825fad3f514a24e1a946cba79aa90e3bac79d24b0a4e57ab5f60dd66dc6cf",
+      "scripts/browser_use/update-matrix.mjs": "48514e0d0f1f88100b6b178aa91d197293e6d1b1049eba20fa2db42f856ab9f6",
+      "scripts/gui_bench/fixtures/index.html": "615f12b70cb5f9ee6b47f5b01b058fd3c70d0203d1208c4a6468c7157481f829",
+      "scripts/gui_bench/test_browser.mjs": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e"
+    },
+    "buildHashes": {
+      "plugins/browser-use/dist/cdp-policy-bridge.js": "0e8bd50207b608be26cce586351f97209800999ec5d18fb288561195e7fae56b",
+      "plugins/browser-use/dist/engine.js": "57f62969008261374a72803a4b31514d95107a901f7fe7d93233c56c641cbf9b",
+      "plugins/browser-use/dist/network-policy.js": "0a6690cb2cb2129b4d84b8e5cb228e801c3f6e638a198c286273887a8b113737",
+      "plugins/browser-use/dist/protocol-schema.js": "61d99b0daa8f761e795e46d172a8d88dac28485f573aed5d5a4992fa468bf2a0",
+      "plugins/browser-use/dist/protocol.js": "0818847b2f22f2f540ee524e5e7766b29cee854b5dca1460b40be0fb41f1863a",
+      "plugins/browser-use/dist/types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    "loadedEngine": {
+      "path": "plugins/browser-use/dist/engine.js",
+      "sha256": "57f62969008261374a72803a4b31514d95107a901f7fe7d93233c56c641cbf9b"
+    },
+    "runtime": {
+      "node": "v20.20.2",
+      "platform": "linux",
+      "architecture": "x64",
+      "playwright": "1.61.1",
+      "chromium": "Google Chrome for Testing 149.0.7827.55",
+      "chromiumExecutable": "/home/wzu/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
+    }
+  },
+  "generatedAt": "2026-10-22T13:38:18.355Z",
+  "node": "v20.20.2",
+  "platform": "linux",
+  "architecture": "x64",
+  "environment": "isolated Chromium; no live user tabs; no LLM used",
+  "scope": "Direct engine integration, not complete ZCode product parity or model quality",
+  "totals": {
+    "cases": 24,
+    "passed": 24,
+    "failed": 0
+  },
+  "cases": [
+    {
+      "id": "trusted",
+      "title": "native and ARIA custom controls use trusted browser input",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1558
+    },
+    {
+      "id": "form",
+      "title": "fill, keyboard, native select and check update actual page state",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 620
+    },
+    {
+      "id": "frames",
+      "title": "semantic snapshots and targets pierce open shadow roots and permitted iframes",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1569
+    },
+    {
+      "id": "ambiguous",
+      "title": "ambiguous locators fail without guessing or dispatching",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 360
+    },
+    {
+      "id": "overlay",
+      "title": "blocked actions fail before dispatch; a deliberate dismissal allows progress",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1261
+    },
+    {
+      "id": "delayed",
+      "title": "semantic action waits for a delayed target instead of requiring a fixed sleep",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 699
+    },
+    {
+      "id": "scroll",
+      "title": "actionability scrolls below-fold targets into view",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 448
+    },
+    {
+      "id": "ref-replay",
+      "title": "a mutating reference is consumed once and cannot duplicate an effect",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1398
+    },
+    {
+      "id": "replaced",
+      "title": "identity validation rejects an autonomous same-looking replacement without consuming the observation first",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1308
+    },
+    {
+      "id": "tabs",
+      "title": "popup, select, reuse, close and explicit new tab preserve truthful tab identity",
+      "status": "passed",
+      "facts": {
+        "popupClick": {
+          "action": "click",
+          "outcome": "applied",
+          "tabId": "tab-8d075e8d-b521-4726-a35e-93d050cda1ec",
+          "result": {},
+          "replaySafe": false
+        },
+        "tabPolls": [
+          {
+            "action": "tabs",
+            "outcome": "applied",
+            "replaySafe": true,
+            "result": [
+              {
+                "tabId": "tab-8d075e8d-b521-4726-a35e-93d050cda1ec",
+                "selected": true,
+                "url": "http://127.0.0.1:45803/",
+                "title": "Browser acceptance tabs"
+              }
+            ]
+          },
+          {
+            "action": "tabs",
+            "outcome": "applied",
+            "replaySafe": true,
+            "result": [
+              {
+                "tabId": "tab-8d075e8d-b521-4726-a35e-93d050cda1ec",
+                "selected": true,
+                "url": "http://127.0.0.1:45803/",
+                "title": "Browser acceptance tabs"
+              },
+              {
+                "tabId": "tab-31373db3-959f-44b2-a1fa-5fec20bb029f",
+                "selected": false,
+                "url": "http://127.0.0.1:45803/popup",
+                "title": "Popup details"
+              }
+            ]
+          }
+        ]
+      },
+      "durationMs": 791
+    },
+    {
+      "id": "dialogs",
+      "title": "native prompt is surfaced and completed without deadlocking the command queue",
+      "status": "passed",
+      "facts": {
+        "initialReceipt": {
+          "outcome": "possibly-applied",
+          "replaySafe": false
+        }
+      },
+      "durationMs": 1150
+    },
+    {
+      "id": "screenshot",
+      "title": "viewport PNG geometry and raster click coordinates agree",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1389
+    },
+    {
+      "id": "pointer-gesture",
+      "title": "held mouse button rejects semantic effects until its matching release",
+      "status": "passed",
+      "facts": {
+        "rejections": [
+          {
+            "action": "click",
+            "outcome": "not-started",
+            "replaySafe": false,
+            "error": {
+              "code": "operation_rejected",
+              "message": "Pointer is held in tab-c05245f6-e8ea-4efb-abac-7e26c2771587; release left with mouse up and screenshotId screenshot-c6966cc3-cedb-4d06-b934-e9e93bf27e3f before another effect"
+            }
+          },
+          {
+            "action": "navigate",
+            "outcome": "not-started",
+            "replaySafe": false,
+            "error": {
+              "code": "operation_rejected",
+              "message": "Pointer is held in tab-c05245f6-e8ea-4efb-abac-7e26c2771587; release left with mouse up and screenshotId screenshot-c6966cc3-cedb-4d06-b934-e9e93bf27e3f before another effect"
+            }
+          }
+        ],
+        "nativeClickCount": 2
+      },
+      "durationMs": 2610
+    },
+    {
+      "id": "raster-invalidated",
+      "title": "full-page, out-of-bounds and scrolled screenshots cannot dispatch raster actions",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 665
+    },
+    {
+      "id": "raster-layout",
+      "title": "autonomous DOM layout changes revoke captured coordinate frames before dispatch",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 429
+    },
+    {
+      "id": "upload",
+      "title": "uploads are limited to the operator artifact root, including symlinks",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 439
+    },
+    {
+      "id": "download",
+      "title": "download bytes and untrusted filenames cannot escape the artifact root",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1321
+    },
+    {
+      "id": "origin",
+      "title": "unapproved origin receives zero direct, iframe, linked, redirected or subresource requests",
+      "status": "passed",
+      "facts": {
+        "popupTerminalNetwork": {
+          "entries": [
+            {
+              "seq": 31,
+              "event": "failed",
+              "url": "http://127.0.0.1:39195/redirect-destination",
+              "error": "BlockedByClient: native Fetch.failRequest acknowledged",
+              "source": "native-policy"
+            }
+          ],
+          "next": 31,
+          "boundedRetention": 200
+        },
+        "foreignRequests": [],
+        "popupTerminalFailure": {
+          "seq": 31,
+          "event": "failed",
+          "url": "http://127.0.0.1:39195/redirect-destination",
+          "error": "BlockedByClient: native Fetch.failRequest acknowledged",
+          "source": "native-policy"
+        },
+        "redirectChainOutcome": "possibly-applied",
+        "popupTabCount": 2
+      },
+      "durationMs": 1359
+    },
+    {
+      "id": "cancel-fetch",
+      "title": "navigation cancels real unfinished requests without poisoning the native policy or browser",
+      "status": "passed",
+      "facts": {
+        "beforeNavigation": {
+          "started": 4,
+          "cancelled": 0,
+          "completed": 0
+        },
+        "afterNavigation": {
+          "started": 4,
+          "cancelled": 4,
+          "completed": 0
+        },
+        "networkAfterCancellation": {
+          "entries": [
+            {
+              "seq": 1,
+              "event": "response",
+              "url": "http://127.0.0.1:38051/",
+              "method": "GET",
+              "status": 200
+            },
+            {
+              "seq": 2,
+              "event": "failed",
+              "url": "http://127.0.0.1:37971/frame",
+              "error": "net::ERR_BLOCKED_BY_CLIENT"
+            },
+            {
+              "seq": 3,
+              "event": "response",
+              "url": "http://127.0.0.1:38051/frame",
+              "method": "GET",
+              "status": 200
+            },
+            {
+              "seq": 4,
+              "event": "response",
+              "url": "http://127.0.0.1:38051/event",
+              "method": "POST",
+              "status": 204
+            },
+            {
+              "seq": 5,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/event",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 6,
+              "event": "response",
+              "url": "http://127.0.0.1:38051/popup",
+              "method": "GET",
+              "status": 200
+            },
+            {
+              "seq": 7,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/pending-fetch",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 8,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/pending-fetch",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 9,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/control",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 10,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/pending-fetch",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 11,
+              "event": "failed",
+              "url": "http://127.0.0.1:38051/pending-fetch",
+              "error": "net::ERR_ABORTED"
+            },
+            {
+              "seq": 12,
+              "event": "failed",
+              "url": "http://127.0.0.1:37971/frame",
+              "error": "BlockedByClient: native Fetch.failRequest acknowledged",
+              "source": "native-policy"
+            }
+          ],
+          "next": 12,
+          "boundedRetention": 200
+        },
+        "foreignRequests": []
+      },
+      "durationMs": 884
+    },
+    {
+      "id": "logs",
+      "title": "bounded console and network observations retain useful facts without URL query secrets",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 439
+    },
+    {
+      "id": "bounded",
+      "title": "large pages have bounded observations, pagination and no password values",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 3077
+    },
+    {
+      "id": "bounded-small",
+      "title": "minimum configured observation budget remains a hard bound",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 1187
+    },
+    {
+      "id": "bounded-cjk",
+      "title": "CJK observations and logs respect UTF-8 byte budgets with strictly advancing pagination",
+      "status": "passed",
+      "facts": {
+        "cjkPagination": [
+          {
+            "nodeOffset": 91,
+            "nextNodeOffset": 93,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-91",
+                "name": "中文操作64：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-92",
+                "name": "中文操作65：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 93,
+            "nextNodeOffset": 95,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-93",
+                "name": "中文操作66：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-94",
+                "name": "中文操作67：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 95,
+            "nextNodeOffset": 97,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-95",
+                "name": "中文操作68：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-96",
+                "name": "中文操作69：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 97,
+            "nextNodeOffset": 99,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-97",
+                "name": "中文操作70：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-98",
+                "name": "中文操作71：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 99,
+            "nextNodeOffset": 101,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-99",
+                "name": "中文操作72：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-100",
+                "name": "中文操作73：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 101,
+            "nextNodeOffset": 103,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-101",
+                "name": "中文操作74：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-102",
+                "name": "中文操作75：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 103,
+            "nextNodeOffset": 105,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-103",
+                "name": "中文操作76：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-104",
+                "name": "中文操作77：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              }
+            ]
+          },
+          {
+            "nodeOffset": 105,
+            "nextNodeOffset": null,
+            "nodeTotal": 111,
+            "samples": [
+              {
+                "ref": "node-105",
+                "name": "中文操作78：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-106",
+                "name": "中文操作79：读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读取分页进度读"
+              },
+              {
+                "ref": "node-107",
+                "name": "中文日志"
+              }
+            ]
+          }
+        ],
+        "seenChineseNodes": 80,
+        "budgetBytes": 5000,
+        "maximumBytes": 4912,
+        "nodePages": 43,
+        "chineseNodeCount": 80,
+        "textPages": 4,
+        "textCharacters": 4044,
+        "retainedLogs": 1
+      },
+      "durationMs": 38893
+    },
+    {
+      "id": "navigation-ref",
+      "title": "navigation revokes previous references and subsequent reading still works",
+      "status": "passed",
+      "facts": {},
+      "durationMs": 2296
+    }
+  ]
+}

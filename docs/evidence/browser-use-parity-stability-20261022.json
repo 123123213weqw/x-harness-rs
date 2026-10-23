@@ -1,0 +1,153 @@
+{
+  "schema": "xharness.browser-use.stability-acceptance.v1",
+  "generatedAt": "2026-10-22T11:24:22.662632+00:00",
+  "host": "WZU_Server (V100), isolated project",
+  "sourceBaseCommit": "d0565d4b0950b099f26da445832da8fbb6d24766",
+  "sourceState": "uncommitted candidate; content hashes bind the exact tested sources",
+  "status": "passed",
+  "sequentialRuns": 10,
+  "completedChecksPerRun": 30,
+  "scope": "Ten sequential unchanged legacy compatibility runs after the exact allowed-request cancellation correction. Repetitions are not unique tests or real LLM quality evidence.",
+  "provenance": {
+    "sourceHashes": {
+      "plugins/browser-use/.claude-plugin/plugin.json": "5107d3fcd4fb0a7225c348be4073f1b5c3d1777b51686926b02b779778429033",
+      "plugins/browser-use/.mcp.json": "b4cb7293e5fb2e2a518f531042d0c68b68742940e53cfede4d93f816174efb45",
+      "plugins/browser-use/package-lock.json": "06170278c4527c5ca7c1c2903fe99cf05208d62c506cba2e1c21f7f9b7f7122b",
+      "plugins/browser-use/package.json": "f3243a205b4cabb6699d2ed5a620e3023a800418563c4391a67881e351ad2bcf",
+      "plugins/browser-use/server.mjs": "5f031f06eea0b6972c1ff7980c634233309a26d12ca49d29b4ba1b183d0a19d1",
+      "plugins/browser-use/src/cdp-policy-bridge.ts": "46adcaaf39061a6cdbd1d81eec2092ffe8b3357cfc2d498b994bd1fba8278f61",
+      "plugins/browser-use/src/engine.ts": "c008ba8ea64f7ea782fca5847acfdd9100f274d9284bab97f1cfc25060ab032e",
+      "plugins/browser-use/src/network-policy.ts": "c2b2afd84fe5d6befb463378f9653b1fc7e7ccc4fa2e73530b033dd0f3147f0b",
+      "plugins/browser-use/src/protocol.ts": "aaec62ca3ef4d011e32e1292e54c7923a68d93d8a1ea335128fa20b903c434b7",
+      "plugins/browser-use/src/types.ts": "9fa76e0b4f25232b00608da85517544c381f5f789f1afabf2dc2ff95defc775b",
+      "plugins/browser-use/tsconfig.json": "12a59d06f0ace3524867fd6b214449b66444ae89ebcce86248c50c0ebb0b49ba",
+      "scripts/browser_use/acceptance.mjs": "7540dbead50b47e6511ced719867450a631fc7b9db5d3a65422b735ef9a9003c",
+      "scripts/browser_use/evidence-gate.test.mjs": "468505f165eab1c5407f188ad74d2e5a0bd9233cc171f156e2b27a6e4b843d8c",
+      "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
+      "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
+      "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
+      "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
+      "scripts/browser_use/provenance.mjs": "5865d4d06e95207519601c8ee9cb6c688da23e337e1aec9dbde339a5f3cb60f4",
+      "scripts/browser_use/run-server-acceptance.sh": "719b37618cae2031efcf9b78405bcb525c42539d81dcc355a7b0806efacfeb8d",
+      "scripts/browser_use/stdio.mjs": "15a71becc46bbcf6466f58411a80ade7e4a7626830dbc6bc3a6662b729d52bd6",
+      "scripts/browser_use/update-matrix.mjs": "48514e0d0f1f88100b6b178aa91d197293e6d1b1049eba20fa2db42f856ab9f6",
+      "scripts/gui_bench/fixtures/index.html": "615f12b70cb5f9ee6b47f5b01b058fd3c70d0203d1208c4a6468c7157481f829",
+      "scripts/gui_bench/test_browser.mjs": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e"
+    },
+    "buildHashes": {
+      "plugins/browser-use/dist/cdp-policy-bridge.js": "0e8bd50207b608be26cce586351f97209800999ec5d18fb288561195e7fae56b",
+      "plugins/browser-use/dist/engine.js": "1c08c0d9d248e4cf0926aa80bbdf9b3d50112b63a0206295e984398994d61a57",
+      "plugins/browser-use/dist/network-policy.js": "0a6690cb2cb2129b4d84b8e5cb228e801c3f6e638a198c286273887a8b113737",
+      "plugins/browser-use/dist/protocol.js": "809217077c0ea72bd433660d04cbf0c88d9a4bbf2546d4cc5d88c255e10b2c3b",
+      "plugins/browser-use/dist/types.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+    },
+    "loadedEngine": {
+      "path": "plugins/browser-use/dist/engine.js",
+      "sha256": "1c08c0d9d248e4cf0926aa80bbdf9b3d50112b63a0206295e984398994d61a57"
+    },
+    "runtime": {
+      "node": "v20.20.2",
+      "platform": "linux",
+      "architecture": "x64",
+      "playwright": "1.61.1",
+      "chromium": "Google Chrome for Testing 149.0.7827.55",
+      "chromiumExecutable": "/home/wzu/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome"
+    }
+  },
+  "runs": [
+    {
+      "run": 1,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-1-20261022.json",
+      "reportSha256": "5b316a06b05fe280e397804da91bd2b94dbf837735401f28b20b5a6b4911495c"
+    },
+    {
+      "run": 2,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-2-20261022.json",
+      "reportSha256": "13d87b9a4ba1d0b786b7daf6c92df6f56f67c3b6e420d16c38cb128bf808bdec"
+    },
+    {
+      "run": 3,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-3-20261022.json",
+      "reportSha256": "4d6551f2ad1972d3860f4b590ee88b6c788913e9c1aef6577d6695a8dd151ce0"
+    },
+    {
+      "run": 4,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-4-20261022.json",
+      "reportSha256": "fde22f29b29eafac47777c4dac84f191f96cee7f884ec1eae971788b1b27608f"
+    },
+    {
+      "run": 5,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-5-20261022.json",
+      "reportSha256": "71ed816b0dd14bd4a83a7846c7a8835d0d4e92de9464ef8c597732cc8b706c63"
+    },
+    {
+      "run": 6,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-6-20261022.json",
+      "reportSha256": "78947a6ae49a5a842509982fee405ce10873619e72a760594f296c49e71b8159"
+    },
+    {
+      "run": 7,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-7-20261022.json",
+      "reportSha256": "8ffaa16c3d4fa7cec1ffaf54fff99436913a33dd53464149dd36faab28ae7e55"
+    },
+    {
+      "run": 8,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-8-20261022.json",
+      "reportSha256": "4ad6587131499920a9a8f3a8d32ca6939fdf3bf44b52986df22b29ad44670619"
+    },
+    {
+      "run": 9,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-9-20261022.json",
+      "reportSha256": "bc1c044bdb022f9f3101a54fcede00b4fab188d34e3af9f4f3b8aad18dbca069"
+    },
+    {
+      "run": 10,
+      "status": "passed",
+      "checks": 30,
+      "report": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/stability/browser-use-parity-stability-10-20261022.json",
+      "reportSha256": "09fda6aa56583ab6dd9163bb54eebad948e4b39f4600dd72a25df1b48cbae716"
+    }
+  ],
+  "log": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/logs/browser-stable-final.log",
+  "logSha256": "2d4e0384dc37122855d739dac3ef849633cac15660723b314aa45c09fd779eda",
+  "otherGates": {
+    "evidenceIntegrityCases": 26,
+    "nativePolicyControlCases": 7,
+    "realEngineCases": 24,
+    "stdioCases": 6,
+    "originalLegacyChecks": 30,
+    "rustUniquePassingTests": 148,
+    "hostBaselineIgnored": 3,
+    "explicitIgnoredHostBrowserChainTestsExecuted": 1
+  },
+  "limitations": [
+    "No full JS Worker/facade API parity",
+    "No desktop WebView adapter replacement",
+    "No original ZCode runtime versus real-model task A/B",
+    "No OS-level network sandbox or dedicated Worker/WebSocket policy proof"
+  ],
+  "sideEffects": {
+    "appRestarted": false,
+    "liveConfigurationChanged": false,
+    "published": false,
+    "merged": false
+  }
+}

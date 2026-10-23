@@ -1,0 +1,67 @@
+{
+  "schema": "xharness.browser-use.model-ab-trace-review.v1",
+  "primaryReport": "docs/evidence/browser-use-parity-model-ab-20261022.json",
+  "reviewMethod": "Read persisted primary tool traces and page-owned final state; no provider private reasoning, action replay or score relabeling. Independent reviewer verified all three candidate failures.",
+  "candidateFailures": [
+    {
+      "file": "catalogue-0-candidate.json",
+      "findings": [
+        "A2-A6 used value instead of text; A7-A13 omitted observationId; generic errors did not identify the missing field.",
+        "A18-A21 reused consumed observationId; rejection was correct.",
+        "A36 compared only the first item; A37 showed second item still not compared or shortlisted.",
+        "25 model requests exhausted; 507ms terminal settlement still failed."
+      ],
+      "attribution": "Argument decisions plus schema/error discoverability and re-observation overhead; no evidence of a valid call being mis-executed.",
+      "sha256": "5b79421e068fdc5bb4a7dc09c26fe7dfca9f9a00f85cb6b28cce116e8dae4a5e"
+    },
+    {
+      "file": "modal-rules-0-candidate.json",
+      "findings": [
+        "A2 guessed node21 outside nodeTotal21 (valid0..20), not a returned reference.",
+        "A9/A10 read the correct service supporting Germany; A12 returned its shortlist button. No shortlist action was attempted.",
+        "A17 reused node11 from A10 with a new A16 observation that only returned0..10. A18 fetched page11 and A19 succeeded.",
+        "Model continued exploring other services; A25 close landed. Terminal505ms: selected=[], modal=null."
+      ],
+      "attribution": "Over-exploration plus reference/paging contract burden; neither missing correct facts nor failed native execution.",
+      "sha256": "9ac80284ce443cb9db44c975f5403ac0365a0f5cd9e488e52a90284da1418566"
+    },
+    {
+      "file": "modal-rules-2-candidate.json",
+      "findings": [
+        "A5 ref+observationId+frameId and A6 top-level observationId fit the broad schema but were rejected by the action-specific parser. target lacks required/oneOf.",
+        "A22 read correct service supporting Canada; A23 closed its dialog.",
+        "A25 opened another service details; its page-owned event landed. Terminal504ms: no selected service, modal still open."
+      ],
+      "attribution": "Schema/parser mismatch and argument repair overhead followed by decision drift; not teardown.",
+      "sha256": "3de3e1591c4322c4fe4517c03c162809b3cda5f873d45afbed529ee88015f09d"
+    }
+  ],
+  "referenceFailures": [
+    {
+      "file": "draft-correction-0-reference.json",
+      "sha256": "cb20d82e48e16af798235312f113a9b89cb1d10d394dc0d26ca2b2079e3611ab",
+      "findings": [
+        "A3-A6 contained correct name/region and version3.0; A6 returned all fields and validation feedback without truncation.",
+        "A8-A11 changed version to4.0 but also replaced the previously correct name; server events exactly matched the submitted wrong data.",
+        "A19/A23 then changed region and name away from the requested goal.",
+        "A15/A26/A27 stale refs were correctly rejected with explicit snapshot recovery guidance.",
+        "A28 selected6.0 rather than required4.0. Five validations failed, no save action, 25 requests/28 actions exhausted. 504ms terminal settlement still failed."
+      ],
+      "attribution": "Primarily correction decisions, with compound feedback ambiguity and reference recovery overhead; no missing field evidence or mis-executed valid tool call."
+    }
+  ],
+  "evaluatorCorrection": {
+    "historicalPhase": "main-3x8",
+    "primaryPhase": "validated-3x8",
+    "oldRawScoresPreserved": true,
+    "reason": "Closing immediately after a final native receipt can cancel the page-owned effect before the grader receives it.",
+    "regressionEvidence": "docs/evidence/browser-use-parity-ab-teardown-20261022.json",
+    "correction": "Up to500ms passive page-state settlement before browser close for both arms; no extra action or automatic retry. All48 primary trials rerun.",
+    "serverArchive": {
+      "path": "/tmp/xh-ab-validated-20261022.tar.gz",
+      "sha256": "c2d630b56c983d1af19ec891387bbf72a322f8fa197d897ffd58e7bcada176a1"
+    }
+  },
+  "credentialPolicy": "Existing credential passed over verified SSH stdin; no credential, private reasoning or inline base64 saved in evidence.",
+  "productionChangedDuringAb": false
+}
