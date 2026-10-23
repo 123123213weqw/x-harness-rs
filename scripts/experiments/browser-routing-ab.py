@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import time
 import urllib.error
@@ -21,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STATE = 'crates/xharness-host/src/state.rs'
 MCP = 'crates/xharness-host-app/src/plugin_mcp.rs'
 NATIVE = 'crates/xharness-host-app/src/native_browser.rs'
+BOUNDARY = 'crates/xharness-host-app/src/plugin_mcp/browser_boundary.rs'
 ENDPOINT = 'https://api.deepseek.com/chat/completions'
 URL = 'https://pages.tmall.com/wow/a/act/tmall/dailygroup/24732/25590/wupr'
 
@@ -36,11 +38,34 @@ def literal(text, marker):
     return json.JSONDecoder().raw_decode(text[start:].lstrip())[0]
 
 
+def mcp_description(tail, boundary=None):
+    """Read only the two production description forms; never evaluate Rust.
+
+    Historical revisions use a string literal. Current production appends its
+    source-owned boundary guidance with format!("{}{}", literal, GUIDANCE).
+    Reject unfamiliar expressions instead of silently dropping policy text.
+    """
+    expression = tail.lstrip()
+    decoder = json.JSONDecoder()
+    if expression.startswith('"'):
+        value, _ = decoder.raw_decode(expression)
+        return value
+    prefix = re.match(r'format!\(\s*"\{\}\{\}"\s*,\s*', expression)
+    if not prefix or boundary is None:
+        raise ValueError('Unsupported MCP description expression or missing boundary source')
+    body = expression[prefix.end():]
+    base, end = decoder.raw_decode(body)
+    if not isinstance(base, str) or not re.match(r'\s*,\s*browser_boundary::GUIDANCE\s*\)\s*,', body[end:]):
+        raise ValueError('Unsupported MCP description concatenation')
+    return base + literal(boundary, 'const GUIDANCE: &str = ')
+
+
 def contract(revision=None):
     state, mcp, native = (source(path, revision) for path in (STATE, MCP, NATIVE))
     marker = '"plugin_mcp",'
     tail = mcp[mcp.index(marker) + len(marker):]
-    definition = {'name': 'plugin_mcp', 'description': json.JSONDecoder().raw_decode(tail.lstrip())[0],
+    boundary = source(BOUNDARY, revision) if 'browser_boundary::embedded_capability()' in mcp else None
+    definition = {'name': 'plugin_mcp', 'description': mcp_description(tail, boundary),
                   'parameters': literal(tail, 'json!(')}
     policy = literal(state, 'let browser = ') if 'let browser = ' in state else ''
     base_system = '\n\n'.join([source('crates/xharness-host/prompts/default-agent.txt', revision).strip(),
@@ -54,6 +79,8 @@ def contract(revision=None):
     summary = ''
     if summary_marker in mcp:
         summary = literal(mcp[mcp.index(summary_marker):], '"description":')
+    elif boundary is not None:
+        summary = literal(boundary[boundary.index(summary_marker):], '"description":')
     return {'definition': definition, 'base_system': base_system, 'policy': policy,
             'schemas': schemas, 'plugin': plugin, 'server': server, 'summary': summary}
 
