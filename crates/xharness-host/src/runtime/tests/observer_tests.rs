@@ -1143,6 +1143,9 @@ impl SessionToolFactory for RestrictedHostTools {
 
 #[tokio::test]
 async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
+    // Bootstrap requires a genuinely absolute workspace on every target OS.
+    let workspace = std::env::temp_dir().to_str().unwrap().to_owned();
+    assert!(std::path::Path::new(&workspace).is_absolute());
     struct FixtureGate(bool);
     impl crate::ExecutionGate for FixtureGate {
         fn require_active(&self) -> Result<(), String> {
@@ -1157,69 +1160,114 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
     // hosted modes; an inactive hosted gate must reject before tool injection.
     for gate_active in [None, Some(true), Some(false)] {
         for restricted in [false, true] {
-            let execution = crate::execution::ExecutionBoundary::default();
-            if let Some(active) = gate_active {
-                execution.install(Arc::new(FixtureGate(active))).unwrap();
-            }
-            let mut models = ModelRegistry::new();
-            models
-                .register(RegisteredModel::new(
-                    ModelDescriptor::new("test", "test", "test-model", "test-model"),
-                    Arc::new(ScriptProvider {
-                        answers: Mutex::new(VecDeque::new()),
-                    }),
-                ))
-                .unwrap();
-            let goals = Arc::new(crate::goals::GoalBridge::default());
-            // Register the Host branch without dereferencing a live application.
-            goals.host.set(std::sync::Weak::new()).unwrap();
-            let tool_factory: Arc<dyn SessionToolFactory> = if restricted {
-                Arc::new(RestrictedHostTools)
-            } else {
-                Arc::new(NoTools)
-            };
-            let factory = DurableTurnFactory {
-                execution,
-                goals,
-                store: Arc::new(MemorySessionStore::default()),
-                delegation_slots: Arc::new(tokio::sync::Semaphore::new(1)),
-                models: Arc::new(StdRwLock::new(models)),
-                tool_factory,
-                context_policy: Arc::new(IdentityContextPolicy),
-                compaction: Arc::new(StdRwLock::new(None)),
-                sessions: Arc::new(RwLock::new(HashMap::from([(
-                    "restricted".into(),
-                    DurableSessionConfig {
-                        cwd: "/tmp".into(),
-                        permission: PermissionPreset::DangerFullAccess,
-                        prompt: None,
-                        route: ModelRoute::new("test", "test-model"),
-                    },
-                )]))),
-                debug: Arc::new(StdRwLock::new(DebugRecorder::default())),
-            };
-            let request = factory.build("restricted", Vec::new()).await;
-            if gate_active == Some(false) {
-                assert_eq!(
-                    request.err().expect("inactive gate must reject"),
-                    "fixture execution is inactive"
-                );
-                continue;
-            }
-            let request = request.unwrap();
-            let names = request
-                .tool_executor
-                .unwrap()
-                .registry()
-                .definitions()
-                .await
-                .into_iter()
-                .map(|d| d.name)
-                .collect::<Vec<_>>();
-            if restricted {
-                assert!(names.is_empty(), "{names:?}");
-            } else {
-                assert_eq!(names, vec!["goal", "history"]);
+            for automatic_goal in [false, true] {
+                let execution = crate::execution::ExecutionBoundary::default();
+                if let Some(active) = gate_active {
+                    execution.install(Arc::new(FixtureGate(active))).unwrap();
+                }
+                let mut models = ModelRegistry::new();
+                models
+                    .register(RegisteredModel::new(
+                        ModelDescriptor::new("test", "test", "test-model", "test-model"),
+                        Arc::new(ScriptProvider {
+                            answers: Mutex::new(VecDeque::new()),
+                        }),
+                    ))
+                    .unwrap();
+                let goals = Arc::new(crate::goals::GoalBridge::default());
+                // Register the Host branch without dereferencing a live application.
+                goals.host.set(std::sync::Weak::new()).unwrap();
+                let tool_factory: Arc<dyn SessionToolFactory> = if restricted {
+                    Arc::new(RestrictedHostTools)
+                } else {
+                    Arc::new(NoTools)
+                };
+                let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+                let input = if automatic_goal {
+                    crate::prepare_goal_session(
+                        store.as_ref(),
+                        &crate::GoalBootstrapSpec {
+                            operation_id: "visibility-fixture".into(),
+                            session_id: "restricted".into(),
+                            goal_id: "visibility-goal".into(),
+                            objective: "Check evidence".into(),
+                            acceptance_criteria: vec![],
+                            max_goal_rounds: 2,
+                            created_at_ms: 1,
+                            workspace: workspace.clone(),
+                            provider: "test".into(),
+                            model: "test-model".into(),
+                            reasoning_effort: None,
+                            context_window_tokens: None,
+                            permission: PermissionPreset::DangerFullAccess,
+                        },
+                        false,
+                    )
+                    .await
+                    .unwrap();
+                    xharness_agent::GoalController::new(store.clone(), "restricted")
+                        .reconcile()
+                        .await
+                        .unwrap();
+                    let session = store.load("restricted").await.unwrap().unwrap();
+                    vec![xharness_agent::InboxProjection::from_session(&session)
+                        .unwrap()
+                        .next_turn()[0]
+                        .message
+                        .clone()]
+                } else {
+                    Vec::new()
+                };
+                let factory = DurableTurnFactory {
+                    execution,
+                    goals,
+                    store,
+                    delegation_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+                    models: Arc::new(StdRwLock::new(models)),
+                    tool_factory,
+                    context_policy: Arc::new(IdentityContextPolicy),
+                    compaction: Arc::new(StdRwLock::new(None)),
+                    sessions: Arc::new(RwLock::new(HashMap::from([(
+                        "restricted".into(),
+                        DurableSessionConfig {
+                            cwd: workspace.clone(),
+                            permission: PermissionPreset::DangerFullAccess,
+                            prompt: None,
+                            route: ModelRoute::new("test", "test-model"),
+                        },
+                    )]))),
+                    debug: Arc::new(StdRwLock::new(DebugRecorder::default())),
+                };
+                let request = factory.build("restricted", input).await;
+                if gate_active == Some(false) {
+                    assert_eq!(
+                        request.err().expect("inactive gate must reject"),
+                        "fixture execution is inactive"
+                    );
+                    continue;
+                }
+                let request = request.unwrap();
+                let names = request
+                    .tool_executor
+                    .unwrap()
+                    .registry()
+                    .definitions()
+                    .await
+                    .into_iter()
+                    .map(|d| d.name)
+                    .collect::<Vec<_>>();
+                if restricted {
+                    assert!(names.is_empty(), "{names:?}");
+                } else {
+                    assert_eq!(
+                        names,
+                        if automatic_goal {
+                            vec!["goal_report", "history"]
+                        } else {
+                            vec!["history"]
+                        }
+                    );
+                }
             }
         }
     }

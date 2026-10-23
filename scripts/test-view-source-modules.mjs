@@ -159,7 +159,7 @@ for (const name of modules) {
       Object.assign(namespaces[0].dictionaries.zh, {'navigation.back':'后退','navigation.forward':'前进'})
     }
     if (name === 'goal') {
-      // Working-plan copy is additive; compare all frozen Goal copy unchanged.
+      // Reviewed plan/compact controls are additive; frozen Goal copy stays exact.
       Object.assign(namespaces[0].dictionaries.en, {
         'progress.title':'Progress', 'progress.pending':'Pending',
         'progress.running':'In progress', 'progress.completed':'Completed',
@@ -168,6 +168,14 @@ for (const name of modules) {
         'progress.title':'进度', 'progress.pending':'待办',
         'progress.running':'进行中', 'progress.completed':'已完成',
       })
+      const compactKeys = ['phase.complete', 'state.disabled', 'state.running', 'state.queued', 'state.waiting', 'state.awaitingApproval', 'state.awaitingAnswer', 'state.awaitingConfirmation', 'state.networkBackoff', 'state.paused', 'state.blocked', 'rounds.unit', 'rounds.label', 'rounds.hint', 'action.more', 'action.complete', 'action.confirm', 'action.continue', 'action.reopen', 'action.enable', 'action.pauseHint', 'action.close', 'action.cancelDialog', 'clear.title', 'clear.hint']
+      for (const lang of ['en','zh']) for (const key of compactKeys) {
+        const value = two.namespaces[0].dictionaries[lang][key]
+        assert.equal(typeof value, 'string', `compact Goal copy ${lang}:${key}`)
+        assert.ok(value.trim())
+        assert.equal(key in namespaces[0].dictionaries[lang], false, 'new keys cannot replace frozen Goal copy')
+        namespaces[0].dictionaries[lang][key] = value
+      }
     }
     if (name === 'settings-general') {
       // Reviewed account-menu addition minus its redundant visual caption.
@@ -310,13 +318,15 @@ for (const [label, loader] of [['legacy', legacy], ['source', current]]) {
     assert.deepEqual(normalized(env.trace), [{workspace: 'workspace'}, 'toggleSidebar'])
     assert.deepEqual(Object.keys(env.registrations[0].spec.children), ['sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.workspaces', 'sidebar.settings', 'sidebar.footer.action', ...(label==='source'?['sidebar.primary.action']:[])])
   })
-  test(`${label}: goal dock preserves completion/budget verbs, reads fresh CAS and projects command bubble`, async () => {
+  test(`${label}: goal dock preserves user-control verbs, reads fresh CAS and projects command bubble`, async () => {
     const env = context(); loader.entry('goal').apply(env.ctx)
     const actions = env.registrations[1].spec.inject('s')
-    await actions.onBudget(99); await actions.onComplete()
-    assert.deepEqual(normalized(env.trace), [{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}, {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
+    if(label==='legacy') await actions.onBudget(99)
+    else assert.equal('onBudget' in actions,false,'round statistics have no mutation action')
+    await actions.onComplete()
+    assert.deepEqual(normalized(env.trace), [...label==='legacy'?[{method: 'edit', args: ['s', {id: 'g', revision: 2}, {maxGoalRounds: 99}]}]:[], {method: 'complete', args: ['s', {id: 'g', revision: 2}]}])
     env.ctx.sessions.binding = () => undefined
-    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, 2)
+    assert.equal((await actions.onClear()).error.code, 'no-current-goal'); assert.equal(env.trace.length, label==='legacy'?2:1)
     const event = {type: 'command/run', seq: 4, time: 100, data: {name: 'goal', commandId: 'c', args: ' build tests  '}}
     const definition = env.ctx.definition
     const state = definition.start({}, {event})
@@ -402,8 +412,17 @@ test('source: goal completion stays visible and same-render action dedupe surviv
   const api = current.entry('goal'); const goal = {id: 'g', revision: 2, objective: 'Done', phase: 'complete', maxGoalRounds: 100}
   const handlers = Object.fromEntries(['onComplete', 'onBudget', 'onEdit', 'onPause', 'onResume', 'onClear'].map(name => [name, async () => ({ok: true, value: null})]))
   const view = api.GoalBar({goal, projection: {goal, execution: {state: 'complete', roundsStarted: 2}}, ...handlers, t: key => key})
-  assert.notEqual(view, null); assert.equal(view.props.children.props.children[1].props.children, '已完成 · 2/100 轮')
-  const controls = view.props.children.props.children[4].props.children.at(-1)
+  assert.notEqual(view, null)
+  const findControls = node => {
+    if (!node || typeof node !== 'object') return undefined
+    if (node.props?.runAction) return node
+    for (const child of [node.props?.children].flat(Infinity)) {
+      const found = findControls(child); if (found) return found
+    }
+  }
+  const controls = findControls(view)
+  assert.equal(controls.props.goal.phase, 'complete')
+  assert.equal(controls.props.projection.execution.roundsStarted, 2)
   let settle; let requests = 0
   const runAction = controls.props.runAction
   const inFlight = runAction(() => {requests++; return new Promise(resolve => {settle = resolve})})

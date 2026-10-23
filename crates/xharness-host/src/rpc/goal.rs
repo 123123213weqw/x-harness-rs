@@ -92,6 +92,8 @@ pub(super) async fn create(
 ) -> Result<Value, RpcError> {
     let session_id = required_string(payload, "sessionId")?;
     let objective = required_string(payload, "objective")?;
+    // Preserve the retired wire field for older clients/journals, not as a limit.
+    // New UI/commands expose only the cumulative roundsStarted statistic.
     let max_goal_rounds = optional_u64(payload, "maxGoalRounds")?.unwrap_or(256);
     let _session_guard = host.lock_admission(&session_id).await;
     if let Some(response) = host
@@ -463,7 +465,9 @@ fn decision_error(error: GoalDecisionError, session_id: &str, active_wording: bo
             bad_request("goal reference is stale or does not match")
         }
         GoalDecisionError::EmptyObjective => bad_request("objective must not be empty"),
-        GoalDecisionError::InvalidRoundBudget => bad_request("maxGoalRounds must be positive"),
+        GoalDecisionError::InvalidLegacyRoundMetadata => {
+            bad_request("legacy maxGoalRounds metadata must be positive")
+        }
         GoalDecisionError::EmptyEdit => {
             bad_request("goal.edit requires objective or maxGoalRounds")
         }

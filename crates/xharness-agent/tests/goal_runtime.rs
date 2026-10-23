@@ -585,7 +585,7 @@ async fn removing_queued_goal_input_pauses_instead_of_waiting_forever() {
 }
 
 #[tokio::test]
-async fn pause_resume_preserves_round_budget_and_requires_explicit_reenable() {
+async fn pause_resume_preserves_round_statistics_and_requires_explicit_reenable() {
     let (store, inbox, c) = setup().await;
     enable(&store, &c).await;
     c.reconcile().await.unwrap();
@@ -815,4 +815,79 @@ async fn dependency_failure_pauses_only_goal_and_preserves_user_chat_across_rest
             assert_eq!(checks.load(Ordering::SeqCst), 0);
         }
     }
+}
+
+#[tokio::test]
+async fn round_statistics_continue_past_legacy_limits_and_256_across_resume_and_restore() {
+    let (store, inbox, mut c) = setup().await;
+    enable(&store, &c).await;
+    for turn in 1..=258 {
+        assert!(matches!(
+            c.reconcile().await.unwrap(),
+            GoalDecision::Continue { .. }
+        ));
+        assert_eq!(
+            c.state().await.unwrap().unwrap().rounds_started,
+            u64::from(turn - 1),
+            "enqueue does not count a round"
+        );
+        claim(&store, &inbox, turn).await;
+        assert_eq!(
+            c.state().await.unwrap().unwrap().rounds_started,
+            u64::from(turn)
+        );
+        close(&store, turn, TurnEndReason::Completed).await;
+        c.settle(Some(body(if turn == 258 {
+            GoalReportStatus::Complete
+        } else {
+            GoalReportStatus::Progress
+        })))
+        .await
+        .unwrap();
+        if turn == 4 {
+            // An old Goal at its recorded limit may still be explicitly resumed.
+            c.pause().await.unwrap();
+            let session = store.load("goal-test").await.unwrap().unwrap();
+            let mut change = goal_snapshot(&session).unwrap();
+            change.version = 1;
+            change.operation = GoalSnapshotOperation::Resume;
+            change.goal.phase = GoalPhase::Active;
+            change.goal.revision += 1;
+            store
+                .append(
+                    "goal-test",
+                    session.revision(),
+                    vec![EventData::GoalChange {
+                        change: GoalChange::Snapshot(change),
+                    }
+                    .into()],
+                )
+                .await
+                .unwrap();
+            enable(&store, &c).await;
+            assert_eq!(c.state().await.unwrap().unwrap().rounds_started, 4);
+        }
+        if turn == 256 {
+            let saved = store.load("goal-test").await.unwrap().unwrap();
+            let restored = xharness_session::Session::restore(
+                saved.header().clone(),
+                saved.revision(),
+                saved.events().to_vec(),
+            )
+            .unwrap();
+            assert_eq!(execution_state(&restored).unwrap().rounds_started, 256);
+            c = GoalController::new(store.clone(), "goal-test");
+        }
+    }
+    assert!(matches!(
+        c.reconcile().await.unwrap(),
+        GoalDecision::Complete { .. }
+    ));
+    let state = c.state().await.unwrap().unwrap();
+    assert_eq!(state.rounds_started, 258);
+    assert_eq!(
+        state.definition.snapshot.max_goal_rounds, 4,
+        "old metadata remains readable but never gates work"
+    );
+    assert!(state.pause_reason.is_none());
 }

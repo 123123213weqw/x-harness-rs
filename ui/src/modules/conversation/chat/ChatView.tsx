@@ -30,6 +30,7 @@ import { MessageMarkerCache } from './message-preview'
 import css from './ChatView.styles'
 import { MessageRail } from './MessageRail'
 import { HistoryPageIntent } from './history-page-intent'
+import { LoadingIndicator } from './LoadingIndicator'
 
 const FOLLOW_THRESHOLD = 24
 
@@ -126,7 +127,7 @@ function runningTurnStartTime(timeline: ConversationTimelineSnapshot): number | 
   return latest
 }
 
-/** Turn-level model activity label retained across first-token, tool, and streaming phases. */
+/** Stable turn-level activity seat across first-token, tool, and streaming phases. */
 function TurnStatus({ startTime, t }: {
   /** The running turn's logged `turn/start` time; null falls back to mount
    *  time when that boundary is outside the window. */
@@ -147,12 +148,12 @@ function TurnStatus({ startTime, t }: {
     const id = setInterval(tick, 1000)
     return () => { clearInterval(id) }
   }, [anchor])
-  // Short turns keep the plain label; the clock only appears once the turn
+  // Short turns keep just the spinner; the clock only appears once the turn
   // has clearly been running for a while.
   const showClock = elapsedMs >= 15_000
   return (
-    <div className={css.turnStatus} role="status" aria-live="polite">
-      {t('xh.turn.working')}
+    <div className={css.turnStatus}>
+      <LoadingIndicator active label={t('xh.turn.working')} />
       {showClock && (
         <span className={css.turnStatusClock} aria-hidden>
           {formatRunDuration(elapsedMs, t)}

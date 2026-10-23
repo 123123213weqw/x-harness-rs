@@ -111,6 +111,133 @@ async fn fixture_with_store(
     let state = execution_state(&store.load("report-gate").await.unwrap().unwrap()).unwrap();
     (store, state.definition, state.activation_epoch)
 }
+
+#[tokio::test]
+async fn report_visibility_requires_exact_goal_input_or_same_open_turn_recovery() {
+    use crate::goal_report_tool::fence;
+    use xharness_session::{Message, Revision, Session};
+    let (store, _, _) = fixture().await;
+    let running = store.load("report-gate").await.unwrap().unwrap();
+    let claim_revision = running
+        .events()
+        .iter()
+        .find(|event| matches!(event.data(), EventData::TurnStart { turn: 1 }))
+        .unwrap()
+        .revision;
+    let prefix = running
+        .events()
+        .iter()
+        .take_while(|event| event.revision < claim_revision)
+        .cloned()
+        .collect::<Vec<_>>();
+    let revision = prefix.last().map_or(Revision::ZERO, |event| event.revision);
+    let pending = Session::restore(running.header().clone(), revision, prefix).unwrap();
+    let intent = execution_state(&pending).unwrap().pending.unwrap();
+    let input = pending
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| match event.data() {
+            EventData::AgentInboxSpliced { inserted, .. } => inserted
+                .iter()
+                .find(|m| m.id == intent.message_id)
+                .map(|m| m.message.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(fence(&pending, std::slice::from_ref(&input)).is_some());
+    assert!(
+        fence(&pending, &[]).is_none(),
+        "pending work is not an open-turn recovery"
+    );
+    assert!(
+        fence(&pending, &[Message::user(input.content.clone())]).is_none(),
+        "quoted Goal text is not an admitted Goal input"
+    );
+    assert!(fence(&pending, &[input, Message::user("new user scope")]).is_none());
+    assert!(
+        fence(&running, &[]).is_some(),
+        "approval/question recovery keeps the same report capability"
+    );
+    assert!(fence(&running, &[Message::user("ordinary prompt")]).is_none());
+    let mut closed = running.clone();
+    closed
+        .append(
+            closed.revision(),
+            EventData::TurnEnd {
+                turn: 1,
+                reason: xharness_session::TurnEndReason::Completed,
+            },
+        )
+        .unwrap();
+    assert!(
+        fence(&closed, &[]).is_none(),
+        "a settled turn cannot regain the report tool"
+    );
+    GoalController::new(store.clone(), "report-gate")
+        .pause()
+        .await
+        .unwrap();
+    assert!(fence(&store.load("report-gate").await.unwrap().unwrap(), &[]).is_none());
+    assert!(fence(&Session::new(SessionHeader::new("ordinary")).unwrap(), &[]).is_none());
+}
+
+#[tokio::test]
+async fn report_schema_and_handler_have_no_lifecycle_or_plan_actions() {
+    let (store, definition, epoch) = fixture().await;
+    let original = store.load("report-gate").await.unwrap().unwrap();
+    let registry = Arc::new(ToolRegistry::new());
+    let spec = crate::goal_report_tool::spec(
+        store.clone(),
+        Arc::new(NoTools),
+        "report-gate".into(),
+        (definition, epoch),
+    );
+    assert_eq!(
+        spec.batch_policy,
+        xharness_tools::ToolBatchPolicy::Standalone
+    );
+    registry.register(spec).await.unwrap();
+    let definitions = registry.definitions().await;
+    assert_eq!(definitions.len(), 1);
+    assert_eq!(definitions[0].name, "goal_report");
+    let fields = definitions[0].parameters["properties"].as_object().unwrap();
+    assert_eq!(fields.len(), 5);
+    assert!(
+        !fields.contains_key("action")
+            && !fields.contains_key("objective")
+            && !fields.contains_key("items")
+    );
+    let executor = ToolExecutor::new(registry);
+    for action in [
+        "create",
+        "get",
+        "update",
+        "pause",
+        "resume",
+        "complete",
+        "clear",
+        "update_plan",
+        "report",
+    ] {
+        let result=executor.execute(ToolRequest::new("goal_report",json!({"action":action,"status":"progress","summary":"must reject mixed lifecycle fields"}).to_string())).await;
+        assert!(!result.is_ok(), "{action}");
+    }
+    let cancelled = tokio_util::sync::CancellationToken::new();
+    cancelled.cancel();
+    let result = executor
+        .execute(
+            ToolRequest::new(
+                "goal_report",
+                json!({"status":"progress","summary":"cancelled"}).to_string(),
+            )
+            .with_cancellation(cancelled),
+        )
+        .await;
+    assert!(!result.is_ok());
+    assert_eq!(store.load("report-gate").await.unwrap().unwrap(), original);
+}
+
 fn report(status: GoalReportStatus, evidence: Vec<GoalEvidence>) -> GoalReportBody {
     GoalReportBody {
         status,
@@ -279,25 +406,24 @@ async fn unsupported_factories_fail_closed_only_for_resource_references() {
 }
 
 #[tokio::test]
-async fn registered_goal_tool_can_correct_a_bad_reference_in_the_same_active_turn() {
+async fn registered_goal_report_can_correct_a_bad_reference_in_the_same_active_turn() {
     let (store, definition, epoch) = fixture().await;
     let tools: Arc<dyn SessionToolFactory> = Arc::new(ReferenceTools::default());
     let registry = Arc::new(ToolRegistry::new());
     registry
-        .register(crate::goal_tool::spec(
-            std::sync::Weak::new(),
+        .register(crate::goal_report_tool::spec(
             store.clone(),
             tools,
             "report-gate".into(),
-            Some((definition, epoch)),
+            (definition, epoch),
         ))
         .await
         .unwrap();
     let executor = ToolExecutor::new(registry);
     for (reference, expected_ok) in [("agent-owned (running)", false), ("agent-owned", true)] {
-        let result = executor.execute(ToolRequest::new("goal", json!({"action":"report", "report": {
+        let result = executor.execute(ToolRequest::new("goal_report", json!({
             "status":"progress", "summary":"child is running", "evidence":[{"kind":"agent","reference":reference}]
-        }}).to_string())).await;
+        }).to_string())).await;
         assert_eq!(result.is_ok(), expected_ok);
         if !expected_ok {
             assert!(result.output.is_none());
@@ -388,10 +514,11 @@ impl xharness_core::ModelProvider for CorrectingModel {
                 };
                 vec![
                     Ok(ProviderEvent::ToolCallDelta {
-                        index: 0, id: format!("report-gate-{step}"), name: "goal".into(),
-                        arguments_delta: json!({"action":"report","report":{
+                        index: 0, id: format!("report-gate-{step}"), name: "goal_report".into(),
+                        arguments_delta: json!({
                             "status":status,"summary":"verified fixture","evidence":[{"kind":"agent","reference":reference}]
-                        }}).to_string(),
+                        })
+                        .to_string(),
                     }),
                     Ok(ProviderEvent::Completed { finish_reason:Some(FinishReason::ToolCalls), usage:None, provider_items:vec![] }),
                 ]

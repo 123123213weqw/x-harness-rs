@@ -2,7 +2,6 @@ import css from './ChatView.css'
 export default {
 			"callRow": "IxU-fW_callRow",
 			"column": "IxU-fW_column",
-			"dsh-turn-status-shimmer": "IxU-fW_dsh-turn-status-shimmer",
 			"flowItem": "IxU-fW_flowItem",
 			"hint": "IxU-fW_hint",
 			"modalAction": "IxU-fW_modalAction",

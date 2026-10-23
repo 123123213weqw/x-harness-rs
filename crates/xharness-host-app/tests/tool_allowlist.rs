@@ -79,6 +79,9 @@ impl ModelProvider for ToolProvider {
             let arguments = match self.tool {
                 "history" => json!({"action":"search","query":"allowlist evidence"}),
                 "goal" => json!({"action":"get"}),
+                "goal_report" => {
+                    json!({"status":"complete","summary":"forged","evidence":[{"kind":"artifact","reference":"fixture.txt"}]})
+                }
                 _ => unreachable!(),
             };
             vec![
@@ -196,7 +199,8 @@ async fn run_case(allowlist: Option<&str>, tool: &'static str, outcome: ToolOutc
     } else {
         assert!(definitions.contains("read"));
         assert!(definitions.contains("history"));
-        assert!(definitions.contains("goal"));
+        assert!(!definitions.contains("goal"));
+        assert!(!definitions.contains("goal_report"));
     }
     runtime.shutdown(Duration::from_secs(1)).await;
 }
@@ -204,15 +208,20 @@ async fn run_case(allowlist: Option<&str>, tool: &'static str, outcome: ToolOutc
 #[tokio::test]
 async fn host_owned_tools_run_after_allowlist_validation() {
     run_case(Some("read,history"), "history", ToolOutcome::Success).await;
-    run_case(Some("goal"), "goal", ToolOutcome::Success).await;
-    run_case(Some("read,goal"), "goal", ToolOutcome::Success).await;
     run_case(None, "history", ToolOutcome::Success).await;
+}
+
+#[tokio::test]
+async fn ordinary_turns_cannot_restore_retired_goal_or_scoped_report_tools() {
+    run_case(None, "goal", ToolOutcome::Error).await;
+    run_case(None, "goal_report", ToolOutcome::Error).await;
 }
 
 #[tokio::test]
 async fn omitted_host_tools_remain_unavailable_even_if_the_model_calls_them() {
     run_case(Some("read"), "history", ToolOutcome::Error).await;
     run_case(Some("read"), "goal", ToolOutcome::Error).await;
+    run_case(Some("read"), "goal_report", ToolOutcome::Error).await;
     run_case(Some(""), "history", ToolOutcome::Error).await;
 }
 
@@ -221,7 +230,7 @@ async fn incomplete_registries_are_rejected_before_the_provider_runs() {
     let workspace = Workspace::new();
     // The legacy runtime does not inject Host tools. Deferring validation must
     // not turn a missing capability or a typo into a silently reduced suite.
-    for name in ["history", "goal", "computer", "unknown_tool"] {
+    for name in ["history", "goal", "goal_report", "computer", "unknown_tool"] {
         let provider = Arc::new(ToolProvider {
             tool: "history",
             definitions: Mutex::new(None),

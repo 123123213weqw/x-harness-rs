@@ -410,6 +410,8 @@ pub struct GoalSnapshot {
     pub phase: GoalPhase,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_reason: Option<GoalBlockReason>,
+    /// Retired round-limit metadata, retained for journal and RPC compatibility.
+    /// Runtime scheduling must not use it to limit work; rounds_started is statistical.
     pub max_goal_rounds: u64,
 }
 
