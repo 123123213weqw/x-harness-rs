@@ -18,3 +18,6 @@ apps/desktop/src-tauri/resources/powershell/
 # Local Python test cache, never a release input.
 __pycache__/
 *.py[cod]
+
+# Browser Use is an optional source-built plugin, not a checked-in bundle.
+/plugins/browser-use/dist/

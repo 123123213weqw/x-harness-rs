@@ -3,6 +3,8 @@
 #[path = "../src/browser.rs"]
 #[allow(dead_code)]
 mod browser;
+#[path = "../src/browser_activity.rs"]
+mod browser_activity;
 #[path = "../src/browser_bridge.rs"]
 mod browser_bridge;
 #[path = "../src/browser_delegation.rs"]

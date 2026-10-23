@@ -11,6 +11,7 @@ import {FileDisplayClient} from './file-display/client'
 import {DisplayOpenSchema} from '../shared/generated/file-display'
 import type {ConnectionHandle} from '../client-connection/index'
 import type {WorkspaceItemOwner} from '../layout/workspace-pane'
+import {listenModelBrowserActivity} from './model-activity'
 const { createElement: h, useEffect, useRef, useState } = React
 export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number; modelRequestId?: string | undefined }
 export interface BrowserPatch { title?: string; entries?: string[]; position?: number; modelRequestId?: string | undefined }
@@ -87,6 +88,7 @@ const glyph = (name: string, size = 16) => {
     download: [h('path', { d: 'M12 3v12m-4-4 4 4 4-4M4 17v3h16v-3', key: 1 })],
     more: [h('circle', { cx: 5, cy: 12, r: 1, key: 1 }), h('circle', { cx: 12, cy: 12, r: 1, key: 2 }), h('circle', { cx: 19, cy: 12, r: 1, key: 3 })],
     close: [h('path', {d:'m6 6 12 12M18 6 6 18',key:1})],
+    model: [h('path', {d:'m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z',key:1})],
     external: [h('path', { d: 'M13 5h6v6M19 5l-9 9M19 14v5H5V5h5', key: 1 })],
   }
   return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8,
@@ -204,6 +206,13 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
   const [menuOpen, setMenuOpen] = useState(false)
   const [downloadsOpen, setDownloadsOpen] = useState(false)
   const [downloads, setDownloads] = useState<DownloadEntry[]>([])
+  const [activity,setActivity]=useState({owner:'',tabId:'',count:0})
+  useEffect(()=>{
+    if(!native||!open||!sessionId)return
+    return listenModelBrowserActivity(native,sessionId,item.id,count=>setActivity({owner:sessionId,tabId:item.id,count}))
+  },[open,sessionId,item.id])
+  const modelActive=Boolean(native&&open&&sessionId&&(item.modelRequestId||
+    (activity.owner===sessionId&&activity.tabId===item.id&&activity.count>0)))
   const inputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const itemRef = useRef(item)
@@ -460,7 +469,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
   }
   const canBack = item.position > 0
   const canForward = item.position < (item.entries?.length ?? 0) - 1
-  return h('section', { className: 'xhbrowser-pane', 'aria-label': '内置浏览器面板' },
+  return h('section', { className: 'xhbrowser-pane', 'aria-label': '内置浏览器面板', 'data-model-observer':native?true:undefined, 'data-model-active':modelActive||undefined },
     h('div', { className: 'xhbrowser-toolbar' },
       h('div', { className: 'xhbrowser-nav', 'aria-label': '网页导航' },
         button('后退', 'left', () => move(-1), !canBack),
@@ -469,6 +478,10 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         button('刷新', 'reload', () => { if (native) void invoke('desktop_browser_action', { tabId: item.id, action: 'reload' }).catch((error: unknown) => setError(String(error))) }, !native || !address)),
       h('button', { type: 'button', className: 'xhbrowser-annotate', disabled: true, title: '网页标注尚未接入', 'aria-label': '标注（尚未接入）' },
         glyph('annotate', 16), h('span', null, '标注')),
+      native&&h('span',{className:'xhbrowser-model-activity','data-active':modelActive,
+        role:modelActive?'status':undefined,'aria-hidden':!modelActive,
+        title:modelActive?accessText('AI 正在使用此页面','AI is using this page'):undefined},
+        glyph('model',16),h('span',{className:'xhbrowser-activity-label'},accessText('AI 正在使用此页面','AI is using this page'))),
       h('form', { className: 'xhbrowser-address-form', onSubmit: navigate },
         h('input', { ref: inputRef, type: 'text', value: draft,
           onChange: (event: React.ChangeEvent<HTMLInputElement>) => { setDraft(event.target.value); setError('') }, 'aria-label': '网址',

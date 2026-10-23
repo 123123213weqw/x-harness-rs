@@ -1,0 +1,77 @@
+{
+  "schema": "xharness.browser-pr381-repair.v1",
+  "baselineCommit": "d52594b622828625c587086cfc6fa658b33f4eb2",
+  "status": "server-browser-gates-passed-hosted-container-ci-pending",
+  "scope": [
+    "bounded read-only screenshot recovery",
+    "immutable lock-matched browser CI runtime"
+  ],
+  "cause": {
+    "screenshot": "DOMContentLoaded does not settle child-frame navigations; a late real navigation changes the capture epoch. The original rejection protects stale coordinates, but one transient invalidation ended the read without obtaining a stable raster.",
+    "ci": "WebKit cache hit; OS dependency installation through azure.archive.ubuntu.com took over 36 minutes, exhausting the existing 40-minute job limit."
+  },
+  "screenshotRepair": {
+    "maxAttempts": 3,
+    "sharedPngTimeoutMs": 10000,
+    "onlyConfirmedCaptureInvalidationRetried": true,
+    "effectReplay": false,
+    "navigationAndGeometryValidationRetained": true,
+    "discardedPngCleanup": true,
+    "continuouslyChangingPageFails": true,
+    "arbitraryErrorsAndImageBudgetsNotRetried": true
+  },
+  "validation": {
+    "controlledOldNew": {
+      "oldLateChildViewportAndFullPageAndMidPngNavigationRejected": true,
+      "oldPersistentLayoutRejectionWasSafeButDidNotHaveNewThreeAttemptContract": true,
+      "newControlledSuitePassed": 5,
+      "finalSuiteWithImageBudgetGuardPassed": 6
+    },
+    "fullServerRunner": {
+      "status": "passed",
+      "enginePassed": 24,
+      "engineFailed": 0,
+      "stdioPassed": 6,
+      "legacyChecks": 30,
+      "sourceBoundEvidenceGate": true
+    },
+    "localCiContracts": {
+      "browserRuntimeTests": 4,
+      "ciTieringTests": 10,
+      "ciLatencyTests": 3,
+      "buildCacheTests": 19,
+      "routingTests": 13,
+      "ciUiSuiteTests": 14,
+      "architectureContentBoundRecord": "config/architecture-changes/browser-ci-pinned-runtime-20261023.json"
+    }
+  },
+  "ciRuntime": {
+    "image": "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48",
+    "registryManifestAndOfficialDockerfileVerified": true,
+    "packageVersion": "1.61.1",
+    "realLaunchAndPngSmokeRequired": true,
+    "perShardAptDownloadsRemoved": true,
+    "existingTimeoutsAndSuiteAndAggregateRetained": true,
+    "hostedExecution": "pending-new-head-CI",
+    "serverImagePull": "in progress; not counted as container execution validation"
+  },
+  "sourceHashes": {
+    "plugins/browser-use/src/engine.ts": "b8db833e15ac236d4f76529737d66f5e162d06a42e162612ab6d73a276968a95",
+    "scripts/browser_use/screenshot-stability.test.mjs": "8aa3a119e1cdf941dc8a91dee978306d3ba1d1c4d6a92ab4ea97535c87d6438f",
+    "scripts/browser_use/provenance.mjs": "28cb5cc30aec97ab70c8750b20e0e10bb2a860218c0aa294e75de02bf987bc70",
+    "scripts/browser_use/run-server-acceptance.sh": "37eae1c51b8dd50f3ea3196611974e42ad0ca89a63b505a3bd57e81a56a4e53a",
+    ".github/workflows/ci.yml": "128e5c37cdf7c1596e5166a44eaf253ab27567f218ea9d7d750988ce5fefaedb",
+    ".github/workflows/gui-bench-build.yml": "9d842ee3416e0208b0dcdd1ac56232ebf7430cd25cefc51fb0964f7ec58c5fc7",
+    "scripts/ci/check-browser-image.mjs": "60e344193aa496cb35409e5ac54671ae494b98ca22baddc0fb296a3f26b31d32",
+    "scripts/test-ci-browser-runtime.py": "55dfe8e1b5f06917a1050b124d65c88289b03633e118f14ba7a6af6f71224e11"
+  },
+  "rawEvidenceDirectory": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/pr381-fixes-20261023",
+  "rawLogs": {
+    "full-server-acceptance.log": "7785ebb720982c680f1d8cc2283e18113f5722389ad89393c8b37679e7811afe",
+    "controlled-before-after.log": "d019b9875947036c26a366b88fd12a283cdf9462e858d0e3cf38dd9aeaebd78e",
+    "screenshot-fixed-tests.log": "2fe2ef213b85e73bf41fb9a3eeeb034556f68c614b2de7968e3225ee7c544fe7",
+    "screenshot-original-repro.log": "a9eff9e835d929a2b5516c19f763002b1244939d7c69a034ae56b6a4936cf40f"
+  },
+  "noRustCompilationOrSourceChangesInThisRepair": true,
+  "noInstalledAppRestartOrAgentInterruption": true
+}

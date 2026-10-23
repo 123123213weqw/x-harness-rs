@@ -4,6 +4,8 @@
 #[path = "../src/browser.rs"]
 #[allow(dead_code)] // The probe intentionally omits persistence/download UI paths.
 mod browser;
+#[path = "../src/browser_activity.rs"]
+mod browser_activity;
 #[path = "../src/browser_bridge.rs"]
 mod browser_bridge;
 #[path = "../src/browser_delegation.rs"]
@@ -92,6 +94,13 @@ async fn abandoned_open_probe(
     url: &str,
 ) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
+    let activity = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let observed = activity.clone();
+    let activity_listener = app.listen_any("xharness-browser-activity", move |event| {
+        if let Ok(value) = serde_json::from_str(event.payload()) {
+            observed.lock().unwrap().push(value);
+        }
+    });
     let (opened, receive_open) = tokio::sync::oneshot::channel();
     let opened = std::sync::Mutex::new(Some(opened));
     let open_listener = app.listen_any("xharness-browser-control-open", move |event| {
@@ -131,8 +140,42 @@ async fn abandoned_open_probe(
         .map_err(|_| "cancel probe receiver closed")?;
     app.unlisten(open_listener);
     app.unlisten(cancel_listener);
+    app.unlisten(activity_listener);
     if id != cancelled_id {
         return Err("abandoned open cancelled a different request".into());
+    }
+    assert_activity_pairs(
+        &activity.lock().unwrap(),
+        "probe-owner",
+        &format!("browser:{id}"),
+    )?;
+    println!("Native browser activity cancellation: balanced start/finish on abandoned authenticated socket");
+    Ok(())
+}
+
+fn assert_activity_pairs(events: &[Value], owner: &str, tab: &str) -> Result<(), String> {
+    let mut active = std::collections::HashMap::new();
+    if events.len() < 2 {
+        return Err("native browser activity events were missing".into());
+    }
+    for event in events {
+        if event["backend"] != "embedded" || event["owner"] != owner || event["tabId"] != tab {
+            return Err("native browser activity claimed a different backend/owner/tab".into());
+        }
+        let id = event["id"].as_str().ok_or("native activity ID missing")?;
+        let operation = event["operation"]
+            .as_str()
+            .ok_or("native activity operation missing")?;
+        match event["phase"].as_str() {
+            Some("started") if !active.contains_key(id) => {
+                active.insert(id, operation);
+            }
+            Some("finished") if active.remove(id) == Some(operation) => {}
+            _ => return Err("native browser activity lifetime was unbalanced".into()),
+        }
+    }
+    if !active.is_empty() {
+        return Err("native browser activity remained running after invocation ended".into());
     }
     Ok(())
 }
@@ -817,6 +860,13 @@ async fn bridge_call(
 }
 
 async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Result<(), String> {
+    let activity = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let observed = activity.clone();
+    let listener = app.listen_any("xharness-browser-activity", move |event| {
+        if let Ok(value) = serde_json::from_str(event.payload()) {
+            observed.lock().unwrap().push(value);
+        }
+    });
     let origin = main
         .app_handle()
         .state::<browser::BrowserState>()
@@ -837,6 +887,9 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
         .is_ok()
     {
         return Err("native bridge accepted an invalid private credential".into());
+    }
+    if !activity.lock().unwrap().is_empty() {
+        return Err("invalid private credentials created browser activity".into());
     }
     let (guest, _) = app
         .state::<browser::BrowserState>()
@@ -904,8 +957,12 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if !serde_json::to_value(status).map_err(|e| e.to_string())?["grant"].is_null() {
         return Err("UI status leaked another session's lease".into());
     }
+    let before_foreign = activity.lock().unwrap().len();
     if bridge_call(connection, "child", "observe", json!({})).await?["ok"] != false {
         return Err("subagent inherited browser consent".into());
+    }
+    if activity.lock().unwrap().len() != before_foreign {
+        return Err("an unbound owner illuminated another chat's browser".into());
     }
     let view = bridge_call(connection, "parent", "observe", json!({})).await?;
     if view["ok"] != true {
@@ -987,6 +1044,9 @@ async fn delegation_probe(app: &tauri::AppHandle, main: &tauri::Webview) -> Resu
     if bridge_call(connection, "parent", "list", json!({})).await?["result"]["bound"] != false {
         return Err("hide/reselect resurrected browser consent".into());
     }
+    app.unlisten(listener);
+    assert_activity_pairs(&activity.lock().unwrap(), "parent", "probe")?;
+    println!("Native browser activity ownership: invalid credential and foreign owner do not emit activity; authenticated calls have balanced exact-tab lifetimes");
     println!("Private native bridge passed: exact chat binding, read-only denial, frame-preserving renewal, real fill, consumed-frame denial, hide/reselect revocation (no model)");
     Ok(())
 }

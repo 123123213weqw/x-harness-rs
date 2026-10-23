@@ -1,0 +1,250 @@
+{
+  "auditPassed": true,
+  "caseCount": 40,
+  "distinctCaseCount": 40,
+  "countsRecomputedFrom40Cases": [
+    {
+      "scenario": "synthetic-100ms",
+      "mode": "immediate-close",
+      "trials": 10,
+      "errors": 0,
+      "immediateFound": 0,
+      "beforeCleanupFound": 0,
+      "afterCleanupFound": 0,
+      "afterCleanupMissing": 10
+    },
+    {
+      "scenario": "synthetic-100ms",
+      "mode": "passive-settle",
+      "trials": 10,
+      "errors": 0,
+      "immediateFound": 0,
+      "beforeCleanupFound": 10,
+      "afterCleanupFound": 10,
+      "afterCleanupMissing": 0
+    },
+    {
+      "scenario": "original-modal",
+      "mode": "immediate-close",
+      "trials": 10,
+      "errors": 0,
+      "immediateFound": 0,
+      "beforeCleanupFound": 0,
+      "afterCleanupFound": 0,
+      "afterCleanupMissing": 10
+    },
+    {
+      "scenario": "original-modal",
+      "mode": "passive-settle",
+      "trials": 10,
+      "errors": 0,
+      "immediateFound": 0,
+      "beforeCleanupFound": 10,
+      "afterCleanupFound": 10,
+      "afterCleanupMissing": 0
+    }
+  ],
+  "passiveSettleElapsedMs": {
+    "min": 10,
+    "median": 61.0,
+    "max": 122
+  },
+  "allFinalMouseReceiptsApplied": true,
+  "tinyTrustedNativeAudits": 20,
+  "originalModalSettleTrustedSelects": 10,
+  "sourceVerification": [
+    {
+      "path": "scripts/browser_use/ab-teardown-regression.mjs",
+      "sha256": "8ee6f8f705d2e2ac091c00b612b4a61a32067e84656e480712a51ab5b746d994",
+      "matches": true
+    },
+    {
+      "path": "scripts/browser_use/ab-fixture.mjs",
+      "sha256": "85a9d44b0d208a5854397cc74b609cb1e1084d82688809c3088a2142494c41bf",
+      "matches": true
+    },
+    {
+      "path": "plugins/browser-use/server.mjs",
+      "sha256": "5f031f06eea0b6972c1ff7980c634233309a26d12ca49d29b4ba1b183d0a19d1",
+      "matches": true
+    },
+    {
+      "path": "plugins/browser-use/dist/engine.js",
+      "sha256": "1c08c0d9d248e4cf0926aa80bbdf9b3d50112b63a0206295e984398994d61a57",
+      "matches": true
+    },
+    {
+      "path": "plugins/browser-use/dist/protocol.js",
+      "sha256": "809217077c0ea72bd433660d04cbf0c88d9a4bbf2546d4cc5d88c255e10b2c3b",
+      "matches": true
+    },
+    {
+      "path": "plugins/browser-use/dist/cdp-policy-bridge.js",
+      "sha256": "0e8bd50207b608be26cce586351f97209800999ec5d18fb288561195e7fae56b",
+      "matches": true
+    }
+  ],
+  "caseHashes": [
+    {
+      "file": "synthetic-100ms-immediate-close-0.json",
+      "sha256": "b2fd6333c07af0ec907d471879bc88a29e17854de1300bcfae93edd5e9bf216f"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-1.json",
+      "sha256": "53902d109eea1b068535fcca5f67c4b0bad7f3cfabf2299a3b84e84358f6b84e"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-2.json",
+      "sha256": "e2d9f9d35956f155491408747c1e216a03aced940abb4bfd6004abecbd468ac5"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-3.json",
+      "sha256": "d4f84611bb699d78a5cb73b0ef6b2f5496939bcb3eec393c5d233ac81ff35a0c"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-4.json",
+      "sha256": "6115b631f8b72e6839f08042eb22a0f0bc43376546c78ab5ef7d70ae5554f5a9"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-5.json",
+      "sha256": "831ac1811edccb64a4b36c904f1db267637ccb6593329c23624ab64add3ed685"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-6.json",
+      "sha256": "875df7a3408a982d7d28dbc31598d0b1f113138ea54c4d757611802b5c1f3a09"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-7.json",
+      "sha256": "8d03191d9b7549192ef2c4e7d1c89d74286ed8eb9c5c05237cdcd7f404bd702f"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-8.json",
+      "sha256": "0c833bdf1c5e5fc8e64fd54d4daaebe8043cb2fef4ac4d2513845c8cd6876647"
+    },
+    {
+      "file": "synthetic-100ms-immediate-close-9.json",
+      "sha256": "d6d2e8233c3ff9b356737773079a31bc78b2636b82d3f5b7b218a63166c29dd8"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-0.json",
+      "sha256": "12643120cfd67fa963e0f3baa0d7a56f462aec46323653fae6947e805b8e3787"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-1.json",
+      "sha256": "5122e41800e7e4f2660bfdfe9cfaf800f2456f8652082a93f03647a18d18cfa4"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-2.json",
+      "sha256": "d9aa05486a6dc37adeb047436ed06fa4de81b15eaec1dae1da7955e713f8d448"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-3.json",
+      "sha256": "dd7e0c6743c1b4d846cf8c3b578aaf676d41ed4345447fc0e6b5ecc8d9f12d38"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-4.json",
+      "sha256": "c3c990af8e2937d18527e15d4b1a639aa938d43746602fa12d57003d67974e3c"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-5.json",
+      "sha256": "b2276a34a8e60331dc3b71062a2184df471d7d7949f7793e7797d56fedda8fa6"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-6.json",
+      "sha256": "3a527fddc7a8906b5d292c30e31c1306bd78f567b3a57d295016e893e094fb92"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-7.json",
+      "sha256": "ffad1576126f5b989857918385d7c921b9944c23ad5a965f6f0f44dd3c8884af"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-8.json",
+      "sha256": "4537a45efd2782f4a8b8e0afa3736717cfbc7a1060e59647c963576794d595f8"
+    },
+    {
+      "file": "synthetic-100ms-passive-settle-9.json",
+      "sha256": "218d52444336086f552b9de15fa25a829cca0a068e46ade086b7c0f0bc76eae6"
+    },
+    {
+      "file": "original-modal-immediate-close-0.json",
+      "sha256": "bd20ed923eaaa8346b9e421f450a3f2d1f472ffee0885f2db2da1fa853006e36"
+    },
+    {
+      "file": "original-modal-immediate-close-1.json",
+      "sha256": "80d52ff7b73412e7d31259c74620ffdbc5cb8394e8fe75a6caa0aecfa0d84d63"
+    },
+    {
+      "file": "original-modal-immediate-close-2.json",
+      "sha256": "830b4b953b089501925d2bdaf7ebaf350aa589d7447ed648206c7fd5c56a066b"
+    },
+    {
+      "file": "original-modal-immediate-close-3.json",
+      "sha256": "23f730dda0cc653ba5b362dd7d15c6e1b13f6545932918c0bd056558416730a5"
+    },
+    {
+      "file": "original-modal-immediate-close-4.json",
+      "sha256": "36986b56d11a114acfb429c814b5ade05e7ee7cade4098e832682a1991679ce1"
+    },
+    {
+      "file": "original-modal-immediate-close-5.json",
+      "sha256": "dfc8a6d6cf7e96a7d955154e814a17fcb8a105ad6b46fd497030827083979560"
+    },
+    {
+      "file": "original-modal-immediate-close-6.json",
+      "sha256": "10e9e37a68c53b80cabb19f975315b5630f96559ea76683ae93abf3109e8c3b5"
+    },
+    {
+      "file": "original-modal-immediate-close-7.json",
+      "sha256": "1c047ff2c99609b59f2df3aae59143dfea89556eaa177cdbaa0793706801f602"
+    },
+    {
+      "file": "original-modal-immediate-close-8.json",
+      "sha256": "587a39d6ed0841cfc7b42db237956215d34dc7906ae80eacf3a4ffd55047bf0a"
+    },
+    {
+      "file": "original-modal-immediate-close-9.json",
+      "sha256": "99875ac7efb743545d9072c6e4761d339b4fa9a0a32ff6a43545798ef8e63455"
+    },
+    {
+      "file": "original-modal-passive-settle-0.json",
+      "sha256": "362eed8cbf310a4deddd543086d3c7bfe7f821ceba30d478852b9c5625161e17"
+    },
+    {
+      "file": "original-modal-passive-settle-1.json",
+      "sha256": "7326c058fc29382c7fe6173900751afb4825ec0df6065335afa82d469b175b7b"
+    },
+    {
+      "file": "original-modal-passive-settle-2.json",
+      "sha256": "a58dca3999773280017c539334664669e14bf6506d87a5e6acb41284a54f185f"
+    },
+    {
+      "file": "original-modal-passive-settle-3.json",
+      "sha256": "09dad5423c37c98920887d38ca168ca59ccc9e6e097b0e7661cd4a7e68248fc5"
+    },
+    {
+      "file": "original-modal-passive-settle-4.json",
+      "sha256": "6a0100677d82ed27a9af818dd7a947d8e67ade7f6329080102e74a2cdf448424"
+    },
+    {
+      "file": "original-modal-passive-settle-5.json",
+      "sha256": "eeeb7265c0f7d2e9e8d55a8d819cef991828a756851d4d8e2853cde2c2eb8800"
+    },
+    {
+      "file": "original-modal-passive-settle-6.json",
+      "sha256": "401db3cf6a8a8b93b1b05f73d093ed6952481923b70b324c8ec27e66fa6456b5"
+    },
+    {
+      "file": "original-modal-passive-settle-7.json",
+      "sha256": "cc8f4d44eaedadf4af20d57de170247b3daf1f2c034838257c15356fbf797fd3"
+    },
+    {
+      "file": "original-modal-passive-settle-8.json",
+      "sha256": "15521493a25e679a04b965464f936ce98ef4077ff378de90dce92738a90d3b98"
+    },
+    {
+      "file": "original-modal-passive-settle-9.json",
+      "sha256": "1b7e6e8e7c351667562e4676d9aa42e676a6bdefd12972da9c715d4142dff932"
+    }
+  ],
+  "classification": "Original unchanged modal and final coordinate reproduced lost task effect in immediate cleanup 10/10; passive pre-cleanup oracle passed 10/10. Separate synthetic100ms demonstrates delayed callback cancellation, not evidence of a fixed100ms delay in original. This is targeted no-model replication, not replay or relabeling of historical main1 trials."
+}

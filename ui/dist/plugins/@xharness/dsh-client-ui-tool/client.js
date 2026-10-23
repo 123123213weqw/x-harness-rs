@@ -426,6 +426,23 @@ function parseArgs(argsRaw) {
         return undefined;
     }
 }
+/** Presentation only: exact MCP call target, never a routing heuristic. Keep
+ * unknown/streaming calls generic; do not infer a browser from a tool name. */
+function browserCall(toolName, argsRaw) {
+    if (toolName !== 'plugin_mcp')
+        return;
+    const args = parseArgs(argsRaw);
+    if (!(0, value_guards_1.isRecord)(args) || args.action !== 'call')
+        return;
+    const title = args.plugin === '@xharness/native-browser' && args.server === 'webview' ? 'Embedded browser'
+        : args.plugin === 'browser-use' && args.server === 'browser' ? 'Background browser' : undefined;
+    if (!title)
+        return;
+    const action = (0, value_guards_1.isRecord)(args.arguments) ? args.arguments.action : undefined;
+    const summary = typeof action === 'string' && /^[a-z_]{1,40}$/.test(action) ? action
+        : typeof args.tool === 'string' && /^[a-z_]{1,40}$/.test(args.tool) ? args.tool : 'call';
+    return { title, summary };
+}
 function firstLine(text) {
     const nl = text.indexOf('\n');
     return nl === -1 ? text : text.slice(0, nl);
@@ -527,7 +544,8 @@ function toolRowModel(toolName, block, cwd, home) {
     const base = argsRaw === ''
         ? ''
         : (0, runtime_1.abbreviateHomePath)(relativizeToCwd(deriveSummary(variant, argsRaw), cwd), home);
-    const toolTitle = TOOL_TITLES[toolName];
+    const browser = browserCall(toolName, argsRaw);
+    const toolTitle = browser?.title ?? TOOL_TITLES[toolName];
     // Others keeps the static "Tool call" title (figma literal); the real tool
     // name rides the mutable summary slot unless the tool owns a specific title.
     const summary = variant === 'others' && toolName !== '' && toolTitle === undefined
@@ -543,7 +561,7 @@ function toolRowModel(toolName, block, cwd, home) {
     return {
         variant,
         title: toolTitle ?? exports.VARIANT_TITLES[variant],
-        summary,
+        summary: browser?.summary ?? summary,
         filePath: deriveFilePath(variant, argsRaw),
         body: deriveBody(variant, argsRaw),
         output,

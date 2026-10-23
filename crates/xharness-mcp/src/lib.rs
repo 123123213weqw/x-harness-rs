@@ -24,6 +24,8 @@ const IDLE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_TOOLS: usize = 64;
 const MAX_TOOL_SCHEMA: usize = 32 * 1024;
 const MAX_RESULT: usize = 64 * 1024;
+// Image bytes are transient wire payload, not permission to enlarge text history.
+const MAX_IMAGE_BASE64: usize = (8 * 1024 * 1024usize).div_ceil(3) * 4;
 
 #[derive(Debug, thiserror::Error)]
 pub enum McpError {
@@ -33,7 +35,7 @@ pub enum McpError {
     Unavailable(String),
     #[error("MCP operation timed out")]
     Timeout,
-    #[error("MCP tool result exceeds 64 KiB")]
+    #[error("MCP tool result exceeds its text or image byte budget")]
     ResultTooLarge,
 }
 
@@ -203,9 +205,7 @@ impl McpRuntime {
         connection.touch();
         let result =
             serde_json::to_value(result).map_err(|e| McpError::Unavailable(e.to_string()))?;
-        if result.to_string().len() > MAX_RESULT {
-            return Err(McpError::ResultTooLarge);
-        }
+        validate_result_budget(&result)?;
         Ok(result)
     }
 
@@ -469,4 +469,98 @@ async fn connect(config: &StdioServerConfig) -> Result<Connection, McpError> {
         cancelled: CancellationToken::new(),
         last_used: std::sync::Mutex::new(Instant::now()),
     })
+}
+
+// Count serialized bytes without allocating a second copy of a base64 image.
+fn validate_result_budget(result: &Value) -> Result<(), McpError> {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            if self.0 > MAX_RESULT + MAX_IMAGE_BASE64 {
+                return Err(std::io::Error::other("MCP result budget"));
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, result).map_err(|_| McpError::ResultTooLarge)?;
+    let mut image_bytes = 0;
+    let mut images = 0;
+    if let Some(content) = result.get("content").and_then(Value::as_array) {
+        for block in content {
+            if block.get("type").and_then(Value::as_str) != Some("image") {
+                continue;
+            }
+            images += 1;
+            let data = block
+                .get("data")
+                .and_then(Value::as_str)
+                .ok_or_else(|| McpError::Invalid("invalid MCP image data".into()))?;
+            if images > 1 || data.len() > MAX_IMAGE_BASE64 {
+                return Err(McpError::ResultTooLarge);
+            }
+            if block.get("mimeType").and_then(Value::as_str) != Some("image/png")
+                || !data
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+            {
+                return Err(McpError::Invalid(
+                    "MCP images require PNG and standard base64".into(),
+                ));
+            }
+            image_bytes = data.len();
+        }
+    }
+    // Base64 uses no JSON escapes, so subtracting exactly its bytes preserves
+    // the preexisting 64 KiB limit for all text, envelopes and structured data.
+    if counter.0.saturating_sub(image_bytes) > MAX_RESULT {
+        return Err(McpError::ResultTooLarge);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod result_budget_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn image_wire_budget_never_expands_text_budget() {
+        let image =
+            json!({"type":"image","mimeType":"image/png","data":"A".repeat(MAX_RESULT * 2)});
+        assert!(validate_result_budget(&json!({"content":[image.clone()]})).is_ok());
+        assert!(matches!(
+            validate_result_budget(&json!({"content":[image.clone(),image.clone()]})),
+            Err(McpError::ResultTooLarge)
+        ));
+        assert!(matches!(
+            validate_result_budget(
+                &json!({"content":[image],"structuredContent":{"text":"x".repeat(MAX_RESULT)}})
+            ),
+            Err(McpError::ResultTooLarge)
+        ));
+        assert!(matches!(
+            validate_result_budget(
+                &json!({"content":[{"type":"text","text":"x".repeat(MAX_RESULT)}]})
+            ),
+            Err(McpError::ResultTooLarge)
+        ));
+    }
+    #[test]
+    fn malformed_or_oversized_media_has_no_budget_exception() {
+        for image in [
+            json!({"type":"image","mimeType":"image/svg+xml","data":"AAAA"}),
+            json!({"type":"image","mimeType":"image/png","data":"not\nbase64"}),
+            json!({"type":"image","mimeType":"image/png","data":17}),
+            json!({"type":"image","mimeType":"image/png","data":"A".repeat(MAX_IMAGE_BASE64 + 1)}),
+        ] {
+            assert!(validate_result_budget(&json!({"content":[image]})).is_err());
+        }
+        assert!(
+            validate_result_budget(&json!({"content":[{"type":"text","text":"plain"}]})).is_ok()
+        );
+    }
 }

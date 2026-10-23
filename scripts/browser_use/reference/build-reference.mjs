@@ -1,0 +1,8 @@
+import ts from 'typescript';
+import{readFile,readdir,mkdir,writeFile}from'node:fs/promises';
+import{createHash}from'node:crypto';
+const source=new URL('./original/apps/zcode-cli/packages/adapters/src/browser/',import.meta.url),output=new URL('./dist/browser/',import.meta.url);await mkdir(output,{recursive:true});
+const manifest=JSON.parse(await readFile(new URL('./source-manifest.json',import.meta.url),'utf8'));
+for(const entry of manifest.files){const bytes=await readFile(new URL('./original/'+entry.path,import.meta.url));if(createHash('sha256').update(bytes).digest('hex')!==entry.sha256)throw Error('Original source hash mismatch: '+entry.path);}
+const records=[];for(const name of await readdir(source)){if(!name.endsWith('.ts'))continue;const input=await readFile(new URL(name,source),'utf8');const result=ts.transpileModule(input,{fileName:name,reportDiagnostics:true,compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,verbatimModuleSyntax:false}});const errors=result.diagnostics?.filter(item=>item.category===ts.DiagnosticCategory.Error)??[];if(errors.length)throw Error(ts.formatDiagnosticsWithColorAndContext(errors,{getCanonicalFileName:name=>name,getCurrentDirectory:()=>process.cwd(),getNewLine:()=> '\n'}));await writeFile(new URL(name.replace(/\.ts$/,'.js'),output),result.outputText);records.push({source:name,sha256:createHash('sha256').update(result.outputText).digest('hex')});}
+await writeFile(new URL('./build-manifest.json',import.meta.url),JSON.stringify({typescript:ts.version,operation:'TypeScript transpileModule only; not whole-monorepo typecheck',originalRevision:manifest.revision,outputs:records},null,2)+'\n');console.log(JSON.stringify({transpiled:records.length,typescript:ts.version,sourceHashVerified:true}));

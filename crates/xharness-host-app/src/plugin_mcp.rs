@@ -1,6 +1,11 @@
 //! One lazy model tool bridges built-in Host UI and enabled plugin servers.
 //! Schemas are discovered on demand rather than injected into every request.
 
+mod browser_boundary;
+#[cfg(test)]
+mod browser_e2e;
+mod media;
+
 use std::{sync::Arc, time::Duration};
 
 use crate::builtin_ui::{self, BuiltinUi};
@@ -133,7 +138,7 @@ fn spec(
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            "Discover and control XHarness's embedded browser when available, display local files, or invoke enabled MCP servers. action=list returns plugin IDs and available built-in capability summaries; add plugin to list servers, then server to list tools. action=describe loads one tool schema; action=call invokes it. File display: plugin=builtin, server=ui, tool=display. Schemas load on demand; existing tool approvals apply.\n\nEmbedded browser: For requests to open, view or interact with websites, prefer the embedded browser through plugin_mcp when available. Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it, not merely fetching its HTML or offering to open it later. Use web_fetch for lightweight public-page reading when opening or rendering is not requested; if JavaScript rendering or interaction is needed, discover the embedded browser before desktop automation. After a title-only or empty web_fetch result, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. If discovery reports no embedded browser or an operation fails, explain the limitation or use a suitable fallback; never claim a page opened without a successful result. Discovery and routing do not bypass approvals.",
+            format!("{}{}", "Discover and control XHarness's embedded browser when available, display local files, or invoke enabled MCP servers. action=list returns plugin IDs and available built-in capability summaries; add plugin to list servers, then server to list tools. action=describe loads one tool schema; action=call invokes it. File display: plugin=builtin, server=ui, tool=display. Schemas load on demand; existing tool approvals apply.\n\nEmbedded browser: For user-visible requests to open, view or interact with websites, prefer the embedded browser through plugin_mcp when available. Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it, not merely fetching its HTML or offering to open it later. Use web_fetch for lightweight public-page reading when opening or rendering is not requested; if JavaScript rendering or interaction is needed, discover the embedded browser before desktop automation. After a title-only or empty web_fetch result, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. If discovery reports no embedded browser or an operation fails, explain the limitation; never claim a page opened without a successful result. Discovery and routing do not bypass approvals.", browser_boundary::GUIDANCE),
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -160,11 +165,14 @@ fn spec(
                     if let Some(native) = &native {
                         if native.available(&owner, &context.cancellation).await {
                             plugins.push(crate::native_browser::PLUGIN.into());
-                            capabilities.push(json!({
-                                "plugin":crate::native_browser::PLUGIN,
-                                "server":crate::native_browser::SERVER,
-                                "description":"Embedded browser: open pages, inspect and interact. Available with zero tabs; describe control to open this chat's sidebar."
-                            }));
+                            capabilities.push(browser_boundary::embedded_capability());
+                        }
+                    }
+                    if plugins.iter().any(|plugin| plugin == browser_boundary::HEADLESS_PLUGIN) {
+                        if let Some(manager) = &manager {
+                            if let Some(capability) = browser_boundary::headless_capability(manager).await {
+                                capabilities.push(capability);
+                            }
                         }
                     }
                     return Ok(ToolOutput::text(json!({"plugins":plugins,"capabilities":capabilities}).to_string()));
@@ -256,7 +264,7 @@ fn spec(
                 let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
-                    result = call => call_output(result.map_err(error)?),
+                    result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,
                     _ = context.cancellation.cancelled() => {
                         runtime.disconnect_plugin(plugin).await;
                         Err(error("MCP call cancelled"))

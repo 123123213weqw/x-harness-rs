@@ -19,6 +19,8 @@ on:
     paths:
       - 'scripts/gui_bench/**'
       - 'plugins/browser-use/**'
+      - 'scripts/browser_use/**'
+      - 'scripts/ui-test-deps/**'
       - 'apps/desktop/src-tauri/**'
       - 'scripts/terminal_bench/broker.py'
       - 'crates/xharness-computer*/**'
@@ -95,6 +97,14 @@ jobs:
   browser-contract:
     if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --shm-size=1g
+    defaults:
+      run:
+        shell: bash
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -103,14 +113,38 @@ jobs:
           node-version: 22
       - name: Install isolated browser dependency
         run: |
-          npm install --prefix "$RUNNER_TEMP/gui-tests" --no-save --package-lock=false playwright@1.62.1
-          node "$RUNNER_TEMP/gui-tests/node_modules/playwright/cli.js" install --with-deps chromium webkit
+          mkdir -p "$RUNNER_TEMP/gui-tests"
+          cp scripts/ui-test-deps/package*.json "$RUNNER_TEMP/gui-tests/"
+          npm ci --prefix "$RUNNER_TEMP/gui-tests" --ignore-scripts
+      - name: Verify pinned browser image and real launch
+        env:
+          UI_TEST_DEPS: ${{ runner.temp }}/gui-tests
+        run: node scripts/ci/check-browser-image.mjs chromium,webkit
+      - name: Build locked Browser Use runtime
+        run: |
+          npm ci --prefix plugins/browser-use --ignore-scripts
+          npm run build --prefix plugins/browser-use
       - name: Real Chromium MCP regression (no API spending)
         env:
           UI_TEST_DEPS: ${{ runner.temp }}/gui-tests
         run: |
           node scripts/gui_bench/test_browser.mjs
           node scripts/gui_bench/test_native_observation.mjs
+      - name: Server Browser Use acceptance (no model/API spending)
+        env:
+          XHARNESS_BROWSER_TEST_SERVER: '1'
+        run: bash scripts/browser_use/run-server-acceptance.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-use-server-core
+          path: |
+            docs/evidence/browser-use-parity-engine-20261022.json
+            docs/evidence/browser-use-parity-stdio-20261022.json
+            docs/evidence/browser-use-parity-legacy-20261022.json
+            docs/evidence/browser-use-parity-matrix-20261022.json
+          if-no-files-found: warn
+          retention-days: 7
 
   macos-host:
     if: github.event_name != 'workflow_dispatch' || !inputs.build_cache_benchmark

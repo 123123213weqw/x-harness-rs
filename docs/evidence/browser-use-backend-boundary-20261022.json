@@ -1,0 +1,594 @@
+{
+  "schema": "xharness.browser-backend-boundary.v1",
+  "recordedAt": "2026-10-22T16:03:01.121238+00:00",
+  "status": "covered-linux-gates-passed-unreleased-candidate",
+  "baselineCommit": "d0565d4b0950b099f26da445832da8fbb6d24766",
+  "scope": [
+    "compact explicit embedded/headless discovery labels",
+    "configuration-only discovery; no process launch or environment resolution",
+    "existing exact dispatch/approval/revocation retained; no silent backend fallback",
+    "authenticated native invocation lifetime metadata; visible owner/tab-scoped monochrome indicator",
+    "separate embedded/background chat tool record labels",
+    "locked browser CI setup and retained original compatibility checks"
+  ],
+  "implementation": {
+    "newModelTools": 0,
+    "rpcArgumentSchemaChanged": false,
+    "durableStateSchemaChanged": false,
+    "schedulerChanged": false,
+    "automaticCookieOrProfileTransfer": false,
+    "discoveryIsAuthorization": false,
+    "discoveryProvesReady": false,
+    "authenticationClassifierAdded": false,
+    "activity": {
+      "producer": "authenticated native bridge and open/close lifetime; best-effort emit_to main",
+      "identity": [
+        "backend",
+        "owner",
+        "tabId",
+        "id",
+        "operation",
+        "phase"
+      ],
+      "containsPageOrInputPayload": false,
+      "finishOn": [
+        "return",
+        "error",
+        "future-drop cancellation",
+        "timeout"
+      ],
+      "representsSuccessfulEffect": false,
+      "nativeBorderOutsideMeasuredWebView": true,
+      "ordinaryWebEmptyStateChanged": false,
+      "pollingOrNewControlCommands": false,
+      "finishedCache": 128,
+      "retirementWatermarkPreventsResurrection": true,
+      "lateAttachLimitation": "A newly mounted pane can miss an already-started short invocation; provisional open uses existing authenticated requestId."
+    }
+  },
+  "validation": {
+    "productionUiBuild": {
+      "status": "passed",
+      "command": "npm run build --prefix ui",
+      "ownedTypePolicy": "strict compiler; no new any/type assertions"
+    },
+    "backend": {
+      "engine": {
+        "cases": 24,
+        "passed": 24,
+        "failed": 0
+      },
+      "stdio": {
+        "cases": 6,
+        "passed": 6,
+        "failed": 0
+      },
+      "legacy": {
+        "status": "passed",
+        "checks": 30,
+        "unchangedSourceSha256": "67b8d40ca5b0f7270e9083c3a4eac1159937ed76abb55b299c2aafe932c0e48e"
+      },
+      "currentEvidenceValidated": true,
+      "overall": "covered-gates-passed-full-ZCode-parity-still-incomplete",
+      "engineCases": [
+        {
+          "id": "trusted",
+          "status": "passed"
+        },
+        {
+          "id": "form",
+          "status": "passed"
+        },
+        {
+          "id": "frames",
+          "status": "passed"
+        },
+        {
+          "id": "ambiguous",
+          "status": "passed"
+        },
+        {
+          "id": "overlay",
+          "status": "passed"
+        },
+        {
+          "id": "delayed",
+          "status": "passed"
+        },
+        {
+          "id": "scroll",
+          "status": "passed"
+        },
+        {
+          "id": "ref-replay",
+          "status": "passed"
+        },
+        {
+          "id": "replaced",
+          "status": "passed"
+        },
+        {
+          "id": "tabs",
+          "status": "passed"
+        },
+        {
+          "id": "dialogs",
+          "status": "passed"
+        },
+        {
+          "id": "screenshot",
+          "status": "passed"
+        },
+        {
+          "id": "pointer-gesture",
+          "status": "passed"
+        },
+        {
+          "id": "raster-invalidated",
+          "status": "passed"
+        },
+        {
+          "id": "raster-layout",
+          "status": "passed"
+        },
+        {
+          "id": "upload",
+          "status": "passed"
+        },
+        {
+          "id": "download",
+          "status": "passed"
+        },
+        {
+          "id": "origin",
+          "status": "passed"
+        },
+        {
+          "id": "cancel-fetch",
+          "status": "passed"
+        },
+        {
+          "id": "logs",
+          "status": "passed"
+        },
+        {
+          "id": "bounded",
+          "status": "passed"
+        },
+        {
+          "id": "bounded-small",
+          "status": "passed"
+        },
+        {
+          "id": "bounded-cjk",
+          "status": "passed"
+        },
+        {
+          "id": "navigation-ref",
+          "status": "passed"
+        }
+      ]
+    },
+    "protocolAndReferenceAndSyntheticSessionIsolation": {
+      "status": "passed",
+      "tests": 10,
+      "failed": 0,
+      "note": "Synthetic headless cookie continuity/isolation; not real WebView login or account acceptance."
+    },
+    "evidenceAndPolicyGuards": {
+      "passed": 33,
+      "failed": 0
+    },
+    "toolRowContractTests": {
+      "passed": 15,
+      "failed": 0
+    },
+    "activityObserver": {
+      "status": "passed",
+      "checks": [
+        "owner/tab/backend filtering",
+        "duplicate/concurrent calls",
+        "out-of-order finish/start",
+        "more than 128 finishes and late old start",
+        "previously active older call remains until own finish",
+        "newer calls after retirement",
+        "listener registration rejection/disposal race"
+      ]
+    },
+    "uiComponents": {
+      "status": "passed-mock-native-transport",
+      "engines": [
+        "chromium",
+        "webkit"
+      ],
+      "scriptsPerEngine": [
+        "scripts/test-browser-model-control.mjs",
+        "scripts/test-browser-native-bridge.mjs",
+        "scripts/test-browser-access.mjs",
+        "scripts/test-browser-pane-browser.mjs",
+        "scripts/test-browser-dock-native-browser.mjs"
+      ],
+      "notMacOsWkWebViewAcceptance": true,
+      "motionAndColorVariablesAndNoPageResizeChecked": true
+    },
+    "rustHost": {
+      "passed": 144,
+      "failed": 0,
+      "defaultIgnored": 3,
+      "explicitlyRerunIgnoredMediaCase": {
+        "name": "plugin_mcp::browser_e2e::real_browser_mcp_image_reaches_provider_request_and_durable_history",
+        "passed": 1,
+        "failed": 0,
+        "provider": "scripted provider; actual Chromium -> MCP -> Host attachment/history -> provider request"
+      },
+      "remainingOptInNotRun": [
+        "context_discovery::tests::actual_deployment_reports_a_capacity_not_the_temporary_32k_budget",
+        "plugin_service::tests::live_product_engine_package_transport"
+      ]
+    },
+    "rustMcp": {
+      "unitPassed": 2,
+      "stdioIntegrationPassed": 8,
+      "failed": 0
+    },
+    "rustDesktopLinux": {
+      "passed": 79,
+      "failed": 0,
+      "ignored": 0
+    },
+    "clippy": {
+      "hostAllTargets": "passed -D warnings",
+      "desktopAllTargets": "passed -D warnings"
+    },
+    "genuineNativeProbe": {
+      "receipt": {
+        "kind": "native_tauri_dom_contract",
+        "platform": "linux",
+        "model_calls": 0,
+        "os_input": false,
+        "titlebar": "standard",
+        "ready_delay_ms": 0,
+        "binary_sha256": "2336faf869e7d7af7410f395340e8421e65d2f8f1a53b577b39d190bf2bc1b9a",
+        "subframe_navigation_passed": true,
+        "native_api_prototype_tested": true,
+        "native_api_core_passed": true,
+        "production_native_passed": true,
+        "hard_capability_status": "partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim",
+        "cleanup_passed": true,
+        "exit_code": 0,
+        "seconds": 14.012,
+        "passed": true,
+        "contract_completed": true
+      },
+      "activityAssertions": [
+        "invalid credentials emit no activity",
+        "unbound foreign owner emits no activity",
+        "authenticated invocations have matching owner/tab start and finish",
+        "abandoned authenticated open socket has balanced activity lifetime"
+      ]
+    },
+    "genuineNativeUi": {
+      "productionAppFrameZeroTabs": [
+        {
+          "task": "issue",
+          "initialTabs": 0,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true,
+          "uiInputsSha256": {
+            "ui/dist/index.html": "abfd30b74fca1404cb7fdbb5409b8db0bdac3c479043279930f21916af2d6387",
+            "ui/dist/assets/loader-35NVWEMD.js": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+            "ui/dist/assets/loader-35NVWEMD.js.map": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+            "ui/dist/assets/platform-3EAYQYDO.js": "e708f8298ee1f48da4d6dfb42847fb6c0ba0de5910ac4379cfecb22cae842b2b",
+            "ui/dist/assets/platform-3EAYQYDO.js.map": "1bee435eb556b8568d8a8880e3ada49a98ba3a910ad9d8cb2ca7928c60ce0a67",
+            "ui/dist/assets/platform-Z3C7WZKU.css": "0850e6fa108f6a3feeaf72128e9947421301250efce503ebd2dda7b0dbbc6611",
+            "ui/dist/assets/platform-Z3C7WZKU.css.map": "7be02e1ba24a9e1326014079fa0fb2886ba156305da5c2c076cecc6e0b8a910c",
+            "ui/dist/plugins/@xharness/dsh-client-runtime/client.js": "16c673554f5ef12f96f05492b55de739bb2098a34087ba3d8225b786395bd677",
+            "ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js": "d89c6d6278801b88b79f5f90234a946c6d42c8f50481e58695a3b6acd73b259e",
+            "ui/dist/plugins/@xlang/xharness-client-ui-browser/client.js": "11641a59962440ad1c069f64597d356ee5978d6ea6b09540b522055cc7a1e516"
+          }
+        },
+        {
+          "task": "pr",
+          "initialTabs": 0,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true,
+          "uiInputsSha256": {
+            "ui/dist/index.html": "abfd30b74fca1404cb7fdbb5409b8db0bdac3c479043279930f21916af2d6387",
+            "ui/dist/assets/loader-35NVWEMD.js": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+            "ui/dist/assets/loader-35NVWEMD.js.map": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+            "ui/dist/assets/platform-3EAYQYDO.js": "e708f8298ee1f48da4d6dfb42847fb6c0ba0de5910ac4379cfecb22cae842b2b",
+            "ui/dist/assets/platform-3EAYQYDO.js.map": "1bee435eb556b8568d8a8880e3ada49a98ba3a910ad9d8cb2ca7928c60ce0a67",
+            "ui/dist/assets/platform-Z3C7WZKU.css": "0850e6fa108f6a3feeaf72128e9947421301250efce503ebd2dda7b0dbbc6611",
+            "ui/dist/assets/platform-Z3C7WZKU.css.map": "7be02e1ba24a9e1326014079fa0fb2886ba156305da5c2c076cecc6e0b8a910c",
+            "ui/dist/plugins/@xharness/dsh-client-runtime/client.js": "16c673554f5ef12f96f05492b55de739bb2098a34087ba3d8225b786395bd677",
+            "ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js": "d89c6d6278801b88b79f5f90234a946c6d42c8f50481e58695a3b6acd73b259e",
+            "ui/dist/plugins/@xlang/xharness-client-ui-browser/client.js": "11641a59962440ad1c069f64597d356ee5978d6ea6b09540b522055cc7a1e516"
+          }
+        },
+        {
+          "task": "dynamic",
+          "initialTabs": 0,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true,
+          "uiInputsSha256": {
+            "ui/dist/index.html": "abfd30b74fca1404cb7fdbb5409b8db0bdac3c479043279930f21916af2d6387",
+            "ui/dist/assets/loader-35NVWEMD.js": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+            "ui/dist/assets/loader-35NVWEMD.js.map": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+            "ui/dist/assets/platform-3EAYQYDO.js": "e708f8298ee1f48da4d6dfb42847fb6c0ba0de5910ac4379cfecb22cae842b2b",
+            "ui/dist/assets/platform-3EAYQYDO.js.map": "1bee435eb556b8568d8a8880e3ada49a98ba3a910ad9d8cb2ca7928c60ce0a67",
+            "ui/dist/assets/platform-Z3C7WZKU.css": "0850e6fa108f6a3feeaf72128e9947421301250efce503ebd2dda7b0dbbc6611",
+            "ui/dist/assets/platform-Z3C7WZKU.css.map": "7be02e1ba24a9e1326014079fa0fb2886ba156305da5c2c076cecc6e0b8a910c",
+            "ui/dist/plugins/@xharness/dsh-client-runtime/client.js": "16c673554f5ef12f96f05492b55de739bb2098a34087ba3d8225b786395bd677",
+            "ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js": "d89c6d6278801b88b79f5f90234a946c6d42c8f50481e58695a3b6acd73b259e",
+            "ui/dist/plugins/@xlang/xharness-client-ui-browser/client.js": "11641a59962440ad1c069f64597d356ee5978d6ea6b09540b522055cc7a1e516"
+          }
+        },
+        {
+          "task": "game",
+          "initialTabs": 0,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true,
+          "uiInputsSha256": {
+            "ui/dist/index.html": "abfd30b74fca1404cb7fdbb5409b8db0bdac3c479043279930f21916af2d6387",
+            "ui/dist/assets/loader-35NVWEMD.js": "5a7840f11e8928b16c4342a4b1f2e1003f0801ba263efebe662aaebc94c1b1ae",
+            "ui/dist/assets/loader-35NVWEMD.js.map": "3fd0041802f75d6ee4b67610540f8e214c9b1684e0413ae74b924c5f8dce0d99",
+            "ui/dist/assets/platform-3EAYQYDO.js": "e708f8298ee1f48da4d6dfb42847fb6c0ba0de5910ac4379cfecb22cae842b2b",
+            "ui/dist/assets/platform-3EAYQYDO.js.map": "1bee435eb556b8568d8a8880e3ada49a98ba3a910ad9d8cb2ca7928c60ce0a67",
+            "ui/dist/assets/platform-Z3C7WZKU.css": "0850e6fa108f6a3feeaf72128e9947421301250efce503ebd2dda7b0dbbc6611",
+            "ui/dist/assets/platform-Z3C7WZKU.css.map": "7be02e1ba24a9e1326014079fa0fb2886ba156305da5c2c076cecc6e0b8a910c",
+            "ui/dist/plugins/@xharness/dsh-client-runtime/client.js": "16c673554f5ef12f96f05492b55de739bb2098a34087ba3d8225b786395bd677",
+            "ui/dist/plugins/@xharness/dsh-client-ui-layout/client.js": "d89c6d6278801b88b79f5f90234a946c6d42c8f50481e58695a3b6acd73b259e",
+            "ui/dist/plugins/@xlang/xharness-client-ui-browser/client.js": "11641a59962440ad1c069f64597d356ee5978d6ea6b09540b522055cc7a1e516"
+          }
+        }
+      ],
+      "legacyPaneCompatibility": [
+        {
+          "task": "issue",
+          "initialTabs": 1,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true
+        },
+        {
+          "task": "pr",
+          "initialTabs": 1,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true
+        },
+        {
+          "task": "dynamic",
+          "initialTabs": 1,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true
+        },
+        {
+          "task": "game",
+          "initialTabs": 1,
+          "passed": true,
+          "modelCalls": 0,
+          "cleanupPassed": true
+        }
+      ],
+      "legacyCasesAreNotNewFrontendProof": true,
+      "notAModelTaskScore": true
+    },
+    "ciEquivalentCommandsOnV100": {
+      "status": "passed",
+      "pythonSuiteCounts": [
+        6,
+        90
+      ],
+      "legacyBrowserAndNativeObservationRetained": true,
+      "serverAcceptanceMatrixValidated": true,
+      "pinnedPlaywright": "1.61.1",
+      "workflowSyntax": "passed",
+      "hostedGitHubRun": "not-triggered"
+    },
+    "localNonCompilingChecks": {
+      "cargoFmt": "passed",
+      "desktopCargoFmt": "passed",
+      "architecture": "passed: 46 crates / 30 processors",
+      "diffWhitespace": "passed",
+      "newJsSyntax": "passed"
+    }
+  },
+  "recoveredIssues": [
+    {
+      "kind": "transport",
+      "evidence": "Small SSH commands succeeded while larger transfers stalled; one manifest stopped at 65536 received bytes. This does not establish a product SSH bug.",
+      "recovery": "Existing verified routes, immutable same-repository baseline archive over verified TLS, server-local rsync, per-file current-source rsync, whole-input SHA256 bucket comparison."
+    },
+    {
+      "kind": "test-source-sync-filter",
+      "firstRun": "production UI build failed: vendored immer/dist declaration incorrectly excluded by global dist filter",
+      "fix": "Exclude only actual generated output roots; restore committed vendor source and verify 4647 inputs. No UI build gate skipped.",
+      "failedLog": "xh-browser-current-gates-20261022-9e5021388261.log"
+    },
+    {
+      "kind": "activity-stale-start",
+      "finding": "Evicting finished IDs could resurrect a delayed old start and leave a false active indicator",
+      "fix": "Monotonic retirement watermark plus tests retaining older active calls and accepting newer calls."
+    },
+    {
+      "kind": "ci-runtime-setup",
+      "finding": "Old browser job did not install/build the new source-only plugin runtime",
+      "fix": "Locked dependencies, explicit runtime/browser build, retained original browser/native tests, added server acceptance and artifacts."
+    }
+  ],
+  "sourceVerification": {
+    "inputFilesBeforeTests": 4647,
+    "allRequiredLocalInputsHashVerifiedBeforeCompile": true,
+    "runtimeAndTestAndCiHashes": {
+      ".gitignore": "ab5ff9804ae386c7019c6ee167dc2a2bcba3001229ebf2d4f523a6f57ea1bb83",
+      "ui/src/modules/browser/index.tsx": "922e9be66d29114677389a0186c715bd03a9d7127b46b6c6bc968e17d2b2bf4e",
+      "ui/src/modules/browser/Browser.css": "f800128fd72e6caae43c7547c4caac626c11b7a9d97e6e5ea0cb712503f60014",
+      "ui/src/modules/browser/model-activity.ts": "58e9adeaa82c343b6c50e4bc7e5752a8c679b72a298fd10e3f30841fb9abaa07",
+      "ui/src/modules/tool/tool/models/tool-call-model.ts": "c6ef6dde004634a7559cb5e1780cb0ee8496f508fc184e0cc1331c1635acb769",
+      "crates/xharness-mcp/src/lib.rs": "95c73c5b716ba56f9caf794563dfa7745d7583ae69d4ce4a3daeeec78e7a0394",
+      "crates/xharness-host-app/src/plugin_mcp.rs": "b04f803a5d66218e770e063ea9fd719c9095b298e90adb1374abe9f1a869dc3e",
+      "crates/xharness-host-app/src/native_browser.rs": "c5270d8a139d12c9d52c16a0e37b6c170c262eacf2044a78b6024b98582a91eb",
+      "crates/xharness-host-app/src/plugin_mcp/browser_boundary.rs": "8a811f9058508d9c8e2c942313e6bde3e84258612e6291f4d70307fc73ac4eeb",
+      "crates/xharness-host-app/src/plugin_mcp/browser_e2e.rs": "2cebf5d8418e29addb3327601aad0cb391dba5a3e19f4be8d9eee89170ec7d75",
+      "crates/xharness-host-app/src/plugin_mcp/media.rs": "a9fe0306132b16ec712e4ea0416cca1b7db5562a385f16d6319886def7ae48bc",
+      "plugins/browser-use/.mcp.json": "b4cb7293e5fb2e2a518f531042d0c68b68742940e53cfede4d93f816174efb45",
+      "plugins/browser-use/package-lock.json": "06170278c4527c5ca7c1c2903fe99cf05208d62c506cba2e1c21f7f9b7f7122b",
+      "plugins/browser-use/package.json": "f3243a205b4cabb6699d2ed5a620e3023a800418563c4391a67881e351ad2bcf",
+      "plugins/browser-use/server.mjs": "5f031f06eea0b6972c1ff7980c634233309a26d12ca49d29b4ba1b183d0a19d1",
+      "plugins/browser-use/tsconfig.json": "12a59d06f0ace3524867fd6b214449b66444ae89ebcce86248c50c0ebb0b49ba",
+      "plugins/browser-use/.claude-plugin/plugin.json": "5107d3fcd4fb0a7225c348be4073f1b5c3d1777b51686926b02b779778429033",
+      "plugins/browser-use/src/network-policy.ts": "c2b2afd84fe5d6befb463378f9653b1fc7e7ccc4fa2e73530b033dd0f3147f0b",
+      "plugins/browser-use/src/cdp-policy-bridge.ts": "46adcaaf39061a6cdbd1d81eec2092ffe8b3357cfc2d498b994bd1fba8278f61",
+      "plugins/browser-use/src/engine.ts": "2201621078dc400da7b213d2cf50cdd98c30c0039f7b028f64e104b6f2325d6a",
+      "plugins/browser-use/src/types.ts": "9fa76e0b4f25232b00608da85517544c381f5f789f1afabf2dc2ff95defc775b",
+      "plugins/browser-use/src/protocol.ts": "3b8dc7e0cbdbddf2606dfc5843d9c6df76e9bdce3965d1d4c53832ad12948e07",
+      "plugins/browser-use/src/protocol-schema.ts": "20b87a689fff8cb033e190e2bd51c02fe1631ff1a4c247a12dd1b1492c9f54f1",
+      "scripts/test-browser-activity.mjs": "842b67564d680b55ad41d3f0ee32dc48026f6b7edb2cf1dfa42468a108edf9f7",
+      "scripts/test-browser-model-control.mjs": "f5635b0be26bcdf2c9640d3652b41f46910105fcf9cbdb87f0aa65ffcc4de13c",
+      "scripts/test-tool-source-module.mjs": "20a75ba50ddf5730a478e6f9808f3b45cba3b74219d79be812cb3e8003aeddce",
+      "scripts/browser_use/reference-guidance.test.mjs": "77eb49d4cfdf5666a04e33c9d10cf101402e78529ac005cc5a35da7ccdd4f3a5",
+      "scripts/browser_use/acceptance.mjs": "7540dbead50b47e6511ced719867450a631fc7b9db5d3a65422b735ef9a9003c",
+      "scripts/browser_use/ab-fixture.mjs": "85a9d44b0d208a5854397cc74b609cb1e1084d82688809c3088a2142494c41bf",
+      "scripts/browser_use/ab-teardown-regression.mjs": "8ee6f8f705d2e2ac091c00b612b4a61a32067e84656e480712a51ab5b746d994",
+      "scripts/browser_use/stdio.mjs": "a91c4a8e2449b160217f04b8b031f5ba2c3439b5703814e36418f7e9401d9eb6",
+      "scripts/browser_use/fixture.mjs": "55a4e90e709ace0c38623c3afae3711ea3a474805b7e1e063a3fb8754104cf80",
+      "scripts/browser_use/evidence-validator.mjs": "af786a07a08d2bfea8f1a901c30b5675655a9af5aa8766ff1133348e341301c7",
+      "scripts/browser_use/run-server-acceptance.sh": "7271238d88cf7bbe763b2234ab72965fdc1c3cab1316ae7ea50c4bae196f7ac4",
+      "scripts/browser_use/provenance.mjs": "5865d4d06e95207519601c8ee9cb6c688da23e337e1aec9dbde339a5f3cb60f4",
+      "scripts/browser_use/ab-fixture.test.mjs": "3d1b574e867e80461306cdc8a83d095f00c58515c4cfc80ab30b8b93494645f9",
+      "scripts/browser_use/run-ab-server.py": "3b5e04d699f0f07f990731ce868cfd841bb3c39dbb79d502ca6b581b5c6bab29",
+      "scripts/browser_use/legacy-gate.mjs": "120f38def08713c451c13109c39542769ef901589450ccd608e497ad02b5166e",
+      "scripts/browser_use/protocol-contract.test.mjs": "18619dcf7d7b10a0b1b94bf02f25c6321b27a63a0acff83fe256be5a0348fb5c",
+      "scripts/browser_use/evidence-gate.test.mjs": "468505f165eab1c5407f188ad74d2e5a0bd9233cc171f156e2b27a6e4b843d8c",
+      "scripts/browser_use/ab-report.mjs": "8f2e2727016b71fdd714849d547df524e980a8962aa2c2fb345ad4a61c35e62b",
+      "scripts/browser_use/ab-runner.mjs": "319de686cba11a6ec2110ab31d5c21826acad99d34fd149d04c02ddda7ba6edb",
+      "scripts/browser_use/prepare-ab-reference.mjs": "e0910037e6f8a36518040863963674a685f146aab1169a7510e1a412189855c5",
+      "scripts/browser_use/backend-isolation.test.mjs": "4ef947ca412c29ff7eed5ec703138f94faa235a13b30d501ae4ce032f37e54bc",
+      "scripts/browser_use/update-matrix.mjs": "48514e0d0f1f88100b6b178aa91d197293e6d1b1049eba20fa2db42f856ab9f6",
+      "scripts/browser_use/policy-contract.test.mjs": "d707060313dec0aa441662ce1dcd6bc0c9dc5a2c1a507d7fa25816f4eaf397b9",
+      "scripts/browser_use/reference/source-manifest.json": "80d3d54fc887ef5d3e89e90cd1766fcb735e7254342842c53c50cec018e825f1",
+      "scripts/browser_use/reference/build-reference.mjs": "408937268f86a8dbe92aec45066b9948f71f3601e28966cbbcd2975dc6081134",
+      "scripts/browser_use/reference/ab-reference.mjs": "e01a0323c449e66e65c664fca2c761f6440d729a8059889da30b20b82dfe2edf",
+      "scripts/browser_use/reference/package.json": "7503b90f850b117bf3628521347cf05389a02f4a1e7842020773bcd897abb8a8",
+      "scripts/browser_use/reference/README.reference.txt": "dbc54934c6660897c9024f79f71dd37428baa449275a7792a12bdfb21bbddb1d",
+      "scripts/browser_use/reference/check-reference-shim.mjs": "e30bbce1acc960a9a8342c2aba369399e3f72d0b346c6701f8452dded3e41207",
+      ".github/workflows/gui-bench-build.yml": "0c00562b604904f12b1eda44abcefb4e136e7fcc9b8d507ab5368a705617aed1",
+      "apps/desktop/src-tauri/examples/browser-inspect-probe.rs": "d1d4f25692aab5f3d454c736c34169ac8021316141033ece0a3039a25c5217f5",
+      "apps/desktop/src-tauri/examples/native-browser-bench.rs": "eb78ce441ecd406c8467f20662e97f5cd91e9b060816867c0bf52b418dce748e",
+      "apps/desktop/src-tauri/src/lib.rs": "bbaefc7f887cb223df1d99b09a5c3fa1eba03808986cb9a6254da57ab27d987c",
+      "apps/desktop/src-tauri/src/browser_bridge.rs": "932525824009330682dfa529d9634cd7cfeb009108f4c8b3f33088fb867a665a",
+      "apps/desktop/src-tauri/src/browser_activity.rs": "1b55efc55ee984340928669731fc419e4fab6138dedda0ff381fd62f23deede2",
+      "apps/desktop/src-tauri/src/browser_lifecycle.rs": "969224149a0e9170806a88251a0e38b63064b44d514fc32557259ffd66e5e613"
+    },
+    "coreRuntimeSourceTag": "9ead53f0c347",
+    "ciSourceTag": "6144f2a2cbf7",
+    "documentationAndEvidenceUpdatedAfterValidation": true
+  },
+  "rawEvidence": {
+    "localDirectory": "/Users/wangyue/codex-build/xharness-browser-use-parity-evidence-20261022/backend-boundary",
+    "logs": {
+      "main": {
+        "file": "xh-browser-current-gates-20261022-9ead53f0c347.log",
+        "sha256": "a0c62e2b9f130ffba6089930943bfef4c64db3865988280add47b0a025d8fccd",
+        "sourceTag": "9ead53f0c347",
+        "gateScriptSha256": "0af16460a7bb8fa6048707866c157e811f38aff28d6c4a08c8b5b552cacc9e49"
+      },
+      "mcpAndMedia": {
+        "file": "xh-browser-supplemental-gates-20261022-9ead53f0c347.log",
+        "sha256": "eaaa1474daf0fdfbf4723096e09d93a0de01ec214c707bef187c8144b1a278c5",
+        "sourceTag": "9ead53f0c347",
+        "gateScriptSha256": "f178e5a95d8b17da4ff37a301b5059f6759aa0b29e25134a815aed8b8ad42158"
+      },
+      "nativeUi": {
+        "file": "xh-browser-native-ui-gates-20261022-9ead53f0c347.log",
+        "sha256": "d09ed03b5b4d108529bd7480814b2ae98fb500b08ade722e6ca459ed2855d451",
+        "sourceTag": "9ead53f0c347",
+        "gateScriptSha256": "c719f5edc0286c27ccbced4a2e9415a7263c2409a5db634028a4b8c660103e30"
+      },
+      "ciEquivalent": {
+        "file": "xh-browser-ci-gates-20261022-6144f2a2cbf7.log",
+        "sha256": "73acbf02f5eae11928d8746b11045fc03c82a4c520aef98c68e4bb6f8f7b4ccd",
+        "sourceTag": "6144f2a2cbf7",
+        "gateScriptSha256": "33749b4b8900e90e8fdda2e60c3e455defa1517d92e3293f45d829d2f43dfdff"
+      }
+    },
+    "files": [
+      {
+        "file": "xh-browser-current-gates-20261022-9ead53f0c347.log",
+        "sha256": "a0c62e2b9f130ffba6089930943bfef4c64db3865988280add47b0a025d8fccd"
+      },
+      {
+        "file": "xh-browser-supplemental-gates-20261022-9ead53f0c347.log",
+        "sha256": "eaaa1474daf0fdfbf4723096e09d93a0de01ec214c707bef187c8144b1a278c5"
+      },
+      {
+        "file": "xh-browser-native-ui-gates-20261022-9ead53f0c347.log",
+        "sha256": "d09ed03b5b4d108529bd7480814b2ae98fb500b08ade722e6ca459ed2855d451"
+      },
+      {
+        "file": "xh-browser-ci-gates-20261022-6144f2a2cbf7.log",
+        "sha256": "73acbf02f5eae11928d8746b11045fc03c82a4c520aef98c68e4bb6f8f7b4ccd"
+      },
+      {
+        "file": "ci-engine.json",
+        "sha256": "322f6a33ed411f1469b8e8e09ac0a75c1813415997f6fc77b2a67326760dc26e"
+      },
+      {
+        "file": "ci-stdio.json",
+        "sha256": "34031b012828df5fe08779fc41055f0bb08d3e85a393e15f81b798da1b4039f2"
+      },
+      {
+        "file": "ci-legacy.json",
+        "sha256": "420c4e7db4b34b474f767d69e313dd39f337c5462d91dcab39d7fcf4e116ce9c"
+      },
+      {
+        "file": "ci-matrix.json",
+        "sha256": "de6e3d4154be1d0eedc502172245ca31265b96ad3b4507f6a4e24b3cf1bd8b01"
+      },
+      {
+        "file": "native-receipt.json",
+        "sha256": "0df18fda590204edcec63a2ac37006567961ee4647457454202c9e3ab0087833"
+      },
+      {
+        "file": "native-probe.log",
+        "sha256": "6a711f151e9d39a81881b2deb3ff398cfe6378f18fdd40487065e2e021e292dd"
+      },
+      {
+        "file": "native-hard-capabilities.json",
+        "sha256": "a3e777d5b49b734219e12a12b9c5600d91434ccea9d00368c8af52da6c2daa9c"
+      },
+      {
+        "file": "native-ui-production-zero-tabs-results.json",
+        "sha256": "ca31c1f6714601468139076702c5e76d158ce2cceb8372529d68895fb9b6731f"
+      },
+      {
+        "file": "native-ui-legacy-binding-results.json",
+        "sha256": "32ca049c4627ecbaa31f65d6d85396a7e07e8e747e8ae952b64c02f0d615179b"
+      }
+    ]
+  },
+  "limitations": [
+    "Windows/macOS native acceptance not run for this candidate",
+    "Playwright WebKit is not macOS WKWebView validation",
+    "No real account/login/CAPTCHA or live-model two-backend routing acceptance in this step",
+    "Historical DeepSeek A/B remains pre-boundary evidence, not current routing acceptance",
+    "Native cross-origin DOM traversal and recording remain unsupported; no full ZCode parity claim",
+    "Hosted GitHub CI has not been triggered; source-only headless installation still requires its documented build"
+  ],
+  "deployment": {
+    "committed": false,
+    "prCreated": false,
+    "merged": false,
+    "published": false,
+    "deployed": false,
+    "applicationRestarted": false,
+    "runningUserAgentsInterrupted": false
+  },
+  "paidModelRequestsInThisStep": 0
+}

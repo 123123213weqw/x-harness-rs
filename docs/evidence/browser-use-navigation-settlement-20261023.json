@@ -1,0 +1,127 @@
+{
+  "schema": "xharness.browser-navigation-settlement.v1",
+  "recordedAt": "2026-10-23T13:39:49.592221+00:00",
+  "status": "isolated-linux-regressions-passed-awaiting-fresh-hosted-ci",
+  "reviewedHead": "2f6db076902476c0a9f38689e7d7a9f05328d31b",
+  "failure": {
+    "workflowRun": 39897706449,
+    "job": 120231861687,
+    "check": "browser-contract",
+    "enginePassed": 23,
+    "engineCases": 24,
+    "failedCase": "origin",
+    "symptom": "The next allowed navigation was interrupted by the previous rejected redirect committing chrome-error://chromewebdata/.",
+    "rootCauseBoundary": "waitForLoadState can return the previous document state; first commit/load can be superseded by another main navigation."
+  },
+  "repair": {
+    "waitFor": "future main-frame commit and load, reset on each main-frame navigation request",
+    "waitOnlyAfterRejection": true,
+    "settlementDeadlineMs": 2000,
+    "cleanup": "remove all four Page listeners and timer on success, rejection, timeout and close",
+    "originalErrorPreserved": true,
+    "effectReplayed": false,
+    "originPolicyChanged": false,
+    "acceptanceAssertionsRelaxed": false,
+    "rustChangedByRepair": false
+  },
+  "validation": {
+    "host": "WZU_Server",
+    "isolation": "dedicated source checkout; controlled localhost fixtures; no real profiles or user pages",
+    "node": "v20.20.2",
+    "playwright": "1.61.1",
+    "baselineLiveStress": {
+      "cycles": 12,
+      "failed": 0,
+      "interpretation": "The live CI race is intermittent; these trials do not claim a local live reproduction."
+    },
+    "oldEngineNewDeterministicBoundaryTests": {
+      "passed": 4,
+      "failed": 3,
+      "liveTestPassed": 1,
+      "total": 8,
+      "interpretation": "Expected negative control: early commit, superseding navigation, and successful no-navigation listener cleanup fail on the old implementation."
+    },
+    "fixedNavigationRegression": {
+      "passed": 8,
+      "failed": 0,
+      "deterministic": 7,
+      "realChromium": {
+        "blockedThenAllowedCycles": 12,
+        "forbiddenRequests": 0,
+        "allowedParentRequests": 12,
+        "uncertainFailureReceiptPreserved": true
+      }
+    },
+    "completeServerRunner": {
+      "exitCode": 0,
+      "evidenceValidator": 26,
+      "policyAndProtocol": 13,
+      "guidanceIsolationScreenshotNavigation": 18,
+      "engine": {
+        "passed": 24,
+        "cases": 24
+      },
+      "mcpStdio": {
+        "passed": 6,
+        "cases": 6
+      },
+      "unchangedLegacy": {
+        "passed": 30,
+        "checks": 30
+      }
+    },
+    "repairedStress": {
+      "batches": 8,
+      "cyclesPerBatch": 12,
+      "passedCycles": 96,
+      "failedCycles": 0,
+      "forbiddenRequests": 0,
+      "extraAllowedDispatches": 0
+    }
+  },
+  "logs": {
+    "baseline-race.log": {
+      "sha256": "dcb0c05867464498502e94d0c09335e00c515b8f1c5c086fb9c3bedcbee4f1b7"
+    },
+    "old-navigation-regression.log": {
+      "sha256": "6ac7c9584a1ba4500f200ce94064c319470388a5148e2775a3e4f3d7d7872a1d"
+    },
+    "repaired-server-acceptance.log": {
+      "sha256": "d277bf3d45aafb648d22bb9d87d7f21192341ea20d47b9ff0ce04278d8a2799b"
+    },
+    "browser-contract-d6daad08.log": {
+      "sha256": "7fe408e1a8dcf759a445ca8546b52cbea0b32651b2e2b1bd8700ac4a2691b5ac"
+    },
+    "stress-diagnostics.log": {
+      "sha256": "a98caafb505fbf0bab18754e8b21030e39453321f9de53e432ae3a26911b9a57"
+    },
+    "repaired-fixture-server-acceptance.log": {
+      "sha256": "a873a5dc99b3a6b55a20196049176b6424fdfd0a737b3d50c222b44a19eef657"
+    },
+    "old-engine-final-test.log": {
+      "sha256": "8ebb2278b26662c6bda925cc12bdc8ada20745ee7e9b1fee8c1621694cf16b6d"
+    }
+  },
+  "currentSourceEvidence": [
+    "docs/evidence/browser-use-parity-engine-20261022.json",
+    "docs/evidence/browser-use-parity-stdio-20261022.json",
+    "docs/evidence/browser-use-parity-legacy-20261022.json",
+    "docs/evidence/browser-use-parity-matrix-20261022.json"
+  ],
+  "limitations": [
+    "Live redirect race did not reproduce in 12 baseline trials; deterministic boundary red/green tests plus the CI failure trace motivate the repair.",
+    "This tests isolated background Chromium, not native macOS WKWebView or Windows WebView2 interaction.",
+    "Real accounts, live-model two-backend routing/handoff, complete ZCode parity and performance superiority remain unaccepted.",
+    "A bounded passive wait cannot guarantee settlement of a navigation that never completes; the original failure remains visible and is never automatically replayed."
+  ],
+  "ciFollowup": {
+    "run": 39961536207,
+    "job": 120440481097,
+    "head": "d6daad08766eb14756e6c1b2b99cd046097d864e",
+    "observed": "New stress test expected a single atomic observation while its permitted child iframe was still navigating. The recovered parent navigation itself succeeded.",
+    "reproduced": "Server stress trial 3, iteration 3 returned replaySafe operation_rejected: Page navigated during observation; observe again.",
+    "testCorrection": "Wait for the controlled successful parent/child load after asserting the navigation receipt. Retain strict applied snapshot/content, zero forbidden requests and exactly-once allowed dispatch assertions. Production invalidation and all original acceptance cases unchanged.",
+    "productionCodeChangedForFollowup": false,
+    "testAssertionRemoved": false
+  }
+}

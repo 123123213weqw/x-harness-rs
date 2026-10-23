@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('browser_ab', Path(__file__).with_name('browser-routing-ab.py'))
 ab = importlib.util.module_from_spec(spec)
@@ -25,6 +26,39 @@ class RoutingTest(unittest.TestCase):
         self.assertIn('when available', self.c['policy'])
         self.assertEqual(set(self.c['schemas']), {'control', 'observe'})
         self.assertEqual(self.c['schemas']['control']['inputSchema']['oneOf'][1]['properties']['action']['const'], 'open')
+
+    def test_description_preserves_literal_and_composed_source_policy(self):
+        historical = 'Discover historical browser\\nRespect explicit choices.'
+        self.assertEqual(ab.mcp_description(json.dumps(historical) + ', json!({})'), historical)
+        boundary = ab.source(ab.BOUNDARY)
+        guidance = ab.literal(boundary, 'const GUIDANCE: &str = ')
+        tail = ab.source(ab.MCP).split('"plugin_mcp",', 1)[1]
+        self.assertEqual(ab.mcp_description(tail, boundary), self.c['definition']['description'])
+        self.assertTrue(self.c['definition']['description'].endswith(guidance))
+        self.assertIn('never mix references, transfer cookies/profiles, or silently switch', guidance)
+        self.assertTrue(self.c['summary'].startswith('Embedded browser:'))
+
+    def test_description_unknown_expressions_fail_closed(self):
+        boundary = 'const GUIDANCE: &str = " appended policy";'
+        for expression in ('description()', 'format!("{}", "base"),',
+                           'format!("{}{}", "base", other::GUIDANCE),',
+                           'format!("{}{}", "base", browser_boundary::GUIDANCE + "ignored"),'):
+            with self.subTest(expression=expression), self.assertRaises(ValueError):
+                ab.mcp_description(expression, boundary)
+        with self.assertRaises(ValueError):
+            ab.mcp_description('format!("{}{}", "base", browser_boundary::GUIDANCE),')
+
+    def test_extracted_boundary_uses_the_same_revision_as_other_contract_sources(self):
+        current_source = ab.source
+        reads = []
+        def snapshot(path, revision):
+            reads.append((path, revision))
+            return current_source(path)
+        with patch.object(ab, 'source', side_effect=snapshot):
+            extracted = ab.contract('captured-revision')
+        self.assertEqual(extracted, self.c)
+        self.assertIn((ab.BOUNDARY, 'captured-revision'), reads)
+        self.assertTrue(all(revision == 'captured-revision' for _, revision in reads))
 
     def test_wire_envelopes_preserve_lazy_discovery_and_native_result_boundaries(self):
         discovery = json.loads(ab.wire_result('plugin_mcp', {'action': 'list'}, {'plugins': []}))
