@@ -40,7 +40,7 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.os == 'windows-2025' && 'x86_64-pc-windows-msvc' || 'x86_64-unknown-linux-gnu' }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.0'
@@ -118,7 +118,7 @@ jobs:
       XHARNESS_UPDATER_PUBKEY: ${{ inputs.updater_public_key }}
       DIAGNOSTIC_VERSION: ${{ inputs.desktop_version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4

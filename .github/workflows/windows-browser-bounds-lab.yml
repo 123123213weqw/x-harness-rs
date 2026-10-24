@@ -19,7 +19,7 @@ jobs:
       # this non-packaging build; no placeholder product executables are used.
       TAURI_CONFIG: '{"bundle":{"externalBin":[]}}'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable

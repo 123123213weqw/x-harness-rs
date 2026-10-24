@@ -50,7 +50,7 @@ jobs:
       BRIDGE_RUN_ID: ${{ inputs.bridge_run_id }}
       DIRECT_LATEST: ${{ inputs.direct_latest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

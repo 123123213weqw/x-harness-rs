@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 260
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4

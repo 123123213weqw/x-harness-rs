@@ -31,7 +31,7 @@ jobs:
       XHARNESS_LIVE_BASE_URL: ${{ inputs.base_url }}
       XHARNESS_LIVE_MODEL: ${{ inputs.model }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.0'
