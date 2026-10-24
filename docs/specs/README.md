@@ -17,9 +17,9 @@ RFC 2119 的 `MUST`、`MUST NOT`、`SHOULD`、`MAY`。源码代表当前实现�
 
 | Crate | 规范 | 当前状态 |
 |---|---|---|
-| `xharness-api` | [Web 线协议](api.md) | 已实现 52 个 RPC 及 frame/envelope 目录 |
+| `xharness-api` | [Web 线协议](api.md) | 已实现 56 个 RPC（上游兼容 52 加 4 个自有扩展）及 frame/envelope 目录 |
 | `xharness-server` | [Web 服务承载层](server.md) | 已实现 HTTP/WS/静态资源承载 |
-| `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md)、[模型性能与 Token 投影](metrics-projection.md) | 52 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn；完整性能投影计划中 |
+| `xharness-host` / `host-app` | [有状态 Web Host](host.md)、[LLM/Provider Registry](model-registry.md)、[启动恢复](host-restore.md)、[Web Session 投影](web-session-projection.md)、[模型性能与 Token 投影](metrics-projection.md) | 56 个基础行为；多 Provider/Model 路由；History 直接刷新权威 Session；可恢复 Queue/Pending Turn；完整性能投影计划中 |
 | `xharness-agent` | [长生命周期 Agent](agent.md) | Inbox、Supervisor、多 Turn/Steer、Registry、本机 Lease 与恢复 Wake 已实现 |
 | `xharness-host` / `xharness-fs` / `xharness-prompt` | [工作区 AGENTS.md](workspace-instructions.md) | 根规则锁外有界读取、实际轮次刷新、内容寻址快照；子目录为现有工具按需读取，不新增自动记忆 |
 | Host/Agent 交互检查 | [轮次交互状态检查](turn-statecheck.md) | #152 阶段 0–2：测试期有限状态枚举与真实行为对照；不接管生产调度 |

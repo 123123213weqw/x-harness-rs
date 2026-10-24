@@ -48,20 +48,34 @@ Store 可以为已完整校验的 Session 保存进程内写穿快照，但快�
 
 ## 启动枚举
 
-`Store::list_headers()` 是 Host 启动恢复的唯一目录发现入口：
+Host 启动恢复使用 `scan_startup_candidates()` / `stream_startup_candidates()` 做目录发现；
+`Store::list_headers()` 保留为严格全量校验的兼容入口，仍对任何异常整体 fail closed。
 
-- 只把 `<合法-session-id>.jsonl` 当作 Session；`.lock` 和其他普通文件必须忽略。
+- 只把 `<合法-session-id>.jsonl` 当作 Session；`.lock`、派生附属文件和其他普通文件必须忽略。
 - 返回结果按 Session ID 升序，禁止依赖文件系统目录顺序。
-- 每个候选必须走与 `load()` 相同的 Header、格式、生命周期、Seq/Revision 和 Symlink 校验。
-- 发现损坏或符号链接 Session 时整体 fail closed，不能静默跳过，否则产品会把持久任务伪装成
-  “不存在”。
-- 当前 Store 没有删除操作，因此枚举后文件消失视为后端错误，而不是正常竞态。
+- 每个候选在发布前必须走与 `load()` 相同的 Header、格式、生命周期、Seq/Revision 和 Symlink
+  校验。校验失败的候选以 `UnreadableSession` 上报，既不能冒充健康会话，也不能连带隐藏其他
+  健康会话。
+- 符号链接仍必须拒绝。
+- `create` 在“已发布文件名、尚未写入 Header”窗口内崩溃会留下零字节常规文件。它可证明不含任何
+  事件、也无法恢复，因此枚举跳过；这一个写入方残迹不得让全部健康会话不可发现。
+- `delete_session_data()` 已存在，但只允许 Host 先落持久 tombstone 并停掉该 Session 的所有写入
+  方之后调用。未 tombstone 的文件在枚举期间消失仍是后端错误，不是正常竞态。
 
 ## 当前限制
 
 - 保证依赖本地文件系统正确支持 Advisory Lock 和 fsync；不承诺 NFS/Object Store 语义。
-- 尚无 Log Compaction、Encryption、Quota、GC 或索引查询。
-- 一个 Session 对应一个持续增长的文件。
+- 尚无 Log Compaction、Encryption、Quota 或按事件的 GC。整 Session 删除已实现
+  （`delete_session_data()`，幂等）：调用方完成持久 tombstone 后，它删除日志、目录项、本 Session
+  的索引/检查点/展示快照、工具结果归档与 Harness 快照。这不是日志压缩；共享的内容寻址请求
+  审计 Blob 不随单个 Session 删除而回收，目前也没有 Blob GC。
+- 一个 Session 对应一个持续增长的权威日志文件，另有两类附属文件：
+  - 纯加速文件，可随时丢弃：`<id>.history-index`（[历史只读偏移索引](history-offset-index.md)）、
+    `<id>.recovery-checkpoint`（[闲置恢复快照](idle-recovery-checkpoint.md)）、
+    `<id>.history-presentation` 展示快照。缺失时退化为完整重放或重新投影，语义不变。
+  - 按不可变引用记录的审计附属文件：共享内容寻址的请求审计 Blob、按 Session 分目录的工具结果
+    归档和 Harness 快照。日志只保存引用，因此它们不是缓存；缺失时对应请求原文或超大工具结果
+    原文无法重建。
 - 当前快照仍保存完整 Session；它消除了热路径的重复 JSON 解析，但不等于二级索引或 Log
   Compaction。首次启动和外部修改后的第一次读取仍需完整校验。
 - 大 Tool Result 必须仍可作为原始审计事件持久化；模型上下文压缩属于独立 Surface/Spill
