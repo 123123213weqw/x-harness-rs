@@ -73,5 +73,5 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = "0.29"
 tokio-util = "0.7"
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.7", features = ["fs"] }
 windows-sys = "0.52"
