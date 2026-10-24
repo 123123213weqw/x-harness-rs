@@ -266,6 +266,11 @@ def native_fixture():
                 with patch.object(m, 'command', side_effect=fixture_command):
                     m.sign_app(app, pin, keychain)
             m.policy.verify_continuity(*apps, pin)
+            helper_spec = importlib.util.spec_from_file_location("native_keychain_helper_tests", Path(__file__).with_name("test-macos-keychain-helper.py"))
+            helper_tests = importlib.util.module_from_spec(helper_spec)
+            helper_spec.loader.exec_module(helper_tests)
+            helper_receipt = helper_tests.native_fixture(pin, keychain)
+            print("PASS: immutable Keychain helper caller/upgrade acceptance: " + json.dumps(helper_receipt))
             print('PASS: native old/new fixed certificate and all component DR continuity (not TCC/Gatekeeper acceptance)')
         except Exception as original:
             m.cleanup_after_failure(keychain, original)
