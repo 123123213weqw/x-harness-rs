@@ -238,24 +238,28 @@ impl Calibration {
                 TokenCountAccuracy::Calibrated,
             )
         } else {
-            (features.units(), TokenCountAccuracy::Estimated)
+            (features.units(), TokenCountAccuracy::ConservativeUpperBound)
         }
     }
 
     pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
-        let (mut text_tokens, text_accuracy) = self.estimate_text(scope, features);
+        let (mut text_tokens, mut text_accuracy) = self.estimate_text(scope, features);
         // Mixed totals are never text measurements. Only a mixed query may
         // reuse their conservative upper envelope when pure-text training is cold.
-        if features.image_tokens != 0 && text_accuracy == TokenCountAccuracy::Estimated {
+        if features.image_tokens != 0 && text_accuracy == TokenCountAccuracy::ConservativeUpperBound
+        {
             if let Some(upper) = self.mixed_text_upper(scope, features) {
                 text_tokens = text_tokens.min(upper);
+                text_accuracy = TokenCountAccuracy::Estimated;
             }
         }
         ProviderInputTokenCount {
             counter: format!("wire-calibration/v1:{scope}"),
             input_tokens: text_tokens.saturating_add(features.image_tokens),
             // The image allowance is still estimated, not a measured image cost.
-            accuracy: if features.image_tokens == 0 {
+            accuracy: if features.image_tokens == 0
+                || text_accuracy == TokenCountAccuracy::ConservativeUpperBound
+            {
                 text_accuracy
             } else {
                 TokenCountAccuracy::Estimated
@@ -304,6 +308,34 @@ mod tests {
         }
     }
     #[test]
+    fn jev_byte_fallback_is_an_upper_bound_without_lowering_admission() {
+        let features = WireFeatures {
+            buckets: [8493, 289574, 10314],
+            framing: 7039,
+            image_tokens: 0,
+        };
+        let mut calibration = Calibration::default();
+        for i in 0..7 {
+            calibration.observe("scope", &i.to_string(), features.clone(), 90000);
+        }
+        let cold = calibration.estimate("scope", &features);
+        assert_eq!(cold.input_tokens, 315420);
+        assert_eq!(cold.accuracy, TokenCountAccuracy::ConservativeUpperBound);
+        let guard = crate::TokenGuard::new(
+            std::sync::Arc::new(crate::ConservativeByteMeter),
+            crate::TokenBudget::new(200000, 1024),
+        )
+        .unwrap();
+        assert!(guard.check_provider_count(&cold).is_err());
+        calibration.observe("scope", "eighth", features.clone(), 90000);
+        assert_eq!(
+            calibration.estimate("scope", &features).accuracy,
+            TokenCountAccuracy::Calibrated
+        );
+        assert!(calibration.estimate("scope", &features).input_tokens >= 90000);
+    }
+
+    #[test]
     fn warmup_scope_dedup_drift_and_images() {
         let mut c = Calibration::default();
         for i in 0..8 {
@@ -316,7 +348,7 @@ mod tests {
         assert!(c.estimate("a", &f(400000)).input_tokens >= 110000);
         assert_eq!(
             c.estimate("b", &f(400000)).accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         c.observe("a", "7", f(400000), 900000); // duplicate cannot poison calibration
         assert_eq!(
@@ -326,7 +358,7 @@ mod tests {
         c.observe("a", "9", f(400000), 900000);
         assert_eq!(
             c.estimate("a", &f(400000)).accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         assert_eq!(
             c.estimate(
@@ -337,7 +369,7 @@ mod tests {
                 }
             )
             .accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
     }
     #[test]
@@ -348,7 +380,7 @@ mod tests {
         }
         assert_eq!(
             c.estimate("s", &f(10000)).accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         assert_eq!(
             c.estimate(
@@ -359,7 +391,7 @@ mod tests {
                 }
             )
             .accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
     }
     #[test]
@@ -482,7 +514,7 @@ mod tests {
         assert_eq!(c.estimate("s", &features).input_tokens, 404_096);
         assert_eq!(
             c.estimate("s", &f(400_000)).accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         assert!(!c.scopes.contains_key("s"));
     }
@@ -572,7 +604,7 @@ mod snapshot_tests {
         );
         assert_eq!(
             restored.estimate(&"b".repeat(64), &f).accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         let mut unsafe_ids = Calibration::default();
         unsafe_ids.observe("https://host?api_key=secret", "private prompt", f, 12);

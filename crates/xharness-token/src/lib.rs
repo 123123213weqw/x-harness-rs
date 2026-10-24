@@ -178,6 +178,8 @@ pub enum TokenCountAccuracy {
     ExactRequest,
     ExactTokenizer,
     Calibrated,
+    /// Admission-only UTF-8 byte ceiling, not a tokenizer estimate.
+    ConservativeUpperBound,
     #[default]
     Estimated,
 }
@@ -236,6 +238,10 @@ pub trait TokenMeter: Send + Sync + 'static {
 pub struct ConservativeByteMeter;
 
 impl TokenMeter for ConservativeByteMeter {
+    fn accuracy(&self) -> TokenCountAccuracy {
+        TokenCountAccuracy::ConservativeUpperBound
+    }
+
     fn id(&self) -> &str {
         "conservative-utf8-json-bytes/v1"
     }

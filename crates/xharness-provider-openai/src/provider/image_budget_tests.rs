@@ -53,7 +53,7 @@ fn cold_large_images_no_longer_force_compaction_but_many_images_still_overflow()
         r.messages[0].content_blocks = vec![image()];
         let mixed = p.estimate_input_tokens(&r).unwrap();
         assert_eq!(mixed.input_tokens, text.input_tokens + 1024);
-        assert_eq!(mixed.accuracy, TokenCountAccuracy::Estimated);
+        assert_eq!(mixed.accuracy, TokenCountAccuracy::ConservativeUpperBound);
         assert!(guard.check_provider_count(&mixed).is_ok());
         // Only the allowance changes: the same request with the old generic
         // image cost would exceed admission. Hard limits are not relaxed.
@@ -107,7 +107,7 @@ async fn warm_text_remains_calibrated_and_caption_and_overflow_guards_survive() 
         // A violated mixed-request bound still invalidates the text scope.
         assert_eq!(
             p.estimate_input_tokens(&r).unwrap().accuracy,
-            TokenCountAccuracy::Estimated
+            TokenCountAccuracy::ConservativeUpperBound
         );
         r.messages[0].content_blocks = vec![
             ContentBlock::Text {

@@ -23,9 +23,14 @@ export interface ContextMeterProps { useProjection: UseProjection; t: ComposerBa
 interface Segment { key: string; label?: (typeof ROWS)[number]['label']; tint: string; ratio: number }
 function tintStyle(tint: string, width?: string): CSSProperties & { '--meter-tint': string } { return { '--meter-tint': tint, ...(width === undefined ? {} : { width }) } }
 export function ContextMeter({ useProjection, t }: ContextMeterProps) {
-  const pressure = useProjection('contextPressure'), composition = pressure?.composition
+  const pressure = useProjection('contextPressure')
   const [open, setOpen] = useState(false), rootRef = useRef<HTMLSpanElement>(null)
-  const context = contextOccupancy(pressure), available = context !== null
+  const context = contextOccupancy(pressure), composition = context?.composition
+  const preflight = pressure?.projectedTokens
+  const hasPreflight = preflight !== undefined && Number.isSafeInteger(preflight) && preflight >= 0
+  const available = context !== null || hasPreflight
+  const preflightKind = pressure?.projectedAccuracy ?? pressure?.accuracy
+  const preflightLabel = preflightKind === 'conservative_upper_bound' ? 'context.byteUpperBound' : ['exact_request', 'exact_tokenizer'].includes(preflightKind ?? '') ? 'context.preflightCount' : 'context.preflightEstimate'
   useEffect(() => { if (!available && open) setOpen(false) }, [available, open])
   useEffect(() => {
     if (!open || !available) return
@@ -38,8 +43,8 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
     .filter(row => Number.isSafeInteger(row.value) && row.value > 0)
   const weight = available ? values.reduce((total, row) => total + row.value, 0) : 0
   const percent = context?.percent ?? 0
-  const reading = available ? (context.exact ? '' : '≈') + percent + '%' : null
-  const label = available ? t('context.aria', { percent: reading }) : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unavailable')
+  const reading = context ? percent + '%' : null
+  const label = context ? t('context.aria', { percent: reading }) + (context.stale ? ' · ' + t('context.awaitingUpdate') : '') : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unmeasured')
   const segments: Segment[] = weight > 0 && composition ? values.map(row => ({ ...row, ratio: row.value / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }]
   let offset = 0
   const ring = segments.map(segment => {
@@ -53,12 +58,13 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
         <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden><circle className={css.track} cx="7" cy="7" r={RADIUS} />{ring}</svg>
       </button>
     </Tooltip>
-    {open && context && <div className={css.panel} role="dialog" aria-modal="false" aria-label={t('context.used')}>
-      <div className={css.header}><span className={css.headline}>{context.label}</span><span className={css.percent}>{reading}</span><span className={css.figures}>{`${context.exact ? '' : '≈'}${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}`}</span></div>
+    {open && available && <div className={css.panel} role="dialog" aria-modal="false" aria-label={t('context.used')}>
+      <div className={css.header}><span className={css.headline}>{context?.label ?? t('context.unmeasured')}</span><span className={css.percent}>{reading}</span><span className={css.figures}>{context ? `${formatTokens(context.usedTokens)} / ${formatTokens(context.contextWindow)}` : '—'}</span></div>
+      {hasPreflight && <div className={css.row}><span>{t(preflightLabel)}</span><span>{formatTokens(preflight)}</span></div>}
       <div className={css.bar}>{segments.map(row => <div key={row.key} className={css.segment} style={tintStyle(row.tint, `${percent * row.ratio}%`)} />)}</div>
       {weight > 0 && <dl className={css.rows}>
         <div className={css.headline}>{t('context.distributionEstimate')}</div>
-        {segments.map(row => <div key={row.key} className={css.row}><dt><span className={css.swatch} style={tintStyle(row.tint)} aria-hidden />{row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''}</dt><dd>{`≈${formatTokens(Math.round(context.usedTokens * row.ratio))}`}</dd></div>)}
+        {segments.map(row => <div key={row.key} className={css.row}><dt><span className={css.swatch} style={tintStyle(row.tint)} aria-hidden />{row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''}</dt><dd>{`≈${formatTokens(Math.round((context?.usedTokens ?? 0) * row.ratio))}`}</dd></div>)}
       </dl>}
     </div>}
   </span>
