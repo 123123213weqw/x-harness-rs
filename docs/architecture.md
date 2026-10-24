@@ -213,7 +213,7 @@ Web UI 是 Session/Agent 状态的 Projection，不拥有模型历史。`xharnes
 协议，`xharness-server` 只负责 HTTP/WS/静态资源，`xharness-host` 负责 DTO 与 Rust Domain
 之间的适配。`xharness-host` 不依赖任何原生平台、具体 Provider 或 Server；这些只在
 `xharness-host-app` 组合。未来用持久 Agent/Inbox 替换 `BasicHost` 内存状态时，不能破坏
-52 个 RPC 名称和事件帧形状。
+56 个 RPC 名称（上游兼容 52 个加 4 个自有扩展，见 [Web 线协议](specs/api.md)）和事件帧形状。
 
 ## 交付顺序
 
