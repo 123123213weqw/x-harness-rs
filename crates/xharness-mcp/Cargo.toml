@@ -7,7 +7,7 @@ repository.workspace = true
 description = "Bounded, supervised stdio MCP client for XHarness"
 
 [dependencies]
-rmcp = { version = "=3.5.0", default-features = false, features = ["client", "transport-child-process"] }
+rmcp = { version = "=3.6.0", default-features = false, features = ["client", "transport-child-process"] }
 process-wrap = { version = "=10.0.1", features = ["tokio1", "process-group", "job-object", "kill-on-drop"] }
 serde.workspace = true
 serde_json.workspace = true
