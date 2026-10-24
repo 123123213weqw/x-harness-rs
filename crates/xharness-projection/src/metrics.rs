@@ -183,6 +183,9 @@ pub fn catalog_metric_values(snapshot: Option<&Value>) -> Option<&Map<String, Va
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct ContextPressureProjectionState {
     pressure_tokens: Option<u64>,
+    /// Request-bound sample survives preparation, interruption and history edits.
+    #[serde(default)]
+    last_measured: Option<Value>,
     projected_tokens: Option<u64>,
     composition: Option<Value>,
     context_window: Option<u64>,
@@ -317,6 +320,7 @@ impl ContextPressureProjectionState {
     }
 
     fn model_selected(&mut self) {
+        self.last_measured = None;
         self.pressure_tokens = None;
         self.projected_tokens = None;
         self.composition = None;
@@ -341,6 +345,12 @@ impl ContextPressureProjectionState {
                 .saturating_add(usage.cache_read_tokens)
                 .saturating_add(usage.cache_write_tokens),
         );
+        self.last_measured = Some(json!({
+            "tokens": self.pressure_tokens,
+            "contextWindow": self.context_window,
+            "measurement": self.measurement,
+            "composition": self.composition,
+        }));
         if self.phase != "history_changed" {
             self.phase = "measured".into();
         }
@@ -357,6 +367,9 @@ impl ContextPressureProjectionState {
     }
     fn view(&self) -> Value {
         let mut v = Map::new();
+        if let Some(sample) = &self.last_measured {
+            v.insert("lastMeasured".into(), sample.clone());
+        }
         if let Some(n) = self.pressure_tokens {
             v.insert("pressureTokens".into(), json!(n));
             v.insert("pressureAccuracy".into(), json!("provider_reported"));
@@ -1059,6 +1072,96 @@ mod tests {
         Message, RequestHeader, Revision, SessionEvent, ToolCall, ToolResultData,
     };
     #[test]
+    fn measured_ring_survives_next_request_interruption_and_checkpoint_recovery() {
+        let events = [
+            event(0, 0, "step/start", json!({"turn":1,"step":1})),
+            event(
+                1,
+                1,
+                "request/header",
+                json!({"header":{"options":{
+                    "measurement":{"requestId":"one"}, "contextComposition":{"toolResultTokens":1},
+                    "tokenBudget":{"estimate":{"totalInputTokens":31828},"contextWindowTokens":1048576,"accuracy":"conservative_upper_bound"}
+                }}}),
+            ),
+            event(
+                2,
+                2,
+                "assistant/message",
+                json!({"turn":1,"step":1,"usage":{"inputTokens":152,"cacheReadTokens":7168,"outputTokens":0}}),
+            ),
+            event(3, 3, "tool/result", json!({})),
+            event(4, 4, "step/start", json!({"turn":1,"step":2})),
+            event(
+                5,
+                5,
+                "request/header",
+                json!({"header":{"options":{
+                    "measurement":{"requestId":"two"}, "contextComposition":{"toolResultTokens":285416},
+                    "tokenBudget":{"estimate":{"totalInputTokens":315420},"contextWindowTokens":1048576,"accuracy":"conservative_upper_bound"}
+                }}}),
+            ),
+            event(6, 6, "turn/end", json!({})),
+            event(7, 7, "compaction/summary", json!({})),
+        ];
+        for cut in 3..=events.len() {
+            let state = MetricsProjectionState::rebuild(events[..cut].iter());
+            let sample = &state.context_pressure()["lastMeasured"];
+            assert_eq!(sample["tokens"], 7320);
+            assert_eq!(sample["contextWindow"], 1048576);
+            assert_eq!(sample["measurement"]["requestId"], "one");
+            assert_eq!(sample["composition"]["toolResultTokens"], 1);
+            let restored: MetricsProjectionState =
+                serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+            assert_eq!(restored.context_pressure(), state.context_pressure());
+        }
+        let mut state = MetricsProjectionState::rebuild(events.iter());
+        assert_eq!(state.context_pressure()["projectedTokens"], 315420);
+        state.apply(&event(8, 8, "step/start", json!({"turn":2,"step":1})));
+        state.apply(&event(
+            9,
+            9,
+            "request/header",
+            json!({"header":{"options":{
+                "measurement":{"requestId":"three"}, "contextComposition":{"userTokens":10},
+                "tokenBudget":{"contextWindowTokens":1048576,"estimate":{"totalInputTokens":20000}}
+            }}}),
+        ));
+        // A late sample from the interrupted request cannot replace the retained one.
+        state.apply(&event(
+            10,
+            10,
+            "assistant/message",
+            json!({"turn":1,"step":2,"usage":{"inputTokens":999,"outputTokens":0}}),
+        ));
+        assert_eq!(state.context_pressure()["lastMeasured"]["tokens"], 7320);
+        state.apply(&event(
+            11,
+            11,
+            "assistant/message",
+            json!({"turn":2,"step":1,"usage":{"inputTokens":12000,"outputTokens":0}}),
+        ));
+        assert_eq!(state.context_pressure()["lastMeasured"]["tokens"], 12000);
+        assert_eq!(
+            state.context_pressure()["lastMeasured"]["measurement"]["requestId"],
+            "three"
+        );
+        assert_eq!(
+            state.context_pressure()["lastMeasured"]["composition"]["userTokens"],
+            10
+        );
+        state.apply(&event(12, 12, "session/model-selected", json!({})));
+        assert!(state.context_pressure().get("lastMeasured").is_none());
+        state.apply(&event(
+            9,
+            9,
+            "assistant/message",
+            json!({"turn":1,"step":2,"usage":{"inputTokens":999,"outputTokens":0}}),
+        ));
+        assert!(state.context_pressure().get("lastMeasured").is_none());
+    }
+
+    #[test]
     fn buffered_transport_timing_counts_reasoning_and_isolates_selected_model() {
         let mut state = MetricsProjectionState::default();
         let mut header = RequestHeader::new("provider", "alpha");
@@ -1743,6 +1846,7 @@ mod tests {
         assert_eq!(
             state.context_pressure(),
             json!({
+                "lastMeasured": {"tokens":1850,"contextWindow":53248,"composition":null,"measurement":{"source":"legacy_request","turn":null,"step":null}},
                 "pressureTokens": 1_850,
                 "pressureAccuracy": "provider_reported",
                 "projectedTokens": 1_830,

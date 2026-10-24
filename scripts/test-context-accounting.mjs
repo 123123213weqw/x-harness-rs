@@ -16,8 +16,8 @@ assert.equal(patchContextComposition(golden).toString(),golden.toString());
 const source=bytes.toString().match(/function contextOccupancy\(pressure\) \{[\s\S]*?\n\t\t\}/)?.[0];if(!native)assert.ok(source);
 const fn=native?conversationFixture(bytes.toString(),['contextOccupancy']).api.contextOccupancy:vm.runInNewContext('('+source+')');
 let x=fn({pressureTokens:117446,projectedTokens:415395,contextWindow:1000000});assert.equal(x.usedTokens,117446);assert.equal(x.percent,12);assert.equal(x.exact,true);
-x=fn({projectedTokens:415395,contextWindow:1000000,accuracy:'estimated'});assert.equal(x.exact,false);assert.match(x.label,/估算/);
-x=fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'});assert.equal(x.exact,true);
+assert.equal(fn({projectedTokens:415395,contextWindow:1000000,accuracy:'estimated'}),null);
+assert.equal(fn({projectedTokens:117446,contextWindow:1000000,accuracy:'exact_request'}),null);
 for(const p of [{}, {projectedTokens:1,contextWindow:0},{projectedTokens:NaN,contextWindow:1},{pressureTokens:-1,contextWindow:100}])assert.equal(fn(p),null);
 assert.equal(fn({pressureTokens:0,contextWindow:100}).usedTokens,0);
 console.log('context accounting: actual/estimate/unknown/zero/capacity/idempotence passed');
@@ -47,15 +47,16 @@ for(const accuracy of ['estimated','calibrated']) {
  assert.equal(p.pressureAccuracy,'provider_reported');assert.equal(p.projectedAccuracy,accuracy);
  assert.equal(fn(p).accuracy,'provider_reported');
  p={...p,pressureTokens:undefined};
- assert.equal(fn(p).exact,false);assert.equal(fn(p).accuracy,accuracy);
+ assert.equal(fn(p).exact,true);assert.equal(fn(p).accuracy,'provider_reported');
+ assert.equal(fn(p).usedTokens,300,'lastMeasured remains distinct from preflight');
  const stale=replay([...h,event('compaction/summary',{}),usage(1,200)]);
- assert.equal(stale.phase,'history_changed');assert.equal(fn(stale).stale,true);assert.match(fn(stale).label,/历史已变化/);
+ assert.equal(stale.phase,'history_changed');assert.equal(fn(stale).stale,true);assert.match(fn(stale).label,/待更新/);
  assert.equal(stale.projectedTokens,600,'no invented post-compaction prediction');
 }
 const noUsage=replay([start(1),event('request/header',{header:{options:{tokenBudget:{context_window_tokens:1000,accuracy:'exact_tokenizer',estimate:{total_input_tokens:200}}}}}),event('turn/end',{})]);
-assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage).exact,true);assert.equal(noUsage.pressureTokens,undefined);
-assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}).exact,false,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
-assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}).percent,100);
+assert.equal(noUsage.phase,'unmeasured');assert.equal(fn(noUsage),null);assert.equal(noUsage.pressureTokens,undefined);
+assert.equal(fn({projectedTokens:100,contextWindow:1000,accuracy:'provider_reported'}),null,'legacy shared accuracy cannot turn a preflight estimate into an exact count');
+assert.equal(fn({projectedTokens:1100,contextWindow:1000,projectedAccuracy:'estimated'}),null);
 console.log('context precision: independent readings / calibrated / compaction / late usage / legacy / failed request passed');
 
 // The composer control must retain the same 28px slot while a new step clears
@@ -79,6 +80,7 @@ const zh={
   'context.aria':'上下文已用 {percent}',
   'context.pending':'正在计算上下文',
   'context.unavailable':'暂无上下文读数',
+  'context.unmeasured':'尚无实测用量',
 };
 function renderMeter(pressure,locale=zh) {
   const tree=meter({useProjection:key=>key==='contextPressure'?pressure:undefined,
@@ -97,15 +99,15 @@ assert.equal(pending.button.props['aria-haspopup'],undefined);
 assert.match(pending.circle.props.strokeDasharray,/^0 /);
 const estimate=renderMeter({contextWindow:1000,projectedTokens:400,projectedAccuracy:'estimated',phase:'in_flight'});
 assert.equal(estimate.button.props.disabled,false);
-assert.equal(estimate.button.props['aria-label'],'上下文已用 ≈40%');
-assert.match(estimate.circle.props.strokeDasharray,/^[1-9]/);
+assert.equal(estimate.button.props['aria-label'],'正在计算上下文');
+assert.match(estimate.circle.props.strokeDasharray,/^0 /,'no byte estimate on main ring');
 const nextStep=renderMeter({contextWindow:1000,phase:'preparing'});
 assert.equal(nextStep.tree.props.className,estimate.tree.props.className);
 assert.equal(nextStep.button.props.disabled,true,'never reuse the previous step as current');
 assert.doesNotMatch(nextStep.button.props['aria-label'],/40%/);
 const changedModel=renderMeter({});
 assert.equal(changedModel.button.props.disabled,true);
-assert.equal(changedModel.button.props['aria-label'],'暂无上下文读数');
+assert.equal(changedModel.button.props['aria-label'],'尚无实测用量');
 const missingCapacity=renderMeter({pressureTokens:500,composition:{systemTokens:50,totalInputTokens:50,accuracy:'estimated'}});
 assert.equal(missingCapacity.button.props.disabled,true,'composition alone cannot establish capacity');
 assert.match(missingCapacity.circle.props.strokeDasharray,/^0 /);
@@ -126,8 +128,8 @@ assert.equal(arcs[4].props.stroke,'#a78bfa');
 assert.equal(arcs[5].props.stroke,'#9b9b9b');
 assert.equal(arcs.reduce((sum,arc)=>sum+Number(arc.props.strokeDasharray.split(' ')[0]),0),Math.PI*5.5);
 const en=renderMeter({}, {'context.aria':'{percent} of context used',
-  'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable'});
-assert.equal(en.button.props['aria-label'],'Context usage unavailable');
+  'context.pending':'Calculating context usage','context.unavailable':'Context usage unavailable','context.unmeasured':'No measured input yet'});
+assert.equal(en.button.props['aria-label'],'No measured input yet');
 assert.match(bundle,/['"]context\.pending['"]:\s*['"]正在计算上下文['"]/);
 assert.match(bundle,/['"]context\.pending['"]:\s*['"]Calculating context usage['"]/);
 const graph=JSON.parse(readFileSync(new URL('../ui/dist/client-graph.json',import.meta.url)));
@@ -176,3 +178,18 @@ assert.equal(JSON.stringify(newReplay.composition),JSON.stringify(origins));
 assert.equal(newReplay.pressureTokens,500);assert.equal(newReplay.phase,'history_changed');
 assert.equal(replay([...newEvents,start(2)]).composition,undefined);
 console.log('context provenance: human / agent / runtime / checkpoint / unknown / legacy / invalid / measured total / replay passed');
+
+// Reproduce jev's 7.32K -> 315K estimate without repricing the ring or its shares.
+const jev=[...history,start(2),event('request/header',{header:{options:{tokenBudget:{contextWindowTokens:1000,accuracy:'conservative_upper_bound',estimate:{totalInputTokens:315420}},contextComposition:{toolResultTokens:285416}}}})];
+for(const tail of [[],[event('turn/end',{})],[event('compaction/summary',{})]]) {
+ const value=replay([...jev,...tail]);
+ assert.equal(value.lastMeasured.tokens,300);
+ assert.equal(fn(value).usedTokens,300);
+ assert.equal(fn(value).stale,true);
+ const panel=expanded.ContextMeter({useProjection:()=>value,t:key=>expanded.en[key]??key});
+ assert.match(textOf(panel),/Admission byte ceiling \(not measured\)/);
+ assert.match(textOf(panel),/315K/);
+ assert.doesNotMatch(textOf(panel),/≈30%/);
+}
+assert.equal(replay([...jev,event('session/model-selected',{})]).lastMeasured,undefined);
+console.log('context stability: measured identity + interrupted byte ceiling + compaction + model isolation passed');

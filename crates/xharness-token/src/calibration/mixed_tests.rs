@@ -61,7 +61,7 @@ fn image_only_history_can_warm_up_without_text_only_observations() {
     assert_eq!(c.estimate("s", &text).input_tokens, text.units());
     assert_eq!(
         c.estimate("s", &text).accuracy,
-        TokenCountAccuracy::Estimated
+        TokenCountAccuracy::ConservativeUpperBound
     );
 }
 
