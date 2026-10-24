@@ -1158,6 +1158,20 @@ impl TurnRequestFactory for DurableTurnFactory {
                 .await
                 .map_err(|e| e.to_string())?;
         }
+        if self.tool_factory.allows_host_tool("edit_goal_objective") {
+            if let Some(fence) = snapshot.as_ref().and_then(crate::goal_edit_tool::fence) {
+                tool_executor
+                    .registry()
+                    .register(crate::goal_edit_tool::spec(
+                        Arc::clone(&self.store),
+                        self.goals.changes.clone(),
+                        agent_id.into(),
+                        fence,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         if self.tool_factory.allows_host_tool("goal_report") {
             if let Some(fence) = snapshot
                 .as_ref()

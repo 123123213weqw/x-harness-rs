@@ -8,10 +8,12 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
     let mut next_step = Vec::<crate::InboxMessage>::new();
     let mut deleted = Vec::<String>::new();
     let mut revision = crate::Revision::ZERO;
+    let mut revision_goal: Option<GoalSnapshotChange> = None;
     for e in events {
         if revision != e.revision {
             revision = e.revision;
             deleted.clear();
+            revision_goal = current_goal.clone();
         }
         match e.data() {
             EventData::AgentInboxSpliced {
@@ -116,6 +118,45 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         }
                         expected = s.clone();
                     }
+                    GoalExecutionOperation::EditObjective => {
+                        let old = previous.as_ref().ok_or_else(fail)?;
+                        // A preceding v1 user edit/pause can advance the control
+                        // snapshot without an execution event. Compare against
+                        // the actual snapshot at this transaction's boundary.
+                        let before = &revision_goal.as_ref().ok_or_else(fail)?.goal;
+                        if g.version != 2
+                            || g.operation != crate::GoalSnapshotOperation::Edit
+                            || g.goal.id != before.id
+                            || g.goal.revision != before.revision.checked_add(1).ok_or_else(fail)?
+                            || g.goal.objective == before.objective
+                            || g.goal.phase != before.phase
+                            || g.goal.blocked_reason != before.blocked_reason
+                            || g.goal.max_goal_rounds != before.max_goal_rounds
+                            || !batch.iter().any(|x| matches!(x.data(), EventData::GoalChange { change: GoalChange::Snapshot(c) } if c == g))
+                        {
+                            return Err(fail());
+                        }
+                        // Remove only the obsolete Goal input, never ordinary user work.
+                        if let Some(p) = &old.pending {
+                            if deleted != [p.message_id.clone()]
+                                || next_turn.iter().any(|m| m.id == p.message_id)
+                                || batch.iter().filter(|x| matches!(x.data(), EventData::AgentInboxSpliced { .. })).count() != 1
+                                || !batch.iter().any(|x| matches!(x.data(), EventData::AgentInboxSpliced {
+                                    target: crate::InboxTarget::NextTurn, removed_count: 1, inserted,
+                                    outcome: Some(crate::InboxSpliceOutcome::Cancelled), ..
+                                } if inserted.is_empty()))
+                            {
+                                return Err(fail());
+                            }
+                        } else if batch
+                            .iter()
+                            .any(|x| matches!(x.data(), EventData::AgentInboxSpliced { .. }))
+                        {
+                            return Err(fail());
+                        }
+                        expected.pending = None;
+                        expected.definition.definition_revision = g.goal.revision;
+                    }
                     GoalExecutionOperation::Enqueue => {
                         let old = previous.as_ref().ok_or_else(fail)?;
                         let p = s.pending.as_ref().ok_or_else(fail)?;
@@ -175,7 +216,7 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         let t = s.latest_turn.as_ref().ok_or_else(fail)?;
                         if t.turn != running.turn
                             || t.goal_id != running.intent.key.goal_id
-                            || t.definition_revision != running.intent.key.definition_revision
+                            || t.definition_revision != old.definition.definition_revision
                             || t.activation_epoch != running.intent.key.activation_epoch
                         {
                             return Err(fail());
@@ -206,7 +247,8 @@ pub(crate) fn validate(events: &[LoggedEvent]) -> Result<(), String> {
                         }
                         if let Some(r) = &t.report {
                             r.validate().map_err(|e| e.to_string())?;
-                            if r.goal_id != t.goal_id
+                            if running.intent.key.definition_revision != t.definition_revision
+                                || r.goal_id != t.goal_id
                                 || r.definition_revision != t.definition_revision
                                 || r.turn != t.turn
                             {
