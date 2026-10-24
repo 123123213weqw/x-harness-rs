@@ -12,7 +12,7 @@ function load(file, globals = {}) {
   vm.runInNewContext(code, { module, exports: module.exports, Date, setTimeout, clearTimeout, console, ...globals })
   return module.exports
 }
-const { StreamPresentation, streamPieces, STREAM_BATCH_MS, STREAM_BURST_LIMIT } = load('stream-presentation.ts')
+const { StreamPresentation, streamPieces, STREAM_BATCH_MS, STREAM_BURST_LIMIT, STREAM_CATCHUP_MS, STREAM_FINISH_MS } = load('stream-presentation.ts')
 const plain = v => JSON.parse(JSON.stringify(v))
 test('stream display: mount/history has no motion; only appended source is highlighted', () => {
   const model = new StreamPresentation('Old text ')
@@ -70,13 +70,21 @@ function hookHarness({ hidden = false, reduce = false } = {}) {
   class Clock extends Date { static now() { return now } }
   const api = load('use-stream-presentation.ts', { require: () => react, document, window: { matchMedia: () => media }, Date: Clock,
     setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { fn, at: now + ms }); return id }, clearTimeout: id => timers.delete(id) })
-  const render = (text, enabled = true) => {
+  const render = (text, enabled = true, streaming = true) => {
     cursor = 0
-    const result = api.useStreamPresentation(text, enabled)
+    const result = api.useStreamPresentation(text, enabled, streaming)
     for (const effect of effects) if (effect?.pending) { const fn = effect.pending; delete effect.pending; effect.cleanup = fn() }
     return result
   }
-  const advance = ms => { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn() } }
+  const advance = ms => {
+    const end = now + ms
+    for (;;) {
+      const ready = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0]
+      if (!ready) break
+      const [id, timer] = ready; now = timer.at; timers.delete(id); timer.fn()
+    }
+    now = end
+  }
   return { render, advance, timers, document, media, listeners, mediaListeners, get writes() { return writes }, unmount: () => { for (const effect of effects) effect?.cleanup?.() } }
 }
 test('stream hook: tiny fragments coalesce against one deadline without token-starvation', () => {
@@ -85,6 +93,8 @@ test('stream hook: tiny fragments coalesce against one deadline without token-st
   h.render('a'); h.advance(20); h.render('ab'); h.advance(20); h.render('abc')
   assert.equal(h.timers.size, 1)
   h.advance(10)
+  assert.ok(h.render('abc').text.length > 0, 'first text is visible without waiting for the whole queue')
+  h.advance(STREAM_CATCHUP_MS)
   assert.equal(h.render('abc').text, 'abc')
   assert.equal(h.timers.size, 0)
   h.unmount()
@@ -117,7 +127,7 @@ test('stream hook: large output catches up in the same render, never a typewrite
   const h = hookHarness(); h.render('')
   const text = 'x'.repeat(STREAM_BURST_LIMIT + 1)
   assert.equal(h.render(text).text, text); assert.equal(h.timers.size, 0); h.unmount()
-  assert.equal(STREAM_BATCH_MS, 50)
+  assert.equal(STREAM_BATCH_MS, 32)
 })
 test('stream integration: live prose opt-in excludes legacy paragraph motion and code/table/math animation', () => {
   const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8')
@@ -149,4 +159,84 @@ test('stream renderer: real Markdown source positions keep bold/list text exact 
     if (text.includes('| A |')) assert.doesNotMatch(animated.match(/<table>[\s\S]*<\/table>/)?.[0] ?? '', /data-xh-stream-piece/)
     if (text.includes('```')) assert.doesNotMatch(animated.match(/<pre[\s\S]*<\/pre>/)?.[0] ?? '', /data-xh-stream-piece/)
   }
+})
+
+test('adaptive reveal: a 400-character burst becomes several frames and catches up within 192ms', () => {
+  const model = new StreamPresentation('')
+  const source = '中文 English 👩‍💻 '.repeat(30)
+  model.receive(source, 0, true)
+  const sizes = []
+  for (let t = STREAM_BATCH_MS; t <= STREAM_CATCHUP_MS; t += STREAM_BATCH_MS) {
+    const frame = model.tick(t)
+    assert.ok(source.startsWith(frame.text))
+    sizes.push(frame.text.length)
+  }
+  assert.ok(sizes[0] > 0 && sizes[0] < source.length / 2)
+  assert.ok(new Set(sizes).size >= 5)
+  assert.equal(model.frame.text, source)
+  assert.equal(model.pending, false)
+})
+test('adaptive reveal: continuous arrivals cannot extend the catch-up deadline or leave an idle timer', () => {
+  const model = new StreamPresentation('')
+  for (let t = 0; t < STREAM_CATCHUP_MS; t += 8) {
+    model.receive('x'.repeat((t + 8) * 8), t, true)
+    if (t % STREAM_BATCH_MS === 0) model.tick(t)
+  }
+  model.tick(STREAM_CATCHUP_MS)
+  assert.equal(model.frame.text, 'x'.repeat(STREAM_CATCHUP_MS * 8))
+  assert.equal(model.pending, false)
+  assert.equal(model.tick(10000), model.frame)
+})
+test('adaptive reveal: final debt drains in <=96ms; history and pending-source replacement stay immediate', () => {
+  const h = hookHarness(); h.render('')
+  const source = 'x'.repeat(800)
+  h.render(source); h.advance(STREAM_BATCH_MS)
+  assert.ok(h.render(source).text.length < source.length)
+  h.advance(13); h.render(source, true, false); h.advance(STREAM_FINISH_MS)
+  assert.equal(h.render(source, true, false).text, source)
+  assert.equal(h.timers.size, 0)
+  assert.equal(h.render(source + ' restored', true, false).text, source + ' restored')
+  h.render(source + ' restored queued', true, true)
+  assert.equal(h.render(source + ' restored replacement', true, true).text, source + ' restored replacement')
+  h.unmount()
+})
+test('adaptive reveal: every painted prefix ends on a complete grapheme and exact final Markdown is restored', () => {
+  const clusters = ['e\u0301', '👩‍💻', '🇨🇳', '✌️', '👍🏽', 'क्‍ष', '가', '\r\n']
+  const source = ('**中文** ' + clusters.join('') + '\n\n```ts\nconst x = 1\n```\n').repeat(30)
+  const ends = new Set([...new Intl.Segmenter(undefined, {granularity:'grapheme'}).segment(source)].map(s => s.index + s.segment.length))
+  const model = new StreamPresentation(''); model.receive(source, 0, true)
+  for (let t = 1; t <= STREAM_CATCHUP_MS; t++) {
+    const frame = model.tick(t)
+    assert.ok(source.startsWith(frame.text))
+    assert.ok(ends.has(frame.text.length), `unsafe boundary ${frame.text.length}`)
+  }
+  assert.equal(model.frame.text, source)
+})
+test('adaptive reveal: a delayed scheduler catches up in one frame; disabled motion never queues text', () => {
+  const model = new StreamPresentation(''); model.receive('a'.repeat(5000), 0, true)
+  assert.equal(model.tick(5000).text.length, 5000)
+  assert.equal(model.pending, false)
+  model.receive('a'.repeat(6000), 5001, false)
+  assert.equal(model.frame.text.length, 6000)
+  assert.equal(model.frame.ranges.length, 0)
+})
+test('adaptive reveal: older engines without grapheme segmentation bypass pacing instead of splitting text', () => {
+  const {StreamPresentation: LegacyPresentation}=load('stream-presentation.ts',{Intl:{}})
+  const model=new LegacyPresentation('')
+  const text='가 👩‍💻 e\u0301 क्‍ष'
+  model.receive(text,0,true)
+  assert.equal(model.frame.text,text)
+  assert.equal(model.pending,false)
+})
+test('adaptive reveal: text arriving with completion gets a bounded final drain, not an instant burst', () => {
+  const h=hookHarness(); h.render('')
+  const text='final chunk '.repeat(80)
+  h.render(text,true,false)
+  h.advance(STREAM_BATCH_MS)
+  const mid=h.render(text,true,false).text
+  assert.ok(mid.length>0 && mid.length<text.length)
+  h.advance(STREAM_FINISH_MS-STREAM_BATCH_MS)
+  assert.equal(h.render(text,true,false).text,text)
+  assert.equal(h.timers.size,0)
+  h.unmount()
 })

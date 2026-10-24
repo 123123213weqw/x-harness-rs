@@ -4337,7 +4337,16 @@ impl Runner {
                 enum ModelInput {
                     Command(Option<CommandEnvelope>),
                     Provider(Option<Result<ProviderEvent, ProviderError>>),
+                    JournalDeadline,
                 }
+                // A quiet provider must not hold already received text until
+                // its next delta. This deadline only publishes committed chunks;
+                // the retry-safe tool prefix remains private until committed.
+                let journal_deadline = self.journal.as_ref().and_then(|journal| {
+                    journal
+                        .stream_batch_started_at
+                        .map(|started| started + STREAM_JOURNAL_BATCH_INTERVAL)
+                });
                 let next = tokio::select! {
                     _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
                     _ = recovery_timeout(recovery.deadline), if !round.saw_delta => {
@@ -4349,8 +4358,18 @@ impl Runner {
                         ModelInput::Command(command)
                     }
                     event = stream.next() => ModelInput::Provider(event),
+                    _ = async {
+                        match journal_deadline {
+                            Some(deadline) => tokio::time::sleep_until(deadline.into()).await,
+                            None => std::future::pending::<()>().await,
+                        }
+                    } => ModelInput::JournalDeadline,
                 };
                 match next {
+                    ModelInput::JournalDeadline => {
+                        self.journal_append_events(Vec::new(), false).await?;
+                        self.emit(LoopEventKind::StreamCheckpoint).await?;
+                    }
                     ModelInput::Command(Some(envelope)) => {
                         let interrupt = self.handle_envelope(envelope, true).await?;
                         let interrupt = if self.paused && !interrupt {

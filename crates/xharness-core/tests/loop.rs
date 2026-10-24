@@ -1292,6 +1292,90 @@ async fn streaming_events_reach_consumers_before_chunk_journal_io_and_persist_as
 }
 
 #[tokio::test]
+async fn quiet_provider_publishes_pending_text_before_the_next_delta_or_completion() {
+    let provider = Arc::new(GatedProvider::new());
+    let journal = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(
+        provider.clone(),
+        vec![AgentMessage::user("stream then wait")],
+    );
+    request.session_id = Some("quiet-stream-deadline".to_owned());
+    request.journal_store = Some(journal.clone());
+    let mut run = LoopEngine.start(request);
+
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = run.next().await {
+            if matches!(event.kind, LoopEventKind::StreamCheckpoint) {
+                let session = journal
+                    .load("quiet-stream-deadline")
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if session.events().iter().any(|event| {
+                    matches!(
+                        event.data(),
+                        SessionEventData::AssistantChunk {
+                            chunk: AssistantChunk::TextDelta(text), ..
+                        } if text == "partial"
+                    )
+                }) {
+                    return;
+                }
+            }
+        }
+        panic!("stream ended before its pending text was published");
+    })
+    .await
+    .expect("the journal deadline must fire without another provider delta");
+
+    let session = journal
+        .load("quiet-stream-deadline")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !session.events().iter().any(|event| matches!(
+            event.data(),
+            SessionEventData::AssistantMessage { .. } | SessionEventData::TurnEnd { .. }
+        )),
+        "publishing a partial chunk must not manufacture model completion"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), run.next())
+            .await
+            .is_err(),
+        "an empty journal batch must not keep waking the loop"
+    );
+
+    provider.release_first.notify_one();
+    while run.next().await.is_some() {}
+    let result = run.result().await;
+    assert_eq!(result.status, LoopStatus::Completed);
+    assert_eq!(result.final_text, "partial tail");
+    let session = journal
+        .load("quiet-stream-deadline")
+        .await
+        .unwrap()
+        .unwrap();
+    let chunks = session
+        .events()
+        .iter()
+        .filter_map(|event| match event.data() {
+            SessionEventData::AssistantChunk {
+                chunk: AssistantChunk::TextDelta(text),
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        chunks,
+        ["partial", " tail"],
+        "durable chunks are neither lost nor duplicated"
+    );
+}
+
+#[tokio::test]
 async fn long_streams_checkpoint_in_bounded_batches_instead_of_per_delta() {
     const DELTAS: usize = 130;
     let mut script = (0..DELTAS)

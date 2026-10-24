@@ -11782,7 +11782,7 @@ exports.AssistantMarkdown = (0, react_1.memo)(function AssistantMarkdown({ block
             continue;
         switch (block.kind) {
             case 'text':
-                rendered.push((0, jsx_runtime_1.jsx)(primitives_1.MarkdownText, { text: block.text, streaming: streaming, smoothStreaming: true, codeLabels: codeLabels, fileMentions: mentions }, i));
+                rendered.push((0, jsx_runtime_1.jsx)(primitives_1.MarkdownText, { text: block.text, streaming: streaming, smoothStreaming: true, interrupted: interrupted === true, codeLabels: codeLabels, fileMentions: mentions }, i));
                 break;
             case 'reasoning':
                 if (!hideReasoning)
