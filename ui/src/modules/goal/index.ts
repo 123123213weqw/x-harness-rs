@@ -68,10 +68,15 @@ export function apply(ctx: GoalContext): void {
     order: 10,
     locale: NS,
     inject: (sessionId: SessionId): GoalBarActions => ({
-      onEdit: async (objective) => {
-        const ref = refOf(sessionId)
-        if (ref === undefined) return noCurrentGoal
-        return await ctx.remote.goals.edit(sessionId, ref, { objective })
+      onEdit: async (objective, expected) => {
+        // Bind the draft to the viewed text/identity, not a stale round-stat revision.
+        const projection = sessions.binding(sessionId)?.session.projections.faceOf('goal')?.getSnapshot()
+        if (projection == null) return noCurrentGoal
+        const current = projection.goal
+        if (expected !== undefined && (expected.id !== current.id || expected.objective !== current.objective)) {
+          return {ok: false, error: {code: 'goal-changed', message: 'Goal changed while editing; draft retained. Reload the latest Goal before saving.', details: {}}}
+        }
+        return await ctx.remote.goals.edit(sessionId, {id: current.id, revision: current.revision}, { objective })
       },
       onPause: async () => {
         const ref = refOf(sessionId)
