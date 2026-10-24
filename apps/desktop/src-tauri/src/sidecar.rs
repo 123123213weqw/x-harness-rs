@@ -33,6 +33,10 @@ pub struct DesktopState {
     pub(crate) diagnostics: Arc<crate::diagnostics::Diagnostics>,
     pub(crate) startup: crate::startup::StartupTimeline,
     stop_requested: AtomicBool,
+    adopted: AtomicBool,
+    recovery: crate::desktop_recovery::RecoveryStore,
+    previous: Option<crate::desktop_recovery::Launch>,
+    runtime_id: String,
     #[cfg(windows)]
     host_job: xharness_win32::Job,
     #[cfg(windows)]
@@ -75,10 +79,40 @@ impl DesktopState {
         std::fs::create_dir_all(&workspace)?;
         std::fs::create_dir_all(&state_dir)?;
         std::fs::create_dir_all(&runtime_dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let metadata = std::fs::symlink_metadata(&runtime_dir)?;
+            if !metadata.is_dir()
+                || metadata.file_type().is_symlink()
+                || metadata.uid() != std::fs::metadata(&app_cache)?.uid()
+            {
+                return Err("invalid private runtime directory".into());
+            }
+            std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))?;
+        }
         std::fs::create_dir_all(&app_config)?;
+        let workspace = std::fs::canonicalize(workspace)?;
+        let state_dir = std::fs::canonicalize(state_dir)?;
 
-        let token = random_token()?;
-        let runtime_id = random_token()?;
+        let recovery =
+            crate::desktop_recovery::RecoveryStore::open(&runtime_dir, &state_dir, &workspace)?;
+        let loaded = recovery.load();
+        let invalid_receipt = loaded.is_err();
+        // Invalid credentials are never used. A live Host hits the missing-
+        // receipt gate; an unowned state can start fresh, not panic in setup.
+        let previous = loaded
+            .ok()
+            .flatten()
+            .filter(|launch| launch.compatible() || recovery.host_owned().unwrap_or(true));
+        let token = match &previous {
+            Some(launch) => launch.token.clone(),
+            None => random_token()?,
+        };
+        let runtime_id = match &previous {
+            Some(launch) => launch.runtime_id.clone(),
+            None => random_token()?,
+        };
         let shutdown_file = runtime_dir.join(format!("shutdown-{runtime_id}.request"));
         let ready_file = runtime_dir.join(format!("ready-{runtime_id}.address"));
         let progress_file = runtime_dir.join(format!("startup-progress-{runtime_id}.json"));
@@ -112,13 +146,22 @@ impl DesktopState {
                 provider_env.push(("DEEPSEEK_API_KEY".to_owned(), key));
             }
         }
+        let diagnostics = Arc::new(crate::diagnostics::Diagnostics::new(
+            app_cache.join("diagnostics"),
+            app_config.join("diagnostics.json"),
+        ));
+        if invalid_receipt {
+            diagnostics.record(Record::new(Phase::HostReconnectRejected));
+            diagnostics.mark_incident();
+        }
         Ok(Self {
-            diagnostics: Arc::new(crate::diagnostics::Diagnostics::new(
-                app_cache.join("diagnostics"),
-                app_config.join("diagnostics.json"),
-            )),
+            diagnostics,
             startup: crate::startup::StartupTimeline::new(),
             stop_requested: AtomicBool::new(false),
+            adopted: AtomicBool::new(false),
+            recovery,
+            previous,
+            runtime_id: runtime_id.clone(),
             #[cfg(windows)]
             host_job: xharness_win32::Job::new_kill_on_close()?,
             #[cfg(windows)]
@@ -192,6 +235,9 @@ pub fn desktop_status(state: State<'_, DesktopState>) -> DesktopStatus {
 
 pub async fn start(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<DesktopState>();
+    if state.closing.load(Ordering::SeqCst) {
+        return Err("应用正在关闭，不会启动新的 Host".into());
+    }
     if state.running.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
@@ -202,13 +248,17 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         .expect("startup error mutex poisoned") = None;
     // Fail before launching, rather than letting a stale receipt be mistaken
     // for the result of this attempt when cleanup itself is denied.
-    let result = [&state.failure_file, &state.progress_file]
-        .into_iter()
-        .try_for_each(|path| match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err("无法清理旧的 Host 启动回执".to_owned()),
-        });
+    let result = match state.recovery.host_owned() {
+        Ok(true) => Ok(()),
+        Err(_) => Err("无法验证后台 Host 所有权".to_owned()),
+        Ok(false) => [&state.failure_file, &state.progress_file]
+            .into_iter()
+            .try_for_each(|path| match fs::remove_file(path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                Err(_) => Err("无法清理旧的 Host 启动回执".to_owned()),
+            }),
+    };
     let result = match result {
         Ok(()) => start_claimed(app).await.map_err(|fallback| {
             match consume_startup_failure(&state.failure_file) {
@@ -221,13 +271,33 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
         }),
         Err(error) => Err(error),
     };
+    let result = if result.is_err()
+        && !state.adopted.load(Ordering::SeqCst)
+        && app
+            .state::<crate::browser_bridge::BrowserBridge>()
+            .is_started()
+        && state
+            .previous
+            .as_ref()
+            .is_some_and(|launch| launch.compatible())
+        && state.child.lock().expect("child mutex poisoned").is_none()
+        && state.recovery.host_owned().unwrap_or(false)
+    {
+        // An older pending launch can win the Host lease between probe and
+        // spawn. Reconnect only after our losing child reports termination.
+        reconnect(app).await
+    } else {
+        result
+    };
     if let Err(error) = &result {
         state.diagnostics.mark_incident();
         *state
             .startup_error
             .lock()
             .expect("startup error mutex poisoned") = Some(error.clone());
-        if state.child.lock().expect("child mutex poisoned").is_none() {
+        if state.adopted.load(Ordering::SeqCst) {
+            // Reconnection/UI failure is not permission to stop a live Host.
+        } else if state.child.lock().expect("child mutex poisoned").is_none() {
             state.running.store(false, Ordering::SeqCst);
         } else {
             force_stop(app);
@@ -238,6 +308,45 @@ pub async fn start(app: &AppHandle) -> Result<(), String> {
 
 async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<DesktopState>();
+    let owned = state
+        .recovery
+        .host_owned()
+        .map_err(|_| "无法验证 Host 数据目录所有权")?;
+    if owned {
+        state
+            .diagnostics
+            .record(Record::new(Phase::HostReconnectAttempt));
+        let _previous = state.previous.as_ref().filter(|launch|launch.compatible()).ok_or_else(|| {
+            state.diagnostics.record(Record::new(Phase::HostReconnectRejected));
+            "后台 Host 仍在运行，但没有兼容的私有恢复回执。任务已保留；请等待任务完成后正常退出旧 Host。不会抢锁或强制结束任务。".to_owned()
+        })?;
+    }
+    // Reuse the bridge for a pending launch too, before it owns the Host lease.
+    let previous = state
+        .previous
+        .as_ref()
+        .filter(|launch| launch.compatible())
+        .map(|launch| (launch.browser_address, launch.browser_token.clone()));
+    let bridge_state = app.state::<crate::browser_bridge::BrowserBridge>();
+    let bridge = match previous {
+        Some(previous) => bridge_state.start_at(app, Some(previous)).await?,
+        None => bridge_state.start(app).await?,
+    };
+    state
+        .recovery
+        .save(
+            &state.runtime_id,
+            &state.token,
+            bridge
+                .address
+                .parse()
+                .map_err(|_| "invalid browser bridge address")?,
+            &bridge.token,
+        )
+        .map_err(|_| "无法保存私有 Host 恢复回执")?;
+    if owned {
+        return reconnect(app).await;
+    }
     let mut args = vec![
         "--bind".to_owned(),
         "127.0.0.1:0".to_owned(),
@@ -263,8 +372,6 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         path_text(&state.start_file),
     ]);
 
-    let bridge_state = app.state::<crate::browser_bridge::BrowserBridge>();
-    let bridge = bridge_state.start(app).await?;
     let mut command = app
         .shell()
         .sidecar("xharness-host")
@@ -528,6 +635,19 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|error| format!("无法释放 Host 启动门禁：{error}"))?;
     let (endpoint, address, mut budget) = wait_until_live(app, &state.ready_file).await?;
+    open_ui(app, endpoint.clone(), address, &mut budget).await?;
+    startup_pending.store(false, Ordering::SeqCst);
+    announce_ready(app, endpoint);
+    Ok(())
+}
+
+async fn open_ui(
+    app: &AppHandle,
+    endpoint: String,
+    address: SocketAddr,
+    budget: &mut StartupWaitBudget,
+) -> Result<(), String> {
+    let state = app.state::<DesktopState>();
     *state.endpoint.lock().expect("endpoint mutex poisoned") = Some(endpoint.clone());
 
     let mut bootstrap = Url::parse(&format!("{endpoint}/desktop/bootstrap"))
@@ -541,8 +661,12 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
     window
         .navigate(bootstrap)
         .map_err(|error| format!("无法打开 XHarness Web UI：{error}"))?;
-    wait_until_product_ready(app, address, &mut budget).await?;
-    startup_pending.store(false, Ordering::SeqCst);
+    wait_until_product_ready(app, address, budget).await?;
+    Ok(())
+}
+
+fn announce_ready(app: &AppHandle, endpoint: String) {
+    let state = app.state::<DesktopState>();
     state.startup.host_ready(&state.diagnostics);
     let _ = app.emit(
         "xharness-bootstrap",
@@ -551,10 +675,134 @@ async fn start_claimed(app: &AppHandle) -> Result<(), String> {
             message: endpoint,
         },
     );
+}
+
+async fn reconnect(app: &AppHandle) -> Result<(), String> {
+    let state = app.state::<DesktopState>();
+    let mut budget = StartupWaitBudget::new(Instant::now());
+    let mut last_stage = None;
+    let address = loop {
+        if !state
+            .recovery
+            .host_owned()
+            .map_err(|_| "无法验证后台 Host 所有权")?
+        {
+            return Err("后台 Host 已退出，请重新打开窗口；未重跑任何工具".into());
+        }
+        let address = fs::metadata(&state.ready_file)
+            .ok()
+            .filter(|m| m.len() <= 128)
+            .and_then(|_| fs::read_to_string(&state.ready_file).ok())
+            .and_then(|text| valid_ready_address(&text));
+        if let Some(address) = address {
+            let authenticated =
+                crate::desktop_recovery::authenticate_with_retry(address, &state.token).await?;
+            if authenticated {
+                break address;
+            }
+            // Fail closed: never send a bearer token or start another writer
+            // after a mismatched identity. Leave all existing tasks untouched.
+            state
+                .diagnostics
+                .record(Record::new(Phase::HostReconnectRejected));
+            return Err(
+                "后台 Host 身份验证未通过，任务已保留；不会发送凭据、抢锁或结束旧 Host".into(),
+            );
+        }
+        if budget.expired(Instant::now()) {
+            return Err("后台 Host 尚未发布恢复入口，任务已保留；请稍后重试".into());
+        }
+        observe_startup_progress(app, &mut budget, &mut last_stage);
+        time::sleep(Duration::from_millis(100)).await;
+    };
+    state.adopted.store(true, Ordering::SeqCst);
+    *state
+        .startup_error
+        .lock()
+        .expect("startup error mutex poisoned") = None;
+    state.running.store(true, Ordering::SeqCst);
+    state
+        .diagnostics
+        .record(Record::new(Phase::HostReconnected));
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut reported_io = false;
+        loop {
+            let state = handle.state::<DesktopState>();
+            match state.recovery.host_owned() {
+                Ok(false) => {
+                    let expected = state.stop_requested.load(Ordering::SeqCst);
+                    let mut record = Record::new(Phase::HostExit);
+                    record.expected = Some(expected);
+                    state.diagnostics.record(record);
+                    *state.endpoint.lock().expect("endpoint mutex poisoned") = None;
+                    state.adopted.store(false, Ordering::SeqCst);
+                    state.running.store(false, Ordering::SeqCst);
+                    if !expected {
+                        *state
+                            .startup_error
+                            .lock()
+                            .expect("startup error mutex poisoned") =
+                            Some(host_exit_message(None, None, true));
+                        state.diagnostics.mark_incident();
+                        crate::diagnostics::open_automatically(&handle);
+                    }
+                    let _ = handle.emit(
+                        "xharness-host",
+                        HostEvent {
+                            phase: "stopped",
+                            message: "重连的 Host 已释放数据目录所有权".into(),
+                        },
+                    );
+                    break;
+                }
+                Ok(true) => reported_io = false,
+                Err(_) => {
+                    if !reported_io {
+                        state.diagnostics.record(Record::new(Phase::HostIoError));
+                        reported_io = true;
+                    }
+                    // I/O failure is NOT proof of process exit.
+                }
+            }
+            time::sleep(Duration::from_millis(250)).await;
+        }
+    });
+    let endpoint = format!("http://{address}");
+    open_ui(app, endpoint.clone(), address, &mut budget).await?;
+    announce_ready(app, endpoint);
     Ok(())
 }
 
 pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
+    let result = graceful_stop_inner(app).await;
+    if result.is_ok()
+        && app
+            .state::<DesktopState>()
+            .recovery
+            .host_owned()
+            .is_ok_and(|owned| !owned)
+        && app
+            .state::<DesktopState>()
+            .recovery
+            .clear_after_stop()
+            .is_err()
+    {
+        app.state::<DesktopState>()
+            .diagnostics
+            .record(Record::new(Phase::HostIoError));
+    }
+    app.state::<DesktopState>()
+        .diagnostics
+        .record(Record::new(if result.is_ok() {
+            Phase::HostShutdownFinished
+        } else {
+            Phase::HostShutdownFailed
+        }));
+    result
+}
+
+async fn graceful_stop_inner(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<DesktopState>();
     if !state.running.load(Ordering::SeqCst) {
         #[cfg(windows)]
@@ -570,6 +818,9 @@ pub async fn graceful_stop(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     state.stop_requested.store(true, Ordering::SeqCst);
+    state
+        .diagnostics
+        .record(Record::new(Phase::HostShutdownRequested));
     if let Err(error) = tokio::fs::write(&state.shutdown_file, b"shutdown").await {
         state.stop_requested.store(false, Ordering::SeqCst);
         return Err(format!("无法请求 Host 安全退出：{error}"));

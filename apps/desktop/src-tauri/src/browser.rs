@@ -11,12 +11,14 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::lifecycle_trace::browser as trace;
 use serde::Serialize;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Webview, WebviewUrl,
 };
 use url::Url;
+use xharness_diagnostics::BrowserEvent as TraceEvent;
 
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
@@ -407,6 +409,7 @@ pub async fn desktop_browser_navigate(
         return Err("invalid browser tab".into());
     }
     let target = web_url(&url)?;
+    trace(&app, TraceEvent::Navigate, None);
     // Complete WKWebView's identity before the very first guest HTTP request.
     // Failure keeps the system default; it must not block ordinary navigation.
     #[cfg(target_os = "macos")]
@@ -443,6 +446,7 @@ pub async fn desktop_browser_navigate(
             .ok_or("no inactive browser tab can be suspended")?;
         if let Some(tab) = inner.tabs.remove(&oldest) {
             tab.inspector.revoke();
+            trace(&app, TraceEvent::Evicted, Some(tab.webview.label()));
             tab.webview.close().map_err(|error| error.to_string())?;
             emit(&app, &oldest, "suspended", "");
         }
@@ -460,6 +464,7 @@ pub async fn desktop_browser_navigate(
     std::fs::create_dir_all(&browser_data).map_err(|error| error.to_string())?;
     inner.next_label += 1;
     let label = format!("browser-{}", inner.next_label);
+    let load_label = label.clone();
     let event_app = app.clone();
     let event_id = tab_id.clone();
     let title_app = app.clone();
@@ -503,11 +508,13 @@ pub async fn desktop_browser_navigate(
             );
             let status = match payload.event() {
                 PageLoadEvent::Started => {
+                    trace(&load_app, TraceEvent::Loading, Some(&load_label));
                     load_inspector.delegation.navigate(payload.url());
                     load_inspector.invalidate();
                     "loading"
                 }
                 PageLoadEvent::Finished => {
+                    trace(&load_app, TraceEvent::Loaded, Some(&load_label));
                     load_inspector.delegation.navigate(payload.url());
                     "loaded"
                 }
@@ -577,6 +584,7 @@ pub async fn desktop_browser_navigate(
             LogicalSize::new(bounds.width, bounds.height),
         )
         .map_err(|error| error.to_string())?;
+    trace(&app, TraceEvent::Created, Some(child.label()));
     #[cfg(windows)]
     if let Err(error) =
         watch_native_location(&child, app.clone(), tab_id.clone(), Arc::clone(&inspector))
@@ -614,6 +622,15 @@ pub async fn desktop_browser_activate(
     }
     let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
     if inner.active != tab_id {
+        trace(
+            caller.app_handle(),
+            if tab_id.is_some() {
+                TraceEvent::Activate
+            } else {
+                TraceEvent::Hidden
+            },
+            None,
+        );
         // Hiding and then returning to the same tab must not revive a pending
         // observation or an old action frame.
         for id in [inner.active.as_ref(), tab_id.as_ref()]
@@ -693,6 +710,14 @@ pub async fn desktop_browser_action(
     ensure_main(&caller)?;
     let inner = state.0.lock().map_err(|_| "browser state unavailable")?;
     let tab = inner.tabs.get(&tab_id).ok_or("browser tab is not open")?;
+    let event = match action.as_str() {
+        "back" => TraceEvent::Back,
+        "forward" => TraceEvent::Forward,
+        "reload" => TraceEvent::Reload,
+        "stop" => TraceEvent::Stop,
+        _ => return Err("unknown browser action".into()),
+    };
+    trace(caller.app_handle(), event, Some(tab.webview.label()));
     match action.as_str() {
         "back" => tab.webview.eval("history.back()"),
         "forward" => tab.webview.eval("history.forward()"),
@@ -724,7 +749,22 @@ pub async fn desktop_browser_close(
     // registry mutex across it; UI dispatch guards also inspect this registry.
     if let Some(tab) = tab {
         tab.inspector.revoke();
-        tab.webview.close().map_err(|error| error.to_string())?;
+        trace(
+            caller.app_handle(),
+            TraceEvent::Close,
+            Some(tab.webview.label()),
+        );
+        let result = tab.webview.close();
+        trace(
+            caller.app_handle(),
+            if result.is_ok() {
+                TraceEvent::CloseAccepted
+            } else {
+                TraceEvent::CloseFailed
+            },
+            Some(tab.webview.label()),
+        );
+        result.map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -733,13 +773,27 @@ pub fn close_all(app: &AppHandle) {
     let Some(state) = app.try_state::<BrowserState>() else {
         return;
     };
-    if let Ok(mut inner) = state.0.lock() {
-        for (_, tab) in inner.tabs.drain() {
-            tab.inspector.revoke();
-            let _ = tab.webview.close();
-        }
+    let tabs = if let Ok(mut inner) = state.0.lock() {
         inner.active = None;
+        inner.tabs.drain().map(|(_, tab)| tab).collect::<Vec<_>>()
+    } else {
+        return;
     };
+    trace(app, TraceEvent::ClearAll, None);
+    for tab in tabs {
+        tab.inspector.revoke();
+        trace(app, TraceEvent::Close, Some(tab.webview.label()));
+        let result = tab.webview.close();
+        trace(
+            app,
+            if result.is_ok() {
+                TraceEvent::CloseAccepted
+            } else {
+                TraceEvent::CloseFailed
+            },
+            Some(tab.webview.label()),
+        );
+    }
 }
 
 #[cfg(test)]

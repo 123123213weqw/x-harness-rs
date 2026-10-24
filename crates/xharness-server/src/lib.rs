@@ -297,10 +297,11 @@ pub fn web_router_full(
             .route(
                 "/desktop/bootstrap",
                 get(desktop_bootstrap).with_state(DesktopBootstrapState {
-                    auth,
+                    auth: auth.clone(),
                     readiness: readiness.clone(),
                 }),
-            );
+            )
+            .route("/desktop/identity", get(desktop_identity).with_state(auth));
     }
     router = router
         .route("/desktop/starting", get(desktop_starting))
@@ -369,6 +370,43 @@ impl DesktopAuth {
 #[derive(Deserialize)]
 struct DesktopBootstrapQuery {
     token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopIdentityQuery {
+    nonce: String,
+}
+
+// Prove the server's identity BEFORE a reconnecting desktop sends its bearer
+// credential. Health, a PID, or an echoed cookie is not an identity proof: the
+// old loopback port could have been recycled. This domain-separated MAC never
+// exposes the token and confers no RPC/guest-page authority.
+async fn desktop_identity(
+    State(auth): State<DesktopAuth>,
+    Query(query): Query<DesktopIdentityQuery>,
+) -> Response {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    if query.nonce.len() != 64 || !query.nonce.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(auth.token.as_bytes()) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    mac.update(b"xharness-desktop-host-v1\0");
+    mac.update(query.nonce.as_bytes());
+    let proof: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({"proof":proof})),
+    )
+        .into_response()
 }
 
 #[derive(Clone)]

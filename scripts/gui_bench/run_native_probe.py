@@ -242,8 +242,24 @@ def contract_completed(log_text: str) -> bool:
     return ("Native Tauri DOM probe passed:" in log_text
             and "Native lifecycle probe passed:" in log_text
             and subframe_navigation_passed(log_text)
+            and browser_lifecycle_passed(log_text)
             and "Native observation probe failed:" not in log_text
             and hard_capabilities(log_text).get("status") != "unverified")
+
+
+def browser_lifecycle_passed(log_text: str) -> bool:
+    prefix = 'BROWSER_LIFECYCLE_EVIDENCE '
+    lines = [line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    if len(lines) != 1:
+        return False
+    try:
+        result = json.loads(lines[0])
+        return (result.get('passed') is True and result.get('test_only') is True
+                and result.get('main_alive') is True
+                and all(type(result.get(key)) is int and result[key] > 0
+                        for key in ['created', 'close_accepted']))
+    except (ValueError, TypeError, AttributeError):
+        return False
 
 
 def subframe_navigation_passed(log_text: str) -> bool:
@@ -302,6 +318,7 @@ def main() -> int:
     log_text = (args.evidence_dir / "native-probe.log").read_text(encoding="utf-8", errors="replace")
     capabilities = hard_capabilities(log_text)
     receipt['subframe_navigation_passed'] = subframe_navigation_passed(log_text)
+    receipt['browser_lifecycle_passed'] = browser_lifecycle_passed(log_text)
     completed = contract_completed(log_text)
     api = native_api_evidence(log_text, args.evidence_dir)
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')
