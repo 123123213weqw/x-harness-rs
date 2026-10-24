@@ -58533,15 +58533,74 @@ var import_react19 = __toESM(require_react());
 
 // src/modules/platform/primitives/markdown/stream-presentation.ts
 init_define_process_execArgv();
-var STREAM_BATCH_MS = 50;
+var STREAM_BATCH_MS = 32;
 var STREAM_FADE_MS = 150;
-var STREAM_BURST_LIMIT = 1024;
+var STREAM_BURST_LIMIT = 8192;
+var STREAM_CATCHUP_MS = 192;
+var STREAM_FINISH_MS = 96;
 var MAX_RECENT_BATCHES = 4;
 var StreamPresentation = class {
   constructor(text5) {
+    this.deadline = 0;
+    this.lastTick = 0;
+    this.streaming = false;
+    this.segmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(void 0, { granularity: "grapheme" }) : null;
     this.frame = { text: text5, ranges: [] };
+    this.target = text5;
   }
+  get wasStreaming() {
+    return this.streaming;
+  }
+  get pending() {
+    return this.frame.text !== this.target;
+  }
+  isAppend(text5) {
+    return text5.startsWith(this.target);
+  }
+  nextDelay(now) {
+    return Math.min(STREAM_BATCH_MS, Math.max(0, this.deadline - now));
+  }
+  /** New arrivals never move an existing debt deadline further away. */
+  receive(text5, now, animate, streaming = true) {
+    const wasStreaming = this.streaming;
+    this.streaming = streaming;
+    if (!animate || this.segmenter === null || !streaming && !wasStreaming && !this.pending || !text5.startsWith(this.target) || text5.length - this.frame.text.length > STREAM_BURST_LIMIT) {
+      return this.commit(text5, now, false);
+    }
+    if (!this.pending && text5 !== this.target) {
+      this.deadline = now + STREAM_CATCHUP_MS;
+      this.lastTick = now;
+    }
+    this.target = text5;
+    if (!streaming && this.pending) this.deadline = Math.min(this.deadline, now + STREAM_FINISH_MS);
+    return this.frame;
+  }
+  /** Adaptive catch-up, bounded in time rather than a fixed characters/second queue. */
+  tick(now) {
+    if (!this.pending || now <= this.lastTick) return this.frame;
+    const start = this.frame.text.length;
+    const remaining = this.target.length - start;
+    const fraction = Math.min(1, (now - this.lastTick) / Math.max(1, this.deadline - this.lastTick));
+    const desired = start + Math.max(1, Math.ceil(remaining * fraction));
+    let end = desired;
+    if (desired < this.target.length && this.segmenter !== null) {
+      for (const part of this.segmenter.segment(this.target.slice(start))) {
+        end = start + part.index + part.segment.length;
+        if (end >= desired) break;
+      }
+    } else {
+      while (end < this.target.length && !safeBoundary(this.target, end)) end++;
+    }
+    this.lastTick = now;
+    return this.publish(this.target.slice(0, end), now, true);
+  }
+  /** Immediate bypass for history, replacement, interruption and inaccessible animation. */
   commit(text5, now, animate) {
+    this.target = text5;
+    this.deadline = this.lastTick = now;
+    return this.publish(text5, now, animate);
+  }
+  publish(text5, now, animate) {
     const old = this.frame;
     if (text5 === old.text && (animate || old.ranges.length === 0)) return old;
     const appended = text5.length - old.text.length;
@@ -58551,7 +58610,7 @@ var StreamPresentation = class {
 };
 function safeBoundary(text5, offset) {
   if (offset === 0 || offset === text5.length) return true;
-  const before = text5.slice(0, offset).match(/.$/u)?.[0] ?? "";
+  const before = text5.slice(Math.max(0, offset - 2), offset).match(/.$/u)?.[0] ?? "";
   const after = text5.slice(offset).match(/^./u)?.[0] ?? "";
   return !(/[\uD800-\uDBFF]$/.test(before) && /^[\uDC00-\uDFFF]/.test(after)) && !/^[\p{M}\u200d\ufe0e\ufe0f\u{1f3fb}-\u{1f3ff}]/u.test(after) && before !== "\u200D" && !(/[\u{1f1e6}-\u{1f1ff}]/u.test(before) && /[\u{1f1e6}-\u{1f1ff}]/u.test(after));
 }
@@ -58934,52 +58993,65 @@ function renderFootnoteSection(context) {
 // src/modules/platform/primitives/markdown/use-stream-presentation.ts
 init_define_process_execArgv();
 var import_react21 = __toESM(require_react());
-function useStreamPresentation(text5, enabled) {
+function useStreamPresentation(text5, enabled, streaming = true) {
   const model = (0, import_react21.useRef)(null);
   if (model.current === null) model.current = new StreamPresentation(text5);
   const [frame, setFrame] = (0, import_react21.useState)(model.current.frame);
-  const latest = (0, import_react21.useRef)({ text: text5, enabled });
-  latest.current = { text: text5, enabled };
+  const latest = (0, import_react21.useRef)({ text: text5, enabled, streaming });
+  latest.current = { text: text5, enabled, streaming };
   const timer = (0, import_react21.useRef)(null);
   const reduced = (0, import_react21.useRef)(false);
   const alive = (0, import_react21.useRef)(false);
-  const flush = (animate) => {
+  const cancel = () => {
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
-    if (!alive.current || model.current === null) return;
-    const next = model.current.commit(latest.current.text, Date.now(), animate);
-    setFrame(next);
+  };
+  const flush = () => {
+    cancel();
+    if (alive.current && model.current !== null) setFrame(model.current.commit(latest.current.text, Date.now(), false));
+  };
+  const schedule = () => {
+    if (timer.current !== null || !model.current?.pending) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      if (!alive.current || model.current === null) return;
+      if (!latest.current.enabled || document.hidden || reduced.current) {
+        flush();
+        return;
+      }
+      setFrame(model.current.tick(Date.now()));
+      schedule();
+    }, model.current.nextDelay(Date.now()));
   };
   (0, import_react21.useLayoutEffect)(() => {
     alive.current = true;
     if (!enabled) return () => {
       alive.current = false;
+      cancel();
     };
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     reduced.current = media?.matches === true;
     const bypass = () => {
       reduced.current = media?.matches === true;
-      flush(false);
+      flush();
     };
     document.addEventListener("visibilitychange", bypass);
     media?.addEventListener("change", bypass);
     return () => {
       alive.current = false;
-      if (timer.current !== null) clearTimeout(timer.current);
-      timer.current = null;
+      cancel();
       document.removeEventListener("visibilitychange", bypass);
       media?.removeEventListener("change", bypass);
     };
   }, [enabled]);
   (0, import_react21.useLayoutEffect)(() => {
-    const previous4 = model.current?.frame.text ?? "";
-    if (!enabled || document.hidden || reduced.current || !text5.startsWith(previous4) || text5.length - previous4.length > STREAM_BURST_LIMIT) {
-      flush(false);
-    } else if (text5 !== previous4 && timer.current === null) {
-      timer.current = setTimeout(() => flush(latest.current.enabled && !document.hidden && !reduced.current), STREAM_BATCH_MS);
-    }
-  }, [text5, enabled]);
-  return !enabled || !text5.startsWith(frame.text) || text5.length - frame.text.length > STREAM_BURST_LIMIT ? { text: text5, ranges: [] } : frame;
+    if (model.current === null) return;
+    const animate = enabled && !document.hidden && !reduced.current;
+    setFrame(model.current.receive(text5, Date.now(), animate, streaming));
+    if (model.current.pending) schedule();
+    else cancel();
+  }, [text5, enabled, streaming]);
+  return !enabled || !streaming && !model.current.wasStreaming && !model.current.pending || document.hidden || reduced.current || !model.current.isAppend(text5) || text5.length - frame.text.length > STREAM_BURST_LIMIT ? { text: text5, ranges: [] } : frame;
 }
 
 // src/modules/platform/primitives/markdown/MarkdownText.tsx
@@ -59081,14 +59153,15 @@ var StreamingRenderer = class {
     return this.lastRendered;
   }
 };
-var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5, streaming = false, smoothStreaming = false, codeLabels, fileMentions, resources }) {
+var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5, streaming = false, smoothStreaming = false, interrupted = false, codeLabels, fileMentions, resources }) {
   const streamRef = (0, import_react22.useRef)(null);
   const streamLabelsRef = (0, import_react22.useRef)(codeLabels);
-  const frame = useStreamPresentation(text5, streaming && smoothStreaming);
-  const visibleText = smoothStreaming && streaming ? frame.text : text5;
-  const motion = smoothStreaming && streaming ? frame : void 0;
+  const frame = useStreamPresentation(text5, smoothStreaming && !interrupted, streaming);
+  const visibleText = smoothStreaming && !interrupted ? frame.text : text5;
+  const presenting = streaming || visibleText !== text5;
+  const motion = smoothStreaming && !interrupted && presenting ? frame : void 0;
   const children = (0, import_react22.useMemo)(() => {
-    if (!streaming) {
+    if (!presenting) {
       streamRef.current = null;
       return renderSettled(text5, codeLabels, fileMentions, resources);
     }
@@ -59097,7 +59170,7 @@ var MarkdownText = (0, import_react22.memo)(function MarkdownText2({ text: text5
       streamLabelsRef.current = codeLabels;
     }
     return streamRef.current.render(visibleText, motion);
-  }, [visibleText, streaming, motion, codeLabels, fileMentions, resources]);
+  }, [visibleText, presenting, motion, codeLabels, fileMentions, resources]);
   return /* @__PURE__ */ (0, import_jsx_runtime27.jsx)("div", { className: MarkdownText_default.markdown, "data-xh-stream-owned": smoothStreaming || void 0, children });
 });
 
@@ -59458,4 +59531,4 @@ init_define_process_execArgv();
 var el = document.getElementById("root");
 if (el === null) throw new Error("web app: missing #root");
 void new AppWebEntry(el).run();
-//# sourceMappingURL=platform-3EAYQYDO.js.map
+//# sourceMappingURL=platform-RCP7XFHC.js.map

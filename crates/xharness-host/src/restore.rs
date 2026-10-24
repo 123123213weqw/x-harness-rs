@@ -1658,6 +1658,7 @@ mod tests {
     }
 
     struct LiveDeltaProvider {
+        fragments: usize,
         delta_announced: Arc<Notify>,
         finish_release: Arc<Notify>,
     }
@@ -1684,7 +1685,7 @@ mod tests {
                     delta_announced.notify_one();
                     Ok(ProviderEvent::TextDelta("live-0".to_owned()))
                 })
-                .chain(stream::iter((1..64).map(|index| {
+                .chain(stream::iter((1..self.fragments).map(|index| {
                     Ok(ProviderEvent::TextDelta(format!("live-{index}")))
                 })))
                 .chain(stream::once(async move {
@@ -6647,11 +6648,19 @@ mod tests {
 
     #[tokio::test]
     async fn authoritative_stream_checkpoint_is_published_before_model_completion() {
+        // Exercise both the independent quiet-stream deadline and fragment cap.
+        for fragments in [1, 64] {
+            check_authoritative_stream_checkpoint(fragments).await;
+        }
+    }
+
+    async fn check_authoritative_stream_checkpoint(fragments: usize) {
         let cwd = std::env::temp_dir();
         let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
         let delta_announced = Arc::new(Notify::new());
         let finish_release = Arc::new(Notify::new());
         let provider: Arc<dyn ModelProvider> = Arc::new(LiveDeltaProvider {
+            fragments,
             delta_announced: Arc::clone(&delta_announced),
             finish_release: Arc::clone(&finish_release),
         });
@@ -6707,7 +6716,7 @@ mod tests {
         })
         .await
         .expect("live delta was held behind the durable completion batch");
-        let expected_first_batch = (0..64)
+        let expected_first_batch = (0..fragments)
             .map(|index| format!("live-{index}"))
             .collect::<String>();
         assert_eq!(live["event"]["data"]["chunk"]["text"], expected_first_batch);

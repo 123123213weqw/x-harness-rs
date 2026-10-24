@@ -62,6 +62,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             text={block.text}
             streaming={streaming}
             smoothStreaming
+            interrupted={interrupted === true}
             codeLabels={codeLabels}
             fileMentions={mentions}
           />,
