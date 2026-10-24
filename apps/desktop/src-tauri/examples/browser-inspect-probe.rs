@@ -19,6 +19,8 @@ mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 
+#[path = "../src/lifecycle_trace.rs"]
+mod lifecycle_trace;
 mod native_api;
 #[path = "../src/native_startup.rs"]
 mod native_startup;
@@ -183,6 +185,7 @@ fn assert_activity_pairs(events: &[Value], owner: &str, tab: &str) -> Result<(),
 async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let connection_state = app.state::<browser_bridge::BrowserBridge>();
     let connection = connection_state.start(app).await?;
+    assert!(connection_state.is_started());
     let empty = bridge_call(connection, "probe-owner", "list", json!({})).await?;
     if empty["result"]["available"] != true || empty["result"]["bound"] != false {
         return Err("zero-tab browser discovery failed".into());
@@ -1792,7 +1795,12 @@ fn main() {
     let nonce: String = nonce.iter().map(|byte| format!("{byte:02x}")).collect();
     context.config_mut().identifier = format!("com.xlang.xharness.browser-inspect-probe.r{nonce}");
     context.config_mut().app.windows.clear();
+    let trace_records = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        xharness_diagnostics::Record,
+    >::new()));
+    let collect = trace_records.clone();
     let app = tauri::Builder::default()
+        .manage(lifecycle_trace::LifecycleTrace(std::sync::Arc::new(move |record|collect.lock().unwrap().push(record))))
         .manage(browser::BrowserState::default())
         .manage(browser_bridge::BrowserBridge::default())
         .manage(browser_lifecycle::BrowserLifecycle::default())
@@ -1822,7 +1830,14 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 let result =
                     tokio::time::timeout(Duration::from_secs(120), probe(&handle, url)).await;
-                let success = matches!(&result, Ok(Ok(())));
+                let records=trace_records.lock().unwrap();
+                let created=records.iter().filter(|r|r.browser_event==Some(xharness_diagnostics::BrowserEvent::Created)).count();
+                let closed=records.iter().filter(|r|r.browser_event==Some(xharness_diagnostics::BrowserEvent::CloseAccepted)).count();
+                let main_alive=handle.get_window("main").is_some();
+                let lifecycle_passed=main_alive && created>0 && closed>0;
+                drop(records);
+                println!("BROWSER_LIFECYCLE_EVIDENCE {}",json!({"passed":lifecycle_passed,"main_alive":main_alive,"created":created,"close_accepted":closed,"test_only":true}));
+                let success = matches!(&result, Ok(Ok(()))) && lifecycle_passed;
                 completed.store(success, std::sync::atomic::Ordering::SeqCst);
                 if !success {
                     eprintln!("Native observation probe failed: {result:?}");

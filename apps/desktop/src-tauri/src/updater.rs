@@ -470,6 +470,12 @@ pub async fn desktop_install_update(
     // restart may bypass RunEvent::Exit on some platforms. Host shutdown and
     // installation have succeeded: persist the clean boundary before relaunch.
     // Do not acknowledge or delete earlier crash evidence.
+    crate::desktop_exit::record(
+        &app,
+        xharness_diagnostics::Phase::DesktopExitRequested,
+        xharness_diagnostics::ExitSource::Update,
+        None,
+    );
     state.diagnostics.finish();
     app.restart();
 }

@@ -68,7 +68,12 @@ const startFailure = sidecar.slice(sidecar.indexOf('if let Err(error) = &result'
 assert.doesNotMatch(startFailure, /diagnostics::open/)
 assert.match(sidecar, /let was_ready = !event_startup_pending\.load\(Ordering::SeqCst\);/)
 assert.match(sidecar, /!state\.closing\.load\(Ordering::SeqCst\) && was_ready[\s\S]*?diagnostics::open_automatically/)
-assert.match(sidecar, /wait_until_product_ready[\s\S]*?startup_pending\.store\(false, Ordering::SeqCst\)/)
+assert.match(sidecar, /open_ui\(app, endpoint.clone\(\), address, &mut budget\)\.await\?;\s*startup_pending\.store\(false, Ordering::SeqCst\)/)
+assert.match(sidecar, /wait_until_product_ready\(app, address, budget\)\.await\?;[\s\S]*?startup\.host_ready/)
+const exitGate = readFileSync(new URL('../apps/desktop/src-tauri/src/desktop_exit.rs', import.meta.url), 'utf8')
+assert.match(exitGate, /match crate::sidecar::graceful_stop\(&handle\)\.await/)
+assert.match(exitGate, /Err\(_\) => \{[\s\S]*?DesktopExitBlocked[\s\S]*?closing\.store\(false/)
+assert.doesNotMatch(exitGate.slice(exitGate.indexOf('Err(_) => {'), exitGate.indexOf('/// Keep ordinary')), /force_stop|\.exit\(/)
 console.log('Runtime diagnostics lifecycle routing: clean restart, history and startup failures passed')
 
 assert.ok(updater.includes('.on_before_exit(app.state::<DesktopState>().diagnostics.update_exit_hook())'), 'Windows direct installer exit owns a clean boundary')

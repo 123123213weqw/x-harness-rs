@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add payload-free desktop/browser exit diagnostics and private authenticated reconnection to the existing Host without stopping tasks or bypassing its OS lease.",
+  "compatibility": "No RPC, journal, model tool, public updater feed or Tauri capability changes. Add only a loopback desktop identity challenge authenticated by domain-separated HMAC-SHA256, bounded private per-launch recovery receipts, and explicit graceful exit admission. Reconnection preserves Host PID/turns and restores its existing browser bridge; health/PID are not authentication or exit proof. Unknown, incompatible or invalid legacy Hosts remain untouched. Private receipts are never diagnostics exports. Mac renderer termination callback is observational only. Require native Windows/macOS/Linux CI, actual isolated Host active-turn handoff, private-file/lease/challenge adversarial cases, native browser main-window survival and existing updater/bootstrap contracts.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "128e5c37cdf7c1596e5166a44eaf253ab27567f218ea9d7d750988ce5fefaedb",
+      "after": "2f1ba0b437df0ed178b5c87cb35d5d3a1584363e2396f3becaed2196e76b0c76"
+    },
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "76f13c2ab28868e2ea3e1626e2d9d2fcca2b584eaf2724cf92d71cfeaa1217ac",
+      "after": "1a230de14dc50da194900d2104aa88235fabfecbf51c87a5299c4e123f845c1e"
+    },
+    "apps/desktop/src-tauri/src/sidecar.rs": {
+      "before": "bee8ce8f00d23448a6479b0f10fce77415fed323d84ad114918a649e6f659889",
+      "after": "328b8ec68bad566889fa5467e2cc3d6d0ef6b59135b12b643c405c361e369c0a"
+    },
+    "apps/desktop/src-tauri/src/updater.rs": {
+      "before": "d9d29375e951194a0697ca0a83e51e24e7d9f96abfad291b11d3bec10f8ddbdd",
+      "after": "9b461ea7a78ac2c0f917e411d59a5d3599b2dbf8a2bded4de0f48008c71624d8"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "updater",
+    "windows"
+  ]
+}

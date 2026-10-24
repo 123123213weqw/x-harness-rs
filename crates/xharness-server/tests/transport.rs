@@ -96,6 +96,66 @@ async fn json_body(response: axum::response::Response) -> Value {
 }
 
 #[tokio::test]
+async fn desktop_identity_is_nonce_bound_domain_separated_and_does_not_authorize_rpc() {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let token = "a".repeat(64);
+    let router = web_router_with_debug_and_desktop_token(
+        Arc::new(FixtureBackend),
+        None,
+        DebugRecorder::disabled(),
+        Some(token.clone()),
+    );
+    let nonce = "b".repeat(64);
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/desktop/identity?nonce={nonce}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(response.headers().get(header::SET_COOKIE).is_none());
+    let body = json_body(response).await;
+    assert_eq!(body.as_object().unwrap().len(), 1);
+    let mut mac = Hmac::<Sha256>::new_from_slice(token.as_bytes()).unwrap();
+    mac.update(b"xharness-desktop-host-v1\0");
+    mac.update(nonce.as_bytes());
+    let expected: String = mac
+        .finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(body["proof"], expected);
+    assert!(!body.to_string().contains(&token));
+    for query in [
+        "nonce=short".to_owned(),
+        format!("nonce={nonce}&token={token}"),
+        format!("nonce={}", "z".repeat(64)),
+    ] {
+        assert!(router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/desktop/identity?{query}"))
+                    .body(Body::empty())
+                    .unwrap()
+            )
+            .await
+            .unwrap()
+            .status()
+            .is_client_error());
+    }
+    let denied=router.oneshot(post("/api/session.list",json!({"type":"client-request","rpcId":"identity-is-not-auth","method":"session.list","payload":{}}))).await.unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn every_upstream_method_has_one_post_route() {
     for method in RpcMethod::ALL {
         let response = api_router(Arc::new(FixtureBackend))
