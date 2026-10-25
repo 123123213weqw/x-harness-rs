@@ -4243,6 +4243,14 @@ impl Runner {
     }
 
     async fn model_round(&mut self, request: ProviderRequest) -> Result<ModelRound, RunFailure> {
+        // Share an optional bounded validated snapshot with live observers for
+        // this model round. Without it, their checkpoint reads can repeatedly
+        // replay an oversized journal and contend with stream writes. Drop on
+        // completion, error, steering or cancellation; never retain while idle.
+        let _stream_read_scope = self
+            .journal
+            .as_ref()
+            .and_then(|journal| journal.store.read_scope(&journal.session_id).ok());
         let mut round = ModelRound::default();
         let mut recovery = RetryState::with_deadline(self.network_recovery_deadline);
         let mut last_provider_error: Option<ProviderError> = None;

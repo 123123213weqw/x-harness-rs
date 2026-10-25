@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Eliminate repeated full-prefix replay and validation on durable stream checkpoints once histories exceed resident cache limits.",
+  "compatibility": "No persisted or wire format migration. Session-owned observational cursors retain lifecycle and CAS checks; structural batches and stale sources retain complete validation. Bounded model-round snapshots are discarded on terminal paths. Native and Windows persistence gates remain required; V100 regression and pressure evidence is documented separately.",
+  "paths": {
+    "crates/xharness-session-jsonl/src/lib.rs": {
+      "before": "9da15bdbfb02f01f2e23280d2438d81bdbb3adc0167547b68cb4997ce9284a0e",
+      "after": "3808dd7105746055269e59bbdec0fdee4ab6dac7ef0f36408451ac7a6ea6b4f7"
+    },
+    "crates/xharness-session-jsonl/src/replay_scope.rs": {
+      "before": "f7553e9f3245d515843ececc53564a0ec268f0b0df4afc884b337dcc13fc8ff7",
+      "after": "192458a23c1334d977551c6fd5a7e1d8904664b20a98a54455adc1ae3705cab5"
+    },
+    "crates/xharness-session-jsonl/src/stream_append.rs": {
+      "before": null,
+      "after": "a94e392e257ce8d5c959e085d311f7ac6d84fc52592da79c3190c845ca091e4a"
+    },
+    "crates/xharness-session-jsonl/tests/stream_append.rs": {
+      "before": null,
+      "after": "8b2ab0f25dc2cb775649e2a43b761a9403c662330c081cc07b5293fb610aa9df"
+    },
+    "crates/xharness-session/src/lib.rs": {
+      "before": "bccc475a131683b93935abc2ce70928e8c8c5d970653ebc7f14ac35af3159673",
+      "after": "755c4614418a0a10156630d43a0a65c1d4f04cae343f4330247a07766eefde29"
+    },
+    "crates/xharness-session/src/session.rs": {
+      "before": "0d3a61b216a226d4e67851c1cfb7753f886fa7794cd9114c4a3dc25953626e11",
+      "after": "46b170e62f2f6a2158cf7d774d65522cc93897f0f1f8f4d2b0ced7445be713d9"
+    },
+    "crates/xharness-session/src/store.rs": {
+      "before": "6dadfa8070410e5b6a708a59bed6845bc184cca9ecff249e006a2479990c7be0",
+      "after": "c89750657ed46a2cfa04f3b1d1b96f7a6342dab4f02049ff5672f44d1b9036b7"
+    },
+    "crates/xharness-session/src/stream_append.rs": {
+      "before": null,
+      "after": "da1b07fd8a28006cec489c609481f6f3e8c8833ec2ef89e55f329e2a276c7b25"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "persistence"
+  ]
+}
