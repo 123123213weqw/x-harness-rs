@@ -1,4 +1,4 @@
-//! Bounded, admission-lifetime reuse for snapshots too large for the resident LRU.
+//! Bounded, operation-lifetime reuse for validated snapshots during active work.
 #![forbid(unsafe_code)]
 
 use super::*;
@@ -26,6 +26,13 @@ impl Default for Cache {
     }
 }
 impl Cache {
+    pub(super) fn has_snapshot(&self, path: &Path, fingerprint: FileFingerprint) -> bool {
+        self.entries
+            .get(path)
+            .and_then(|entry| entry.snapshot.as_ref())
+            .is_some_and(|snapshot| snapshot.fingerprint == fingerprint)
+    }
+
     pub(super) fn stats(&self) -> CacheStats {
         CacheStats {
             entries: self
@@ -68,7 +75,12 @@ impl Cache {
             .filter(|s| s.fingerprint == fingerprint)
             .map(|s| s.loaded)
     }
-    pub(super) fn store(&mut self, path: &Path, fingerprint: FileFingerprint, loaded: LoadedFile) {
+    pub(super) fn store(
+        &mut self,
+        path: &Path,
+        fingerprint: FileFingerprint,
+        loaded: &LoadedFile,
+    ) -> bool {
         if !self.entries.contains_key(path)
             || self
                 .stats()
@@ -76,15 +88,16 @@ impl Cache {
                 .saturating_add(loaded.estimated_bytes)
                 > self.max_bytes
         {
-            return;
+            return false;
         }
         if let Some(entry) = self.entries.get_mut(path) {
             entry.snapshot = Some(CachedFile {
                 fingerprint,
-                loaded,
+                loaded: loaded.clone(),
                 touched: 0,
             });
         }
+        true
     }
 }
 

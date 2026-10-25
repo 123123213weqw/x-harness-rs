@@ -45,6 +45,9 @@ pub struct Session {
     /// cut, while the ordinary single-writer path appends without cloning the
     /// whole log.
     events: Arc<Vec<LoggedEvent>>,
+    /// Derived only by complete validation or an observational append using
+    /// the same scope rule. Never persisted independently of the journal.
+    pub(crate) stream_cursor: crate::StreamAppendCursor,
 }
 
 /// Result of one successful compare-and-swap append.
@@ -134,6 +137,10 @@ impl Session {
             header,
             revision: Revision::ZERO,
             events: Arc::new(Vec::new()),
+            stream_cursor: crate::stream_append::StreamAppendCursor::from_validated(
+                Revision::ZERO,
+                &[],
+            ),
         })
     }
 
@@ -146,10 +153,12 @@ impl Session {
     ) -> Result<Self, SessionError> {
         validate_header(&header)?;
         validate_log(revision, &events)?;
+        let stream_cursor = crate::StreamAppendCursor::from_validated(revision, &events);
         Ok(Self {
             header,
             revision,
             events: Arc::new(events),
+            stream_cursor,
         })
     }
 
@@ -217,6 +226,17 @@ impl Session {
         events: Vec<SessionEvent>,
         timestamp_ms: u64,
     ) -> Result<AppendReceipt, SessionError> {
+        if let Some((cursor, receipt)) =
+            self.stream_cursor
+                .prepare_append(expected_revision, &events, timestamp_ms)?
+        {
+            if !receipt.events.is_empty() {
+                Arc::make_mut(&mut self.events).extend(receipt.events.iter().cloned());
+            }
+            self.revision = receipt.revision;
+            self.stream_cursor = cursor;
+            return Ok(receipt);
+        }
         if expected_revision != self.revision {
             return Err(SessionError::RevisionConflict {
                 expected: expected_revision,
@@ -264,6 +284,7 @@ impl Session {
             return Err(error);
         }
         self.revision = revision;
+        self.stream_cursor = crate::StreamAppendCursor::from_validated(revision, events);
         Ok(AppendReceipt {
             previous_revision,
             revision,
@@ -1912,24 +1933,14 @@ fn validate_log(revision: Revision, events: &[LoggedEvent]) -> Result<(), Sessio
             }
             EventData::ModelReception { turn, step, .. }
             | EventData::AssistantChunk { turn, step, .. } => {
-                let Some(state) = open_step.as_ref() else {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk requires an open step",
-                    ));
-                };
-                if state.turn != *turn || state.step != *step {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk coordinates do not match the open step",
-                    ));
-                }
-                if state.assistant_calls.is_some() {
-                    return Err(lifecycle_error(
-                        logged.seq,
-                        "assistant/chunk cannot follow assistant/message",
-                    ));
-                }
+                crate::stream_append::validate_scope(
+                    logged.seq,
+                    *turn,
+                    *step,
+                    open_step
+                        .as_ref()
+                        .map(|state| (state.turn, state.step, state.assistant_calls.is_some())),
+                )?;
             }
             EventData::AssistantMessage {
                 turn,
