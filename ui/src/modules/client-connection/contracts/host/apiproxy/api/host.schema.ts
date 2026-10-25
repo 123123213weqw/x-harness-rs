@@ -19,6 +19,7 @@ export const hostDescribeValueSchema = z.object({
   attachedSessions: z.number().int().nonnegative(),
   home: z.string(),
   canOpenPath: z.boolean(),
+  canRevealPath: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
 /** host.pickDirectory request payload (empty object literal). */
@@ -67,6 +68,7 @@ export const hostCreateDirectoryValueSchema = z.object({
 /** host.openPath request payload. */
 export const hostOpenPathRequestSchema = z.object({
   path: z.string().min(1),
+  mode: z.enum(['open', 'reveal']).optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'host.openPath'>>>
 
 /** host.openPath response value. */

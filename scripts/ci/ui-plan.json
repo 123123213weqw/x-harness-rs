@@ -4169,6 +4169,30 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 10
+    },
+    {
+      "id": "browser-240",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-produced-file-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-241",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-produced-file-actions-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
     }
   ]
 }

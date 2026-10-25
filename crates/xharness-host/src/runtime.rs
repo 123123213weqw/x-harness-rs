@@ -614,6 +614,17 @@ pub trait AgentRuntime: Send + Sync + 'static {
     }
 
     /// Deployment-owned read-only file display; independent of executing a turn.
+    async fn inspect_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+        _thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        Err("File inspection is unavailable on this deployment".into())
+    }
+
     async fn read_display_file(
         &self,
         _session_id: &str,
@@ -940,6 +951,19 @@ impl AgentRuntime for LoopAgentRuntime {
     ) -> Result<xharness_api::display::DisplayFile, String> {
         self.tool_factory
             .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
             .await
     }
 
@@ -1624,6 +1648,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     ) -> Result<xharness_api::display::DisplayFile, String> {
         self.tool_factory
             .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
             .await
     }
 
