@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "status": "source_validated_not_released",
+  "base_commit": "96b332b415d53c9307a837c5bd2e1a29525f2f27",
+  "scope_correction": "Supersedes the previous existing-Goal-only capability scope: model editing is available only while the Goal is explicitly activated, not merely present.",
+  "gate": "Goal execution_enabled=true AND phase=active; deployment allowlist remains authoritative.",
+  "autonomy": "While active, the model may maintain objective text without per-edit user confirmation, preserving user intent and acceptance requirements.",
+  "inactive_behavior": "No Goal, legacy/disarmed, paused, blocked, completed or cleared Goals do not advertise the tool; already captured calls also reject. User resume re-advertises it in a fresh request; old-epoch calls remain stale.",
+  "unchanged": [
+    "No model lifecycle management actions.",
+    "User UI text editing and full-text/multiline display unchanged.",
+    "Definition revision, CAS, old-report invalidation and cancellation protections retained."
+  ],
+  "validation": {
+    "remote": "WZU_Server via its existing raw Tailscale SSH route; host-key checks preserved.",
+    "source_hash_verification": 587,
+    "host_goal_tests": {
+      "passed": 60,
+      "failed": 0,
+      "ignored": 0
+    },
+    "agent_goal_runtime_tests": {
+      "passed": 21,
+      "failed": 0,
+      "ignored": 0
+    },
+    "clippy": "xharness-agent and xharness-host --all-targets -- -D warnings passed",
+    "ui_source_tests": "26/26 passed; UI source unchanged from previous browser-validated commit.",
+    "architecture": "dependency and content-bound freeze checks passed",
+    "coverage": "Absent/disarmed/paused/complete/active ordinary/automatic requests across unrestricted and restricted local/hosted modes; user resume; stale old epochs; controller paused with execution_enabled still true."
+  },
+  "limitations": [
+    "No local Rust compilation or live Goal mutation.",
+    "No hosted CI, release, installation or restart performed.",
+    "Earlier test import/fixture-assumption failures are preserved in the external run log; neither runtime nor durable validators were weakened to make tests pass."
+  ],
+  "source_sha256": {
+    "crates/xharness-agent/src/goal.rs": "83db858f11acf8bf23ee13979320d2d1c18b01fa9f37b80f8ba2de78970bef60",
+    "crates/xharness-host/src/goal_edit_tool.rs": "c235c04c3bd0b659bf4e4b30fa8d10dceb8b50a01a7f0e6f811915e677e41bce",
+    "crates/xharness-host/src/goal_edit_tool_tests.rs": "efe3888b10c531acda4080dcb1d3ea1ebc48b72bdb9cb8140736a5fad5839506",
+    "crates/xharness-host/src/runtime/tests/observer_tests.rs": "8bcabe61277f53650afc0b21ffeef0da19b2a4aa68ab16830a3ad668e84ff0ed",
+    "docs/specs/goal-runtime.md": "5de7ca857017bd4bf748720f39b07348cbc1317373ec2c5a0b90729769e9a2e5"
+  }
+}

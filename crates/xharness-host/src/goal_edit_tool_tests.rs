@@ -108,25 +108,40 @@ async fn claim(store: &Arc<dyn Store>) {
 }
 
 #[tokio::test]
-async fn no_goal_is_no_capability_and_legacy_edit_never_enables_execution() {
+async fn no_goal_or_disarmed_legacy_goal_has_no_capability_until_user_activation() {
     let store = memory(false).await;
     store.create(SessionHeader::new("ordinary")).await.unwrap();
     let ordinary = store.load("ordinary").await.unwrap().unwrap();
     assert!(
         fence(&ordinary).is_none(),
-        "natural language cannot create a Goal"
+        "natural language cannot activate a Goal"
     );
+    let legacy = store.load(ID).await.unwrap().unwrap();
+    assert!(
+        fence(&legacy).is_none(),
+        "an active-looking v1 snapshot is not execution authorization"
+    );
+    assert!(execution_state(&legacy).is_none());
+    GoalController::new(store.clone(), ID)
+        .enable(
+            legacy.revision(),
+            vec!["all tests pass".into()],
+            VerificationMode::UserConfirm,
+            3,
+        )
+        .await
+        .unwrap();
     let (executor, _) = executor(&store).await;
     assert!(executor
         .execute(request("new text\n保留换行"))
         .await
         .is_ok());
     let session = store.load(ID).await.unwrap().unwrap();
-    assert!(execution_state(&session).is_none());
     assert_eq!(
-        xharness_agent::goal_snapshot(&session)
+        execution_state(&session)
             .unwrap()
-            .goal
+            .definition
+            .snapshot
             .objective,
         "new text\n保留换行"
     );
@@ -275,9 +290,10 @@ async fn pending_edit_discards_only_goal_input_and_keeps_user_work() {
 }
 
 #[tokio::test]
-async fn editing_paused_or_completed_goals_never_resumes_or_reopens_them() {
+async fn paused_or_completed_goals_hide_tool_and_reject_previously_captured_invocations() {
     for phase in [GoalPhase::Paused, GoalPhase::Complete] {
         let store = memory(true).await;
+        let (old_executor, _) = executor(&store).await;
         let session = store.load(ID).await.unwrap().unwrap();
         let mut snapshot = xharness_agent::goal_snapshot(&session).unwrap();
         snapshot.version = 1;
@@ -296,19 +312,74 @@ async fn editing_paused_or_completed_goals_never_resumes_or_reopens_them() {
             .into()],
         )
         .await;
-        let before = execution_state(&store.load(ID).await.unwrap().unwrap()).unwrap();
-        let (executor, _) = executor(&store).await;
-        assert!(executor
-            .execute(request("edited while not executing"))
+        let before = store.load(ID).await.unwrap().unwrap();
+        assert!(fence(&before).is_none());
+        assert!(!old_executor
+            .execute(request("must not edit an inactive Goal"))
             .await
             .is_ok());
-        let after = execution_state(&store.load(ID).await.unwrap().unwrap()).unwrap();
-        assert_eq!(after.definition.snapshot.phase, phase);
-        assert!(!after.definition.execution_enabled);
-        assert_eq!(after.activation_epoch, before.activation_epoch);
-        assert_eq!(after.rounds_started, before.rounds_started);
-        assert_eq!(after.definition.verification, VerificationMode::UserConfirm);
+        assert_eq!(
+            store.load(ID).await.unwrap().unwrap().revision(),
+            before.revision()
+        );
     }
+}
+
+#[tokio::test]
+async fn tool_reappears_on_explicit_resume_but_old_activation_executor_stays_stale() {
+    let store = memory(true).await;
+    let controller = GoalController::new(store.clone(), ID);
+    let (old_executor, _) = executor(&store).await;
+    controller.pause().await.unwrap();
+    let paused = store.load(ID).await.unwrap().unwrap();
+    assert!(
+        !execution_state(&paused)
+            .unwrap()
+            .definition
+            .execution_enabled,
+        "user pause explicitly revokes execution authorization"
+    );
+    assert!(fence(&paused).is_none());
+    assert!(!old_executor
+        .execute(request("not while paused"))
+        .await
+        .is_ok());
+    let mut snapshot = xharness_agent::goal_snapshot(&paused).unwrap();
+    snapshot.version = 1;
+    snapshot.operation = GoalSnapshotOperation::Resume;
+    snapshot.goal.revision += 1;
+    snapshot.goal.phase = GoalPhase::Active;
+    append(
+        &store,
+        vec![EventData::GoalChange {
+            change: GoalChange::Snapshot(snapshot),
+        }
+        .into()],
+    )
+    .await;
+    let disarmed = store.load(ID).await.unwrap().unwrap();
+    assert!(
+        fence(&disarmed).is_none(),
+        "active phase alone must not imply activation"
+    );
+    controller
+        .enable(
+            disarmed.revision(),
+            vec!["all tests pass".into()],
+            VerificationMode::UserConfirm,
+            3,
+        )
+        .await
+        .unwrap();
+    assert!(!old_executor
+        .execute(request("old epoch must remain stale"))
+        .await
+        .is_ok());
+    let (new_executor, _) = executor(&store).await;
+    assert!(new_executor
+        .execute(request("autonomous refinement after activation"))
+        .await
+        .is_ok());
 }
 
 #[tokio::test]
@@ -578,4 +649,33 @@ async fn jsonl_cold_reload_keeps_edited_text_policy_and_pending_removal() {
         .next_turn()
         .is_empty());
     std::fs::remove_dir_all(path).unwrap();
+}
+
+#[tokio::test]
+async fn controller_pause_hides_tool_even_when_execution_authorization_is_retained() {
+    let store = memory(true).await;
+    claim(&store).await;
+    append(
+        &store,
+        vec![EventData::TurnEnd {
+            turn: 1,
+            reason: TurnEndReason::Cancelled,
+        }
+        .into()],
+    )
+    .await;
+    let controller = GoalController::new(store.clone(), ID);
+    controller.settle(None).await.unwrap();
+    assert!(matches!(
+        controller.reconcile().await.unwrap(),
+        GoalDecision::Pause { .. }
+    ));
+    let session = store.load(ID).await.unwrap().unwrap();
+    let state = execution_state(&session).unwrap();
+    assert!(state.definition.execution_enabled);
+    assert_eq!(state.definition.snapshot.phase, GoalPhase::Paused);
+    assert!(
+        fence(&session).is_none(),
+        "enabled alone cannot expose the edit tool while phase is paused"
+    );
 }

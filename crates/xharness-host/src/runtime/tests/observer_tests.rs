@@ -1160,7 +1160,15 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
     // hosted modes; an inactive hosted gate must reject before tool injection.
     for gate_active in [None, Some(true), Some(false)] {
         for restricted in [false, true] {
-            for goal_mode in ["none", "ordinary", "automatic"] {
+            for goal_mode in [
+                "none",
+                "disarmed",
+                "paused",
+                "complete",
+                "ordinary",
+                "automatic",
+            ] {
+                let goal_active = matches!(goal_mode, "ordinary" | "automatic");
                 let has_goal = goal_mode != "none";
                 let automatic_goal = goal_mode == "automatic";
                 let execution = crate::execution::ExecutionBoundary::default();
@@ -1207,10 +1215,39 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                     )
                     .await
                     .unwrap();
-                    xharness_agent::GoalController::new(store.clone(), "restricted")
-                        .reconcile()
-                        .await
-                        .unwrap();
+                    if goal_active {
+                        xharness_agent::GoalController::new(store.clone(), "restricted")
+                            .reconcile()
+                            .await
+                            .unwrap();
+                    } else {
+                        let session = store.load("restricted").await.unwrap().unwrap();
+                        let mut snapshot = xharness_agent::goal_snapshot(&session).unwrap();
+                        snapshot.version = 1;
+                        snapshot.goal.revision += 1;
+                        snapshot.operation = match goal_mode {
+                            "paused" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Paused;
+                                xharness_session::GoalSnapshotOperation::Pause
+                            }
+                            "complete" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Complete;
+                                xharness_session::GoalSnapshotOperation::Complete
+                            }
+                            _ => xharness_session::GoalSnapshotOperation::Edit,
+                        };
+                        store
+                            .append(
+                                "restricted",
+                                session.revision(),
+                                vec![xharness_session::EventData::GoalChange {
+                                    change: xharness_session::GoalChange::Snapshot(snapshot),
+                                }
+                                .into()],
+                            )
+                            .await
+                            .unwrap();
+                    }
                     let session = store.load("restricted").await.unwrap().unwrap();
                     if automatic_goal {
                         vec![xharness_agent::InboxProjection::from_session(&session)
@@ -1271,7 +1308,7 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                         names,
                         if automatic_goal {
                             vec!["edit_goal_objective", "goal_report", "history"]
-                        } else if has_goal {
+                        } else if goal_active {
                             vec!["edit_goal_objective", "history"]
                         } else {
                             vec!["history"]
