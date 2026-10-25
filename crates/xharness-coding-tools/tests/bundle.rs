@@ -674,6 +674,56 @@ fn linux_process_state(pid: u32) -> Option<char> {
 }
 
 #[tokio::test]
+async fn grep_previews_minified_lines_and_bounds_many_matches() {
+    let workspace = TempWorkspace::new();
+    fs::write(
+        workspace.0.join("minified.js"),
+        format!("needle{}\n", "x".repeat(300_000)),
+    )
+    .unwrap();
+    fs::write(
+        workspace.0.join("ordinary.txt"),
+        "needle keep this exact line\n",
+    )
+    .unwrap();
+    fs::write(
+        workspace.0.join("many.txt"),
+        "needle matched line\n".repeat(10_000),
+    )
+    .unwrap();
+    let e = executor(&workspace).await;
+    for file in ["minified.js", "ordinary.txt", "many.txt"] {
+        let result = e
+            .execute(ToolRequest::new(
+                "grep",
+                serde_json::json!({"pattern":"needle","path":file}).to_string(),
+            ))
+            .await;
+        assert!(result.is_ok(), "{result:?}");
+        let output: Value = serde_json::from_str(&result.output.unwrap().content).unwrap();
+        let stdout = output["stdout"].as_str().unwrap();
+        // Capture retains 32 KiB plus its explicit fixed-format omission notice.
+        assert!(stdout.len() <= 32 * 1024 + 64);
+        assert!(!output["no_matches"].as_bool().unwrap());
+        if file == "ordinary.txt" {
+            assert!(stdout.contains("needle keep this exact line"));
+        }
+        if file == "minified.js" {
+            assert!(stdout.contains("needle"));
+            assert!(
+                stdout.contains("omitted"),
+                "long-line preview must announce omission: {stdout}"
+            );
+            assert!(stdout.len() < 1000);
+        }
+        if file == "many.txt" {
+            assert_eq!(output["stdout_truncated"], true);
+            assert!(output["stdout_omitted_bytes"].as_u64().unwrap() > 0);
+        }
+    }
+}
+
+#[tokio::test]
 async fn search_tools_distinguish_no_matches_and_real_errors() {
     let workspace = TempWorkspace::new();
     fs::write(workspace.0.join("sample.txt"), "needle\n").unwrap();

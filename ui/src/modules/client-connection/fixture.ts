@@ -1054,16 +1054,10 @@ function lastRequestContext(
   return event?.type === 'request/context' ? event.data : undefined
 }
 
-/**
- * Fixture parallel of token-meter's request-pressure projection: the last
- * provider-reported prompt size paired with the last recorded capacity. The
- * two need not come from one request — see the token-meter README. The host's
- * `projectedTokens` is deliberately absent: reproducing it would mean
- * reimplementing the estimator client-side, and every consumer falls back to
- * the bare sample, so a fixture-driven view simply lags a compaction the way
- * the projection did before that field existed.
+/** Fixture-only parallel of the durable metric fold. Counts come from logged
+ * headers/usage, never a client-side estimator. Retained samples bind their own
+ * capacity and composition so pending requests cannot reprice an earlier one.
  */
-/** Production xharness-context-replay/v2 and composition replay, from durable events. */
 function contextPressureOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const record = (value: unknown): Record<string, unknown> =>
     isObjectRecord(value) ? value : {}
@@ -1079,7 +1073,7 @@ function contextPressureOf(log: readonly SessionEvent[]): Record<string, unknown
     }
     if (type === 'step/start') {
       active = [data['turn'], data['step']]; waiting = false
-      value = { contextWindow: value['contextWindow'], phase: 'preparing' }
+      value = { contextWindow: value['contextWindow'], lastMeasured: value['lastMeasured'], phase: 'preparing' }
     }
     if (type === 'request/header') {
       const options = record(record(data['header'])['options'])
@@ -1087,6 +1081,7 @@ function contextPressureOf(log: readonly SessionEvent[]): Record<string, unknown
       const estimate = record(budget['estimate'])
       waiting = false
       value = {
+        lastMeasured: value['lastMeasured'],
         contextWindow: contextSeen ? value['contextWindow'] : budget['contextWindowTokens'] ?? budget['context_window_tokens'],
         projectedTokens: estimate['totalInputTokens'] ?? estimate['total_input_tokens'],
         projectedAccuracy: budget['accuracy'] ?? 'estimated',
@@ -1103,6 +1098,7 @@ function contextPressureOf(log: readonly SessionEvent[]): Record<string, unknown
       const tokens = sample.usage.inputTokens + (sample.usage.cacheReadTokens ?? 0) + (sample.usage.cacheWriteTokens ?? 0)
       if (Number.isSafeInteger(tokens) && tokens >= 0) Object.assign(value, {
         pressureTokens: tokens, pressureAccuracy: 'provider_reported', accuracy: 'provider_reported',
+        lastMeasured: { tokens, contextWindow: value['contextWindow'], measurement: value['measurement'] ?? null, composition: value['composition'] ?? null },
         phase: value['phase'] === 'history_changed' ? 'history_changed' : 'measured',
       })
     }

@@ -64,7 +64,7 @@ try {
    snapshot.set({...snapshot.getSnapshot(),chat:{...snapshot.getSnapshot().chat,order,nodes}})};
   function App(){
    if(mode==='permissions')return jsx('div',{style:{position:'fixed',bottom:80,left:24},children:jsx(plugin.PermissionSelect,{value:window.permissionValue,locked:false,command:async line=>{calls.push({permission:line});if(window.permissionWait)await permissionWait;return true},t})});
-   if(mode==='meter')return jsx(plugin.ContextMeter,{useProjection,t});
+   if(mode==='meter')return jsx('div',{style:{position:'fixed',right:16,bottom:80},children:jsx(plugin.ContextMeter,{useProjection,t})});
    if(mode==='bar')return jsx(plugin.XHarnessEditableInputBar,barProps);
    if(mode==='window'){return jsx('div',{'data-conversation-scroll':'',style:{height:400,overflowY:'auto',width:700},children:Array.from({length:150},(_,i)=>jsx(plugin.XhTranscriptWindowRow,{key:i,'data-row':i,keepMounted:i===149,children:jsx(Counter,{index:i})}))})}
    if(mode==='queue')return jsx(plugin.QueueDock,{useSession,t,updateQueue:async(id,action)=>{calls.push({queue:id,action});if(window.queueFail)throw Error('queue race')},notify:(_level,text)=>calls.push({notice:text})});
@@ -114,6 +114,27 @@ try {
  const idb=await page.evaluate(async()=>{await storage.save('portable',{version:1,backup:{text:'old',images:[]},draft:{text:'file',images:[{file:new File(['portable bytes'],'web-kit.txt',{type:'text/plain'})}]}});const record=await plugin.xhEditStorage().load('portable');const result={text:record.draft.text,name:record.draft.images[0].file.name,bytes:await record.draft.images[0].file.text()};await storage.remove('portable');return result});assert.deepEqual(idb,{text:'file',name:'web-kit.txt',bytes:'portable bytes'});
  // Context seat is stable when missing/pending, and seven segments match actual reading.
  await page.evaluate(()=>setMode('meter'));assert.equal(await page.locator('svg circle').count(),8);await page.getByRole('button').click();await page.getByRole('dialog').waitFor();if(impl!=='legacy')assert.equal(await page.getByRole('dialog').getAttribute('aria-modal'),'false','context usage is a nonmodal popup');assert.match(await page.getByRole('dialog').innerText(),/25%/);await page.keyboard.press('Escape');await page.evaluate(()=>setPressure({phase:'preparing'}));assert.equal(await page.getByRole('button').isDisabled(),true);await page.evaluate(()=>setPressure(undefined));assert.equal(await page.locator('svg').count(),1);
+ if(impl!=='legacy') {
+  const sample={tokens:7320,contextWindow:1048576,composition:{systemTokens:1,toolResultTokens:9}};
+  for(const phase of ['preparing','in_flight','unmeasured','history_changed']) {
+   await page.evaluate(({phase,sample})=>setPressure({phase,lastMeasured:sample,contextWindow:2000000,projectedTokens:315420,projectedAccuracy:'conservative_upper_bound',composition:{assistantTokens:999}}),{phase,sample});
+   const trigger=page.getByRole('button');
+   assert.equal(await trigger.getAttribute('aria-label'),'1% of context used · Awaiting update');
+   const arcs=await page.locator('svg circle[stroke-dasharray]').evaluateAll(nodes=>nodes.map(n=>[n.getAttribute('stroke'),n.getAttribute('stroke-dasharray')]));
+   assert.deepEqual(arcs.map(a=>a[0]),['#8290a5','#e1a63b'],'shares belong to measured request, not pending request');
+   await trigger.click();const popup=page.getByRole('dialog');await popup.waitFor();
+   assert.match(await popup.innerText(),/7.3K \/ 1M/);assert.match(await popup.innerText(),/Admission byte ceiling \(not measured\)/);assert.match(await popup.innerText(),/315K/);
+   for(const width of [360,1000]) {
+    await page.setViewportSize({width,height:780});
+    const box=await popup.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width+1,'pending detail stays inside viewport');
+   }
+   await page.keyboard.press('Escape');
+  }
+  await page.evaluate(()=>setPressure({phase:'unmeasured',contextWindow:1048576,projectedTokens:315420,projectedAccuracy:'conservative_upper_bound'}));
+  assert.equal(await page.getByRole('button').getAttribute('aria-label'),'No measured input yet');
+  await page.getByRole('button').click();assert.match(await page.getByRole('dialog').innerText(),/No measured input yet/);assert.doesNotMatch(await page.getByRole('dialog').innerText(),/30%/);await page.keyboard.press('Escape');
+  await page.evaluate(()=>setPressure({phase:'model_changed'}));assert.equal(await page.getByRole('button').isDisabled(),true);
+ }
  // Actual resident conversation tree: user editing, reasoning, compaction disclosure, limit notices.
  await page.evaluate(()=>{installNodes();setMode('conversation')});await page.getByText('final answer',{exact:true}).waitFor();await page.getByRole('button',{name:/Think/}).click();await page.getByText('first line\nreasoning details',{exact:true}).waitFor();await page.getByRole('button',{name:/Context compacted/}).click();await page.getByText('saved summary',{exact:true}).waitFor();
  // Linux WebKit appends a layout LF to aggregate details.innerText. Verify

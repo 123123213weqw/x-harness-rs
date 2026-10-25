@@ -789,7 +789,7 @@ impl CodingToolBundle {
         ToolSpec::new(
             definition(
                 "grep",
-                "Search text from the session workspace using ripgrep without shell interpretation.",
+                "Search text from the session workspace using ripgrep without shell interpretation. Matching lines are previewed at 500 columns and output is capped at 32 KiB; inspect the reported file/line with read for full content.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -807,6 +807,8 @@ impl CodingToolBundle {
                     let pattern = required_string(&context, "pattern")?;
                     let mut args = vec![
                         OsString::from("--line-number"),
+                        OsString::from("--max-columns=500"),
+                        OsString::from("--max-columns-preview"),
                         OsString::from("--no-heading"),
                         OsString::from("--color=never"),
                     ];
@@ -822,6 +824,7 @@ impl CodingToolBundle {
                         .debug_parent(context.execution_id.as_str())
                         .args(args)
                         .timeout(Duration::from_secs(30))
+                        .output_limits(32 * 1024, 16 * 1024)
                         .envs(managed_environment());
                     search_process_output(
                         run_process(platform, spec, &context.cancellation).await?,

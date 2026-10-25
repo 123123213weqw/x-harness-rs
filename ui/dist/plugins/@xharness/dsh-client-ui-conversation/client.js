@@ -1281,9 +1281,14 @@ const ROWS = [
 ];
 function tintStyle(tint, width) { return { '--meter-tint': tint, ...(width === undefined ? {} : { width }) }; }
 function ContextMeter({ useProjection, t }) {
-    const pressure = useProjection('contextPressure'), composition = pressure?.composition;
+    const pressure = useProjection('contextPressure');
     const [open, setOpen] = (0, react_1.useState)(false), rootRef = (0, react_1.useRef)(null);
-    const context = (0, StatsLine_1.contextOccupancy)(pressure), available = context !== null;
+    const context = (0, StatsLine_1.contextOccupancy)(pressure), composition = context?.composition;
+    const preflight = pressure?.projectedTokens;
+    const hasPreflight = preflight !== undefined && Number.isSafeInteger(preflight) && preflight >= 0;
+    const available = context !== null || hasPreflight;
+    const preflightKind = pressure?.projectedAccuracy ?? pressure?.accuracy;
+    const preflightLabel = preflightKind === 'conservative_upper_bound' ? 'context.byteUpperBound' : ['exact_request', 'exact_tokenizer'].includes(preflightKind ?? '') ? 'context.preflightCount' : 'context.preflightEstimate';
     (0, react_1.useEffect)(() => { if (!available && open)
         setOpen(false); }, [available, open]);
     (0, react_1.useEffect)(() => {
@@ -1301,8 +1306,8 @@ function ContextMeter({ useProjection, t }) {
         .filter(row => Number.isSafeInteger(row.value) && row.value > 0);
     const weight = available ? values.reduce((total, row) => total + row.value, 0) : 0;
     const percent = context?.percent ?? 0;
-    const reading = available ? (context.exact ? '' : '≈') + percent + '%' : null;
-    const label = available ? t('context.aria', { percent: reading }) : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unavailable');
+    const reading = context ? percent + '%' : null;
+    const label = context ? t('context.aria', { percent: reading }) + (context.stale ? ' · ' + t('context.awaitingUpdate') : '') : t(['preparing', 'in_flight', 'model_changed'].includes(pressure?.phase ?? '') ? 'context.pending' : 'context.unmeasured');
     const segments = weight > 0 && composition ? values.map(row => ({ ...row, ratio: row.value / weight })) : [{ key: 'total', tint: 'currentColor', ratio: 1 }];
     let offset = 0;
     const ring = segments.map(segment => {
@@ -1310,7 +1315,7 @@ function ContextMeter({ useProjection, t }) {
         offset += length;
         return (0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.fill, cx: "7", cy: "7", r: RADIUS, stroke: segment.tint, strokeDasharray: `${length} ${CIRCUMFERENCE}`, strokeDashoffset: -start, transform: "rotate(-90 7 7)" }, segment.key);
     });
-    return (0, jsx_runtime_1.jsxs)("span", { ref: rootRef, className: ContextMeter_styles_1.default.root, children: [(0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "top", delayMs: 200, disabled: open, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ContextMeter_styles_1.default.trigger, "aria-label": label, "aria-haspopup": available ? 'dialog' : undefined, "aria-expanded": available ? open : undefined, disabled: !available, onClick: () => setOpen(!open), children: (0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 14 14", width: "14", height: "14", "aria-hidden": true, children: [(0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.track, cx: "7", cy: "7", r: RADIUS }), ring] }) }) }), open && context && (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.panel, role: "dialog", "aria-modal": "false", "aria-label": t('context.used'), children: [(0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.header, children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.headline, children: context.label }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.percent, children: reading }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.figures, children: `${context.exact ? '' : '≈'}${(0, StatsLine_1.formatTokens)(context.usedTokens)} / ${(0, StatsLine_1.formatTokens)(context.contextWindow)}` })] }), (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.bar, children: segments.map(row => (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.segment, style: tintStyle(row.tint, `${percent * row.ratio}%`) }, row.key)) }), weight > 0 && (0, jsx_runtime_1.jsxs)("dl", { className: ContextMeter_styles_1.default.rows, children: [(0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.headline, children: t('context.distributionEstimate') }), segments.map(row => (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.row, children: [(0, jsx_runtime_1.jsxs)("dt", { children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.swatch, style: tintStyle(row.tint), "aria-hidden": true }), row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''] }), (0, jsx_runtime_1.jsx)("dd", { children: `≈${(0, StatsLine_1.formatTokens)(Math.round(context.usedTokens * row.ratio))}` })] }, row.key))] })] })] });
+    return (0, jsx_runtime_1.jsxs)("span", { ref: rootRef, className: ContextMeter_styles_1.default.root, children: [(0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: label, side: "top", delayMs: 200, disabled: open, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ContextMeter_styles_1.default.trigger, "aria-label": label, "aria-haspopup": available ? 'dialog' : undefined, "aria-expanded": available ? open : undefined, disabled: !available, onClick: () => setOpen(!open), children: (0, jsx_runtime_1.jsxs)("svg", { viewBox: "0 0 14 14", width: "14", height: "14", "aria-hidden": true, children: [(0, jsx_runtime_1.jsx)("circle", { className: ContextMeter_styles_1.default.track, cx: "7", cy: "7", r: RADIUS }), ring] }) }) }), open && available && (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.panel, role: "dialog", "aria-modal": "false", "aria-label": t('context.used'), children: [(0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.header, children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.headline, children: context?.label ?? t('context.unmeasured') }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.percent, children: reading }), (0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.figures, children: context ? `${(0, StatsLine_1.formatTokens)(context.usedTokens)} / ${(0, StatsLine_1.formatTokens)(context.contextWindow)}` : '—' })] }), hasPreflight && (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.row, children: [(0, jsx_runtime_1.jsx)("span", { children: t(preflightLabel) }), (0, jsx_runtime_1.jsx)("span", { children: (0, StatsLine_1.formatTokens)(preflight) })] }), (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.bar, children: segments.map(row => (0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.segment, style: tintStyle(row.tint, `${percent * row.ratio}%`) }, row.key)) }), weight > 0 && (0, jsx_runtime_1.jsxs)("dl", { className: ContextMeter_styles_1.default.rows, children: [(0, jsx_runtime_1.jsx)("div", { className: ContextMeter_styles_1.default.headline, children: t('context.distributionEstimate') }), segments.map(row => (0, jsx_runtime_1.jsxs)("div", { className: ContextMeter_styles_1.default.row, children: [(0, jsx_runtime_1.jsxs)("dt", { children: [(0, jsx_runtime_1.jsx)("span", { className: ContextMeter_styles_1.default.swatch, style: tintStyle(row.tint), "aria-hidden": true }), row.label ? t(row.key === 'userTokens' && composition?.attributionVersion !== 2 ? 'context.userRoleHistory' : row.label) : ''] }), (0, jsx_runtime_1.jsx)("dd", { children: `≈${(0, StatsLine_1.formatTokens)(Math.round((context?.usedTokens ?? 0) * row.ratio))}` })] }, row.key))] })] })] });
 }
 
 },
@@ -1429,29 +1434,21 @@ function cacheHitPercent(usage) {
 function billedInputTokens(usage) {
     return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
 }
-/**
- * Approximate context occupancy, using the TUI's integer rounding and upper
- * clamp. The numerator is `projectedTokens` — the provider sample carried
- * forward over the surface's movement since — so compaction shows immediately
- * instead of waiting for the next request to report usage; it falls back to the
- * bare sample only for a log whose projection predates that field. Numerator
- * and capacity remain independent last-wins projection fields, so this is a
- * reference figure rather than an exact measurement of one request (see the
- * token-meter README).
- * @param pressure - the session's context-pressure projection value.
- * @returns occupancy with its numerator and denominator, or null until both values are known.
+/** The ring is a request-bound provider sample, never an admission byte ceiling.
+ * Pending estimates remain separate so preparation/interruptions cannot reprice
+ * an earlier sample or swap its composition with a different request's shares.
  */
 function contextOccupancy(pressure) {
-    const measured = Number.isFinite(pressure?.pressureTokens);
-    const usedTokens = measured ? pressure?.pressureTokens : pressure?.projectedTokens;
-    const accuracy = measured ? (pressure?.pressureAccuracy ?? 'provider_reported') : (pressure?.projectedAccuracy ?? pressure?.accuracy ?? 'estimated');
-    const exact = measured ? accuracy === 'provider_reported' : ['exact_request', 'exact_tokenizer'].includes(accuracy);
-    const stale = pressure?.phase === 'history_changed';
-    const label = (measured ? '最近请求实际输入' : stale ? '最近请求输入计数' : '本次请求输入计数') + (!measured && !exact ? '（估算）' : '') + (stale ? ' · 历史已变化' : '');
-    const contextWindow = pressure?.contextWindow;
-    if (usedTokens === undefined || !Number.isFinite(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isFinite(contextWindow) || contextWindow <= 0)
+    const current = pressure?.pressureTokens;
+    const measured = Number.isSafeInteger(current) && (current ?? -1) >= 0 && (pressure?.pressureAccuracy ?? 'provider_reported') === 'provider_reported';
+    const sample = pressure?.lastMeasured ?? (measured ? { tokens: current, contextWindow: pressure?.contextWindow, composition: pressure?.composition } : undefined);
+    const usedTokens = sample?.tokens, contextWindow = sample?.contextWindow;
+    if (usedTokens === undefined || !Number.isSafeInteger(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isSafeInteger(contextWindow) || contextWindow <= 0)
         return null;
-    return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact, label, accuracy, stale };
+    // Keep the sample's own denominator even if route capacity changes meanwhile.
+    const stale = !measured || pressure?.phase === 'history_changed';
+    const label = '最近请求实际输入' + (stale ? ' · 待更新' : '');
+    return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact: true, label, accuracy: 'provider_reported', stale, composition: sample?.composition };
 }
 exports.StatsLine = (0, react_1.memo)(function StatsLine({ useSession, useProjection, t }) {
     const disclosureRef = (0, react_1.useRef)(null);
@@ -8170,7 +8167,7 @@ exports.en = {
     "image.subagentUnsupported": "Subagent sessions do not support images yet",
     "image.sendFailed": "Sending images failed ({reason}); re-add them and try again",
     "context.aria": "{percent} of context used",
-    "context.pending": "Calculating context usage",
+    "context.awaitingUpdate": "Awaiting update", "context.unmeasured": "No measured input yet", "context.byteUpperBound": "Admission byte ceiling (not measured)", "context.preflightCount": "Current request input count", "context.preflightEstimate": "Current request estimate", "context.pending": "Calculating context usage",
     "context.unavailable": "Context usage unavailable",
     "context.used": "of context used",
     "context.system": "System prompt",
@@ -8393,7 +8390,7 @@ exports.zh = {
     "image.subagentUnsupported": "子智能体会话暂不支持图片",
     "image.sendFailed": "图片发送失败（{reason}），请重新添加图片后再试",
     "context.aria": "上下文已用 {percent}",
-    "context.pending": "正在计算上下文",
+    "context.awaitingUpdate": "待更新", "context.unmeasured": "尚无实测用量", "context.byteUpperBound": "准入字节保守上界（非实测）", "context.preflightCount": "本次请求输入计数", "context.preflightEstimate": "本次请求估算", "context.pending": "正在计算上下文",
     "context.unavailable": "暂无上下文读数",
     "context.used": "上下文已用",
     "context.system": "系统提示词",

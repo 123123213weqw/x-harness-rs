@@ -19,10 +19,20 @@ const contextProvenanceLocales = {
  en: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
  zh: {'context.yourMessages':'Your messages','context.agentReports':'Agent reports','context.runtimeContext':'Runtime context','context.checkpoints':'Checkpoints','context.unattributed':'Unattributed context','context.userRoleHistory':'User-role history (source unknown)'},
 };
+const contextMeterLocales = {
+ en: {'context.awaitingUpdate':'Awaiting update','context.unmeasured':'No measured input yet','context.byteUpperBound':'Admission byte ceiling (not measured)','context.preflightCount':'Current request input count','context.preflightEstimate':'Current request estimate'},
+ zh: {'context.awaitingUpdate':'待更新','context.unmeasured':'尚无实测用量','context.byteUpperBound':'准入字节保守上界（非实测）','context.preflightCount':'本次请求输入计数','context.preflightEstimate':'本次请求估算'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
  assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ for(const [key,expected] of Object.entries(contextMeterLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false);
+  assert.equal(locale[key],expected,`${language} request-bound meter label ${key}`);
+  delete normalized[key];
+ }
+
  for (const [key, expected] of Object.entries(compactionTerminalLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language], key), false, 'terminal labels are an additive delta, not a frozen baseline edit');
   assert.equal(locale[key], expected, `${language} terminal label ${key} must match its reviewed value`);
@@ -190,7 +200,21 @@ test('checkpoint and max-steps turn termination remain visible and immediate',()
  for(const e of [event('run/checkpoint',{turn:2,notice:{kind:'continued',message:'continue'}},5),event('turn/end',{turn:2,reason:{kind:'max-steps'}},7)]){const out=apis.map(({plugin:api})=>{const d=api.xhCheckpointDefinition,m=match(e),s=d.start({},m);return{match:d.match(e),node:json(d.buildViewNode(stateContext(d,s,[m]))),publication:d.publication(m)}});assert.deepEqual(json(out[1]),json(out[0]));assert.equal(out[1].publication,'immediate')}
 });
 test('context accuracy/staleness, ring guards and reader-scroll ownership match all edge readings',()=>{
- for(const pressure of [undefined,{}, {projectedTokens:10,contextWindow:100},{pressureTokens:20,projectedTokens:1,contextWindow:100},{pressureTokens:10,pressureAccuracy:'estimated',contextWindow:100},{projectedTokens:33,projectedAccuracy:'exact_tokenizer',contextWindow:100,phase:'history_changed'},{projectedTokens:NaN,contextWindow:100},{pressureTokens:Infinity,projectedTokens:10,contextWindow:100},{projectedTokens:-1,contextWindow:100},{projectedTokens:0,contextWindow:0},{projectedTokens:500,contextWindow:100}])assert.deepEqual(json(apis[1].plugin.contextOccupancy(pressure)),json(apis[0].plugin.contextOccupancy(pressure)));
+ // Reviewed semantic delta: only request-bound actual readings own the ring;
+ // all preflight counts, even exact ones, live in the separate detail row.
+ const read=apis[1].plugin.contextOccupancy;
+ for(const p of [undefined,{}, {projectedTokens:10,contextWindow:100},{pressureTokens:10,pressureAccuracy:'estimated',contextWindow:100},{projectedTokens:33,projectedAccuracy:'exact_tokenizer',contextWindow:100,phase:'history_changed'},{pressureTokens:Infinity,projectedTokens:10,contextWindow:100},{pressureTokens:-1,contextWindow:100},{pressureTokens:0,contextWindow:0}])assert.equal(read(p),null);
+ for(const [tokens,percent] of [[0,0],[20,20],[500,100]]) {
+  const value=read({pressureTokens:tokens,projectedTokens:1,contextWindow:100});
+  assert.equal(value.usedTokens,tokens);assert.equal(value.percent,percent);assert.equal(value.exact,true);
+ }
+ const prior={tokens:7320,contextWindow:1048576,composition:{toolResultTokens:1}};
+ for(const phase of ['preparing','in_flight','unmeasured','history_changed']) {
+  const value=read({phase,lastMeasured:prior,projectedTokens:315420,contextWindow:2000000,composition:{toolResultTokens:285416}});
+  assert.equal(value.usedTokens,7320);assert.equal(value.contextWindow,1048576);assert.equal(value.percent,1);
+  assert.equal(value.stale,true);assert.equal(value.composition.toolResultTokens,1);
+ }
+
  // Intentional correction: even an upward move within 25px releases follow.
  // Other scroll/clamp ownership readings retain the pinned legacy baseline.
  for(const recent of [false,true])for(const pinned of [false,true])for(const [top,floor,observed] of [[0,100,100],[100,100,100],[50,50,100],[80,100,100]]){
