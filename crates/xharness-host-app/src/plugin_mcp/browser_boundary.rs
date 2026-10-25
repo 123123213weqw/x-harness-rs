@@ -6,8 +6,9 @@ use xharness_plugins::PluginManager;
 
 pub(super) const HEADLESS_PLUGIN: &str = "browser-use";
 pub(super) const HEADLESS_SERVER: &str = "browser";
+pub(super) const EXTENSION_PLUGIN: &str = "browser-extension";
 
-pub(super) const GUIDANCE: &str = " Browser boundary: Use embedded native-browser/webview for the user's visible/current page, an existing signed-in session, or manual user participation. An explicitly enabled browser-use/browser is an isolated headless background backend for independent public-page tasks without an existing login session; it does not display or inherit the WebView's page or login state. Choose by the user's task, not by inspecting cookies. Explicit plugin/server and issued tab/frame refs identify the session; never mix references, transfer cookies/profiles, or silently switch browser backends after failure. If login, CAPTCHA or user participation is required, explain and ask before a fresh visible-browser handoff; do not replay a previous action. Discovery is configuration/capability information, not authorization or proof that a page is ready.";
+pub(super) const GUIDANCE: &str = " Browser boundary: Use embedded native-browser/webview for the user's visible/current page, an existing signed-in session, or manual user participation. An explicitly enabled browser-use/browser is an isolated headless background backend for independent public-page tasks without an existing login session; it does not display or inherit the WebView's page or login state. Choose by the user's task, not by inspecting cookies. Explicit plugin/server and issued tab/frame refs identify the session; never mix references, transfer cookies/profiles, or silently switch browser backends after failure. If login, CAPTCHA or user participation is required, explain and ask before a fresh visible-browser handoff; do not replay a previous action. An explicitly enabled browser-extension/browser controls only user-paired Chrome/Edge tabs, including background tabs, using its own session and references. Call status for its pairing code; the user grants a tab in the browser extension. Never infer that pairing, tool approval or full access authorizes another tab or origin. Discovery is configuration/capability information, not authorization or proof that a page is ready.";
 
 pub(super) fn embedded_capability() -> Value {
     json!({
@@ -38,6 +39,18 @@ pub(super) async fn headless_capability(manager: &PluginManager) -> Option<Value
         "readiness":"not-probed",
         "description":"Opt-in browser-use backend for independent public-page tasks. Separate from the visible WebView; no inherited WebView login. Describe its browser tool before use."
     }))
+}
+
+/// A configured extension is not a paired tab, and discovery never launches it.
+pub(super) async fn extension_capability(manager: &PluginManager) -> Option<Value> {
+    manager
+        .mcp_server(EXTENSION_PLUGIN, HEADLESS_SERVER)
+        .await
+        .ok()?;
+    Some(json!({"plugin":EXTENSION_PLUGIN,"server":HEADLESS_SERVER,
+        "backend":"extension","visibility":"authorized-tabs","session":"explicit-per-chat-pairing",
+        "availability":"configured","readiness":"not-probed",
+        "description":"Chrome/Edge extension: call browser status for its pairing code; only user-authorized tabs can be controlled, including background tabs. No WebView login transfer."}))
 }
 
 #[cfg(test)]
@@ -74,6 +87,13 @@ mod tests {
         }
     }
     async fn install(root: &Root, server: &str) -> (Arc<PluginManager>, PathBuf) {
+        install_named(root, HEADLESS_PLUGIN, server).await
+    }
+    async fn install_named(
+        root: &Root,
+        plugin: &str,
+        server: &str,
+    ) -> (Arc<PluginManager>, PathBuf) {
         // A deliberately unlaunchable process makes discovery's no-start claim
         // observable; env resolution would also fail. Neither is needed to list.
         let config = json!({"mcpServers":{(server):{"type":"stdio", "command":"xharness-browser-boundary-never-launch", "args":[],
@@ -82,7 +102,7 @@ mod tests {
         for (name, bytes) in [
             (
                 ".claude-plugin/plugin.json",
-                json!({"name":HEADLESS_PLUGIN,"version":"1.0.0"}).to_string(),
+                json!({"name":plugin,"version":"1.0.0"}).to_string(),
             ),
             (".mcp.json", config.to_string()),
         ] {
@@ -92,18 +112,18 @@ mod tests {
         }
         let bytes = zip.finish().unwrap().into_inner();
         let manager = Arc::new(PluginManager::open(root.0.join("plugins")).unwrap());
-        manager.import_catalog(&json!({"plugins":[{"name":HEADLESS_PLUGIN,"version":"1.0.0","source":{
+        manager.import_catalog(&json!({"plugins":[{"name":plugin,"version":"1.0.0","source":{
             "source":"url","type":"zip","url":"https://example.invalid/browser-boundary.zip","sha256":format!("{:x}",Sha256::digest(&bytes))
         }}]}).to_string()).await.unwrap();
         let installed = manager
-            .install_verified_archive(HEADLESS_PLUGIN, &bytes)
+            .install_verified_archive(plugin, &bytes)
             .await
             .unwrap();
         assert!(!installed.enabled && !installed.mcp_enabled);
         let config_path = root
             .0
             .join("plugins/packages")
-            .join(HEADLESS_PLUGIN)
+            .join(plugin)
             .join(&installed.digest)
             .join(".mcp.json");
         (manager, config_path)
@@ -169,6 +189,36 @@ mod tests {
         }
         manager
             .set_mcp_enabled(HEADLESS_PLUGIN, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            index(&executor).await,
+            json!({"plugins":[],"capabilities":[]})
+        );
+    }
+    #[tokio::test]
+    async fn extension_discovery_is_configured_not_paired_and_does_not_launch() {
+        let root = Root::new();
+        let (manager, _) = install_named(&root, EXTENSION_PLUGIN, HEADLESS_SERVER).await;
+        let executor = executor(manager.clone(), true).await;
+        assert_eq!(
+            index(&executor).await,
+            json!({"plugins":[],"capabilities":[]})
+        );
+        manager
+            .set_mcp_enabled(EXTENSION_PLUGIN, true)
+            .await
+            .unwrap();
+        let value = index(&executor).await;
+        assert_eq!(value["plugins"], json!([EXTENSION_PLUGIN]));
+        assert_eq!(value["capabilities"][0]["backend"], "extension");
+        assert_eq!(
+            value["capabilities"][0]["session"],
+            "explicit-per-chat-pairing"
+        );
+        assert_eq!(value["capabilities"][0]["readiness"], "not-probed");
+        manager
+            .set_mcp_enabled(EXTENSION_PLUGIN, false)
             .await
             .unwrap();
         assert_eq!(

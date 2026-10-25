@@ -4,6 +4,8 @@
 mod browser_boundary;
 #[cfg(test)]
 mod browser_e2e;
+#[cfg(test)]
+mod extension_e2e;
 mod media;
 
 use std::{sync::Arc, time::Duration};
@@ -171,6 +173,13 @@ fn spec(
                     if plugins.iter().any(|plugin| plugin == browser_boundary::HEADLESS_PLUGIN) {
                         if let Some(manager) = &manager {
                             if let Some(capability) = browser_boundary::headless_capability(manager).await {
+                                capabilities.push(capability);
+                            }
+                        }
+                    }
+                    if plugins.iter().any(|plugin| plugin == browser_boundary::EXTENSION_PLUGIN) {
+                        if let Some(manager) = &manager {
+                            if let Some(capability) = browser_boundary::extension_capability(manager).await {
                                 capabilities.push(capability);
                             }
                         }

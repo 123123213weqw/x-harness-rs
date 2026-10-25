@@ -1,0 +1,68 @@
+name: Browser extension
+on:
+  pull_request:
+    paths:
+      - 'plugins/browser-extension/**'
+      - 'scripts/browser_extension/**'
+      - 'crates/xharness-host-app/src/browser_extension_host.rs'
+      - 'crates/xharness-host-app/src/plugin_mcp/**'
+      - '.github/workflows/browser-extension.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: browser-extension-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: plugins/browser-extension/package-lock.json
+      - run: npm ci --prefix plugins/browser-extension --ignore-scripts
+      - run: npm run build --prefix plugins/browser-extension
+      - run: npm test --prefix plugins/browser-extension
+  chromium-native-messaging:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: native-ubuntu-22.04-v1
+      - run: cargo build --locked -p xharness-host-app --bin xharness-browser-extension-host
+      - run: npm ci --prefix plugins/browser-extension --ignore-scripts
+      - run: npm run build --prefix plugins/browser-extension
+      - name: Real plugin_mcp transport must report unpaired, not gain tab authority
+        run: cargo test --locked -p xharness-host-app --lib extension_status_uses_real_plugin_mcp -- --ignored
+      - run: npm ci --prefix scripts/ui-test-deps --ignore-scripts
+      - name: Install the exact locked Chromium in an isolated runner
+        run: cd scripts/ui-test-deps && npx playwright install --with-deps chromium
+      - name: Ensure an isolated virtual display is available
+        run: command -v xvfb-run >/dev/null || (sudo apt-get update && sudo apt-get install -y xvfb)
+      - name: Real background tab, native messaging, popup and MCP acceptance
+        env:
+          XHARNESS_BROWSER_EXTENSION_TEST_SERVER: '1'
+          UI_TEST_DEPS: scripts/ui-test-deps
+          XHARNESS_BROWSER_EXTENSION_HOST: target/debug/xharness-browser-extension-host
+        run: xvfb-run -a node scripts/browser_extension/acceptance.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-extension-isolated-evidence
+          path: dist/browser-extension-evidence/
+          if-no-files-found: warn
