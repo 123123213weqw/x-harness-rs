@@ -7,7 +7,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { IconChecklistOutline14 } from '../primitives'
 import type { ConversationSnapshot, UseProjection } from "../types/runtime"
 import type { SnapshotSelectorHook } from "../types/slots"
-import type { ContextPressureProjection, TokenUsageProjection } from "../types/wire"
+import type { ContextComposition, ContextPressureProjection, TokenUsageProjection } from "../types/wire"
 import type { ComposerBarProps } from '../contract/slots'
 import { formatTokensPerSecond } from './message-chrome'
 import { assistantStepReading } from './turn-metrics'
@@ -129,33 +129,25 @@ interface ContextOccupancy {
   label: string
   accuracy: string
   stale: boolean
+  composition?: ContextComposition | undefined
 }
 
-/**
- * Approximate context occupancy, using the TUI's integer rounding and upper
- * clamp. The numerator is `projectedTokens` — the provider sample carried
- * forward over the surface's movement since — so compaction shows immediately
- * instead of waiting for the next request to report usage; it falls back to the
- * bare sample only for a log whose projection predates that field. Numerator
- * and capacity remain independent last-wins projection fields, so this is a
- * reference figure rather than an exact measurement of one request (see the
- * token-meter README).
- * @param pressure - the session's context-pressure projection value.
- * @returns occupancy with its numerator and denominator, or null until both values are known.
+/** The ring is a request-bound provider sample, never an admission byte ceiling.
+ * Pending estimates remain separate so preparation/interruptions cannot reprice
+ * an earlier sample or swap its composition with a different request's shares.
  */
 export function contextOccupancy(
   pressure: ContextPressureProjection | undefined,
 ): ContextOccupancy | null {
-  const measured = Number.isFinite(pressure?.pressureTokens)
-  const usedTokens = measured ? pressure?.pressureTokens : pressure?.projectedTokens
-  const accuracy = measured ? (pressure?.pressureAccuracy ?? 'provider_reported') : (pressure?.projectedAccuracy ?? pressure?.accuracy ?? 'estimated')
-  const exact = measured ? accuracy === 'provider_reported' : ['exact_request', 'exact_tokenizer'].includes(accuracy)
-  const stale = pressure?.phase === 'history_changed'
-  const label = (measured ? '最近请求实际输入' : stale ? '最近请求输入计数' : '本次请求输入计数') + (!measured && !exact ? '（估算）' : '') + (stale ? ' · 历史已变化' : '')
-  const contextWindow = pressure?.contextWindow
-  if (usedTokens === undefined || !Number.isFinite(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isFinite(contextWindow) || contextWindow <= 0) return null
-  return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact, label, accuracy, stale }
-
+  const current = pressure?.pressureTokens
+  const measured = Number.isSafeInteger(current) && (current ?? -1) >= 0 && (pressure?.pressureAccuracy ?? 'provider_reported') === 'provider_reported'
+  const sample = pressure?.lastMeasured ?? (measured ? { tokens: current, contextWindow: pressure?.contextWindow, composition: pressure?.composition } : undefined)
+  const usedTokens = sample?.tokens, contextWindow = sample?.contextWindow
+  if (usedTokens === undefined || !Number.isSafeInteger(usedTokens) || usedTokens < 0 || contextWindow === undefined || !Number.isSafeInteger(contextWindow) || contextWindow <= 0) return null
+  // Keep the sample's own denominator even if route capacity changes meanwhile.
+  const stale = !measured || pressure?.phase === 'history_changed'
+  const label = '最近请求实际输入' + (stale ? ' · 待更新' : '')
+  return { percent: Math.min(100, Math.round(usedTokens / contextWindow * 100)), usedTokens, contextWindow, exact: true, label, accuracy: 'provider_reported', stale, composition: sample?.composition }
 }
 
 /** Props: the conversation-snapshot selector plus the projection read seat. */
