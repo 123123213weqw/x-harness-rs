@@ -615,8 +615,31 @@ test('connection: full fixture entry, inventories, host facts and paged durable 
   const fixtures=['legacy','source'].map(label=>connectionFixture(label))
   const traces=[]
   for(const f of fixtures){
-    const trace=[];trace.push(await f.handle.api.host.describe({}));trace.push(await f.handle.api.sessions.list({}));trace.push(await f.handle.api.workspace.list({}));trace.push(await f.handle.api.skills.list({sessionId:'fx-alpha'}));trace.push(await f.handle.api.agentPresets.list({}));trace.push(await f.handle.api.llm.providers({}));trace.push(await f.handle.api.llm.models({}));trace.push(await f.handle.api.credentials.describe({refs:[]}));trace.push(await f.handle.api.settings.describe({}));
-    for(const sid of ['fx-alpha','fx-empty','not-present']){trace.push(await f.handle.api.sessions.history({sessionId:sid,limit:20}));trace.push(await f.handle.api.sessions.models({sessionId:sid}));}
+    const trace=[]
+    const description=json(await f.handle.api.host.describe({}))
+    // The new optional reveal capability is deliberately absent from the frozen
+    // baseline. Assert that exact addition before comparing every legacy field.
+    if(f===fixtures[1]){
+      assert.equal(description.result.value.canRevealPath,true)
+      delete description.result.value.canRevealPath
+    }else assert.equal(description.result.value.canRevealPath,undefined)
+    trace.push(description);trace.push(await f.handle.api.sessions.list({}));trace.push(await f.handle.api.workspace.list({}));trace.push(await f.handle.api.skills.list({sessionId:'fx-alpha'}));trace.push(await f.handle.api.agentPresets.list({}));trace.push(await f.handle.api.llm.providers({}));trace.push(await f.handle.api.llm.models({}));trace.push(await f.handle.api.credentials.describe({refs:[]}));trace.push(await f.handle.api.settings.describe({}));
+    for(const sid of ['fx-alpha','fx-empty','not-present']){
+      const history=json(await f.handle.api.sessions.history({sessionId:sid,limit:20}))
+      const pressure=history.result.value.projections.values.contextPressure
+      // The retained provider sample is the sole reviewed metric addition.
+      // Assert its exact fixture value (and absence without usage), then extend
+      // only the expected baseline so the entire response still compares exactly.
+      const retained=sid==='fx-alpha'
+        ? {tokens:104,contextWindow:128000,measurement:null,composition:null}
+        : undefined
+      if(f===fixtures[1])assert.deepEqual(pressure.lastMeasured,retained,`${sid}: request-bound retained sample`)
+      else{
+        assert.equal('lastMeasured' in pressure,false,'frozen baseline has no retained sample')
+        if(retained!==undefined)pressure.lastMeasured=retained
+      }
+      trace.push(history);trace.push(await f.handle.api.sessions.models({sessionId:sid}));
+    }
     trace.push(await f.handle.api.sessions.search({query:'fixture'}));trace.push(await f.handle.api.subagents.list({parentSessionId:'fx-alpha'}));traces.push(json(trace))
     assert.equal(f.handle.isLoopback,true);assert.equal(f.handle.hostDescription.getSnapshot(),undefined)
     assert.equal(Object.keys(f.api).sort().join(','),'AbstractApiClient,RpcId,apply,inject,transportError')

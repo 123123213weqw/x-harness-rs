@@ -3,7 +3,11 @@ import { installStyles } from '../views-types'
 installStyles("@xharness/dsh-client-ui-goal/GoalBar.module.css", "@xharness/dsh-client-ui-goal", cssSource)
 const styles = {
   "dialog": "bgzwgq_dialog",
-  "editForm": "bgzwgq_editForm",
+  "editorDialog": "bgzwgq_editorDialog",
+  "editorContent": "bgzwgq_editorContent",
+  "editorLabel": "bgzwgq_editorLabel",
+  "editorHint": "bgzwgq_editorHint",
+  "objectiveFull": "bgzwgq_objectiveFull",
   "rounds": "bgzwgq_rounds",
   "controls": "bgzwgq_controls",
   "bar": "bgzwgq_bar",

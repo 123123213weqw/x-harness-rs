@@ -1,4 +1,13 @@
 //! Native composition of reusable Host model settings and credential storage.
+#[cfg(any(target_os = "macos", all(test, unix)))]
+mod helper_authorize;
+#[cfg(any(target_os = "macos", all(test, unix)))]
+mod local_credentials;
+#[cfg(target_os = "macos")]
+pub async fn authorize_local_helper(arguments: &[std::ffi::OsString]) -> Result<usize, String> {
+    helper_authorize::authorize(arguments).await
+}
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -20,6 +29,10 @@ pub trait CredentialStore: Send + Sync + 'static {
 pub struct NativeCredentialStore {
     service: String,
     gate: Arc<std::sync::Mutex<()>>,
+    #[cfg(target_os = "macos")]
+    helper: Option<local_credentials::LocalHelper>,
+    #[cfg(target_os = "macos")]
+    helper_gate: tokio::sync::Mutex<()>,
 }
 
 impl NativeCredentialStore {
@@ -39,6 +52,10 @@ impl NativeCredentialStore {
         Ok(Self {
             service: format!("com.xlang.xharness.{namespace}.{digest:x}"),
             gate: Arc::new(std::sync::Mutex::new(())),
+            #[cfg(target_os = "macos")]
+            helper: local_credentials::LocalHelper::load(&path)?,
+            #[cfg(target_os = "macos")]
+            helper_gate: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -70,6 +87,11 @@ fn store_error() -> String {
 #[async_trait]
 impl CredentialStore for NativeCredentialStore {
     async fn get(&self, reference: &str) -> Result<Option<String>, String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper.invoke("get", &self.service, reference, None).await;
+        }
         self.entry(reference, |entry| match entry.get_password() {
             Ok(value) => Ok(Some(value)),
             keyring_result => match keyring_result {
@@ -80,6 +102,14 @@ impl CredentialStore for NativeCredentialStore {
         .await
     }
     async fn set(&self, reference: &str, value: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper
+                .invoke("set", &self.service, reference, Some(value))
+                .await
+                .map(|_| ());
+        }
         let value = value.to_owned();
         self.entry(reference, move |entry| {
             entry.set_password(&value).map_err(|_| store_error())
@@ -87,6 +117,14 @@ impl CredentialStore for NativeCredentialStore {
         .await
     }
     async fn delete(&self, reference: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        if let Some(helper) = &self.helper {
+            let _guard = self.helper_gate.lock().await;
+            return helper
+                .invoke("delete", &self.service, reference, None)
+                .await
+                .map(|_| ());
+        }
         self.entry(reference, |entry| match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             _ => Err(store_error()),

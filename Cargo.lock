@@ -4030,6 +4030,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64",
  "fs2",
  "futures",
  "getrandom 0.3.4",
@@ -4328,8 +4329,10 @@ dependencies = [
  "axum",
  "bytes",
  "futures",
+ "hmac",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",

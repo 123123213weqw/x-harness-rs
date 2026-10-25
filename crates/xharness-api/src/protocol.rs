@@ -211,6 +211,16 @@ pub struct HostCreateDirectoryParams {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HostOpenPathParams {
     pub path: String,
+    /// Absent keeps the original default-application hand-off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<HostPathOpenMode>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HostPathOpenMode {
+    Open,
+    Reveal,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -594,6 +604,8 @@ pub struct HostDescribeResponse {
     pub attached_sessions: usize,
     pub home: String,
     pub can_open_path: bool,
+    #[serde(default)]
+    pub can_reveal_path: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -20,6 +20,7 @@ mod delegation;
 mod delegation_concurrency;
 #[cfg(test)]
 mod gate_tests;
+mod goal_edit_tool;
 mod goal_processor;
 mod goal_report_tool;
 mod goals;
@@ -217,6 +218,17 @@ pub trait SessionToolFactory: Send + Sync + 'static {
     }
 
     /// Bounded, permission-aware read-only preview; non-native deployments fail closed.
+    async fn inspect_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+        _thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        Err("File inspection is unavailable on this deployment".into())
+    }
+
     async fn read_display_file(
         &self,
         _session_id: &str,

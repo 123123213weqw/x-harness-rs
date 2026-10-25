@@ -448,6 +448,8 @@ pub struct GoalRoundClaim {
 #[serde(rename_all = "snake_case")]
 pub enum GoalExecutionOperation {
     Enable,
+    /// Revise only an existing objective, preserving user lifecycle authorization.
+    EditObjective,
     Enqueue,
     Claim,
     Settle,

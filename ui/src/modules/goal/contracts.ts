@@ -12,7 +12,7 @@ export interface GoalExecution {
 export interface GoalProjection { goal: GoalSnapshot; execution?: GoalExecution; roundsStarted?: number }
 export type GoalActionResult = ApiResult<unknown>
 export interface GoalBarActions {
-  onEdit(objective: string): Promise<GoalActionResult>
+  onEdit(objective: string, expected?: {id: string; objective: string}): Promise<GoalActionResult>
   onPause(): Promise<GoalActionResult>
   onResume(): Promise<GoalActionResult>
   onClear(): Promise<GoalActionResult>

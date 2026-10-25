@@ -652,7 +652,8 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
 exports.inject = ['slots', 'connection', 'remote'];
 function apply(ctx) {
     const connection = ctx.get('connection');
-    const client = connection ? new client_1.FileDisplayClient(connection.rpc, { available: () => connection.hostDescription.getSnapshot()?.canOpenPath === true, open: async (path) => { const reply = await connection.api.host.openPath({ path }); if (!reply.result.ok)
+    const client = connection ? new client_1.FileDisplayClient(connection.rpc, { available: () => connection.isLoopback && connection.hostDescription.getSnapshot()?.canOpenPath === true, open: async (path) => { const reply = await connection.api.host.openPath({ path }); if (!reply.result.ok)
+            throw new Error(reply.result.error.message); }, canReveal: () => connection.hostDescription.getSnapshot()?.canRevealPath === true, reveal: async (path) => { const reply = await connection.api.host.openPath({ path, mode: 'reveal' }); if (!reply.result.ok)
             throw new Error(reply.result.error.message); } }) : undefined;
     ctx.effect(() => ctx.remote.$on('display/open', payload => { const parsed = file_display_1.DisplayOpenSchema.safeParse(payload); if (parsed.success)
         (0, FilePane_1.openDisplayFile)(parsed.data.path, parsed.data.sessionId, undefined, parsed.data.gitDiff ?? undefined); }), 'browser: model file display intent');
@@ -760,7 +761,7 @@ exports.default = "\n.xhbrowser-header-trigger{display:inline-grid;place-items:c
 // source: src/modules/browser/file-display/FilePane.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = ".xhfile-pane{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);overflow:hidden}.xhfile-toolbar{display:flex;align-items:center;gap:6px;flex:none;min-height:49px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.xhfile-toolbar button,.xhfile-body button{border:0;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:inherit;padding:6px 8px;cursor:pointer}.xhfile-toolbar button:hover,.xhfile-body button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhfile-body{flex:1;min-height:0;padding:20px;overflow:auto;overflow-wrap:anywhere}.xhfile-body table{display:block;max-width:100%;overflow:auto}.xhfile-image{text-align:center}.xhfile-image img,.xhfile-local-image img{max-width:100%;height:auto;display:block;margin:auto}.xhfile-image small{display:block;padding:12px;color:var(--dsw-alias-label-secondary)}.xhfile-local-image{display:block;min-height:24px}.xhfile-body button.xhfile-link{display:inline;padding:0;color:var(--dsw-alias-interactive-primary);background:none;text-decoration:underline}.xhbrowser-file-form{display:flex;gap:6px;margin:12px}.xhbrowser-file-form input{flex:1;min-width:0;padding:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:6px;color:inherit}.xhbrowser-file-form button{background:var(--dsw-alias-bg-layer-2);border:0;border-radius:6px;padding:8px;color:inherit;cursor:pointer}\n.xhfile-toolbar select{max-width:130px;background:var(--dsw-alias-bg-layer-2);color:inherit;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:5px;font:inherit;font-size:12px}.xhfile-body[data-diff]{display:flex;flex-direction:column;padding:0;overflow:hidden}.xhfile-diff{display:flex;flex-direction:column;min-height:0;height:100%;font-size:12px}.xhfile-diff-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-toolbar>span:first-child{flex:1}.xhfile-diff-count{white-space:nowrap;color:var(--dsw-alias-label-secondary)}.xhfile-diff-count b{color:var(--dsw-alias-success-primary,#329c64);font-weight:500}.xhfile-diff-count i{color:var(--dsw-alias-error-primary,#d95c5c);font-style:normal}.xhfile-diff-hint{margin:0;padding:8px 12px;color:var(--dsw-alias-label-secondary);line-height:1.5}.xhfile-diff>p:not(.xhfile-diff-hint){padding:8px 12px}.xhfile-diff-files{flex:none;max-height:140px;overflow:auto;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-files button{display:flex;width:100%;align-items:center;text-align:left;gap:8px;margin:2px 0;background:transparent}.xhfile-diff-files button[aria-current=true]{background:var(--dsw-alias-interactive-bg-hover)}.xhfile-diff-files button>span{flex:1;min-width:0;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}.xhfile-diff-files small{white-space:nowrap}.xhfile-diff-scroll{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;overflow-anchor:none}.xhfile-diff-lines{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;width:100%}.xhfile-diff-row{height:22px;line-height:22px;white-space:pre;display:flex}.xhfile-diff-row[data-split]{display:grid;grid-template-columns:1fr 1fr}.xhfile-diff-cell{display:flex;flex:1;min-width:0}.xhfile-diff-num{display:inline-block;flex:0 0 5ch;text-align:right;padding-right:1ch;color:var(--dsw-alias-label-tertiary);user-select:none}.xhfile-diff-marker{display:inline-block;flex:0 0 2ch;user-select:none}.xhfile-diff-cell[data-kind=added]{background:color-mix(in srgb,#36ae70 14%,transparent)}.xhfile-diff-cell[data-kind=removed]{background:color-mix(in srgb,#e35b62 14%,transparent)}.xhfile-diff-row[data-kind=hunk],.xhfile-diff-cell[data-kind=hunk]{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}.xhfile-diff-cell[data-kind=note]{color:var(--dsw-alias-label-tertiary)}.xhfile-diff-row[data-split]>.xhfile-diff-cell:first-child{border-right:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-source{flex:1;min-height:0;overflow:auto;white-space:pre;margin:0;padding:12px;font:12px/22px ui-monospace,SFMono-Regular,Consolas,monospace}.xhfile-diff button:focus-visible,.xhfile-diff-scroll:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n";
+exports.default = ".xhfile-pane{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);overflow:hidden}.xhfile-toolbar{display:flex;align-items:center;gap:6px;flex:none;min-height:49px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}.xhfile-toolbar button,.xhfile-body button{border:0;border-radius:6px;background:var(--dsw-alias-bg-layer-2);color:inherit;padding:6px 8px;cursor:pointer}.xhfile-toolbar button:hover,.xhfile-body button:hover{background:var(--dsw-alias-interactive-bg-hover)}.xhfile-body{flex:1;min-height:0;padding:20px;overflow:auto;overflow-wrap:anywhere}.xhfile-body table{display:block;max-width:100%;overflow:auto}.xhfile-image{text-align:center}.xhfile-image img,.xhfile-local-image img{max-width:100%;height:auto;display:block;margin:auto}.xhfile-image small{display:block;padding:12px;color:var(--dsw-alias-label-secondary)}.xhfile-local-image{display:block;min-height:24px}.xhfile-body button.xhfile-link{display:inline;padding:0;color:var(--dsw-alias-interactive-primary);background:none;text-decoration:underline}.xhbrowser-file-form{display:flex;gap:6px;margin:12px}.xhbrowser-file-form input{flex:1;min-width:0;padding:8px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:6px;color:inherit}.xhbrowser-file-form button{background:var(--dsw-alias-bg-layer-2);border:0;border-radius:6px;padding:8px;color:inherit;cursor:pointer}\n.xhfile-toolbar select{max-width:130px;background:var(--dsw-alias-bg-layer-2);color:inherit;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;padding:5px;font:inherit;font-size:12px}.xhfile-body[data-diff]{display:flex;flex-direction:column;padding:0;overflow:hidden}.xhfile-diff{display:flex;flex-direction:column;min-height:0;height:100%;font-size:12px}.xhfile-diff-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-toolbar>span:first-child{flex:1}.xhfile-diff-count{white-space:nowrap;color:var(--dsw-alias-label-secondary)}.xhfile-diff-count b{color:var(--dsw-alias-success-primary,#329c64);font-weight:500}.xhfile-diff-count i{color:var(--dsw-alias-error-primary,#d95c5c);font-style:normal}.xhfile-diff-hint{margin:0;padding:8px 12px;color:var(--dsw-alias-label-secondary);line-height:1.5}.xhfile-diff>p:not(.xhfile-diff-hint){padding:8px 12px}.xhfile-diff-files{flex:none;max-height:140px;overflow:auto;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-files button{display:flex;width:100%;align-items:center;text-align:left;gap:8px;margin:2px 0;background:transparent}.xhfile-diff-files button[aria-current=true]{background:var(--dsw-alias-interactive-bg-hover)}.xhfile-diff-files button>span{flex:1;min-width:0;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}.xhfile-diff-files small{white-space:nowrap}.xhfile-diff-scroll{flex:1;min-height:80px;overflow:auto;overscroll-behavior:contain;overflow-anchor:none}.xhfile-diff-lines{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;width:100%}.xhfile-diff-row{height:22px;line-height:22px;white-space:pre;display:flex}.xhfile-diff-row[data-split]{display:grid;grid-template-columns:1fr 1fr}.xhfile-diff-cell{display:flex;flex:1;min-width:0}.xhfile-diff-num{display:inline-block;flex:0 0 5ch;text-align:right;padding-right:1ch;color:var(--dsw-alias-label-tertiary);user-select:none}.xhfile-diff-marker{display:inline-block;flex:0 0 2ch;user-select:none}.xhfile-diff-cell[data-kind=added]{background:color-mix(in srgb,#36ae70 14%,transparent)}.xhfile-diff-cell[data-kind=removed]{background:color-mix(in srgb,#e35b62 14%,transparent)}.xhfile-diff-row[data-kind=hunk],.xhfile-diff-cell[data-kind=hunk]{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2)}.xhfile-diff-cell[data-kind=note]{color:var(--dsw-alias-label-tertiary)}.xhfile-diff-row[data-split]>.xhfile-diff-cell:first-child{border-right:1px solid var(--dsw-alias-border-l1)}.xhfile-diff-source{flex:1;min-height:0;overflow:auto;white-space:pre;margin:0;padding:12px;font:12px/22px ui-monospace,SFMono-Regular,Consolas,monospace}.xhfile-diff button:focus-visible,.xhfile-diff-scroll:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-2px}\n\n.xhfile-toolbar{flex-wrap:wrap;padding-top:6px;padding-bottom:6px}.xhfile-toolbar button{font-size:12px;white-space:nowrap}.xhfile-toolbar button:disabled{opacity:.5;cursor:wait}.xhfile-body[data-document]{display:flex;flex-direction:column;padding:0;overflow:hidden}.xhfile-document{border:0;width:100%;flex:1;min-height:180px;background:white}.xhfile-preview-note,.xhfile-action-error{font-size:12px;line-height:1.5;padding:8px 12px;margin:0;flex:none;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}.xhfile-action-error{color:var(--dsw-alias-error-primary)}\n";
 
 },
 "src/modules/browser/file-display/FilePane.js": function(module, exports, require) {
@@ -774,6 +775,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
 const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const file_display_1 = require("../../shared/generated/file-display");
+const file_types_1 = require("../../shared/file-types");
 const DiffPreview_1 = require("./DiffPreview");
 const client_1 = require("./client");
 function openDisplayFile(path, sessionId, relativeTo, gitDiff) {
@@ -834,21 +836,43 @@ function MarkdownFile({ file, sessionId, client }) {
 }
 function FilePane({ item, open, sessionId, client }) {
     const owner = item.sessionId ?? sessionId;
+    const actionGeneration = (0, react_1.useRef)(0);
+    const [actionError, setActionError] = (0, react_1.useState)(''), [nativeBusy, setNativeBusy] = (0, react_1.useState)(false), [copied, setCopied] = (0, react_1.useState)(false);
+    (0, react_1.useEffect)(() => { if (!copied)
+        return; const timer = window.setTimeout(() => setCopied(false), 1800); return () => window.clearTimeout(timer); }, [copied]);
     const [file, setFile] = (0, react_1.useState)(), [error, setError] = (0, react_1.useState)(''), [revision, setRevision] = (0, react_1.useState)(0), [source, setSource] = (0, react_1.useState)(false), [zoom, setZoom] = (0, react_1.useState)(0);
     (0, react_1.useEffect)(() => {
+        actionGeneration.current++;
+        setNativeBusy(false);
         setFile(undefined);
         setError('');
+        setActionError('');
+        setCopied(false);
         setZoom(0);
+        setSource(false);
         if (!open || !owner)
             return;
         const controller = new AbortController();
         let objectUrl;
-        void client.read(owner, item.source, controller.signal, item.relativeTo, item.gitDiff).then(result => {
-            if (controller.signal.aborted)
+        void (async () => {
+            if (!item.gitDiff) {
+                const metadata = await client.inspect(owner, item.source, controller.signal, item.relativeTo, revision).catch(() => undefined);
+                if (controller.signal.aborted)
+                    return undefined;
+                if (metadata ? ['unsupported', 'tooLarge'].includes(metadata.preview) : (0, file_types_1.fileType)(item.source).preview === 'none')
+                    return { kind: 'info', path: metadata?.path ?? item.source, metadata };
+            }
+            return client.read(owner, item.source, controller.signal, item.relativeTo, item.gitDiff);
+        })().then(result => {
+            if (controller.signal.aborted || !result)
                 return;
             if (result.kind === 'image') {
                 objectUrl = (0, client_1.imageObjectUrl)(result).url;
                 setFile({ kind: 'image', path: result.path, url: objectUrl, width: result.width, height: result.height });
+            }
+            else if (result.kind === 'pdf') {
+                objectUrl = (0, client_1.pdfObjectUrl)(result);
+                setFile({ kind: 'pdf', path: result.path, url: objectUrl });
             }
             else
                 setFile(result);
@@ -857,8 +881,38 @@ function FilePane({ item, open, sessionId, client }) {
         return () => { controller.abort(); if (objectUrl)
             URL.revokeObjectURL(objectUrl); };
     }, [open, owner, item.source, item.relativeTo, item.gitDiff, revision, client]);
-    return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: file?.path ?? item.source, children: file?.path ?? item.source }), !item.gitDiff && client.canOpenExternal(file?.path ?? item.source) && (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void client.openExternal(file?.path ?? item.source).catch((e) => setError(e instanceof Error ? e.message : String(e))); }, children: label('系统打开', 'Open externally') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
-                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), file?.kind === 'markdown' && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), file?.kind === 'image' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), (0, jsx_runtime_1.jsx)("div", { className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') }) : error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: error }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), children: label('重试', 'Retry') })] }) : !file ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: label('加载文件…', 'Loading file…') }) : file.kind === 'image' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: file.url, alt: file.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${file.width * zoom / 100}px`, maxWidth: 'none' } : undefined, decoding: "async" }), (0, jsx_runtime_1.jsxs)("small", { children: [file.width, " \u00D7 ", file.height] })] }) : file.kind === 'diff' ? (0, jsx_runtime_1.jsx)(DiffPreview_1.DiffPreview, { file: file }) : file.kind === 'markdown' && !source ? (0, jsx_runtime_1.jsx)(MarkdownFile, { file: file, sessionId: owner, client: client }) : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.CodeBlock, { code: file.text, lang: file.kind === 'markdown' ? 'markdown' : (0, client_1.codeLanguage)(file.path) }) }, revision)] });
+    const path = file?.path ?? item.source;
+    const html = (0, react_1.useMemo)(() => file?.kind === 'text' && (0, client_1.isHtmlPath)(file.path) ? (0, client_1.staticHtmlDocument)(file.text) : undefined, [file]);
+    const nativeAction = async (mode) => {
+        const generation = actionGeneration.current;
+        setNativeBusy(true);
+        setActionError('');
+        try {
+            if (mode === 'reveal')
+                await client.reveal(path);
+            else
+                await client.openExternal(path);
+        }
+        catch (error) {
+            if (generation === actionGeneration.current)
+                setActionError(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            if (generation === actionGeneration.current)
+                setNativeBusy(false);
+        }
+    };
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhfile-pane", "aria-label": label('文件预览', 'File preview'), children: [(0, jsx_runtime_1.jsxs)("header", { className: "xhfile-toolbar", children: [(0, jsx_runtime_1.jsx)("span", { className: "xhfile-path", title: path, children: path }), !item.gitDiff && client.canReveal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('reveal'); }, children: label('在文件夹中显示', 'Show in folder') }), !item.gitDiff && client.canOpenExternal(path) && (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: nativeBusy, onClick: () => { void nativeAction('open'); }, children: label('默认应用打开', 'Open with default app') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => { void (0, dsh_client_ui_primitives_1.writeClipboard)(path).then(ok => { setCopied(ok); setActionError(ok ? '' : label('路径复制失败', 'Could not copy path')); }); }, children: copied ? label('路径已复制', 'Path copied') : label('复制路径', 'Copy path') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), "aria-label": label('刷新文件', 'Refresh file'), children: "\u21BB" }), item.gitDiff && (0, jsx_runtime_1.jsxs)("select", { "aria-label": label('差异范围', 'Diff scope'), value: item.gitDiff, onChange: event => { const scope = file_display_1.GitDiffScopeSchema.safeParse(event.target.value); if (scope.success && owner)
+                            openDisplayFile(item.source, owner, undefined, scope.data); }, children: [(0, jsx_runtime_1.jsx)("option", { value: "working", children: label('未暂存', 'Unstaged') }), (0, jsx_runtime_1.jsx)("option", { value: "staged", children: label('已暂存', 'Staged') }), (0, jsx_runtime_1.jsx)("option", { value: "head", children: label('相对 HEAD', 'Against HEAD') })] }), (file?.kind === 'markdown' || html !== undefined) && (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-pressed": source, onClick: () => setSource(value => !value), children: source ? label('预览', 'Preview') : label('源码', 'Source') }), file?.kind === 'image' && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.max(25, (value || 100) - 25)), "aria-label": label('缩小', 'Zoom out'), children: "\u2212" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(0), children: zoom ? `${zoom}%` : label('适应', 'Fit') }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setZoom(value => Math.min(400, (value || 100) + 25)), "aria-label": label('放大', 'Zoom in'), children: "+" })] })] }), actionError && (0, jsx_runtime_1.jsx)("p", { className: "xhfile-action-error", role: "alert", children: actionError }), (0, jsx_runtime_1.jsx)("div", { className: "xhfile-body", "data-diff": file?.kind === 'diff' || undefined, "data-document": file?.kind === 'pdf' || html !== undefined && !source || undefined, children: !owner ? (0, jsx_runtime_1.jsx)("p", { role: "alert", children: label('请选择一个会话后打开文件', 'Select a conversation before opening files') })
+                    : error ? (0, jsx_runtime_1.jsxs)("div", { role: "alert", children: [(0, jsx_runtime_1.jsx)("p", { children: label('此文件暂时无法内置预览，可以在文件夹中查看或使用默认应用打开。', 'This file cannot be previewed here. Show it in its folder or open with the default app.') }), (0, jsx_runtime_1.jsxs)("details", { children: [(0, jsx_runtime_1.jsx)("summary", { children: label('详情', 'Details') }), (0, jsx_runtime_1.jsx)("p", { children: error })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => setRevision(value => value + 1), children: label('重试', 'Retry') })] })
+                        : !file ? (0, jsx_runtime_1.jsx)("p", { role: "status", children: label('加载文件…', 'Loading file…') })
+                            : file.kind === 'info' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-info", children: [(0, jsx_runtime_1.jsx)("p", { children: file.metadata?.preview === 'tooLarge' ? label('文件超过内置预览大小限制。', 'Too large for built-in preview.') : label('此格式暂不支持内置预览。', 'This format has no built-in preview.') }), (0, jsx_runtime_1.jsx)("p", { children: file.metadata ? (0, file_types_1.formatFileSize)(file.metadata.bytes) : '' }), (0, jsx_runtime_1.jsx)("p", { children: label('可以使用顶部的打开选项，或复制路径。', 'Use the opening options above, or copy the path.') })] })
+                                : file.kind === 'image' ? (0, jsx_runtime_1.jsxs)("div", { className: "xhfile-image", children: [(0, jsx_runtime_1.jsx)("img", { src: file.url, alt: file.path.split(/[\\/]/).at(-1), style: zoom ? { width: `${file.width * zoom / 100}px`, maxWidth: 'none' } : undefined, decoding: "async" }), (0, jsx_runtime_1.jsxs)("small", { children: [file.width, " \u00D7 ", file.height] })] })
+                                    : file.kind === 'pdf' ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('PDF 预览 · 如无法显示，请使用默认应用打开', 'PDF preview · If unavailable, use the default app') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('PDF 预览', 'PDF preview'), src: file.url, referrerPolicy: "no-referrer" })] })
+                                        : file.kind === 'diff' ? (0, jsx_runtime_1.jsx)(DiffPreview_1.DiffPreview, { file: file })
+                                            : file.kind === 'markdown' && !source ? (0, jsx_runtime_1.jsx)(MarkdownFile, { file: file, sessionId: owner, client: client })
+                                                : html !== undefined && !source ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("p", { className: "xhfile-preview-note", children: label('静态预览 · 不执行脚本或加载外部资源', 'Static preview · Scripts and external resources are disabled') }), (0, jsx_runtime_1.jsx)("iframe", { className: "xhfile-document", title: label('HTML 预览', 'HTML preview'), sandbox: "", srcDoc: html, referrerPolicy: "no-referrer" })] })
+                                                    : (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.CodeBlock, { code: file.text, lang: file.kind === 'markdown' ? 'markdown' : (0, client_1.codeLanguage)(file.path) }) }, revision)] });
 }
 
 },
@@ -867,17 +921,74 @@ function FilePane({ item, open, sessionId, client }) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GitDiffScopeSchema = exports.DisplayReadSchema = exports.DisplayOpenSchema = exports.DisplayFileSchema = exports.DisplayDiffSourceSchema = exports.FILE_DISPLAY_SCHEMA_SHA256 = exports.FILE_DISPLAY_CONTRACT = void 0;
+exports.GitDiffScopeSchema = exports.DisplayThumbnailSchema = exports.DisplayReadSchema = exports.DisplayPreviewKindSchema = exports.DisplayOpenSchema = exports.DisplayInspectionSchema = exports.DisplayInspectSchema = exports.DisplayFileSchema = exports.DisplayDiffSourceSchema = exports.FILE_DISPLAY_SCHEMA_SHA256 = exports.FILE_DISPLAY_CONTRACT = void 0;
 // GENERATED from crates/xharness-api/src/display.rs. Do not edit.
 // Run the remote Rust exporter, then scripts/generate-file-display-contract.mjs.
 const zod_1 = require("zod");
 exports.FILE_DISPLAY_CONTRACT = "xharness-file-display-v1";
-exports.FILE_DISPLAY_SCHEMA_SHA256 = "2f335d9cac83757318e1101dee9ba03d3d2c8668cefd8aac2a981e5544e6d278";
+exports.FILE_DISPLAY_SCHEMA_SHA256 = "b4c98a1027088c93e600b3b31461bcf4ca51d376159be93bbe1d227edc9cbd5d";
 exports.DisplayDiffSourceSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.literal("patch"), zod_1.z.literal("working"), zod_1.z.literal("staged"), zod_1.z.literal("head")]));
-exports.DisplayFileSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.strictObject({ "kind": zod_1.z.literal("markdown"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("text"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("diff"), "path": zod_1.z.string(), "source": exports.DisplayDiffSourceSchema, "text": zod_1.z.string() }), zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "height": zod_1.z.number().int().min(0).max(4294967295).min(0), "kind": zod_1.z.literal("image"), "mediaType": zod_1.z.string(), "path": zod_1.z.string(), "width": zod_1.z.number().int().min(0).max(4294967295).min(0) })]));
+exports.DisplayFileSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.strictObject({ "kind": zod_1.z.literal("markdown"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("text"), "path": zod_1.z.string(), "text": zod_1.z.string() }), zod_1.z.strictObject({ "kind": zod_1.z.literal("diff"), "path": zod_1.z.string(), "source": exports.DisplayDiffSourceSchema, "text": zod_1.z.string() }), zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "kind": zod_1.z.literal("pdf"), "path": zod_1.z.string() }), zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "height": zod_1.z.number().int().min(0).max(4294967295).min(0), "kind": zod_1.z.literal("image"), "mediaType": zod_1.z.string(), "path": zod_1.z.string(), "width": zod_1.z.number().int().min(0).max(4294967295).min(0) })]));
+exports.DisplayInspectSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "path": zod_1.z.string(), "sessionId": zod_1.z.string(), "thumbnail": zod_1.z.boolean().optional() }));
+exports.DisplayInspectionSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "bytes": zod_1.z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).min(0), "height": zod_1.z.union([zod_1.z.number().int().min(0).max(4294967295).min(0), zod_1.z.null()]).optional(), "modifiedMs": zod_1.z.union([zod_1.z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).min(0), zod_1.z.null()]).optional(), "path": zod_1.z.string(), "preview": exports.DisplayPreviewKindSchema, "thumbnail": zod_1.z.union([exports.DisplayThumbnailSchema, zod_1.z.null()]).optional(), "width": zod_1.z.union([zod_1.z.number().int().min(0).max(4294967295).min(0), zod_1.z.null()]).optional() }));
 exports.DisplayOpenSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "gitDiff": zod_1.z.union([exports.GitDiffScopeSchema, zod_1.z.null()]).optional(), "path": zod_1.z.string(), "sessionId": zod_1.z.string() }));
+exports.DisplayPreviewKindSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.literal("text"), zod_1.z.literal("markdown"), zod_1.z.literal("image"), zod_1.z.literal("pdf"), zod_1.z.literal("unsupported"), zod_1.z.literal("tooLarge")]));
 exports.DisplayReadSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "gitDiff": zod_1.z.union([exports.GitDiffScopeSchema, zod_1.z.null()]).optional(), "path": zod_1.z.string(), "relativeTo": zod_1.z.union([zod_1.z.string(), zod_1.z.null()]).optional(), "sessionId": zod_1.z.string() }));
+exports.DisplayThumbnailSchema = zod_1.z.lazy(() => zod_1.z.strictObject({ "dataBase64": zod_1.z.string(), "height": zod_1.z.number().int().min(0).max(4294967295).min(0), "width": zod_1.z.number().int().min(0).max(4294967295).min(0) }));
 exports.GitDiffScopeSchema = zod_1.z.lazy(() => zod_1.z.union([zod_1.z.literal("working"), zod_1.z.literal("staged"), zod_1.z.literal("head")]));
+
+},
+"src/modules/shared/file-types.js": function(module, exports, require) {
+// source: src/modules/shared/file-types.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.FILE_TYPES = void 0;
+exports.fileName = fileName;
+exports.parentPath = parentPath;
+exports.fileType = fileType;
+exports.producedFileKind = producedFileKind;
+exports.formatFileSize = formatFileSize;
+const fallback = { kind: 'file', extensions: [], color: '#8c8e97', preview: 'none' };
+exports.FILE_TYPES = [
+    { kind: 'website', extensions: ['html', 'htm'], color: '#33caf2', preview: 'text' },
+    { kind: 'pdf', extensions: ['pdf'], color: '#cb665d', preview: 'pdf' },
+    { kind: 'markdown', extensions: ['md', 'markdown', 'mdown'], color: '#7488aa', preview: 'text' },
+    { kind: 'code', extensions: ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'rs', 'py', 'go', 'c', 'h', 'cpp', 'java', 'swift', 'sh', 'bash', 'zsh', 'json', 'css', 'toml', 'yaml', 'yml', 'sql', 'xml', 'ipynb', 'diff', 'patch'], color: '#7275ce', preview: 'text' },
+    { kind: 'image', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif', 'heic', 'bmp', 'tiff'], color: '#4baf87', preview: 'image' },
+    { kind: 'spreadsheet', extensions: ['xls', 'xlsx', 'xlsm', 'csv', 'tsv', 'ods'], color: '#398964', preview: 'none' },
+    { kind: 'presentation', extensions: ['ppt', 'pptx', 'pptm', 'key', 'odp'], color: '#cf7b3e', preview: 'none' },
+    { kind: 'document', extensions: ['doc', 'docx', 'docm', 'odt', 'pages', 'rtf', 'txt', 'log'], color: '#4b85cf', preview: 'none' },
+    { kind: 'video', extensions: ['mp4', 'mov', 'webm', 'mkv', 'avi'], color: '#9b78bd', preview: 'none' },
+    { kind: 'audio', extensions: ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'], color: '#bd779f', preview: 'none' },
+    { kind: 'archive', extensions: ['zip', 'gz', 'tar', '7z', 'rar', 'bz2', 'xz'], color: '#a28a5a', preview: 'none' },
+    { kind: 'data', extensions: ['sqlite', 'sqlite3', 'db', 'parquet', 'arrow'], color: '#5d9b9b', preview: 'none' },
+    fallback,
+];
+function fileName(path) { return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1); }
+function parentPath(path) { const at = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')); return at < 0 ? '' : path.slice(0, at) || path.slice(0, 1); }
+function fileType(path) {
+    const name = fileName(path), dot = name.lastIndexOf('.'), ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+    const type = exports.FILE_TYPES.find(item => item.extensions.includes(ext)) ?? fallback;
+    // These small text formats share a visual category with their binary cousins.
+    if (['csv', 'tsv', 'txt', 'log', 'svg'].includes(ext))
+        return { ...type, preview: 'text' };
+    if (type.kind === 'image' && !['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext))
+        return { ...type, preview: 'none' };
+    return type;
+}
+function producedFileKind(path) { return fileType(path).kind; }
+function formatFileSize(bytes) {
+    if (!Number.isSafeInteger(bytes) || bytes < 0)
+        return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let unit = 0, value = bytes;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit++;
+    }
+    return `${unit === 0 ? value : Number(value.toFixed(value < 10 ? 1 : 0))} ${units[unit]}`;
+}
 
 },
 "src/modules/browser/file-display/DiffPreview.js": function(module, exports, require) {
@@ -1216,9 +1327,14 @@ function diffRows(patch) {
 
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.codeLanguage = exports.ResourceBudget = exports.FileDisplayClient = exports.MAX_TEXT_BYTES = exports.MAX_IMAGE_BYTES = void 0;
+exports.isHtmlPath = exports.codeLanguage = exports.ResourceBudget = exports.FileDisplayClient = exports.MAX_TEXT_BYTES = exports.MAX_IMAGE_BYTES = void 0;
 exports.localResource = localResource;
 exports.imageObjectUrl = imageObjectUrl;
+exports.pdfObjectUrl = pdfObjectUrl;
+exports.staticHtmlDocument = staticHtmlDocument;
+const file_inspection_1 = require("../../shared/file-inspection");
+const path_1 = require("../../client-runtime/workspaces/path");
+const file_types_1 = require("../../shared/file-types");
 const file_display_1 = require("../../shared/generated/file-display");
 exports.MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 exports.MAX_TEXT_BYTES = 512 * 1024;
@@ -1226,10 +1342,15 @@ class FileDisplayClient {
     constructor(rpc, external) {
         this.rpc = rpc;
         this.external = external;
+        this.inspections = new file_inspection_1.FileInspectionCache(rpc);
     }
-    canOpenExternal(path) { return this.external?.available() === true && (path.startsWith('/') || /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')); }
+    inspect(sessionId, path, signal, relativeTo, revision = 0) { return this.inspections.read(sessionId, relativeTo ? (0, path_1.resolveWorkspacePath)((0, file_types_1.parentPath)(relativeTo), path) : path, revision, false, signal); }
+    canOpenExternal(path) { return this.external?.available() === true && !path.includes('\0') && (path.startsWith('/') || /^[a-z]:[\\/]/i.test(path) || path.startsWith('\\\\')); }
     async openExternal(path) { if (!this.external || !this.canOpenExternal(path))
         throw new Error("System opener requires a resolved absolute path"); await this.external.open(path); }
+    canReveal(path) { return this.canOpenExternal(path) && this.external?.canReveal?.() === true && this.external.reveal !== undefined; }
+    async reveal(path) { if (!this.external?.reveal || !this.canReveal(path))
+        throw new Error('Showing in folder is unavailable'); await this.external.reveal(path); }
     async read(sessionId, path, signal, relativeTo, gitDiff) {
         const response = await this.rpc.call('/api', 'display/read', { sessionId, path, ...relativeTo === undefined ? {} : { relativeTo }, ...gitDiff === undefined ? {} : { gitDiff } }, AbortSignal.any([signal, AbortSignal.timeout(20000)]));
         if (!response.ok)
@@ -1240,6 +1361,10 @@ class FileDisplayClient {
         if (file.kind === 'image') {
             if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.mediaType) || file.width < 1 || file.height < 1 || file.width * file.height > 16 * 1024 * 1024 || file.dataBase64.length > Math.ceil(exports.MAX_IMAGE_BYTES / 3) * 4 || file.dataBase64.length % 4 !== 0 || !(/^[A-Za-z0-9+/]*={0,2}$/).test(file.dataBase64))
                 throw new Error('Invalid or oversized preview image');
+        }
+        else if (file.kind === 'pdf') {
+            if (!validBase64(file.dataBase64) || !file.dataBase64.startsWith('JVBERi0'))
+                throw new Error('Invalid or oversized PDF');
         }
         else if (file.text.length > exports.MAX_TEXT_BYTES || new TextEncoder().encode(file.text).length > exports.MAX_TEXT_BYTES || file.text.includes('\0'))
             throw new Error('Invalid or oversized preview text');
@@ -1285,6 +1410,203 @@ const codeLanguage = (path) => {
     return languages[extension];
 };
 exports.codeLanguage = codeLanguage;
+function validBase64(data) {
+    return data.length > 0 && data.length <= Math.ceil(exports.MAX_IMAGE_BYTES / 3) * 4 && data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
+}
+function pdfObjectUrl(file) {
+    if (!validBase64(file.dataBase64))
+        throw new Error('Invalid or oversized PDF');
+    const binary = atob(file.dataBase64);
+    if (binary.length > exports.MAX_IMAGE_BYTES || !binary.startsWith('%PDF-'))
+        throw new Error('Invalid PDF bytes');
+    return URL.createObjectURL(new Blob([Uint8Array.from(binary, c => c.charCodeAt(0))], { type: 'application/pdf' }));
+}
+const isHtmlPath = (path) => /\.(?:html?|svg)$/i.test(path);
+exports.isHtmlPath = isHtmlPath;
+/** Static, isolated preview: no scripts, remote resources, navigation or Host IPC. */
+function staticHtmlDocument(text) {
+    const document = new DOMParser().parseFromString(text, 'text/html');
+    document.querySelectorAll('script,iframe,frame,object,embed,base,meta,link,form').forEach(node => node.remove());
+    for (const node of document.querySelectorAll('*'))
+        for (const attribute of Array.from(node.attributes)) {
+            const name = attribute.name.toLowerCase();
+            if (name.startsWith('on') || ['href', 'xlink:href', 'action', 'formaction', 'poster', 'background', 'srcset', 'srcdoc', 'ping'].includes(name)
+                || name === 'src' && !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(attribute.value))
+                node.removeAttribute(attribute.name);
+        }
+    const policy = document.createElement('meta');
+    policy.httpEquiv = 'Content-Security-Policy';
+    policy.content = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'";
+    document.head.prepend(policy);
+    return '<!doctype html>' + document.documentElement.outerHTML;
+}
+
+},
+"src/modules/shared/file-inspection.js": function(module, exports, require) {
+// source: src/modules/shared/file-inspection.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.FileInspectionCache = void 0;
+exports.validateInspection = validateInspection;
+exports.thumbnailObjectUrl = thumbnailObjectUrl;
+const file_display_1 = require("./generated/file-display");
+function validateInspection(value) {
+    const info = file_display_1.DisplayInspectionSchema.parse(value);
+    if (!info.path || info.path.length > 4096 || info.path.includes('\0') || !Number.isSafeInteger(info.bytes) || info.bytes < 0)
+        throw Error('Invalid file metadata');
+    if (info.width != null && (!Number.isSafeInteger(info.width) || info.width < 1) || info.height != null && (!Number.isSafeInteger(info.height) || info.height < 1))
+        throw Error('Invalid image dimensions');
+    if (info.modifiedMs != null && (!Number.isSafeInteger(info.modifiedMs) || info.modifiedMs < 0 || info.modifiedMs > 8640000000000000))
+        throw Error('Invalid modified time');
+    const thumb = info.thumbnail;
+    if (thumb && (thumb.width < 1 || thumb.height < 1 || thumb.width > 96 || thumb.height > 96 || thumb.dataBase64.length > 65536 || thumb.dataBase64.length % 4 !== 0 || !thumb.dataBase64.startsWith('iVBORw0KGgo') || !(/^[A-Za-z0-9+/]*={0,2}$/).test(thumb.dataBase64)))
+        throw Error('Invalid thumbnail');
+    return info;
+}
+/** Per-connection bounded metadata cache. No object URLs or full document bytes. */
+class FileInspectionCache {
+    constructor(rpc) {
+        this.rpc = rpc;
+        this.cache = new Map();
+        this.queue = [];
+        this.active = 0;
+        this.unavailableUntil = 0;
+    }
+    async read(sessionId, path, revision, thumbnail, signal) {
+        signal.throwIfAborted();
+        const key = JSON.stringify([sessionId, path, revision, thumbnail]), now = Date.now(), cached = this.cache.get(key);
+        if (cached && now - cached.time < 15000) {
+            this.cache.delete(key);
+            this.cache.set(key, cached);
+            return cached.value;
+        }
+        if (now < this.unavailableUntil)
+            return undefined;
+        if (this.queue.length >= 64)
+            throw Error('File metadata queue is full');
+        return new Promise((resolve, reject) => {
+            let started = false;
+            const cancel = () => { if (!started) {
+                const at = this.queue.indexOf(job);
+                if (at >= 0)
+                    this.queue.splice(at, 1);
+                reject(new DOMException('Aborted', 'AbortError'));
+            } };
+            const job = { signal, cancel, start: () => {
+                    started = true;
+                    signal.removeEventListener('abort', cancel);
+                    this.active++;
+                    void this.fetch(sessionId, path, thumbnail, signal).then(value => {
+                        if (value && !signal.aborted) {
+                            this.cache.set(key, { time: Date.now(), value });
+                            this.trim();
+                        }
+                        signal.throwIfAborted();
+                        resolve(value);
+                    }).catch(reject).finally(() => { this.active--; this.pump(); });
+                } };
+            signal.addEventListener('abort', cancel, { once: true });
+            this.queue.push(job);
+            this.pump();
+        });
+    }
+    async fetch(sessionId, path, thumbnail, signal) {
+        if (Date.now() < this.unavailableUntil)
+            return undefined;
+        const reply = await this.rpc.call('/api', 'display/inspect', { sessionId, path, thumbnail }, AbortSignal.any([signal, AbortSignal.timeout(10000)]));
+        if (!reply.ok) {
+            // Old Hosts are normal. A missing file must not disable other inspections.
+            if (/unknown (?:endpoint|method)|inspection is unavailable/i.test(reply.error.message))
+                this.unavailableUntil = Date.now() + 30000;
+            return undefined;
+        }
+        return validateInspection(reply.value);
+    }
+    pump() { while (this.active < 2 && this.queue.length) {
+        const next = this.queue.shift();
+        if (!next)
+            break;
+        if (next.signal.aborted)
+            next.cancel();
+        else
+            next.start();
+    } }
+    trim() {
+        let bytes = 0;
+        for (const item of this.cache.values())
+            bytes += item.value.thumbnail?.dataBase64.length ?? 0;
+        while (this.cache.size > 24 || bytes > 1024 * 1024) {
+            const key = this.cache.keys().next().value;
+            if (key === undefined)
+                break;
+            bytes -= this.cache.get(key)?.value.thumbnail?.dataBase64.length ?? 0;
+            this.cache.delete(key);
+        }
+    }
+    /** Diagnostics expose budgets, never filenames or content. */
+    get stats() { return { entries: this.cache.size, active: this.active, queued: this.queue.length }; }
+}
+exports.FileInspectionCache = FileInspectionCache;
+function thumbnailObjectUrl(info) {
+    const data = info.thumbnail?.dataBase64;
+    if (!data)
+        return undefined;
+    const binary = atob(data);
+    if (binary.length > 48 * 1024)
+        throw Error('Oversized thumbnail');
+    return URL.createObjectURL(new Blob([Uint8Array.from(binary, char => char.charCodeAt(0))], { type: 'image/png' }));
+}
+
+},
+"src/modules/client-runtime/workspaces/path.js": function(module, exports, require) {
+// source: src/modules/client-runtime/workspaces/path.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveWorkspacePath = resolveWorkspacePath;
+exports.abbreviateHomePath = abbreviateHomePath;
+/**
+ * Resolve a workspace-relative path into the Host-facing spelling used by openPath.
+ * @param cwd - session workspace root, when known.
+ * @param path - absolute or workspace-relative path.
+ * @returns an absolute path when a workspace root is available, otherwise the original path.
+ */
+function resolveWorkspacePath(cwd, path) {
+    if (path.startsWith('/') || isWindowsStylePath(path))
+        return path;
+    if (cwd === undefined || cwd === '')
+        return path;
+    const base = cwd.replace(/[/\\]+$/, '');
+    const rel = path.replace(/^[/\\]+/, '');
+    return `${base}/${rel}`;
+}
+/** Drive-letter or UNC path; Web display must not rewrite these as `~`. */
+function isWindowsStylePath(value) {
+    return /^[A-Za-z]:[/\\]/.test(value) || value.startsWith('\\\\');
+}
+/**
+ * Display-only POSIX home abbreviation. Windows drive and UNC paths stay
+ * verbatim, including when `home` itself is a Windows path. A missing, empty,
+ * or filesystem-root `home` leaves `path` unchanged so `/` cannot become `~`.
+ * @param path - absolute or already-short display path.
+ * @param home - host account home from `host.describe`; absent skips abbreviation.
+ * @returns `~` or `~/…` for the POSIX home and its descendants, otherwise `path`.
+ */
+function abbreviateHomePath(path, home) {
+    if (home === undefined || home === '')
+        return path;
+    if (isWindowsStylePath(path) || isWindowsStylePath(home))
+        return path;
+    const root = home.replace(/\/+$/, '');
+    if (root === '' || root === '/')
+        return path;
+    if (path.replace(/\/+$/, '') === root)
+        return '~';
+    if (path.startsWith(`${root}/`))
+        return `~${path.slice(root.length)}`;
+    return path;
+}
 
 },
 "src/modules/browser/model-activity.js": function(module, exports, require) {
@@ -1358,7 +1680,7 @@ function listenModelBrowserActivity(native, owner, tabId, onCount) {
 
 }
 };
-const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
+const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

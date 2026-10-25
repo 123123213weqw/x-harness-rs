@@ -108,6 +108,14 @@ impl FsTarget {
     }
 }
 
+/// UI-only, contained inspection. No model observation/version is recorded.
+#[derive(Debug)]
+pub struct PreviewInspection {
+    pub bytes: u64,
+    pub modified_ms: Option<u64>,
+    pub prefix: Vec<u8>,
+}
+
 /// Files at or below this size are versioned by hashing the whole content, so
 /// the model-facing digest still matches a plain `sha256sum` of the file.
 /// Larger files are versioned by a bounded sample: reading one page of a
@@ -766,6 +774,61 @@ impl FsService {
                 )?;
             }
             Ok(bytes)
+        })
+        .await
+    }
+
+    /// Inspect a bounded sample and metadata from the same no-follow handle.
+    /// The cap prevents callers turning card metadata into an unbounded read.
+    pub async fn inspect_preview(
+        &self,
+        target: &FsTarget,
+        limit: usize,
+    ) -> Result<PreviewInspection, FsError> {
+        if limit > 2 * 1024 * 1024 {
+            return Err(FsError::InvalidPath {
+                display: target.display.clone(),
+                reason: "preview sample limit exceeded",
+            });
+        }
+        let (record, guard) = self.lock_target(target).await?;
+        let root = self.inner.root.clone();
+        let root_fd = self.inner.root_fd.clone();
+        run_blocking(move || {
+            let _guard = guard;
+            let physical = physical_target(&root, root_fd.as_ref(), &record)?;
+            let mut file =
+                open_regular_contained(&root, &physical)?.ok_or_else(|| FsError::NotFound {
+                    display: physical.display.clone(),
+                })?;
+            let metadata = file
+                .metadata()
+                .map_err(|source| io_error("inspect preview target", &physical.path, source))?;
+            let before = MetadataStamp::from_metadata(&metadata);
+            let mut prefix = Vec::new();
+            (&mut file)
+                .take(limit as u64)
+                .read_to_end(&mut prefix)
+                .map_err(|source| io_error("sample preview target", &physical.path, source))?;
+            let after =
+                MetadataStamp::from_metadata(&file.metadata().map_err(|source| {
+                    io_error("inspect preview target", &physical.path, source)
+                })?);
+            if before != after {
+                return Err(FsError::ConcurrentModification {
+                    display: physical.display,
+                });
+            }
+            let modified_ms = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .and_then(|duration| u64::try_from(duration.as_millis()).ok());
+            Ok(PreviewInspection {
+                bytes: metadata.len(),
+                modified_ms,
+                prefix,
+            })
         })
         .await
     }

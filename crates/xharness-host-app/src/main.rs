@@ -28,6 +28,25 @@ use xharness_terminal::TerminalRegistry;
 use xharness_web_terminal::terminal_routes;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--authorize-local-keychain")
+    {
+        #[cfg(target_os = "macos")]
+        {
+            let arguments: Vec<_> = env::args_os().skip(2).collect();
+            let count = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?
+                .block_on(xharness_host_app::model_settings::authorize_local_helper(
+                    &arguments,
+                ))?;
+            println!("Local Keychain authorization checked {count} existing credential(s)");
+            return Ok(());
+        }
+        #[cfg(not(target_os = "macos"))]
+        return Err("Local Keychain authorization is available only on macOS".into());
+    }
     #[cfg(windows)]
     if env::args_os()
         .nth(1)

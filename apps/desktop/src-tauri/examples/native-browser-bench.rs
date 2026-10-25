@@ -17,6 +17,8 @@ mod browser_lifecycle;
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/lifecycle_trace.rs"]
+mod lifecycle_trace;
 #[path = "../src/native_startup.rs"]
 mod native_startup;
 
@@ -81,6 +83,7 @@ fn main() {
                 let result: Result<(), String> = async {
                     let state = app.state::<browser_bridge::BrowserBridge>();
                     let connection = state.start(&app).await?;
+                    assert!(state.is_started());
                     let mut options = std::fs::OpenOptions::new();
                     options.write(true).create_new(true);
                     #[cfg(unix)]

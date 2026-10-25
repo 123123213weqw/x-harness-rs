@@ -495,7 +495,14 @@ impl GoalController {
         let outcome = closed_outcome(&session, running.turn)
             .ok_or_else(|| GoalError::Invalid("turn is not durably settled".into()))?;
         let key = &running.intent.key;
-        let body = body.or_else(|| recorded_goal_report(&session));
+        // A description edit changes the definition, not the user's cancellation
+        // authority. Keep this turn's outcome, but never reuse its old report as
+        // acceptance of the new objective (even if it was recorded before editing).
+        let body = if key.definition_revision == s.definition.definition_revision {
+            body.or_else(|| recorded_goal_report(&session))
+        } else {
+            None
+        };
         let report = body.map(|b| GoalReport {
             goal_id: key.goal_id.clone(),
             definition_revision: key.definition_revision,
@@ -530,7 +537,7 @@ impl GoalController {
         };
         s.latest_turn = Some(GoalTurnResult {
             goal_id: key.goal_id.clone(),
-            definition_revision: key.definition_revision,
+            definition_revision: s.definition.definition_revision,
             activation_epoch: key.activation_epoch,
             turn: running.turn,
             outcome,
@@ -667,10 +674,10 @@ fn goal_prompt(s: &GoalExecutionState) -> String {
         ""
     };
     let completion_note = match s.definition.verification {
-        VerificationMode::AgentReport => "When the objective and acceptance criteria are met, call goal_report with status=complete, evidence and no remaining work, then finish the turn. Your settled report ends this Goal automatically. Only the user can manage the Goal through /goal or the Goal bar.",
-        VerificationMode::UserConfirm => "When the objective and acceptance criteria are met, call goal_report with status=complete and evidence, then finish the turn. This Goal waits for user confirmation. Only the user can manage the Goal through /goal or the Goal bar.",
+        VerificationMode::AgentReport => "When the objective and acceptance criteria are met, call goal_report with status=complete, evidence and no remaining work, then finish the turn. Your settled report ends this Goal automatically. Lifecycle controls remain user-only through /goal or the Goal bar.",
+        VerificationMode::UserConfirm => "When the objective and acceptance criteria are met, call goal_report with status=complete and evidence, then finish the turn. This Goal waits for user confirmation. Lifecycle controls remain user-only through /goal or the Goal bar.",
     };
-    format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly.\n{completion_note}\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
+    format!("[Goal continuation]\n{activation_note}Objective: {}\nAcceptance criteria: {}\nLatest progress: {}\nContinue substantive work towards this goal. A normal turn ending is not goal completion. Do not repeat already completed side effects. Report missing requirements or blockers honestly. While Goal is active, edit_goal_objective may autonomously revise its text without per-edit confirmation, preserving the user intent and acceptance requirements; it cannot manage lifecycle. After editing, finish this turn without goal_report; the next round reassesses the new objective.\n{completion_note}\n[/Goal continuation]", s.definition.snapshot.objective, s.definition.acceptance_criteria.join("; "), s.latest_turn.as_ref().and_then(|t| t.report.as_ref()).map_or("No report yet".into(), |r| format!("{}; remaining: {}", r.summary, r.remaining.join("; "))))
 }
 
 pub fn is_goal_message(m: &InboxMessage) -> bool {

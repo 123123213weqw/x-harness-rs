@@ -614,6 +614,17 @@ pub trait AgentRuntime: Send + Sync + 'static {
     }
 
     /// Deployment-owned read-only file display; independent of executing a turn.
+    async fn inspect_display_file(
+        &self,
+        _session_id: &str,
+        _cwd: &str,
+        _permission: PermissionPreset,
+        _path: &std::path::Path,
+        _thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        Err("File inspection is unavailable on this deployment".into())
+    }
+
     async fn read_display_file(
         &self,
         _session_id: &str,
@@ -943,6 +954,19 @@ impl AgentRuntime for LoopAgentRuntime {
             .await
     }
 
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
+            .await
+    }
+
     async fn read_display_file(
         &self,
         session_id: &str,
@@ -1157,6 +1181,20 @@ impl TurnRequestFactory for DurableTurnFactory {
                 ))
                 .await
                 .map_err(|e| e.to_string())?;
+        }
+        if self.tool_factory.allows_host_tool("edit_goal_objective") {
+            if let Some(fence) = snapshot.as_ref().and_then(crate::goal_edit_tool::fence) {
+                tool_executor
+                    .registry()
+                    .register(crate::goal_edit_tool::spec(
+                        Arc::clone(&self.store),
+                        self.goals.changes.clone(),
+                        agent_id.into(),
+                        fence,
+                    ))
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
         }
         if self.tool_factory.allows_host_tool("goal_report") {
             if let Some(fence) = snapshot
@@ -1610,6 +1648,19 @@ impl AgentRuntime for DurableLoopAgentRuntime {
     ) -> Result<xharness_api::display::DisplayFile, String> {
         self.tool_factory
             .read_display_diff(session_id, cwd, path, scope, cancellation)
+            .await
+    }
+
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &std::path::Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        self.tool_factory
+            .inspect_display_file(session_id, cwd, permission, path, thumbnail)
             .await
     }
 

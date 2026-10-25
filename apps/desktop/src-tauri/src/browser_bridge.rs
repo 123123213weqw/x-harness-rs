@@ -56,19 +56,48 @@ fn matches_token(provided: &str, expected: &str) -> bool {
 }
 
 impl BrowserBridge {
+    pub fn is_started(&self) -> bool {
+        self.0.get().is_some()
+    }
     pub async fn start(&self, app: &AppHandle) -> Result<&Connection, String> {
+        self.start_at(app, None).await
+    }
+
+    pub async fn start_at(
+        &self,
+        app: &AppHandle,
+        previous: Option<(std::net::SocketAddr, String)>,
+    ) -> Result<&Connection, String> {
+        if previous.as_ref().is_some_and(|(address, token)| {
+            address.ip() != std::net::Ipv4Addr::LOCALHOST
+                || address.port() == 0
+                || token.len() != 64
+                || !token.bytes().all(|b| b.is_ascii_hexdigit())
+        }) {
+            return Err("invalid native browser recovery binding".into());
+        }
         self.0
             .get_or_try_init(|| async {
-                let listener = TcpListener::bind("127.0.0.1:0")
+                let address = previous
+                    .as_ref()
+                    .map(|(address, _)| *address)
+                    .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
+                let listener = TcpListener::bind(address)
                     .await
                     .map_err(|_| "native browser bridge unavailable")?;
                 let address = listener
                     .local_addr()
                     .map_err(|_| "native browser address unavailable")?
                     .to_string();
-                let mut bytes = [0u8; 32];
-                getrandom::fill(&mut bytes).map_err(|_| "native browser entropy unavailable")?;
-                let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+                let token = match previous {
+                    Some((_, token)) => token,
+                    None => {
+                        let mut bytes = [0u8; 32];
+                        getrandom::fill(&mut bytes)
+                            .map_err(|_| "native browser entropy unavailable")?;
+                        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+                    }
+                };
                 let secret = token.clone();
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {

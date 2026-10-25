@@ -653,6 +653,14 @@ jobs:
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
           node scripts/test-desktop-updater.mjs
           if ($LASTEXITCODE) { throw 'Windows native validation command failed' }
+      - name: Preserve an active Host turn across desktop-owner recovery
+        run: |
+          cargo build --locked -p xharness-host-app
+          if ($LASTEXITCODE) { throw 'Recovery Host build failed' }
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example host-recovery-probe
+          if ($LASTEXITCODE) { throw 'Recovery probe build failed' }
+          & apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/host-recovery-probe.exe target/x86_64-pc-windows-msvc/debug/xharness-host.exe
+          if ($LASTEXITCODE) { throw 'Active-turn desktop recovery failed' }
       - name: Native WebView DOM callback/actions on Windows (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
@@ -813,6 +821,11 @@ jobs:
           cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
           cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Preserve an active Host turn across desktop-owner recovery
+        run: |
+          cargo build --locked -p xharness-host-app
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example host-recovery-probe
+          apps/desktop/src-tauri/target/debug/examples/host-recovery-probe target/debug/xharness-host
       - name: Native WebView DOM callback/actions on macOS (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
@@ -921,6 +934,11 @@ jobs:
       - run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
       - run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Preserve an active Host turn across desktop-owner recovery
+        run: |
+          cargo build --locked -p xharness-host-app
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example host-recovery-probe
+          apps/desktop/src-tauri/target/debug/examples/host-recovery-probe target/debug/xharness-host
       - name: Native WebView DOM callback/actions on Linux (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe

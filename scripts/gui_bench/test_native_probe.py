@@ -82,7 +82,8 @@ class NativeProbeTests(unittest.TestCase):
                         loaded_owner_receipt='preserved', test_only=True)
         log = ("Native lifecycle probe passed:\nNative Tauri DOM probe passed:\n"
                + "HARD_CAPABILITY_EVIDENCE " + json.dumps(capabilities)
-               + "\nSUBFRAME_NAVIGATION_EVIDENCE " + json.dumps(subframe))
+               + "\nSUBFRAME_NAVIGATION_EVIDENCE " + json.dumps(subframe)
+               + '\nBROWSER_LIFECYCLE_EVIDENCE {"passed":true,"test_only":true,"main_alive":true,"created":2,"close_accepted":2}')
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
                    cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
                    observed={'pointers':[dict(type='click', trusted=True, id=target, x=x, y=y)
@@ -166,7 +167,11 @@ class NativeProbeTests(unittest.TestCase):
         subframe = '\nSUBFRAME_NAVIGATION_EVIDENCE ' + json.dumps({
             'same_origin': 'passed', 'cross_origin': 'passed', 'same_document': 'passed', 'guest_caller': 'denied',
             'top_level_address': 'preserved', 'loaded_owner_receipt': 'preserved', 'test_only': True})
-        self.assertTrue(contract_completed(log + subframe))
+        lifecycle = '\nBROWSER_LIFECYCLE_EVIDENCE ' + json.dumps(dict(passed=True,test_only=True,main_alive=True,created=2,close_accepted=2))
+        self.assertFalse(contract_completed(log + subframe), 'missing teardown evidence must fail')
+        self.assertTrue(contract_completed(log + subframe + lifecycle))
+        self.assertFalse(contract_completed(log + subframe + lifecycle + lifecycle))
+        self.assertFalse(contract_completed(log + subframe + lifecycle.replace('"main_alive": true', '"main_alive": false')))
         self.assertFalse(contract_completed(log + subframe + subframe), 'duplicate evidence is ambiguous')
         self.assertFalse(contract_completed(log + subframe.replace('"cross_origin": "passed"', '"cross_origin": "failed"')))
         self.assertFalse(contract_completed(log + "\nNative observation probe failed:"))

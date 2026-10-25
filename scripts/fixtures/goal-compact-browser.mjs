@@ -35,10 +35,15 @@ export async function runCompactGoalBrowser(){
   await button('更多目标操作').press('Escape');assert.equal(await page.getByRole('menu').count(),0)
   assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute('aria-label')),'更多目标操作')
   await menu();await page.getByRole('textbox',{name:'Preview message'}).click();assert.equal(await page.getByRole('menu').count(),0)
-  await page.getByRole('button',{name:/^编辑目标:/}).click()
-  await page.getByRole('textbox',{name:'目标内容'}).fill('  新目标：回归通过，不发布  ')
-  await page.getByRole('textbox',{name:'目标内容'}).press('Enter')
-  await button('恢复目标').waitFor();assert.deepEqual(await lastCall(),{name:'edit',args:['新目标：回归通过，不发布']})
+  const original=await page.evaluate(()=>({id:goalPreview.projection.goal.id,objective:goalPreview.projection.goal.objective}));
+  await page.getByRole('button',{name:/^查看目标详情:/}).click();await page.getByRole('dialog',{name:'目标详情',exact:true}).waitFor();
+  await page.getByRole('dialog').getByRole('button',{name:'编辑目标',exact:true}).click();
+  const editor=page.getByRole('textbox',{name:'目标内容'});
+  await editor.fill('  新目标：回归通过\n不要发布  ');await editor.press('Enter');
+  assert.equal((await page.evaluate(()=>goalPreview.calls.at(-1)))?.name,'resume','plain Enter must not save');
+  await page.getByRole('dialog').getByRole('button',{name:'保存目标',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await button('恢复目标').waitFor();assert.deepEqual(await lastCall(),{name:'edit',args:['新目标：回归通过\n不要发布',original]})
   await render('running')
   const statistics=page.getByLabel('累计自动轮数',{exact:true})
   assert.equal(await statistics.textContent(),'12 轮')
@@ -92,6 +97,18 @@ export async function runCompactGoalBrowser(){
    const rect=await page.getByRole('menu').boundingBox();assert.ok(rect.x>=0&&rect.x+rect.width<=width+1)
    if(width===375)await page.screenshot({path:resolve(evidence,engine+'-mobile.png')})
    await button('更多目标操作').press('Escape')
+   assert.ok((await page.getByRole('button',{name:/^查看目标详情:/}).boundingBox()).height<=51,'long dock preview must stay within two lines, including native Safari buttons');
+   await page.getByRole('button',{name:/^查看目标详情:/}).click();
+   const details=page.getByRole('dialog',{name:'目标详情',exact:true}),full=details.locator('[data-goal-description]');
+   assert.ok((await full.textContent()).includes('很长的目标，不应把操作挤出屏幕。'.repeat(30)));
+   let rectDetails=await details.boundingBox();assert.ok(rectDetails.x>=0&&rectDetails.x+rectDetails.width<=width+1);
+   await details.getByRole('button',{name:'编辑目标',exact:true}).click();
+   const editorDialog=page.getByRole('dialog',{name:'编辑目标',exact:true}),area=editorDialog.getByRole('textbox',{name:'目标内容'});
+   assert.equal(await area.evaluate(el=>el.tagName),'TEXTAREA');assert.ok((await area.boundingBox()).height>=200);
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+   assert.ok((await editorDialog.boundingBox()).height<=720);
+   await page.screenshot({path:resolve(evidence,`${engine}-goal-editor-${width}.png`)});
+   await area.press('Escape');await editorDialog.waitFor({state:'hidden'});
    await menu();await page.getByRole('menuitem',{name:'清除目标',exact:true}).click()
    const modal=await page.getByRole('dialog').boundingBox();assert.ok(modal.x>=0&&modal.x+modal.width<=width+1)
    await page.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click()
