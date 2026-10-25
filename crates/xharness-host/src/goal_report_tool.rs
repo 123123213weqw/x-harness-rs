@@ -1,5 +1,5 @@
 //! Report-only capability for an explicitly admitted automatic Goal turn.
-//! User commands and the Goal bar own lifecycle changes; ordinary turns get no Goal tool.
+//! User controls own lifecycle; the separate existing-objective tool cannot report.
 #![forbid(unsafe_code)]
 use crate::SessionToolFactory;
 use serde_json::json;
@@ -19,20 +19,22 @@ pub(crate) fn fence(session: &Session, input: &[AgentMessage]) -> Option<(GoalDe
         input.len() == 1
             && input[0].role == xharness_core::Role::User
             && input[0].id.as_deref() == Some(pending.message_id.as_str())
+            && pending.key.definition_revision == state.definition.definition_revision
     });
     let recovering = input.is_empty()
         && state.running.as_ref().is_some_and(|running| {
-            session
-                .events()
-                .iter()
-                .rev()
-                .find_map(|event| match event.data() {
-                    EventData::TurnStart { turn } => Some(Some(*turn)),
-                    EventData::TurnEnd { .. } => Some(None),
-                    _ => None,
-                })
-                .flatten()
-                == Some(running.turn)
+            running.intent.key.definition_revision == state.definition.definition_revision
+                && session
+                    .events()
+                    .iter()
+                    .rev()
+                    .find_map(|event| match event.data() {
+                        EventData::TurnStart { turn } => Some(Some(*turn)),
+                        EventData::TurnEnd { .. } => Some(None),
+                        _ => None,
+                    })
+                    .flatten()
+                    == Some(running.turn)
         });
     (admitted || recovering).then_some((state.definition, state.activation_epoch))
 }

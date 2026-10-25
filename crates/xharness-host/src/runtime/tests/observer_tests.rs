@@ -1160,7 +1160,17 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
     // hosted modes; an inactive hosted gate must reject before tool injection.
     for gate_active in [None, Some(true), Some(false)] {
         for restricted in [false, true] {
-            for automatic_goal in [false, true] {
+            for goal_mode in [
+                "none",
+                "disarmed",
+                "paused",
+                "complete",
+                "ordinary",
+                "automatic",
+            ] {
+                let goal_active = matches!(goal_mode, "ordinary" | "automatic");
+                let has_goal = goal_mode != "none";
+                let automatic_goal = goal_mode == "automatic";
                 let execution = crate::execution::ExecutionBoundary::default();
                 if let Some(active) = gate_active {
                     execution.install(Arc::new(FixtureGate(active))).unwrap();
@@ -1183,7 +1193,7 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                     Arc::new(NoTools)
                 };
                 let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-                let input = if automatic_goal {
+                let input = if has_goal {
                     crate::prepare_goal_session(
                         store.as_ref(),
                         &crate::GoalBootstrapSpec {
@@ -1205,16 +1215,51 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                     )
                     .await
                     .unwrap();
-                    xharness_agent::GoalController::new(store.clone(), "restricted")
-                        .reconcile()
-                        .await
-                        .unwrap();
+                    if goal_active {
+                        xharness_agent::GoalController::new(store.clone(), "restricted")
+                            .reconcile()
+                            .await
+                            .unwrap();
+                    } else {
+                        let session = store.load("restricted").await.unwrap().unwrap();
+                        let mut snapshot = xharness_agent::goal_snapshot(&session).unwrap();
+                        snapshot.version = 1;
+                        snapshot.goal.revision += 1;
+                        snapshot.operation = match goal_mode {
+                            "paused" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Paused;
+                                xharness_session::GoalSnapshotOperation::Pause
+                            }
+                            "complete" => {
+                                snapshot.goal.phase = xharness_session::GoalPhase::Complete;
+                                xharness_session::GoalSnapshotOperation::Complete
+                            }
+                            _ => xharness_session::GoalSnapshotOperation::Edit,
+                        };
+                        store
+                            .append(
+                                "restricted",
+                                session.revision(),
+                                vec![xharness_session::EventData::GoalChange {
+                                    change: xharness_session::GoalChange::Snapshot(snapshot),
+                                }
+                                .into()],
+                            )
+                            .await
+                            .unwrap();
+                    }
                     let session = store.load("restricted").await.unwrap().unwrap();
-                    vec![xharness_agent::InboxProjection::from_session(&session)
-                        .unwrap()
-                        .next_turn()[0]
-                        .message
-                        .clone()]
+                    if automatic_goal {
+                        vec![xharness_agent::InboxProjection::from_session(&session)
+                            .unwrap()
+                            .next_turn()[0]
+                            .message
+                            .clone()]
+                    } else {
+                        vec![xharness_core::AgentMessage::user(
+                            "edit the existing objective",
+                        )]
+                    }
                 } else {
                     Vec::new()
                 };
@@ -1262,7 +1307,9 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
                     assert_eq!(
                         names,
                         if automatic_goal {
-                            vec!["goal_report", "history"]
+                            vec!["edit_goal_objective", "goal_report", "history"]
+                        } else if goal_active {
+                            vec!["edit_goal_objective", "history"]
                         } else {
                             vec!["history"]
                         }

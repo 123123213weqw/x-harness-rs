@@ -96,7 +96,11 @@ pub(crate) async fn validate_report(
         || state.definition.definition_revision != definition.definition_revision
         || state.definition.snapshot.id != definition.snapshot.id
         || state.activation_epoch != epoch
-        || state.running.is_none()
+        || state.running.as_ref().is_none_or(|running| {
+            running.intent.key.goal_id != definition.snapshot.id
+                || running.intent.key.definition_revision != definition.definition_revision
+                || running.intent.key.activation_epoch != epoch
+        })
     {
         return Err(ToolHandlerError::new(
             "Goal changed or paused; report is stale",
@@ -537,6 +541,7 @@ mod tests {
             }
             if self.status == "ordinary" || self.status == "retired_goal" {
                 self.rounds.fetch_add(1, Ordering::SeqCst);
+                assert!(!r.tools.iter().any(|t| t.name == "edit_goal_objective"));
                 assert!(!r
                     .tools
                     .iter()
@@ -588,6 +593,16 @@ mod tests {
                     1
                 );
                 let n = self.rounds.fetch_add(1, Ordering::SeqCst) + 1;
+                if self.status == "edit_objective" && n == 1 {
+                    assert!(r.tools.iter().any(|t| t.name == "edit_goal_objective"));
+                    return Ok(Box::pin(futures::stream::iter(vec![
+                        Ok(ProviderEvent::ToolCallDelta {
+                            index: 0, id: "revise-objective".into(), name: "edit_goal_objective".into(),
+                            arguments_delta: json!({"objective":"Implement parser and test it\nPreserve the original acceptance requirements"}).to_string(),
+                        }),
+                        Ok(ProviderEvent::Completed { finish_reason: Some(FinishReason::ToolCalls), usage: None, provider_items: vec![] }),
+                    ])));
+                }
                 if self.status == "text_only" {
                     return Ok(Box::pin(futures::stream::iter(vec![
                         Ok(ProviderEvent::TextDelta("All done".into())),
@@ -598,17 +613,18 @@ mod tests {
                         }),
                     ])));
                 }
-                let status = if self.status == "reported_then_failed" {
-                    "complete"
-                } else if self.status == "three" {
-                    if n < 3 {
-                        "progress"
-                    } else {
+                let status =
+                    if self.status == "reported_then_failed" || self.status == "edit_objective" {
                         "complete"
-                    }
-                } else {
-                    self.status
-                };
+                    } else if self.status == "three" {
+                        if n < 3 {
+                            "progress"
+                        } else {
+                            "complete"
+                        }
+                    } else {
+                        self.status
+                    };
                 let mut body = json!({"status":status,"summary":format!("round {n}"),"evidence":[{"kind":"artifact","reference":"tests/result.txt"}]});
                 if self.status == "dependency" {
                     body["status"] = json!(if n == 1 { "progress" } else { "complete" });
@@ -1041,7 +1057,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn slash_goal_create_runs_with_only_a_scoped_report_tool() {
+    async fn slash_goal_create_runs_with_scoped_report_and_existing_objective_tools() {
         let (host, store, model) = setup("complete").await;
         let result = host.call_dynamic(
             RpcId::new("slash-create"), "commands/execute",
@@ -1067,6 +1083,51 @@ mod tests {
         assert!(session.events().iter().any(
             |event| matches!(event.data(),EventData::ToolCall{call,..} if call.name=="goal_report")
         ));
+        host.agent_runtime.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn slash_goal_then_real_model_edit_projects_text_and_reassesses_next_round() {
+        let (host, store, model) = setup("edit_objective").await;
+        let result = host.call_dynamic(
+            RpcId::new("slash-edit-fixture"), "commands/execute",
+            json!({"args":{"agentId":"g","line":"/goal Implement parser and test it","images":[]}}),
+            CancellationToken::new(),
+        ).await.unwrap();
+        assert!(matches!(result, RpcResult::Success { .. }));
+        let session = wait(&host, &store, "complete").await;
+        let state = execution_state(&session).unwrap();
+        assert_eq!(model.rounds.load(Ordering::SeqCst), 2);
+        assert_eq!(state.rounds_started, 2);
+        assert_eq!(state.activation_epoch, 1);
+        assert_eq!(state.definition.verification, VerificationMode::AgentReport);
+        assert_eq!(
+            host.state.read().await.goals["g"].objective,
+            state.definition.snapshot.objective
+        );
+        assert!(state
+            .definition
+            .snapshot
+            .objective
+            .contains("Preserve the original acceptance requirements"));
+        let settled = session
+            .events()
+            .iter()
+            .filter_map(|e| match e.data() {
+                EventData::GoalExecution { change }
+                    if change.operation == GoalExecutionOperation::Settle =>
+                {
+                    change.state.latest_turn.clone()
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(settled.len(), 2);
+        assert!(settled[0].report.is_none());
+        assert_eq!(
+            settled[1].report.as_ref().unwrap().status,
+            GoalReportStatus::Complete
+        );
         host.agent_runtime.shutdown(Duration::from_secs(1)).await;
     }
 

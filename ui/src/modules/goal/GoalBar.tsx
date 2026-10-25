@@ -1,7 +1,7 @@
-/** Compact Goal dock; user controls reuse the existing authoritative RPCs. */
+/** Compact Goal preview with a full-size detail/editor surface; mutations keep Host CAS. */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Button, Menu, Modal, IconCheckOutline16, IconCloseOutline16, IconEditOutline16,
+  Button, Menu, Modal, IconCheckOutline16, IconEditOutline16,
   IconEllipsisOutline16, IconGoalOutline16, IconPauseOutline16, IconPlayOutline16, IconTrashOutline16,
 } from '@xharness/dsh-client-ui-primitives'
 import type { MenuEntry } from '@xharness/dsh-client-ui-primitives'
@@ -102,11 +102,14 @@ export interface GoalBarProps extends GoalBarActions, PropsLocale<'goal'> {
 }
 export function GoalBar({goal, projection, onComplete, onEdit, onPause, onResume, onClear, t}: GoalBarProps) {
   const [editing, setEditing] = useState(false); const [draft, setDraft] = useState('')
+  const [detailsGoalId, setDetailsGoalId] = useState<string | null>(null)
+  const detailsOpen = detailsGoalId !== null && detailsGoalId === goal?.id
+  const [editBase, setEditBase] = useState<{id: string; objective: string} | null>(null)
   const [pending, setPending] = useState(false); const [actionError, setActionError] = useState<string | null>(null)
   const [clearedGoalId, setClearedGoalId] = useState<string | null>(null)
   const pendingRef = useRef(false); const actionEpoch = useRef(0); const goalId = goal?.id
   useEffect(() => {
-    setEditing(false); setActionError(null); setClearedGoalId(null)
+    setEditing(false); setDetailsGoalId(null); setEditBase(null); setActionError(null); setClearedGoalId(null)
     actionEpoch.current++; pendingRef.current = false; setPending(false)
     return () => {actionEpoch.current++; pendingRef.current = false}
   }, [goalId])
@@ -124,28 +127,58 @@ export function GoalBar({goal, projection, onComplete, onEdit, onPause, onResume
     return result
   }, [])
   const handleEdit = useCallback(async () => {
-    const trimmed = draft.trim(); if (trimmed === '') return
-    if ((await runAction(() => onEdit(trimmed)))?.ok) setEditing(false)
-  }, [draft, onEdit, runAction])
+    const trimmed = draft.trim(); if (trimmed === '' || editBase === null) return
+    if (goal?.id !== editBase.id || goal.objective !== editBase.objective) {
+      setActionError(t('edit.conflict')); return
+    }
+    if ((await runAction(() => onEdit(trimmed, editBase)))?.ok) {
+      setEditing(false); setDetailsGoalId(null)
+    }
+  }, [draft, editBase, goal, onEdit, runAction, t])
   if (goal === undefined || goal === null || goal.id === clearedGoalId) return null
-  const beginEdit = () => {setDraft(goal.objective); setEditing(true)}
+  const beginEdit = () => {
+    setDraft(goal.objective); setEditBase({id: goal.id, objective: goal.objective})
+    setActionError(null); setEditing(true); setDetailsGoalId(goal.id)
+  }
+  const closeDetails = () => {if (!pendingRef.current) {setEditing(false); setDetailsGoalId(null)}}
+  const conflict = editing && editBase !== null && (editBase.id !== goal.id || editBase.objective !== goal.objective)
   return <div className={css.dock} data-goal-bar>
     <div className={css.bar} title={goalTitle(goal, projection)}>
       <span className={css.goalGlyph}><IconGoalOutline16 size={16} /></span>
-      {editing ? <form className={css.editForm} onSubmit={event => {event.preventDefault(); void handleEdit()}}>
-        <input className={css.objectiveInput} type="text" aria-label={t('objective.aria')} value={draft} autoFocus disabled={pending}
-          onChange={event => {setDraft(event.target.value)}} onKeyDown={event => {if (event.key === 'Escape' && !pending) setEditing(false)}} />
-        <button type="submit" className={css.iconBtn} disabled={pending || draft.trim() === ''} aria-label={t('action.save')} title={t('action.save')}><IconCheckOutline16 size={16} /></button>
-        <button type="button" className={css.iconBtn} disabled={pending} onClick={() => {setEditing(false)}} aria-label={t('action.cancel')} title={t('action.cancel')}><IconCloseOutline16 size={16} /></button>
-      </form> : <>
-        <button type="button" className={css.objective} title={t('action.edit')} aria-label={`${t('action.edit')}: ${goal.objective}`} disabled={pending} onClick={beginEdit}>{goal.objective}</button>
+      <>
+        <button type="button" className={css.objective} title={t('action.view')} aria-label={`${t('action.view')}: ${goal.objective}`} disabled={pending}
+          onClick={() => {setEditing(false); setActionError(null); setDetailsGoalId(goal.id)}}>{goal.objective}</button>
         <GoalControls key={goal.id} goal={goal} projection={projection} onComplete={onComplete} onPause={onPause} onResume={onResume}
           clearGoal={async () => {
             if ((await runAction(onClear))?.ok) setClearedGoalId(goal.id)
           }} runAction={runAction} beginEdit={beginEdit} pending={pending} actionError={actionError} t={t} />
-      </>}
+      </>
     </div>
-    {actionError !== null && <div className={css.error} role="status">{actionError}</div>}
+    {actionError !== null && !detailsOpen && <div className={css.error} role="status">{actionError}</div>}
+    <Modal open={detailsOpen} onClose={closeDetails} title={t(editing ? 'edit.title' : 'details.title')} closeLabel={t('action.close')}
+      className={css.editorDialog} contentClassName={css.editorContent}
+      footer={editing ? <>
+        <Button size="sm" disabled={pending} onClick={closeDetails}>{t('action.cancel')}</Button>
+        <Button size="sm" variant="primary" disabled={pending || draft.trim() === '' || conflict} onClick={() => {void handleEdit()}}>{t('action.save')}</Button>
+      </> : <>
+        <Button size="sm" disabled={pending} onClick={closeDetails}>{t('action.close')}</Button>
+        <Button size="sm" variant="primary" disabled={pending} onClick={beginEdit}>{t('action.edit')}</Button>
+      </>}>
+      {editing ? <>
+        <label className={css.editorLabel} htmlFor={`goal-objective-${goal.id}`}>{t('objective.aria')}</label>
+        <textarea id={`goal-objective-${goal.id}`} className={css.objectiveInput} aria-label={t('objective.aria')} value={draft} autoFocus disabled={pending}
+          rows={12} onChange={event => {setDraft(event.target.value)}} onKeyDown={event => {
+            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+              event.preventDefault(); void handleEdit()
+            }
+          }} />
+        <p className={css.editorHint}>{t('edit.hint')}</p>
+        {conflict && <div role="status" className={css.error}>{t('edit.conflict')}
+          <Button size="sm" disabled={pending} onClick={beginEdit}>{t('edit.reload')}</Button>
+        </div>}
+      </> : <div className={css.objectiveFull} tabIndex={0} data-goal-description>{goalTitle(goal, projection)}</div>}
+      {actionError !== null && <p className={css.error} role="alert">{actionError}</p>}
+    </Modal>
   </div>
 }
 export interface GoalDockProps extends GoalBarActions, PropsLocale<'goal'> {

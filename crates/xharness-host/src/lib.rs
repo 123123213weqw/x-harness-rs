@@ -20,6 +20,7 @@ mod delegation;
 mod delegation_concurrency;
 #[cfg(test)]
 mod gate_tests;
+mod goal_edit_tool;
 mod goal_processor;
 mod goal_report_tool;
 mod goals;

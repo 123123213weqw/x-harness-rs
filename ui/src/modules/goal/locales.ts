@@ -2,6 +2,13 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'action.view': "查看目标详情",
+  'details.title': "目标详情",
+  'edit.title': "编辑目标",
+  'edit.hint': "Enter 换行，Ctrl / ⌘ + Enter 保存。长目标可滚动查看，也可拖动调整编辑区高度。",
+  'edit.conflict': "目标已被更新，当前草稿已保留。请先查看最新目标，避免覆盖其他修改。",
+  'edit.reload': "用最新目标替换草稿",
+
   'phase.complete': '已完成',
   'state.disabled': '未启用',
   'state.running': '运行中',
@@ -49,6 +56,13 @@ export type GoalKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'action.view': "View goal details",
+  'details.title': "Goal details",
+  'edit.title': "Edit goal",
+  'edit.hint': "Enter inserts a new line; Ctrl / ⌘ + Enter saves. Scroll long goals or resize the editor vertically.",
+  'edit.conflict': "The goal changed. Your draft is retained; review the latest goal before overwriting other changes.",
+  'edit.reload': "Replace draft with latest goal",
+
   'phase.complete': 'Completed',
   'state.disabled': 'Not enabled',
   'state.running': 'Running',

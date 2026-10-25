@@ -55,11 +55,16 @@ function apply(ctx) {
         order: 10,
         locale: NS,
         inject: (sessionId) => ({
-            onEdit: async (objective) => {
-                const ref = refOf(sessionId);
-                if (ref === undefined)
+            onEdit: async (objective, expected) => {
+                // Bind the draft to the viewed text/identity, not a stale round-stat revision.
+                const projection = sessions.binding(sessionId)?.session.projections.faceOf('goal')?.getSnapshot();
+                if (projection == null)
                     return noCurrentGoal;
-                return await ctx.remote.goals.edit(sessionId, ref, { objective });
+                const current = projection.goal;
+                if (expected !== undefined && (expected.id !== current.id || expected.objective !== current.objective)) {
+                    return { ok: false, error: { code: 'goal-changed', message: 'Goal changed while editing; draft retained. Reload the latest Goal before saving.', details: {} } };
+                }
+                return await ctx.remote.goals.edit(sessionId, { id: current.id, revision: current.revision }, { objective });
             },
             onPause: async () => {
                 const ref = refOf(sessionId);
@@ -106,7 +111,7 @@ exports.goalTitle = goalTitle;
 exports.GoalBar = GoalBar;
 exports.GoalDock = GoalDock;
 const jsx_runtime_1 = require("react/jsx-runtime");
-/** Compact Goal dock; user controls reuse the existing authoritative RPCs. */
+/** Compact Goal preview with a full-size detail/editor surface; mutations keep Host CAS. */
 const react_1 = require("react");
 const dsh_client_ui_primitives_1 = require("@xharness/dsh-client-ui-primitives");
 const GoalBar_styles_1 = __importDefault(require("./GoalBar.styles"));
@@ -181,6 +186,9 @@ function GoalControls({ goal, projection, onComplete, onResume, onPause, clearGo
 function GoalBar({ goal, projection, onComplete, onEdit, onPause, onResume, onClear, t }) {
     const [editing, setEditing] = (0, react_1.useState)(false);
     const [draft, setDraft] = (0, react_1.useState)('');
+    const [detailsGoalId, setDetailsGoalId] = (0, react_1.useState)(null);
+    const detailsOpen = detailsGoalId !== null && detailsGoalId === goal?.id;
+    const [editBase, setEditBase] = (0, react_1.useState)(null);
     const [pending, setPending] = (0, react_1.useState)(false);
     const [actionError, setActionError] = (0, react_1.useState)(null);
     const [clearedGoalId, setClearedGoalId] = (0, react_1.useState)(null);
@@ -189,6 +197,8 @@ function GoalBar({ goal, projection, onComplete, onEdit, onPause, onResume, onCl
     const goalId = goal?.id;
     (0, react_1.useEffect)(() => {
         setEditing(false);
+        setDetailsGoalId(null);
+        setEditBase(null);
         setActionError(null);
         setClearedGoalId(null);
         actionEpoch.current++;
@@ -221,19 +231,40 @@ function GoalBar({ goal, projection, onComplete, onEdit, onPause, onResume, onCl
     }, []);
     const handleEdit = (0, react_1.useCallback)(async () => {
         const trimmed = draft.trim();
-        if (trimmed === '')
+        if (trimmed === '' || editBase === null)
             return;
-        if ((await runAction(() => onEdit(trimmed)))?.ok)
+        if (goal?.id !== editBase.id || goal.objective !== editBase.objective) {
+            setActionError(t('edit.conflict'));
+            return;
+        }
+        if ((await runAction(() => onEdit(trimmed, editBase)))?.ok) {
             setEditing(false);
-    }, [draft, onEdit, runAction]);
+            setDetailsGoalId(null);
+        }
+    }, [draft, editBase, goal, onEdit, runAction, t]);
     if (goal === undefined || goal === null || goal.id === clearedGoalId)
         return null;
-    const beginEdit = () => { setDraft(goal.objective); setEditing(true); };
-    return (0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.dock, "data-goal-bar": true, children: [(0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.bar, title: goalTitle(goal, projection), children: [(0, jsx_runtime_1.jsx)("span", { className: GoalBar_styles_1.default.goalGlyph, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGoalOutline16, { size: 16 }) }), editing ? (0, jsx_runtime_1.jsxs)("form", { className: GoalBar_styles_1.default.editForm, onSubmit: event => { event.preventDefault(); void handleEdit(); }, children: [(0, jsx_runtime_1.jsx)("input", { className: GoalBar_styles_1.default.objectiveInput, type: "text", "aria-label": t('objective.aria'), value: draft, autoFocus: true, disabled: pending, onChange: event => { setDraft(event.target.value); }, onKeyDown: event => { if (event.key === 'Escape' && !pending)
-                                    setEditing(false); } }), (0, jsx_runtime_1.jsx)("button", { type: "submit", className: GoalBar_styles_1.default.iconBtn, disabled: pending || draft.trim() === '', "aria-label": t('action.save'), title: t('action.save'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCheckOutline16, { size: 16 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.iconBtn, disabled: pending, onClick: () => { setEditing(false); }, "aria-label": t('action.cancel'), title: t('action.cancel'), children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconCloseOutline16, { size: 16 }) })] }) : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.objective, title: t('action.edit'), "aria-label": `${t('action.edit')}: ${goal.objective}`, disabled: pending, onClick: beginEdit, children: goal.objective }), (0, jsx_runtime_1.jsx)(GoalControls, { goal: goal, projection: projection, onComplete: onComplete, onPause: onPause, onResume: onResume, clearGoal: async () => {
+    const beginEdit = () => {
+        setDraft(goal.objective);
+        setEditBase({ id: goal.id, objective: goal.objective });
+        setActionError(null);
+        setEditing(true);
+        setDetailsGoalId(goal.id);
+    };
+    const closeDetails = () => { if (!pendingRef.current) {
+        setEditing(false);
+        setDetailsGoalId(null);
+    } };
+    const conflict = editing && editBase !== null && (editBase.id !== goal.id || editBase.objective !== goal.objective);
+    return (0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.dock, "data-goal-bar": true, children: [(0, jsx_runtime_1.jsxs)("div", { className: GoalBar_styles_1.default.bar, title: goalTitle(goal, projection), children: [(0, jsx_runtime_1.jsx)("span", { className: GoalBar_styles_1.default.goalGlyph, children: (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.IconGoalOutline16, { size: 16 }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: GoalBar_styles_1.default.objective, title: t('action.view'), "aria-label": `${t('action.view')}: ${goal.objective}`, disabled: pending, onClick: () => { setEditing(false); setActionError(null); setDetailsGoalId(goal.id); }, children: goal.objective }), (0, jsx_runtime_1.jsx)(GoalControls, { goal: goal, projection: projection, onComplete: onComplete, onPause: onPause, onResume: onResume, clearGoal: async () => {
                                     if ((await runAction(onClear))?.ok)
                                         setClearedGoalId(goal.id);
-                                }, runAction: runAction, beginEdit: beginEdit, pending: pending, actionError: actionError, t: t }, goal.id)] })] }), actionError !== null && (0, jsx_runtime_1.jsx)("div", { className: GoalBar_styles_1.default.error, role: "status", children: actionError })] });
+                                }, runAction: runAction, beginEdit: beginEdit, pending: pending, actionError: actionError, t: t }, goal.id)] })] }), actionError !== null && !detailsOpen && (0, jsx_runtime_1.jsx)("div", { className: GoalBar_styles_1.default.error, role: "status", children: actionError }), (0, jsx_runtime_1.jsxs)(dsh_client_ui_primitives_1.Modal, { open: detailsOpen, onClose: closeDetails, title: t(editing ? 'edit.title' : 'details.title'), closeLabel: t('action.close'), className: GoalBar_styles_1.default.editorDialog, contentClassName: GoalBar_styles_1.default.editorContent, footer: editing ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: closeDetails, children: t('action.cancel') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", variant: "primary", disabled: pending || draft.trim() === '' || conflict, onClick: () => { void handleEdit(); }, children: t('action.save') })] }) : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: closeDetails, children: t('action.close') }), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", variant: "primary", disabled: pending, onClick: beginEdit, children: t('action.edit') })] }), children: [editing ? (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("label", { className: GoalBar_styles_1.default.editorLabel, htmlFor: `goal-objective-${goal.id}`, children: t('objective.aria') }), (0, jsx_runtime_1.jsx)("textarea", { id: `goal-objective-${goal.id}`, className: GoalBar_styles_1.default.objectiveInput, "aria-label": t('objective.aria'), value: draft, autoFocus: true, disabled: pending, rows: 12, onChange: event => { setDraft(event.target.value); }, onKeyDown: event => {
+                                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+                                        event.preventDefault();
+                                        void handleEdit();
+                                    }
+                                } }), (0, jsx_runtime_1.jsx)("p", { className: GoalBar_styles_1.default.editorHint, children: t('edit.hint') }), conflict && (0, jsx_runtime_1.jsxs)("div", { role: "status", className: GoalBar_styles_1.default.error, children: [t('edit.conflict'), (0, jsx_runtime_1.jsx)(dsh_client_ui_primitives_1.Button, { size: "sm", disabled: pending, onClick: beginEdit, children: t('edit.reload') })] })] }) : (0, jsx_runtime_1.jsx)("div", { className: GoalBar_styles_1.default.objectiveFull, tabIndex: 0, "data-goal-description": true, children: goalTitle(goal, projection) }), actionError !== null && (0, jsx_runtime_1.jsx)("p", { className: GoalBar_styles_1.default.error, role: "alert", children: actionError })] })] });
 }
 function GoalDock({ useProjection, onEdit, onPause, onResume, onClear, onComplete, t }) {
     const projection = useProjection('goal');
@@ -254,7 +285,11 @@ const views_types_1 = require("../views-types");
 (0, views_types_1.installStyles)("@xharness/dsh-client-ui-goal/GoalBar.module.css", "@xharness/dsh-client-ui-goal", GoalBar_css_1.default);
 const styles = {
     "dialog": "bgzwgq_dialog",
-    "editForm": "bgzwgq_editForm",
+    "editorDialog": "bgzwgq_editorDialog",
+    "editorContent": "bgzwgq_editorContent",
+    "editorLabel": "bgzwgq_editorLabel",
+    "editorHint": "bgzwgq_editorHint",
+    "objectiveFull": "bgzwgq_objectiveFull",
     "rounds": "bgzwgq_rounds",
     "controls": "bgzwgq_controls",
     "bar": "bgzwgq_bar",
@@ -273,7 +308,7 @@ exports.default = styles;
 // source: src/modules/goal/GoalBar.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "/* Same composer alignment and tokens; only the current action stays exposed. */\n.bgzwgq_dock{box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset));margin:0 auto}\n.bgzwgq_bar{box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));min-height:40px;margin:0 auto;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.bgzwgq_goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}\n.bgzwgq_objective{min-width:0;flex:1 1 120px;text-align:left;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:24px;border:0;background:transparent;padding:2px 0;cursor:pointer;border-radius:4px}\n.bgzwgq_objective:hover{color:var(--dsw-alias-label-secondary)}\n.bgzwgq_controls{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0}\n.bgzwgq_label{color:var(--dsw-alias-label-tertiary);min-width:0;max-width:145px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;font-size:12px;line-height:24px}\n.bgzwgq_rounds{border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;padding:2px 6px;border-radius:6px;cursor:default}\n.bgzwgq_iconBtn{width:28px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex}\n.bgzwgq_iconBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.bgzwgq_iconBtn:disabled,.bgzwgq_objective:disabled{opacity:.4;cursor:default}\n.bgzwgq_objective:focus-visible,.bgzwgq_rounds:focus-visible,.bgzwgq_iconBtn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.bgzwgq_editForm{flex:1;min-width:0;display:flex;align-items:center;gap:6px}\n.bgzwgq_objectiveInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;color:var(--dsw-alias-label-primary);border-radius:8px;outline:none;padding:7px 10px;font:inherit;font-size:13px;line-height:20px}\n.bgzwgq_objectiveInput{flex:1;height:32px;width:100%}\n.bgzwgq_objectiveInput:focus{border-color:var(--dsw-alias-state-business-primary)}\n.bgzwgq_error{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px;line-height:20px;margin:4px 0}\n.bgzwgq_dialog{width:min(360px,calc(100vw - 32px))}\n@media(max-width:520px){.bgzwgq_objective{flex-basis:calc(100% - 32px)}.bgzwgq_controls{flex:1;margin-left:24px}.bgzwgq_label{flex:1;max-width:none}}\n";
+exports.default = "/* Same composer alignment and tokens; only the current action stays exposed. */\n.bgzwgq_dock{box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance) - 4 * var(--dsh-composer-dock-inset));margin:0 auto}\n.bgzwgq_bar{box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));min-height:40px;margin:0 auto;padding:4px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.bgzwgq_goalGlyph{color:var(--dsw-alias-label-tertiary);flex:none;display:inline-flex}\n.bgzwgq_objective{min-width:0;flex:1 1 120px;text-align:left;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;max-height:50px;white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:23px;border:0;background:transparent;padding:2px 0;cursor:pointer;border-radius:4px}\n.bgzwgq_objective:hover{color:var(--dsw-alias-label-secondary)}\n.bgzwgq_controls{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0}\n.bgzwgq_label{color:var(--dsw-alias-label-tertiary);min-width:0;max-width:145px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;font-size:12px;line-height:24px}\n.bgzwgq_rounds{border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:24px;font-variant-numeric:tabular-nums;white-space:nowrap;padding:2px 6px;border-radius:6px;cursor:default}\n.bgzwgq_iconBtn{width:28px;height:28px;flex:none;color:var(--dsw-alias-label-tertiary);cursor:pointer;background:transparent;border:none;border-radius:8px;justify-content:center;align-items:center;padding:0;display:inline-flex}\n.bgzwgq_iconBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}\n.bgzwgq_iconBtn:disabled,.bgzwgq_objective:disabled{opacity:.4;cursor:default}\n.bgzwgq_objective:focus-visible,.bgzwgq_rounds:focus-visible,.bgzwgq_iconBtn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.bgzwgq_objectiveInput{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);min-width:0;color:var(--dsw-alias-label-primary);border-radius:8px;outline:none;padding:7px 10px;font:inherit;font-size:14px;line-height:24px}\n.bgzwgq_objectiveInput{width:100%;height:min(440px,50vh);min-height:min(280px,38vh);max-height:60vh;resize:vertical;white-space:pre-wrap;overflow-wrap:anywhere}\n.bgzwgq_objectiveInput:focus{border-color:var(--dsw-alias-state-business-primary)}\n.bgzwgq_error{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere;font-size:12px;line-height:20px;margin:4px 0}\n.bgzwgq_dialog{width:min(360px,calc(100vw - 32px))}\n@media(max-width:520px){.bgzwgq_objective{flex-basis:calc(100% - 32px)}.bgzwgq_controls{flex:1;margin-left:24px}.bgzwgq_label{flex:1;max-width:none}}\n\n/* Full text is selectable/scrollable; the compact dock is only a preview. */\n.bgzwgq_editorDialog{width:min(840px,calc(100vw - 48px));max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);gap:16px}\n.bgzwgq_editorContent{min-height:0;overflow-y:auto}\n.bgzwgq_objectiveFull{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-height:55vh;overflow-y:auto;font-size:14px;line-height:24px;color:var(--dsw-alias-label-primary);padding:0 2px 4px}\n.bgzwgq_editorLabel{display:block;margin:0 0 8px;color:var(--dsw-alias-label-secondary);font-size:13px}\n.bgzwgq_editorHint{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}\n";
 
 },
 "src/modules/views-types.js": function(module, exports, require) {
@@ -469,6 +504,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.en = exports.zh = void 0;
 /** Simplified Chinese dictionary (the key-set source of truth). */
 exports.zh = {
+    'action.view': "查看目标详情",
+    'details.title': "目标详情",
+    'edit.title': "编辑目标",
+    'edit.hint': "Enter 换行，Ctrl / ⌘ + Enter 保存。长目标可滚动查看，也可拖动调整编辑区高度。",
+    'edit.conflict': "目标已被更新，当前草稿已保留。请先查看最新目标，避免覆盖其他修改。",
+    'edit.reload': "用最新目标替换草稿",
     'phase.complete': '已完成',
     'state.disabled': '未启用',
     'state.running': '运行中',
@@ -512,6 +553,12 @@ exports.zh = {
 };
 /** English dictionary, checked complete against the zh key set. */
 exports.en = {
+    'action.view': "View goal details",
+    'details.title': "Goal details",
+    'edit.title': "Edit goal",
+    'edit.hint': "Enter inserts a new line; Ctrl / ⌘ + Enter saves. Scroll long goals or resize the editor vertically.",
+    'edit.conflict': "The goal changed. Your draft is retained; review the latest goal before overwriting other changes.",
+    'edit.reload': "Replace draft with latest goal",
     'phase.complete': 'Completed',
     'state.disabled': 'Not enabled',
     'state.running': 'Running',
