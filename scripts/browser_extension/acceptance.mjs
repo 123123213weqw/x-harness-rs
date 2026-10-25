@@ -1,16 +1,16 @@
 // Real isolated Chromium extension + native messaging + MCP; never touches user profiles or live sites.
 import assert from 'node:assert/strict'
 import{createServer}from'node:http'
-import{spawn}from'node:child_process'
+import{spawn,execFile}from'node:child_process'
+import{promisify}from'node:util'
 import{createInterface}from'node:readline'
 import{createRequire}from'node:module'
 import{resolve,join}from'node:path'
 import{mkdtemp,mkdir,cp,writeFile,readFile,rm}from'node:fs/promises'
 import{tmpdir}from'node:os'
-import{install}from'../../plugins/browser-extension/scripts/install-native.mjs'
 if(process.env.XHARNESS_BROWSER_EXTENSION_TEST_SERVER!=='1'||process.platform!=='linux')throw Error('Run in the isolated Linux server checkout only')
 const require=createRequire(resolve(process.env.UI_TEST_DEPS??'plugins/browser-use','package.json'))
-const {chromium}=require('playwright'),temporary=await mkdtemp(join(tmpdir(),'xh-extension-real-')),home=join(temporary,'home'),xdg=join(home,'.config'),profile=join(temporary,'profile'),extension=join(temporary,'extension')
+const {chromium}=require('playwright'),temporary=await mkdtemp(join(tmpdir(),'xh-extension-real-')),home=join(temporary,'home'),xdg=join(home,'.config'),profile=join(temporary,'profile'),extension=join(temporary,'extension'),plugin=join(temporary,'plugin')
 await mkdir(home,{recursive:true,mode:0o700});await cp('plugins/browser-extension/dist',extension,{recursive:true})
 let foreignRequests=0,sessionRetained=false
 const foreign=createServer((_req,res)=>{foreignRequests++;res.end('Forbidden origin')});foreign.listen(0,'127.0.0.1');await new Promise(r=>foreign.once('listening',r))
@@ -26,21 +26,26 @@ const origin=`http://xharness-extension-fixture.test:${server.address().port}`
 const manifest=JSON.parse(await readFile(join(extension,'manifest.json'),'utf8'))
 // Test installation pregrants ONLY the controlled loopback fixture origin. Production remains optional-host-permissions.
 manifest.host_permissions=[origin+'/*'];await writeFile(join(extension,'manifest.json'),JSON.stringify(manifest))
-const native=await install({binary:resolve(process.env.XHARNESS_BROWSER_EXTENSION_HOST??'target/debug/xharness-browser-extension-host'),browser:'chromium',register:true,home,xdg})
-// Playwright's branded Chrome for Testing searches its own official per-user registration directory.
-const testingManifest=join(xdg,'google-chrome-for-testing','NativeMessagingHosts','com.xharness.browser_bridge.json');await mkdir(resolve(testingManifest,'..'),{recursive:true});await cp(native.manifestPath,testingManifest)
-await mkdir(join(profile,'NativeMessagingHosts'),{recursive:true});await cp(native.manifestPath,join(profile,'NativeMessagingHosts','com.xharness.browser_bridge.json'))
-function mcp(){
- const child=spawn(process.execPath,[resolve('plugins/browser-extension/dist/native/mcp.js')],{env:{...process.env,HOME:home,USERPROFILE:home}}),pending=new Map();let seq=0,stderr=''
+// Test a real complete plugin package: MCP boot performs the native registration.
+await mkdir(join(plugin,'native','linux-x64'),{recursive:true})
+await cp('plugins/browser-extension/dist',join(plugin,'dist'),{recursive:true})
+await cp('plugins/browser-extension/scripts',join(plugin,'scripts'),{recursive:true})
+await cp('plugins/browser-extension/package.json',join(plugin,'package.json'))
+await cp(resolve(process.env.XHARNESS_BROWSER_EXTENSION_HOST??'target/debug/xharness-browser-extension-host'),join(plugin,'native','linux-x64','xharness-browser-extension-host'))
+function mcp(contextId='a'.repeat(64),label='Fixture conversation A'){
+ const child=spawn(process.execPath,[join(plugin,'dist/native/mcp.js')],{env:{...process.env,HOME:home,USERPROFILE:home,XDG_CONFIG_HOME:xdg,XHARNESS_BROWSER_CONTEXT_ID:contextId,XHARNESS_BROWSER_CONTEXT_LABEL:label}}),pending=new Map();let seq=0,stderr=''
  child.stderr.on('data',value=>stderr+=value)
  createInterface({input:child.stdout}).on('line',line=>{const reply=JSON.parse(line);pending.get(reply.id)?.(reply);pending.delete(reply.id)})
  return {child,call(action){return new Promise((resolve,reject)=>{const id=String(++seq),timer=setTimeout(()=>reject(Error(stderr||'MCP call timed out')),25000);pending.set(id,value=>{clearTimeout(timer);if(value.error)reject(Error(value.error.message));else resolve(value.result)});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name:'browser',arguments:action}})+'\n')})},async close(){if(child.exitCode!==null)return;child.stdin.end();await new Promise(r=>child.once('exit',r))}}
 }
-const a=mcp(),b=mcp();let context,aClosed=false
+let a=mcp();const b=mcp('b'.repeat(64),'Fixture conversation B');let context,aClosed=false
 const checks=[],check=(name)=>{checks.push(name);console.log('PASS',name)}
 const unpack=result=>{assert.equal(result.isError,false,JSON.stringify(result));return JSON.parse(result.content[0].text)}
 try{
- const unpaired=unpack(await a.call({action:'status'}));assert.equal(unpaired.connected,false);check('unpaired-has-code-no-browser-authority')
+ const unpaired=unpack(await a.call({action:'status'}));assert.equal(unpaired.connected,false);assert.equal(unpaired.pairCode,undefined);assert.equal(unpaired.installation.installed,true);check('Host-context-auto-installs-native-bridge-without-pairing-code')
+ const native={extensionId:JSON.parse(await readFile(join(plugin,'dist/extension-id.json'),'utf8')).extensionId,manifestPath:join(xdg,'chromium','NativeMessagingHosts','com.xharness.browser_bridge.json')}
+ const testingManifest=join(xdg,'google-chrome-for-testing','NativeMessagingHosts','com.xharness.browser_bridge.json');await mkdir(resolve(testingManifest,'..'),{recursive:true});await cp(native.manifestPath,testingManifest)
+ await mkdir(join(profile,'NativeMessagingHosts'),{recursive:true});await cp(native.manifestPath,join(profile,'NativeMessagingHosts','com.xharness.browser_bridge.json'))
  context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:false,env:{...process.env,HOME:home,XDG_CONFIG_HOME:xdg},args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`,'--no-proxy-server','--host-resolver-rules=MAP xharness-extension-fixture.test 127.0.0.1']})
  let worker=context.serviceWorkers()[0];if(!worker)worker=await context.waitForEvent('serviceworker')
  const extensionId=worker.url().split('/')[2];assert.equal(extensionId,native.extensionId)
@@ -48,12 +53,12 @@ try{
  const foreground=await context.newPage();await foreground.goto(origin+'/foreground')
  const popup=await context.newPage();await popup.goto(`chrome-extension://${extensionId}/popup.html`)
  const pageErrors=[];popup.on('pageerror',error=>pageErrors.push(error.message))
- await popup.getByRole('button',{name:'连接 XHarness',exact:true}).click()
+ await popup.getByRole('button',{name:'启用自动连接',exact:true}).click()
  try{await popup.locator('#status[data-connected="true"]').waitFor({timeout:12000})}catch(error){console.log('Popup error:',await popup.locator('#error').textContent());throw error}
- await popup.locator('#client option').filter({hasText:unpaired.pairCode}).waitFor({state:'attached'})
+ await popup.locator('#client option').filter({hasText:'Fixture conversation A'}).waitFor({state:'attached'})
  const state=await popup.evaluate(()=>chrome.runtime.sendMessage({action:'state'})),target=state.tabs.find(tab=>tab.title==='Background fixture').id
- const grant=async(code)=>{await popup.locator('#client').selectOption({label:'配对码 '+code});await popup.locator('#tab').selectOption(String(target));await popup.getByRole('button',{name:'授权这个标签页',exact:true}).click();await popup.locator('#authorized').getByText('已授权 · '+origin,{exact:true}).waitFor()}
- await grant(unpaired.pairCode);await mkdir('dist/browser-extension-evidence',{recursive:true});await popup.locator('body').screenshot({path:'dist/browser-extension-evidence/popup-connected.png'});check('real-popup-native-messaging-explicit-tab-grant')
+ const grant=async(label='Fixture conversation A')=>{await popup.locator('#client').selectOption({label});await popup.locator('#tab').selectOption(String(target));await popup.getByRole('button',{name:'授权这个标签页',exact:true}).click();await popup.locator('#authorized').getByText('已授权 · '+origin,{exact:true}).waitFor()}
+ await grant();await mkdir('dist/browser-extension-evidence',{recursive:true});await popup.locator('body').screenshot({path:'dist/browser-extension-evidence/popup-connected.png'});check('real-popup-native-messaging-explicit-tab-grant')
  // Playwright normally forces every page to virtually focused/visible. Disable
  // that test-driver emulation before validating a genuinely hidden real tab.
  const backgroundSession=await context.newCDPSession(background)
@@ -69,6 +74,10 @@ try{
  const field=observed.nodes.find(node=>node.name==='Report');assert.ok(field)
  unpack(await a.call({action:'fill',tabId:target,observationId:observed.observationId,ref:field.ref,text:'后台 中文 😀'}));assert.equal(await background.locator('input').first().inputValue(),'后台 中文 😀')
  unpack(await a.call({action:'press',tabId:target,key:'Enter'}));assert.deepEqual(await background.evaluate(()=>window.keys),[{key:'Enter',trusted:true}]);assert.deepEqual(await foreground.evaluate(()=>window.foregroundKeys),[]);check('browser-owned-keypress-has-trusted-events')
+ await a.close();a=mcp()
+ let restored=false
+ for(let i=0;i<100;i++){const value=await a.call({action:'tabs'});if(!value.isError&&unpack(value).tabs.some(tab=>tab.tabId===target)){restored=true;break}await new Promise(resolve=>setTimeout(resolve,200))}
+ assert.equal(restored,true);check('MCP-recreation-restores-same-conversation-without-manual-pairing')
  const next=unpack(await a.call({action:'observe',tabId:target})),button=next.nodes.find(node=>node.name==='Increment')
  unpack(await a.call({action:'click',tabId:target,observationId:next.observationId,ref:button.ref}));assert.equal(await background.locator('#state').textContent(),'1')
  assert.deepEqual(await background.evaluate(()=>window.trusted),[true,true])
@@ -87,18 +96,32 @@ try{
  const large=unpack(await a.call({action:'observe',tabId:target}));assert.ok(Buffer.byteLength(JSON.stringify(large))<=16000);assert.equal(large.truncated,true)
  await background.locator('#large').evaluate(element=>element.remove());check('large-CJK-observation-has-hard-UTF8-budget')
  assert.equal((await b.call({action:'observe',tabId:target})).isError,true);check('second-client-cannot-read-owned-tab')
+ // Terminate only this fixture's native Node helper (exact immutable snapshot path).
+ const nativeManifest=JSON.parse(await readFile(native.manifestPath,'utf8'))
+ const nativeConfig=JSON.parse(await readFile(join(nativeManifest.path,'..','launcher.json'),'utf8'))
+ const processes=(await promisify(execFile)('ps',['-eo','pid=,args='])).stdout.trim().split('\n')
+ const helper=processes.map(line=>line.trim().match(/^(\d+)\s+(.*)$/)).find(row=>row&&row[2]===`${nativeConfig.node} ${nativeConfig.script}`)
+ assert.ok(helper,'isolated native helper must exist')
+ assert.ok(nativeConfig.script.startsWith(home+'/'),'never target a helper outside the isolated HOME')
+ process.kill(Number(helper[1]),'SIGTERM')
+ let reconnected=false
+ for(let i=0;i<240;i++){await new Promise(resolve=>setTimeout(resolve,200));const result=await a.call({action:'tabs'});if(!result.isError&&unpack(result).tabs.some(tab=>tab.tabId===target)){reconnected=true;break}}
+ assert.equal(reconnected,true);assert.equal(await background.locator('#state').textContent(),'1')
+ check('native-helper-crash-auto-reconnects-without-effect-replay-or-manual-pairing')
+
  const shot=await a.call({action:'screenshot',tabId:target});unpack(shot);const image=shot.content.find(block=>block.type==='image');assert.ok(image);assert.equal(image.mimeType,'image/png')
  const png=Buffer.from(image.data,'base64');assert.equal(png.subarray(1,4).toString(),'PNG');assert.ok(png.length<=2097152);assert.equal(await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({active:true,currentWindow:true});return tabs[0].id}),beforeActive);check('background-CDP-screenshot-is-real-MCP-image')
  const navigated=unpack(await a.call({action:'navigate',tabId:target,url:origin+'/next'}));assert.equal(navigated.ready,true);assert.equal(background.url(),origin+'/next');check('same-origin-navigation-waits-for-committed-ready-loader')
  assert.equal((await a.call({action:'navigate',tabId:target,url:foreignOrigin+'/denied'})).isError,true);assert.equal(foreignRequests,0);check('cross-origin-command-denied-before-navigation')
  await popup.getByRole('button',{name:'停止全部操作',exact:true}).click();await popup.locator('#authorized').getByText('尚未授权标签页',{exact:true}).waitFor()
  assert.equal((await a.call({action:'press',tabId:target,key:'Enter'})).isError,true);check('stop-revokes-before-next-effect')
- await grant(unpaired.pairCode)
+ await a.close();a=mcp();await new Promise(resolve=>setTimeout(resolve,2300));assert.equal((await a.call({action:'observe',tabId:target})).isError,true);check('explicit-stop-survives-MCP-recreation')
+ await grant()
  await background.goto(foreignOrigin+'/manual-navigation')
  assert.equal((await a.call({action:'observe',tabId:target})).isError,true);check('manual-origin-change-requires-fresh-authorization')
- await background.goto(origin);await grant(unpaired.pairCode)
+ await background.goto(origin);await grant()
  await a.close();aClosed=true;await popup.locator('#authorized').getByText('尚未授权标签页',{exact:true}).waitFor();check('client-process-exit-revokes-its-tab')
- const second=unpack(await b.call({action:'status'}));await grant(second.pairCode)
+ const second=unpack(await b.call({action:'status'}));await grant('Fixture conversation B')
  await popup.getByRole('button',{name:'断开',exact:true}).click();await popup.locator('#authorized').getByText('尚未授权标签页',{exact:true}).waitFor()
  assert.equal((await b.call({action:'press',tabId:target,key:'Enter'})).isError,true);check('disconnect-revokes-and-never-replays')
  await mkdir('dist/browser-extension-evidence',{recursive:true});await writeFile('dist/browser-extension-evidence/background-page.png',png);await popup.screenshot({path:'dist/browser-extension-evidence/popup.png'})

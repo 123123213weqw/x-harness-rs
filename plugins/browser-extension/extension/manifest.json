@@ -9,7 +9,9 @@
     "debugger",
     "nativeMessaging",
     "scripting",
-    "tabs"
+    "tabs",
+    "storage",
+    "alarms"
   ],
   "optional_host_permissions": [
     "http://*/*",

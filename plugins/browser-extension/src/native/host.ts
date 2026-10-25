@@ -7,14 +7,18 @@ import {framed,lines,nativeWrite,readPrivate,stateRoot,privateDirectory} from '.
 
 const clients=new Map<string,{socket:Socket;admitted:boolean}>()
 const retryAfter=new Map<string,number>()
-let scanning=false,ready=false,closed=false
+let scanning=false,ready=false,closed=false,scanOffset=0
 const directory=join(stateRoot(),'clients')
 async function scan():Promise<void> {
   if(scanning||!ready||closed)return
   scanning=true
   try{
     await privateDirectory(stateRoot());await privateDirectory(directory)
-    const names=(await readdir(directory)).filter(name=>/^[a-f0-9-]{36}\.json$/.test(name)).slice(0,64)
+    const candidates=(await readdir(directory)).filter(name=>/^[a-f0-9-]{36}\.json$/.test(name)).sort()
+    // A crashed process can leave a registration. Rotate the bounded scan so
+    // stale names cannot permanently hide newer live conversations.
+    if(scanOffset>=candidates.length)scanOffset=0
+    const names=candidates.slice(scanOffset,scanOffset+64);scanOffset+=names.length
     for(const name of names){
       if(clients.size>=16)break
       const key=name.slice(0,-5);if(clients.has(key)||Date.now()<(retryAfter.get(key)??0))continue
@@ -22,7 +26,8 @@ async function scan():Promise<void> {
         const path=join(directory,name),stat=await lstat(path)
         if(Date.now()-stat.mtimeMs>24*60*60*1000)continue
         const entry=object(await readPrivate(path))
-        if(entry.version!==1||id(entry.clientId)!==key||typeof entry.port!=='number'||!Number.isInteger(entry.port)||entry.port<1||entry.port>65535)continue
+        if(entry.version!==2||id(entry.clientId)!==key||typeof entry.port!=='number'||!Number.isInteger(entry.port)||entry.port<1||entry.port>65535)continue
+        const contextId=text(entry.contextId,64),contextLabel=text(entry.contextLabel,96);if(!/^[a-f0-9]{64}$/.test(contextId))continue
         const token=text(entry.token,64);if(!/^[a-f0-9]{64}$/.test(token))continue
         const socket=connect({host:'127.0.0.1',port:entry.port})
         const client={socket,admitted:false};clients.set(key,client)
@@ -34,8 +39,8 @@ async function scan():Promise<void> {
           try{
             const message=object(value)
             if(!client.admitted){
-              if(message.type!=='client'||message.clientId!==key||text(message.pairCode,8)!==entry.pairCode)throw Error('Invalid client handshake')
-              client.admitted=true;socket.setTimeout(0);nativeWrite({type:'client',clientId:key,pairCode:message.pairCode});return
+              if(message.type!=='client'||message.clientId!==key||message.contextId!==contextId||message.contextLabel!==contextLabel)throw Error('Invalid client handshake')
+              client.admitted=true;socket.setTimeout(0);nativeWrite({type:'client',clientId:key,contextId,contextLabel});return
             }
             if(message.type==='command')nativeWrite({type:'command',clientId:key,requestId:id(message.requestId),command:command(message.command)})
             else if(message.type==='cancel')nativeWrite({type:'cancel',clientId:key,requestId:id(message.requestId)})

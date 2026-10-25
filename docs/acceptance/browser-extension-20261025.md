@@ -1,5 +1,8 @@
 # Browser extension first candidate — 2026-10-25
 
+> Historical manual-pairing baseline. Current automatic setup and validation:
+> [automatic connection receipt](browser-extension-autoconnect-20261025.md).
+
 Base: `58d894140cb566865023481b49eed437b6ccb5fe`.
 Branch: `feat/browser-extension-20261025`.
 

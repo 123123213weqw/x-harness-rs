@@ -1,126 +1,164 @@
-# XHarness Browser extension — first candidate
+# XHarness Browser extension — automatic connection candidate
 
-An opt-in Chrome/Edge 123+ Manifest V3 extension, not Computer Use and not an embedded
-WebView replacement. It controls only tabs the user pairs explicitly in the
-extension popup. No system mouse, remote-debugging port, arbitrary JavaScript/CDP,
-cookie export, profile copying or automatic fallback to another browser.
+An opt-in Chrome/Edge 123+ Manifest V3 extension, not Computer Use or an embedded
+WebView replacement. One existing `plugin_mcp` entry controls explicitly authorized
+browser tabs without activating them or using the system mouse/keyboard.
+
+## First setup, then automatic use
+
+1. Install the matching **complete platform plugin archive** through the existing
+   verified plugin installer and enable its MCP server. Node 20+ must already be
+   available to the MCP runtime. On its first invocation the enabled plugin
+   automatically registers its bundled native launcher for the current user's
+   Chrome, Chromium and Edge. No terminal command, administrator access, download,
+   browser-profile copy or restart of XHarness is performed by that setup.
+2. Install/load the browser extension once. This candidate is not yet published
+   to the Chrome/Edge stores; it cannot silently install or enable itself. Open
+   its toolbar popup and choose **启用自动连接** once.
+3. The popup discovers Host-bound conversations automatically. Select the intended
+   conversation and tab, and authorize that site/tab. There is **no pairing code**.
+   New tabs, sites and different conversations are not implicitly authorized.
+4. The model uses `plugin_mcp`: plugin `browser-extension`, server `browser`,
+   tool `browser`, starting with `{"action":"status"}` then `tabs`/`observe`.
+   Discovery alone does not grant control or prove that a page is ready.
+
+Connections are reestablished automatically after a native helper failure (bounded
+30s–5min backoff), browser startup or service-worker restart once enabled. An idle
+MCP process can be recreated without re-pairing: Host identity is stable across
+that conversation's process lifetimes. Unknown effects are **not replayed**.
+
+### What is remembered
+
+- `storage.local`: only the opt-in automatic-connection preference, persistent
+  across browser restarts. An explicit disconnect turns it off.
+- `storage.session`: exact tab ID + granted origin + opaque Host conversation ID.
+  It survives worker/native/MCP restarts **within the same browser session**, not
+  a full browser restart. It never reinterprets a recycled tab ID from an older
+  browser session. After a full browser restart choose the intended tab again;
+  there is still no manual pairing code.
+- **停止全部操作**, a tool stop/cancellation, user debugger detachment, site permission
+  removal, tab closure and origin change clear the relevant consent. Automatic
+  reconnection cannot restore it. A transient transport/client exit only retires
+  live control; exact saved consent can be restored to the same conversation.
+- Two live clients claiming the same context are ambiguous: control is revoked,
+  not assigned to whichever arrives first. Other conversations cannot inherit it.
 
 ## Architecture
 
 ```
-model → existing plugin_mcp → per-chat browser-extension/browser MCP process
-                                  ↕ authenticated loopback channel
-                        browser-owned Native Messaging process
-                                  ↕ length-prefixed JSON
-                        MV3 extension → approved tab's CDP + fixed DOM functions
+model → plugin_mcp → Host-injected context → per-chat MCP broker
+                                                  ↕ private token + loopback TCP
+                               browser-owned Native Messaging helper
+                                                  ↕ bounded native frames
+                               MV3 worker → approved tab CDP + fixed DOM functions
 ```
 
-The per-chat process publishes a random private rendezvous token and a separate
-human pairing code. Only the pairing code is returned to the model. User actions
-in the packaged popup are the only path to grant a tab. A tab has one owner.
-Stopping, host permission removal, a client exit, native disconnect or an origin
-change revoke the lease. Pending grants and queued effects cannot borrow a later
-lease. Unknown effects are not replayed. Pairing does not bypass existing Host
-MCP approval or installation controls.
+The context is a SHA-256 namespace of canonical plugin-store path and Host session
+ID, injected by Host after removing reserved selectors from plugin environment
+configuration (case-insensitively). It is not accepted as model tool arguments.
+The private per-process transport token and random RPC identities remain separate
+from stable context identity. A label/ID is not a transport credential. This is
+protocol scoping, not an OS sandbox against arbitrary same-user executable code.
 
-The installed app needs its existing external MCP support; optional Host discovery
-labels identify this candidate as `backend: extension`, `readiness: not-probed`.
-No new independent model tool is introduced. The embedded browser and isolated
-headless `browser-use` retain their separate login/session boundaries.
+Only packaged popup messages can create a new grant. Saved grants restore only an
+exact current tab/origin/context after verifying current site permission, client
+uniqueness, pending operations and cancellation generation. Ref observations are
+invalidated on retirement. Native disconnect never resurrects an old queued effect.
+The helper rotates its bounded registration scans so stale crashed-client files
+cannot permanently hide live conversations.
 
-## Developer candidate setup (explicit, never automatic)
+No independent model tool, arbitrary JavaScript/CDP, cookie export, profile copying,
+remote debugging port, system accessibility permission or cross-browser fallback is
+introduced. Embedded `native-browser` and isolated headless `browser-use` retain
+separate login/session boundaries. HTTP-only login cookies remain in their browser.
 
-1. `npm ci --prefix plugins/browser-extension --ignore-scripts` and
-   `npm run build --prefix plugins/browser-extension`.
-2. Obtain `xharness-browser-extension-host[.exe]` for your OS through a tested
-   remote/CI build. Downloadable launchers are not yet part of the desktop release
-   packages; do not mistake the browser ZIP for a complete native installation. Rust builds/tests must follow the repository's remote-only policy.
-3. In Chrome/Edge's extension management page, enable Developer mode and load
-   `plugins/browser-extension/dist` as an unpacked extension. The checked-in
-   public manifest key gives it a stable development identity; no private key is
-   distributed. This is not a Web Store publication or automatic update channel.
-4. Inspect the registration plan:
-   `node plugins/browser-extension/scripts/install-native.mjs --browser chrome`.
-   It changes nothing. To install deliberately, add
-   `--binary /absolute/path/to/xharness-browser-extension-host --register`.
-   Use `edge` or `chromium` for those browsers. Registration is per user, not
-   system-wide. The native runtime is snapshotted by digest outside the main app.
-   Node 20+ is an explicit runtime dependency in this first candidate. Re-register
-   after removing/replacing its pinned Node executable. No passwords/API keys are
-   read. Windows directories use a protected current-user/SYSTEM ACL.
-5. Build packages with `node plugins/browser-extension/scripts/package.mjs`.
-   The plugin archive is compatible with the existing verified catalog installer:
-   publish/import it through a reviewed catalog source and enable its MCP server.
-   No public catalog or user plugin store is modified by these scripts. This is
-   per-chat protocol scoping, not an OS sandbox against arbitrary same-user code.
-6. Ask the model to call `plugin_mcp` with plugin `browser-extension`, server
-   `browser`, tool `browser`, arguments `{"action":"status"}`. In the extension,
-   connect, select the matching code and a tab, then authorize that tab/site.
+## Build and install integration
 
-The browser shows its normal debugging permission/attachment indication; this
-extension does not suppress it. Closing the popup does not stop authorized work.
-The browser and Host/MCP process must remain alive: this does not run after device
-sleep or after they exit. A disabled/uninstalled extension is not auto-restored.
+```
+npm ci --prefix plugins/browser-extension --ignore-scripts
+npm run build --prefix plugins/browser-extension
+node plugins/browser-extension/scripts/package.mjs \
+  --platform linux-x64 --native /absolute/remote-built/xharness-browser-extension-host
+```
 
-Custom `--user-data-dir` browser profiles use their own `NativeMessagingHosts`
-folder on Unix. The default installer targets the selected browser's standard
-per-user directory; it does not scan or modify unrelated profiles.
+Supported package IDs: `linux-x64`, `win32-x64`, `darwin-arm64`, `darwin-x64`.
+The browser ZIP and platform MCP ZIP are separate. A complete MCP ZIP includes the
+native launcher and installer; packaging refuses to label a helper-less archive a
+complete plugin. `--extension-only` deliberately builds just the browser ZIP.
+Rust compilation must follow the repository's remote-only policy.
+
+`Browser extension` CI builds and uploads all four platform candidates and SHA-256
+receipts. They are **not automatically published, installed or promoted**. Those
+native candidate binaries are not a signed/notarized public distribution yet. This
+PR does not modify the desktop release channel or public plugin catalog.
+
+Native registration is user-scoped (Windows HKCU, Unix browser-specific manifests).
+The helper is snapshotted by content digest outside app/update directories with a
+pinned Node executable and immutable code. Concurrent chats converge on the same
+snapshot; routine startup does not overwrite a running executable. Tampered
+snapshots and unrelated native manifests fail closed, instead of being overwritten.
+Changing/removing the pinned Node installation requires native setup to run again.
+No provider API credentials are forwarded to the browser-owned helper.
+
+For source-only development the installer remains inspectable:
+`node plugins/browser-extension/scripts/install-native.mjs --browser chrome`
+prints a read-only plan. Explicit `--binary /absolute/launcher --register` registers
+it. Complete platform plugin users do **not** need to run this command. A development
+MCP launched without a valid Host identity fails before installation/discovery.
+
+Custom `--user-data-dir` browser instances use their own Unix
+`NativeMessagingHosts` directory. Automatic registration targets standard per-user
+Chrome/Chromium/Edge profiles, never scans other profiles, and cannot silently
+opt a custom profile into control. The isolated regression registers its temporary
+profile explicitly; this is not a production-profile modification.
 
 ## Interface and bounds
 
-One MCP tool, `browser`, with discriminated schemas:
+One tool, `browser`, with a closed discriminated schema:
 - `status`, `tabs`, `stop`;
 - `observe(tabId)` → bounded untrusted main-frame text and one-shot DOM identity refs;
 - `click(tabId, observationId, ref)`, `fill(..., text)`, `press(tabId, key)`;
-- `navigate(tabId, url)` within the granted origin; waits for the committed loader
-  and completed tab state, with a bounded deadline;
+- `navigate(tabId, url)` within the granted origin; waits for committed loader/readiness;
 - `screenshot(tabId)` → real PNG MCP image content, not base64 transcript text.
 
 | Resource | Bound |
 | --- | --- |
-| Connected per-chat clients / authorized tabs | 16 / 16 |
-| Queued extension commands / one client pending calls | 16 / 8 |
-| Concurrent screenshot capture | 1 |
-| Native frame / host → browser frame | 4 MiB / 1 MiB |
-| Observer | 16,000 UTF-8 JSON bytes, 64 refs, 3,000 visited text nodes |
+| Connected clients / authorized or remembered tabs | 16 / 16 |
+| Registration scan batch / retry-name cache | 64 / 128 |
+| Queued commands / per-client pending calls | 16 / 8 |
+| Concurrent screenshots | 1 |
+| Native frame / native-host → browser frame | 4 MiB / 1 MiB |
+| Observation | 16,000 UTF-8 JSON bytes, 64 refs, 3,000 text nodes |
 | Ref lifetime | 30s, consumed before an effect |
-| Text insertion | 8,192 characters |
-| PNG | 2 MiB compressed PNG bytes, 8,192 per dimension, 16M pixels |
-| Command / navigation readiness deadlines | 20s / 10s |
+| Text insertion | 8,192 Unicode characters |
+| PNG | 2 MiB bytes, 8,192 per dimension, 16M pixels |
+| Native command / readiness / MCP deadline | 8s / 10s / 20s |
 
-Model calls see only their authorized tabs. DOM observations exclude password
-fields/values; screenshots contain the rendered page and are not content-redacted.
-This is not a network firewall: a user-opened tab can load normal subresources;
-origin changes revoke *control*. Existing HTTP-only login cookies stay inside that
-browser tab/profile. No cross-origin DOM/frame traversal, coordinate actions,
-file upload/download, browser-wide settings, video recording or Safari/Firefox
-support is claimed by this first candidate.
+Passwords/values are excluded from DOM observations, but screenshots show rendered
+content and are not redacted. Normal browser subresources are not firewalled.
+There is no cross-origin DOM/frame traversal, coordinate API, file upload/download,
+recording, Safari/Firefox support or operation after browser/Host/device shutdown.
+Discarded/frozen tabs require restoring the tab first. Browser debugging indicators
+and permission prompts are not suppressed.
 
-## Regression
+## Regression and remaining release gates
 
-- `npm test --prefix plugins/browser-extension`: strict protocol, framing,
-  per-user registration plans, actual unpaired MCP, wrong-token/disconnect,
-  pending-grant/stop races, exclusive ownership and old queued effects.
-- Remote Rust: launcher tests, `plugin_mcp::browser_boundary`, Clippy, and explicit
-  `extension_status_uses_real_plugin_mcp -- --ignored` with the JS already built.
-- Isolated Linux Chromium only:
-  `XHARNESS_BROWSER_EXTENSION_TEST_SERVER=1 UI_TEST_DEPS=/path/to/locked/playwright
-  XHARNESS_BROWSER_EXTENSION_HOST=/path/to/native/launcher xvfb-run -a node
-  scripts/browser_extension/acceptance.mjs`.
+- `npm test --prefix plugins/browser-extension`: strict types, closed schema,
+  frames, actual MCP token validation, stale discovery, registration idempotency,
+  concurrency, tampering, restore/stop/duplicate-context races.
+- Remote Rust: `plugin_mcp` tests, native launcher tests, plugin crate tests,
+  explicit `extension_status_uses_real_plugin_mcp -- --ignored`, and Clippy.
+- Linux isolated real Chromium: first-use native registration, popup authorization,
+  inactive-tab trusted inputs/PNG, MCP recreation, native helper crash/reconnect,
+  cross-client/origin/TTL/stop gates. See the acceptance receipt in `docs/acceptance/`.
 
-The real suite starts fresh profiles and local fixture sites, registers Native
-Messaging inside that temporary profile, and tests actual popup → launcher → MCP
-round trips. Its test-only extension pregrants only that ephemeral fixture origin;
-it does **not** claim that the production optional-host-permission prompt was
-clicked through. Background means Chrome `tab.active=false` and unchanged active
-foreground tab, not a guess from `document.hidden`: Playwright/debugging may
-virtually keep the renderer visible. Its observed renderer visibility is recorded.
+macOS/Windows browser + installer click-through, actual optional-site permission
+prompt, signed/notarized public distribution, store publication, real-account/CAPTCHA
+handoff and long-duration RAM/CPU measurements remain separate acceptance gates.
+Linux tests pregrant only the ephemeral fixture origin; they do not claim that a
+production permission prompt was clicked. Background is measured by actual tab
+activity and unchanged foreground input, not `document.hidden` under Playwright.
 
-macOS/Windows real browser + installer click-through, real account/CAPTCHA handoff,
-and long-running/RSS measurements remain separate acceptance gates. Portable plan
-unit tests are not a substitute for those gates. Building a candidate does not
-install, publish, restart or replace the user's browser or XHarness application.
-
-References: [Chrome debugger](https://developer.chrome.com/docs/extensions/reference/api/debugger),
-[Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
-[MV3 lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle).
+References: [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
+[MV3 lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle),
+[Chrome debugger](https://developer.chrome.com/docs/extensions/reference/api/debugger).

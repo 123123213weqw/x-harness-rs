@@ -54,7 +54,7 @@ export function mayMutate(value:Command):boolean {return ['click','fill','press'
 export function failure(error:unknown,uncertain=false):Record<string,unknown> {
   return {ok:false,outcome:uncertain?'possibly-applied':'not-started',error:error instanceof Error?error.message.slice(0,300):'Browser operation failed'}
 }
-const targetSchema={type:'integer',minimum:0,description:'A tab ID returned by tabs; the user must authorize it for this pairing code.'}
+const targetSchema={type:'integer',minimum:0,description:'A tab ID returned by tabs; the user must authorize it for this Host-bound conversation.'}
 const observationSchema={type:'string',maxLength:64,description:'Latest observe observationId; expires after 30 seconds and is consumed by click/fill.'}
 const refSchema={type:'string',maxLength:64,description:'One node ref from that observation, not a selector or coordinate.'}
 export const schema={type:'object',oneOf:[

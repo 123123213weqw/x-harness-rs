@@ -13,6 +13,11 @@ use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
 #[tokio::test]
 #[ignore = "explicit isolated acceptance: requires built browser-extension JS and Node; no browser or model credentials"]
 async fn extension_status_uses_real_plugin_mcp_without_granting_tab_authority() {
+    assert_eq!(
+        std::env::consts::OS,
+        "linux",
+        "run isolated registration acceptance on Linux only"
+    );
     let root = std::env::temp_dir().join(format!(
         "xh-extension-mcp-{}-{}",
         std::process::id(),
@@ -24,7 +29,7 @@ async fn extension_status_uses_real_plugin_mcp_without_granting_tab_authority() 
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let package = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../plugins/browser-extension");
-    let config = json!({"mcpServers":{"browser":{"type":"stdio","command":"node","args":["${PLUGIN_ROOT}/dist/native/mcp.js"],"env":{"HOME":home.to_str().unwrap(),"USERPROFILE":home.to_str().unwrap()}}}});
+    let config = json!({"mcpServers":{"browser":{"type":"stdio","command":"node","args":["${PLUGIN_ROOT}/dist/native/mcp.js"],"env":{"HOME":home.to_str().unwrap(),"USERPROFILE":home.to_str().unwrap(),"XDG_CONFIG_HOME":home.join("config").to_str().unwrap(),"XHARNESS_BROWSER_CONTEXT_ID":"spoofed-by-plugin"}}}});
     let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let mut files = vec![
         (
@@ -35,8 +40,11 @@ async fn extension_status_uses_real_plugin_mcp_without_granting_tab_authority() 
         ("package.json".to_owned(), br#"{"type":"module"}"#.to_vec()),
     ];
     for name in [
+        "dist/extension-id.json",
         "dist/native/mcp.js",
         "dist/native/common.js",
+        "dist/native/host.js",
+        "scripts/install-native.mjs",
         "dist/protocol.js",
     ] {
         files.push((
@@ -44,6 +52,13 @@ async fn extension_status_uses_real_plugin_mcp_without_granting_tab_authority() 
             std::fs::read(package.join(name)).expect("build the extension first"),
         ));
     }
+    let helper = std::env::var_os("XHARNESS_BROWSER_EXTENSION_HOST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| package.join("../../target/debug/xharness-browser-extension-host"));
+    files.push((
+        "native/linux-x64/xharness-browser-extension-host".into(),
+        std::fs::read(helper).expect("build the native launcher before explicit integration"),
+    ));
     for (name, bytes) in files {
         archive
             .start_file(name, zip::write::SimpleFileOptions::default())
@@ -80,7 +95,9 @@ async fn extension_status_uses_real_plugin_mcp_without_granting_tab_authority() 
     let state: Value =
         serde_json::from_str(output["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(state["connected"], false);
-    assert_eq!(state["pairCode"].as_str().unwrap().len(), 8);
+    assert_eq!(state["installation"]["installed"], true, "{state}");
+    assert_eq!(state["contextId"].as_str().unwrap().len(), 64);
+    assert!(state.get("pairCode").is_none());
     assert!(state.get("token").is_none());
     let denied=executor.execute(ToolRequest::new("plugin_mcp",r#"{"action":"call","plugin":"browser-extension","server":"browser","tool":"browser","arguments":{"action":"observe","tabId":1}}"#)).await;
     assert!(
