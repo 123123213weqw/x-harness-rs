@@ -933,10 +933,14 @@ async fn selected_preset_and_plan_policy_reach_the_provider_as_versioned_system_
     let persona = include_str!("../prompts/default-agent.txt").trim();
     assert!(system.starts_with(&format!("{persona}\n\n")));
     assert!(!system.contains("You are a coding agent."));
-    assert!(system.contains("Do not substitute confidence for evidence."));
-    assert!(system.contains("runnable code, equations, and state transitions"));
-    assert!(system.contains("emotionally neutral"));
-    assert!(system.contains("do not confuse reasoning length with reasoning quality"));
+    assert!(persona.len() < 256, "keep the default identity concise");
+    assert!(system.contains("Complete the user's task."));
+    assert!(system.contains("Follow applicable instructions and permission boundaries."));
+    assert!(
+        system.contains("Preserve unrelated work, make focused changes, and verify the result.")
+    );
+    assert!(system.contains("Never claim success without evidence."));
+    assert!(system.contains("Communicate clearly and concisely."));
     assert!(system.contains("workspace-write isolation"));
     assert!(system.contains("continue only the needed page with next_cursor"));
     assert!(system.contains("Once the evidence is sufficient, answer directly."));
