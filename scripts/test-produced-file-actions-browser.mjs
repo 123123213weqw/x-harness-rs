@@ -106,7 +106,10 @@ window.local=true;window.description={canOpenPath:true,canRevealPath:true};windo
  // Folded rows are not mounted/read. Pagination bounds a large expanded set.
  await page.getByRole('button',{name:'文件操作',exact:true}).click();assert.equal(await cards.count(),1);await page.waitForFunction(url=>!thumbnailUrls.has(url),used)
  await page.evaluate(()=>{inspectionCalls=[];facts=undefined;paths=Array.from({length:85},(_,i)=>'/workspace/sample'+i+'.docx');renderFiles()})
- await cards.first().getByText('Document · 2 KB',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>inspectionCalls.length),1)
+ // React may still expose the previous DOCX metadata immediately after renderFiles.
+ // Wait for the new path, not reused text, before checking folded-row reads.
+ await cards.first().getByRole('button',{name:'/workspace/sample0.docx 的文件信息',exact:true}).waitFor()
+ await cards.first().getByText('Document · 2 KB',{exact:true}).waitFor();assert.deepEqual(await page.evaluate(()=>inspectionCalls.map(call=>call.path)),['/workspace/sample0.docx'])
  await page.getByRole('button',{name:'文件操作',exact:true}).click();assert.equal(await cards.count(),20)
  await page.getByRole('button',{name:'显示更多文件',exact:true}).click();assert.equal(await cards.count(),40)
  await page.getByRole('button',{name:'文件操作',exact:true}).click();assert.equal(await cards.count(),1)

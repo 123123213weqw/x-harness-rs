@@ -109,3 +109,9 @@ Current evidence: `rich-card-final-browser-gate.log`, `rich-card-rust-final-veri
 - Turn-end cards still require successful mutation-location evidence. Explicit display intents can independently open the existing right-hand pane, but do not automatically become turn-end cards. Arbitrary Bash/Python outputs are not guessed from closing prose or a filesystem-wide scan.
 - The isolated browser demo uses clearly labeled synthetic metadata and read-only callbacks; actual filesystem behavior is covered by native integration tests, not the demo's sample file names.
 - No PR, merge, release, installed-app replacement, restart or interruption of current tasks was performed. Native Finder/default-app behavior still requires the separate signed macOS candidate smoke test before release.
+
+## PR CI integration follow-up — 2026-10-25
+
+The first PR run found two additional test-integration issues. The frozen connection fixture intentionally lacks the additive `canRevealPath` capability; its full-trace parity test now explicitly asserts the source's `true` and the baseline's absence before comparing every unchanged field. The folded-row browser assertion could observe the preceding card's identical metadata text before React committed a new path; it now waits for the exact new path and asserts the exact one inspected path, rather than only a count. No production behavior, resource limit or test gate was relaxed.
+
+The complete foundation source suite passed (123 tests), and the corrected source-component regression passed on WZU_Server in both Chromium and WebKit (`pr-foundation-full.log`, `pr-browser-race-regression.log`). Fresh CI is still required for the amended head before merge.
