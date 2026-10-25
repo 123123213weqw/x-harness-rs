@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use serde_json::{json, Value};
-use xharness_api::{RpcError, RpcErrorCode};
+use xharness_api::{protocol::HostPathOpenMode, RpcError, RpcErrorCode};
 
 use crate::{
     driver::{agent_runtime_error, rpc_error},
@@ -35,6 +35,7 @@ pub(super) async fn describe(host: &BasicHost, payload: &Value) -> Result<Value,
         "attachedSessions": attached,
         "home": host.config.home,
         "canOpenPath": cfg!(target_os = "macos"),
+        "canRevealPath": cfg!(target_os = "macos"),
         // Durable sessions that startup could not publish. Reported here so
         // the surface can tell the user what was skipped instead of
         // presenting a silently shorter session list.
@@ -152,7 +153,12 @@ pub(super) async fn create_directory(
 }
 
 pub(super) async fn open_path(_host: &BasicHost, payload: &Value) -> Result<Value, RpcError> {
-    let path = nonempty(required_string(payload, "path")?, "path")?;
+    let params: xharness_api::protocol::HostOpenPathParams =
+        serde_json::from_value(payload.clone()).map_err(|error| bad_request(error.to_string()))?;
+    let path = nonempty(params.path, "path")?;
+    if !Path::new(&path).is_absolute() || path.contains('\0') {
+        return Err(bad_request("path must be an absolute filesystem path"));
+    }
     if !Path::new(&path).exists() {
         return Err(rpc_error(
             RpcErrorCode::DirectoryUnreadable,
@@ -160,19 +166,40 @@ pub(super) async fn open_path(_host: &BasicHost, payload: &Value) -> Result<Valu
             json!({"path": path}),
         ));
     }
+    let mode = params.mode.unwrap_or(HostPathOpenMode::Open);
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("/usr/bin/open")
-            .arg(&path)
-            .spawn()
+        // No shell, application selector, or URL interpretation. Reap the short
+        // hand-off process and report failures instead of claiming success at spawn.
+        let mut command = tokio::process::Command::new("/usr/bin/open");
+        command
+            .args(native_open_args(&path, mode))
+            .kill_on_drop(true);
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status())
+            .await
+            .map_err(|_| RpcError::internal("native path opening timed out"))?
             .map_err(|error| RpcError::internal(format!("could not open path: {error}")))?;
+        if !status.success() {
+            return Err(RpcError::internal(format!(
+                "native opener exited with {status}"
+            )));
+        }
         Ok(json!({"opened": true}))
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = mode;
         Err(RpcError::internal(
             "native path opening is unavailable on this host",
         ))
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+fn native_open_args(path: &str, mode: HostPathOpenMode) -> Vec<&str> {
+    match mode {
+        HostPathOpenMode::Open => vec!["--", path],
+        HostPathOpenMode::Reveal => vec!["-R", "--", path],
     }
 }
 
@@ -231,4 +258,31 @@ pub(super) async fn request_snapshot(host: &BasicHost, payload: &Value) -> Resul
     .map_err(agent_runtime_error)?
     .ok_or_else(|| bad_request("request snapshot not found at this sequence"))?;
     Ok(json!({"sessionId":id,"seq":seq,"header":header}))
+}
+
+#[cfg(test)]
+mod native_path_tests {
+    use super::*;
+
+    #[test]
+    fn native_handoff_uses_literal_paths_and_reveal_not_parent_guessing() {
+        let path = "/workspace/中文 name;$(touch nope).md";
+        assert_eq!(
+            native_open_args(path, HostPathOpenMode::Open),
+            vec!["--", path]
+        );
+        assert_eq!(
+            native_open_args(path, HostPathOpenMode::Reveal),
+            vec!["-R", "--", path]
+        );
+        let legacy: xharness_api::protocol::HostOpenPathParams =
+            serde_json::from_value(json!({"path": path})).unwrap();
+        assert_eq!(legacy.mode, None);
+        assert!(
+            serde_json::from_value::<xharness_api::protocol::HostOpenPathParams>(
+                json!({"path": path, "mode": "shell"})
+            )
+            .is_err()
+        );
+    }
 }

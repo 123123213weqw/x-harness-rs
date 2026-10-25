@@ -957,3 +957,250 @@ async fn removed_display_allowlist_is_not_silently_expanded_to_foreign_mcp() {
         }
     }
 }
+
+#[tokio::test]
+async fn pdf_previews_use_magic_bytes_and_keep_the_existing_read_boundaries() {
+    let f = Fixture::new();
+    let host = host(&f).await;
+    std::fs::write(f.0.join("document.bin"), b"%PDF-1.4\n%%EOF\n").unwrap();
+    std::fs::write(f.0.join("fake.pdf"), b"plain source, not a PDF").unwrap();
+    let mut huge = b"%PDF-1.4\n".to_vec();
+    huge.resize(xharness_api::display::MAX_DISPLAY_IMAGE_BYTES + 1, b' ');
+    std::fs::write(f.0.join("huge.pdf"), huge).unwrap();
+    for (path, pdf) in [("document.bin", true), ("fake.pdf", false)] {
+        let file = host
+            .read_display_file(
+                DisplayRead {
+                    git_diff: None,
+                    session_id: "s".into(),
+                    path: path.into(),
+                    relative_to: None,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(matches!(file, DisplayFile::Pdf { .. }), pdf);
+    }
+    assert!(host
+        .read_display_file(
+            DisplayRead {
+                git_diff: None,
+                session_id: "s".into(),
+                path: "huge.pdf".into(),
+                relative_to: None,
+            },
+            CancellationToken::new()
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn card_inspection_is_bounded_and_unsupported_formats_are_not_errors() {
+    use xharness_api::display::{DisplayInspect, DisplayPreviewKind};
+    let f = Fixture::new();
+    let host = host(&f).await;
+    std::fs::write(f.0.join("deck.pptx"), b"PK\x03\x04\0binary office").unwrap();
+    let sparse = std::fs::File::create(f.0.join("huge.zip")).unwrap();
+    sparse.set_len(256 * 1024 * 1024).unwrap();
+    for (path, kind, size) in [
+        ("deck.pptx", DisplayPreviewKind::Unsupported, 18u64),
+        (
+            "huge.zip",
+            DisplayPreviewKind::Unsupported,
+            256 * 1024 * 1024,
+        ),
+    ] {
+        let value = host
+            .inspect_display_file(
+                DisplayInspect {
+                    session_id: "s".into(),
+                    path: path.into(),
+                    thumbnail: true,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(value.preview, kind);
+        assert_eq!(value.bytes, size);
+        assert!(value.thumbnail.is_none());
+    }
+    let value = host
+        .inspect_display_file(
+            DisplayInspect {
+                session_id: "s".into(),
+                path: "docs/report.md".into(),
+                thumbnail: false,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(value.preview, DisplayPreviewKind::Markdown);
+    assert_eq!(
+        value.bytes,
+        std::fs::metadata(f.0.join("docs/report.md")).unwrap().len()
+    );
+    assert!(value.modified_ms.is_some());
+    let bad = host
+        .call_dynamic(
+            RpcId::new("bad-inspect"),
+            "display/inspect",
+            json!({"sessionId":"s","path":"main.rs","command":"cat"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(!bad.is_ok());
+    for path in ["../escape", "missing", "docs"] {
+        assert!(host
+            .inspect_display_file(
+                DisplayInspect {
+                    session_id: "s".into(),
+                    path: path.into(),
+                    thumbnail: false
+                },
+                CancellationToken::new()
+            )
+            .await
+            .is_err());
+    }
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    assert!(host
+        .inspect_display_file(
+            DisplayInspect {
+                session_id: "s".into(),
+                path: "main.rs".into(),
+                thumbnail: false
+            },
+            cancellation
+        )
+        .await
+        .is_err());
+}
+#[tokio::test]
+async fn card_thumbnail_is_opt_in_static_small_and_preserves_original_dimensions() {
+    use base64::Engine;
+    use xharness_api::display::{DisplayInspect, DisplayPreviewKind};
+    let f = Fixture::new();
+    let host = host(&f).await;
+    image::RgbaImage::from_pixel(240, 120, image::Rgba([30, 140, 220, 255]))
+        .save(f.0.join("figure.png"))
+        .unwrap();
+    for thumbnail in [false, true] {
+        let value = host
+            .inspect_display_file(
+                DisplayInspect {
+                    session_id: "s".into(),
+                    path: "figure.png".into(),
+                    thumbnail,
+                },
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(value.preview, DisplayPreviewKind::Image);
+        assert_eq!(value.width, Some(240));
+        assert_eq!(value.height, Some(120));
+        if thumbnail {
+            let image = value.thumbnail.unwrap();
+            assert!(image.width <= 96 && image.height <= 96);
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(image.data_base64)
+                .unwrap();
+            assert!(bytes.len() <= 48 * 1024);
+            assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        } else {
+            assert!(value.thumbnail.is_none());
+        }
+    }
+    #[cfg(unix)]
+    {
+        let outside = f.0.with_extension("outside.txt");
+        std::fs::write(&outside, "private").unwrap();
+        std::os::unix::fs::symlink(outside, f.0.join("outside.png")).unwrap();
+        assert!(host
+            .inspect_display_file(
+                DisplayInspect {
+                    session_id: "s".into(),
+                    path: "outside.png".into(),
+                    thumbnail: true
+                },
+                CancellationToken::new()
+            )
+            .await
+            .is_err());
+    }
+}
+#[tokio::test]
+async fn card_inspection_does_not_record_a_model_observation() {
+    let f = Fixture::new();
+    let tools = factory();
+    tools
+        .inspect_display_file(
+            "card-view",
+            f.0.to_str().unwrap(),
+            PermissionPreset::WorkspaceWrite,
+            &f.0.join("main.rs"),
+            false,
+        )
+        .await
+        .unwrap();
+    let executor = tools
+        .executor(
+            "card-view",
+            f.0.to_str().unwrap(),
+            PermissionPreset::WorkspaceWrite,
+        )
+        .await
+        .unwrap();
+    let result = executor
+        .execute(ToolRequest::new(
+            "write",
+            r#"{"path":"main.rs","content":"blind overwrite"}"#,
+        ))
+        .await;
+    assert!(!result.is_ok());
+    assert_eq!(
+        std::fs::read_to_string(f.0.join("main.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[tokio::test]
+async fn unsupported_office_can_open_an_information_pane_without_reading_as_text() {
+    let f = Fixture::new();
+    let host = host(&f).await;
+    std::fs::write(f.0.join("report.docx"), b"PK\x03\x04\0office document").unwrap();
+    let intent = host
+        .request_display_open(
+            DisplayRead {
+                git_diff: None,
+                session_id: "s".into(),
+                path: "report.docx".into(),
+                relative_to: None,
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(intent.path, f.0.join("report.docx").to_str().unwrap());
+    std::fs::write(f.0.join("shared.txt"), "root").unwrap();
+    std::fs::write(f.0.join("docs/shared.txt"), "relative").unwrap();
+    let relative = host
+        .request_display_open(
+            DisplayRead {
+                git_diff: None,
+                session_id: "s".into(),
+                path: "shared.txt".into(),
+                relative_to: Some("docs/report.md".into()),
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(relative.path, f.0.join("docs/shared.txt").to_str().unwrap());
+}

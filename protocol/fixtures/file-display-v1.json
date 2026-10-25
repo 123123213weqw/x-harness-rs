@@ -23,6 +23,11 @@
       "path": "/workspace/change.patch",
       "source": "patch",
       "text": "--- a/main.rs\n+++ b/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
+    },
+    {
+      "dataBase64": "JVBERi0xLjQKJSVFT0YK",
+      "kind": "pdf",
+      "path": "/workspace/report.pdf"
     }
   ],
   "open": {

@@ -425,6 +425,24 @@ impl SessionToolFactory for NativeToolFactory {
         git_display::read(&platform, &layout, path, scope, cancellation, permit).await
     }
 
+    async fn inspect_display_file(
+        &self,
+        session_id: &str,
+        cwd: &str,
+        permission: PermissionPreset,
+        path: &Path,
+        thumbnail: bool,
+    ) -> Result<xharness_api::display::DisplayInspection, String> {
+        let platform = self.platform(session_id, cwd, permission).await?;
+        let permit = self
+            .display_slots
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| e.to_string())?;
+        file_display::inspect(&platform, path, thumbnail, permit).await
+    }
+
     async fn read_display_file(
         &self,
         session_id: &str,
