@@ -152,3 +152,13 @@ the eight-crate V100 suite passed **1013 tests**, with **11 ignored** and no
 failures. All-target Clippy for Session, JSONL, Core and Host passed with
 `-D warnings`. Formatting, whitespace and content-bound architecture checks also
 passed. Ignored tests and native platform acceptance are not counted as passes.
+
+## macOS CI fixture follow-up
+
+The first macOS matrix exposed a test-only lookup using an aliased temp-root
+path rather than the Store's canonical session path. The hash oracle now reads
+through the requested directory alias but looks up the validated stamp using
+`session_path`. Unix runners explicitly create a directory alias so V100 also
+exercises this case. The exact byte-hash assertions remain unchanged. The full
+JSONL suite and all-target Clippy passed again on V100 before pushing the fix;
+production append/cache code and the pressure measurements are unchanged.

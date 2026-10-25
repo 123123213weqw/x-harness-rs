@@ -14,7 +14,7 @@
     },
     "crates/xharness-session-jsonl/src/stream_append.rs": {
       "before": null,
-      "after": "a94e392e257ce8d5c959e085d311f7ac6d84fc52592da79c3190c845ca091e4a"
+      "after": "6fb1f2c43b6bf625f2a188c040eca30061d5a4483fdc3596d2262ceae625e5b6"
     },
     "crates/xharness-session-jsonl/tests/stream_append.rs": {
       "before": null,

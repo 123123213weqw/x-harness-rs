@@ -200,6 +200,12 @@
     "localRustCompilation": false,
     "installedAppReplaced": false,
     "nativeDesktopSmokeTested": false,
-    "integratedBaseCommit": "9c9dabe392d29dcaa1d0ddca71b398cd6972fd24"
+    "integratedBaseCommit": "9c9dabe392d29dcaa1d0ddca71b398cd6972fd24",
+    "aliasedRootJsonlRegression": {
+      "passedTests": 132,
+      "ignoredTests": 3,
+      "clippyWarningsDenied": true,
+      "productionCodeChanged": false
+    }
   }
 }

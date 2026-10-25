@@ -153,7 +153,18 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let store = JsonlSessionStore::new(&root)
+        // macOS temp paths commonly alias /private/var. Exercise an aliased
+        // root on every Unix runner too: internal cache keys are canonical.
+        std::fs::create_dir_all(&root).unwrap();
+        #[cfg(unix)]
+        let requested = {
+            let alias = root.join("root-alias");
+            std::os::unix::fs::symlink(&root, &alias).unwrap();
+            alias
+        };
+        #[cfg(not(unix))]
+        let requested = root.clone();
+        let store = JsonlSessionStore::new(&requested)
             .unwrap()
             .with_cache_limits(0, 0);
         store.create(SessionHeader::new("hash")).await.unwrap();
@@ -184,8 +195,11 @@ mod tests {
                 .await
                 .unwrap()
                 .revision;
-            let path = root.join("hash.jsonl");
-            let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+            let path = store.session_path("hash").unwrap();
+            let digest = format!(
+                "{:x}",
+                Sha256::digest(std::fs::read(requested.join("hash.jsonl")).unwrap())
+            );
             let cache = store.cache.lock().unwrap();
             let stamp = &cache.catalog_stamps[&path];
             assert_eq!(stamp.sha256, digest);
