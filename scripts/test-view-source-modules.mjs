@@ -176,6 +176,26 @@ for (const name of modules) {
         assert.equal(key in namespaces[0].dictionaries[lang], false, 'new keys cannot replace frozen Goal copy')
         namespaces[0].dictionaries[lang][key] = value
       }
+      // Only the reviewed full-text detail/editor copy is additive. Keep the
+      // complete frozen dictionary and all unrelated registrations exact.
+      const editorCopy = {
+        en: {
+          'action.view':'View goal details', 'details.title':'Goal details', 'edit.title':'Edit goal',
+          'edit.hint':'Enter inserts a new line; Ctrl / ⌘ + Enter saves. Scroll long goals or resize the editor vertically.',
+          'edit.conflict':'The goal changed. Your draft is retained; review the latest goal before overwriting other changes.',
+          'edit.reload':'Replace draft with latest goal',
+        },
+        zh: {
+          'action.view':'查看目标详情', 'details.title':'目标详情', 'edit.title':'编辑目标',
+          'edit.hint':'Enter 换行，Ctrl / ⌘ + Enter 保存。长目标可滚动查看，也可拖动调整编辑区高度。',
+          'edit.conflict':'目标已被更新，当前草稿已保留。请先查看最新目标，避免覆盖其他修改。',
+          'edit.reload':'用最新目标替换草稿',
+        },
+      }
+      for (const lang of ['en','zh']) for (const [key, value] of Object.entries(editorCopy[lang])) {
+        assert.equal(key in namespaces[0].dictionaries[lang], false, 'editor keys cannot replace frozen Goal copy')
+        namespaces[0].dictionaries[lang][key] = value
+      }
     }
     if (name === 'settings-general') {
       // Reviewed account-menu addition minus its redundant visual caption.
