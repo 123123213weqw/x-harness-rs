@@ -529,7 +529,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
 export const inject = ['slots','connection','remote']
 export function apply(ctx: BrowserContext) {
   const connection=ctx.get('connection')
-  const client=connection?new FileDisplayClient(connection.rpc,{available:()=>connection.hostDescription.getSnapshot()?.canOpenPath===true,open:async path=>{const reply=await connection.api.host.openPath({path});if(!reply.result.ok)throw new Error(reply.result.error.message)}}):undefined
+  const client=connection?new FileDisplayClient(connection.rpc,{available:()=>connection.isLoopback&&connection.hostDescription.getSnapshot()?.canOpenPath===true,open:async path=>{const reply=await connection.api.host.openPath({path});if(!reply.result.ok)throw new Error(reply.result.error.message)},canReveal:()=>connection.hostDescription.getSnapshot()?.canRevealPath===true,reveal:async path=>{const reply=await connection.api.host.openPath({path,mode:'reveal'});if(!reply.result.ok)throw new Error(reply.result.error.message)}}):undefined
   ctx.effect(()=>ctx.remote.$on('display/open',payload=>{const parsed=DisplayOpenSchema.safeParse(payload);if(parsed.success)openDisplayFile(parsed.data.path,parsed.data.sessionId,undefined,parsed.data.gitDiff??undefined)}),'browser: model file display intent')
   ctx.effect(() => {
     if (!native) return () => {}

@@ -179,6 +179,13 @@ impl ApiBackend for BasicHost {
                 Err(e) => RpcResult::failure(e),
             });
         }
+        if endpoint == "display/inspect" {
+            let result = crate::display::inspect_rpc(self, &payload, _cancellation).await;
+            return Some(match result {
+                Ok(v) => RpcResult::success(v),
+                Err(e) => RpcResult::failure(e),
+            });
+        }
         if endpoint == "display/read" {
             let result = crate::display::read_rpc(self, &payload, _cancellation).await;
             return Some(match result {

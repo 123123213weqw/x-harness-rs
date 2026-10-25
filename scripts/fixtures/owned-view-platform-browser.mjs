@@ -14,7 +14,10 @@ export async function installOwnedViewPlatform(page,implementation,{origin='http
  const styles=[...html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)].map(x=>x[1])
  if(source)styles.push(...source.cssPaths.map(x=>'/'+x))
  await page.route('**/*',route=>{
-  const path=new URL(route.request().url()).pathname,local=path.slice(1)
+  const url=new URL(route.request().url())
+  // WebKit routes local Blob image requests; these are browser-owned bytes, not network assets.
+  if(url.protocol==='blob:')return route.continue()
+  const path=url.pathname,local=path.slice(1)
   if(path==='/')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head>${styles.map(path=>`<link rel="stylesheet" href="${path}">`).join('')}<script>window.__ModuleLoader__={create:options=>{window.staticModules=options.staticModules;throw Error('owned feature fixture: stop Host boot')}};</script><script type="module" src="${script}"></script></head><body><div id="root"></div></body></html>`})
   const bytes=source?.outputs.get(local)??(existsSync(join(frozen,local))?readFileSync(join(frozen,local)):undefined)
   if(!bytes)return route.abort()

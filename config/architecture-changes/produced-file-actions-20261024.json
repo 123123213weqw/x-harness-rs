@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add bounded read-only file-card inspection and previews, preserving existing native file actions and session ownership.",
+  "compatibility": "Existing display/read and host.openPath payloads are unchanged. display/inspect and generated DTOs are additive; old Hosts fall back to static file-type cards. No model tool, model observation or durable history format is added. Native adapters retain no-follow workspace permission checks and bounded thumbnail decoding.",
+  "paths": {
+    "crates/xharness-api/src/display.rs": {
+      "before": "9b36f11a70894f2c13a82871d3084994ba2dd920e0d5497aa7605a936d4b2927",
+      "after": "9fb3e2dd1d733ec398e8bf9bbf3a830a9be3bd862bf64ae7800ccfb4decd4c3e"
+    },
+    "crates/xharness-api/src/protocol.rs": {
+      "before": "7f55633a42831a749c5f21d086ec2b261df29f7404a22a70d38f0af3a5fb04d5",
+      "after": "7e8cd5d7a0f394776595fcf49bee7fa12f5183878fbb2dfff44d65cb96c432e2"
+    },
+    "crates/xharness-fs/src/lib.rs": {
+      "before": "b88f054cb13954a8539eced303175dc7443a0daacc8ca4365df60837ff5a6638",
+      "after": "ce2c023c9510b92f69e7935cbf91d4a5ec3d00d7efee518590f4b30d45bf5b1a"
+    }
+  },
+  "regressions": [
+    "native",
+    "windows",
+    "wire"
+  ]
+}

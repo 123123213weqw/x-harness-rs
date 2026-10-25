@@ -1823,6 +1823,7 @@ exports.hostDescribeValueSchema = zod_1.z.object({
     attachedSessions: zod_1.z.number().int().nonnegative(),
     home: zod_1.z.string(),
     canOpenPath: zod_1.z.boolean(),
+    canRevealPath: zod_1.z.boolean().optional(),
 });
 /** host.pickDirectory request payload (empty object literal). */
 exports.hostPickDirectoryRequestSchema = zod_1.z.object({});
@@ -1861,6 +1862,7 @@ exports.hostCreateDirectoryValueSchema = zod_1.z.object({
 /** host.openPath request payload. */
 exports.hostOpenPathRequestSchema = zod_1.z.object({
     path: zod_1.z.string().min(1),
+    mode: zod_1.z.enum(['open', 'reveal']).optional(),
 });
 /** host.openPath response value. */
 exports.hostOpenPathValueSchema = zod_1.z.object({

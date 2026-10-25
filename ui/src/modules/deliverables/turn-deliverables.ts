@@ -13,6 +13,8 @@ import type { TurnTailOwnerProps } from '../views-types'
 interface ProducedPath {
   readonly seq: number
   readonly path: string
+  readonly change?: 'created'|'modified'
+  readonly deleted?: boolean
 }
 
 /** Immutable produced-file facts published against one Turn. */
@@ -68,15 +70,29 @@ export function producedForClosing(
   data: Readonly<DeliverablesTurnData> | undefined,
   seq = Number.POSITIVE_INFINITY,
 ): readonly string[] {
-  if (data === undefined) return []
-  const paths: string[] = []
-  const seen = new Set<string>()
-  for (const produced of data.produced) {
-    if (produced.seq > seq || seen.has(produced.path)) continue
-    seen.add(produced.path)
-    paths.push(produced.path)
-  }
-  return paths
+  return producedArtifactsForClosing(data,seq).map(item=>item.path)
+}
+
+/** Preserve first-seen order/status and newest evidence sequence within this closing turn. */
+export function producedArtifactsForClosing(data:Readonly<DeliverablesTurnData>|undefined,seq=Number.POSITIVE_INFINITY):readonly ProducedPath[]{
+ const files=new Map<string,ProducedPath>()
+ for(const item of data?.produced??[]){if(item.seq>seq)continue;const old=files.get(item.path);const change=old?.deleted?item.change:old?.change??item.change;files.set(item.path,{path:item.path,seq:item.seq,...change?{change}:{},...item.deleted?{deleted:true}:{}})}
+ return [...files.values()].filter(item=>!item.deleted)
+}
+function mutationChange(result:{content?:readonly {type:string;text?:string}[]},path:string,view:ToolResultNode['callView']):'created'|'modified'|undefined{
+ for(const block of result.content??[]){
+  if(block.type!=='text'||!block.text||block.text.length>8192)continue
+  try{const value:unknown=JSON.parse(block.text)
+   if(typeof value==='object'&&value!==null&&'created' in value&&typeof value.created==='boolean'&&'path' in value&&typeof value.path==='string'){
+    const actual=value.path.replaceAll('\\','/'),requested=path.replaceAll('\\','/')
+    if(actual===requested||!requested.startsWith('/')&&!/^[a-z]:/i.test(requested)&&actual.endsWith('/'+requested))return value.created?'created':'modified'
+   }
+  }catch{/* Non-JSON tool text is not mutation status evidence. */}
+ }
+ const diff=view?.diffs?.find(item=>item.path===path)
+ // null is also used for overwrites with no before-image, so it NEVER proves creation.
+ if(diff&&typeof diff.oldText==='string'&&diff.oldText!==diff.newText)return 'modified'
+ return undefined
 }
 
 /**
@@ -117,8 +133,10 @@ export const deliverablesDefinition: ConversationNodeDefinition<DeliverablesStat
     const result = match.event.data.message.content[0]
     if (result.isError === true) return context.state
     const callId = String(match.event.data.message.source.callId)
-    const additions = producedPaths(context.state.calls.get(callId) ?? null)
-      .map(path => ({ seq: match.event.seq, path }))
+    const call=context.state.calls.get(callId)??null
+    const deleted=call?.kind==='delete'
+    const additions = (deleted?(call.locations??[]).map(location=>location.path):producedPaths(call))
+      .map(path => {const change=mutationChange(result,path,match.view?.for==='result'?match.view.view:null);return {seq:match.event.seq,path,...change?{change}:{},...deleted?{deleted:true}:{}}})
     return additions.length === 0
       ? context.state
       : { ...context.state, produced: [...context.state.produced, ...additions] }

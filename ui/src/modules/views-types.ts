@@ -1,5 +1,6 @@
 /** Owned, deliberately small contracts for migrated view contributors. */
 import type * as React from 'react'
+import type {ClientConnectionRpc} from './client-connection/rpc-contracts'
 import type { DeliverablesTurnData } from './deliverables/turn-deliverables'
 import type { ShellNavigationSessions } from './layout/shell-navigation'
 
@@ -46,11 +47,12 @@ export interface InputTriggerSource {
 }
 export interface InputTriggerServiceContract { registerSource(source: InputTriggerSource): () => void }
 export interface ISessions extends ShellNavigationSessions { subagentAddress(sessionId: SessionId): unknown | undefined }
-export interface HostDescription { canOpenPath?: boolean }
+export interface HostDescription { canOpenPath?: boolean; canRevealPath?: boolean }
 export interface HostDescriptionSource { getSnapshot(): HostDescription | undefined; subscribe(listener: () => void): () => void }
 export interface ConnectionHandle {
+  rpc:ClientConnectionRpc
   isLoopback: boolean; hostDescription: HostDescriptionSource
-  api: { skills: { list(input: { sessionId: SessionId }, signal: AbortSignal): Promise<{ result: ApiResult<{ skills: readonly SkillEntry[] }> }> } }
+  api: { host: { openPath(input: {path: string; mode?: 'open' | 'reveal'}): Promise<{result: ApiResult<{opened: true}>}> }; skills: { list(input: { sessionId: SessionId }, signal: AbortSignal): Promise<{ result: ApiResult<{ skills: readonly SkillEntry[] }> }> } }
 }
 export interface ToolCallBlock { callId: string; argsRaw: string }
 export interface ToolResultBlock {
@@ -67,12 +69,12 @@ export interface TurnTailOwnerProps {
   turn: { data: { get(key: 'deliverables'): Readonly<DeliverablesTurnData> | undefined } }
 }
 export interface ChatFileMentions { forClosing(owner: TurnTailOwnerProps): MarkdownFileMentions | undefined }
-export interface ToolResultNode { callView: { card: string; kind?: string; locations?: readonly { path: string }[] } | null }
+export interface ToolResultNode { callView: { card: string; kind?: string; locations?: readonly { path: string }[]; diffs?: readonly {path:string;oldText:string|null;newText:string}[] } | null }
 export type ConversationEvent =
   | { type: 'turn/start'; seq: number; time: number; data: { turn: number } }
   | { type: 'tool/call'; seq: number; time: number; data: { turn: number; callId: string } }
   | { type: 'tool/result'; seq: number; time: number; surface?: 'append' | 'replace'; data: { turn: number; message: {
-    source: { callId: string }; content: readonly [{ isError?: boolean }, ...unknown[]]
+    source: { callId: string }; content: readonly [{ isError?: boolean; content?:readonly {type:string;text?:string}[] }, ...unknown[]]
   } } }
   | { type: 'other'; seq: number; time: number; data: { turn: number } }
   | { type: 'command/run'; seq: number; time: number; data: { name: string; commandId: string; args?: string } }

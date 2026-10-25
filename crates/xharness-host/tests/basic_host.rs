@@ -2617,3 +2617,23 @@ async fn legacy_driver_preserves_reasoning_in_stream_and_settled_history() {
         }
     }
 }
+
+#[tokio::test]
+async fn native_file_actions_reject_urls_relative_paths_and_invalid_modes_before_handoff() {
+    let mut fx = Fixture::new();
+    for payload in [
+        json!({"path": "report.md"}),
+        json!({"path": "https://example.com"}),
+        json!({"path": "file:///tmp/report.md"}),
+        json!({"path": "/tmp/a\u{0000}b"}),
+        json!({"path": fx.root, "mode": "shell"}),
+        json!({"path": fx.root.join("missing"), "mode": "reveal"}),
+    ] {
+        assert!(matches!(
+            fx.call(RpcMethod::HostOpenPath, payload).await,
+            RpcResult::Failure { .. }
+        ));
+    }
+    let description = fx.value(RpcMethod::HostDescribe, json!({})).await;
+    assert_eq!(description["canRevealPath"], cfg!(target_os = "macos"));
+}

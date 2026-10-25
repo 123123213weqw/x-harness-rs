@@ -1,3 +1,5 @@
+import {createRequire} from 'node:module'
+const require=createRequire(new URL('../ui/package.json',import.meta.url))
 import {loadOwnedCordisRuntime} from './fixtures/owned-view-cordis-runtime.mjs'
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
@@ -27,7 +29,7 @@ function makeLoader(source) {
   }
   const jsx = (type, props, key) => ({type, props, ...(key === undefined ? {} : {key})})
   const primitives = new Proxy({useDismissOnOutsidePointer() {}}, {get: (target, key) => target[key] ?? `primitive:${String(key)}`})
-  const external = {
+  const external = {zod:require('zod'),
     '@xharness/cordis': Core,
     '@xharness/dsh-client-ui-slots': {resolveSlotLabel: label => typeof label === 'function' ? label() : label},
     react, 'react/jsx-runtime': {jsx, jsxs: jsx, Fragment: 'fragment'},
@@ -135,7 +137,7 @@ const legacy = makeLoader(false); const current = makeLoader(true)
 for (const name of modules) {
   test(`${name}: factory declarations and slot identities match frozen production`, () => {
     const before = legacy.entry(name); const after = current.entry(name)
-    assert.deepEqual(normalized(after.inject), name === 'layout' ? [...normalized(before.inject), 'sessions'] : normalized(before.inject))
+    assert.deepEqual(normalized(after.inject), ['layout','deliverables'].includes(name) ? [...normalized(before.inject), 'sessions'] : normalized(before.inject))
     const one = context(); const two = context()
     before.apply(one.ctx); after.apply(two.ctx)
     const namespaces = normalized(one.namespaces)
@@ -153,6 +155,14 @@ for (const name of modules) {
           webSearchEnabledHint:'Applies to every tool-capable chat model. Changes affect subsequent searches.',
         })
       }
+    }
+    if (name === 'deliverables') {
+      const newCopy={'produced.type.data':['Data file', 'Data file'],'produced.info':['文件信息', 'File information'],'produced.infoFile':['{name} 的文件信息', 'File information for {name}'],'produced.copyPath':['复制路径', 'Copy path'],'produced.copied':['路径已复制', 'Path copied'],'produced.copyFailed':['路径复制失败', 'Could not copy path'],'produced.noPreview':['暂不支持内置预览，请从 Open in 选择打开方式。', 'No built-in preview. Choose an option from Open in.'],'produced.tooLarge':['文件超过内置预览大小限制，可使用默认应用打开。', 'Too large for built-in preview. Open with the default app.'],'produced.created':['新建', 'Created'],'produced.modified':['已修改', 'Modified'],'produced.modifiedAt':['修改时间', 'Modified'],'produced.closeInfo':['收起信息', 'Close information'],'produced.remaining':['另有 {count} 个文件', '{count} more files'],'produced.loadMore':['显示更多文件', 'Show more files']}
+      for(const [key,copy] of Object.entries(newCopy)){namespaces[0].dictionaries.zh[key]=copy[0];namespaces[0].dictionaries.en[key]=copy[1]}
+
+      for(const language of ['zh','en'])Object.assign(namespaces[0].dictionaries[language],{'produced.openIn':'Open in','produced.openInFile':language==='zh'?'选择 {name} 的打开方式':'Open in options for {name}','produced.type.website':'Website','produced.type.pdf':'PDF document','produced.type.markdown':'Markdown','produced.type.code':'Source code','produced.type.image':'Image','produced.type.spreadsheet':'Spreadsheet','produced.type.presentation':'Presentation','produced.type.document':'Document','produced.type.video':'Video','produced.type.audio':'Audio','produced.type.archive':'Archive','produced.type.file':'File'})
+      Object.assign(namespaces[0].dictionaries.zh, {'produced.label':'文件','produced.actions':'文件操作','produced.expand':'展开','produced.collapse':'收起','produced.preview':'内置预览','produced.external':'默认应用打开','produced.previewFile':'预览 {name}','produced.revealFile':'在文件夹中显示 {name}','produced.externalFile':'用默认应用打开 {name}'})
+      Object.assign(namespaces[0].dictionaries.en, {'produced.actions':'File actions','produced.expand':'Expand','produced.collapse':'Collapse','produced.preview':'Preview','produced.external':'Open with default app','produced.previewFile':'Preview {name}','produced.revealFile':'Show {name} in folder','produced.externalFile':'Open {name} with default app'})
     }
     if (name === 'sidebar') {
       Object.assign(namespaces[0].dictionaries.en, {'navigation.back':'Back','navigation.forward':'Forward'})
@@ -280,10 +290,10 @@ test('source: skill row malformed streaming prefixes and interrupted result rema
     assert.equal(component({block, t: key => key}).props['data-state'], state)
   }
 })
-test('source: fitting and file mentions retain exact disambiguation', () => {
+test('source: file card types and file mentions retain exact disambiguation', () => {
   const model = current.load(join(output, 'deliverables/turn-deliverables.js'))
-  const view = current.load(join(output, 'deliverables/ProducedFiles.js'))
-  assert.equal(view.fitProducedFiles(50, 5, [20, 20, 20], [10, 10, 10, undefined]), 1)
+  const view = current.load(join(output, 'deliverables/file-kind.js'))
+  for(const [path,kind] of [['a.HTML','website'],['report.PDF','pdf'],['README.md','markdown'],['src/a.ts','code'],['C:\\files\\figure.PNG','image'],['book.xlsx','spreadsheet'],['deck.pptx','presentation'],['SLIDES.PPTX','presentation'],['old.ppt','presentation'],['plan.docx','document'],['REPORT.DOCX','document'],['old.doc','document'],['BOOK.XLSX','spreadsheet'],['film.webm','video'],['voice.wav','audio'],['bundle.zip','archive'],['.gitignore','file']])assert.equal(view.producedFileKind(path),kind)
   const opened = []; const mentions = model.producedFileMentions(['a/x.ts', 'b/x.ts', 'b/y.ts'], path => opened.push(path), path => path)
   assert.equal(mentions.resolve('x.ts'), undefined)
   mentions.resolve('y.ts').open(); assert.deepEqual(opened, ['b/y.ts'])
@@ -831,3 +841,45 @@ test('settings shell owns model-menu navigation and releases its event subscript
  for(const fn of listeners)fn('models');assert.deepEqual(opened,['models']);
  release();assert.equal(off,1);assert.equal(listeners.size,0);
 });
+
+test('produced native actions resolve against the owning session and respect local/current Host capabilities',async()=>{
+ const env=context(),conn=env.ctx.get('connection'),calls=[]
+ let description={canOpenPath:true,canRevealPath:true}
+ conn.hostDescription.getSnapshot=()=>description
+ conn.api.host={openPath:async request=>{calls.push(request);return{result:{ok:true,value:{opened:true}}}}}
+ env.ctx.sessions.list={getSnapshot:()=>({byId:{one:{cwd:'/workspace one'},two:{cwd:'/workspace two'}}})}
+ current.entry('deliverables').apply(env.ctx)
+ const seat=env.registrations.find(row=>row.spec.name==='conversation.chat.turnTail')
+ const one=seat.spec.inject('one'),two=seat.spec.inject('two')
+ await one.openNativeFile('docs/报告.md','reveal');await two.openNativeFile('docs/报告.md','open')
+ assert.deepEqual(normalized(calls),[{path:'/workspace one/docs/报告.md',mode:'reveal'},{path:'/workspace two/docs/报告.md'}])
+ description={canOpenPath:true};await assert.rejects(()=>one.openNativeFile('docs/a','reveal'));assert.equal(calls.length,2)
+ conn.isLoopback=false;await assert.rejects(()=>two.openNativeFile('/workspace/a','open'));assert.equal(calls.length,2)
+ conn.isLoopback=true;await assert.rejects(()=>seat.spec.inject('missing').openNativeFile('a.md','open'));assert.equal(calls.length,2)
+ conn.api.host.openPath=async()=>({result:{ok:false,error:{message:'fixture refusal'}}})
+ await assert.rejects(()=>one.openNativeFile('/workspace/a.md','open'),/fixture refusal/)
+})
+
+test('source: status requires successful tool evidence; null before-image is not creation',()=>{
+ const model=current.load(join(output,'deliverables/turn-deliverables.js'))
+ const env=context();current.entry('deliverables').apply(env.ctx);const definition=env.ctx.definition
+ let state=definition.start({},{event:{type:'turn/start',seq:1,data:{turn:1}}})
+ const call={event:{type:'tool/call',seq:2,data:{turn:1,callId:'c'}},view:{for:'call',view:{card:'diff',locations:[{path:'new.docx'}],diffs:[{path:'new.docx',oldText:null,newText:'x'}]}}}
+ state=definition.update({state},call)
+ const result=created=>({event:{type:'tool/result',seq:3,data:{turn:1,message:{source:{callId:'c'},content:[{isError:false,content:[{type:'text',text:JSON.stringify({path:'/workspace/new.docx',created})}]}]}}}})
+ const unknown=definition.update({state},{event:{type:'tool/result',seq:3,data:{turn:1,message:{source:{callId:'c'},content:[{isError:false}]}}},view:{for:'result',view:{card:'diff',diffs:[{path:'new.docx',oldText:null,newText:'x'}]}}})
+ assert.equal(model.producedArtifactsForClosing(unknown)[0].change,undefined)
+ const created=definition.update({state},result(true));assert.equal(model.producedArtifactsForClosing(created)[0].change,'created')
+ const modified=definition.update({state},result(false));assert.equal(model.producedArtifactsForClosing(modified)[0].change,'modified')
+ assert.deepEqual(normalized(model.producedArtifactsForClosing({produced:[{path:'a',seq:2,change:'created'},{path:'a',seq:4,change:'modified'}]},3)),[{path:'a',seq:2,change:'created'}])
+ const format=current.load(join(output,'deliverables/file-kind.js'));assert.equal(format.fileType('book.csv').preview,'text');assert.equal(format.fileType('book.xlsx').preview,'none');assert.equal(format.fileType('a.heic').preview,'none');assert.equal(format.producedFileKind('store.parquet'),'data');assert.equal(format.formatFileSize(1024),'1 KB');assert.equal(format.formatFileSize(-1),'');assert.equal(format.parentPath('a/same.md'),'a')
+})
+
+test('source: successful delete removes an earlier produced card without erasing the historical fact',()=>{
+ const env=context(),api=current.entry('deliverables');api.apply(env.ctx);const definition=env.ctx.definition
+ let state=definition.start({},{event:{type:'turn/start',seq:1,data:{turn:1}}})
+ state={...state,produced:[{path:'temporary.txt',seq:2,change:'created'}]}
+ state=definition.update({state},{event:{type:'tool/call',seq:3,data:{turn:1,callId:'delete'}},view:{for:'call',view:{card:'generic',kind:'delete',locations:[{path:'temporary.txt'}]}}})
+ state=definition.update({state},{event:{type:'tool/result',seq:4,data:{turn:1,message:{source:{callId:'delete'},content:[{isError:false}]}}}})
+ assert.deepEqual(normalized(api.producedForClosing(state,3)),['temporary.txt']);assert.deepEqual(normalized(api.producedForClosing(state,4)),[])
+})
