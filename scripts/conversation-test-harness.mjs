@@ -3,12 +3,13 @@ import vm from 'node:vm'
 import { File } from 'node:buffer'
 import { webcrypto } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { compileSourceModules } from './build-source-modules.mjs'
 export const id='@xharness/dsh-client-ui-conversation';
 export const names=['ConversationSessionHeader','InputMachine','referenceDraftText','projectClipboard','SessionInputShell','ComposerSubmissionPolicy','ComposerBlockRegistry','createChatStore','contextOccupancy','formatTokens','formatDuration','cacheHitPercent','billedInputTokens','deriveStats','xhScrollFollowAtBottom','XhTranscriptWindowRow','XHarnessComposerAddMenu','ContextMeter','InputBar','UserMessageNodeView','CompactionNodeView','RetryNodeView','TurnErrorNodeView','TurnMaxTokensNodeView','AssistantNodeView','ChatView','ConversationRoot','xhEditStorage','xhForkMessage','attachmentMediaType','attachmentKind','validateAttachments','browserDraftAttachment','compactionDefinition','commandDefinition','messageDefinition','xhCheckpointDefinition','XhCheckpointView','chatViewDefinition','en','zh','NS','ApprovalPanel','ReasoningRow','QueueDock','InputHub','permissionFeedback','PermissionSelect'];
 export const legacySource=readFileSync(`ui/reference/master-a613970/plugins/${id}/client.js`,'utf8');
 export const legacyTest=legacySource.replace('return module.exports;',`Object.assign(exports,{${names.join(',')}});return module.exports;`);
-export function compile(){const out=compileSourceModules(new URL('../ui',import.meta.url).pathname,[{id,source:'src/modules/conversation/index.ts'},{id:id+'/test',source:'src/modules/conversation/test-exports.ts'}]);return{entry:out.get(id).bytes.toString(),test:out.get(id+'/test').bytes.toString(),out}}
+export function compile(){const out=compileSourceModules(fileURLToPath(new URL('../ui',import.meta.url)),[{id,source:'src/modules/conversation/index.ts'},{id:id+'/test',source:'src/modules/conversation/test-exports.ts'}]);return{entry:out.get(id).bytes.toString(),test:out.get(id+'/test').bytes.toString(),out}}
 export const json=x=>JSON.parse(JSON.stringify(x));
 export const tick=()=>new Promise(resolve=>setImmediate(resolve));
 export function makeStore(initial){let value=initial;const listeners=new Set();return{getSnapshot:()=>value,subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn)},set:next=>{value=next;for(const fn of listeners)fn()},update:fn=>{value={...value};fn(value);for(const fn of listeners)fn()}}}

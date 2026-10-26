@@ -76,6 +76,13 @@ synchronization; no Rust compilation took place on the Mac.
 | Source file-card browser regression | Chromium and WebKit pass on V100: folding, dropdown/keyboard, exact paths, Office icons, metadata/thumbnail lifetime, pagination, and no automatic native opening. |
 | Full owned file-preview graph | Chromium and WebKit pass on V100: Markdown/math/code/images, diff scopes, refresh, blob cleanup, HTML isolation, and native hand-off guards. |
 
+Pre-merge portability review corrected the shared conversation test compiler to
+use Node's `fileURLToPath` rather than URL `.pathname`. The latter turns a Windows
+`D:` root into `/D:/...` and leaves spaces percent-encoded. This is a test-harness
+correction, not a product/runtime change. The combined native-wire, view-source
+and file-display source rerun passes **100/100**; fresh native Windows CI remains
+required on the updated head.
+
 The restarted comparison preserves all events, messages, paths, views, outcomes,
 sequence numbers and ordering. Only opaque request audit-snapshot references are
 normalized: live headers can defer their snapshot while reopened JSONL headers
