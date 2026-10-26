@@ -330,6 +330,7 @@ export class SessionManager {
   private createSession(sessionId: SessionId): Session {
     const address = this.addresses.get(sessionId)
     return new Session(sessionId, this.api, this.remote, {
+      cooperativeEvents: true,
       ...(address === undefined ? {} : {
         address,
         parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,

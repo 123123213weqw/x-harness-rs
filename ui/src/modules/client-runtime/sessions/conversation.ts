@@ -487,6 +487,8 @@ export interface ConversationSnapshot {
   /** Authoritative transient inbox snapshot, including queued and steering placements. */
   queue: readonly QueuedMessage[]
   running: boolean
+  /** Local stop admission; acceptance is not authoritative turn completion. */
+  stopRequested?: boolean
   /**
    * Catalog-discovered continuation address. Its parent availability controls
    * human input; null means ordinary session transport.

@@ -179,6 +179,8 @@ export interface ConversationNodeDefinition<State = unknown> {
    * @returns identity and lifecycle role, or null when unrelated.
    */
   readonly historyReuse?: ('local') | undefined
+  /** Event-only reducer opt-in; see the Runtime contract for boundary replay rules. */
+  readonly locationReuse?: 'events'
   match(event: SessionWireEvent, view?: ToolEventView): ConversationMatchResult | null
   /**
    * Create State from the unique start Match.

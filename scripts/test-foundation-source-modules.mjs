@@ -737,13 +737,26 @@ for(const label of ['legacy','source']){
   })
 }
 
+// These frozen comparisons exercise non-stop sessions. Validate the new
+// additive idle flag and empty relocation scratch set explicitly, then compare
+// every pre-existing field unchanged (including the historical private view
+// shape). Busy/terminal races are asserted in test-active-session-working-set.
+function idleSessionEvidence(snapshot) {
+  assert.equal(snapshot.stopRequested ?? false, false)
+  if (snapshot.views.reusableLocations !== undefined) assert.equal(snapshot.views.reusableLocations.size, 0)
+  const evidence = json(snapshot)
+  delete evidence.stopRequested
+  delete evidence.views.reusableLocations
+  return evidence
+}
+
 test('runtime: Session/Workspace source projections and production epoch recency match frozen behavior',async()=>{
   const traces=[]
   for(const label of ['legacy','source']){
     const f=runtimeFixture(label);const api=connectionFixture(label).handle.api;let sinks;f.services.set('connection',{api,start(value){sinks=value;return{stop(){}}}});f.api.apply(f.ctx);sinks.onConnected();await drain();const sessions=f.services.get('sessions'),workspaces=f.services.get('workspaces');sessions.clear();await drain();
     // Host-created empty workspaces carry decimal-string timestamps, not ISO.
     sinks.onHostEnvelope({rpcId:'w1',payload:{type:'host/workspace-changed',workspace:{workspaceId:'epoch-old',path:'/tmp/old',title:'old',sessionIds:[],createdAt:'1700000000000',updatedAt:'1700000000000'}}});sinks.onHostEnvelope({rpcId:'w2',payload:{type:'host/workspace-changed',workspace:{workspaceId:'epoch-new',path:'/tmp/new',title:'new',sessionIds:[],createdAt:'1800000000000',updatedAt:'1800000000000'}}});await drain();assert.equal(workspaces.list.getSnapshot().recentWorkspaceId,'epoch-new')
-    const created=await sessions.create({cwd:'/tmp/new-session'});sessions.open(created);await drain();const binding=sessions.binding(created);const trace=[json(sessions.list.getSnapshot()),json(workspaces.list.getSnapshot()),json(binding.session.getSnapshot())];trace.push(await binding.session.command('/not-matched'));trace.push(await binding.session.rename('  New title  '));await drain();trace.push(json(binding.session.getSnapshot()));await f.dispose();traces.push(json(trace))
+    const created=await sessions.create({cwd:'/tmp/new-session'});sessions.open(created);await drain();const binding=sessions.binding(created);const trace=[json(sessions.list.getSnapshot()),json(workspaces.list.getSnapshot()),idleSessionEvidence(binding.session.getSnapshot())];trace.push(await binding.session.command('/not-matched'));trace.push(await binding.session.rename('  New title  '));await drain();trace.push(idleSessionEvidence(binding.session.getSnapshot()));await f.dispose();traces.push(json(trace))
   }
   assert.deepEqual(traces[1],traces[0])
 })
@@ -771,10 +784,10 @@ test('runtime: prompt edit admission, pending responses, queues and projection g
     api.sessions.prompt=async(payload,signal)=>{calls.push(['prompt',json(payload),signal?.aborted??false]);return{rpcId:'reply',result:{ok:true,value:{accepted:true}}}}
     api.respond=async payload=>{calls.push(['respond',json(payload)]);return{accepted:true}}
     let sinks;f.services.set('connection',{api,start(value){sinks=value;return{stop(){}}}});f.api.apply(f.ctx);sinks.onConnected();await drain();const sessions=f.services.get('sessions');const sid=await sessions.create({cwd:'/tmp/prompt-test'});sessions.open(sid);await drain();const session=sessions.binding(sid).session;const trace=[]
-    const abort=new AbortController();abort.abort();await session.prompt([{type:'text',text:'edited'}],'queue',abort.signal,{requireIdle:true});await session.prompt([{type:'file_ref',attachmentId:'doc',name:'readme.md'}],'steer',undefined,{requireIdle:false});trace.push(json(session.getSnapshot()))
-    sinks.onMuxEnvelope({rpcId:'approval-id',payload:{type:'approval/requested',sessionId:sid,approvalId:'approval',toolName:'edit'}});sinks.onMuxEnvelope({rpcId:'question-id',payload:{type:'question/requested',sessionId:sid,questions:[]}});await drain();const pending=session.getSnapshot().pending;assert.equal(pending.length,2);await pending[0].respond({ok:true,value:{approved:true}});trace.push(json(session.getSnapshot()));sinks.onMuxEnvelope({rpcId:'resolved',payload:{type:'approval/resolved',sessionId:sid,approvalId:'approval',outcome:'approved'}});assert.throws(()=>pending[0].respond({ok:true,value:{}}),/already settled/)
-    sinks.onMuxEnvelope({rpcId:'queue',payload:{type:'session/queue',sessionId:sid,items:[{id:'q1',placement:'queued',message:{id:'m1',role:'user',source:{kind:'user'},content:[{type:'text',text:' hello  world '}] }},{id:'q2',placement:'steering',message:{id:'m2',role:'user',source:{kind:'user'},content:[{type:'text',text:' 😀 '.repeat(220)}]}}]}});trace.push(json(session.getSnapshot()));sinks.onMuxEnvelope({rpcId:'projection',payload:{type:'session/projection',sessionId:sid,key:'title',value:{title:'newer'},seq:4}});sinks.onMuxEnvelope({rpcId:'projection-old',payload:{type:'session/projection',sessionId:sid,key:'title',value:{title:'stale'},seq:3}});assert.equal(session.projections.get('title').title,'newer');const face=session.projections.faceOf('title');assert.equal(face,session.projections.faceOf('title'));session.projections.seed({asOfSeq:2,values:{}});assert.equal(face.getSnapshot().title,'newer');session.projections.seed({asOfSeq:4,values:{}});assert.equal(face.getSnapshot(),undefined)
-    sinks.onStateChange('reconnecting');trace.push(json(session.getSnapshot()));sinks.onConnected();sinks.onMuxEnvelope({rpcId:'subscribed',payload:{type:'session/subscribed',sessionId:sid,lastSeq:0}});await drain();assert.equal(session.getSnapshot().queue.length,0);assert.equal(session.getSnapshot().pending.length,0);trace.push(json(session.getSnapshot()));trace.push(calls);traces.push(json(trace));await f.dispose()
+    const abort=new AbortController();abort.abort();await session.prompt([{type:'text',text:'edited'}],'queue',abort.signal,{requireIdle:true});await session.prompt([{type:'file_ref',attachmentId:'doc',name:'readme.md'}],'steer',undefined,{requireIdle:false});trace.push(idleSessionEvidence(session.getSnapshot()))
+    sinks.onMuxEnvelope({rpcId:'approval-id',payload:{type:'approval/requested',sessionId:sid,approvalId:'approval',toolName:'edit'}});sinks.onMuxEnvelope({rpcId:'question-id',payload:{type:'question/requested',sessionId:sid,questions:[]}});await drain();const pending=session.getSnapshot().pending;assert.equal(pending.length,2);await pending[0].respond({ok:true,value:{approved:true}});trace.push(idleSessionEvidence(session.getSnapshot()));sinks.onMuxEnvelope({rpcId:'resolved',payload:{type:'approval/resolved',sessionId:sid,approvalId:'approval',outcome:'approved'}});assert.throws(()=>pending[0].respond({ok:true,value:{}}),/already settled/)
+    sinks.onMuxEnvelope({rpcId:'queue',payload:{type:'session/queue',sessionId:sid,items:[{id:'q1',placement:'queued',message:{id:'m1',role:'user',source:{kind:'user'},content:[{type:'text',text:' hello  world '}] }},{id:'q2',placement:'steering',message:{id:'m2',role:'user',source:{kind:'user'},content:[{type:'text',text:' 😀 '.repeat(220)}]}}]}});trace.push(idleSessionEvidence(session.getSnapshot()));sinks.onMuxEnvelope({rpcId:'projection',payload:{type:'session/projection',sessionId:sid,key:'title',value:{title:'newer'},seq:4}});sinks.onMuxEnvelope({rpcId:'projection-old',payload:{type:'session/projection',sessionId:sid,key:'title',value:{title:'stale'},seq:3}});assert.equal(session.projections.get('title').title,'newer');const face=session.projections.faceOf('title');assert.equal(face,session.projections.faceOf('title'));session.projections.seed({asOfSeq:2,values:{}});assert.equal(face.getSnapshot().title,'newer');session.projections.seed({asOfSeq:4,values:{}});assert.equal(face.getSnapshot(),undefined)
+    sinks.onStateChange('reconnecting');trace.push(idleSessionEvidence(session.getSnapshot()));sinks.onConnected();sinks.onMuxEnvelope({rpcId:'subscribed',payload:{type:'session/subscribed',sessionId:sid,lastSeq:0}});await drain();assert.equal(session.getSnapshot().queue.length,0);assert.equal(session.getSnapshot().pending.length,0);trace.push(idleSessionEvidence(session.getSnapshot()));trace.push(calls);traces.push(json(trace));await f.dispose()
   }
   assert.deepEqual(traces[1],traces[0]);assert.equal(traces[1].at(-1)[0][1].requireIdle,true);assert.equal('requireIdle' in traces[1].at(-1)[1][1],false)
 })
