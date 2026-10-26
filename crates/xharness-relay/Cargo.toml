@@ -9,7 +9,7 @@ description = "Bounded mobile transport relay; no Agent, desktop RPC or credenti
 [dependencies]
 xharness-mobile = { path = "../xharness-mobile" }
 axum.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

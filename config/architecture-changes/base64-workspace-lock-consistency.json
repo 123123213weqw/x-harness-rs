@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Keep the Base64 workspace upgrade and shared desktop dependency lockfile consistent.",
+  "compatibility": "Persisted journal compression, attachment encodings, authentication tokens and public wire fields are unchanged. Run locked tests and all-target Clippy for every affected workspace crate plus native Windows and desktop CI; retain older Base64 for unrelated third-party dependencies.",
+  "paths": {
+    "crates/xharness-session-jsonl/Cargo.toml": {
+      "before": "d5be142522f2a2e17c790582251ba34a8be5db9c53928e36b76383f4a4675557",
+      "after": "063bf967e147aae245e2dfa386c9df0fe88d7866eaa2d714528388ef5c305abf"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows"
+  ]
+}
