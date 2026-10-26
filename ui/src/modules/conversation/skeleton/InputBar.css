@@ -23,3 +23,7 @@
 /* A null dock slot must not leave a padded blank row on the welcome card. */
 ._7yzX1q_root[data-composer-layout="hero"] ._7yzX1q_accessory:empty,
 ._7yzX1q_root[data-composer-layout="hero"] ._7yzX1q_accessory:has(>[data-slot]:only-child:empty){display:none}
+
+._7yzX1q_primary [data-composer-busy]{animation:xh-composer-busy 1s linear infinite}
+@keyframes xh-composer-busy{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){._7yzX1q_primary [data-composer-busy]{animation:none}}

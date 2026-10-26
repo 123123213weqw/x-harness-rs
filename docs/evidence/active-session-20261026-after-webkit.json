@@ -1,0 +1,96 @@
+{
+  "engine": "webkit",
+  "kind": "real Runtime/Session/assembler/InputBar + React; isolated synthetic tool loop; immediate stub RPC; no real model/app",
+  "stages": [
+    {
+      "steps": 192,
+      "events": 964,
+      "nodes": 386,
+      "contexts": 389,
+      "fillMs": 859,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 92.46469499999512,
+      "pressuredStopMs": 87.00015500000154,
+      "burst20Ms": 6,
+      "pressuredSendMs": 63.80992400000105
+    },
+    {
+      "steps": 1088,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 3904,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 60.4155099999989,
+      "pressuredStopMs": 65.6003750000018,
+      "burst20Ms": 4,
+      "pressuredSendMs": 61.73709200000303
+    },
+    {
+      "steps": 4160,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 11551,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 68.10833499999717,
+      "pressuredStopMs": 61.26365200000146,
+      "burst20Ms": 5,
+      "pressuredSendMs": 56.12073300000338
+    },
+    {
+      "steps": 8256,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 14975,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 60.87795599999663,
+      "pressuredStopMs": 65.22056200000225,
+      "burst20Ms": 5,
+      "pressuredSendMs": 60.458409999992
+    },
+    {
+      "steps": 16576,
+      "events": 3531,
+      "nodes": 1413,
+      "contexts": 1420,
+      "fillMs": 30526,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 63.02010199999495,
+      "pressuredStopMs": 61.89510199999495,
+      "burst20Ms": 4,
+      "pressuredSendMs": 61.04845699999714
+    }
+  ],
+  "controls": {
+    "delayedStop": true,
+    "singleFlight": true,
+    "authoritativeCompletion": true,
+    "rejectedSendPreservesDraft": true
+  },
+  "paced": {
+    "elapsedMs": 30056,
+    "addedSteps": 4040,
+    "steps": 20657,
+    "events": 3456,
+    "nodes": 1383,
+    "contexts": 1390
+  },
+  "errors": []
+}

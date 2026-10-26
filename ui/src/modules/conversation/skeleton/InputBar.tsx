@@ -47,6 +47,7 @@ export function InputBar({
   const commandMenuOpen = useMenuLauncher(source => source === 'command')
   const promptError = useSession(s => s.promptError) ?? null
   const running = useSession(s => s.running) ?? false
+  const stopRequested = useSession(s => s.stopRequested) ?? false
   const subagent = useSession(s => s.subagent) ?? null
   const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
@@ -472,10 +473,11 @@ export function InputBar({
   // pointer users can queue follow-ups while its current turn is running.
   const primaryStops = running && subagent === null
   const interruptible = running && continuable
-  const primaryLabel = primaryStops ? t('input.stop') : t('input.send')
+  const stopLabel = stopRequested ? t('input.stopping') : t('input.stop')
+  const primaryLabel = primaryStops ? stopLabel : machineBusy ? t('input.sending') : t('input.send')
   const onPrimary = (): void => {
     if (primaryStops) {
-      stop?.()
+      if (!stopRequested) stop?.()
       return
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
@@ -587,18 +589,21 @@ export function InputBar({
   const contextControl = <ContextMeter useProjection={useProjection} t={t} />
   const primaryControls = <>
               {interruptible && (
-                <Tooltip label={t('input.stop')} side="top" delayMs={500}>
+                <Tooltip label={stopLabel} side="top" delayMs={500}>
                   <button
                     type="button"
                     className={css.primary}
-                    aria-label={t('input.stop')}
-                    disabled={stop === undefined}
+                    aria-label={stopLabel}
+                    aria-busy={stopRequested}
+                    disabled={stop === undefined || stopRequested}
                     onMouseDown={keepFocus}
                     onClick={stop}
                   >
-                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                    {stopRequested ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
+                      <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
+                    </svg> : <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                       <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                    </svg>
+                    </svg>}
                   </button>
                 </Tooltip>
               )}
@@ -607,11 +612,14 @@ export function InputBar({
                   type="button"
                   className={css.primary}
                   aria-label={primaryLabel}
-                  disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+                  aria-busy={primaryStops ? stopRequested : machineBusy}
+                  disabled={primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy}
                   onMouseDown={keepFocus}
                   onClick={onPrimary}
                 >
-                  {primaryStops ? (
+                  {(primaryStops ? stopRequested : machineBusy) ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
+                    <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
+                  </svg> : primaryStops ? (
                     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                       <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                     </svg>

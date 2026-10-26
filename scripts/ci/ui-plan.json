@@ -4204,6 +4204,40 @@
       ],
       "env": {},
       "weight": 20
+    },
+    {
+      "id": "contract-174",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set.mjs"
+      ],
+      "env": {},
+      "weight": 40
+    },
+    {
+      "id": "browser-242",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 120
+    },
+    {
+      "id": "browser-243",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-active-session-working-set-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 120
     }
   ]
 }
