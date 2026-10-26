@@ -317,6 +317,7 @@ export function apply(ctx: Context): void {
             const images = conversation.createDraftImages(files)
             if (!shell.addImages(images.map(image => image.id))) {
               conversation.releaseDraftImages(images)
+              return '当前草稿正在提交，请稍后再添加附件'
             }
             return null
           } catch (error: unknown) {
