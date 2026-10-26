@@ -576,11 +576,16 @@ function mutationChange(result, path, view) {
         if (block.type !== 'text' || !block.text || block.text.length > 8192)
             continue;
         try {
-            const value = JSON.parse(block.text);
-            if (typeof value === 'object' && value !== null && 'created' in value && typeof value.created === 'boolean' && 'path' in value && typeof value.path === 'string') {
-                const actual = value.path.replaceAll('\\', '/'), requested = path.replaceAll('\\', '/');
-                if (actual === requested || !requested.startsWith('/') && !/^[a-z]:/i.test(requested) && actual.endsWith('/' + requested))
-                    return value.created ? 'created' : 'modified';
+            const parsed = JSON.parse(block.text);
+            // Native tool output envelopes preserve structured handler metadata. The
+            // original tool-facing text stays unchanged in history/model context.
+            const values = [parsed, typeof parsed === 'object' && parsed !== null && 'metadata' in parsed ? parsed.metadata : undefined];
+            for (const value of values) {
+                if (typeof value === 'object' && value !== null && 'created' in value && typeof value.created === 'boolean' && 'path' in value && typeof value.path === 'string') {
+                    const actual = value.path.replaceAll('\\', '/'), requested = path.replaceAll('\\', '/');
+                    if (actual === requested || !requested.startsWith('/') && !/^[a-z]:/i.test(requested) && actual.endsWith('/' + requested))
+                        return value.created ? 'created' : 'modified';
+                }
             }
         }
         catch { /* Non-JSON tool text is not mutation status evidence. */ }

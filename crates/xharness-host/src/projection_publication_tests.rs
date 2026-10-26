@@ -1,4 +1,6 @@
 //! Synthetic snapshot-only tests: no model, tool execution or production state.
+#[path = "projection_publication_tests/file_artifacts.rs"]
+mod file_artifacts;
 use super::*;
 use crate::{runtime::AgentRuntime, HostConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
