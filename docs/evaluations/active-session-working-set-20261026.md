@@ -127,4 +127,14 @@ after the same single keypress, then keeps the zero-count assertion. No retry
 or production change was added. The full composer fixture passes three
 consecutive WebKit runs and one Chromium run on V100 after this correction.
 
+After that head's full CI passed, master advanced through PR #398
+(`091912b2`) and conflicted in generated UI artifacts / appended test IDs.
+Integration keeps the component-picker feature and its four gates unchanged,
+appends the working-set browser gates as `browser-246` / `browser-247`, and
+rebuilds all generated assets from the combined source. InputBar retains both
+draft-only component intake and the new single-flight/busy controls. The
+original timing evidence above identifies the pre-integration source; the
+separate `active-session-20261026-master398-source.json` receipt identifies
+the integrated source for the subsequent regression and fresh PR CI.
+
 Final paced totals: Chromium 22707 steps; WebKit 20657 steps. Both engines additionally pass the existing history-cache, ChatView scroll-intent and composer-layout browser scripts. The delayed-ACK/single-flight/rejected-draft DOM checks pass on both engines.

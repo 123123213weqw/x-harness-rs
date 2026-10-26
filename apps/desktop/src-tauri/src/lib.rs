@@ -7,6 +7,7 @@ mod browser_inspect;
 mod browser_lifecycle;
 mod browser_native;
 mod browser_perform;
+mod browser_picker;
 mod computer_activity;
 mod desktop_exit;
 mod desktop_recovery;
@@ -160,6 +161,7 @@ pub fn run() {
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
+            browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform,
         ])
         .on_window_event(|window, event| {

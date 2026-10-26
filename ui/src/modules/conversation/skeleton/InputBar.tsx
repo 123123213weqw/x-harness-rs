@@ -27,6 +27,7 @@ import { isSafariBrowser, repairSafariTextareaLayout } from './safari'
 import css from './InputBar.styles'
 import { ComposerAddMenu } from './ComposerAddMenu'
 import { validateAttachments } from '../attachments'
+import { listenComposerFiles } from '../../shared/composer-files'
 
 /** Decoration product of the no-session state (no machine, empty draft). */
 const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
@@ -435,17 +436,24 @@ export function InputBar({
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
   // this composer.
-  const intakeImages = useCallback((files: readonly File[]): void => {
-    if (addImages === undefined || files.length === 0) return
+  const intakeImages = useCallback((files: readonly File[]): string | null => {
+    if (addImages === undefined || files.length === 0) return '当前聊天无法添加附件'
     const rejected = ((): string | null => {
       try { validateAttachments([...attachments.map(attachment => attachment.file), ...files]) }
       catch (error) { return error instanceof Error ? error.message : String(error) }
       return addImages(files)
     })()
     if (rejected !== null) showToast(rejected)
+    return rejected
   }, [addImages, attachments, imageLimits, showToast, t])
 
   const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  useEffect(() => listenComposerFiles(sessionId, files => {
+    const target = inputRef.current
+    if (!target?.getClientRects().length || getComputedStyle(target).visibility === 'hidden' || target.closest('[hidden], [inert], [aria-hidden="true"]')) return undefined
+    if (!canAcceptDrop) return '当前聊天输入框不可用，选取未加入草稿'
+    return intakeImages(files)
+  }), [sessionId, canAcceptDrop, intakeImages])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine

@@ -104,6 +104,16 @@ try {
   assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true,'empty drafts stay disabled')
   await page.evaluate(()=>document.body.removeAttribute('data-ds-dark-theme'));await palette.evaluate(el=>el.remove())
  }
+ // Component context arrives through the actual visible composer and existing
+ // attachment owner, not a DOM textarea mutation or a synthetic prompt send.
+ if (impl === 'source') {
+  const admitted=await page.evaluate(()=>{const detail={sessionId:'s',files:[new File(['selected DOM context'],'component-context.txt',{type:'text/plain'})],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));return detail.result===null});assert.equal(admitted,true)
+  await page.getByRole('button',{name:'Remove component-context.txt'}).waitFor()
+  assert.equal(await page.evaluate(()=>calls.some(c=>c.content)),false,'external draft intake never submits')
+  assert.equal(await page.evaluate(()=>{const detail={sessionId:'different-chat',files:[new File(['x'],'wrong.txt')],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));return detail.result===undefined}),true,'another chat cannot receive this attachment')
+  assert.equal(await page.evaluate(()=>{const target=document.querySelector('textarea');target.style.visibility='hidden';const detail={sessionId:'s',files:[new File(['x'],'hidden.txt')],result:undefined};window.dispatchEvent(new CustomEvent('xharness:composer-files',{detail}));target.style.visibility='';return detail.result===undefined}),true,'hidden input does not claim attachments')
+  await page.getByRole('button',{name:'Remove component-context.txt'}).click();await page.waitForFunction(()=>shell.snapshot.imageIds.length===0)
+ }
  // Native picker, shared plus-menu focus, commands and draft submission.
  await page.getByRole('button',{name:'Add attachments or commands',exact:true}).press('ArrowDown');await page.getByRole('menuitem',{name:'Add images or files'}).waitFor();await page.waitForFunction(()=>document.activeElement?.textContent?.includes('Add images or files'));assert.equal(await page.getByRole('menuitem',{name:'Add images or files'}).evaluate(e=>e===document.activeElement),true);
  await page.getByRole('menuitem',{name:'Add images or files'}).press('End');assert.equal(await page.getByRole('menuitem',{name:'Commands'}).evaluate(e=>e===document.activeElement),true);await page.getByRole('menuitem',{name:'Commands'}).press('Escape');assert.equal(await page.getByRole('button',{name:'Add attachments or commands',exact:true}).evaluate(e=>e===document.activeElement),true);

@@ -17,6 +17,8 @@ mod browser_lifecycle;
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/browser_picker.rs"]
+mod browser_picker;
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
 #[path = "../src/native_startup.rs"]
@@ -71,6 +73,7 @@ fn main() {
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
+            browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {

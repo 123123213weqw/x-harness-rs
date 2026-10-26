@@ -56,6 +56,7 @@ impl InspectRequest {
 #[derive(Default)]
 pub(super) struct Inspector {
     pub(super) gate: Mutex<()>,
+    pub(super) picker: StdMutex<Option<crate::browser_picker::Lease>>,
     pub(super) navigation_epoch: AtomicU64,
     pub(super) delegation: crate::browser_delegation::Delegation,
     latest: StdMutex<Option<Frame>>,

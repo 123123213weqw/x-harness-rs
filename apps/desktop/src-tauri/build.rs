@@ -58,6 +58,7 @@ fn main() {
             "desktop_browser_delegate",
             "desktop_browser_access",
             "desktop_browser_inspect",
+            "desktop_browser_pick",
             "desktop_browser_perform",
         ])),
     )
