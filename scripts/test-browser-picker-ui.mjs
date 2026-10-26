@@ -21,8 +21,9 @@ try{
  window.__TAURI__={core:{invoke:async(command,args)=>{
   calls.push({command,args});
   if(command==='desktop_browser_activate')return true;
+  if(command==='desktop_browser_bounds')window.lastNativeBounds=args.bounds;
   if(command==='desktop_browser_pick'){
-   if(args.request.action==='start'){if(window.holdStart)await new Promise(r=>window.releaseStart=r);return {status:'pending',token:'token-'+(++serial)}}
+   if(args.request.action==='start'){const rect=document.querySelector('.xhbrowser-content').getBoundingClientRect();if(!window.lastNativeBounds||Math.abs(lastNativeBounds.height-rect.height)>0.5)throw Error('picker armed before native viewport settled');if(window.holdStart){window.startHeld=true;await new Promise(r=>window.releaseStart=r);}return {status:'pending',token:'token-'+(++serial)}}
    if(args.request.action==='cancel')return {status:'cancelled'};
    if(window.holdPoll)await new Promise(r=>window.releasePoll=r);
    return nextPick==='selected'?{status:'selected',selection:window.selection,image:{png_base64:window.png}}:{status:nextPick};
@@ -43,13 +44,16 @@ try{
  })
  assert.deepEqual(result.names,['selected-component.png','selected-component-context.txt']);assert.deepEqual(result.dimensions,[240,120]);assert.match(result.text,/#primary/);assert.match(result.text,/untrusted/)
  await page.getByRole('status').getByText(/已加入聊天附件/).waitFor();assert.equal(await page.evaluate(()=>calls.some(c=>/prompt|send/.test(c.command))),false,'picking never sends a prompt')
+ // Repeated selection removes the previous notice, resizing the native child.
+ // Start must wait for that new geometry, not immediately arm a stale viewport.
+ await start();await page.waitForFunction(()=>received.length===2)
  // Cancellation and session changes reject late evidence instead of attaching
  // into either the old or newly visible chat.
  await page.evaluate(()=>{nextPick='pending';holdPoll=true});await start();await page.waitForFunction(()=>typeof releasePoll==='function')
- await page.evaluate(()=>setSession('session-two'));await page.evaluate(()=>{holdPoll=false;nextPick='selected';releasePoll()});await page.waitForTimeout(500);assert.equal(await page.evaluate(()=>received.length),1)
- await page.evaluate(()=>{nextPick='pending';holdStart=true;releaseStart=null});await start();await page.getByRole('button',{name:'取消选取组件',exact:true}).click();await page.evaluate(()=>{holdStart=false;releaseStart()});await page.waitForFunction(()=>calls.filter(c=>c.command==='desktop_browser_pick'&&c.args.request.action==='cancel').length>=2)
+ await page.evaluate(()=>setSession('session-two'));await page.evaluate(()=>{holdPoll=false;nextPick='selected';releasePoll()});await page.waitForTimeout(500);assert.equal(await page.evaluate(()=>received.length),2)
+ await page.evaluate(()=>{nextPick='pending';holdStart=true;releaseStart=null});await start();await page.waitForFunction(()=>window.startHeld===true);await page.getByRole('button',{name:'取消选取组件',exact:true}).click();await page.evaluate(()=>{holdStart=false;releaseStart()});await page.waitForFunction(()=>calls.filter(c=>c.command==='desktop_browser_pick'&&c.args.request.action==='cancel').length>=2)
  // No matching receiver: explicit failure; no ghost success and no auto-send.
- await page.evaluate(()=>{stopReceiver();nextPick='selected'});await start();await page.getByRole('alert').getByText(/没有可用的附件输入框/).waitFor();assert.equal(await page.evaluate(()=>received.length),1)
+ await page.evaluate(()=>{stopReceiver();nextPick='selected'});await start();await page.getByRole('alert').getByText(/没有可用的附件输入框/).waitFor();assert.equal(await page.evaluate(()=>received.length),2)
  await page.evaluate(()=>root.unmount());assert.deepEqual(errors,[])
  console.log(engine+': picker UI crop/DPR, draft-only intake, cancel/start/poll races and session ownership passed (mock native IPC)')
 }finally{await browser.close()}

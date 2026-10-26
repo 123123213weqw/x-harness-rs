@@ -507,6 +507,13 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     const generation=++pickGeneration.current,owner=sessionId,tabId=item.id
     setPickNotice('');setError('');setPicking(true)
     try{
+      // Removing a prior success notice changes the child viewport. Let React
+      // paint, then settle the native bounds before arming pointer capture.
+      await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))
+      const current=()=>generation===pickGeneration.current&&sessionRef.current===owner&&itemRef.current.id===tabId
+      if(!current())return
+      if(nativeSyncRef.current&&!await nativeSyncRef.current())throw Error('当前网页尚未就绪，请稍后再选取')
+      if(!current())return
       const result=objectValue(await native.core.invoke('desktop_browser_pick',{tabId,request:{action:'start',owner}}))
       if(typeof result.token!=='string')throw Error('桌面版本不支持组件选取')
       if(generation!==pickGeneration.current||sessionRef.current!==owner||itemRef.current.id!==tabId){
