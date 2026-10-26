@@ -36,6 +36,7 @@
     "native_probe_python_contract": "19 tests passed",
     "architecture_and_format": "passed",
     "macos_windows_native": "Not executed locally; existing hosted native probe now contains the picker case",
-    "actual_composer_intake": "Chromium+WebKit resident conversation: actual InputBar draft intake, wrong-session and hidden-composer refusal; existing send pipeline remains user-triggered"
+    "actual_composer_intake": "Chromium+WebKit resident conversation: actual InputBar draft intake, wrong-session and hidden-composer refusal; existing send pipeline remains user-triggered",
+    "linux_dom_fixture_repair": "Hosted Chromium exposed flex-shrunk fixture buttons differing from macOS form defaults; original failure reproduced on WZU_Server, test points now derive from actual DOM bounds without dropping assertions; Chromium and WebKit each10 passed on Linux and macOS."
   }
 }
