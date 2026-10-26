@@ -8,7 +8,6 @@
 - `xharness-mark-flat.svg`：无滤镜、无细线的小尺寸标志，用于 16–32 px 场景。
 - `xharness-app-icon.png`：1254×1254 应用图标母版，四臂白色 `X` 与黑色圆角底板。
 - `xharness-app-icon.svg`：旧版金属图标留档；不再作为应用图标母版。
-- `xharness-brand-hero.svg/png`：1536×1024 品牌展示图。
 
 ## 设计约束
 
