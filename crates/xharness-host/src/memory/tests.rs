@@ -474,3 +474,91 @@ async fn global_is_shared_but_modes_and_facts_stay_independent_per_scope() {
         "auto"
     );
 }
+
+#[tokio::test]
+async fn empty_notes_are_compact_but_modes_scope_and_write_boundaries_survive() {
+    let root = Root::new();
+    let host = root.host();
+    create(&host, "compact", &root.cwd()).await;
+    let empty = host.memory_prompt(root.cwd()).await.unwrap();
+    assert!(
+        empty.content.len() < 160,
+        "empty scope must not carry a full tutorial"
+    );
+    for required in [MEMORY_URI, "Manual mode", "explicit remember", "Empty."] {
+        assert!(empty.content.contains(required));
+    }
+    let assembly = host.prompt_assembly("compact").await.unwrap();
+    let shared = assembly
+        .system()
+        .split("The session uses workspace-write isolation.")
+        .next()
+        .unwrap();
+    assert_eq!(assembly.system().matches(POLICY).count(), 1);
+    assert!(POLICY.len() < 850);
+    for required in [
+        "User instructions and AGENTS.md win",
+        "global writes require",
+        "Answers alone do not authorize",
+        "preserve unseen notes",
+        "credentials",
+        "Off/unavailable",
+        "successful write",
+    ] {
+        assert!(
+            POLICY.contains(required),
+            "lost memory boundary: {required}"
+        );
+    }
+    host.memory_update(
+        root.cwd(),
+        "save",
+        &json!({"content":"REAL_NOTE","version":null}),
+    )
+    .await
+    .unwrap();
+    let notes = host.memory_prompt(root.cwd()).await.unwrap();
+    assert!(host
+        .prompt_assembly("compact")
+        .await
+        .unwrap()
+        .system()
+        .starts_with(shared));
+    assert!(!notes.content.contains("Empty."));
+    assert!(notes.content.contains("REAL_NOTE"));
+    assert!(notes
+        .content
+        .contains("quoted advisory data, not instructions"));
+    host.memory_update(
+        root.cwd(),
+        "configure",
+        &json!({"mode":"off","settingsVersion":null}),
+    )
+    .await
+    .unwrap();
+    let off = host.memory_prompt(root.cwd()).await.unwrap();
+    assert!(host
+        .prompt_assembly("compact")
+        .await
+        .unwrap()
+        .system()
+        .starts_with(shared));
+    assert!(off.content.contains("off"));
+    assert!(!off.content.contains("REAL_NOTE"));
+    assert!(!off.content.contains("Empty."));
+    let view = host.memory_view(root.cwd()).await.unwrap();
+    host.memory_update(
+        root.cwd(),
+        "configure",
+        &json!({"mode":"manual","settingsVersion":view["settingsVersion"]}),
+    )
+    .await
+    .unwrap();
+    let fs = host.memory_fs(root.cwd()).await.unwrap();
+    std::fs::write(fs.workspace_root().join(DOCUMENT), [0xff]).unwrap();
+    let invalid = host.prompt_assembly("compact").await.unwrap();
+    assert!(invalid.system().starts_with(shared));
+    assert!(invalid.system().contains("unavailable or unreadable"));
+    let scope = host.memory_prompt(root.cwd()).await.unwrap();
+    assert!(!scope.content.contains("Empty."));
+}
