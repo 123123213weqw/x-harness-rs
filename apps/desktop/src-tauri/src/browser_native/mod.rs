@@ -171,8 +171,12 @@ pub async fn layout(view: &Webview, rect: (f64, f64, f64, f64)) -> Result<(), St
     #[cfg(target_os = "linux")]
     {
         let (tx, rx) = oneshot::channel();
-        view.with_webview(move |handle| linux::layout(handle, rect, tx))
-            .map_err(|_| "native layout dispatch failed")?;
+        view.with_webview(move |handle| {
+            if !tx.is_closed() {
+                linux::layout(handle, rect, tx);
+            }
+        })
+        .map_err(|_| "native layout dispatch failed")?;
         tokio::time::timeout(TIMEOUT, rx)
             .await
             .map_err(|_| "native layout timed out")?
@@ -206,6 +210,43 @@ pub async fn content_inset(view: &Webview) -> Result<f64, String> {
     }
 }
 
+async fn image_size(view: &Webview) -> Result<(u32, u32), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        let (tx, rx) = oneshot::channel();
+        view.with_webview(move |handle| {
+            let view = handle.inner();
+            let allocation = view.allocation();
+            let result = (|| {
+                let scale =
+                    u32::try_from(view.scale_factor()).map_err(|_| "invalid native pixel scale")?;
+                let width = u32::try_from(allocation.width())
+                    .ok()
+                    .and_then(|w| w.checked_mul(scale))
+                    .ok_or("invalid native pixel width")?;
+                let height = u32::try_from(allocation.height())
+                    .ok()
+                    .and_then(|h| h.checked_mul(scale))
+                    .ok_or("invalid native pixel height")?;
+                Ok((width, height))
+            })();
+            let _ = tx.send(result);
+        })
+        .map_err(|_| "native image geometry dispatch failed")?;
+        tokio::time::timeout(TIMEOUT, rx)
+            .await
+            .map_err(|_| "native image geometry timed out")?
+            .map_err(|_| "native image geometry callback closed")?
+            .map_err(str::to_owned)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let size = view.size().map_err(|_| "browser size unavailable")?;
+        Ok((size.width, size.height))
+    }
+}
+
 pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<Value, String> {
     state.loaded_receipt(owner, tab)?;
     let (view, inspector) = state.inspection_target(tab)?;
@@ -213,11 +254,10 @@ pub async fn screenshot(state: &BrowserState, tab: &str, owner: &str) -> Result<
         .await
         .map_err(|_| "native browser busy")?;
     browser_inspect::authorize(&view, &inspector, Some(owner), false)?;
-    let size = view.size().map_err(|_| "browser size unavailable")?;
-    if size.width == 0
-        || size.height == 0
-        || u64::from(size.width) * u64::from(size.height) > 16 * 1024 * 1024
-    {
+    // GTK allocated_size() includes layout margins, not just image content.
+    // Budget the actual native content pixels before asking WebKit to capture.
+    let (width, height) = image_size(&view).await?;
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 16 * 1024 * 1024 {
         return Err("browser viewport exceeds snapshot pixel budget".into());
     }
     let epoch = inspector.navigation_epoch.load(Ordering::SeqCst);

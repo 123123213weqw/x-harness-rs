@@ -19,13 +19,13 @@ def fixture_png():
 
 class FitViewportTests(unittest.TestCase):
     def test_pixels_geometry_and_effects_are_required(self):
-        row=dict(passed=True,responsive_restored=True,cases=[dict(index=i,viewport=dict(width=1280,height=720),image=dict(width=2,height=2),markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
+        row=dict(passed=True,responsive_restored=True,cases=[dict(index=i,preview=dict(width=300,height=200),pane=[[426,500],[640,400],[360,500]][i],viewport=dict(width=1280,height=720),image=dict(width=2,height=2),markers=[dict(x=x,y=y) for x,y in [(0,0),(640,0),(0,360),(640,360)]],trusted_corners=True,modal_checkbox=True,stale_frame='denied') for i in range(3)])
         line=lambda r:'FIT_VIEWPORT_EVIDENCE '+json.dumps(r)
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             for i in range(3): (root/f'fit-{i}.png').write_bytes(fixture_png())
             self.assertTrue(verify(line(row),root)['passed'])
-            for field,value in [('viewport',dict(width=426,height=720)),('image',dict(width=1280,height=720)),('trusted_corners',False),('modal_checkbox',False),('stale_frame','accepted'),('markers',[dict(x=0,y=0)]*4)]:
+            for field,value in [('viewport',dict(width=426,height=720)),('image',dict(width=1280,height=720)),('trusted_corners',False),('trusted_corners','false'),('pane',[1280,720]),('preview',dict(width=1280,height=720)),('modal_checkbox',False),('stale_frame','accepted'),('markers',[dict(x=0,y=0)]*4)]:
                 changed=copy.deepcopy(row);changed['cases'][0][field]=value
                 with self.subTest(field=field),self.assertRaises(ValueError): verify(line(changed),root)
             with self.assertRaises(ValueError): verify('',root)

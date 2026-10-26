@@ -838,8 +838,10 @@ async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
         ),
     )
     .await?;
-    component_picker_probe(app, &main, &guest).await?;
     viewport_probe::run(app, &guest).await?;
+    // Picker intentionally swallows the release click for a short guard window.
+    // Run it last so that guard cannot consume the next probe's first action.
+    component_picker_probe(app, &main, &guest).await?;
     println!(
         "PRODUCTION_NATIVE_EVIDENCE {}",
         json!({"passed":true,"screenshot":"native_png","viewport":captured_viewport,"input":"actual_field_zZ","hover":"trusted_mousemove","cross_origin_pointer":"trusted_child_click","duplicate_frame":"denied","stale_epoch":"denied","hidden":"denied","wrong_owner":"denied"})

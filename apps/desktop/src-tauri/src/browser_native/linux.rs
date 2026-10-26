@@ -185,8 +185,8 @@ pub fn layout(
                     Some(gtk::Allocation::new(
                         0,
                         0,
-                        width + child.margin_start(),
-                        height + child.margin_top(),
+                        width.checked_add(child.margin_start())?,
+                        height.checked_add(child.margin_top())?,
                     ))
                 });
                 outer.remove(&container);

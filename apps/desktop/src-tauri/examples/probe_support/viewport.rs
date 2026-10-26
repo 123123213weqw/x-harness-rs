@@ -5,6 +5,37 @@ use serde_json::json;
 use std::time::Duration;
 use tauri::{Manager, Webview};
 
+async fn content_size(view: &Webview) -> Result<(f64, f64), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        view.with_webview(move |platform| {
+            // Wry bounds() uses allocated_size(), which includes GTK margins.
+            // The actual child content rectangle excludes those margins.
+            let rect = platform.inner().allocation();
+            let _ = tx.send((f64::from(rect.width()), f64::from(rect.height())));
+        })
+        .map_err(|_| "native content geometry dispatch failed")?;
+        tokio::time::timeout(Duration::from_secs(8), rx)
+            .await
+            .map_err(|_| "native content geometry timed out")?
+            .map_err(|_| "native content geometry callback closed".into())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let size = view
+            .size()
+            .map_err(|_| "fit native size missing")?
+            .to_logical::<f64>(
+                view.window()
+                    .scale_factor()
+                    .map_err(|_| "native scale missing")?,
+            );
+        Ok((size.width, size.height))
+    }
+}
+
 pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> {
     let main = app.get_webview("main").ok_or("main missing")?;
     let bridge = app.state::<browser_bridge::BrowserBridge>();
@@ -65,17 +96,13 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
                     .ok_or("fit PNG missing")?,
             )
             .map_err(|_| "invalid fit PNG")?;
-        let native = guest
-            .size()
-            .map_err(|_| "fit native size missing")?
-            .to_logical::<f64>(
-                guest
-                    .window()
-                    .scale_factor()
-                    .map_err(|_| "native scale missing")?,
-            );
-        if native.width > f64::from(width) + 2.0 || native.height > f64::from(height) + 2.0 {
-            return Err("native preview overflowed its pane".into());
+        let (native_width, native_height) = content_size(guest).await?;
+        if native_width < 1.0
+            || native_height < 1.0
+            || native_width > f64::from(width) + 2.0
+            || native_height > f64::from(height) + 2.0
+        {
+            return Err(format!("native preview overflowed its pane: native={native_width}x{native_height}, pane={width}x{height}, viewport={}",capture["result"]["viewport"]));
         }
         let markers=evidence(guest,"['tl','tr','bl','br'].map(id=>{const r=document.getElementById('fit-'+id).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})").await?;
         if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
@@ -112,7 +139,7 @@ pub async fn run(app: &tauri::AppHandle, guest: &Webview) -> Result<(), String> 
         {
             return Err(format!("fit actual page effects mismatch: {effects}"));
         }
-        cases.push(json!({"index":index,"pane":[width,height],"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
+        cases.push(json!({"index":index,"pane":[width,height],"preview":{"width":native_width,"height":native_height},"viewport":capture["result"]["viewport"],"image":capture["result"]["image"],"markers":markers,"trusted_corners":true,"modal_checkbox":true,"stale_frame":"denied"}));
     }
     browser::desktop_browser_bounds(
         main,

@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-26",
+  "scope": "isolated native Tauri viewport; no model/global OS input or installed app changes",
+  "functional_linux": {
+    "status": "passed",
+    "source_revision_base": "52b44b83468e6a62e786b7d9dbb99cc28337ec8b",
+    "source_hashes": [
+      {
+        "path": "apps/desktop/src-tauri/src/browser.rs",
+        "tested_sha256": "05f56c020bd11a5d9ae098185345c143af9a5b67dd1457c989f2aace83098e5e",
+        "current_sha256": "05f56c020bd11a5d9ae098185345c143af9a5b67dd1457c989f2aace83098e5e"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_native/linux.rs",
+        "tested_sha256": "bf100b188633770c3dc4127ae4c891b5d6e83cf43a9988d366892ae5b90705ab",
+        "current_sha256": "f55cc5315cd56e65b80f4a5b7802cc73b5b1fe7ccae91880383e2bf4e4fabb44"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_native/macos.rs",
+        "tested_sha256": "28e78434ddfa91927b1375b807d603bd46dff73ae06858dc9f0b42247be423fa",
+        "current_sha256": "28e78434ddfa91927b1375b807d603bd46dff73ae06858dc9f0b42247be423fa"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_native/windows.rs",
+        "tested_sha256": "118f3e32e91b339e843b837f40d0e34ea1e94c7e270f8e4b87df6cd63d212e07",
+        "current_sha256": "118f3e32e91b339e843b837f40d0e34ea1e94c7e270f8e4b87df6cd63d212e07"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_native/mod.rs",
+        "tested_sha256": "2ddff032a616a5eb7532220f43463168a94bbe60d1b62e252b9d3f886c5580bc",
+        "current_sha256": "422a090395fbc29f0a2f79157f6eec7ef76117b2c54967ce489aa124d9f962dc"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_viewport.rs",
+        "tested_sha256": "61d705dfa9439f2df26b8de2667af45b879a1e72b5d6bd979cb633a0a2d9cc2f",
+        "current_sha256": "61d705dfa9439f2df26b8de2667af45b879a1e72b5d6bd979cb633a0a2d9cc2f"
+      },
+      {
+        "path": "apps/desktop/src-tauri/src/browser_inspect.rs",
+        "tested_sha256": "e38fa1201337a8a90525fdf8626331c49d8d26ce5b3db3ea9b92fb07bde35ec0",
+        "current_sha256": "e38fa1201337a8a90525fdf8626331c49d8d26ce5b3db3ea9b92fb07bde35ec0"
+      },
+      {
+        "path": "apps/desktop/src-tauri/examples/browser-inspect-probe.rs",
+        "tested_sha256": "44055ff61d19f1ee3a5a577316a290a16df20526fdc7b0036ea4c92c5ce007e4",
+        "current_sha256": "44055ff61d19f1ee3a5a577316a290a16df20526fdc7b0036ea4c92c5ce007e4"
+      },
+      {
+        "path": "apps/desktop/src-tauri/examples/probe_support/viewport.rs",
+        "tested_sha256": "b9d1e1144ba6d665e7bf39e8fc0a476a99175ff056419b0cc842344552d68ea8",
+        "current_sha256": "b9d1e1144ba6d665e7bf39e8fc0a476a99175ff056419b0cc842344552d68ea8"
+      }
+    ],
+    "runs": [
+      {
+        "kind": "native_tauri_dom_contract",
+        "platform": "linux",
+        "model_calls": 0,
+        "os_input": false,
+        "titlebar": "standard",
+        "ready_delay_ms": 0,
+        "binary_sha256": "7f92d6af0deee640046fe7d7157466d8c262484df58d5690d2103e7dbf9f4b15",
+        "subframe_navigation_passed": true,
+        "browser_lifecycle_passed": true,
+        "native_api_prototype_tested": true,
+        "native_api_core_passed": true,
+        "production_native_passed": true,
+        "fit_viewport_passed": true,
+        "hard_capability_status": "partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim",
+        "cleanup_passed": true,
+        "exit_code": 0,
+        "seconds": 16.569,
+        "passed": true,
+        "contract_completed": true
+      },
+      {
+        "kind": "native_tauri_dom_contract",
+        "platform": "linux",
+        "model_calls": 0,
+        "os_input": false,
+        "titlebar": "standard",
+        "ready_delay_ms": 0,
+        "binary_sha256": "7f92d6af0deee640046fe7d7157466d8c262484df58d5690d2103e7dbf9f4b15",
+        "subframe_navigation_passed": true,
+        "browser_lifecycle_passed": true,
+        "native_api_prototype_tested": true,
+        "native_api_core_passed": true,
+        "production_native_passed": true,
+        "fit_viewport_passed": true,
+        "hard_capability_status": "partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim",
+        "cleanup_passed": true,
+        "exit_code": 0,
+        "seconds": 16.647,
+        "passed": true,
+        "contract_completed": true
+      },
+      {
+        "kind": "native_tauri_dom_contract",
+        "platform": "linux",
+        "model_calls": 0,
+        "os_input": false,
+        "titlebar": "standard",
+        "ready_delay_ms": 0,
+        "binary_sha256": "7f92d6af0deee640046fe7d7157466d8c262484df58d5690d2103e7dbf9f4b15",
+        "subframe_navigation_passed": true,
+        "browser_lifecycle_passed": true,
+        "native_api_prototype_tested": true,
+        "native_api_core_passed": true,
+        "production_native_passed": true,
+        "fit_viewport_passed": true,
+        "hard_capability_status": "partial; cross-origin DOM traversal/recording remain absent; no full browser parity claim",
+        "cleanup_passed": true,
+        "exit_code": 0,
+        "seconds": 16.599,
+        "passed": true,
+        "contract_completed": true
+      }
+    ],
+    "default_css_viewport": [
+      1280,
+      720
+    ],
+    "cases": [
+      {
+        "image": {
+          "height": 240,
+          "width": 426
+        },
+        "index": 0,
+        "markers": [
+          {
+            "x": 23.990610361099243,
+            "y": 15.985916376113892
+          },
+          {
+            "x": 1256.0093994140625,
+            "y": 15.985916376113892
+          },
+          {
+            "x": 23.990610361099243,
+            "y": 705.1408748626709
+          },
+          {
+            "x": 1256.0093994140625,
+            "y": 705.1408748626709
+          }
+        ],
+        "modal_checkbox": true,
+        "pane": [
+          426,
+          500
+        ],
+        "preview": {
+          "height": 240.0,
+          "width": 426.0
+        },
+        "stale_frame": "denied",
+        "trusted_corners": true,
+        "viewport": {
+          "height": 721,
+          "width": 1280
+        },
+        "four_corner_pixels_verified": true
+      },
+      {
+        "image": {
+          "height": 360,
+          "width": 640
+        },
+        "index": 1,
+        "markers": [
+          {
+            "x": 24,
+            "y": 16
+          },
+          {
+            "x": 1256,
+            "y": 16
+          },
+          {
+            "x": 24,
+            "y": 704
+          },
+          {
+            "x": 1256,
+            "y": 704
+          }
+        ],
+        "modal_checkbox": true,
+        "pane": [
+          640,
+          400
+        ],
+        "preview": {
+          "height": 360.0,
+          "width": 640.0
+        },
+        "stale_frame": "denied",
+        "trusted_corners": true,
+        "viewport": {
+          "height": 720,
+          "width": 1280
+        },
+        "four_corner_pixels_verified": true
+      },
+      {
+        "image": {
+          "height": 203,
+          "width": 360
+        },
+        "index": 2,
+        "markers": [
+          {
+            "x": 24,
+            "y": 16
+          },
+          {
+            "x": 1256,
+            "y": 16
+          },
+          {
+            "x": 24,
+            "y": 705.7777709960938
+          },
+          {
+            "x": 1256,
+            "y": 705.7777709960938
+          }
+        ],
+        "modal_checkbox": true,
+        "pane": [
+          360,
+          500
+        ],
+        "preview": {
+          "height": 203.0,
+          "width": 360.0
+        },
+        "stale_frame": "denied",
+        "trusted_corners": true,
+        "viewport": {
+          "height": 721,
+          "width": 1280
+        },
+        "four_corner_pixels_verified": true
+      }
+    ],
+    "independent_local_png_recheck": true
+  },
+  "current_head_native_acceptance": {
+    "status": "pending",
+    "reason": "Two additional cancellation/overflow guards require fresh exact-head CI; macOS/Windows are not declared accepted."
+  },
+  "local": {
+    "strict_ui_types": "passed",
+    "reproducible_ui_build": "passed",
+    "chromium_native_boundary_and_pane": "passed",
+    "webkit_native_boundary_and_pane": "passed",
+    "component_picker_real_dom_cases": 20,
+    "python_checker_tests": 25,
+    "architecture_freeze": "passed"
+  },
+  "limitations": [
+    "Not an overnight soak or whole-application memory benchmark.",
+    "Native default viewport accepted on Linux; no blanket acceptance of every preset/display/OS.",
+    "Image pixel dimensions remain separate from CSS viewport dimensions; no upscaled image is represented as original detail."
+  ]
+}

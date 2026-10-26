@@ -19,8 +19,13 @@ def verify(log: str, images: Path) -> dict:
     if not isinstance(cases, list) or len(cases) != 3 or result.get('responsive_restored') is not True:
         raise ValueError('incomplete fit matrix')
     for index, case in enumerate(cases):
-        if case.get('index') != index or not case.get('trusted_corners') or not case.get('modal_checkbox') or case.get('stale_frame') != 'denied':
+        if case.get('index') != index or case.get('trusted_corners') is not True or case.get('modal_checkbox') is not True or case.get('stale_frame') != 'denied':
             raise ValueError('missing native input/epoch acceptance')
+        if case.get('pane') != [[426,500], [640,400], [360,500]][index]:
+            raise ValueError('missing required narrow-pane cases')
+        preview = case['preview']
+        if not (0 < preview['width'] <= case['pane'][0] + 2 and 0 < preview['height'] <= case['pane'][1] + 2):
+            raise ValueError('native preview overflows the pane')
         viewport = case['viewport']
         w, h = viewport['width'], viewport['height']
         if abs(w - 1280) >= 8 or abs(h - 720) >= 8:

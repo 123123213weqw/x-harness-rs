@@ -46,20 +46,30 @@ Playwright UI mocks are explicitly not native acceptance.
 - Chromium/WebKit component picker: 10 cases each passed.
 - Python native acceptance/checker regressions: 25 tests passed.
 - Architecture freeze and formatting: passed at the recorded working-tree base.
-- Initial remote Linux desktop unit tests: 92 passed; all-target Clippy passed.
+- V100 Linux desktop unit tests: 92 passed; all-target Clippy passed.
 - Initial genuine native fit test FAILED: GtkBox allocation stayed 800 x 300,
-  yielding a 2403 x 901 CSS viewport after zoom. This was not accepted as a pass.
-- A follow-up GTK overlay build also passed 92 unit tests and all-target Clippy,
-  but its native contract still failed. It is not accepted as a pass.
-- The latest source adds explicit GTK overlay slot allocation and bounded
-  post-position AppKit inset calibration. Native revalidation of this latest
-  source is pending because V100 SSH connections repeatedly time out/reset.
-  Temporary network failure is not evidence of a code pass or a permanent block.
-- macOS/Windows native validation: not yet run for this change. No three-platform
-  parity or installed-client acceptance claim is made.
+  yielding a 2403 x 901 CSS viewport after zoom. It was not accepted as a pass.
+- Corrected native allocation uses explicit GTK overlay slot placement. Native
+  tests measure the content allocation, not Wry's pre-margin allocated_size.
+- A subsequent first-click failure was traced to the preceding picker's deliberate
+  400 ms release-click suppression. The independent viewport probe now runs
+  before the picker; picker assertions and suppression behavior are unchanged.
+  Initial macOS CI independently exhibited that same fixture interference.
+- V7 final functional Linux contract PASSED on three consecutive isolated runs:
+  16.569 s / 16.647 s / 16.599 s; same compiled binary. All three narrow panes
+  retained width 1280 and height 720/721 CSS pixels, all native corner/modal input
+  checks passed, and the independent PNG checker verified all four corners.
+  Original PNGs were downloaded and independently rechecked locally as well.
+- V8 adds a cancelled-callback guard and checked margin arithmetic; its exact-source
+  native rerun is pending. No new UI behavior is introduced by these guards.
+- macOS/Windows exact-head native CI remains pending. The native matrix currently
+  certifies the default 1280 x 720 viewport, not a blanket claim for every preset,
+  OS, high-DPI display or installed package. No software was installed/restarted.
 
 Rust compilation/testing is remote-only on WZU_Server. Intermittent SSH failures
 were handled through its existing alternate SSH port; TLS/host-key checks and
 installed software were not changed. Build resources include a cached genuine
 Host sidecar solely to satisfy Tauri packaging prerequisites; the native probe
 starts no Host or model. Interrupted/failed source transfers are not validation.
+
+Implementation references: [pinned Wry GTK backend](https://github.com/tauri-apps/wry/blob/wry-v0.55.1/src/webkitgtk/mod.rs), [GTK overlay placement](https://docs.gtk.org/gtk3/signal.Overlay.get-child-position.html). No vendored dependency source was modified.
