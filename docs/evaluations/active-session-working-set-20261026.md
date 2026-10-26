@@ -113,4 +113,11 @@ history and lifecycle/reconnect tests, strict source compilation/type policy,
 CI-plan coverage/calibration, architecture checks and formatting. No Rust
 source changed and no Rust compilation was performed locally.
 
+The first PR CI run caught the unchanged conversation source-parity gate's
+missing enrollment of the new busy labels and append-only spinner CSS. The
+gate now checks their exact reviewed values, keeps the previous stylesheet
+hash and frozen dictionary intact, and rejects missing/modified labels,
+changed reduced-motion rules, or unrelated style/copy changes. All 24
+conversation source tests pass; no production code changed for this correction.
+
 Final paced totals: Chromium 22707 steps; WebKit 20657 steps. Both engines additionally pass the existing history-cache, ChatView scroll-intent and composer-layout browser scripts. The delayed-ACK/single-flight/rejected-draft DOM checks pass on both engines.
