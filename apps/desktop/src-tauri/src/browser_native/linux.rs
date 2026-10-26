@@ -6,6 +6,7 @@ use webkit2gtk::WebViewExt;
 pub fn input(
     handle: PlatformWebview,
     request: super::InputRequest,
+    viewport: (f64, f64),
     reply: Sender<Result<(), String>>,
 ) {
     use super::InputRequest;
@@ -22,6 +23,15 @@ pub fn input(
         view.grab_focus();
         match request {
             InputRequest::Click { x, y, .. } | InputRequest::Move { x, y, .. } => {
+                let (x, y) = crate::browser::viewport::content_point(
+                    x,
+                    y,
+                    viewport,
+                    (
+                        f64::from(view.allocated_width()),
+                        f64::from(view.allocated_height()),
+                    ),
+                )?;
                 if x >= f64::from(view.allocated_width()) || y >= f64::from(view.allocated_height())
                 {
                     return Err("point outside browser viewport".into());
@@ -120,4 +130,87 @@ pub fn snapshot(handle: PlatformWebview, reply: Sender<Result<Vec<u8>, String>>)
             let _ = reply.send(result);
         },
     );
+}
+
+/// Wry's GtkBox child path packs expanding siblings and set_bounds is a no-op
+/// there. Preserve the main renderer's box and place each guest in its own
+/// precisely-sized overlay slot; no full-window transparent input shield.
+pub fn layout(
+    handle: PlatformWebview,
+    rect: (f64, f64, f64, f64),
+    reply: Sender<Result<(), String>>,
+) {
+    let result = (|| {
+        let view = handle.inner();
+        let parent = view.parent().ok_or("native browser has no GTK parent")?;
+        let overlay = if let Ok(overlay) = parent.clone().downcast::<gtk::Overlay>() {
+            if overlay.widget_name() != "xharness-browser-overlay" {
+                return Err("unowned GTK browser overlay".into());
+            }
+            overlay
+        } else {
+            let container = parent
+                .downcast::<gtk::Box>()
+                .map_err(|_| "unsupported GTK browser parent")?;
+            let outer = container.parent().ok_or("GTK browser parent is detached")?;
+            let overlay = if let Ok(overlay) = outer.clone().downcast::<gtk::Overlay>() {
+                if overlay.widget_name() != "xharness-browser-overlay" {
+                    return Err("unowned GTK browser overlay".into());
+                }
+                overlay
+            } else {
+                let outer = outer
+                    .downcast::<gtk::Container>()
+                    .map_err(|_| "GTK browser root is not a container")?;
+                // Do not guess packing order in a third-party compound layout.
+                if outer.children().len() != 1 {
+                    return Err("unsupported GTK browser root layout".into());
+                }
+                let overlay = gtk::Overlay::new();
+                overlay.set_widget_name("xharness-browser-overlay");
+                overlay.set_hexpand(true);
+                overlay.set_vexpand(true);
+                // GTK's default overlay allocation uses a child's natural size,
+                // not a maximum size. Supply an exact slot for each owned guest.
+                // Margins locate that slot; they are included in the allocation
+                // and GTK subtracts them before allocating the WebView content.
+                overlay.connect_get_child_position(|_, child| {
+                    if !child.is::<webkit2gtk::WebView>() {
+                        return None;
+                    }
+                    let (width, height) = child.size_request();
+                    if width < 1 || height < 1 {
+                        return None;
+                    }
+                    Some(gtk::Allocation::new(
+                        0,
+                        0,
+                        width + child.margin_start(),
+                        height + child.margin_top(),
+                    ))
+                });
+                outer.remove(&container);
+                overlay.add(&container);
+                outer.add(&overlay);
+                // Never show_all: that would expose other hidden browser tabs.
+                overlay.show();
+                overlay
+            };
+            container.remove(&view);
+            overlay.add_overlay(&view);
+            overlay
+        };
+        let (x, y, width, height) = rect;
+        view.set_hexpand(false);
+        view.set_vexpand(false);
+        view.set_direction(gtk::TextDirection::Ltr);
+        view.set_halign(gtk::Align::Start);
+        view.set_valign(gtk::Align::Start);
+        view.set_margin_start(x.round() as i32);
+        view.set_margin_top(y.round() as i32);
+        view.set_size_request(width.round() as i32, height.round() as i32);
+        overlay.queue_resize();
+        Ok(())
+    })();
+    let _ = reply.send(result);
 }

@@ -28,6 +28,8 @@ mod native_api;
 mod native_startup;
 #[path = "probe_support/readiness.rs"]
 mod readiness;
+#[path = "probe_support/viewport.rs"]
+mod viewport_probe;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -223,6 +225,7 @@ async fn lifecycle_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String
                 caller.clone(),
                 app.state(),
                 serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+                None,
             )
             .await
             .unwrap();
@@ -836,6 +839,7 @@ async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
     )
     .await?;
     component_picker_probe(app, &main, &guest).await?;
+    viewport_probe::run(app, &guest).await?;
     println!(
         "PRODUCTION_NATIVE_EVIDENCE {}",
         json!({"passed":true,"screenshot":"native_png","viewport":captured_viewport,"input":"actual_field_zZ","hover":"trusted_mousemove","cross_origin_pointer":"trusted_child_click","duplicate_frame":"denied","stale_epoch":"denied","hidden":"denied","wrong_owner":"denied"})
@@ -1207,6 +1211,7 @@ async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
                 json!({"x":rect[0],"y":rect[1],"width":rect[2],"height":rect[3]}),
             )
             .unwrap(),
+            None,
         )
         .await?;
         browser::desktop_browser_activate(main.clone(), app.state(), Some(tab.into())).await?;
@@ -1301,6 +1306,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
         main.clone(),
         app.state(),
         serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+        None,
     )
     .await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("probe".into())).await?;

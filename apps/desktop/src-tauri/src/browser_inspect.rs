@@ -108,6 +108,23 @@ impl Inspector {
         Ok(())
     }
 
+    pub(super) fn frame_viewport(&self, id: &str) -> Result<(f64, f64), String> {
+        let latest = self
+            .latest
+            .lock()
+            .map_err(|_| "browser frame unavailable")?;
+        let frame = latest
+            .as_ref()
+            .filter(|frame| {
+                frame.id == id && frame.epoch == self.navigation_epoch.load(Ordering::SeqCst)
+            })
+            .ok_or("stale_frame: observe again")?;
+        frame
+            .viewport
+            .filter(|(w, h)| w.is_finite() && h.is_finite() && *w > 0.0 && *h > 0.0)
+            .ok_or("frame has no viewport geometry; observe again".into())
+    }
+
     pub(super) fn check_point(&self, id: &str, x: f64, y: f64) -> Result<(), String> {
         let latest = self
             .latest
@@ -257,6 +274,7 @@ pub(super) async fn inspect(
     }
     authorize(&target, &inspector, owner, false)?;
     let mut snapshot = decode(&raw, &frame)?;
+    state.verify_viewport(tab_id, &snapshot["viewport"])?;
     snapshot["source"] = json!({
         "engine": "tauri-webview", "untrusted": true,
         "tab_id": tab_id,
