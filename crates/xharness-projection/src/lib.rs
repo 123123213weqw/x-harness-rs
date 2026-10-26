@@ -10,6 +10,7 @@ use xharness_session::{
     MessageRole, RequestHeader, Session, SessionHistoryWindow, ToolOutcome, TurnEndReason,
 };
 
+mod file_view;
 pub mod metrics;
 pub mod performance;
 mod tail_update;
@@ -202,7 +203,7 @@ fn event_view_from_sources(
         return Some(view);
     }
     match event.data() {
-        EventData::ToolCall { call, .. } => terminal_call_view(&call.name, &call.arguments_json),
+        EventData::ToolCall { call, .. } => tool_call_view(&call.name, &call.arguments_json),
         EventData::ToolResult { result, .. } => {
             let is_shell = events.iter().chain(context).any(|candidate| {
                 candidate.seq < event.seq
@@ -420,7 +421,7 @@ pub fn project_web_event_view(event: &Value, history: &[Value]) -> Option<Value>
     match event.get("type").and_then(Value::as_str)? {
         "tool/call" => {
             let data = event.get("data")?;
-            terminal_call_view(
+            tool_call_view(
                 data.get("name")?.as_str()?,
                 data.get("arguments")?.as_str()?,
             )
@@ -582,6 +583,10 @@ fn compaction_web_view(event: &Value, history: &[Value]) -> Option<Value> {
         }}),
         outcome,
     ))
+}
+
+fn tool_call_view(name: &str, arguments_json: &str) -> Option<Value> {
+    terminal_call_view(name, arguments_json).or_else(|| file_view::call(name, arguments_json))
 }
 
 fn terminal_call_view(name: &str, arguments_json: &str) -> Option<Value> {

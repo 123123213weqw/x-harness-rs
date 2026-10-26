@@ -4193,6 +4193,17 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 15
+    },
+    {
+      "id": "contract-173",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-produced-file-native-wire.mjs"
+      ],
+      "env": {},
+      "weight": 20
     }
   ]
 }
