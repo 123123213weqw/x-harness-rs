@@ -18,7 +18,7 @@
     "@shikijs/primitive": "4.5.0",
     "@shikijs/themes": "4.5.0",
     "@shikijs/types": "4.5.0",
-    "@shikijs/vscode-textmate": "10.0.2",
+    "@shikijs/vscode-textmate": "10.1.0",
     "@types/debug": "4.1.13",
     "@types/hast": "3.0.5",
     "@types/katex": "0.16.8",
@@ -47,7 +47,7 @@
     "hast-util-whitespace": "3.0.0",
     "html-void-elements": "3.0.0",
     "js-tokens": "4.0.0",
-    "katex": "0.16.47",
+    "katex": "0.19.0",
     "longest-streak": "3.1.0",
     "loose-envify": "1.4.0",
     "markdown-table": "3.0.4",
@@ -102,7 +102,7 @@
     "regex": "6.1.0",
     "regex-recursion": "6.0.2",
     "regex-utilities": "2.3.0",
-    "scheduler": "0.23.2",
+    "scheduler": "0.28.0",
     "shiki": "4.5.0",
     "space-separated-tokens": "2.0.2",
     "stringify-entities": "4.0.4",
@@ -116,7 +116,7 @@
     "unist-util-visit-parents": "6.0.2",
     "vfile": "6.0.3",
     "vfile-message": "4.0.3",
-    "zod": "4.6.5",
+    "zod": "4.6.7",
     "zwitch": "2.0.4"
   }
 }
