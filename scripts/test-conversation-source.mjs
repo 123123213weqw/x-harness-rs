@@ -131,6 +131,10 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   // Replace only the turn activity presentation; the new spinner sheet is additive.
   'chat/ChatView': 'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647',
   'chat/LoadingIndicator': 'a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e',
+  // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
+  // and a 44px row on coarse pointers. Every byte above that append is
+  // unchanged; the desktop declarations (gap 36, 27px row) are untouched.
+  'skeleton/ConversationRoot': 'ba9b67ea1576903f4d2727faf002d3fdaa15bc2f3576aadc5dcb19de64a4d3e0',
  };
  assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
  for(const [name,sha] of Object.entries(reviewedStyles)) {
