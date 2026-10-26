@@ -1,0 +1,41 @@
+{
+  "feature": "User-selected frontend component context",
+  "base_commit": "0b118093100c63b837032da4ab6032920a1faada",
+  "interaction": [
+    "Desktop browser toolbar: select component; hover highlights, click selects, drag selects a region, Escape cancels",
+    "Add a cropped PNG and bounded DOM/CSS/selector/viewport context to the owning visible chat draft; never auto-send",
+    "Reject stale results after session/tab/navigation/geometry changes and explicit cancellation"
+  ],
+  "bounds": {
+    "region_elements": 8,
+    "region_nodes_examined": 5000,
+    "text_nodes_examined_per_element": 500,
+    "text_characters_per_element": 600,
+    "picker_lifetime_seconds": 90,
+    "outer_native_callback_bytes": 32768,
+    "selection_json_bytes": 28672,
+    "screenshot": "Existing native PNG budget and viewport/owner/navigation guards"
+  },
+  "boundaries": [
+    "Main-only closed native command; fixed injected script, no guest IPC/network callback or caller-script evaluation",
+    "Selection pointer/click events are suppressed, not replayed into webpage actions",
+    "Form values, full outerHTML, scripts, event handlers, query strings and fragments are not exported as DOM context",
+    "Runtime selectors are not asserted to be source-code file locations",
+    "Open shadow roots can be hit-tested; cross-origin iframe DOM and closed shadow roots remain opaque",
+    "Native screenshot is immediately after selection, not an atomic freeze of dynamic page content",
+    "Region evidence is bounded and declares truncation; no fully-contained component falls back to center hit-test",
+    "No production app installation, restart, Host shutdown, release or deployment"
+  ],
+  "validation": {
+    "strict_production_ui_build": "passed",
+    "real_dom": "Chromium and WebKit, 10 cases each",
+    "react_picker_pipeline": "Chromium and WebKit: crop/DPR, draft-only, start/poll cancellation, session ownership and missing receiver; native IPC mocked",
+    "existing_browser_regressions": "pane/native bridge Chromium+WebKit; automatic binding Chromium",
+    "rust": "WZU_Server only: desktop library 88 tests; all-target Clippy with warnings denied",
+    "linux_native": "Disposable Tauri/WebKitGTK with Xvfb/DBus: actual view-local click selection, native PNG, page action suppression, guest command denial, single-use lease and existing native contract",
+    "native_probe_python_contract": "19 tests passed",
+    "architecture_and_format": "passed",
+    "macos_windows_native": "Not executed locally; existing hosted native probe now contains the picker case",
+    "actual_composer_intake": "Chromium+WebKit resident conversation: actual InputBar draft intake, wrong-session and hidden-composer refusal; existing send pipeline remains user-triggered"
+  }
+}

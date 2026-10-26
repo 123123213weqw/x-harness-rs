@@ -62,3 +62,5 @@
 .xhbrowser-model-activity[data-active=false]{visibility:hidden}
 .xhbrowser-activity-label{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
 @media(prefers-reduced-motion:reduce){.xhbrowser-pane[data-model-observer=true]{transition:none}}
+.xhbrowser-annotate[aria-pressed=true]{color:var(--dsw-alias-label-primary,#fff);border-color:#5689ff;background:#5689ff22}
+.xhbrowser-pick-notice{flex:none;padding:7px 12px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary,#bbb);border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}

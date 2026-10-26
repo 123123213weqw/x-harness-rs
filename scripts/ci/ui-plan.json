@@ -4204,6 +4204,54 @@
       ],
       "env": {},
       "weight": 20
+    },
+    {
+      "id": "browser-242",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-component-picker.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-243",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-component-picker.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-244",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-picker-ui.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 15
+    },
+    {
+      "id": "browser-245",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-browser-picker-ui.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 15
     }
   ]
 }

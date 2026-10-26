@@ -18,6 +18,8 @@ mod browser_lifecycle;
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
+#[path = "../src/browser_picker.rs"]
+mod browser_picker;
 
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
@@ -594,6 +596,88 @@ async fn native_api_probe(app: &tauri::AppHandle) -> Result<(), String> {
 }
 
 // Exercise the production private bridge, not just the feasibility adapters.
+async fn component_picker_probe(
+    app: &tauri::AppHandle,
+    main: &tauri::Webview,
+    guest: &tauri::Webview,
+) -> Result<(), String> {
+    use base64::Engine;
+    let request = || browser_picker::PickRequest::Start {
+        owner: "production-probe".into(),
+    };
+    if browser_picker::desktop_browser_pick(guest.clone(), app.state(), "probe".into(), request())
+        .await
+        .is_ok()
+    {
+        return Err("guest armed a privileged component picker".into());
+    }
+    evidence(guest, "(() => {nativeClicked=false;return true})()").await?;
+    let armed =
+        browser_picker::desktop_browser_pick(main.clone(), app.state(), "probe".into(), request())
+            .await?;
+    let token = armed["token"]
+        .as_str()
+        .ok_or("missing picker lease")?
+        .to_owned();
+    // Test-owned, view-local native event injection, never global OS input.
+    native_api::click(guest, 450.0, 120.0).await?;
+    let mut selected = Value::Null;
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        selected = browser_picker::desktop_browser_pick(
+            main.clone(),
+            app.state(),
+            "probe".into(),
+            browser_picker::PickRequest::Poll {
+                token: token.clone(),
+            },
+        )
+        .await?;
+        if selected["status"] != "pending" {
+            break;
+        }
+    }
+    if selected["status"] != "selected"
+        || selected["selection"]["elements"][0]["id"] != "native-probe"
+        || evidence(guest, "nativeClicked").await? != false
+    {
+        return Err("native component selection failed or triggered a page action".into());
+    }
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(
+            selected["image"]["png_base64"]
+                .as_str()
+                .ok_or("missing picker PNG")?,
+        )
+        .map_err(|_| "invalid picker PNG")?;
+    if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("picker screenshot is not native PNG".into());
+    }
+    if let Some(root) = std::env::var_os("XHARNESS_NATIVE_API_EVIDENCE") {
+        std::fs::write(
+            std::path::PathBuf::from(root).join("component-selection.png"),
+            &png,
+        )
+        .map_err(|_| "picker evidence write failed")?;
+    }
+    if browser_picker::desktop_browser_pick(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        browser_picker::PickRequest::Poll { token },
+    )
+    .await
+    .is_ok()
+    {
+        return Err("component selection was consumable twice".into());
+    }
+    println!(
+        "COMPONENT_PICKER_EVIDENCE {}",
+        json!({"passed":true,"selector":selected["selection"]["elements"][0]["selector"],"bounds":selected["selection"]["bounds"],"viewport":selected["selection"]["viewport"],"screenshot":"native_png","page_action_suppressed":true,"guest_ipc":"denied","duplicate_lease":"denied"})
+    );
+    Ok(())
+}
+
 async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
     use base64::Engine;
     let main = app.get_webview("main").ok_or("main unavailable")?;
@@ -735,6 +819,23 @@ async fn production_native_probe(app: &tauri::AppHandle) -> Result<(), String> {
         return Err("hidden native snapshot accepted".into());
     }
     browser::desktop_browser_activate(main, app.state(), Some("probe".into())).await?;
+    let main = app.get_webview("main").ok_or("main unavailable")?;
+    browser_delegation::desktop_browser_delegate(
+        main.clone(),
+        app.state(),
+        "probe".into(),
+        Some("production-probe".into()),
+        true,
+        Some(
+            guest
+                .url()
+                .map_err(|_| "guest URL unavailable")?
+                .origin()
+                .ascii_serialization(),
+        ),
+    )
+    .await?;
+    component_picker_probe(app, &main, &guest).await?;
     println!(
         "PRODUCTION_NATIVE_EVIDENCE {}",
         json!({"passed":true,"screenshot":"native_png","viewport":captured_viewport,"input":"actual_field_zZ","hover":"trusted_mousemove","cross_origin_pointer":"trusted_child_click","duplicate_frame":"denied","stale_epoch":"denied","hidden":"denied","wrong_owner":"denied"})
@@ -1809,6 +1910,7 @@ fn main() {
             browser_delegation::desktop_browser_delegate,
             browser_delegation::desktop_browser_access,
             browser_inspect::desktop_browser_inspect,
+            browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform
         ])
         .setup(move |app| {

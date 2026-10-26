@@ -58,7 +58,7 @@ try {
   assert.deepEqual(await toolbar.locator(':scope > *').evaluateAll(nodes => nodes.map(node => node.className)),
     ['xhbrowser-nav', 'xhbrowser-annotate', 'xhbrowser-address-form', 'xhbrowser-actions', 'xhbrowser-more',
       ...(process.env.UI_TEST_IMPL==='legacy'?[]:['xhbrowser-icon'])])
-  assert.equal(await page.getByRole('button', { name: '标注（尚未接入）' }).isDisabled(), true, 'preview must not imply annotation is implemented')
+  assert.equal(await page.getByRole('button', { name: process.env.UI_TEST_IMPL==='legacy'?'标注（尚未接入）':'选取组件' }).isDisabled(), true, 'ordinary Web must not imply native picking is available')
   await page.getByRole('button', { name: '下载记录' }).click()
   await page.getByRole('region', { name: '下载记录' }).getByText('网页版没有内置下载记录。').waitFor()
   await page.getByRole('button', { name: '下载记录' }).click()
