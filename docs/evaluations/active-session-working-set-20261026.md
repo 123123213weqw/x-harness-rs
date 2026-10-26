@@ -120,4 +120,11 @@ hash and frozen dictionary intact, and rejects missing/modified labels,
 changed reduced-motion rules, or unrelated style/copy changes. All 24
 conversation source tests pass; no production code changed for this correction.
 
+The next run passed all Rust platforms and the new working-set browser gates,
+but exposed an immediate DOM-count race in the existing WebKit Goal Escape
+fixture. It now waits at most two seconds for the required editor detachment
+after the same single keypress, then keeps the zero-count assertion. No retry
+or production change was added. The full composer fixture passes three
+consecutive WebKit runs and one Chromium run on V100 after this correction.
+
 Final paced totals: Chromium 22707 steps; WebKit 20657 steps. Both engines additionally pass the existing history-cache, ChatView scroll-intent and composer-layout browser scripts. The delayed-ACK/single-flight/rejected-draft DOM checks pass on both engines.
