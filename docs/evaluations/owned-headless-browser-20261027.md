@@ -307,3 +307,31 @@ Logs: `404-ci-original-release-stress.log`, `404-ci-policy-tests.log`,
 Fresh full exact-head CI, including both native Windows jobs and the browser
 Mac/Windows gates, remains mandatory. No unchanged-head rerun or deadline
 extension is used to turn the cancelled attempt green.
+
+## Shared Linux cancellation-observer regression
+
+The exact-head #401 Linux log exposed a shared test-helper bug: after a managed
+process disappeared, `/proc/<pid>/stat` could report ESRCH rather than ENOENT,
+causing the observer itself to panic. The original `bundle.rs` blob was identical
+on #401 `55e9af41` and this branch's `b3b80fd2`
+(`5ce2cd28d3010ea4e4762035878a253c68bd081d`). The same narrow test-only correction
+is applied here; this is not a claim that #404's pending CI had failed.
+
+Only Linux ESRCH and the existing NotFound case mean disappearance. Permissions,
+I/O failure and malformed procfs data still fail the test; live and zombie states
+remain distinct. Three deterministic helper regressions cover these cases. The
+original cancellation test body is byte-identical, preserving its immediate
+root-reap/no-live-descendant assertions and both three-second bounds. A before-
+fix regression reproduced the original ESRCH panic on WZU_Server, followed by
+30 predeclared consecutive successful runs of the original cancellation test.
+No production executor, process cleanup, browser routing or runtime code changed.
+
+After synchronizing **this** candidate, WZU_Server coding-tools all-target tests
+passed **41** cases with seven pre-existing explicit opt-ins ignored; all-target
+Clippy with warnings denied and Node workflow-policy/mutation tests passed.
+The common helper, workflow and policy files now match the reconciled #401
+candidate to avoid resolving the same issue differently on two branches.
+Provenance, unchanged-assertion receipt and full separate branch validation logs
+are in `dist/merge-reviewed-20261027/heartbeat-20261027-1218/`.
+This branch still requires fresh full exact-head CI, including the independent
+Windows Host/PDB job and the actual Mac/Windows browser acceptance gates.
