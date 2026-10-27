@@ -21,6 +21,7 @@ mod recovery;
 pub use reception::*;
 mod session;
 mod store;
+mod stream_append;
 mod tool_archive;
 pub use tool_archive::*;
 
@@ -29,3 +30,4 @@ pub use message::*;
 pub use recovery::*;
 pub use session::*;
 pub use store::*;
+pub use stream_append::StreamAppendCursor;

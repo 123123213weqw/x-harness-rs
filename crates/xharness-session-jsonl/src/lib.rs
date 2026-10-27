@@ -41,6 +41,7 @@ mod recovery_checkpoint;
 mod replay_scope;
 mod results;
 mod seeded;
+mod stream_append;
 
 const FILE_FORMAT: &str = "xharness.session.jsonl";
 const FILE_FORMAT_VERSION: u32 = 1;
@@ -198,6 +199,8 @@ struct ValidatedStamp {
     valid_len: u64,
     needs_separator: bool,
     sha256: String,
+    journal_hash: Sha256,
+    stream: xharness_session::StreamAppendCursor,
 }
 impl ValidatedStamp {
     fn new(fingerprint: FileFingerprint, loaded: &LoadedFile) -> Self {
@@ -208,6 +211,8 @@ impl ValidatedStamp {
             valid_len: loaded.valid_len,
             needs_separator: loaded.needs_separator,
             sha256: format!("{:x}", loaded.journal_hash.clone().finalize()),
+            journal_hash: loaded.journal_hash.clone(),
+            stream: loaded.session.stream_append_cursor(),
         }
     }
 }
@@ -650,7 +655,7 @@ impl JsonlSessionStore {
         self.cache.lock().unwrap().authoritative_replays
     }
 
-    /// Bound temporary admission reuse independently of the resident LRU. Zero
+    /// Bound temporary operation reuse independently of the resident LRU. Zero
     /// disables this optional acceleration; authoritative behavior is unchanged.
     pub fn with_replay_scope_cache_limit(self, max_bytes: usize) -> Self {
         {
@@ -661,7 +666,7 @@ impl JsonlSessionStore {
         self
     }
 
-    /// Temporary admission snapshots are separately bounded and released with
+    /// Temporary operation snapshots are separately bounded and released with
     /// their guards, never promoted into the resident LRU on scope completion.
     pub fn replay_scope_cache_stats(&self) -> CacheStats {
         self.cache.lock().unwrap().scopes.stats()
@@ -1227,6 +1232,11 @@ impl Store for JsonlSessionStore {
             // Session before every stream checkpoint. A failed append may
             // simply leave the cache cold; the next operation reparses the
             // authoritative file under the same advisory lock.
+            if let Some(receipt) =
+                stream_append::try_append(&path, &owned_id, &cache, expected_revision, &events)?
+            {
+                return Ok(receipt);
+            }
             let Some(mut loaded) = take_file_cached(&path, &owned_id, &cache)? else {
                 return Err(StoreError::NotFound {
                     session_id: owned_id,
@@ -1712,8 +1722,12 @@ fn cache_store(
     }
     c.catalog_stamps
         .insert(path.to_owned(), ValidatedStamp::new(fingerprint, &loaded));
+    // An active bounded scope must not thrash the ordinary LRU even when
+    // each individual snapshot fits but their concurrent sum does not.
+    if c.scopes.store(path, fingerprint, &loaded) {
+        return Ok(());
+    }
     if loaded.estimated_bytes > c.max_bytes || c.max_entries == 0 {
-        c.scopes.store(path, fingerprint, loaded);
         return Ok(());
     }
     while c.entries.len() >= c.max_entries

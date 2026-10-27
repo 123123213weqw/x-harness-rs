@@ -3596,6 +3596,7 @@ class SessionManager {
     createSession(sessionId) {
         const address = this.addresses.get(sessionId);
         return new session_1.Session(sessionId, this.api, this.remote, {
+            cooperativeEvents: true,
             ...(address === undefined ? {} : {
                 address,
                 parentAvailable: this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
@@ -4901,6 +4902,8 @@ const notifier_1 = require("./notifier");
 const projection_store_1 = require("./projection-store");
 const time_zone_1 = require("../time-zone");
 const queue_mirror_1 = require("./queue-mirror");
+const active_working_set_1 = require("./active-working-set");
+const cooperative_delivery_1 = require("./cooperative-delivery");
 /** Messages requested per history page. */
 exports.PAGE_MESSAGES = 50;
 /**
@@ -4927,6 +4930,14 @@ class Session {
         /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
          *  Kept parallel rather than merged so `events` stays the raw log slice (model-visible ⟺ logged). */
         this.views = [];
+        this.eventWeights = [];
+        this.eventBytes = 0;
+        this.trimAfterEvents = active_working_set_1.ACTIVE_WINDOW.highEvents;
+        this.trimAfterBytes = active_working_set_1.ACTIVE_WINDOW.highBytes;
+        this.olderPagePinned = false;
+        this.stopRequested = false;
+        this.cancelEpoch = 0;
+        this.liveBufferBytes = 0;
         this.baseSeq = 0;
         this.hasMore = false;
         this.openState = 'cold';
@@ -4969,7 +4980,9 @@ class Session {
         this.conversation = options.conversation === undefined
             ? new conversation_assembler_1.ConversationNodeAssembler({ entries: () => [], fallbackEntry: () => undefined }, { entries: () => [] })
             : new conversation_assembler_1.ConversationNodeAssembler(options.conversation.events, options.conversation.views);
+        this.delivery = options.cooperativeEvents ? new cooperative_delivery_1.CooperativeDelivery(({ event, view }) => this.acceptLiveEvent(event, view), error => this.failLiveBacklog(error)) : undefined;
         this.notifier = new notifier_1.Notifier(() => {
+            this.trimActiveWindow();
             this.conversation.flush();
             this.snapshotCache = this.buildSnapshot();
         });
@@ -5116,7 +5129,22 @@ class Session {
      * defensive).
      * @returns the cancel result.
      */
-    async cancel() {
+    cancel() {
+        if (this.cancelPromise !== undefined)
+            return this.cancelPromise;
+        if (this.stopRequested)
+            return Promise.resolve({ ok: true, value: { accepted: true } });
+        this.stopRequested = this.running;
+        const epoch = this.cancelEpoch;
+        this.notifier.markDirty();
+        const pending = this.doCancel(epoch).finally(() => {
+            if (this.cancelPromise === pending)
+                this.cancelPromise = undefined;
+        });
+        this.cancelPromise = pending;
+        return pending;
+    }
+    async doCancel(epoch) {
         const address = this.address;
         if (address !== undefined && address.mode === 'one-shot') {
             const result = {
@@ -5127,6 +5155,7 @@ class Session {
                     details: { childSessionId: address.childSessionId },
                 },
             };
+            this.stopRequested = false;
             this.promptError = { op: 'stop', error: result.error };
             this.notifier.markDirty();
             return result;
@@ -5140,7 +5169,8 @@ class Session {
         catch (error) {
             result = (0, index_1.transportError)(error);
         }
-        if (!result.ok) {
+        if (!result.ok && epoch === this.cancelEpoch) {
+            this.stopRequested = false;
             this.promptError = { op: 'stop', error: result.error };
             this.notifier.markDirty();
         }
@@ -5200,6 +5230,7 @@ class Session {
             return this.retryHistory();
         if (this.openState !== 'open' || !this.hasMore || this.loadingOlder || this.stitching)
             return;
+        this.olderPagePinned = true;
         this.loadingOlder = true;
         const generation = this.openGeneration, beforeSeq = this.baseSeq;
         this.notifier.markDirty();
@@ -5236,6 +5267,12 @@ class Session {
     }
     /** Invalidate dead-transport work before any new-generation frame arrives. */
     invalidateConnectionGeneration() {
+        this.delivery?.clear();
+        this.liveBuffer = [];
+        this.liveBufferBytes = 0;
+        this.stopRequested = false;
+        this.cancelEpoch++;
+        this.cancelPromise = undefined;
         this.advanceHistoryGeneration();
         this.openPromise = null;
         this.loadingOlder = false;
@@ -5288,7 +5325,11 @@ class Session {
      * @param frame - the routed frame.
      */
     handleMuxEnvelope(rpcId, frame) {
-        this.dispatchMuxEnvelope(rpcId, frame);
+        if (frame.type === 'session/event' && this.delivery !== undefined) {
+            this.delivery.push({ event: frame.event, view: frame.view }, (0, active_working_set_1.payloadWeight)([frame.event, frame.view]));
+        }
+        else
+            this.dispatchMuxEnvelope(rpcId, frame);
         if (frame.type === 'session/event')
             void this.xhRecoverLiveAnswer();
         this.xhHistoryOwner?.schedule();
@@ -5356,6 +5397,12 @@ class Session {
         this.xhHistoryOwner?.schedule();
     }
     applyRunning(running) {
+        if (!running && (this.running || this.stopRequested)) {
+            this.stopRequested = false;
+            this.cancelEpoch++;
+            this.cancelPromise = undefined;
+            this.notifier.markDirty();
+        }
         // Turn-start conversion: a blank session never runs, so the first
         // running:true proves another side's first message landed.
         if (running && this.blankBit) {
@@ -5413,6 +5460,12 @@ class Session {
     }
     /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
     handleRemoved() {
+        this.delivery?.clear();
+        this.liveBuffer = [];
+        this.liveBufferBytes = 0;
+        this.stopRequested = false;
+        this.cancelEpoch++;
+        this.cancelPromise = undefined;
         this.removed = true;
         this.notifier.markDirty();
     }
@@ -5525,6 +5578,10 @@ class Session {
         Object.assign(this.conversation, staged);
         this.events = events;
         this.views = views;
+        this.eventWeights = events.map((event, index) => (0, active_working_set_1.payloadWeight)([event, views[index]]));
+        this.eventBytes = this.eventWeights.reduce((sum, bytes) => sum + bytes, 0);
+        this.trimAfterEvents = active_working_set_1.ACTIVE_WINDOW.highEvents;
+        this.trimAfterBytes = active_working_set_1.ACTIVE_WINDOW.highBytes;
         this.baseSeq = events[0]?.seq ?? 0;
         this.hasMore = hasMore;
         if (events.some(event => event.type === 'turn/start'))
@@ -5536,6 +5593,7 @@ class Session {
         for (const event of events)
             this.queueMirror.acceptDurable(event);
         this.liveBuffer = [];
+        this.liveBufferBytes = 0;
         this.notifier.markDirty();
         this.xhHistoryOwner?.changed(this);
     }
@@ -5547,6 +5605,9 @@ class Session {
         const input = conversationInput({ event, view });
         this.events.push(event);
         this.views.push(view);
+        const bytes = (0, active_working_set_1.payloadWeight)([event, view]);
+        this.eventWeights.push(bytes);
+        this.eventBytes += bytes;
         if (event.type === 'turn/start')
             this.firstPromptPendingTurn = false;
         const queueChanged = this.queueMirror.acceptDurable(event);
@@ -5561,7 +5622,7 @@ class Session {
      *  ends and lets a compaction checkpoint resolve its cited summary event. */
     acceptLiveEvent(event, view) {
         if (this.openState === 'error' || this.openState === 'loading' || this.stitching) {
-            this.liveBuffer.push({ event, view });
+            this.bufferLive(event, view);
             return;
         }
         if (this.openState !== 'open')
@@ -5570,7 +5631,7 @@ class Session {
         if (tailSeq !== null && event.seq <= tailSeq)
             return; // an already committed seq cannot mutate or poison the view
         if (tailSeq !== null && event.seq > tailSeq + 1) {
-            this.liveBuffer.push({ event, view });
+            this.bufferLive(event, view);
             void this.repairGap();
             return;
         }
@@ -5581,11 +5642,61 @@ class Session {
             // A terminal protocol failure cannot close only half of the UI. Preserve
             // the last window, retain the carrier for history reconciliation, and
             // reuse the existing visible/retryable history error path.
-            this.liveBuffer.push({ event, view });
+            this.bufferLive(event, view);
             this.failHistory(error);
             return;
         }
         this.scheduleConversation(this.appendLive(event, view));
+    }
+    bufferLive(event, view) {
+        const bytes = (0, active_working_set_1.payloadWeight)([event, view]);
+        if (this.liveBuffer.length >= active_working_set_1.ACTIVE_WINDOW.highEvents || this.liveBufferBytes + bytes > active_working_set_1.ACTIVE_WINDOW.highBytes) {
+            this.failLiveBacklog();
+            return;
+        }
+        this.liveBuffer.push({ event, view });
+        this.liveBufferBytes += bytes;
+    }
+    failLiveBacklog(error = new Error('Live history backlog exceeded the UI budget; reload history to reconcile')) {
+        // The Host journal remains authoritative. Never replay a mutation to
+        // recover UI evidence, or adopt a partial old-generation history read.
+        this.delivery?.clear();
+        this.liveBuffer = [];
+        this.liveBufferBytes = 0;
+        this.advanceHistoryGeneration();
+        this.openPromise = null;
+        this.stitching = false;
+        this.loadingOlder = false;
+        this.failHistory(error);
+    }
+    trimActiveWindow() {
+        if (this.openState !== 'open' || this.loadingOlder || this.stitching || this.openPromise !== null
+            || this.olderPagePinned || this.historyOpenTarget?.kind === 'anchor')
+            return;
+        if (this.events.length <= this.trimAfterEvents && this.eventBytes <= this.trimAfterBytes)
+            return;
+        // A protected huge turn/dependency chain must not trigger an O(N) policy
+        // scan for every streaming chunk. Retry only after meaningful growth.
+        this.trimAfterEvents = this.events.length + 256;
+        this.trimAfterBytes = this.eventBytes + 512 * 1024;
+        const cut = (0, active_working_set_1.activeWindowCut)(this.events, this.eventWeights, this.eventBytes);
+        const first = this.events[cut];
+        if (cut === 0 || first === undefined || !this.conversation.canTrimBefore(first.seq))
+            return;
+        const events = this.events.slice(cut), views = this.views.slice(cut);
+        // Stage atomically. Current-turn evidence, in-flight tools and turn-end
+        // artifacts remain intact; older complete turns reload through loadOlder.
+        const staged = this.conversation.stageReplacement(events.map((event, index) => ({ event, view: views[index] })), true, true);
+        Object.assign(this.conversation, staged);
+        this.events = events;
+        this.views = views;
+        this.eventWeights = this.eventWeights.slice(cut);
+        this.eventBytes = this.eventWeights.reduce((sum, bytes) => sum + bytes, 0);
+        this.baseSeq = events[0]?.seq ?? 0;
+        this.trimAfterEvents = active_working_set_1.ACTIVE_WINDOW.highEvents;
+        this.trimAfterBytes = active_working_set_1.ACTIVE_WINDOW.highBytes;
+        this.hasMore = true;
+        this.xhHistoryOwner?.changed(this);
     }
     /** Route assembler cadence into the Session's existing microtask/RAF notifier. */
     scheduleConversation(publication) {
@@ -5706,6 +5817,12 @@ class Session {
         if (target?.kind === 'anchor' && (!Number.isSafeInteger(target.seq) || target.seq < 0)) {
             throw new Error('History reading anchor must be a non-negative safe event sequence');
         }
+        if (target?.kind === 'latest' && (this.historyOpenTarget?.kind !== 'latest' || this.olderPagePinned)) {
+            this.olderPagePinned = false;
+            this.trimAfterEvents = active_working_set_1.ACTIVE_WINDOW.highEvents;
+            this.trimAfterBytes = active_working_set_1.ACTIVE_WINDOW.highBytes;
+            this.notifier.markDirty();
+        }
         this.historyOpenTarget = target?.kind === 'anchor' ? { kind: 'anchor', seq: target.seq }
             : target === undefined ? undefined : { kind: 'latest' };
         // A cold reader choosing latest no longer needs the pending older page.
@@ -5786,9 +5903,13 @@ class Session {
         this.openPromise = null;
         this.openState = 'cold';
         this.openError = null;
+        this.delivery?.clear();
         this.events = [];
         this.views = [];
+        this.eventWeights = [];
+        this.eventBytes = 0;
         this.liveBuffer = [];
+        this.liveBufferBytes = 0;
         this.baseSeq = 0;
         this.hasMore = false;
         this.subscribedLastSeq = null;
@@ -5819,6 +5940,7 @@ class Session {
             pending: this.pendingCache.value,
             queue: this.queueMirror.snapshot(),
             running: this.running,
+            stopRequested: this.stopRequested,
             subagent: this.address === undefined
                 ? null
                 : { address: this.address, parentAvailable: this.parentAvailable },
@@ -6232,6 +6354,7 @@ class ConversationNodeAssembler {
         this.locationIndex = new conversation_location_index_1.ConversationLocationIndex();
         this.dirty = new Set();
         this.revised = new Set();
+        this.reusableLocations = new Set();
         this.dependents = new Map();
         this.views = new Map();
         this.hasMore = false;
@@ -6333,7 +6456,8 @@ class ConversationNodeAssembler {
                 this.timelineDirty = true;
                 publication = 'immediate';
             }
-            this.replayContexts(this.refreshMatchLocations(changed));
+            this.replayContexts(this.refreshMatchLocations(changed), true);
+            this.reusableLocations.clear();
             if (changed.size > 0)
                 publication = 'immediate';
         }
@@ -6358,6 +6482,22 @@ class ConversationNodeAssembler {
             return 'none';
         Object.assign(this, this.stageReplacement([...fresh, ...this.sortedInputs()], hasMore, true));
         return 'immediate';
+    }
+    /** A tail window must not silently discard a predecessor's business State.
+     * Unknown/third-party dependency chains remain pinned rather than guessed. */
+    canTrimBefore(seq) {
+        for (const context of this.contexts.values()) {
+            if (!context.matches.some(match => match.event.seq >= seq))
+                continue;
+            if ((context.matches[0]?.event.seq ?? seq) < seq)
+                return false;
+            for (const dependency of context.dependencies.values()) {
+                const predecessor = dependency.key === undefined ? undefined : this.contexts.get(dependency.key);
+                if (predecessor?.startSeq !== undefined && predecessor.startSeq < seq)
+                    return false;
+            }
+        }
+        return true;
     }
     /**
      * Rebuild against the current Registry set after a low-frequency plugin change.
@@ -6597,7 +6737,7 @@ class ConversationNodeAssembler {
         for (const [kind, contexts] of startsByKind)
             this.indexStartedContexts(kind, contexts);
     }
-    replayContexts(contexts) {
+    replayContexts(contexts, relocated = false) {
         const ordered = [...contexts].sort((left, right) => (left.startSeq ?? Number.POSITIVE_INFINITY) - (right.startSeq ?? Number.POSITIVE_INFINITY));
         for (const context of ordered) {
             if (context.start === undefined) {
@@ -6605,7 +6745,16 @@ class ConversationNodeAssembler {
                 this.dirty.add(context);
                 continue;
             }
-            this.replayContext(context);
+            if (relocated && this.reusableLocations.has(context) && context.state !== undefined) {
+                // refreshMatchLocations already rebound the evidence. Boundary-only
+                // changes must not re-run event reducers, but dependent readers and
+                // all materializers still see a new revision and current timeline.
+                context.revision++;
+                this.revised.add(context);
+                this.dirty.add(context);
+            }
+            else
+                this.replayContext(context);
         }
     }
     replayContext(context) {
@@ -6823,6 +6972,7 @@ class ConversationNodeAssembler {
     }
     refreshMatchLocations(changedSeqs) {
         const affected = new Set();
+        this.reusableLocations.clear();
         if (changedSeqs.size === 0)
             return affected;
         for (const seq of changedSeqs) {
@@ -6831,14 +6981,38 @@ class ConversationNodeAssembler {
         }
         for (const context of affected) {
             let start = context.start;
+            let coordinatesUnchanged = true;
             const matches = context.matches.map((match) => {
                 if (!changedSeqs.has(match.event.seq))
                     return match;
                 const refreshed = { ...match, location: this.locationIndex.locationOf(match.event) };
+                const before = match.location, after = refreshed.location;
+                if (before.kind !== after.kind
+                    || ((before.kind === 'turn' || before.kind === 'step') && (after.kind === 'turn' || after.kind === 'step') && before.turn.turn !== after.turn.turn)
+                    || (before.kind === 'step' && after.kind === 'step' && before.step.step !== after.step.step))
+                    coordinatesUnchanged = false;
                 if (match === start)
                     start = refreshed;
                 return refreshed;
             });
+            if (context.definition.locationReuse === 'events' && coordinatesUnchanged)
+                this.reusableLocations.add(context);
+            if (this.reusableLocations.has(context) && (0, value_guards_1.isRecord)(context.state)) {
+                const rebound = new Map();
+                context.matches.forEach((prior, index) => {
+                    const next = matches[index];
+                    if (next !== undefined && next !== prior)
+                        rebound.set(prior, next);
+                });
+                const changes = {};
+                for (const [key, value] of Object.entries(context.state)) {
+                    const next = rebound.get(value);
+                    if (next !== undefined)
+                        changes[key] = next;
+                }
+                if (Object.keys(changes).length > 0)
+                    context.state = { ...context.state, ...changes };
+            }
             context.matches = matches;
             context.start = start;
         }
@@ -7672,6 +7846,157 @@ class SessionQueueMirror {
     }
 }
 exports.SessionQueueMirror = SessionQueueMirror;
+
+},
+"src/modules/client-runtime/sessions/active-working-set.js": function(module, exports, require) {
+// source: src/modules/client-runtime/sessions/active-working-set.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ACTIVE_WINDOW = void 0;
+exports.payloadWeight = payloadWeight;
+exports.activeWindowCut = activeWindowCut;
+const value_guards_1 = require("../value-guards");
+/** UI-only residency policy. Durable history and model context are untouched. */
+exports.ACTIVE_WINDOW = Object.freeze({
+    highEvents: 4096, lowEvents: 2048,
+    highBytes: 8 * 1024 * 1024, lowBytes: 4 * 1024 * 1024,
+});
+/** Conservative retained-payload weight, computed once per accepted entry. */
+function payloadWeight(value) {
+    let bytes = 0;
+    const stack = [value], seen = new WeakSet();
+    while (stack.length && bytes <= exports.ACTIVE_WINDOW.highBytes) {
+        const item = stack.pop();
+        if (typeof item === 'string')
+            bytes += 24 + item.length * 2;
+        else if ((0, value_guards_1.isRecord)(item)) {
+            if (seen.has(item))
+                continue;
+            seen.add(item);
+            bytes += 64;
+            for (const key of Object.keys(item)) {
+                bytes += 16 + key.length * 2;
+                stack.push(item[key]);
+            }
+        }
+        else
+            bytes += 8;
+    }
+    return bytes;
+}
+/** Drop only complete prefixes at a recorded turn start; never cut a live turn.
+ * A giant current turn or an explicit reader pin is intentionally a soft limit. */
+function activeWindowCut(events, weights, bytes) {
+    if (events.length <= exports.ACTIVE_WINDOW.highEvents && bytes <= exports.ACTIVE_WINDOW.highBytes)
+        return 0;
+    let removed = 0, cut = 0, closedAt = 0;
+    for (let index = 0; index < events.length; index++) {
+        const event = events[index];
+        if (index > 0 && event?.type === 'turn/start' && closedAt > 0) {
+            cut = closedAt;
+            if (events.length - index <= exports.ACTIVE_WINDOW.lowEvents && bytes - removed <= exports.ACTIVE_WINDOW.lowBytes)
+                return cut;
+        }
+        if (event?.type === 'turn/start')
+            closedAt = 0;
+        if (event?.type === 'turn/end')
+            closedAt = index + 1;
+        removed += weights[index] ?? 0;
+    }
+    return cut;
+}
+
+},
+"src/modules/client-runtime/sessions/cooperative-delivery.js": function(module, exports, require) {
+// source: src/modules/client-runtime/sessions/cooperative-delivery.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CooperativeDelivery = void 0;
+/** Yield event reduction to input/paint tasks without reordering durable events.
+ * Control frames and mutation RPCs never wait behind this FIFO. */
+class CooperativeDelivery {
+    constructor(deliver, failure, now = () => globalThis.performance?.now() ?? Date.now()) {
+        this.deliver = deliver;
+        this.failure = failure;
+        this.now = now;
+        this.pending = [];
+        this.bytes = 0;
+        this.epoch = 0;
+        this.spent = 0;
+    }
+    push(value, bytes) {
+        const now = this.now();
+        // Reset only after a real task boundary, not merely after wall-clock
+        // time: a stream of microtasks (including snapshot flushes) can otherwise
+        // starve input forever while repeatedly appearing to be an idle producer.
+        if (this.reset === undefined) {
+            this.epoch = now;
+            this.spent = 0;
+            this.reset = setTimeout(() => { this.reset = undefined; }, 0);
+        }
+        if (this.timer === undefined && this.spent < 4 && now - this.epoch < 4) {
+            const started = this.now();
+            this.deliverSafely(value);
+            this.spent += this.now() - started;
+            return;
+        }
+        if (this.pending.length >= 512 || this.bytes + bytes > 8 * 1024 * 1024) {
+            this.clear();
+            this.failure();
+            return;
+        }
+        this.pending.push({ value, bytes });
+        this.bytes += bytes;
+        if (this.timer === undefined)
+            this.timer = setTimeout(() => this.drain(), 0);
+    }
+    clear() {
+        if (this.timer !== undefined)
+            clearTimeout(this.timer);
+        if (this.reset !== undefined)
+            clearTimeout(this.reset);
+        this.reset = undefined;
+        this.timer = undefined;
+        this.pending = [];
+        this.bytes = 0;
+        this.spent = 0;
+    }
+    deliverSafely(value) {
+        try {
+            this.deliver(value);
+            return true;
+        }
+        catch (error) {
+            // Deferred callbacks no longer have the transport reader's catch scope.
+            // Never leave a dead timer/FIFO that silently blocks future deliveries.
+            this.clear();
+            this.failure(error);
+            return false;
+        }
+    }
+    drain() {
+        const started = this.now();
+        do {
+            const item = this.pending[0];
+            if (item === undefined)
+                break;
+            // Release references as they drain, not only when the producer goes idle.
+            this.pending.shift();
+            this.bytes -= item.bytes;
+            if (!this.deliverSafely(item.value))
+                return;
+        } while (this.pending.length > 0 && this.now() - started < 4);
+        if (this.pending.length > 0)
+            this.timer = setTimeout(() => this.drain(), 0);
+        else {
+            this.clear();
+            this.epoch = this.now();
+        }
+    }
+}
+exports.CooperativeDelivery = CooperativeDelivery;
 
 },
 "src/modules/client-runtime/sessions/history-cache.js": function(module, exports, require) {
@@ -9893,7 +10218,7 @@ function displayFailureMessage(failure) {
 
 }
 };
-const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","./work/catalog":"src/modules/client-runtime/work/catalog.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../shared/session-terminal":"src/modules/shared/session-terminal.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/shared/session-terminal.js":{"./generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/work/catalog.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
+const __dependencies = {"src/modules/client-runtime/index.js":{"./slots":"src/modules/client-runtime/slots.js","./sessions/service":"src/modules/client-runtime/sessions/service.js","./workspaces/service":"src/modules/client-runtime/workspaces/service.js","./conversation/event-registry":"src/modules/client-runtime/conversation/event-registry.js","./conversation/view-registry":"src/modules/client-runtime/conversation/view-registry.js","./work/catalog":"src/modules/client-runtime/work/catalog.js","../client-connection/contracts/core/session/surface":"src/modules/client-connection/contracts/core/session/surface.js","./sessions/conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./sessions/conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js","./contract/conversation":"src/modules/client-runtime/contract/conversation.js","./sessions/subagent-lineage":"src/modules/client-runtime/sessions/subagent-lineage.js","./sessions/provide":"src/modules/client-runtime/sessions/provide.js","./agents/scope":"src/modules/client-runtime/agents/scope.js","./workspaces/path":"src/modules/client-runtime/workspaces/path.js","./contract/store":"src/modules/client-runtime/contract/store.js","./sessions/conversation":"src/modules/client-runtime/sessions/conversation.js","./sessions/partial":"src/modules/client-runtime/sessions/partial.js","./sessions/assistant-timing":"src/modules/client-runtime/sessions/assistant-timing.js","./sessions/context-provenance":"src/modules/client-runtime/sessions/context-provenance.js","./sessions/failure-display":"src/modules/client-runtime/sessions/failure-display.js","./sessions/pending":"src/modules/client-runtime/sessions/pending.js"},"src/modules/client-runtime/slots.js":{"./value-guards":"src/modules/client-runtime/value-guards.js","./context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/value-guards.js":{},"src/modules/client-runtime/context.js":{},"src/modules/client-runtime/sessions/service.js":{"../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../contract/store":"src/modules/client-runtime/contract/store.js","../agents/scope":"src/modules/client-runtime/agents/scope.js","./manager":"src/modules/client-runtime/sessions/manager.js","./provide":"src/modules/client-runtime/sessions/provide.js"},"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js":{"./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js":{},"src/modules/client-connection/contracts/core/session/types.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/index.js":{"./rpc":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js","./rpc.schema":"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js","./session-search":"src/modules/client-connection/contracts/host/apiproxy/api/session-search.js"},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.js":{},"src/modules/client-connection/contracts/host/apiproxy/api/rpc.schema.js":{},"src/modules/client-runtime/contract/store.js":{"./state-engine":"src/modules/client-runtime/contract/state-engine.js","immer":"vendor/immer.js","../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/contract/state-engine.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"vendor/immer.js":{},"src/modules/client-runtime/agents/scope.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/sessions/manager.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../ordered-baseline":"src/modules/client-runtime/ordered-baseline.js","./lineage":"src/modules/client-runtime/sessions/lineage.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","./session":"src/modules/client-runtime/sessions/session.js","./history-cache":"src/modules/client-runtime/sessions/history-cache.js"},"src/modules/client-runtime/ordered-baseline.js":{},"src/modules/client-runtime/sessions/lineage.js":{},"src/modules/client-runtime/sessions/notifier.js":{},"src/modules/client-runtime/sessions/projection-store.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","./notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/sessions/session.js":{"./chat-snapshot-codec":"src/modules/client-runtime/sessions/chat-snapshot-codec.js","../../shared/session-terminal":"src/modules/shared/session-terminal.js","../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","./conversation-assembler":"src/modules/client-runtime/sessions/conversation-assembler.js","./pending":"src/modules/client-runtime/sessions/pending.js","./notifier":"src/modules/client-runtime/sessions/notifier.js","./projection-store":"src/modules/client-runtime/sessions/projection-store.js","../time-zone":"src/modules/client-runtime/time-zone.js","./queue-mirror":"src/modules/client-runtime/sessions/queue-mirror.js","./active-working-set":"src/modules/client-runtime/sessions/active-working-set.js","./cooperative-delivery":"src/modules/client-runtime/sessions/cooperative-delivery.js"},"src/modules/client-runtime/sessions/chat-snapshot-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/client-runtime/sessions/conversation.js":{"../value-guards":"src/modules/client-runtime/value-guards.js","../../client-connection/contracts/host/apiproxy/api/sessions.schema":"src/modules/client-connection/contracts/host/apiproxy/api/sessions.schema.js"},"src/modules/shared/session-terminal.js":{"./generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/client-runtime/sessions/conversation-assembler.js":{"../contract/conversation":"src/modules/client-runtime/contract/conversation.js","../value-guards":"src/modules/client-runtime/value-guards.js","./conversation-location-index":"src/modules/client-runtime/sessions/conversation-location-index.js"},"src/modules/client-runtime/contract/conversation.js":{},"src/modules/client-runtime/sessions/conversation-location-index.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/pending.js":{},"src/modules/client-runtime/time-zone.js":{},"src/modules/client-runtime/sessions/queue-mirror.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/active-working-set.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/cooperative-delivery.js":{},"src/modules/client-runtime/sessions/history-cache.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/provide.js":{},"src/modules/client-runtime/workspaces/service.js":{"./epoch":"src/modules/client-runtime/workspaces/epoch.js","../contract/store":"src/modules/client-runtime/contract/store.js","./manager":"src/modules/client-runtime/workspaces/manager.js"},"src/modules/client-runtime/workspaces/epoch.js":{},"src/modules/client-runtime/workspaces/manager.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js","./workspace":"src/modules/client-runtime/workspaces/workspace.js"},"src/modules/client-runtime/workspaces/workspace.js":{"../../client-connection/contracts/host/apiproxy/api/index":"src/modules/client-connection/contracts/host/apiproxy/api/index.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-runtime/conversation/event-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/conversation/definition-registry.js":{"../context":"src/modules/client-runtime/context.js"},"src/modules/client-runtime/conversation/view-registry.js":{"./definition-registry":"src/modules/client-runtime/conversation/definition-registry.js"},"src/modules/client-runtime/work/catalog.js":{"../../client-connection/contracts/core/session/types":"src/modules/client-connection/contracts/core/session/types.js","../sessions/notifier":"src/modules/client-runtime/sessions/notifier.js"},"src/modules/client-connection/contracts/core/session/surface.js":{},"src/modules/client-runtime/sessions/subagent-lineage.js":{},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/client-runtime/sessions/partial.js":{"./conversation":"src/modules/client-runtime/sessions/conversation.js"},"src/modules/client-runtime/sessions/assistant-timing.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/context-provenance.js":{"../value-guards":"src/modules/client-runtime/value-guards.js"},"src/modules/client-runtime/sessions/failure-display.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

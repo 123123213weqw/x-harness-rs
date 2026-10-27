@@ -23,6 +23,17 @@ const contextMeterLocales = {
  en: {'context.awaitingUpdate':'Awaiting update','context.unmeasured':'No measured input yet','context.byteUpperBound':'Admission byte ceiling (not measured)','context.preflightCount':'Current request input count','context.preflightEstimate':'Current request estimate'},
  zh: {'context.awaitingUpdate':'待更新','context.unmeasured':'尚无实测用量','context.byteUpperBound':'准入字节保守上界（非实测）','context.preflightCount':'本次请求输入计数','context.preflightEstimate':'本次请求估算'},
 };
+const composerBusyLocales = {
+ en: {'input.sending':'Sending…','input.stopping':'Stopping…'},
+ zh: {'input.sending':'正在发送…','input.stopping':'正在停止…'},
+};
+const composerBusyStyle = '\n._7yzX1q_primary [data-composer-busy]{animation:xh-composer-busy 1s linear infinite}\n@keyframes xh-composer-busy{to{transform:rotate(360deg)}}\n@media(prefers-reduced-motion:reduce){._7yzX1q_primary [data-composer-busy]{animation:none}}\n';
+function baselineComposerStyle(source) {
+ assert.ok(source.endsWith(composerBusyStyle),'reviewed composer busy animation must remain an exact append-only delta');
+ const baseline=source.slice(0,-composerBusyStyle.length);
+ assert.equal(createHash('sha256').update(baseline).digest('hex'),'62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d','unrelated InputBar styles must retain their reviewed bytes');
+ return baseline;
+}
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
  assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
@@ -41,6 +52,11 @@ function baselineProductCopy(language, locale) {
  for (const [key, expected] of Object.entries(contextProvenanceLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'provenance labels are additive; keep the frozen baseline unchanged');
   assert.equal(locale[key],expected,`${language} provenance label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ for(const [key,expected] of Object.entries(composerBusyLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'composer busy labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} composer busy label ${key} must match its reviewed value`);
   delete normalized[key];
  }
  delete normalized['stats.title'];
@@ -78,6 +94,26 @@ test('reviewed provenance labels reject missing, changed and unrelated locale de
   assert.equal(unrelated['context.unreviewed'],'unexpected');
   assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
  }
+});
+
+test('reviewed composer busy labels and styles reject missing, changed and unrelated deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  for(const key of Object.keys(composerBusyLocales[language])) {
+   const missing={...current};delete missing[key];
+   assert.throws(()=>baselineProductCopy(language,missing),/composer busy label/);
+   assert.throws(()=>baselineProductCopy(language,{...current,[key]:'incorrect busy label'}),/composer busy label/);
+  }
+  const unrelated=baselineProductCopy(language,{...current,'input.unreviewed':'unexpected'});
+  assert.equal(unrelated['input.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
+ }
+ const source=readFileSync(new URL('../ui/src/modules/conversation/skeleton/InputBar.css',import.meta.url),'utf8');
+ const baseline=baselineComposerStyle(source);
+ assert.throws(()=>baselineComposerStyle(baseline),/busy animation/);
+ assert.throws(()=>baselineComposerStyle(source.replace('xh-composer-busy 1s','xh-composer-busy 2s')),/busy animation/);
+ assert.throws(()=>baselineComposerStyle(source.replace('animation:none','animation:initial')),/busy animation/);
+ assert.throws(()=>baselineComposerStyle('.unreviewed{color:red}'+source),/unrelated InputBar styles/);
 });
 
 test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards',()=>{
@@ -131,12 +167,17 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   // Replace only the turn activity presentation; the new spinner sheet is additive.
   'chat/ChatView': 'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647',
   'chat/LoadingIndicator': 'a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e',
+  // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
+  // and a 44px row on coarse pointers. Every byte above that append is
+  // unchanged; the desktop declarations (gap 36, 27px row) are untouched.
+  'skeleton/ConversationRoot': 'ba9b67ea1576903f4d2727faf002d3fdaa15bc2f3576aadc5dcb19de64a4d3e0',
  };
  assert.equal(Object.hasOwn(oldCss,'@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'),false,'the frozen baseline must not acquire the new spinner sheet');
  for(const [name,sha] of Object.entries(reviewedStyles)) {
   const id='@xharness/dsh-client-ui-conversation/'+name.split('/').at(-1)+'.module.css';
   const source=readFileSync(new URL('../ui/src/modules/conversation/'+name+'.css',import.meta.url),'utf8');
-  assert.equal(createHash('sha256').update(source).digest('hex'),sha,'reviewed product style '+name);
+  const baseline=name==='skeleton/InputBar'?baselineComposerStyle(source):source;
+  assert.equal(createHash('sha256').update(baseline).digest('hex'),sha,'reviewed product style '+name);
   assert.equal(nextCss[id],source,'emitted product style is source-fresh');
   expectedCss[id]=source;
  }

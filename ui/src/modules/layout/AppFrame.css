@@ -25,5 +25,12 @@
 ._84hhiq_frame[data-sidebar-collapsed] ._84hhiq_sidebarCol{padding:var(--xh-region-inset) 0}
 ._84hhiq_frame[data-sidebar-collapsed] ._84hhiq_sidebarCol>._84hhiq_regionSurface{border:0;border-radius:0;background:transparent}
 ._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol,._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol{padding:var(--xh-region-inset);box-shadow:none}
+/* Narrow viewports have no room for a gutter around a floating card: the
+   surface fills its track and the content edge is the screen edge. Keyed to the
+   same 600px breakpoint AppFrame.tsx uses for --xh-region-inset so the inset and
+   the chrome can never disagree. */
+@media (max-width:600px){
+  ._84hhiq_sidebarCol>._84hhiq_regionSurface,._84hhiq_centerCol>._84hhiq_regionSurface,._84hhiq_detailsCol>._84hhiq_regionSurface{border:0;border-radius:0}
+}
 ._84hhiq_frame[data-sidebar-drawer] ._84hhiq_sidebarCol>._84hhiq_regionSurface{box-shadow:12px 0 32px #0003}
 ._84hhiq_frame[data-xhworkspace-drawer] ._84hhiq_detailsCol>._84hhiq_regionSurface{box-shadow:-14px 0 40px #0004}

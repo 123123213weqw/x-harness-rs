@@ -12,6 +12,8 @@ import {DisplayOpenSchema} from '../shared/generated/file-display'
 import type {ConnectionHandle} from '../client-connection/index'
 import type {WorkspaceItemOwner} from '../layout/workspace-pane'
 import {listenModelBrowserActivity} from './model-activity'
+import {attachSelection} from './component-picker'
+import type {PickSession} from './component-picker'
 const { createElement: h, useEffect, useRef, useState } = React
 export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number; modelRequestId?: string | undefined }
 export interface BrowserPatch { title?: string; entries?: string[]; position?: number; modelRequestId?: string | undefined }
@@ -201,6 +203,11 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
 }
 export function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }: BrowserPaneProps) {
   const [filePath,setFilePath]=useState('')
+  const [picking,setPicking]=useState(false)
+  const [pickToken,setPickToken]=useState('')
+  const [pickNotice,setPickNotice]=useState('')
+  const pickRef=useRef<PickSession|null>(null)
+  const pickGeneration=useRef(0)
   const [draft, setDraft] = useState(() => currentAddress(item))
   const [error, setError] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -467,6 +474,56 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
     if (target === undefined) return
     onUpdate({ position, title: new URL(target).hostname })
   }
+  const stopPick = () => {
+    pickGeneration.current++
+    const lease=pickRef.current;pickRef.current=null;setPicking(false);setPickToken('')
+    if(lease&&native)void native.core.invoke('desktop_browser_pick',{tabId:lease.tabId,request:{action:'cancel',token:lease.token}}).catch(()=>{})
+  }
+  useEffect(()=>{setPickNotice('');return()=>{stopPick()}},[item.id,sessionId,address,open])
+  useEffect(()=>{
+    if(!pickToken||!native)return
+    let disposed=false,timer:ReturnType<typeof setTimeout>|undefined
+    const poll=async()=>{
+      const lease=pickRef.current;if(!lease||disposed)return
+      const current=()=>!disposed&&pickRef.current===lease&&pickGeneration.current===lease.generation&&sessionRef.current===lease.owner&&itemRef.current.id===lease.tabId
+      try{
+        const reply=objectValue(await native.core.invoke('desktop_browser_pick',{tabId:lease.tabId,request:{action:'poll',token:lease.token}}))
+        if(!current())return
+        if(reply.status==='pending'){timer=setTimeout(poll,250);return}
+        if(reply.status==='empty')setError('没有选到完整组件，请点击元素或扩大框选范围')
+        if(reply.status==='selected'){
+          await attachSelection({status:'selected',selection:reply.selection,image:reply.image},lease.owner,current)
+          if(current())setPickNotice(objectValue(reply.selection).truncated===true?'选区截图及前 8 个组件已加入附件，请补充修改要求后发送':'选中的组件和截图已加入聊天附件，请补充修改要求后发送')
+        }
+        if(current()){pickRef.current=null;setPicking(false);setPickToken('')}
+      }catch(error){if(current()){setError(String(error));stopPick()}}
+    }
+    timer=setTimeout(poll,250)
+    return()=>{disposed=true;clearTimeout(timer)}
+  },[pickToken])
+  const startPick = async () => {
+    if(picking){stopPick();return}
+    if(!native||!sessionId||!address)return
+    const generation=++pickGeneration.current,owner=sessionId,tabId=item.id
+    setPickNotice('');setError('');setPicking(true)
+    try{
+      // Removing a prior success notice changes the child viewport. Let React
+      // paint, then settle the native bounds before arming pointer capture.
+      await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())))
+      const current=()=>generation===pickGeneration.current&&sessionRef.current===owner&&itemRef.current.id===tabId
+      if(!current())return
+      if(nativeSyncRef.current&&!await nativeSyncRef.current())throw Error('当前网页尚未就绪，请稍后再选取')
+      if(!current())return
+      const result=objectValue(await native.core.invoke('desktop_browser_pick',{tabId,request:{action:'start',owner}}))
+      if(typeof result.token!=='string')throw Error('桌面版本不支持组件选取')
+      if(generation!==pickGeneration.current||sessionRef.current!==owner||itemRef.current.id!==tabId){
+        void native.core.invoke('desktop_browser_pick',{tabId,request:{action:'cancel',token:result.token}}).catch(()=>{});return
+      }
+      pickRef.current={token:result.token,owner,tabId,generation}
+      // Arm polling only after the native overlay lease has been admitted.
+      setPickToken(result.token)
+    }catch(error){if(generation===pickGeneration.current){setPicking(false);setError(String(error))}}
+  }
   const canBack = item.position > 0
   const canForward = item.position < (item.entries?.length ?? 0) - 1
   return h('section', { className: 'xhbrowser-pane', 'aria-label': '内置浏览器面板', 'data-model-observer':native?true:undefined, 'data-model-active':modelActive||undefined },
@@ -476,8 +533,8 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         button('前进', 'right', () => move(1), !canForward),
         h('span', { className: 'xhbrowser-nav-divider', 'aria-hidden': true }),
         button('刷新', 'reload', () => { if (native) void invoke('desktop_browser_action', { tabId: item.id, action: 'reload' }).catch((error: unknown) => setError(String(error))) }, !native || !address)),
-      h('button', { type: 'button', className: 'xhbrowser-annotate', disabled: true, title: '网页标注尚未接入', 'aria-label': '标注（尚未接入）' },
-        glyph('annotate', 16), h('span', null, '标注')),
+      h('button', { type: 'button', className: 'xhbrowser-annotate', disabled: !native||!sessionId||!address||!open, title: !native?'组件选取需要桌面内置浏览器':!sessionId?'请先打开聊天再选取组件':'点击元素或拖拽框选，添加到聊天附件；Esc 取消', 'aria-label': picking?'取消选取组件':'选取组件', 'aria-pressed':picking,onClick:()=>{void startPick()} },
+        glyph('annotate', 16), h('span', null, picking?'取消选取':'选取组件')),
       native&&h('span',{className:'xhbrowser-model-activity','data-active':modelActive,
         role:modelActive?'status':undefined,'aria-hidden':!modelActive,
         title:modelActive?accessText('AI 正在使用此页面','AI is using this page'):undefined},
@@ -493,6 +550,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
       h('button', { type: 'button', className: 'xhbrowser-more', 'aria-label': '更多浏览器操作', 'aria-expanded': menuOpen,
         onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false) } }, glyph('more')),
       button('关闭当前网页','close',onClose)),
+    pickNotice && h('div',{className:'xhbrowser-pick-notice',role:'status'},pickNotice),
     downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' },
       h('strong', null, '下载记录'),
       downloads.length ? downloads.map((entry, index) => h('div', { key: `${index}:${entry.name}` },

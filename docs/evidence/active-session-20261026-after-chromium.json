@@ -1,0 +1,107 @@
+{
+  "engine": "chromium",
+  "kind": "real Runtime/Session/assembler/InputBar + React; isolated synthetic tool loop; immediate stub RPC; no real model/app",
+  "stages": [
+    {
+      "steps": 192,
+      "events": 964,
+      "nodes": 386,
+      "contexts": 389,
+      "fillMs": 509.9000000357628,
+      "gcHeapMiB": 8.70602035522461,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 61.22545499999978,
+      "pressuredStopMs": 36.587891000002855,
+      "burst20Ms": 6.899999976158142,
+      "pressuredSendMs": 66.42816599999787
+    },
+    {
+      "steps": 1088,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 1873,
+      "gcHeapMiB": 11.225589752197266,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 29.87051600000268,
+      "pressuredStopMs": 55.272601000004215,
+      "burst20Ms": 4.399999976158142,
+      "pressuredSendMs": 45.93382399999973
+    },
+    {
+      "steps": 4160,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 6188.699999988079,
+      "gcHeapMiB": 11.705276489257812,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 23.016990000003716,
+      "pressuredStopMs": 29.714318999998795,
+      "burst20Ms": 5.300000011920929,
+      "pressuredSendMs": 45.884149999998044
+    },
+    {
+      "steps": 8256,
+      "events": 2889,
+      "nodes": 1156,
+      "contexts": 1162,
+      "fillMs": 8057.900000035763,
+      "gcHeapMiB": 11.50594711303711,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 23.060637000002316,
+      "pressuredStopMs": 29.268221999998786,
+      "burst20Ms": 4.900000035762787,
+      "pressuredSendMs": 43.55019699999684
+    },
+    {
+      "steps": 16576,
+      "events": 3531,
+      "nodes": 1413,
+      "contexts": 1420,
+      "fillMs": 16493,
+      "gcHeapMiB": 12.168636322021484,
+      "hotPath": {
+        "replays": 4,
+        "resolutions": 651
+      },
+      "idleStopMs": 25.978990999996313,
+      "pressuredStopMs": 63.0723880000005,
+      "burst20Ms": 5,
+      "pressuredSendMs": 48.304094999999506
+    }
+  ],
+  "baselineHeapMiB": 6.519294738769531,
+  "controls": {
+    "delayedStop": true,
+    "singleFlight": true,
+    "authoritativeCompletion": true,
+    "rejectedSendPreservesDraft": true
+  },
+  "paced": {
+    "elapsedMs": 30018.600000023842,
+    "addedSteps": 6090,
+    "steps": 22707,
+    "events": 3466,
+    "nodes": 1387,
+    "contexts": 1394,
+    "gcHeapMiB": 12.056133270263672
+  },
+  "fixtureWindowRelease": {
+    "beforeMiB": 12.056133270263672,
+    "afterMiB": 8.414852142333984
+  },
+  "errors": []
+}

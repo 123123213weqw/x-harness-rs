@@ -141,3 +141,12 @@ uses a path containing spaces, Unicode and shell metacharacters, and checks the
 resulting owner and exact ACL rules through .NET. On Mac, 31 portable tests pass
 and that Windows-only test is intentionally skipped; fresh Windows CI must pass
 before this correction is accepted.
+
+Integrated the accepted mobile-layout/current-master changes without source
+conflicts. The merged Host application passed 150 library tests (4 existing
+explicit opt-in tests ignored) and all-target Clippy on WZU_Server. A reused
+Cargo target initially selected a stale `xharness-plugins` artifact despite the
+synced source containing `storage_root`; refreshing that crate's source mtime
+forced its rebuild and the complete tests/Clippy then passed. No API workaround,
+source weakening or local Rust compilation was used. Portable Node tests still
+pass (31 passed, Windows-only ACL case skipped on Mac).

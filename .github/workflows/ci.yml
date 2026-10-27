@@ -452,6 +452,7 @@ jobs:
           XHARNESS_GOAL_REMOTE_FIXTURE: ${{ runner.temp }}/goal-remote-replies.json
           XHARNESS_PLUGIN_WIRE_FIXTURE: ${{ runner.temp }}/plugin-wire-replies.json
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
         run: cargo test --locked --workspace --all-targets
       - name: Rust terminal DTOs generate the shipped TypeScript codec and satisfy UI lifecycle
         env:
@@ -485,6 +486,10 @@ jobs:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
           node --test scripts/test-github-review.mjs
+      - name: Native file mutations reach the real turn-end file-card selector
+        env:
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
+        run: node --test scripts/test-produced-file-native-wire.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -562,12 +567,17 @@ jobs:
       - name: Run workspace tests and export native wire fixtures once
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
         run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
           node --test scripts/test-github-review.mjs
+      - name: Native file mutations reach the real turn-end file-card selector
+        env:
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
+        run: node --test scripts/test-produced-file-native-wire.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
@@ -788,12 +798,17 @@ jobs:
       - name: Run workspace tests and export native wire fixtures once
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
         run: cargo test --locked --workspace --all-targets
       - name: Native GitHub replies match checked TypeScript DTOs
         env:
           XHARNESS_GITHUB_WIRE_FIXTURE: ${{ runner.temp }}/github-wire.json
         run: |
           node --test scripts/test-github-review.mjs
+      - name: Native file mutations reach the real turn-end file-card selector
+        env:
+          XHARNESS_PRODUCED_FILES_WIRE: ${{ runner.temp }}/produced-files-wire.json
+        run: node --test scripts/test-produced-file-native-wire.mjs
       - name: Runtime-drop process cleanup without another concurrent Tokio runtime
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
