@@ -90,3 +90,25 @@ all-target tests and Clippy passed, and the genuine Tauri/WebKitGTK probe passed
 all core/lifecycle/subframe/production-input/fit-pixel/cleanup gates in 16.587s.
 Exact-head Mac and Windows CI are still required. The PR remains a draft until
 those gates actually pass; no installed app was touched.
+
+## Windows baseline diagnostic and mobile integration
+
+The first CI attempt for `d9e30eb4` failed the existing
+`every_upstream_rpc_has_baseline_behavior` test: `subagent.interrupt` did not
+settle within its unchanged ten-second assertion. The root cause remains unknown;
+this viewport change does **not** claim to repair that scheduling failure.
+
+One predeclared diagnostic rerun of the identical head completed successfully
+(job `122127199802`, workflow `40477404526`, attempt 2). The baseline test passed,
+its 24-test binary passed with no skips, and the existing Windows native WebView
+DOM/input acceptance step succeeded. The original failed attempt and the success
+log are retained under `dist/merge-reviewed-20261027/`. This is evidence of a
+non-reproduced failure on the rerun, not proof of a root-cause fix; no repeated
+rerun-to-green, timeout extension or weakened assertion was used.
+
+The local integration with accepted mobile-layout master `0f36ef82` regenerated
+manifest/graph/HTML from source. Source browser-activity and 24 conversation tests,
+formatting and architecture checks passed. Rust sources are byte-identical to
+`d9e30eb4`; the integration changes only the mobile UI, tests/docs and generated
+assets. This updated head still requires an entirely fresh cross-platform CI run
+and remains a draft until those exact-head native gates pass.
