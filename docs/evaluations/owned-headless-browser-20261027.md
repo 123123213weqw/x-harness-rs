@@ -118,3 +118,10 @@ background surface, unchanged shared schemas, early no-connection rejection of
 login tools and no native-login fall-through. No cookies are moved between the
 isolated background instance and the native WebView. Exact-head cross-platform
 CI is still required before merging.
+
+The final combined browser source also passed the genuine isolated Linux native
+WebView probe (15.003s, all enrolled lifecycle/input/pixel/cleanup gates), plus all
+14 owned-Chrome manager cases with 100 hidden cycles. Chromium and WebKit both
+passed source-built lifecycle/preview/hidden/owner/close/single-flight UI checks
+(mock transport). Combined desktop library: 105 passed. These results do not
+substitute for the still-required macOS/Windows exact-head CI gates.
