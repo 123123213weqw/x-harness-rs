@@ -124,3 +124,20 @@ Production still requests optional site permission from a real popup gesture. Th
 isolated browser fixture pregrants only its ephemeral local origin and records
 `productionPermissionPromptTested:false`. Background assertions use Chrome's real
 active tab/foreground input, not Playwright's virtually visible renderer state.
+
+## Windows CI follow-up (2026-10-27)
+
+The early-exit-safe teardown exposed, rather than fixed, the Windows startup
+failure: Windows PowerShell could not autoload `Microsoft.PowerShell.Security`
+for `Set-Acl` under the inherited module environment. Both MCP startup tests
+failed with that concrete error; automatic discovery timed out before publishing
+its client. Those CI attempts are not passes.
+
+Directory protection now applies the same owner/SYSTEM-only, inheritance-protected
+ACL through Windows PowerShell's .NET Framework `Directory.SetAccessControl`,
+without cmdlet/module autoloading. There is no permissive fallback. A new Windows
+regression starts the real Node adapter with an empty/nonexistent `PSModulePath`,
+uses a path containing spaces, Unicode and shell metacharacters, and checks the
+resulting owner and exact ACL rules through .NET. On Mac, 31 portable tests pass
+and that Windows-only test is intentionally skipped; fresh Windows CI must pass
+before this correction is accepted.

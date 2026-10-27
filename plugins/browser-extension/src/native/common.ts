@@ -17,7 +17,8 @@ $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($sid,'FullCo
 $acl.AddAccessRule($rule);
 $system=New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18');
 $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($system,'FullControl','ContainerInherit,ObjectInherit','None','Allow')));
-Set-Acl -LiteralPath $path -AclObject $acl;`
+// Avoid cmdlet autoloading from a parent's PowerShell 7 PSModulePath.
+[System.IO.Directory]::SetAccessControl($path,$acl);`
   execFileSync(join(process.env.SystemRoot??'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{env:{...process.env,XHARNESS_BRIDGE_ACL_PATH:path},windowsHide:true,timeout:10000,stdio:'pipe'})
   protectedWindowsDirectories.add(path)
 }
