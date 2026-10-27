@@ -412,11 +412,15 @@ impl Instance {
         } else {
             Some(self.stamp().await?)
         };
-        let metrics = self
-            .process
-            .cdp
-            .call("Page.getLayoutMetrics", json!({}))
-            .await?;
+        // Emulation belongs to a CDP session, not the page. Cancelling a slow
+        // preview must drop only its read connection; dropping model control
+        // would reset the CSS viewport (observed as 720 -> 633 on macOS).
+        let cdp = if preview {
+            &mut self.process.preview_cdp
+        } else {
+            &mut self.process.cdp
+        };
+        let metrics = cdp.call("Page.getLayoutMetrics", json!({})).await?;
         let viewport = &metrics["visualViewport"];
         let x = viewport["pageX"].as_f64().ok_or("missing viewport x")?;
         let y = viewport["pageY"].as_f64().ok_or("missing viewport y")?;
@@ -428,11 +432,7 @@ impl Instance {
         if preview {
             options["quality"] = json!(65);
         }
-        let image = self
-            .process
-            .cdp
-            .call("Page.captureScreenshot", options)
-            .await?;
+        let image = cdp.call("Page.captureScreenshot", options).await?;
         let data = image["data"]
             .as_str()
             .filter(|data| {
@@ -445,9 +445,7 @@ impl Instance {
             })
             .ok_or("browser image exceeds budget")?;
         if preview {
-            let info = self
-                .process
-                .cdp
+            let info = cdp
                 .evaluate(
                     "JSON.stringify({url:location.href,title:document.title.slice(0,160)})".into(),
                 )

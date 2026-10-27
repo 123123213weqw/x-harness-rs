@@ -170,6 +170,8 @@ pub struct Process {
     // The helper holds the browser lifetime; dropping its stdin revokes the lease.
     _profile: Option<tempfile::TempDir>,
     pub cdp: Cdp,
+    // Preview cancellation must not tear down the session holding emulation.
+    pub preview_cdp: Cdp,
 }
 impl Process {
     pub async fn launch(binary: &std::path::Path) -> Result<Self, String> {
@@ -195,6 +197,7 @@ impl Process {
             child: Some(child),
             _profile: Some(profile),
             cdp: Cdp::new(String::new()),
+            preview_cdp: Cdp::new(String::new()),
         };
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
@@ -273,7 +276,8 @@ impl Process {
         let endpoint = tokio::time::timeout(Duration::from_secs(12), ready)
             .await
             .map_err(|_| "browser startup timed out")??;
-        process.cdp = Cdp::new(endpoint);
+        process.cdp = Cdp::new(endpoint.clone());
+        process.preview_cdp = Cdp::new(endpoint);
         process.cdp.call("Emulation.setDeviceMetricsOverride", json!({"width":1280,"height":720,"deviceScaleFactor":1,"mobile":false,"dontSetVisibleSize":false})).await?;
         // No download tool is exposed: deny writes to the user's Downloads.
         process
@@ -412,5 +416,66 @@ mod tests {
         cleanup_profile(path.clone()).unwrap();
         assert!(!path.exists());
         cleanup_profile(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelled_preview_keeps_the_exact_control_session_and_frame() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let mut peers = Vec::new();
+            for connection in 1..=2 {
+                let (stream, _) = listener.accept().await.unwrap();
+                peers.push(tokio::spawn(async move {
+                    let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                    while let Some(Ok(Message::Text(text))) = socket.next().await {
+                        let command: Value = serde_json::from_str(&text).unwrap();
+                        if command["method"] == "Page.getLayoutMetrics" {
+                            // Deterministically exceed the read-only preview deadline.
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                        }
+                        let reply = json!({"id":command["id"],"result":{"result":{"value":format!("control-session-{connection}")}}});
+                        if socket.send(Message::Text(reply.to_string().into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+            for peer in peers {
+                peer.await.unwrap();
+            }
+        });
+        let mut process = Process {
+            child: None,
+            _profile: None,
+            cdp: Cdp::new(endpoint.clone()),
+            preview_cdp: Cdp::new(endpoint),
+        };
+        let stamp = process.cdp.evaluate("geometry".into()).await.unwrap();
+        assert_eq!(stamp, "control-session-1");
+        let mut instance = super::super::Instance {
+            process,
+            id: "fixture".into(),
+            frame: Some(super::super::Frame {
+                id: "observed".into(),
+                stamp: stamp.as_str().unwrap().into(),
+                created: std::time::Instant::now(),
+            }),
+            release: None,
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), instance.screenshot(true))
+                .await
+                .is_err()
+        );
+        // Exercise the production frame guard, not just independent socket objects.
+        instance.consume("observed").await.unwrap();
+        drop(instance);
+        server.await.unwrap();
     }
 }

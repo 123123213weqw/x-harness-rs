@@ -81,3 +81,20 @@ receipt evidence alongside the existing native browser artifacts. Local acceptan
 on V100 used 100 cycles. The adjacent JSON preserves completed cases and all PNG
 hashes; full local logs and image files remain in this worktree's ignored
 `dist/headless-host-20261027/` directory.
+
+## Review follow-up: preview timeout isolation
+
+The first macOS CI rejected input after a preview. A disposable Mac Chrome/CDP
+experiment confirmed that disconnecting the session owning device emulation
+changes `innerHeight` from 720 to 633. Preview previously used that same socket;
+its 350 ms cancellation could therefore invalidate an otherwise stable model
+frame. Preview now uses an independent, read-only CDP connection. Its timeout
+cannot disconnect the control session or reset its emulation.
+
+A deterministic fake-CDP regression stalls the production preview path, cancels
+it, and successfully consumes the original frame on the *same* control session.
+On WZU_Server the updated desktop library passed 96 tests, all target tests and
+warning-denying Clippy passed, and installed Chrome passed all 14 real-manager
+cases including 100 hidden input/screenshot cycles (101 RGB-verified PNGs plus
+the scroll PNG). macOS/Windows exact-head CI is still required; the Mac CDP
+mechanism experiment is not a claim that the complete app passed on Mac.
