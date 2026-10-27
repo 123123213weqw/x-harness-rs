@@ -264,3 +264,46 @@ with 21 screenshots, and native WebView probes passed both normal and delayed
 readiness. As with the Mac results above, these are prior-head receipts, not a
 substitute for the new integrated head's full CI. Source and deadlines were not
 weakened; no application was installed, restarted or deployed.
+
+## CI follow-up: independent Windows repro compilation budget
+
+Integrated-head `eaaea9f7` runtime diagnostics run `40497918748`, Windows job
+`122167977680`, was cancelled at its unchanged 20-minute job deadline. This was
+**not** the earlier #401 post-cache cancellation: here cache cleanup was skipped.
+The production Host/sandbox release build took 12m07s. The next release stress
+harness compilation spent the remaining 6m22s compiling another dependency/test
+feature graph, ending at `Compiling xharness-host` before a test-start line. The
+reasoning stress test is therefore unverified in that attempt; the journal,
+100-cold-start and dynamic gates were skipped, not passed. Original job/log/
+annotation evidence is retained in the `heartbeat-20261027-1203` snapshot.
+
+The production Host/PDB build is an independent reproduction artifact, not an
+input to those `xharness-host` library tests. It now runs as a separate required
+`windows-host-repro` job, with the identical build command, Windows target and
+matching Host/PDB upload. The existing native matrix retains every microtest,
+Clippy, EXE/PDB parser, all four unchanged **release** stress commands, and offline
+executable packaging. Both jobs keep 20-minute deadlines and fatal failures;
+stress sizes, original assertion timeouts and profiles are unchanged. No serial
+`needs` dependency is added. Both PR jobs restore caches without saving them.
+The local diagnostic installer/deployment job and workflow event/permission
+settings are unchanged.
+
+Validation before pushing:
+
+- Local and WZU Node UI/lifecycle/workflow-policy tests pass, including nine
+  negative mutations covering missing jobs/gates/symbols, cache saves, release
+  profile removal, optional stress, timeout extension and restoring the old
+  serialized Host build. A YAML semantic comparison confirms every original
+  native step remains identical except the cache policy and relocation of the
+  two Host artifact steps.
+- After synchronizing current source, WZU_Server passes the **four original
+  release stress invocations** unchanged, with no private journal supplied.
+  This verifies the test job's independence from compiling a production Host in
+  the same job. These are Linux results, not native Windows certification.
+- Rust/application sources, runtime defaults and installed software are unchanged.
+
+Logs: `404-ci-original-release-stress.log`, `404-ci-policy-tests.log`,
+`404-server-ci-policy-tests.log` and `404-workflow-semantics.log` under that snapshot.
+Fresh full exact-head CI, including both native Windows jobs and the browser
+Mac/Windows gates, remains mandatory. No unchanged-head rerun or deadline
+extension is used to turn the cancelled attempt green.
