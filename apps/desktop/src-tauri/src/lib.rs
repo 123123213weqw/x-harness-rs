@@ -12,6 +12,7 @@ mod computer_activity;
 mod desktop_exit;
 mod desktop_recovery;
 mod diagnostics;
+pub mod headless_browser;
 mod installations;
 mod lifecycle_trace;
 mod managed_account;
@@ -35,6 +36,9 @@ struct DesktopBootstrapEvent {
 }
 
 pub fn run() {
+    if headless_browser::run_helper() {
+        return;
+    }
     native_startup::prepare().expect("native runtime prerequisites failed");
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
@@ -97,6 +101,7 @@ pub fn run() {
             app.manage(browser::BrowserState::default());
             app.manage(browser_bridge::BrowserBridge::default());
             app.manage(browser_lifecycle::BrowserLifecycle::default());
+            app.manage(headless_browser::Browsers::default());
             configure_linux_webview(app.handle());
             if app
                 .state::<DesktopState>()
@@ -163,6 +168,8 @@ pub fn run() {
             browser_inspect::desktop_browser_inspect,
             browser_picker::desktop_browser_pick,
             browser_perform::desktop_browser_perform,
+            headless_browser::desktop_headless_preview,
+            headless_browser::desktop_headless_control,
         ])
         .on_window_event(|window, event| {
             if window.label() != "main" {

@@ -33,6 +33,10 @@ pub fn request(app: &AppHandle, source: ExitSource, code: i32) {
         crate::computer_activity::clear(&handle);
         match crate::sidecar::graceful_stop(&handle).await {
             Ok(()) => {
+                handle
+                    .state::<crate::headless_browser::Browsers>()
+                    .shutdown()
+                    .await;
                 crate::browser::close_all(&handle);
                 handle.exit(code);
             }

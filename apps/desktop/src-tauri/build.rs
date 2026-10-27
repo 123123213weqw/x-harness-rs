@@ -60,6 +60,8 @@ fn main() {
             "desktop_browser_inspect",
             "desktop_browser_pick",
             "desktop_browser_perform",
+            "desktop_headless_preview",
+            "desktop_headless_control",
         ])),
     )
     .expect("failed to generate desktop IPC permissions")

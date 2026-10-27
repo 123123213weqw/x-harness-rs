@@ -13,6 +13,7 @@ import type {ConnectionHandle} from '../client-connection/index'
 import type {WorkspaceItemOwner} from '../layout/workspace-pane'
 import {listenModelBrowserActivity} from './model-activity'
 import {attachSelection} from './component-picker'
+import {HeadlessPreview} from './headless-preview'
 import type {PickSession} from './component-picker'
 const { createElement: h, useEffect, useRef, useState } = React
 export interface BrowserItem { id: string; kind: string; title: string; entries: readonly string[]; position: number; modelRequestId?: string | undefined }
@@ -201,7 +202,13 @@ function watchBrowserSurfaces(content: Element, sync: () => Promise<boolean>) {
     document.removeEventListener('transitionend', settled); document.removeEventListener('animationend', settled)
   }
 }
-export function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }: BrowserPaneProps) {
+export function BrowserPane(props:BrowserPaneProps) {
+  const [explicitNative,setExplicitNative]=useState(false)
+  useEffect(()=>setExplicitNative(false),[props.item.id])
+  if(native&&props.item.id.startsWith('headless:'))return h(HeadlessPreview,{...props,key:`${props.sessionId??''}:${props.item.id}`})
+  return h(NativeBrowserPane,{...props,preferHeadless:Boolean(native)&&!explicitNative&&props.item.entries.length===0,onNative:()=>setExplicitNative(true)})
+}
+function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser,preferHeadless,onNative }: BrowserPaneProps & {preferHeadless?:boolean;onNative?:()=>void}) {
   const [filePath,setFilePath]=useState('')
   const [picking,setPicking]=useState(false)
   const [pickToken,setPickToken]=useState('')
@@ -434,6 +441,11 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
   const navigateTo = (raw: string) => {
     const result = normalizeAddress(raw)
     if ('error' in result) { setError(result.error); return }
+    if(native&&preferHeadless&&sessionId){
+      setDraft(result.url);setError('')
+      void native.core.invoke('desktop_headless_control',{owner:sessionId,arguments:{action:'open',url:result.url}}).catch((error:unknown)=>setError(String(error)))
+      return
+    }
     const entries = [...(item.entries ?? []).slice(0, item.position + 1), result.url]
     itemRef.current = { ...itemRef.current, entries, position: entries.length - 1 }
     onUpdate({ entries, position: entries.length - 1, title: new URL(result.url).hostname })
@@ -557,6 +569,7 @@ export function BrowserPane({ item, sessionId = null, open = false, onUpdate, on
         h('span', null, entry.name), h('small', null, DOWNLOAD_LABELS[entry.kind])))
         : h('p', null, native ? '本次会话还没有下载。' : '网页版没有内置下载记录。')),
     menuOpen && h('div', { className: 'xhbrowser-menu' },
+      preferHeadless&&h('button',{type:'button',onClick:()=>{onNative?.();setMenuOpen(false)}},'使用原生 WebView'),
       h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false) } }, '新建标签页'),
       h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'),
       h('button', { type: 'button', onClick: onClose }, '关闭标签页'),
@@ -594,6 +607,11 @@ export function apply(ctx: BrowserContext) {
     const onCloseTab = (event: Event) => {
       const id = event instanceof CustomEvent ? objectValue(event.detail).id : undefined
       if (typeof id !== 'string' || !id) return
+      if(id.startsWith('headless:')){
+        const owner=event instanceof CustomEvent?objectValue(event.detail).owner:undefined
+        if(typeof owner==='string')void native.core.invoke('desktop_headless_control',{owner,tabId:id,arguments:{action:'close'}}).catch(()=>{})
+        return
+      }
       // Closing must not wait behind an unrelated navigation/observation.
       void native.core.invoke('desktop_browser_close', { tabId: id }).catch(() => {})
     }

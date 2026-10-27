@@ -671,6 +671,17 @@ jobs:
           if ($LASTEXITCODE) { throw 'Recovery probe build failed' }
           & apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/host-recovery-probe.exe target/x86_64-pc-windows-msvc/debug/xharness-host.exe
           if ($LASTEXITCODE) { throw 'Active-turn desktop recovery failed' }
+      - name: Owned Chrome/Edge hidden control and controller-death cleanup
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example headless-browser-probe
+          if ($LASTEXITCODE) { throw 'Owned browser probe build failed' }
+          ./scripts/gui_bench/windows_imports.ps1 -Binary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/headless-browser-probe.exe -EvidenceDir dist/native-browser-evidence/windows/owned-imports
+          python -m venv "$env:RUNNER_TEMP/owned-browser-py"
+          if ($LASTEXITCODE) { throw 'Owned browser test environment failed' }
+          & "$env:RUNNER_TEMP/owned-browser-py/Scripts/python.exe" -m pip install -r scripts/gui_bench/owned-browser-requirements.txt
+          if ($LASTEXITCODE) { throw 'Owned browser test dependencies failed' }
+          & "$env:RUNNER_TEMP/owned-browser-py/Scripts/python.exe" scripts/gui_bench/owned_browser_acceptance.py --binary apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/debug/examples/headless-browser-probe.exe --cycles 20 --output dist/native-browser-evidence/windows/owned
+          if ($LASTEXITCODE) { throw 'Owned browser hidden-control/lifecycle acceptance failed' }
       - name: Native WebView DOM callback/actions on Windows (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
@@ -841,6 +852,12 @@ jobs:
           cargo build --locked -p xharness-host-app
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example host-recovery-probe
           apps/desktop/src-tauri/target/debug/examples/host-recovery-probe target/debug/xharness-host
+      - name: Owned Chrome/Edge hidden control and controller-death cleanup
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example headless-browser-probe
+          python3 -m venv "$RUNNER_TEMP/owned-browser-py"
+          "$RUNNER_TEMP/owned-browser-py/bin/python" -m pip install -r scripts/gui_bench/owned-browser-requirements.txt
+          "$RUNNER_TEMP/owned-browser-py/bin/python" scripts/gui_bench/owned_browser_acceptance.py --binary apps/desktop/src-tauri/target/debug/examples/headless-browser-probe --cycles 20 --output dist/native-browser-evidence/macos/owned
       - name: Native WebView DOM callback/actions on macOS (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe
@@ -954,6 +971,12 @@ jobs:
           cargo build --locked -p xharness-host-app
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example host-recovery-probe
           apps/desktop/src-tauri/target/debug/examples/host-recovery-probe target/debug/xharness-host
+      - name: Owned Chrome/Edge hidden control and controller-death cleanup
+        run: |
+          cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example headless-browser-probe
+          python3 -m venv "$RUNNER_TEMP/owned-browser-py"
+          "$RUNNER_TEMP/owned-browser-py/bin/python" -m pip install -r scripts/gui_bench/owned-browser-requirements.txt
+          "$RUNNER_TEMP/owned-browser-py/bin/python" scripts/gui_bench/owned_browser_acceptance.py --binary apps/desktop/src-tauri/target/debug/examples/headless-browser-probe --cycles 20 --output dist/native-browser-evidence/linux/owned
       - name: Native WebView DOM callback/actions on Linux (no model or OS input)
         run: |
           cargo build --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --example browser-inspect-probe

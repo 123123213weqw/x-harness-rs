@@ -20,6 +20,9 @@ mod browser_native;
 mod browser_perform;
 #[path = "../src/browser_picker.rs"]
 mod browser_picker;
+#[path = "../src/headless_browser/mod.rs"]
+#[allow(dead_code)]
+mod headless_browser;
 
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
@@ -1880,6 +1883,9 @@ async fn subframe_navigation_probe(app: &tauri::AppHandle) -> Result<(), String>
 }
 
 fn main() {
+    if headless_browser::run_helper() {
+        return;
+    }
     native_startup::prepare().expect("native probe prerequisites failed");
     let completion = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let completed = completion.clone();
@@ -1903,6 +1909,7 @@ fn main() {
     let app = tauri::Builder::default()
         .manage(lifecycle_trace::LifecycleTrace(std::sync::Arc::new(move |record|collect.lock().unwrap().push(record))))
         .manage(browser::BrowserState::default())
+        .manage(headless_browser::Browsers::default())
         .manage(browser_bridge::BrowserBridge::default())
         .manage(browser_lifecycle::BrowserLifecycle::default())
         .invoke_handler(tauri::generate_handler![

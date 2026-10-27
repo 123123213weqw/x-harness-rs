@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Add isolated installed Chrome/Edge control and preview with parent-pipe lifecycle cleanup.",
+  "compatibility": "Preserve native WebView sessions, action schemas, approvals, updater and sidecar contracts. No Node/browser payload. Require Host/MCP/media tests, owned-browser and native lifecycle tests, Chromium/WebKit UI regression, installation/update/architecture checks, and cross-platform CI before merge.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "a1d1eb0f612790fb88d24e332b1ac09b7b8d0a6ddea867c997485299497a286a",
+      "after": "bd4f488c8f58ed78542adc9ecee8409cb20d67bade3a976c7870c0fd83ebac8c"
+    },
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "1a230de14dc50da194900d2104aa88235fabfecbf51c87a5299c4e123f845c1e",
+      "after": "42c0a744dad999fe4c5cf744a92e3749afc9051c66f3ceff48f427e1decfe304"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "updater",
+    "windows"
+  ]
+}

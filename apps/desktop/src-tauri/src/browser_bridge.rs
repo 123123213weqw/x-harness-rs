@@ -32,6 +32,15 @@ struct Request {
     owner: String,
     op: Operation,
     arguments: Value,
+    #[serde(default)]
+    backend: Backend,
+}
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Backend {
+    #[default]
+    Webview,
+    Browser,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -168,12 +177,33 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
 }
 
 async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
+    if matches!(request.backend, Backend::Browser) {
+        let op = match request.op {
+            Operation::List => "list",
+            Operation::Control => "control",
+            Operation::Observe => "observe",
+            Operation::Perform => "perform",
+            Operation::Screenshot => "screenshot",
+            Operation::Input => "input",
+        };
+        let closing = request.arguments["action"] == "close";
+        let result = app
+            .state::<crate::headless_browser::Browsers>()
+            .dispatch(&request.owner, op, request.arguments)
+            .await?;
+        if op == "control" && result["ok"] == true {
+            let _=app.emit_to("main","xharness-headless-page",json!({"owner":request.owner,"closed":closing,"tabId":result["tab_id"],"url":result["url"]}));
+        }
+        return Ok(result);
+    }
     let state = app.state::<BrowserState>();
     if matches!(request.op, Operation::List) {
         if request.arguments != json!({}) {
             return Err("list takes no arguments".into());
         }
-        return Ok(browser_lifecycle::descriptor(&state, &request.owner));
+        let mut descriptor = browser_lifecycle::descriptor(&state, &request.owner);
+        descriptor["headless_available"] = json!(crate::headless_browser::installed_available());
+        return Ok(descriptor);
     }
     if matches!(request.op, Operation::Control) {
         let action = match parse_control(request.arguments) {

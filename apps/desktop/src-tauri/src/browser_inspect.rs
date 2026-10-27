@@ -42,7 +42,7 @@ pub struct InspectRequest {
 }
 
 impl InspectRequest {
-    fn validate(&self) -> Result<(), String> {
+    pub(super) fn validate(&self) -> Result<(), String> {
         if self.text_offset > 1_000_000
             || self.node_offset > 1_000_000
             || self.option_offset > 1_000_000

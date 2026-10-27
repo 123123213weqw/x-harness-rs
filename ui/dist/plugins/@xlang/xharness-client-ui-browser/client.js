@@ -60,6 +60,7 @@ const client_1 = require("./file-display/client");
 const file_display_1 = require("../shared/generated/file-display");
 const model_activity_1 = require("./model-activity");
 const component_picker_1 = require("./component-picker");
+const headless_preview_1 = require("./headless-preview");
 const { createElement: h, useEffect, useRef, useState } = React;
 function arrayValue(raw) { return Array.isArray(raw) ? raw : []; }
 const DOWNLOAD_LABELS = { 'download-start': '下载中', 'download-complete': '已完成', 'download-error': '失败' };
@@ -273,7 +274,14 @@ function watchBrowserSurfaces(content, sync) {
         document.removeEventListener('animationend', settled);
     };
 }
-function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser }) {
+function BrowserPane(props) {
+    const [explicitNative, setExplicitNative] = useState(false);
+    useEffect(() => setExplicitNative(false), [props.item.id]);
+    if (native && props.item.id.startsWith('headless:'))
+        return h(headless_preview_1.HeadlessPreview, { ...props, key: `${props.sessionId ?? ''}:${props.item.id}` });
+    return h(NativeBrowserPane, { ...props, preferHeadless: Boolean(native) && !explicitNative && props.item.entries.length === 0, onNative: () => setExplicitNative(true) });
+}
+function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser, preferHeadless, onNative }) {
     const [filePath, setFilePath] = useState('');
     const [picking, setPicking] = useState(false);
     const [pickToken, setPickToken] = useState('');
@@ -583,6 +591,12 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
             setError(result.error);
             return;
         }
+        if (native && preferHeadless && sessionId) {
+            setDraft(result.url);
+            setError('');
+            void native.core.invoke('desktop_headless_control', { owner: sessionId, arguments: { action: 'open', url: result.url } }).catch((error) => setError(String(error)));
+            return;
+        }
         const entries = [...(item.entries ?? []).slice(0, item.position + 1), result.url];
         itemRef.current = { ...itemRef.current, entries, position: entries.length - 1 };
         onUpdate({ entries, position: entries.length - 1, title: new URL(result.url).hostname });
@@ -739,7 +753,7 @@ function BrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, 
         placeholder: '搜索或输入网址', autoComplete: 'url', spellCheck: false })), h('div', { className: 'xhbrowser-actions', 'aria-label': '浏览器工具' }, button('回到聊天', 'chat', focusChat), h('button', { type: 'button', className: 'xhbrowser-icon xhbrowser-download', 'aria-label': '下载记录',
         'aria-expanded': downloadsOpen, title: '下载记录', onClick: () => { setDownloadsOpen(value => !value); setMenuOpen(false); } }, glyph('download'))), h('button', { type: 'button', className: 'xhbrowser-more', 'aria-label': '更多浏览器操作', 'aria-expanded': menuOpen,
         onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false); } }, glyph('more')), button('关闭当前网页', 'close', onClose)), pickNotice && h('div', { className: 'xhbrowser-pick-notice', role: 'status' }, pickNotice), downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' }, h('strong', null, '下载记录'), downloads.length ? downloads.map((entry, index) => h('div', { key: `${index}:${entry.name}` }, h('span', null, entry.name), h('small', null, DOWNLOAD_LABELS[entry.kind])))
-        : h('p', null, native ? '本次会话还没有下载。' : '网页版没有内置下载记录。')), menuOpen && h('div', { className: 'xhbrowser-menu' }, h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false); } }, '新建标签页'), h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'), h('button', { type: 'button', onClick: onClose }, '关闭标签页'), address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')), error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error), h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef }, !address ? h('div', { className: 'xhbrowser-home' }, h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '工具'), sessionId && h('form', { className: 'xhbrowser-file-form', onSubmit: (event) => { event.preventDefault(); if (filePath.trim())
+        : h('p', null, native ? '本次会话还没有下载。' : '网页版没有内置下载记录。')), menuOpen && h('div', { className: 'xhbrowser-menu' }, preferHeadless && h('button', { type: 'button', onClick: () => { onNative?.(); setMenuOpen(false); } }, '使用原生 WebView'), h('button', { type: 'button', onClick: () => { onNewBrowser(); setMenuOpen(false); } }, '新建标签页'), h('button', { type: 'button', disabled: !address, onClick: copyAddress }, '复制当前网址'), h('button', { type: 'button', onClick: onClose }, '关闭标签页'), address && h('a', { href: address, target: '_blank', rel: 'noopener noreferrer', onClick: () => setMenuOpen(false) }, '在系统浏览器打开')), error && h('div', { className: 'xhbrowser-error', role: 'alert' }, error), h('div', { className: `xhbrowser-content${address ? '' : ' xhbrowser-content-home'}`, ref: contentRef }, !address ? h('div', { className: 'xhbrowser-home' }, h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '工具'), sessionId && h('form', { className: 'xhbrowser-file-form', onSubmit: (event) => { event.preventDefault(); if (filePath.trim())
             (0, FilePane_1.openDisplayFile)(filePath.trim(), sessionId); } }, h('input', { value: filePath, onChange: (event) => setFilePath(event.currentTarget.value), placeholder: '输入文件路径', 'aria-label': '文件路径' }), h('button', { type: 'submit', disabled: !filePath.trim() }, '预览文件'), h('button', { type: 'button', onClick: () => (0, FilePane_1.openDisplayFile)(filePath.trim() || '.', sessionId, undefined, 'working') }, 'Git Diff')), h('div', { className: 'xhbrowser-tools' }, h('button', { type: 'button', onClick: focusChat }, '回到聊天'), h('button', { type: 'button', onClick: openTerminal }, '打开终端'))), recent.length > 0 && h('section', { className: 'xhbrowser-home-section' }, h('h2', null, '最近访问'), h('div', { className: 'xhbrowser-recents' }, recent.map(site => h('button', {
         type: 'button', key: site.url, onClick: () => navigateTo(site.url), title: site.url,
     }, h('span', { className: 'xhbrowser-site-mark', 'aria-hidden': true }, glyph('globe', 16)), h('span', { className: 'xhbrowser-site-label' }, h('strong', null, site.host), site.path && h('small', null, site.path)))))), recent.length === 0 && h('p', { className: 'xhbrowser-home-hint' }, '在上方输入网址，访问过的网页会出现在这里。'))
@@ -760,6 +774,12 @@ function apply(ctx) {
             const id = event instanceof CustomEvent ? (0, runtime_types_1.objectValue)(event.detail).id : undefined;
             if (typeof id !== 'string' || !id)
                 return;
+            if (id.startsWith('headless:')) {
+                const owner = event instanceof CustomEvent ? (0, runtime_types_1.objectValue)(event.detail).owner : undefined;
+                if (typeof owner === 'string')
+                    void native.core.invoke('desktop_headless_control', { owner, tabId: id, arguments: { action: 'close' } }).catch(() => { });
+                return;
+            }
             // Closing must not wait behind an unrelated navigation/observation.
             void native.core.invoke('desktop_browser_close', { tabId: id }).catch(() => { });
         };
@@ -850,7 +870,7 @@ function workspaceDockVisibility(event) {
 // source: src/modules/browser/Browser.css
 
 Object.defineProperty(exports, '__esModule', { value: true });
-exports.default = "\n.xhbrowser-header-trigger{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);cursor:pointer}\n.xhbrowser-header-trigger:hover,.xhbrowser-header-trigger:focus-visible{color:var(--dsw-alias-label-primary,#ddd);background:var(--dsw-alias-interactive-bg-hover,#303036)}\n.xhbrowser-header-trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhbrowser-header-trigger[aria-expanded=\"true\"]{color:var(--dsw-alias-label-primary,#ddd)}\n.xhbrowser-dock-icon{display:block;flex:none}\n.xhbrowser-dock-panel{opacity:0;transition:opacity 180ms ease-out}\n.xhbrowser-dock-chevron{transform-box:fill-box;transform-origin:center;transform:rotate(0deg);transition:transform 180ms ease-out}\n.xhbrowser-header-trigger[aria-expanded=\"true\"] .xhbrowser-dock-panel{opacity:.1}\n.xhbrowser-header-trigger[aria-expanded=\"true\"] .xhbrowser-dock-chevron{transform:rotate(180deg)}\n@media(prefers-reduced-motion:reduce){.xhbrowser-dock-chevron,.xhbrowser-dock-panel{transition:none}}\n.xhbrowser-pane{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base,#1c1c1e);color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-icon{display:inline-grid;place-items:center;flex:none;width:29px;height:29px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);cursor:pointer}.xhbrowser-icon:hover:not(:disabled){color:var(--dsw-alias-label-primary,#fff);background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-icon:disabled{opacity:.35;cursor:default}\n.xhbrowser-toolbar{display:flex;align-items:center;gap:4px;flex:none;height:49px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}.xhbrowser-address-form{display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:31px;padding:0 10px;margin-left:3px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;background:var(--dsw-alias-bg-layer-2,#2b2b30);color:var(--dsw-alias-label-tertiary,#aaa)}.xhbrowser-address-form:focus-within{border-color:var(--dsw-alias-label-primary,#eee)}.xhbrowser-address-form input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px}.xhbrowser-address-form input::placeholder{color:var(--dsw-alias-label-tertiary,#888)}.xhbrowser-external{display:grid;place-items:center;flex:none;width:28px;height:28px;color:var(--dsw-alias-label-secondary,#aaa);border-radius:6px}.xhbrowser-external:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-content{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;background:var(--dsw-alias-bg-base,#1c1c1e)}.xhbrowser-empty{text-align:center;max-width:320px;padding:28px}.xhbrowser-empty-mark{display:grid;place-items:center;margin:0 auto 18px;width:66px;height:66px;border:1px solid var(--dsw-alias-border-l2,#404047);border-radius:18px;color:var(--dsw-alias-label-secondary,#bbb);background:var(--dsw-alias-bg-layer-2,#252529)}.xhbrowser-empty h2{margin:0 0 8px;font-size:15px;font-weight:600}.xhbrowser-empty p{margin:0;color:var(--dsw-alias-label-tertiary,#999);font-size:12px;line-height:1.7;overflow-wrap:anywhere}.xhbrowser-open-link{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;color:var(--dsw-alias-label-primary,#eee);font-size:12px;text-decoration:none}.xhbrowser-open-link:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-error{padding:7px 16px;color:var(--dsw-alias-state-error-primary,#e87979);font-size:11px}\n.xhbrowser-pane{position:relative}\n.xhbrowser-toolbar{gap:8px;height:54px;padding:0 12px}\n.xhbrowser-nav{display:flex;align-items:center;gap:1px;flex:none;padding:2px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:11px;background:var(--dsw-alias-bg-layer-2,#29292e)}\n.xhbrowser-nav .xhbrowser-icon{width:27px;height:27px}\n.xhbrowser-address-form{height:34px;margin:0;border-radius:11px;padding:0 12px}\n.xhbrowser-address-form input{text-align:left;font-size:12px}\n.xhbrowser-more{display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-secondary,#aaa);font-size:16px;line-height:1;cursor:pointer}\n.xhbrowser-more:hover,.xhbrowser-more[aria-expanded=true]{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-menu{position:absolute;right:12px;top:49px;z-index:30;display:flex;flex-direction:column;min-width:164px;padding:5px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);box-shadow:0 12px 30px #0003}\n.xhbrowser-menu button,.xhbrowser-menu a{display:block;padding:8px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px;text-align:left;text-decoration:none;cursor:pointer}\n.xhbrowser-menu button:hover:not(:disabled),.xhbrowser-menu a:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-menu button:disabled{opacity:.42;cursor:default}\n.xhbrowser-content-home{display:block}\n.xhbrowser-home{box-sizing:border-box;max-width:560px;margin:0 auto;padding:26px 22px 40px}\n.xhbrowser-home-section{margin:0 0 29px}.xhbrowser-home-section h2{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n.xhbrowser-tools button{min-height:46px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px;text-align:left;cursor:pointer}\n.xhbrowser-tools button:hover,.xhbrowser-recents button:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-recents{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:11px;overflow:hidden}\n.xhbrowser-recents button{display:flex;align-items:center;gap:10px;min-width:0;min-height:47px;padding:7px 10px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2,#444);background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;text-align:left;cursor:pointer}\n.xhbrowser-recents button:last-child{border-bottom:0}.xhbrowser-site-mark{display:grid;place-items:center;flex:none;width:29px;height:29px;border-radius:7px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-tertiary,#999)}\n.xhbrowser-site-label{display:flex;flex-direction:column;min-width:0;gap:1px}.xhbrowser-site-label strong,.xhbrowser-site-label small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhbrowser-site-label strong{font-size:12px;font-weight:500}.xhbrowser-site-label small{font-size:10px;color:var(--dsw-alias-label-tertiary,#999)}\n.xhbrowser-home-hint{margin:2px 0 0;color:var(--dsw-alias-label-tertiary,#999);font-size:11px;line-height:1.6}\n.xhbrowser-pane :is(button,input,a):focus-visible{outline:2px solid var(--dsw-alias-label-primary,#eee);outline-offset:2px}\n.xhbrowser-pane{container-type:inline-size}\n.xhbrowser-toolbar{height:58px;gap:6px;padding:0 10px}\n.xhbrowser-nav,.xhbrowser-actions{display:flex;align-items:center;flex:none;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:999px;background:var(--dsw-alias-bg-layer-2,#29292e)}\n.xhbrowser-nav{gap:0;padding:2px 3px}.xhbrowser-actions{gap:0;padding:2px 3px}\n.xhbrowser-nav-divider{width:1px;height:17px;margin:0 2px;background:var(--dsw-alias-border-l2,#444)}\n.xhbrowser-nav .xhbrowser-icon,.xhbrowser-actions .xhbrowser-icon{width:26px;height:27px;border-radius:999px}\n.xhbrowser-annotate{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:34px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:999px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-secondary,#aaa);font:inherit;font-size:12px}\n.xhbrowser-annotate:disabled{cursor:not-allowed;opacity:.58}\n.xhbrowser-address-form{height:34px;border-radius:999px;padding:0 8px;min-width:0}\n.xhbrowser-address-form input{text-align:center;text-overflow:ellipsis;font-size:12px}\n.xhbrowser-address-form:focus-within input{text-align:left;text-overflow:clip}\n.xhbrowser-download{color:#3b83e8}.xhbrowser-download:hover:not(:disabled){color:#2266d4}\n.xhbrowser-more{width:33px;height:33px;border-radius:999px}\n.xhbrowser-menu,.xhbrowser-downloads{top:54px}\n.xhbrowser-downloads{position:absolute;right:46px;z-index:30;box-sizing:border-box;width:min(280px,calc(100% - 28px));padding:12px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:12px;background:var(--dsw-alias-bg-layer-2,#29292e);box-shadow:0 12px 30px #0003;font-size:12px}\n.xhbrowser-downloads>strong{display:block;margin-bottom:9px}.xhbrowser-downloads>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l2,#444)}.xhbrowser-downloads>div span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhbrowser-downloads small{flex:none;color:var(--dsw-alias-label-tertiary,#999)}.xhbrowser-downloads p{margin:0;color:var(--dsw-alias-label-tertiary,#999)}\n@container(max-width:420px){.xhbrowser-annotate{width:33px;padding:0}.xhbrowser-annotate span{display:none}}\n@container(max-width:390px){.xhbrowser-toolbar{gap:4px;padding:0 7px}.xhbrowser-nav .xhbrowser-icon,.xhbrowser-actions .xhbrowser-icon{width:23px}.xhbrowser-more,.xhbrowser-annotate{width:29px}.xhbrowser-home{padding:22px 16px}.xhbrowser-tools{grid-template-columns:1fr}}\n/* Reserve the border outside the child WebView's measured rectangle: native\n   views cannot be overlaid with renderer CSS. No layout shift while active. */\n.xhbrowser-pane[data-model-observer=true]{border:2px solid transparent;transition:border-color 120ms ease-out}\n.xhbrowser-pane[data-model-active=true]{border-color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-model-activity{display:inline-grid;place-items:center;flex:none;width:18px;color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-model-activity[data-active=false]{visibility:hidden}\n.xhbrowser-activity-label{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}\n@media(prefers-reduced-motion:reduce){.xhbrowser-pane[data-model-observer=true]{transition:none}}\n.xhbrowser-annotate[aria-pressed=true]{color:var(--dsw-alias-label-primary,#fff);border-color:#5689ff;background:#5689ff22}\n.xhbrowser-pick-notice{flex:none;padding:7px 12px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary,#bbb);border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}\n";
+exports.default = "\n.xhbrowser-header-trigger{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);cursor:pointer}\n.xhbrowser-header-trigger:hover,.xhbrowser-header-trigger:focus-visible{color:var(--dsw-alias-label-primary,#ddd);background:var(--dsw-alias-interactive-bg-hover,#303036)}\n.xhbrowser-header-trigger:focus-visible{outline:2px solid currentColor;outline-offset:2px}\n.xhbrowser-header-trigger[aria-expanded=\"true\"]{color:var(--dsw-alias-label-primary,#ddd)}\n.xhbrowser-dock-icon{display:block;flex:none}\n.xhbrowser-dock-panel{opacity:0;transition:opacity 180ms ease-out}\n.xhbrowser-dock-chevron{transform-box:fill-box;transform-origin:center;transform:rotate(0deg);transition:transform 180ms ease-out}\n.xhbrowser-header-trigger[aria-expanded=\"true\"] .xhbrowser-dock-panel{opacity:.1}\n.xhbrowser-header-trigger[aria-expanded=\"true\"] .xhbrowser-dock-chevron{transform:rotate(180deg)}\n@media(prefers-reduced-motion:reduce){.xhbrowser-dock-chevron,.xhbrowser-dock-panel{transition:none}}\n.xhbrowser-pane{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base,#1c1c1e);color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-icon{display:inline-grid;place-items:center;flex:none;width:29px;height:29px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#aaa);cursor:pointer}.xhbrowser-icon:hover:not(:disabled){color:var(--dsw-alias-label-primary,#fff);background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-icon:disabled{opacity:.35;cursor:default}\n.xhbrowser-toolbar{display:flex;align-items:center;gap:4px;flex:none;height:49px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}.xhbrowser-address-form{display:flex;align-items:center;gap:8px;flex:1;min-width:0;height:31px;padding:0 10px;margin-left:3px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;background:var(--dsw-alias-bg-layer-2,#2b2b30);color:var(--dsw-alias-label-tertiary,#aaa)}.xhbrowser-address-form:focus-within{border-color:var(--dsw-alias-label-primary,#eee)}.xhbrowser-address-form input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px}.xhbrowser-address-form input::placeholder{color:var(--dsw-alias-label-tertiary,#888)}.xhbrowser-external{display:grid;place-items:center;flex:none;width:28px;height:28px;color:var(--dsw-alias-label-secondary,#aaa);border-radius:6px}.xhbrowser-external:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-content{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;background:var(--dsw-alias-bg-base,#1c1c1e)}.xhbrowser-empty{text-align:center;max-width:320px;padding:28px}.xhbrowser-empty-mark{display:grid;place-items:center;margin:0 auto 18px;width:66px;height:66px;border:1px solid var(--dsw-alias-border-l2,#404047);border-radius:18px;color:var(--dsw-alias-label-secondary,#bbb);background:var(--dsw-alias-bg-layer-2,#252529)}.xhbrowser-empty h2{margin:0 0 8px;font-size:15px;font-weight:600}.xhbrowser-empty p{margin:0;color:var(--dsw-alias-label-tertiary,#999);font-size:12px;line-height:1.7;overflow-wrap:anywhere}.xhbrowser-open-link{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:7px;color:var(--dsw-alias-label-primary,#eee);font-size:12px;text-decoration:none}.xhbrowser-open-link:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-error{padding:7px 16px;color:var(--dsw-alias-state-error-primary,#e87979);font-size:11px}\n.xhbrowser-pane{position:relative}\n.xhbrowser-toolbar{gap:8px;height:54px;padding:0 12px}\n.xhbrowser-nav{display:flex;align-items:center;gap:1px;flex:none;padding:2px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:11px;background:var(--dsw-alias-bg-layer-2,#29292e)}\n.xhbrowser-nav .xhbrowser-icon{width:27px;height:27px}\n.xhbrowser-address-form{height:34px;margin:0;border-radius:11px;padding:0 12px}\n.xhbrowser-address-form input{text-align:left;font-size:12px}\n.xhbrowser-more{display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-secondary,#aaa);font-size:16px;line-height:1;cursor:pointer}\n.xhbrowser-more:hover,.xhbrowser-more[aria-expanded=true]{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-menu{position:absolute;right:12px;top:49px;z-index:30;display:flex;flex-direction:column;min-width:164px;padding:5px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);box-shadow:0 12px 30px #0003}\n.xhbrowser-menu button,.xhbrowser-menu a{display:block;padding:8px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px;text-align:left;text-decoration:none;cursor:pointer}\n.xhbrowser-menu button:hover:not(:disabled),.xhbrowser-menu a:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}.xhbrowser-menu button:disabled{opacity:.42;cursor:default}\n.xhbrowser-content-home{display:block}\n.xhbrowser-home{box-sizing:border-box;max-width:560px;margin:0 auto;padding:26px 22px 40px}\n.xhbrowser-home-section{margin:0 0 29px}.xhbrowser-home-section h2{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}\n.xhbrowser-tools button{min-height:46px;padding:0 14px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12px;text-align:left;cursor:pointer}\n.xhbrowser-tools button:hover,.xhbrowser-recents button:hover{background:var(--dsw-alias-interactive-bg-hover,#35353a)}\n.xhbrowser-recents{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:11px;overflow:hidden}\n.xhbrowser-recents button{display:flex;align-items:center;gap:10px;min-width:0;min-height:47px;padding:7px 10px;border:0;border-bottom:1px solid var(--dsw-alias-border-l2,#444);background:transparent;color:var(--dsw-alias-label-primary,#eee);font:inherit;text-align:left;cursor:pointer}\n.xhbrowser-recents button:last-child{border-bottom:0}.xhbrowser-site-mark{display:grid;place-items:center;flex:none;width:29px;height:29px;border-radius:7px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-tertiary,#999)}\n.xhbrowser-site-label{display:flex;flex-direction:column;min-width:0;gap:1px}.xhbrowser-site-label strong,.xhbrowser-site-label small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhbrowser-site-label strong{font-size:12px;font-weight:500}.xhbrowser-site-label small{font-size:10px;color:var(--dsw-alias-label-tertiary,#999)}\n.xhbrowser-home-hint{margin:2px 0 0;color:var(--dsw-alias-label-tertiary,#999);font-size:11px;line-height:1.6}\n.xhbrowser-pane :is(button,input,a):focus-visible{outline:2px solid var(--dsw-alias-label-primary,#eee);outline-offset:2px}\n.xhbrowser-pane{container-type:inline-size}\n.xhbrowser-toolbar{height:58px;gap:6px;padding:0 10px}\n.xhbrowser-nav,.xhbrowser-actions{display:flex;align-items:center;flex:none;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:999px;background:var(--dsw-alias-bg-layer-2,#29292e)}\n.xhbrowser-nav{gap:0;padding:2px 3px}.xhbrowser-actions{gap:0;padding:2px 3px}\n.xhbrowser-nav-divider{width:1px;height:17px;margin:0 2px;background:var(--dsw-alias-border-l2,#444)}\n.xhbrowser-nav .xhbrowser-icon,.xhbrowser-actions .xhbrowser-icon{width:26px;height:27px;border-radius:999px}\n.xhbrowser-annotate{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:34px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:999px;background:var(--dsw-alias-bg-layer-2,#29292e);color:var(--dsw-alias-label-secondary,#aaa);font:inherit;font-size:12px}\n.xhbrowser-annotate:disabled{cursor:not-allowed;opacity:.58}\n.xhbrowser-address-form{height:34px;border-radius:999px;padding:0 8px;min-width:0}\n.xhbrowser-address-form input{text-align:center;text-overflow:ellipsis;font-size:12px}\n.xhbrowser-address-form:focus-within input{text-align:left;text-overflow:clip}\n.xhbrowser-download{color:#3b83e8}.xhbrowser-download:hover:not(:disabled){color:#2266d4}\n.xhbrowser-more{width:33px;height:33px;border-radius:999px}\n.xhbrowser-menu,.xhbrowser-downloads{top:54px}\n.xhbrowser-downloads{position:absolute;right:46px;z-index:30;box-sizing:border-box;width:min(280px,calc(100% - 28px));padding:12px;border:1px solid var(--dsw-alias-border-l2,#444);border-radius:12px;background:var(--dsw-alias-bg-layer-2,#29292e);box-shadow:0 12px 30px #0003;font-size:12px}\n.xhbrowser-downloads>strong{display:block;margin-bottom:9px}.xhbrowser-downloads>div{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-top:1px solid var(--dsw-alias-border-l2,#444)}.xhbrowser-downloads>div span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.xhbrowser-downloads small{flex:none;color:var(--dsw-alias-label-tertiary,#999)}.xhbrowser-downloads p{margin:0;color:var(--dsw-alias-label-tertiary,#999)}\n@container(max-width:420px){.xhbrowser-annotate{width:33px;padding:0}.xhbrowser-annotate span{display:none}}\n@container(max-width:390px){.xhbrowser-toolbar{gap:4px;padding:0 7px}.xhbrowser-nav .xhbrowser-icon,.xhbrowser-actions .xhbrowser-icon{width:23px}.xhbrowser-more,.xhbrowser-annotate{width:29px}.xhbrowser-home{padding:22px 16px}.xhbrowser-tools{grid-template-columns:1fr}}\n/* Reserve the border outside the child WebView's measured rectangle: native\n   views cannot be overlaid with renderer CSS. No layout shift while active. */\n.xhbrowser-pane[data-model-observer=true]{border:2px solid transparent;transition:border-color 120ms ease-out}\n.xhbrowser-pane[data-model-active=true]{border-color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-model-activity{display:inline-grid;place-items:center;flex:none;width:18px;color:var(--dsw-alias-label-primary,#eee)}\n.xhbrowser-model-activity[data-active=false]{visibility:hidden}\n.xhbrowser-activity-label{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}\n@media(prefers-reduced-motion:reduce){.xhbrowser-pane[data-model-observer=true]{transition:none}}\n.xhbrowser-annotate[aria-pressed=true]{color:var(--dsw-alias-label-primary,#fff);border-color:#5689ff;background:#5689ff22}\n.xhbrowser-pick-notice{flex:none;padding:7px 12px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary,#bbb);border-bottom:1px solid var(--dsw-alias-border-l1,#34343a)}\n.xhbrowser-headless-address{flex:1;min-width:0;border:0;background:transparent;color:inherit;padding:8px;font:inherit}\n.xhbrowser-headless-canvas{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--background-secondary,#202020);overflow:hidden}\n.xhbrowser-headless-canvas img{display:block;width:100%;height:100%;object-fit:contain}\n.xhbrowser-headless-canvas p{padding:24px;color:var(--text-secondary,#999);font-size:13px}\n.xhbrowser-headless-footer{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;font-size:11px;color:var(--text-secondary,#999)}\n";
 
 },
 "src/modules/browser/file-display/FilePane.css": function(module, exports, require) {
@@ -1855,9 +1875,154 @@ function listenComposerFiles(sessionId, accept) {
     return () => window.removeEventListener(EVENT, listener);
 }
 
+},
+"src/modules/browser/headless-preview.js": function(module, exports, require) {
+// source: src/modules/browser/headless-preview.tsx
+
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.HeadlessPreview = HeadlessPreview;
+const React = __importStar(require("react"));
+const runtime_types_1 = require("../shared/runtime-types");
+const { createElement: h, useEffect, useRef, useState } = React;
+let previewReadInFlight = false;
+/** One request at a time. Hiding/unmounting releases preview only, never the page. */
+function HeadlessPreview(props) {
+    const { item, sessionId, open } = props;
+    const current = useRef(props);
+    current.current = props;
+    const initial = item.entries[item.position] ?? '';
+    const [draft, setDraft] = useState(initial);
+    const [image, setImage] = useState('');
+    const [error, setError] = useState('');
+    const [opening, setOpening] = useState(false);
+    useEffect(() => setDraft(initial), [initial]);
+    useEffect(() => {
+        if (!open || !sessionId || !item.id.startsWith('headless:')) {
+            setImage('');
+            return;
+        }
+        let disposed = false, timer, running = false;
+        const poll = async () => {
+            if (disposed || running || document.hidden)
+                return;
+            if (previewReadInFlight) {
+                timer = setTimeout(poll, 1000);
+                return;
+            }
+            running = true;
+            previewReadInFlight = true;
+            try {
+                const native = window.__TAURI__;
+                if (!native)
+                    throw Error('后台浏览器需要桌面客户端');
+                const raw = (0, runtime_types_1.objectValue)(await native.core.invoke('desktop_headless_preview', { owner: sessionId, tabId: item.id }));
+                if (disposed)
+                    return;
+                if (raw.busy !== true) {
+                    if (raw.tabId !== item.id || raw.mime !== 'image/jpeg' || raw.width !== 640 || raw.height !== 360 || typeof raw.image !== 'string' || raw.image.length > 2 * 1024 * 1024)
+                        throw Error('无效的浏览器预览');
+                    setImage(`data:image/jpeg;base64,${raw.image}`);
+                    setError('');
+                    if (typeof raw.url === 'string' && raw.url.length <= 4096 && raw.url !== current.current.item.entries[current.current.item.position]) {
+                        try {
+                            const url = new URL(raw.url);
+                            if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) {
+                                const entries = [...current.current.item.entries.slice(-49), url.href];
+                                current.current.onUpdate({ entries, position: entries.length - 1, title: typeof raw.title === 'string' ? raw.title.slice(0, 160) : url.hostname });
+                            }
+                        }
+                        catch { /* Untrusted guest address is not executable UI. */ }
+                    }
+                }
+            }
+            catch (problem) {
+                if (!disposed)
+                    setError(String(problem));
+            }
+            finally {
+                running = false;
+                previewReadInFlight = false;
+                if (!disposed && !document.hidden)
+                    timer = setTimeout(poll, 1000);
+            }
+        };
+        const visibility = () => { clearTimeout(timer); if (!document.hidden)
+            void poll(); };
+        document.addEventListener('visibilitychange', visibility);
+        void poll();
+        return () => { disposed = true; clearTimeout(timer); document.removeEventListener('visibilitychange', visibility); };
+    }, [item.id, sessionId, open]);
+    const navigate = async (event) => {
+        event.preventDefault();
+        if (opening || !sessionId)
+            return;
+        let url;
+        try {
+            url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(draft) ? draft : `${/^(localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(draft) ? 'http' : 'https'}://${draft}`);
+            if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+                throw Error('invalid');
+        }
+        catch {
+            setError('请输入有效的 http/https 网址');
+            return;
+        }
+        const native = window.__TAURI__;
+        if (!native)
+            return;
+        setOpening(true);
+        setError('');
+        try {
+            const result = (0, runtime_types_1.objectValue)(await native.core.invoke('desktop_headless_control', { owner: sessionId, arguments: { action: 'open', url: url.href } }));
+            if (result.ok !== true)
+                throw Error('页面未打开');
+        }
+        catch (problem) {
+            setError(String(problem));
+        }
+        finally {
+            setOpening(false);
+        }
+    };
+    return h('section', { className: 'xhbrowser-pane', 'aria-label': '后台浏览器预览', 'data-headless-preview': true }, h('form', { className: 'xhbrowser-toolbar', onSubmit: navigate }, h('input', { className: 'xhbrowser-headless-address', 'aria-label': '后台浏览器网址', value: draft, onChange: (e) => setDraft(e.currentTarget.value), placeholder: '输入网址' }), h('button', { type: 'submit', disabled: opening || !sessionId }, opening ? '打开中…' : '打开'), h('button', { type: 'button', onClick: () => current.current.onClose(), 'aria-label': '关闭当前后台网页' }, '×')), error && h('p', { className: 'xhbrowser-error', role: 'alert' }, error), h('div', { className: 'xhbrowser-headless-canvas' }, image ? h('img', { src: image, alt: '当前后台浏览器页面预览，收起侧栏不会停止任务', draggable: false }) : h('p', null, item.id.startsWith('headless:') ? '等待页面预览…' : '使用本机 Chrome／Edge，独立后台会话')), h('footer', { className: 'xhbrowser-headless-footer' }, '预览 · 收起后 AI 仍可操作', props.onNative && h('button', { type: 'button', onClick: props.onNative }, '使用原生 WebView')));
+}
+
 }
 };
-const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"}};
+const __dependencies = {"src/modules/browser/index.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","./Browser.css":"src/modules/browser/Browser.css","./file-display/FilePane.css":"src/modules/browser/file-display/FilePane.css","./file-display/FilePane":"src/modules/browser/file-display/FilePane.js","./file-display/client":"src/modules/browser/file-display/client.js","../shared/generated/file-display":"src/modules/shared/generated/file-display.js","./model-activity":"src/modules/browser/model-activity.js","./component-picker":"src/modules/browser/component-picker.js","./headless-preview":"src/modules/browser/headless-preview.js"},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/Browser.css":{},"src/modules/browser/file-display/FilePane.css":{},"src/modules/browser/file-display/FilePane.js":{"../../shared/generated/file-display":"src/modules/shared/generated/file-display.js","../../shared/file-types":"src/modules/shared/file-types.js","./DiffPreview":"src/modules/browser/file-display/DiffPreview.js","./client":"src/modules/browser/file-display/client.js"},"src/modules/shared/generated/file-display.js":{},"src/modules/shared/file-types.js":{},"src/modules/browser/file-display/DiffPreview.js":{"./diff":"src/modules/browser/file-display/diff.js"},"src/modules/browser/file-display/diff.js":{"../../shared/diff/hunks":"src/modules/shared/diff/hunks.js"},"src/modules/shared/diff/hunks.js":{},"src/modules/browser/file-display/client.js":{"../../shared/file-inspection":"src/modules/shared/file-inspection.js","../../client-runtime/workspaces/path":"src/modules/client-runtime/workspaces/path.js","../../shared/file-types":"src/modules/shared/file-types.js","../../shared/generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/shared/file-inspection.js":{"./generated/file-display":"src/modules/shared/generated/file-display.js"},"src/modules/client-runtime/workspaces/path.js":{},"src/modules/browser/model-activity.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/component-picker.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js","../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/browser/headless-preview.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;
