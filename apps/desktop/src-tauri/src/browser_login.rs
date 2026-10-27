@@ -18,7 +18,7 @@ pub(super) async fn read(view: &Webview, url: Url) -> Result<Vec<Cookie<'static>
     view.with_webview(move |handle| macos::read(handle, url, tx, permit))
         .map_err(|_| "native login state dispatch unavailable")?;
     rx.await
-        .map_err(|_| "native login state callback unavailable".into())?
+        .map_err(|_| String::from("native login state callback unavailable"))?
 }
 
 #[cfg(not(target_os = "macos"))]
