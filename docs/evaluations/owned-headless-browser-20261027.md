@@ -159,3 +159,17 @@ profile cleanup and owned-process reaping both passing. Full logs are in
 `dist/review-preview-managed-tree-20261027/`. Fresh exact-head macOS and Windows
 CI are still mandatory. These Linux results do not establish that the previously
 reproduced Mac failure has been resolved on Mac.
+
+## Integration after the mobile-layout merge
+
+After #399 merged, combined the native-session branch's rebuilt mobile assets
+with this background-browser branch. Only generated manifest/graph/HTML files
+conflicted; all were regenerated from the combined source, not selected by hash.
+The native/headless Rust sources are unchanged from the managed-tree validation
+above. Source browser-activity and 24 conversation tests passed. On WZU_Server,
+Chromium and WebKit each passed model-control lifecycle/preview/hidden-owner/
+close/single-flight checks (mock native transport), the actual-runtime browser
+dock fixture, and all 20 light/dark composer viewport cases including Stop,
+Queue, Send, draft/caret, menus and Goal/Todo controls. No page errors occurred
+in the dock fixtures. Fresh cross-platform CI for this integrated head remains
+required before merging.
