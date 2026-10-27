@@ -272,7 +272,10 @@ export function AppFrame({
   // Insets belong inside the existing tracks so drag handles and workspace
   // concessions keep their geometry. SidebarRoot freezes its content width
   // during collapse, so give it the surface's inner width, not the track width.
-  const regionInset = viewport <= 600 ? 4 : 8
+  // Narrow viewports drop the per-column card entirely (AppFrame.css), so the
+  // surface fills its track: the inset has to agree or the drawer would reserve
+  // a gutter it no longer renders.
+  const regionInset = viewport <= 600 ? 0 : 8
   const sidebarDrawerWidth = Math.min(viewport - 24, panels.sidebar === 0 ? SIDEBAR_DEFAULT : clampWidth(panels.sidebar,264,420))
   const sidebarContentWidth = (sidebarDrawer ? sidebarDrawerWidth : cols.sidebar) - (sidebarCollapsed ? 0 : regionInset * (sidebarDrawer ? 2 : 1) + 2)
   const colsRef = useRef(cols)
