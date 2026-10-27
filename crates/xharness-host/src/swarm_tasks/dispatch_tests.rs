@@ -281,10 +281,21 @@ async fn swarm_auto_dispatch_real_listener_progresses_dependencies_only_after_ac
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
                 let snapshot = host.state.read().await.swarms[team].clone();
-                if crate::swarm_tasks::evidence::attempt(host, &snapshot.tasks[task])
-                    .await
-                    .unwrap()
-                    .is_some()
+                // The listener can finish the model turn before committing its
+                // Delivered revision. Reviewing the earlier snapshot is a valid
+                // CAS conflict, not a broken control log.
+                let delivered = matches!(
+                    snapshot.tasks[task].state,
+                    SwarmTaskState::Assigned {
+                        delivered: true,
+                        ..
+                    }
+                );
+                if delivered
+                    && crate::swarm_tasks::evidence::attempt(host, &snapshot.tasks[task])
+                        .await
+                        .unwrap()
+                        .is_some()
                 {
                     break;
                 }

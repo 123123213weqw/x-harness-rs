@@ -73,3 +73,20 @@ Host sidecar solely to satisfy Tauri packaging prerequisites; the native probe
 starts no Host or model. Interrupted/failed source transfers are not validation.
 
 Implementation references: [pinned Wry GTK backend](https://github.com/tauri-apps/wry/blob/wry-v0.55.1/src/webkitgtk/mod.rs), [GTK overlay placement](https://docs.gtk.org/gtk3/signal.Overlay.get-child-position.html). No vendored dependency source was modified.
+
+## Review follow-up (2026-10-27)
+
+Reconciled with current master (`98ba4c30`) without editing the original dirty
+research checkout. The unrelated Swarm CI blockers used TurnEnd as if it also
+proved a committed Delivered marker and an idle driver. Tests now wait for those
+separate facts before issuing a revision-sensitive review or an unrelated send;
+the 15-second deadlines, exact execution-reference assertions and CAS rules are
+unchanged. Shared Host validation on WZU_Server: 470 passed, 8 existing explicit
+opt-in tests ignored, all-target warning-denying Clippy passed, and 30 subsequent
+rounds of all 29 Swarm tests passed. This is not a production scheduling change.
+
+For this reconciled viewport source, WZU_Server desktop library passed 92 tests,
+all-target tests and Clippy passed, and the genuine Tauri/WebKitGTK probe passed
+all core/lifecycle/subframe/production-input/fit-pixel/cleanup gates in 16.587s.
+Exact-head Mac and Windows CI are still required. The PR remains a draft until
+those gates actually pass; no installed app was touched.
