@@ -173,3 +173,49 @@ dock fixture, and all 20 light/dark composer viewport cases including Stop,
 Queue, Send, draft/caret, menus and Goal/Todo controls. No page errors occurred
 in the dock fixtures. Fresh cross-platform CI for this integrated head remains
 required before merging.
+
+## CI follow-up: input-triggered blocked-navigation settlement
+
+The GUI candidate's existing server-browser `origin` gate failed at head
+`0fc56d1e`: after clicking a forbidden link, its pending Chromium error-page
+commit interrupted the next allowed navigation. The forbidden origin still
+received zero requests; the failure was command sequencing, not permission
+relaxation. The existing rejected-`goto` settlement did not cover successful
+input dispatch that initiated a later navigation.
+
+The same event-based main-document barrier now covers semantic clicks, coordinate
+clicks, targeted key presses and page-level key presses. A bounded constant
+renderer read orders input dispatch before checking navigation events. This was
+necessary: an initial event-observer-only patch still reproduced the problem on
+real page-level Enter input, whose request arrived after dispatch returned.
+Readback and future commit/load settlement share the existing two-second bound;
+no fixed sleep, effect replay, deadline increase or origin-policy exception was
+added. Non-navigation input has one renderer read but no terminal-load wait;
+failed input without navigation preserves its error without waiting. Late
+site-initiated autonomous navigation is not promised away.
+
+Validation after source synchronization on WZU_Server:
+
+- Before the production correction, five new deterministic assertions failed.
+  The final navigation suite passes all **19** tests, including readback ordering,
+  context invalidation, an unresponsive readback, close/listener cleanup and
+  truthful bounded failures.
+- Five preplanned additional mixed-input stability rounds pass: **60** forbidden
+  link inputs across semantic click, targeted Enter, page Enter and screenshot-
+  bound coordinate click, followed by exactly one recovery navigation each.
+  Actual request counts prohibit replay; the forbidden server receives zero
+  requests. Each targeted round runs one real case, not the whole suite.
+- The unchanged full server gates pass: **24** engine cases, **6** stdio cases,
+  **30** legacy checks, with current source/build provenance. Gate and policy
+  mutation tests remain enrolled; required cases and assertions were not removed.
+- Chromium and WebKit each pass **243** fixed native DOM contract checks. These
+  are browser-script checks, not the native Tauri callback seam.
+
+Full final log: `dist/merge-reviewed-20261027/heartbeat-20261027-1026/input-final-server.log`.
+The first unsuccessful observer-only experiment and original CI failure remain
+alongside it. A local negative-name-filter experiment unintentionally selected
+real-engine tests without an installed cached browser; its owned test process was
+stopped and fixture startup cleanup was corrected. It is not counted as a pass.
+The successful real-engine runs above took place only in the isolated Linux
+checkout. No model credentials, installed app or user conversations were used.
+Fresh exact-head cross-platform CI is still required before merging this PR.

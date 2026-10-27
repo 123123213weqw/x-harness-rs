@@ -259,18 +259,18 @@ export class BrowserUseEngine {
     if (!(await stat(candidate)).isFile()) throw new Error("Upload requires a regular file");
     return candidate;
   }
-  private async navigateSettled(page: Page, operation: () => Promise<unknown>): Promise<void> {
+  private async navigateSettled(page: Page, operation: () => Promise<unknown>, settleStartedNavigation = false): Promise<void> {
     // A rejected Chromium navigation can still be committing its error document.
     // waitForLoadState may read the PREVIOUS document's already-loaded state.
     // Observe a future main-frame commit/load instead; never replay the effect.
-    let committed = false, loaded = false;
+    let requestedMain = false, committed = false, loaded = false;
     let wake: (() => void) | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const notify = () => { const current = wake; wake = undefined; current?.(); };
     const requested = (request: import("playwright").Request) => {
       if (!request.isNavigationRequest()) return;
       try { if (request.frame() !== page.mainFrame()) return; } catch { return; }
-      committed = false; loaded = false; notify();
+      requestedMain = true; committed = false; loaded = false; notify();
     };
     const navigated = (frame: Frame) => {
       if (frame !== page.mainFrame()) return;
@@ -281,17 +281,35 @@ export class BrowserUseEngine {
     page.on("framenavigated", navigated);
     page.on("load", completed);
     page.on("close", notify);
-    try { await operation(); }
-    catch (error) {
+    try {
+      let failed = false, originalError: unknown;
+      try { await operation(); } catch (error) { failed = true; originalError = error; }
+      // Native click/key dispatch can succeed before a denied navigation has
+      // committed its error page. That future commit must not cancel the next
+      // explicit goto. No-navigation input stays immediate; never replay input.
       const deadline = performance.now() + 2000;
-      while (!loaded && !page.isClosed()) {
-        const remaining = deadline - performance.now();
-        if (remaining <= 0) break;
-        await new Promise<void>(resolve => { wake = resolve; timer = setTimeout(resolve, remaining); });
-        if (timer) clearTimeout(timer);
-        timer = undefined; wake = undefined;
+      if (settleStartedNavigation && !failed) {
+        try {
+          // keyboard.press/mouse.click can acknowledge dispatch before their
+          // default navigation is delivered. One bounded renderer read orders
+          // that dispatch before checking request/commit events; no fixed sleep.
+          await Promise.race([page.evaluate(() => 0), new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("Input readback did not settle; observe before another effect")), Math.max(0, deadline - performance.now()));
+          })]);
+        } catch (error) { if (!requestedMain) throw error; }
+        finally { if (timer) clearTimeout(timer); timer = undefined; }
       }
-      throw error;
+      if ((!settleStartedNavigation && failed) || (settleStartedNavigation && requestedMain)) {
+        while (!loaded && !page.isClosed()) {
+          const remaining = deadline - performance.now();
+          if (remaining <= 0) break;
+          await new Promise<void>(resolve => { wake = resolve; timer = setTimeout(resolve, remaining); });
+          if (timer) clearTimeout(timer);
+          timer = undefined; wake = undefined;
+        }
+      }
+      if (failed) throw originalError;
+      if (settleStartedNavigation && requestedMain && !loaded) throw new Error("Input navigation did not settle; observe the page before another effect");
     } finally {
       if (timer) clearTimeout(timer);
       page.off("request", requested);
@@ -559,7 +577,10 @@ export class BrowserUseEngine {
         if (!continuation) for (const captured of shot.geometry) if (captured.frame.isDetached() || captured.stamp !== await captured.frame.evaluate(documentGeometry)) throw new Error("Screenshot layout changed; capture again");
         if (!Number.isFinite(command.x) || !Number.isFinite(command.y) || command.x < 0 || command.y < 0 || command.x >= shot.width || command.y >= shot.height) throw new Error("Coordinates outside screenshot viewport");
         beginEffect();
-        if (command.operation === "click") await tab.page.mouse.click(command.x, command.y, { button: command.button ?? "left" });
+        if (command.operation === "click") {
+          const page = tab.page;
+          await this.navigateSettled(page, () => page.mouse.click(command.x, command.y, { button: command.button ?? "left" }), true);
+        }
         else if (command.operation === "move") await tab.page.mouse.move(command.x, command.y);
         else {
           await tab.page.mouse.move(command.x, command.y);
@@ -574,12 +595,15 @@ export class BrowserUseEngine {
         beginEffect();
         if (target) { await target.scrollIntoViewIfNeeded(); const bounds = await target.boundingBox(); if (!bounds) throw new Error("Target has no visible bounds"); await tab.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2); }
         await tab.page.mouse.wheel(command.x ?? 0, command.y); delete tab.screenshot;
-      } else if (command.action === "press" && !command.target) { beginEffect(); await tab.page.keyboard.press(command.key); delete tab.screenshot; }
+      } else if (command.action === "press" && !command.target) {
+        beginEffect(); const page = tab.page;
+        await this.navigateSettled(page, () => page.keyboard.press(command.key), true); delete tab.screenshot;
+      }
       else if ("target" in command && command.target) {
         const target = await this.resolveTarget(tab, command.target);
         if (command.action === "click") {
           await target.click({ trial: true, button: command.button ?? "left", clickCount: command.clickCount ?? 1 });
-          beginEffect(); await target.click({ button: command.button ?? "left", clickCount: command.clickCount ?? 1 });
+          beginEffect(); await this.navigateSettled(tab.page, () => target.click({ button: command.button ?? "left", clickCount: command.clickCount ?? 1 }), true);
         } else if (command.action === "drag") {
           const destination = await this.resolveTarget(tab, command.destination);
           await target.click({ trial: true });
@@ -594,7 +618,7 @@ export class BrowserUseEngine {
           } finally { await tab.page.mouse.up(); }
         } else if (command.action === "fill") { if (!await target.isEditable()) throw new Error("Target is not editable"); beginEffect(); await target.fill(command.text); }
         else if (command.action === "type") { await target.click({ trial: true }); beginEffect(); await target.click(); await target.type(command.text); }
-        else if (command.action === "press") { beginEffect(); await target.press(command.key); }
+        else if (command.action === "press") { beginEffect(); await this.navigateSettled(tab.page, () => target.press(command.key), true); }
         else if (command.action === "hover") { beginEffect(); await target.hover(); }
         else if (command.action === "selectOption") { beginEffect(); const values = await target.selectOption(command.values); const selected = values.slice(0, 20).map(value => value.slice(0, 120)); result = { values: selected, total: values.length, truncated: selected.length !== values.length || values.some(value => value.length > 120) }; }
         else if (command.action === "check") { beginEffect(); await target.setChecked(command.checked); }
