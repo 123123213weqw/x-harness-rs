@@ -63,10 +63,16 @@ def main():
             if line.startswith('BENCH_REPLY '):responses.put(json.loads(line[len('BENCH_REPLY '):]))
         responses.put(None)
     threading.Thread(target=read,daemon=True).start()
+    transcript=(args.output/'protocol.jsonl').open('w')
+    def compact(value):
+        if isinstance(value,dict):return {key:('<image bytes omitted>' if key in ['image','png_base64'] and isinstance(item,str) else compact(item)) for key,item in value.items()}
+        if isinstance(value,list):return [compact(item) for item in value]
+        return value
     def call(op,arguments=None,owner='acceptance-owner',allow_error=False):
         nonlocal seq
         seq+=1;process.stdin.write(json.dumps({'seq':seq,'op':op,'args':arguments or {},'owner':owner})+'\n');process.stdin.flush()
         reply=responses.get(timeout=45);assert reply is not None and reply['seq']==seq,reply
+        transcript.write(json.dumps({'op':op,'arguments':arguments or {},'owner':owner,'reply':compact(reply)})+'\n');transcript.flush()
         if not allow_error:assert reply['ok'],reply
         return reply['result'] if reply['ok'] else reply
     proofs=[];cases=[];passed=False
@@ -127,7 +133,7 @@ def main():
         assert not call('preview',{'tab_id':tab},owner='other-chat',allow_error=True)['ok'];cases.append('preview owner isolation')
         frame=call('observe');preview=preview_until(tab)
         with Image.open(io.BytesIO(base64.b64decode(preview['image'],validate=True))) as jpeg:assert jpeg.size==(640,360)
-        receipt=call('input',{'action':'click','frame_id':frame['frame_id'],'x':100,'y':92});assert receipt['effect']=='applied'
+        receipt=call('input',{'action':'click','frame_id':frame['frame_id'],'x':100,'y':92});assert receipt['effect']=='applied',receipt
         observe_state('Count:1 ');capture(1,'expanded.png');cases.append('preview leaves model frame actionable')
         repeated=call('input',{'action':'click','frame_id':frame['frame_id'],'x':100,'y':92});assert repeated['effect']=='not_started';cases.append('consumed frame replay denied')
         click(100,242);observe_state('Child:1 Enter:0');click(300,92)
@@ -179,7 +185,7 @@ def main():
             process.stdin.close()
             try:process.wait(timeout=5)
             except subprocess.TimeoutExpired:process.terminate();process.wait(timeout=5)
-        fixture.close();log.close()
+        fixture.close();log.close();transcript.close()
         receipt={'passed':passed,'model_calls':0,'scope':'real installed browser + production Rust manager; no installed app/Host or LLM','cases':cases,'proofs':proofs,'exit_code':process.returncode}
         (args.output/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
         print(json.dumps({'passed':passed,'cases':len(cases),'screenshots':len(proofs)}))

@@ -877,7 +877,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-browser-probe-macos-arm64
-          path: apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe
+          path: |
+            apps/desktop/src-tauri/target/debug/examples/browser-inspect-probe
+            apps/desktop/src-tauri/target/debug/examples/headless-browser-probe
           if-no-files-found: warn
           retention-days: 3
       - name: Build installable macOS application
