@@ -219,3 +219,31 @@ stopped and fixture startup cleanup was corrected. It is not counted as a pass.
 The successful real-engine runs above took place only in the isolated Linux
 checkout. No model credentials, installed app or user conversations were used.
 Fresh exact-head cross-platform CI is still required before merging this PR.
+
+## Extension-master integration and prior-head macOS evidence
+
+PR #391 merged as `1b2e68f9982dae60afc443beb6815b30dc06b92c` after its full
+exact-head CI succeeded. Integrating it into this branch produced one source
+conflict in browser boundary guidance. The resolution preserves both the
+preferred chat-owned background browser and explicit WebView selection, plus
+the extension's Host-owned conversation identity and per-tab/origin authority.
+The guidance regression now checks that neither backend's selection or
+authorization rule disappears. No generated UI assets conflicted or changed.
+
+After synchronizing the combined source to WZU_Server, the Host-app library
+suite passed **155** tests with four existing opt-in cases ignored, and all-target
+Clippy passed with warnings denied. The prepared real extension MCP opt-in test
+also passed separately (**1** case): its native launcher and JS were built from
+this synchronized source. Extension Node tests passed **31** cases with the
+Windows-only ACL case skipped on Linux; that skip is not Windows validation.
+Log: `dist/merge-reviewed-20261027/heartbeat-20261027-1113/404-with391-host-app.log`.
+
+The previous head `4625b436a90f5062cb4e7655c592910ec4c12edd` also completed its
+actual macOS arm64 CI job `122143373337` successfully in run `40490444606`.
+It passed real owned-browser acceptance (**14** cases, **21** screenshots),
+plus native WebView standard/overlay-titlebar probes. These are native Mac
+results, unlike the earlier Linux/mocked checks. They establish success only
+for that previous head. The newly integrated head still requires fresh full CI,
+including actual macOS and Windows gates, before merge; #403 must merge first.
+The original stale-geometry failure and unsuccessful experiments remain recorded.
+No installed application, user profile or active conversation was changed.

@@ -4,6 +4,8 @@
 mod browser_boundary;
 #[cfg(test)]
 mod browser_e2e;
+#[cfg(test)]
+mod extension_e2e;
 mod media;
 
 use std::{sync::Arc, time::Duration};
@@ -114,8 +116,42 @@ fn call_output(result: Value) -> Result<ToolOutput, ToolHandlerError> {
     }
 }
 
-fn config(spec: McpServerSpec) -> Result<StdioServerConfig, ToolHandlerError> {
-    let env = spec.resolved_env().map_err(error)?;
+fn config(
+    mut spec: McpServerSpec,
+    owner: &str,
+    store: &std::path::Path,
+) -> Result<StdioServerConfig, ToolHandlerError> {
+    spec.env.retain(|name, _| {
+        !name
+            .to_ascii_uppercase()
+            .starts_with("XHARNESS_BROWSER_CONTEXT_")
+    });
+    let mut env = spec.resolved_env().map_err(error)?;
+    // Reserved identity comes from the executing Host, never plugin configuration
+    // or model arguments. Include the store namespace to isolate local instances.
+    if spec.plugin == browser_boundary::EXTENSION_PLUGIN && spec.server == "browser" {
+        use sha2::{Digest, Sha256};
+        let namespace = std::fs::canonicalize(store).map_err(error)?;
+        let mut hash = Sha256::new();
+        hash.update(namespace.to_string_lossy().as_bytes());
+        hash.update([0]);
+        hash.update(owner.as_bytes());
+        env.insert(
+            "XHARNESS_BROWSER_CONTEXT_ID".into(),
+            format!("{:x}", hash.finalize()),
+        );
+        env.insert(
+            "XHARNESS_BROWSER_CONTEXT_LABEL".into(),
+            format!(
+                "XHarness · {}",
+                owner
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(64)
+                    .collect::<String>()
+            ),
+        );
+    }
     Ok(StdioServerConfig {
         plugin: spec.plugin,
         server: spec.server,
@@ -176,6 +212,13 @@ fn spec(
                     if plugins.iter().any(|plugin| plugin == browser_boundary::HEADLESS_PLUGIN) {
                         if let Some(manager) = &manager {
                             if let Some(capability) = browser_boundary::headless_capability(manager).await {
+                                capabilities.push(capability);
+                            }
+                        }
+                    }
+                    if plugins.iter().any(|plugin| plugin == browser_boundary::EXTENSION_PLUGIN) {
+                        if let Some(manager) = &manager {
+                            if let Some(capability) = browser_boundary::extension_capability(manager).await {
                                 capabilities.push(capability);
                             }
                         }
@@ -255,7 +298,7 @@ fn spec(
                         return Ok(ToolOutput::text(json!({"plugin":plugin,"servers":previews.iter().map(|p| &p.server).collect::<Vec<_>>()}).to_string()));
                     }
                     let server = server.ok_or_else(|| error("server required"))?;
-                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
+                    let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
                     let tools = runtime.list_tools_with_lease(&owner, &config, &lease).await.map_err(error)?;
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
@@ -272,7 +315,7 @@ fn spec(
                 let server = args.get("server").and_then(Value::as_str).ok_or_else(|| error("server required"))?;
                 let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                 let parameters = args.get("arguments").and_then(Value::as_object).cloned().unwrap_or_else(Map::new);
-                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?)?;
+                let config = config(manager.mcp_server(plugin, server).await.map_err(error)?, &owner, manager.storage_root())?;
                 let call = runtime.call_tool_with_lease(&owner, &config, tool, parameters, &lease);
                 tokio::select! {
                     result = call => media::project(result.map_err(error)?, media.as_deref(), &context.cancellation).await,
@@ -291,6 +334,53 @@ fn spec(
 mod tests {
     use super::*;
     use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+
+    #[test]
+    fn extension_identity_is_host_owned_stable_and_store_scoped() {
+        let root = std::env::temp_dir().join(format!("xh-binding-{}", std::process::id()));
+        let other = root.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        let spec = McpServerSpec {
+            plugin: "browser-extension".into(),
+            server: "browser".into(),
+            digest: "fixture".into(),
+            command: "node".into(),
+            args: vec![],
+            cwd: root.clone(),
+            env: std::collections::BTreeMap::from([
+                (
+                    "XHARNESS_BROWSER_CONTEXT_ID".into(),
+                    "${UNSET_UNTRUSTED_SELECTOR}".into(),
+                ),
+                ("xharness_browser_context_label".into(), "spoof".into()),
+                ("NORMAL".into(), "kept".into()),
+            ]),
+        };
+        let one = config(spec.clone(), "chat-a", &root).unwrap();
+        assert_eq!(one.env["NORMAL"], "kept");
+        assert!(!one.env.contains_key("xharness_browser_context_label"));
+        let key = "XHARNESS_BROWSER_CONTEXT_ID";
+        assert_eq!(one.env[key].len(), 64);
+        assert_eq!(
+            one.env[key],
+            config(spec.clone(), "chat-a", &root).unwrap().env[key]
+        );
+        assert_ne!(
+            one.env[key],
+            config(spec.clone(), "chat-b", &root).unwrap().env[key]
+        );
+        assert_ne!(
+            one.env[key],
+            config(spec.clone(), "chat-a", &other).unwrap().env[key]
+        );
+        let mut unrelated = spec;
+        unrelated.plugin = "other".into();
+        assert!(!config(unrelated, "chat-a", &root)
+            .unwrap()
+            .env
+            .contains_key(key));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[tokio::test]
     async fn absent_bridge_does_not_advertise_a_browser_or_inject_schemas() {

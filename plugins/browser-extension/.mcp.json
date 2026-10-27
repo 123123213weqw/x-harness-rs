@@ -1,0 +1,1 @@
+{"mcpServers":{"browser":{"type":"stdio","command":"node","args":["${PLUGIN_ROOT}/dist/native/mcp.js"]}}}

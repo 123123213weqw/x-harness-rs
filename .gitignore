@@ -21,3 +21,6 @@ __pycache__/
 
 # Browser Use is an optional source-built plugin, not a checked-in bundle.
 /plugins/browser-use/dist/
+
+# Optional browser extension packages are built deterministically from TypeScript.
+/plugins/browser-extension/dist/

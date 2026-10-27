@@ -1,5 +1,6 @@
 [package]
 name = "xharness-host-app"
+default-run = "xharness-host"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +10,10 @@ description = "Native Linux, macOS and Windows composition and Web executable fo
 [[bin]]
 name = "xharness-host"
 path = "src/main.rs"
+
+[[bin]]
+name = "xharness-browser-extension-host"
+path = "src/browser_extension_host.rs"
 
 [dependencies]
 axum.workspace = true
