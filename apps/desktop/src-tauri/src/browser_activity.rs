@@ -15,6 +15,9 @@ pub(super) enum Operation {
     Perform,
     Screenshot,
     Input,
+    Request,
+    #[serde(rename = "read_response")]
+    ReadResponse,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -67,6 +70,15 @@ impl<F: Fn(&ActivityEvent)> Drop for Activity<F> {
 mod tests {
     use super::*;
     use std::{cell::RefCell, time::Duration};
+
+    #[test]
+    fn response_reads_use_the_same_operation_name_as_the_tool_and_ui() {
+        assert_eq!(serde_json::to_value(Operation::Request).unwrap(), "request");
+        assert_eq!(
+            serde_json::to_value(Operation::ReadResponse).unwrap(),
+            "read_response"
+        );
+    }
 
     #[test]
     fn overlapping_calls_have_distinct_ids_and_finish_only_their_own_tab() {

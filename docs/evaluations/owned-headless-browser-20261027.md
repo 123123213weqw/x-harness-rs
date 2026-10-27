@@ -98,3 +98,23 @@ warning-denying Clippy passed, and installed Chrome passed all 14 real-manager
 cases including 100 hidden input/screenshot cycles (101 RGB-verified PNGs plus
 the scroll PNG). macOS/Windows exact-head CI is still required; the Mac CDP
 mechanism experiment is not a claim that the complete app passed on Mac.
+
+## Joint native-login / background-browser integration
+
+This branch now includes the native-login request branch as a dependency, so CI
+compiles the combination rather than relying on two individually green PRs.
+The private bridge explicitly rejects `request` and `read_response` on the
+background backend before accessing native WebView state. Host rejects those
+calls before opening the bridge socket as well. Background discovery selects
+exactly control/observe/perform/screenshot/input by name, not a positional zip
+that would accidentally expose WebView-only login tools after the native catalog
+grows. Shared schemas are compared by tool name; native login remains available
+only on its explicit backend. Both production examples register both adapters.
+
+Combined validation on WZU_Server: desktop all-target tests and warning-denying
+Clippy passed; Host application library passed 153 tests with 3 existing opt-in
+ignores, and all-target Clippy passed. New tests verify the exact five-tool
+background surface, unchanged shared schemas, early no-connection rejection of
+login tools and no native-login fall-through. No cookies are moved between the
+isolated background instance and the native WebView. Exact-head cross-platform
+CI is still required before merging.

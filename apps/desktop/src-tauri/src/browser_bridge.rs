@@ -51,6 +51,9 @@ enum Operation {
     Perform,
     Screenshot,
     Input,
+    Request,
+    #[serde(rename = "read_response")]
+    ReadResponse,
 }
 
 fn matches_token(provided: &str, expected: &str) -> bool {
@@ -178,14 +181,7 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
 
 async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     if matches!(request.backend, Backend::Browser) {
-        let op = match request.op {
-            Operation::List => "list",
-            Operation::Control => "control",
-            Operation::Observe => "observe",
-            Operation::Perform => "perform",
-            Operation::Screenshot => "screenshot",
-            Operation::Input => "input",
-        };
+        let op = headless_operation(&request.op)?;
         let closing = request.arguments["action"] == "close";
         let result = app
             .state::<crate::headless_browser::Browsers>()
@@ -244,6 +240,8 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         Operation::Perform => crate::browser_activity::Operation::Perform,
         Operation::Screenshot => crate::browser_activity::Operation::Screenshot,
         Operation::Input => crate::browser_activity::Operation::Input,
+        Operation::Request => crate::browser_activity::Operation::Request,
+        Operation::ReadResponse => crate::browser_activity::Operation::ReadResponse,
         Operation::List | Operation::Control => unreachable!(),
     };
     let _activity =
@@ -253,6 +251,13 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             let _ = app.emit_to("main", "xharness-browser-activity", event);
         });
     match request.op {
+        Operation::Request => {
+            crate::browser_request::request(&state, &tab, &request.owner, request.arguments).await
+        }
+        Operation::ReadResponse => {
+            crate::browser_request::read_response(&state, &tab, &request.owner, request.arguments)
+                .await
+        }
         Operation::Screenshot => {
             if request.arguments != json!({}) {
                 return Err("screenshot takes no arguments".into());
@@ -301,6 +306,19 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     }
 }
 
+// Reject WebView-only login requests before touching either backend's state.
+fn headless_operation(operation: &Operation) -> Result<&'static str, String> {
+    match operation {
+        Operation::List => Ok("list"),
+        Operation::Control => Ok("control"),
+        Operation::Observe => Ok("observe"),
+        Operation::Perform => Ok("perform"),
+        Operation::Screenshot => Ok("screenshot"),
+        Operation::Input => Ok("input"),
+        Operation::Request | Operation::ReadResponse => Err("login requests are supported only by the explicitly selected WebView backend; no cookies were transferred".into()),
+    }
+}
+
 fn rejected_action(message: &str) -> Value {
     json!({"ok":false,"effect":"not_started","message":message.chars().take(500).collect::<String>()})
 }
@@ -316,6 +334,16 @@ fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn headless_routing_never_falls_through_to_native_login_state() {
+        for operation in [Operation::Request, Operation::ReadResponse] {
+            assert!(headless_operation(&operation)
+                .unwrap_err()
+                .contains("WebView"));
+        }
+        assert_eq!(headless_operation(&Operation::Input).unwrap(), "input");
+        assert_eq!(headless_operation(&Operation::Observe).unwrap(), "observe");
+    }
     #[test]
     fn malformed_control_is_unstarted_and_does_not_echo_private_input() {
         for arguments in [

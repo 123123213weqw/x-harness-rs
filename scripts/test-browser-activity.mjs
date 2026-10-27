@@ -36,6 +36,8 @@ const event=(patch={})=>({id:'1',backend:'embedded',owner:'chat-a',tabId:'browse
   assert.equal(counts.at(-1),0)
   send({id:'151'})
   assert.equal(counts.at(-1),1,'a newer invocation still illuminates the page after tombstone eviction')
+  send({id:'152',operation:'request'});send({id:'153',operation:'read_response'})
+  assert.equal(counts.at(-1),3,'HTTP and cached reads use the existing scoped activity indicator')
   stop()
   assert.equal(counts.at(-1),0,'unmount/chat/tab switch clears local presentation')
   assert.equal(stops,1)

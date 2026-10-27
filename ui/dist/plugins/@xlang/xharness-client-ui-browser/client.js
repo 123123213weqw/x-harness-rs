@@ -1737,7 +1737,7 @@ function activityEvent(raw) {
     if (value.backend !== 'embedded' || typeof value.id !== 'string' || !/^[1-9]\d{0,19}$/.test(value.id)
         || typeof value.owner !== 'string' || !value.owner || value.owner.length > 128
         || typeof value.tabId !== 'string' || !/^[A-Za-z0-9:_-]{1,64}$/.test(value.tabId)
-        || typeof value.operation !== 'string' || !['open', 'close', 'observe', 'perform', 'screenshot', 'input'].includes(value.operation)
+        || typeof value.operation !== 'string' || !['open', 'close', 'observe', 'perform', 'screenshot', 'input', 'request', 'read_response'].includes(value.operation)
         || (value.phase !== 'started' && value.phase !== 'finished'))
         return;
     return { id: value.id, owner: value.owner, tabId: value.tabId, phase: value.phase };

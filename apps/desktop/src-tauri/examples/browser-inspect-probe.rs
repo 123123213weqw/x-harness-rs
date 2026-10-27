@@ -14,12 +14,16 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_login.rs"]
+mod browser_login;
 #[path = "../src/browser_native/mod.rs"]
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 #[path = "../src/browser_picker.rs"]
 mod browser_picker;
+#[path = "../src/browser_request.rs"]
+mod browser_request;
 #[path = "../src/headless_browser/mod.rs"]
 #[allow(dead_code)]
 mod headless_browser;
@@ -31,6 +35,8 @@ mod native_api;
 mod native_startup;
 #[path = "probe_support/readiness.rs"]
 mod readiness;
+#[path = "probe_support/session_request.rs"]
+mod session_request;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -1297,6 +1303,7 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
         #[cfg(not(windows))]
         return Err("Windows bounds fixture cannot certify another native backend".into());
     }
+    session_request::run(app).await?;
     lifecycle_probe(app, &url).await?;
     subframe_navigation_probe(app).await?;
     let main = app.get_webview("main").ok_or("missing main view")?;
