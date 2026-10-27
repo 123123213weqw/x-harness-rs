@@ -42,6 +42,9 @@ enum Operation {
     Perform,
     Screenshot,
     Input,
+    Request,
+    #[serde(rename = "read_response")]
+    ReadResponse,
 }
 
 fn matches_token(provided: &str, expected: &str) -> bool {
@@ -214,6 +217,8 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
         Operation::Perform => crate::browser_activity::Operation::Perform,
         Operation::Screenshot => crate::browser_activity::Operation::Screenshot,
         Operation::Input => crate::browser_activity::Operation::Input,
+        Operation::Request => crate::browser_activity::Operation::Request,
+        Operation::ReadResponse => crate::browser_activity::Operation::ReadResponse,
         Operation::List | Operation::Control => unreachable!(),
     };
     let _activity =
@@ -223,6 +228,13 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
             let _ = app.emit_to("main", "xharness-browser-activity", event);
         });
     match request.op {
+        Operation::Request => {
+            crate::browser_request::request(&state, &tab, &request.owner, request.arguments).await
+        }
+        Operation::ReadResponse => {
+            crate::browser_request::read_response(&state, &tab, &request.owner, request.arguments)
+                .await
+        }
         Operation::Screenshot => {
             if request.arguments != json!({}) {
                 return Err("screenshot takes no arguments".into());

@@ -13,12 +13,16 @@ mod browser_delegation;
 mod browser_inspect;
 #[path = "../src/browser_lifecycle.rs"]
 mod browser_lifecycle;
+#[path = "../src/browser_login.rs"]
+mod browser_login;
 #[path = "../src/browser_native/mod.rs"]
 mod browser_native;
 #[path = "../src/browser_perform.rs"]
 mod browser_perform;
 #[path = "../src/browser_picker.rs"]
 mod browser_picker;
+#[path = "../src/browser_request.rs"]
+mod browser_request;
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
 #[path = "../src/native_startup.rs"]
