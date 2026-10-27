@@ -5,7 +5,7 @@ import{command,httpOrigin,mayMutate,MAX_WIRE}from'../dist/protocol.js'
 import{framed,lines}from'../dist/native/common.js'
 import{registrationTarget,install}from'../scripts/install-native.mjs'
 test('closed command union rejects raw CDP, eval, tab overrides and malformed fields',()=>{
- for(const value of [{action:'eval',script:'document.cookie'},{action:'click',tabId:1,observationId:'a',ref:'b',code:'x'},{action:'tabs',tabId:1},{action:'navigate',tabId:1,url:'javascript:alert(1)'},{action:'navigate',tabId:1,url:'https://a:b@example.com'},{action:'press',tabId:1,key:'LaunchApplication1'},{action:'fill',tabId:1,observationId:'a',ref:'b',text:'x'.repeat(8193)},{action:'observe',tabId:-1},{action:'observe',tabId:1.1}])assert.throws(()=>command(value))
+ for(const value of [{action:'eval',script:'document.cookie'},{action:'click',tabId:1,observationId:'a',ref:'b',code:'x'},{action:'tabs',tabId:1},{action:'navigate',tabId:1,url:'javascript:alert(1)'},{action:'navigate',tabId:1,url:'https://a:b@example.com'},{action:'press',tabId:1,key:'LaunchApplication1'},{action:'fill',tabId:1,observationId:'a',ref:'b',text:'x'.repeat(8193)},{action:'observe',tabId:-1},{action:'observe',tabId:1.1},{action:'observe',tabId:1,cursor:''},{action:'observe',tabId:1,cursor:32},{action:'screenshot',tabId:1,cursor:'x'}])assert.throws(()=>command(value))
  assert.deepEqual(command({action:'fill',tabId:1,observationId:'a',ref:'n0',text:'中文 😀'}),{action:'fill',tabId:1,observationId:'a',ref:'n0',text:'中文 😀'})
  assert.equal(httpOrigin('https://example.com/path?secret=x'),'https://example.com')
  assert.equal(mayMutate(command({action:'observe',tabId:1})),false)

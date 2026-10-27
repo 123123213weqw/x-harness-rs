@@ -4,7 +4,7 @@ export const MAX_WIRE = 4 * 1024 * 1024
 export const MAX_TEXT = 16_000
 export type Command =
   | {action:'status'} | {action:'tabs'} | {action:'stop'}
-  | {action:'observe';tabId:number} | {action:'screenshot';tabId:number}
+  | {action:'observe';tabId:number;cursor?:string} | {action:'screenshot';tabId:number}
   | {action:'navigate';tabId:number;url:string}
   | {action:'click';tabId:number;observationId:string;ref:string}
   | {action:'fill';tabId:number;observationId:string;ref:string;text:string}
@@ -36,12 +36,13 @@ export function httpOrigin(value:unknown):string {
 export function command(value:unknown):Command {
   const input=object(value),action=text(input.action,20)
   const fields=action==='status'||action==='tabs'||action==='stop'?['action']:
-    action==='navigate'?['action','tabId','url']:action==='click'?['action','tabId','observationId','ref']:
+    action==='observe'?['action','tabId','cursor']:action==='navigate'?['action','tabId','url']:action==='click'?['action','tabId','observationId','ref']:
     action==='fill'?['action','tabId','observationId','ref','text']:action==='press'?['action','tabId','key']:['action','tabId']
   if(Object.keys(input).some(key=>!fields.includes(key)))throw Error('Unknown command field')
   if(action==='status'||action==='tabs'||action==='stop')return {action}
   const target=tabId(input.tabId)
-  if(action==='observe'||action==='screenshot')return {action,tabId:target}
+  if(action==='observe')return input.cursor===undefined?{action,tabId:target}:{action,tabId:target,cursor:id(input.cursor)}
+  if(action==='screenshot')return {action,tabId:target}
   if(action==='navigate'){const url=text(input.url,4096);httpOrigin(url);return {action,tabId:target,url}}
   if(action==='click'||action==='fill'){
     const base={tabId:target,observationId:id(input.observationId),ref:id(input.ref)}
@@ -58,8 +59,9 @@ const targetSchema={type:'integer',minimum:0,description:'A tab ID returned by t
 const observationSchema={type:'string',maxLength:64,description:'Latest observe observationId; expires after 30 seconds and is consumed by click/fill.'}
 const refSchema={type:'string',maxLength:64,description:'One node ref from that observation, not a selector or coordinate.'}
 export const schema={type:'object',oneOf:[
+  {type:'object',additionalProperties:false,properties:{action:{const:'observe'},tabId:targetSchema,cursor:{type:'string',maxLength:64,description:'Follow nextCursor until null. Paging replaces old refs; DOM changes or 30s expiry require restarting without cursor.'}},required:['action','tabId']},
   {type:'object',additionalProperties:false,properties:{action:{type:'string',enum:['status','tabs','stop']}},required:['action']},
-  {type:'object',additionalProperties:false,properties:{action:{type:'string',enum:['observe','screenshot']},tabId:targetSchema},required:['action','tabId']},
+  {type:'object',additionalProperties:false,properties:{action:{const:'screenshot'},tabId:targetSchema},required:['action','tabId']},
   {type:'object',additionalProperties:false,properties:{action:{const:'click'},tabId:targetSchema,observationId:observationSchema,ref:refSchema},required:['action','tabId','observationId','ref']},
   {type:'object',additionalProperties:false,properties:{action:{const:'fill'},tabId:targetSchema,observationId:observationSchema,ref:refSchema,text:{type:'string',maxLength:8192}},required:['action','tabId','observationId','ref','text']},
   {type:'object',additionalProperties:false,properties:{action:{const:'press'},tabId:targetSchema,key:{type:'string',enum:KEYS}},required:['action','tabId','key']},

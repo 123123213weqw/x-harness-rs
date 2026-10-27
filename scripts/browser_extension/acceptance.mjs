@@ -95,6 +95,28 @@ try{
  await background.evaluate(()=>{const large=document.createElement('p');large.id='large';large.textContent='中文😀'.repeat(15000);document.body.append(large)})
  const large=unpack(await a.call({action:'observe',tabId:target}));assert.ok(Buffer.byteLength(JSON.stringify(large))<=16000);assert.equal(large.truncated,true)
  await background.locator('#large').evaluate(element=>element.remove());check('large-CJK-observation-has-hard-UTF8-budget')
+ await background.evaluate(()=>{
+  const group=document.createElement('div');group.id='pagination-fixture'
+  for(let i=0;i<70;i++){const button=document.createElement('button');button.textContent='Paged action '+i;button.style.display='block';button.onclick=()=>{window.pagedClicked=i};group.append(button)}
+  const long=document.createElement('p');long.textContent=('中文😀\\\"'.repeat(9000))+'END_OF_LONG_DOCUMENT';group.append(long);document.body.append(group)
+ })
+ const seen=new Set();let cursor,combined='',lastPage,pages=0
+ do{
+  const page=unpack(await a.call({action:'observe',tabId:target,...(cursor?{cursor}:{})}));assert.ok(Buffer.byteLength(JSON.stringify(page))<=16000)
+  combined+=page.text;for(const node of page.nodes)if(node.name.startsWith('Paged action ')){assert.equal(seen.has(node.name),false);seen.add(node.name)}
+  cursor=page.nextCursor;lastPage=page;assert.ok(++pages<100,'pagination must advance and terminate')
+ }while(cursor!==null)
+ assert.equal(seen.size,70);assert.ok(combined.includes('END_OF_LONG_DOCUMENT'));assert.ok(combined.includes('中文😀'));assert.equal(lastPage.truncated,false)
+ let actionable=unpack(await a.call({action:'observe',tabId:target})),oldPage=actionable
+ while(!actionable.nodes.some(node=>node.name==='Paged action 69')){assert.ok(actionable.nextCursor);actionable=unpack(await a.call({action:'observe',tabId:target,cursor:actionable.nextCursor}))}
+ // A previous page cannot target a later page's identical short ref.
+ assert.equal((await a.call({action:'click',tabId:target,observationId:oldPage.observationId,ref:actionable.nodes.find(node=>node.name==='Paged action 69').ref})).isError,true)
+ actionable=unpack(await a.call({action:'observe',tabId:target}));while(!actionable.nodes.some(node=>node.name==='Paged action 69'))actionable=unpack(await a.call({action:'observe',tabId:target,cursor:actionable.nextCursor}))
+ unpack(await a.call({action:'click',tabId:target,observationId:actionable.observationId,ref:actionable.nodes.find(node=>node.name==='Paged action 69').ref}));assert.equal(await background.evaluate(()=>window.pagedClicked),69)
+ const changed=unpack(await a.call({action:'observe',tabId:target}));assert.ok(changed.nextCursor)
+ await background.locator('#pagination-fixture').evaluate(element=>element.setAttribute('data-changed','yes'))
+ assert.equal((await a.call({action:'observe',tabId:target,cursor:changed.nextCursor})).isError,true)
+ await background.locator('#pagination-fixture').evaluate(element=>element.remove());check('bounded-pagination-reaches-offscreen-controls-and-all-Unicode-text-with-stale-cursor-denial')
  assert.equal((await b.call({action:'observe',tabId:target})).isError,true);check('second-client-cannot-read-owned-tab')
  // Terminate only this fixture's native Node helper (exact immutable snapshot path).
  const nativeManifest=JSON.parse(await readFile(native.manifestPath,'utf8'))

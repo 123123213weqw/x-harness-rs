@@ -1,12 +1,29 @@
 /** These fixed functions execute in the extension's isolated world. They capture no module variables. */
-interface ObservationState {id:string;expires:number;elements:Map<string,Element>}
+interface ObservationState {
+  id:string;expires:number;elements:Map<string,Element>;url:string;dirty:boolean;observer:MutationObserver;
+  controls:TreeWalker;texts:TreeWalker;pendingText:string;nodesDone:boolean;textDone:boolean
+}
 declare global {interface Window {__xharnessBrowserObservation?:ObservationState}}
-export function observeDom(observationId:string):{observationId:string;text:string;nodes:{ref:string;role:string;name:string;tag:string}[];truncated:boolean;scope:string} {
-  const nodes:{ref:string;role:string;name:string;tag:string}[]=[],elements=new Map<string,Element>()
-  const encoder=new TextEncoder()
+export function observeDom(observationId:string,cursor:string|null=null):{observationId:string;text:string;nodes:{ref:string;role:string;name:string;tag:string}[];truncated:boolean;nextCursor:string|null;scope:string} {
+  const previous=window.__xharnessBrowserObservation
+  delete window.__xharnessBrowserObservation
+  if(cursor&&(!previous||previous.id!==cursor||Date.now()>previous.expires||previous.dirty||previous.observer.takeRecords().length||previous.url!==location.href)){
+    previous?.observer.disconnect();throw Error('Observation page expired or changed; observe again without cursor')
+  }
+  if(!cursor)previous?.observer.disconnect()
+  const state:ObservationState=cursor&&previous?previous:{id:observationId,expires:Date.now()+30000,elements:new Map(),url:location.href,dirty:false,
+    observer:new MutationObserver(()=>{state.dirty=true}),controls:document.createTreeWalker(document.body??document.documentElement,NodeFilter.SHOW_ELEMENT),
+    texts:document.createTreeWalker(document.body??document.documentElement,NodeFilter.SHOW_TEXT),pendingText:'',nodesDone:false,textDone:false}
+  if(!cursor)state.observer.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
+  state.id=observationId;state.expires=Date.now()+30000;state.elements=new Map()
+  const nodes:{ref:string;role:string;name:string;tag:string}[]=[],encoder=new TextEncoder()
   const clip=(value:string,limit:number):string=>{let out='',bytes=0;for(const char of value){const size=encoder.encode(char).length;if(bytes+size>limit)break;out+=char;bytes+=size}return out}
-  for(const element of document.querySelectorAll('button,a[href],input,textarea,select,[role="button"],[contenteditable="true"]')){
-    if(nodes.length>=64)break
+  // Each page bounds traversal as well as output. Continuation advances both
+  // walkers, so offscreen controls and long documents remain reachable.
+  for(let visited=0;!state.nodesDone&&visited<3000&&nodes.length<64;visited++){
+    const node=state.controls.nextNode();if(!node){state.nodesDone=true;break}
+    if(!(node instanceof Element)||!node.matches('button,a[href],input,textarea,select,[role="button"],[contenteditable="true"]'))continue
+    const element=node
     if(element instanceof HTMLInputElement&&element.type==='password')continue
     const style=getComputedStyle(element)
     if(style.display==='none'||style.visibility!=='visible'||element.getClientRects().length===0||element.closest('[hidden],[inert],[aria-hidden="true"]'))continue
@@ -14,26 +31,36 @@ export function observeDom(observationId:string):{observationId:string;text:stri
     const label=element.getAttribute('aria-label')??(element instanceof HTMLElement?element.innerText:'')??''
     const linked=element.id?Array.from(document.querySelectorAll('label')).find(item=>item.htmlFor===element.id)?.innerText:undefined
     const name=clip(label.trim()||linked||element.getAttribute('placeholder')||element.getAttribute('title')||element.tagName.toLowerCase(),80)
-    nodes.push({ref,role:element.getAttribute('role')??element.tagName.toLowerCase(),name,tag:element.tagName.toLowerCase()});elements.set(ref,element)
+    nodes.push({ref,role:clip(element.getAttribute('role')??element.tagName.toLowerCase(),80),name,tag:clip(element.tagName.toLowerCase(),32)});state.elements.set(ref,element)
+    if(encoder.encode(JSON.stringify(nodes)).length>12000){nodes.pop();state.elements.delete(ref);state.controls.previousNode();break}
   }
-  window.__xharnessBrowserObservation={id:observationId,expires:Date.now()+30000,elements}
-  const walker=document.createTreeWalker(document.body??document.documentElement,NodeFilter.SHOW_TEXT)
-  let body='',visited=0,textTruncated=false,node:Node|null=null
-  while((node=walker.nextNode())&&visited++<3000&&encoder.encode(body).length<8000){
-    const parent=node.parentElement
-    if(!parent||parent.closest('script,style,input,textarea,[hidden],[inert],[aria-hidden="true"]')||getComputedStyle(parent).visibility!=='visible'||parent.getClientRects().length===0)continue
-    const raw=node.textContent??'',part=clip(raw,Math.max(0,8000-encoder.encode(body).length))
-    if(part.length<raw.length)textTruncated=true
-    body+=part+' '
+  const undefinedCursor=():string|null=>null
+  const result={observationId,text:'',nodes,truncated:false,nextCursor:undefinedCursor(),scope:'main-frame; password values excluded; cross-origin frames not traversed'}
+  const budget=Math.min(8000,16000-encoder.encode(JSON.stringify(result)).length-128)
+  let bytes=0
+  for(let visited=0;!state.textDone&&visited<3000&&bytes<budget;visited++){
+    if(!state.pendingText){
+      const node=state.texts.nextNode();if(!node){state.textDone=true;break}
+      const parent=node.parentElement
+      if(!parent||parent.closest('script,style,input,textarea,[hidden],[inert],[aria-hidden="true"]')||getComputedStyle(parent).visibility!=='visible'||parent.getClientRects().length===0)continue
+      state.pendingText=(node.textContent??'')+' '
+    }
+    let part='',partBytes=0
+    for(const char of state.pendingText){const size=encoder.encode(JSON.stringify(char)).length-2;if(partBytes+size>budget-bytes)break;part+=char;partBytes+=size}
+
+    if(!part)break
+    result.text+=part;bytes+=partBytes;state.pendingText=state.pendingText.slice(part.length)
   }
-  const result={observationId,text:clip(body,8000),nodes,truncated:textTruncated||node!==null||nodes.length===64,scope:'main-frame; password values excluded; cross-origin frames not traversed'}
-  while(encoder.encode(JSON.stringify(result)).length>16000){const removed=nodes.pop();if(!removed)throw Error('Observation exceeded byte budget');elements.delete(removed.ref);result.truncated=true}
+  result.truncated=!state.nodesDone||!state.textDone
+  result.nextCursor=result.truncated?observationId:null
+  window.__xharnessBrowserObservation=state
   return result
 }
 export function resolveRef(observationId:string,ref:string,fill:boolean):{x:number;y:number} {
   const state=window.__xharnessBrowserObservation
   // Consume before any focus/scroll/effect. Replaced or removed DOM nodes cannot inherit refs.
   delete window.__xharnessBrowserObservation
+  state?.observer.disconnect()
   if(!state||state.id!==observationId||Date.now()>state.expires)throw Error('Observation expired; observe again')
   const element=state.elements.get(ref)
   if(!(element instanceof HTMLElement)||!element.isConnected)throw Error('Stale element; observe again')
@@ -56,4 +83,4 @@ export function resolveRef(observationId:string,ref:string,fill:boolean):{x:numb
   return {x,y}
 }
 
-export function invalidateObservation():void {delete window.__xharnessBrowserObservation}
+export function invalidateObservation():void {window.__xharnessBrowserObservation?.observer.disconnect();delete window.__xharnessBrowserObservation}

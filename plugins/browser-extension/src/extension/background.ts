@@ -175,7 +175,7 @@ async function execute(clientId:string,op:Command,beforeEffect:()=>void):Promise
   grant.active=true;updateBadge()
   try{
     if(op.action==='observe'){
-      const results=await boundedBrowser(target,()=>chrome.scripting.executeScript({target:{tabId:target},func:observeDom,args:[crypto.randomUUID()]}))
+      const results=await boundedBrowser(target,()=>chrome.scripting.executeScript({target:{tabId:target},func:observeDom,args:[crypto.randomUUID(),op.cursor??null]}))
       current();const result=results[0]?.result;if(!result)throw Error('Page observation unavailable')
       // Raw DOM URLs and input values are not included by the fixed observer.
       return {ok:true,...result}

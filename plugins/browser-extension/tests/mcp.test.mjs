@@ -19,7 +19,7 @@ async function fixture(){
 test('unpaired MCP is discoverable but cannot operate a tab; credentials are private',async()=>{
  const f=await fixture();try{
   assert.equal((await f.call('initialize',{})).result.serverInfo.name,'xharness-browser-extension')
-  const tools=(await f.call('tools/list',{})).result.tools;assert.equal(tools.length,1);assert.equal(tools[0].name,'browser');assert.equal(tools[0].inputSchema.oneOf.length,6);assert.ok(tools[0].inputSchema.oneOf.every(row=>row.additionalProperties===false))
+  const tools=(await f.call('tools/list',{})).result.tools;assert.equal(tools.length,1);assert.equal(tools[0].name,'browser');assert.equal(tools[0].inputSchema.oneOf.length,7);assert.ok(tools[0].inputSchema.oneOf.every(row=>row.additionalProperties===false))
   const status=JSON.parse((await f.call('tools/call',{name:'browser',arguments:{action:'status'}})).result.content[0].text)
   assert.equal(status.connected,false);assert.equal(status.contextId,'a'.repeat(64));assert.equal(status.pairCode,undefined);assert.equal(status.installation.installed,false);assert.equal(JSON.stringify(status).includes(f.entry.token),false)
   assert.equal((await f.call('tools/call',{name:'browser',arguments:{action:'observe',tabId:1}})).result.isError,true)

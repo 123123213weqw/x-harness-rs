@@ -162,3 +162,20 @@ activity and unchanged foreground input, not `document.hidden` under Playwright.
 References: [Native Messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),
 [MV3 lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle),
 [Chrome debugger](https://developer.chrome.com/docs/extensions/reference/api/debugger).
+
+### Bounded observation pages
+
+`observe` returns at most 64 controls and 8,000 text bytes within a 16,000-byte
+JSON budget. Follow `nextCursor` with `{"action":"observe","tabId":123,
+"cursor":"<returned nextCursor>"}` until it is `null`; scrolling alone does not
+advance the page. Each page replaces old `observationId`/refs. DOM changes,
+navigation or 30 seconds of inactivity invalidate a cursor: start again without
+one. Traversal advances over at most 3,000 elements/text nodes per call, rather
+than repeatedly returning the first controls. Password/hidden text exclusions,
+one-shot actions and tab/origin/Host authorization remain unchanged.
+
+Review regression on WZU_Server passed 30 Node contracts and 22 genuine
+Chromium/extension/native-Messaging/MCP checks, including a 70-button document,
+long CJK/emoji/escaped text, actionable offscreen control 70, old-page ref
+rejection and mutation-invalidated continuation. This is Linux browser evidence,
+not native Mac/Windows or installed-user-browser acceptance.
