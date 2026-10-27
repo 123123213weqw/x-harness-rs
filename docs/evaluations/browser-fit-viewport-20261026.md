@@ -130,3 +130,43 @@ all assertions stay unchanged. A Node regression checks that exact save policy,
 all required diagnostic/stress gates, absence of continue-on-error, and the
 unchanged deadline; mutation checks reject cache-save, timeout and missing-gate
 regressions. Fresh exact-head Windows CI is required to validate the workflow fix.
+
+## Integration with the merged extension and native-session master
+
+Reconciled with actual master `8c098c50f71770108e59b95bba176e5fd936fc64`
+after #391 and #403 merged. The probe registration conflict retains **both**
+`viewport_probe` and `session_request`, and both awaited run calls. The three
+generated manifest/graph/HTML conflicts were rebuilt from combined source.
+No hash was selected by hand.
+
+An initial isolated desktop build lacked a staged Host sidecar and did not reach
+tests. After building the real Host from the same synchronized source and staging
+it plus system ripgrep, all-target compilation exposed a real integration error:
+the newly imported session-request probe still called the pre-viewport three-
+argument `desktop_browser_bounds`. It now passes `None` for its normal responsive
+viewport. The production API and both probes' assertions were not weakened.
+Original failed logs remain in `dist/merge-reviewed-20261027/heartbeat-20261027-1134/`.
+
+The corrected synchronized source passed on WZU_Server:
+
+- Desktop all-target tests: 100 library, 46 browser-inspect example, six Host-
+  recovery example and 43 native-browser-bench tests; all-target Clippy with
+  warnings denied; actual browser-inspect probe build.
+- Real isolated Tauri/WebKitGTK probe in **17.602 seconds**: native core, lifecycle,
+  subframe, production-input and fit-viewport pixel gates, plus profile cleanup,
+  all passed. The fit receipt verifies three narrow panes and responsive restore.
+  The unchanged session-request probe also executes in that same native run.
+- Chromium and WebKit each passed the UI native-bridge race/visibility fixture
+  and actual-runtime dock fixture (their Tauri transport is mocked, not native).
+  A first local browser attempt had no installed Mac Playwright executable and is
+  not counted as passed; the successful browser runs were isolated on WZU_Server.
+- Repository UI rebuild, typechecking, activity tests, 24 conversation tests and
+  the fit-evidence verifier unit test passed; formatting and architecture passed.
+
+Logs are `401-final-master-rust-native.log`, `401-integrated-browser-fixtures.log`
+and `401-integrated-source-tests.log` under that snapshot directory. Native PNGs
+and receipts are retained in `401-native-linux-evidence/`. Only documentation was
+added after executable-source validation. This is **Linux** evidence, not fresh
+Mac/Windows certification. The integrated head remains draft and must pass fresh
+full exact-head CI before merge. The earlier intermittent Windows interrupt
+failure still has no established root-cause fix. No installed software changed.

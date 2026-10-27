@@ -56,6 +56,7 @@ impl InspectRequest {
 #[derive(Default)]
 pub(super) struct Inspector {
     pub(super) gate: Mutex<()>,
+    pub(super) responses: crate::browser_request::Responses,
     pub(super) picker: StdMutex<Option<crate::browser_picker::Lease>>,
     pub(super) navigation_epoch: AtomicU64,
     pub(super) delegation: crate::browser_delegation::Delegation,
@@ -71,6 +72,7 @@ struct Frame {
 
 impl Inspector {
     pub(super) fn invalidate(&self) {
+        self.responses.clear();
         self.navigation_epoch.fetch_add(1, Ordering::SeqCst);
     }
 
