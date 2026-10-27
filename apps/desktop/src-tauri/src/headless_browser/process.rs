@@ -171,7 +171,7 @@ pub struct Process {
     _profile: Option<tempfile::TempDir>,
     pub cdp: Cdp,
     // Preview cancellation must not tear down the session holding emulation.
-    pub preview_cdp: Cdp,
+    pub preview_cdp: std::sync::Arc<tokio::sync::Mutex<Cdp>>,
 }
 impl Process {
     pub async fn launch(binary: &std::path::Path) -> Result<Self, String> {
@@ -197,7 +197,7 @@ impl Process {
             child: Some(child),
             _profile: Some(profile),
             cdp: Cdp::new(String::new()),
-            preview_cdp: Cdp::new(String::new()),
+            preview_cdp: std::sync::Arc::new(tokio::sync::Mutex::new(Cdp::new(String::new()))),
         };
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
@@ -277,7 +277,7 @@ impl Process {
             .await
             .map_err(|_| "browser startup timed out")??;
         process.cdp = Cdp::new(endpoint.clone());
-        process.preview_cdp = Cdp::new(endpoint);
+        process.preview_cdp = std::sync::Arc::new(tokio::sync::Mutex::new(Cdp::new(endpoint)));
         process.cdp.call("Emulation.setDeviceMetricsOverride", json!({"width":1280,"height":720,"deviceScaleFactor":1,"mobile":false,"dontSetVisibleSize":false})).await?;
         // No download tool is exposed: deny writes to the user's Downloads.
         process
@@ -422,27 +422,39 @@ mod tests {
 #[cfg(test)]
 mod cancellation_tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[tokio::test]
-    async fn cancelled_preview_keeps_the_exact_control_session_and_frame() {
+    async fn preview_wait_timeout_keeps_one_read_alive_and_control_unblocked() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let captures = Arc::new(AtomicUsize::new(0));
+        let observed_captures = captures.clone();
         let server = tokio::spawn(async move {
             let mut peers = Vec::new();
             for connection in 1..=2 {
                 let (stream, _) = listener.accept().await.unwrap();
+                let captures = captures.clone();
                 peers.push(tokio::spawn(async move {
                     let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
                     while let Some(Ok(Message::Text(text))) = socket.next().await {
                         let command: Value = serde_json::from_str(&text).unwrap();
-                        if command["method"] == "Page.getLayoutMetrics" {
-                            // Deterministically exceed the read-only preview deadline.
-                            tokio::time::sleep(Duration::from_millis(200)).await;
-                        }
-                        let reply = json!({"id":command["id"],"result":{"result":{"value":format!("control-session-{connection}")}}});
-                        if socket.send(Message::Text(reply.to_string().into())).await.is_err() {
-                            break;
-                        }
+                        let result = match command["method"].as_str().unwrap() {
+                            "Page.getLayoutMetrics" => json!({"visualViewport":{"pageX":0,"pageY":0,"scale":1}}),
+                            "Page.captureScreenshot" => {
+                                captures.fetch_add(1, Ordering::SeqCst);
+                                tokio::time::sleep(Duration::from_millis(700)).await;
+                                json!({"data":"synthetic-image-transport"})
+                            }
+                            "Runtime.evaluate" if connection == 1 => json!({"result":{"value":"control-session-1"}}),
+                            "Runtime.evaluate" => json!({"result":{"value":"{\"url\":\"http://fixture/\",\"title\":\"Fixture\"}"}}),
+                            other => panic!("unexpected method {other}"),
+                        };
+                        let reply = json!({"id":command["id"],"result":result});
+                        if socket.send(Message::Text(reply.to_string().into())).await.is_err() { break; }
                     }
                 }));
             }
@@ -454,28 +466,55 @@ mod cancellation_tests {
             child: None,
             _profile: None,
             cdp: Cdp::new(endpoint.clone()),
-            preview_cdp: Cdp::new(endpoint),
+            preview_cdp: Arc::new(tokio::sync::Mutex::new(Cdp::new(endpoint))),
         };
         let stamp = process.cdp.evaluate("geometry".into()).await.unwrap();
-        assert_eq!(stamp, "control-session-1");
-        let mut instance = super::super::Instance {
+        let browsers = super::super::Browsers::default();
+        let slot = browsers.slot("owner", true).await.unwrap();
+        *slot.id.lock().unwrap() = Some("fixture".into());
+        *slot.instance.lock().await = Some(super::super::Instance {
             process,
             id: "fixture".into(),
+            release: None,
             frame: Some(super::super::Frame {
                 id: "observed".into(),
                 stamp: stamp.as_str().unwrap().into(),
                 created: std::time::Instant::now(),
             }),
-            release: None,
-        };
-        assert!(
-            tokio::time::timeout(Duration::from_millis(30), instance.screenshot(true))
-                .await
-                .is_err()
+        });
+        assert_eq!(
+            browsers.preview("owner", "fixture").await.unwrap()["busy"],
+            true
         );
-        // Exercise the production frame guard, not just independent socket objects.
-        instance.consume("observed").await.unwrap();
-        drop(instance);
+        // An in-flight preview must neither own the instance lock nor consume
+        // the model frame. The delayed capture remains one request, not replay.
+        tokio::time::timeout(Duration::from_millis(200), async {
+            slot.instance
+                .lock()
+                .await
+                .as_mut()
+                .unwrap()
+                .consume("observed")
+                .await
+                .unwrap();
+        })
+        .await
+        .unwrap();
+        let image = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let result = browsers.preview("owner", "fixture").await.unwrap();
+                if result["busy"] != true {
+                    break result;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(image["width"], 640);
+        assert_eq!(observed_captures.load(Ordering::SeqCst), 1);
+        slot.instance.lock().await.take();
+        drop(slot);
+        drop(browsers);
         server.await.unwrap();
     }
 }

@@ -33,6 +33,7 @@ struct Slot {
     pending: AtomicBool,
     id: std::sync::Mutex<Option<String>>,
     instance: Mutex<Option<Instance>>,
+    preview: Mutex<Option<tokio::task::JoinHandle<Result<Value, String>>>>,
 }
 struct OpenLease(Arc<Slot>);
 impl Drop for OpenLease {
@@ -179,7 +180,7 @@ impl Browsers {
                 if arguments != json!({}) {
                     return Err("screenshot takes no arguments".into());
                 }
-                instance.screenshot(false).await
+                instance.screenshot().await
             }
             "perform" => instance.perform(arguments).await,
             "input" => instance.input(arguments).await,
@@ -277,27 +278,48 @@ impl Browsers {
     }
     /// Only an explicit visible-preview request captures JPEG; no hidden timer
     /// exists in Rust. Skip a busy control operation rather than queue behind it.
-    pub async fn preview(&self, owner: &str, tab: &str) -> Result<Value, String> {
+    pub async fn preview(&self, owner: &str, expected: &str) -> Result<Value, String> {
         let slot = self.slot(owner, false).await?;
-        let Ok(mut guard) = slot.instance.try_lock() else {
+        if slot.retired.load(Ordering::SeqCst)
+            || slot
+                .id
+                .lock()
+                .map_err(|_| "browser identity unavailable")?
+                .as_deref()
+                != Some(expected)
+        {
+            return Err("preview target closed".into());
+        }
+        let Ok(mut pending) = slot.preview.try_lock() else {
             return Ok(json!({"busy":true}));
         };
-        let instance = guard
-            .as_mut()
-            .filter(|i| i.id == tab)
-            .ok_or("preview target is closed or belongs to another chat")?;
+        if pending.is_none() {
+            let Ok(guard) = slot.instance.try_lock() else {
+                return Ok(json!({"busy":true}));
+            };
+            let instance = guard.as_ref().ok_or("preview target closed")?;
+            if instance.release.is_some() {
+                return Ok(json!({"busy":true}));
+            }
+            let cdp = instance.process.preview_cdp.clone();
+            let id = instance.id.clone();
+            // The spawned read owns its connection until completion. Timing out
+            // only the caller's wait must not cancel an in-flight screenshot:
+            // Chrome can reset global emulation if that session disconnects.
+            *pending = Some(tokio::spawn(async move {
+                preview_image(&mut *cdp.lock().await, &id).await
+            }));
+        }
+        let task = pending.as_mut().ok_or("preview read unavailable")?;
+        let result = match tokio::time::timeout(Duration::from_millis(350), task).await {
+            Err(_) => return Ok(json!({"busy":true})),
+            Ok(result) => result.map_err(|_| "preview read unavailable".to_owned()),
+        };
+        pending.take();
         if slot.retired.load(Ordering::SeqCst) {
             return Err("preview target closed".into());
         }
-        if instance.release.is_some() {
-            return Ok(json!({"busy":true}));
-        }
-        // A single slow preview must not hold model control behind an eight-
-        // second CDP timeout. Only a read is abandoned; no input is replayed.
-        match tokio::time::timeout(Duration::from_millis(350), instance.screenshot(true)).await {
-            Ok(result) => result,
-            Err(_) => Ok(json!({"busy":true})),
-        }
+        result?
     }
 }
 impl Instance {
@@ -403,23 +425,10 @@ impl Instance {
         )
         .map_err(|_| "action result invalid; effect unknown".into())
     }
-    async fn screenshot(&mut self, preview: bool) -> Result<Value, String> {
-        if !preview {
-            self.frame = None;
-        }
-        let before = if preview {
-            None
-        } else {
-            Some(self.stamp().await?)
-        };
-        // Emulation belongs to a CDP session, not the page. Cancelling a slow
-        // preview must drop only its read connection; dropping model control
-        // would reset the CSS viewport (observed as 720 -> 633 on macOS).
-        let cdp = if preview {
-            &mut self.process.preview_cdp
-        } else {
-            &mut self.process.cdp
-        };
+    async fn screenshot(&mut self) -> Result<Value, String> {
+        self.frame = None;
+        let before = self.stamp().await?;
+        let cdp = &mut self.process.cdp;
         let metrics = cdp.call("Page.getLayoutMetrics", json!({})).await?;
         let viewport = &metrics["visualViewport"];
         let x = viewport["pageX"].as_f64().ok_or("missing viewport x")?;
@@ -428,35 +437,11 @@ impl Instance {
             .as_f64()
             .filter(|scale| *scale > 0.0 && *scale <= 10.0)
             .ok_or("invalid viewport scale")?;
-        let mut options = json!({"format":if preview {"jpeg"}else{"png"},"optimizeForSpeed":true,"captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x,"y":y,"width":1280.0/scale,"height":720.0/scale,"scale":scale*if preview{0.5}else{1.0}}});
-        if preview {
-            options["quality"] = json!(65);
-        }
-        let image = cdp.call("Page.captureScreenshot", options).await?;
+        let image = cdp.call("Page.captureScreenshot", json!({"format":"png","optimizeForSpeed":true,"captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x,"y":y,"width":1280.0/scale,"height":720.0/scale,"scale":scale}})).await?;
         let data = image["data"]
             .as_str()
-            .filter(|data| {
-                data.len()
-                    <= if preview {
-                        2 * 1024 * 1024
-                    } else {
-                        11 * 1024 * 1024
-                    }
-            })
+            .filter(|data| data.len() <= 11 * 1024 * 1024)
             .ok_or("browser image exceeds budget")?;
-        if preview {
-            let info = cdp
-                .evaluate(
-                    "JSON.stringify({url:location.href,title:document.title.slice(0,160)})".into(),
-                )
-                .await?;
-            let info: Value =
-                serde_json::from_str(info.as_str().ok_or("preview page unavailable")?)
-                    .map_err(|_| "preview page unavailable")?;
-            return Ok(
-                json!({"image":data,"mime":"image/jpeg","width":640,"height":360,"viewport":{"width":1280,"height":720},"tabId":self.id,"url":info["url"],"title":info["title"]}),
-            );
-        }
         use base64::Engine;
         let header = base64::engine::general_purpose::STANDARD
             .decode(data.get(..32).ok_or("incomplete PNG")?)
@@ -468,7 +453,7 @@ impl Instance {
         {
             return Err("browser screenshot did not preserve full viewport".into());
         }
-        let stamp = before.ok_or("missing screenshot geometry")?;
+        let stamp = before;
         if self.stamp().await? != stamp {
             return Err("screenshot geometry changed; capture again".into());
         }
@@ -600,4 +585,28 @@ pub async fn desktop_headless_control(
         );
     }
     Ok(result)
+}
+
+async fn preview_image(cdp: &mut process::Cdp, id: &str) -> Result<Value, String> {
+    let metrics = cdp.call("Page.getLayoutMetrics", json!({})).await?;
+    let viewport = &metrics["visualViewport"];
+    let x = viewport["pageX"].as_f64().ok_or("missing viewport x")?;
+    let y = viewport["pageY"].as_f64().ok_or("missing viewport y")?;
+    let scale = viewport["scale"]
+        .as_f64()
+        .filter(|scale| *scale > 0.0 && *scale <= 10.0)
+        .ok_or("invalid viewport scale")?;
+    let image = cdp.call("Page.captureScreenshot", json!({"format":"jpeg","quality":65,"optimizeForSpeed":true,"captureBeyondViewport":false,"fromSurface":true,"clip":{"x":x,"y":y,"width":1280.0/scale,"height":720.0/scale,"scale":scale*0.5}})).await?;
+    let data = image["data"]
+        .as_str()
+        .filter(|data| data.len() <= 2 * 1024 * 1024)
+        .ok_or("browser preview exceeds budget")?;
+    let info = cdp
+        .evaluate("JSON.stringify({url:location.href,title:document.title.slice(0,160)})".into())
+        .await?;
+    let info: Value = serde_json::from_str(info.as_str().ok_or("preview page unavailable")?)
+        .map_err(|_| "preview page unavailable")?;
+    Ok(
+        json!({"image":data,"mime":"image/jpeg","width":640,"height":360,"viewport":{"width":1280,"height":720},"tabId":id,"url":info["url"],"title":info["title"]}),
+    )
 }

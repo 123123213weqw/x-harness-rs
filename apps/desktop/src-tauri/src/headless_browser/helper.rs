@@ -4,8 +4,6 @@
 use std::{
     io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    time::Duration,
 };
 pub const FLAG: &str = "--xharness-owned-browser-helper";
 
@@ -44,9 +42,16 @@ fn run(binary: &Path, profile: &Path) -> Result<(), String> {
     {
         return Err("invalid owned browser launch".into());
     }
-    let mut command = Command::new(binary);
-    command
-        .args([
+    // Reuse the native execution-lifecycle primitive: Unix process groups and
+    // a Windows kill-on-close Job. Reaping only Chrome's root is insufficient:
+    // its network service can recreate profile files after root exit.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "owned browser supervisor unavailable")?;
+    runtime.block_on(async {
+        let mut spec = xharness_process::SpawnSpec::new(binary, profile);
+        spec.args = [
             "--headless=new",
             "--remote-debugging-address=127.0.0.1",
             "--remote-debugging-port=0",
@@ -59,44 +64,31 @@ fn run(binary: &Path, profile: &Path) -> Result<(), String> {
             "--password-store=basic",
             "--use-mock-keychain",
             "--window-size=1280,720",
-        ])
-        .arg(format!("--user-data-dir={}", profile.display()))
-        .arg("about:blank")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|_| "installed browser startup failed")?;
-    let (closed, lease) = std::sync::mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        // EOF (or unexpected data) revokes the parent-owned lifetime lease.
-        let _ = std::io::stdin().read(&mut [0u8; 1]);
-        let _ = closed.send(());
-    });
-    loop {
-        if child
-            .try_wait()
-            .map_err(|_| "browser exit unavailable")?
-            .is_some()
-        {
-            break;
-        }
-        if !matches!(
-            lease.recv_timeout(Duration::from_millis(100)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-        ) {
-            let _ = child.kill();
-            child.wait().map_err(|_| "owned browser reap failed")?;
-            break;
-        }
-    }
-    super::process::cleanup_profile(PathBuf::from(profile))
+        ]
+        .map(std::ffi::OsString::from)
+        .into_iter()
+        .collect();
+        spec.args
+            .push(format!("--user-data-dir={}", profile.display()).into());
+        spec.args.push("about:blank".into());
+        spec.env = std::env::vars_os().collect();
+        xharness_process::scrub_secret_env(&mut spec.env);
+        spec.stdout_limit = 0;
+        spec.stderr_limit = 0;
+        let child = xharness_process::ProcessRuntime::new()
+            .spawn(spec)
+            .map_err(|_| "installed browser startup failed")?;
+        let cancellation = child.cancellation();
+        std::thread::spawn(move || {
+            let _ = std::io::stdin().read(&mut [0u8; 1]);
+            cancellation.cancel();
+        });
+        child
+            .wait()
+            .await
+            .map_err(|_| "owned browser tree cleanup failed")?;
+        super::process::cleanup_profile(PathBuf::from(profile))
+    })
 }
 
 #[cfg(test)]

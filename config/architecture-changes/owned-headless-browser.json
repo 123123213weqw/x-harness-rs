@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "kind": "compatible-addition",
-  "reason": "Add chat-owned browser and retain exact headless probe plus bounded read-only protocol evidence for macOS acceptance diagnosis.",
-  "compatibility": "Keep legacy WebView protocol and packaging intact; exact-head native and installed Chrome/Edge CI remain required. Artifact retention and diagnostic recording do not relax any acceptance assertion.",
+  "reason": "Keep preview captures alive across bounded caller waits and reuse managed process-tree ownership for isolated browser cleanup; retain exact native probe evidence.",
+  "compatibility": "Legacy WebView and packaging remain intact. Existing xharness-process dependency becomes cross-platform. Exact-head macOS and Windows acceptance remain required; no assertions or deadlines are weakened.",
   "paths": {
     ".github/workflows/ci.yml": {
       "before": "a1d1eb0f612790fb88d24e332b1ac09b7b8d0a6ddea867c997485299497a286a",
@@ -10,7 +10,7 @@
     },
     "apps/desktop/src-tauri/Cargo.toml": {
       "before": "1a230de14dc50da194900d2104aa88235fabfecbf51c87a5299c4e123f845c1e",
-      "after": "42c0a744dad999fe4c5cf744a92e3749afc9051c66f3ceff48f427e1decfe304"
+      "after": "aa651337a435aa2952a251471ad3773a532b7724863f681fad6b81838486e468"
     }
   },
   "regressions": [

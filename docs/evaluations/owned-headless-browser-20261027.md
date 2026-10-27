@@ -125,3 +125,37 @@ WebView probe (15.003s, all enrolled lifecycle/input/pixel/cleanup gates), plus 
 passed source-built lifecycle/preview/hidden/owner/close/single-flight UI checks
 (mock transport). Combined desktop library: 105 passed. These results do not
 substitute for the still-required macOS/Windows exact-head CI gates.
+
+## Exact-head macOS failure and completed-read isolation
+
+The independent-preview-connection change above was **not sufficient**. The
+macOS job for `56289057` still rejected the first input after preview with
+`stale observation geometry; observe again`. Downloading that exact CI-built
+arm64 probe and running it against an isolated loopback fixture on Mac reproduced
+the failure. No Rust was compiled on Mac, and the installed app was not used.
+
+Preview now keeps one bounded, read-only CDP task alive across the 350 ms caller
+wait. A timeout returns `busy`, not cancellation: the next preview poll collects
+that same capture. The task owns only the preview connection, never the control
+instance lock. Closing the chat still retires its slot and terminates its owned
+browser; late preview results cannot cross that boundary. The deterministic
+regression delays capture for 700 ms, consumes the original model frame while
+the preview is in flight, and verifies exactly one capture rather than replay.
+
+An initial Linux acceptance attempt with that fix completed the effects but
+failed cleanup: a Chrome network-service descendant recreated a profile file
+after the browser root exited. That attempt is not counted as passed. The helper
+now reuses `xharness-process` lifecycle ownership on every platform (Unix process
+group / Windows kill-on-close Job), waits for the owned tree to quiesce, and only
+then removes its exact temporary profile. It neither attaches to nor kills the
+user's personal browser. This moves an existing desktop dependency from
+Windows-only to cross-platform; no new external crate is introduced.
+
+After source synchronization, WZU_Server passed desktop all-target tests
+(including 105 library tests), all-target Clippy with warnings denied, and the
+same real Chrome acceptance: **14 cases, 100 hidden cycles, 101 screenshots**, with
+profile cleanup and owned-process reaping both passing. Full logs are in
+`dist/merge-reviewed-20261027/managed-preview.log`; remote receipt and PNGs are in
+`dist/review-preview-managed-tree-20261027/`. Fresh exact-head macOS and Windows
+CI are still mandatory. These Linux results do not establish that the previously
+reproduced Mac failure has been resolved on Mac.
