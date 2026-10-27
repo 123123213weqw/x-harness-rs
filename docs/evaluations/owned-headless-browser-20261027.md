@@ -359,3 +359,63 @@ in `dist/merge-reviewed-20261027/heartbeat-20261027-1242/`. This is a portable
 line-ending fixture regression, **not** a claim that current native Windows or
 Mac acceptance has passed. Fresh full exact-head CI remains required before
 merge. No installed software or running task was changed.
+
+## Integrating the verified native FIT baseline and investigating Windows HTTP fixture noise
+
+PR #401 was verified green at `f2f926ba` and merged as `76a4b35e`. This candidate
+integrates that actual master rather than relying on the earlier independent
+branch result. Browser component conflicts retain the background-browser wrapper,
+owner-keyed preview and explicit native choice **and** the native FIT/responsive
+controls. Both CSS groups are retained. Generated browser/plugin graphs, hashes
+and HTML are rebuilt from the combined source, not selected from either side.
+
+The prior `439e2676` candidate is **not** green. Windows job `122197686267`
+passed all 14 owned-background-browser cases and 21 checked screenshots, then
+failed the separate native WebView probe. Its original artifact
+`12735649780/native-probe.log` identifies `session_request::run`'s strict
+`rejected scope contacted network` assertion. Subframe/native-core/production
+acceptance had not run; exit code zero with an incomplete contract is a failure.
+
+The fixture counted all HTTP requests, including any implicit browser favicon,
+but did not retain paths. The original artifact cannot establish which request
+changed that counter; **favicon attribution is a hypothesis, not a proven root
+cause or an authorization fix**. The test page now declares a self-contained
+`data:` icon so it does not intentionally schedule an unrelated favicon load.
+A bounded method/fixed-route trace makes any repeat attributable without logging
+headers, body, query values or synthetic cookie contents. The all-request counter
+still counts **every** request, including favicon and unknown routes. All four
+original denied operations and the strict zero-extra-request assertion remain
+unchanged, as do write/replay/redirect/owner/hide checks and their deadlines.
+Two new deterministic regressions verify this strict counting, secret-free
+logging and that the 64-entry diagnostic bound never caps the total counter.
+No production authorization or request transport was changed to hide the failure.
+
+Validation of the synchronized combined source on WZU_Server:
+
+- Desktop all-target tests: 109 library, 57 native-probe, 6 recovery-probe and
+  52 native-bench cases passed; all-target Clippy with warnings denied passed.
+- Real isolated Tauri/WebKitGTK acceptance passed in **17.999s**, including HTTP
+  session scope, trusted native input, three narrow-pane FIT pixel cases,
+  responsive restoration, lifecycle, subframe and cleanup. Its HTTP receipt
+  records exactly the ten expected allowed requests and one write attempt.
+  This is Linux evidence, **not** Windows or Mac certification.
+- Real Chrome through the production owned-browser manager passed all **14**
+  cases and **100 hidden cycles / 101 checked screenshots**, plus scroll and
+  process-tree/profile cleanup. The final negative exit code belongs to the
+  intentional test-owned controller-death case, not the normal-close case.
+- Chromium and WebKit each passed native-bridge visibility/races, background
+  model-control/preview/owner/single-flight and actual-runtime dock fixtures.
+  The Tauri transport in these UI fixtures is mocked, not a native backend.
+- Repository production rebuild/typechecking, activity and 24 conversation
+  regressions, FIT verifier, both Rust formatters and architecture checks pass.
+  Runtime workflow gates and their 27 line-ending/mutation regressions remain.
+
+Full logs, original Windows failure, PNGs, request trace and unchanged-guard
+receipt are retained in `dist/merge-reviewed-20261027/heartbeat-20261027-1322/`.
+Initial isolated sidecar/dependency setup failures and a subsequently corrected
+Clippy diagnostic are retained and are not counted as passing attempts. No test
+was skipped, deadline extended, or original failing head rerun to wash it green.
+Fresh exact-head full CI, including **actual Mac and Windows** acceptance, is
+still required. The original Windows counter increment remains unattributed
+unless new evidence establishes it; a fresh green run alone is not that proof.
+No installed software or running task was modified.

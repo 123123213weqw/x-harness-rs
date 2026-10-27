@@ -108,6 +108,24 @@ try {
     else await reload.click()
     await page.waitForFunction(count => commands.filter(call => call.command === 'desktop_browser_action' && call.args.action === 'reload').length > count, count)
   }
+  // Fit mode sends an independent CSS viewport, never a CSS transform of the
+  // guest page. Exercise the actual shipped controls and argument boundary.
+  const latestBounds=()=>page.evaluate(()=>commands.filter(c=>c.command==='desktop_browser_bounds').at(-1)?.args)
+  assert.deepEqual((await latestBounds()).viewport,{width:1280,height:720})
+  await page.evaluate(()=>{document.getElementById('root').style.width='426px'})
+  await flush()
+  assert.deepEqual((await latestBounds()).viewport,{width:1280,height:720},'narrow panes must retain desktop layout')
+  await page.getByRole('combobox',{name:'Page viewport size',exact:true}).selectOption('1440x900')
+  await flush()
+  assert.deepEqual((await latestBounds()).viewport,{width:1440,height:900})
+  await page.getByRole('combobox',{name:'Page display mode',exact:true}).selectOption('responsive')
+  await flush()
+  assert.equal((await latestBounds()).viewport,null,'responsive is explicit, not an implicit narrow-pane fallback')
+  assert.equal(await page.getByRole('combobox',{name:'Page viewport size',exact:true}).isDisabled(),true)
+  await page.getByRole('combobox',{name:'Page display mode',exact:true}).selectOption('fit')
+  await page.getByRole('combobox',{name:'Page viewport size',exact:true}).selectOption('1280x720')
+  await page.evaluate(()=>{document.getElementById('root').style.width='600px'})
+  await flush()
   // Width/height alone do not report a sidebar/layout position-only shift.
   const geometryStart = await page.evaluate(() => commands.length)
   await page.evaluate(() => document.getElementById('root').style.transform='translateX(31px)')

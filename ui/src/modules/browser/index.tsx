@@ -209,6 +209,10 @@ export function BrowserPane(props:BrowserPaneProps) {
   return h(NativeBrowserPane,{...props,preferHeadless:Boolean(native)&&!explicitNative&&props.item.entries.length===0,onNative:()=>setExplicitNative(true)})
 }
 function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onClose, onNewBrowser,preferHeadless,onNative }: BrowserPaneProps & {preferHeadless?:boolean;onNative?:()=>void}) {
+  const [viewportMode,setViewportMode]=useState<'fit'|'responsive'>('fit')
+  const [viewport,setViewport]=useState({width:1280,height:720})
+  const viewportRef=useRef<{width:number;height:number}|null>(viewport)
+  viewportRef.current=viewportMode==='fit'?viewport:null
   const [filePath,setFilePath]=useState('')
   const [picking,setPicking]=useState(false)
   const [pickToken,setPickToken]=useState('')
@@ -292,9 +296,10 @@ function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onC
         const rect = content.getBoundingClientRect()
         const url = currentAddress(itemRef.current)
         const pending = navigationRef.current?.tabId === item.id ? navigationRef.current : null
-        const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}`
+        const targetViewport=viewportRef.current
+        const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 2) / 2).join(',') + `:${url}:${JSON.stringify(targetViewport)}`
         if (geometry !== lastGeometry || pending) {
-          await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } })
+          await send('desktop_browser_bounds', { bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }, viewport: targetViewport })
           if (!current()) return yieldToLatest()
           const exists = await send('desktop_browser_activate', { tabId: item.id })
           if (!current()) return yieldToLatest()
@@ -417,7 +422,7 @@ function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onC
       void invoke('desktop_browser_activate', { tabId: null }).catch(() => {})
     }
   }, [item.id, open, sessionId])
-  useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open, sessionId])
+  useEffect(() => { nativeSyncRef.current?.() }, [menuOpen, downloadsOpen, address, item.id, open, sessionId, viewportMode, viewport])
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
@@ -562,6 +567,15 @@ function NativeBrowserPane({ item, sessionId = null, open = false, onUpdate, onC
       h('button', { type: 'button', className: 'xhbrowser-more', 'aria-label': '更多浏览器操作', 'aria-expanded': menuOpen,
         onClick: () => { setMenuOpen(value => !value); setDownloadsOpen(false) } }, glyph('more')),
       button('关闭当前网页','close',onClose)),
+    native&&address&&h('div',{className:'xhbrowser-viewport-toolbar','aria-label':accessText('网页视口','Page viewport')},
+      h('select',{'aria-label':accessText('网页视口尺寸','Page viewport size'),value:`${viewport.width}x${viewport.height}`,disabled:viewportMode==='responsive',
+        onChange:(event:React.ChangeEvent<HTMLSelectElement>)=>{
+          const sizes:Readonly<Record<string,{width:number;height:number}>>={'1280x720':{width:1280,height:720},'1440x900':{width:1440,height:900},'1920x1080':{width:1920,height:1080}}
+          const size=sizes[event.currentTarget.value];if(size)setViewport(size)
+        }},h('option',{value:'1280x720'},'1280 × 720'),h('option',{value:'1440x900'},'1440 × 900'),h('option',{value:'1920x1080'},'1920 × 1080')),
+      h('select',{'aria-label':accessText('网页显示方式','Page display mode'),value:viewportMode,
+        onChange:(event:React.ChangeEvent<HTMLSelectElement>)=>{const value=event.currentTarget.value;if(value==='fit'||value==='responsive')setViewportMode(value)}},
+        h('option',{value:'fit'},accessText('适应窗口','Fit to window')),h('option',{value:'responsive'},accessText('随侧栏布局','Responsive')))),
     pickNotice && h('div',{className:'xhbrowser-pick-notice',role:'status'},pickNotice),
     downloadsOpen && h('div', { className: 'xhbrowser-downloads', role: 'region', 'aria-label': '下载记录' },
       h('strong', null, '下载记录'),

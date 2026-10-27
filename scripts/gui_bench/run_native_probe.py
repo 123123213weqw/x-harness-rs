@@ -327,7 +327,14 @@ def main() -> int:
     production=production_native_evidence(log_text,args.evidence_dir)
     (args.evidence_dir/'production-native-evidence.json').write_text(json.dumps(production,indent=2)+'\n')
     receipt['production_native_passed']=production.get('passed') is True
-    completed = completed and receipt['native_api_core_passed'] and receipt['production_native_passed']
+    from scripts.gui_bench.check_fit_viewport import verify as verify_fit
+    try:
+        fit = verify_fit(log_text, args.evidence_dir / 'native-api')
+    except (ValueError, KeyError, TypeError, OSError, zlib.error) as error:
+        fit = dict(passed=False, reason=str(error))
+    (args.evidence_dir/'fit-viewport-evidence.json').write_text(json.dumps(fit,indent=2)+'\n')
+    receipt['fit_viewport_passed'] = fit.get('passed') is True
+    completed = completed and receipt['native_api_core_passed'] and receipt['production_native_passed'] and receipt['fit_viewport_passed']
     (args.evidence_dir / "hard-capabilities.json").write_text(json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
     receipt["hard_capability_status"] = capabilities.get("parity_gate", capabilities.get("status", "unverified"))
     receipt["cleanup_passed"] = cleaned

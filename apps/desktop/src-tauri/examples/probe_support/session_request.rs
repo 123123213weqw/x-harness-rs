@@ -7,7 +7,7 @@ use std::{
     net::TcpListener,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -16,10 +16,48 @@ use tauri::Manager;
 struct Fixture {
     origin: String,
     calls: Arc<AtomicUsize>,
+    traffic: Arc<Mutex<Vec<String>>>,
     writes: Arc<AtomicUsize>,
     slow: Arc<AtomicUsize>,
     redirected: Arc<AtomicUsize>,
 }
+// Keep the page self-contained: WebView2 may otherwise fetch an implicit
+// favicon concurrently with the later no-dispatch assertions. Do not ignore
+// such requests in the counter; record every request for failure attribution.
+const PAGE: &str = "<!doctype html><link rel=icon href=\"data:,\"><title>Login request probe</title><main>Signed in</main>";
+
+fn record_request(calls: &AtomicUsize, traffic: &Mutex<Vec<String>>, raw: &str) {
+    let mut first = raw.lines().next().unwrap_or("").split_whitespace();
+    let method = match first.next() {
+        Some("GET") => "GET",
+        Some("POST") => "POST",
+        Some("HEAD") => "HEAD",
+        _ => "other-method",
+    };
+    // Never log headers, bodies, query values or native cookie contents.
+    let route = first
+        .next()
+        .filter(|path| {
+            matches!(
+                *path,
+                "/" | "/api"
+                    | "/favicon.ico"
+                    | "/redirect"
+                    | "/rotate"
+                    | "/logout"
+                    | "/write"
+                    | "/large"
+                    | "/slow"
+            )
+        })
+        .unwrap_or("other-route");
+    let mut observed = traffic.lock().unwrap();
+    if observed.len() < 64 {
+        observed.push(format!("{method} {route}"));
+    }
+    calls.fetch_add(1, Ordering::SeqCst);
+}
+
 fn fixture() -> Fixture {
     let destination = TcpListener::bind("127.0.0.1:0").unwrap();
     let other = format!("http://{}/destination", destination.local_addr().unwrap());
@@ -35,6 +73,8 @@ fn fixture() -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let calls = Arc::new(AtomicUsize::new(0));
+    let traffic = Arc::new(Mutex::new(Vec::new()));
+    let observed = traffic.clone();
     let writes = Arc::new(AtomicUsize::new(0));
     let slow = Arc::new(AtomicUsize::new(0));
     let (count, changed, started) = (calls.clone(), writes.clone(), slow.clone());
@@ -47,6 +87,7 @@ fn fixture() -> Fixture {
                 started.clone(),
                 other.clone(),
             );
+            let observed = observed.clone();
             std::thread::spawn(move || {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut input = Vec::new();
@@ -73,9 +114,9 @@ fn fixture() -> Fixture {
                             .map(|(_, value)| value.trim())
                     })
                     .unwrap_or("");
-                count.fetch_add(1, Ordering::SeqCst);
+                record_request(&count, &observed, &raw);
                 let (status,headers,body)=match path {
-                "/"=>(200,"Set-Cookie: auth=synthetic-native-login; Path=/; HttpOnly\r\nSet-Cookie: wrong_path=synthetic-path-secret; Path=/other\r\n".to_owned(),"<!doctype html><title>Login request probe</title><main>Signed in</main>".to_owned()),
+                "/"=>(200,"Set-Cookie: auth=synthetic-native-login; Path=/; HttpOnly\r\nSet-Cookie: wrong_path=synthetic-path-secret; Path=/other\r\n".to_owned(),PAGE.to_owned()),
                 "/redirect"=>(302,format!("Location: {other}\r\n"),String::new()),
                 "/rotate"=>(200,"Set-Cookie: auth=synthetic-native-rotated; Path=/; HttpOnly\r\n".into(),"rotated".into()),
                 "/logout"=>(200,"Set-Cookie: auth=; Path=/; Max-Age=0; HttpOnly\r\n".into(),"logged out".into()),
@@ -91,6 +132,7 @@ fn fixture() -> Fixture {
     Fixture {
         origin,
         calls,
+        traffic,
         writes,
         slow,
         redirected,
@@ -139,6 +181,7 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
         main.clone(),
         app.state(),
         serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+        None,
     )
     .await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("request-probe".into()))
@@ -212,7 +255,11 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
         }
     }
     if fixture.calls.load(Ordering::SeqCst) != before {
-        return Err("rejected scope contacted network".into());
+        return Err(format!(
+            "rejected scope contacted network: before={before}, after={}, all_requests={:?}",
+            fixture.calls.load(Ordering::SeqCst),
+            fixture.traffic.lock().unwrap(),
+        ));
     }
     let redirected = call(
         connection,
@@ -336,7 +383,49 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
     browser::desktop_browser_close(main, app.state(), "request-probe".into()).await?;
     println!(
         "BROWSER_SESSION_REQUEST_EVIDENCE {}",
-        json!({"passed":true,"http_only_reused":true,"cookie_values_exported":false,"path_scope":true,"same_origin_only":true,"redirect_not_followed":true,"read_only_write_denied":true,"write_attempts":fixture.writes.load(Ordering::SeqCst),"bounded_preview":true,"repeatable_json_read_without_http":true,"owner_switch_revokes_cache":true,"rotation_and_logout":true,"hide_cancels_delivery":true,"test_only":true,"model_started":false})
+        json!({"passed":true,"http_only_reused":true,"cookie_values_exported":false,"path_scope":true,"same_origin_only":true,"redirect_not_followed":true,"read_only_write_denied":true,"write_attempts":fixture.writes.load(Ordering::SeqCst),"bounded_preview":true,"repeatable_json_read_without_http":true,"owner_switch_revokes_cache":true,"rotation_and_logout":true,"hide_cancels_delivery":true,"test_only":true,"model_started":false,"all_request_count":fixture.calls.load(Ordering::SeqCst),"all_requests":fixture.traffic.lock().unwrap().clone()})
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_request_including_favicon_still_counts_without_secret_logging() {
+        let calls = AtomicUsize::new(0);
+        let traffic = Mutex::new(Vec::new());
+        for request in [
+            "GET / HTTP/1.1\r\nCookie: synthetic-private-cookie\r\n\r\n",
+            "GET /favicon.ico HTTP/1.1\r\n\r\n",
+            "POST /write HTTP/1.1\r\n\r\nsynthetic-private-body",
+            "GET /api?token=synthetic-private-query HTTP/1.1\r\n\r\n",
+        ] {
+            record_request(&calls, &traffic, request);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            *traffic.lock().unwrap(),
+            [
+                "GET /",
+                "GET /favicon.ico",
+                "POST /write",
+                "GET other-route"
+            ]
+        );
+        assert!(!format!("{:?}", traffic.lock().unwrap()).contains("synthetic-private"));
+        assert!(PAGE.contains("<link rel=icon href=\"data:,\">"));
+    }
+
+    #[test]
+    fn bounded_diagnostics_never_bound_the_strict_total_counter() {
+        let calls = AtomicUsize::new(0);
+        let traffic = Mutex::new(Vec::new());
+        for _ in 0..100 {
+            record_request(&calls, &traffic, "GET /api HTTP/1.1\r\n\r\n");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 100);
+        assert_eq!(traffic.lock().unwrap().len(), 64);
+    }
 }
