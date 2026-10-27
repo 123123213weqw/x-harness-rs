@@ -335,3 +335,27 @@ Provenance, unchanged-assertion receipt and full separate branch validation logs
 are in `dist/merge-reviewed-20261027/heartbeat-20261027-1218/`.
 This branch still requires fresh full exact-head CI, including the independent
 Windows Host/PDB job and the actual Mac/Windows browser acceptance gates.
+
+
+## Windows workflow-policy line-ending regression
+
+The `587992dd` runtime Windows job `122192296162` failed in the Node policy
+checker with `missing required job native`, not a missing YAML job or a Rust
+failure. Windows checkout line endings left `\r` on the header when the helper
+split only on `\n`. A new CRLF fixture first reproduced the exact assertion
+before the fix. The parser now accepts LF and CRLF line boundaries and returns
+the same job scope for LF, CRLF and mixed input.
+
+The existing nine negative mutations are preserved and exercised under all
+three line-ending variants (**27** rejecting cases), including deleted jobs,
+missing stress commands, optional gates, release-profile removal, lost symbols,
+PR cache saving, deadline extension and serial Host builds. UI/lifecycle tests
+and these policy tests pass locally and independently on WZU_Server after each
+branch's current-source synchronization. Both Rust formatters and architecture
+checks pass. No workflow, Rust code, assertion deadline or runtime setting changed.
+
+Original Windows logs, the expected before-fix failure and WZU output are retained
+in `dist/merge-reviewed-20261027/heartbeat-20261027-1242/`. This is a portable
+line-ending fixture regression, **not** a claim that current native Windows or
+Mac acceptance has passed. Fresh full exact-head CI remains required before
+merge. No installed software or running task was changed.
