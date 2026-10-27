@@ -20,6 +20,9 @@ use tauri::{
 use url::Url;
 use xharness_diagnostics::BrowserEvent as TraceEvent;
 
+#[path = "browser_viewport.rs"]
+pub(super) mod viewport;
+
 const MAX_LIVE_WEBVIEWS: usize = 16;
 const MAX_TAB_SNAPSHOT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -106,6 +109,7 @@ struct BrowserInner {
     tabs: HashMap<String, BrowserTab>,
     active: Option<String>,
     bounds: Option<BrowserBounds>,
+    presentation: Option<viewport::Presentation>,
     next_label: u64,
     clock: u64,
 }
@@ -115,12 +119,132 @@ struct BrowserTab {
     last_used: u64,
     inspector: Arc<crate::browser_inspect::Inspector>,
     loaded: Arc<AtomicBool>,
+    applied_layout: Option<viewport::Presentation>,
 }
 
 #[derive(Default)]
 pub struct BrowserState(Mutex<BrowserInner>);
 
 impl BrowserState {
+    pub(super) fn verify_viewport(
+        &self,
+        tab_id: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), String> {
+        let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active.as_deref() != Some(tab_id) {
+            return Err("browser tab changed".into());
+        }
+        let tab = inner.tabs.get(tab_id).ok_or("browser tab closed")?;
+        let layout = tab.applied_layout.ok_or("browser layout is not ready")?;
+        if inner.presentation.is_none_or(|requested| {
+            requested.pane != layout.pane || requested.viewport != layout.viewport
+        }) {
+            return Err("browser layout is changing; observe again".into());
+        }
+        layout.verify(
+            value["width"].as_f64().ok_or("missing viewport width")?,
+            value["height"].as_f64().ok_or("missing viewport height")?,
+        )
+    }
+
+    async fn apply_layout(&self) -> Result<(), String> {
+        let target = {
+            let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            inner
+                .active
+                .as_ref()
+                .zip(inner.presentation)
+                .and_then(|(id, layout)| {
+                    inner.tabs.get(id).map(|tab| {
+                        (
+                            id.clone(),
+                            tab.webview.clone(),
+                            Arc::clone(&tab.inspector),
+                            layout,
+                        )
+                    })
+                })
+        };
+        let Some((id, view, inspector, requested)) = target else {
+            return Ok(());
+        };
+        let _gate = tokio::time::timeout(std::time::Duration::from_secs(8), inspector.gate.lock())
+            .await
+            .map_err(|_| "browser layout is busy")?;
+        {
+            let mut inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+            if inner.active.as_deref() != Some(&id) || inner.presentation != Some(requested) {
+                return Err("browser layout changed while fitting".into());
+            }
+            if let Some(cached) = inner
+                .tabs
+                .get(&id)
+                .and_then(|tab| tab.applied_layout)
+                .filter(|layout| {
+                    layout.pane == requested.pane && layout.viewport == requested.viewport
+                })
+            {
+                inner.bounds = Some(cached.bounds);
+                return Ok(());
+            }
+        }
+        inspector.invalidate();
+        let fitted: Result<viewport::Presentation, String> = async {
+            let mut layout = requested;
+            // Moving a WK child can itself change its automatic titlebar inset.
+            // Measure AFTER applying each rectangle, with bounded calibration;
+            // never compensate using geometry from the previous sidebar position.
+            for _ in 0..4 {
+                {
+                    let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+                    if inner.active.as_deref() != Some(&id) || inner.presentation != Some(requested)
+                    {
+                        return Err("browser layout changed while fitting".into());
+                    }
+                }
+                view.set_bounds(layout.bounds.rect())
+                    .and_then(|()| view.set_zoom(layout.zoom))
+                    .map_err(|error| error.to_string())?;
+                crate::browser_native::layout(
+                    &view,
+                    (
+                        layout.bounds.x,
+                        layout.bounds.y,
+                        layout.bounds.width,
+                        layout.bounds.height,
+                    ),
+                )
+                .await?;
+                let inset = crate::browser_native::content_inset(&view).await?;
+                let next = requested.with_inset(inset)?;
+                if next == layout {
+                    return Ok(layout);
+                }
+                layout = next;
+            }
+            Err("native browser content geometry did not settle".into())
+        }
+        .await;
+        let layout = match fitted {
+            Ok(layout) => layout,
+            Err(error) => {
+                let _ = view.hide();
+                return Err(error);
+            }
+        };
+        let mut inner = self.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active.as_deref() != Some(&id) || inner.presentation != Some(requested) {
+            let _ = view.hide();
+            return Err("browser layout changed while fitting".into());
+        }
+        inner.bounds = Some(layout.bounds);
+        if let Some(tab) = inner.tabs.get_mut(&id) {
+            tab.applied_layout = Some(layout);
+        }
+        Ok(())
+    }
+
     pub(super) fn closed_receipt(&self, tab_id: &str) -> Result<serde_json::Value, String> {
         let inner = self.0.lock().map_err(|_| "browser state unavailable")?;
         if inner.tabs.contains_key(tab_id) || inner.active.as_deref() == Some(tab_id) {
@@ -419,193 +543,203 @@ pub async fn desktop_browser_navigate(
     if let Some(lifecycle) = app.try_state::<crate::browser_lifecycle::BrowserLifecycle>() {
         lifecycle.mark_started(&tab_id);
     }
-    let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
-    if inner.tabs.contains_key(&tab_id) {
-        inner.clock += 1;
-        let clock = inner.clock;
-        let tab = inner.tabs.get_mut(&tab_id).expect("tab was present");
-        tab.last_used = clock;
-        // Explicit UI navigation is a top-level intent. Invalidate before it
-        // enters native dispatch, even if the old document is still visible.
-        tab.inspector.revoke();
-        tab.loaded.store(false, Ordering::SeqCst);
-        return tab
-            .webview
-            .navigate(target)
-            .map_err(|error| error.to_string());
-    }
-    if inner.tabs.len() >= MAX_LIVE_WEBVIEWS {
-        // Suspend the least recently used hidden page, not its persisted URL.
-        // Selecting that tab later creates a fresh WebView on demand.
-        let oldest = inner
-            .tabs
-            .iter()
-            .filter(|(id, _)| inner.active.as_deref() != Some(id.as_str()))
-            .min_by_key(|(_, tab)| tab.last_used)
-            .map(|(id, _)| id.clone())
-            .ok_or("no inactive browser tab can be suspended")?;
-        if let Some(tab) = inner.tabs.remove(&oldest) {
+    {
+        let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.tabs.contains_key(&tab_id) {
+            inner.clock += 1;
+            let clock = inner.clock;
+            let tab = inner.tabs.get_mut(&tab_id).expect("tab was present");
+            tab.last_used = clock;
+            // Explicit UI navigation is a top-level intent. Invalidate before it
+            // enters native dispatch, even if the old document is still visible.
             tab.inspector.revoke();
-            trace(&app, TraceEvent::Evicted, Some(tab.webview.label()));
-            tab.webview.close().map_err(|error| error.to_string())?;
-            emit(&app, &oldest, "suspended", "");
+            tab.loaded.store(false, Ordering::SeqCst);
+            return tab
+                .webview
+                .navigate(target)
+                .map_err(|error| error.to_string());
         }
-    }
-    let bounds = inner.bounds.ok_or("browser pane is not laid out yet")?;
-    if !bounds.valid() {
-        return Err("invalid browser pane bounds".into());
-    }
-    let window = app.get_window("main").ok_or("main window is unavailable")?;
-    let browser_data = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("browser-webviews");
-    std::fs::create_dir_all(&browser_data).map_err(|error| error.to_string())?;
-    inner.next_label += 1;
-    let label = format!("browser-{}", inner.next_label);
-    let load_label = label.clone();
-    let event_app = app.clone();
-    let event_id = tab_id.clone();
-    let title_app = app.clone();
-    let title_id = tab_id.clone();
-    let load_app = app.clone();
-    let load_id = tab_id.clone();
-    let popup_app = app.clone();
-    let popup_id = tab_id.clone();
-    let download_app = app.clone();
-    let download_id = tab_id.clone();
-    let inspector = Arc::new(crate::browser_inspect::Inspector::default());
-    let navigation_inspector = Arc::clone(&inspector);
-    let load_inspector = Arc::clone(&inspector);
-    let loaded = Arc::new(AtomicBool::new(false));
-    let load_ready = Arc::clone(&loaded);
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
-        .data_directory(browser_data)
-        .on_navigation(move |url| {
-            if matches!(url.scheme(), "http" | "https") {
-                // Wry 0.55 also calls this policy for subframe navigations on
-                // WKWebView. It provides no main-frame bit. Do not publish its
-                // URL, reset top-level readiness or revoke the page's origin
-                // binding here. Still invalidate action refs conservatively.
-                navigation_inspector.invalidate();
-                // Hash/history navigations need not emit a page-load callback.
-                // Ask the UI to sample WebView.url(), never this frame's URL.
-                emit(&event_app, &event_id, "navigation-policy", "");
-                true
-            } else {
-                emit(&event_app, &event_id, "blocked-url", url.as_str());
-                false
+        if inner.tabs.len() >= MAX_LIVE_WEBVIEWS {
+            // Suspend the least recently used hidden page, not its persisted URL.
+            // Selecting that tab later creates a fresh WebView on demand.
+            let oldest = inner
+                .tabs
+                .iter()
+                .filter(|(id, _)| inner.active.as_deref() != Some(id.as_str()))
+                .min_by_key(|(_, tab)| tab.last_used)
+                .map(|(id, _)| id.clone())
+                .ok_or("no inactive browser tab can be suspended")?;
+            if let Some(tab) = inner.tabs.remove(&oldest) {
+                tab.inspector.revoke();
+                trace(&app, TraceEvent::Evicted, Some(tab.webview.label()));
+                tab.webview.close().map_err(|error| error.to_string())?;
+                emit(&app, &oldest, "suspended", "");
             }
-        })
-        .on_document_title_changed(move |_, title| {
-            emit(&title_app, &title_id, "title", title);
-        })
-        .on_page_load(move |_, payload| {
-            load_ready.store(
-                matches!(payload.event(), PageLoadEvent::Finished),
-                Ordering::SeqCst,
-            );
-            let status = match payload.event() {
-                PageLoadEvent::Started => {
-                    trace(&load_app, TraceEvent::Loading, Some(&load_label));
-                    load_inspector.delegation.navigate(payload.url());
-                    load_inspector.invalidate();
-                    "loading"
+        }
+        let bounds = inner.bounds.ok_or("browser pane is not laid out yet")?;
+        if !bounds.valid() {
+            return Err("invalid browser pane bounds".into());
+        }
+        let window = app.get_window("main").ok_or("main window is unavailable")?;
+        let browser_data = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|error| error.to_string())?
+            .join("browser-webviews");
+        std::fs::create_dir_all(&browser_data).map_err(|error| error.to_string())?;
+        inner.next_label += 1;
+        let label = format!("browser-{}", inner.next_label);
+        let load_label = label.clone();
+        let event_app = app.clone();
+        let event_id = tab_id.clone();
+        let title_app = app.clone();
+        let title_id = tab_id.clone();
+        let load_app = app.clone();
+        let load_id = tab_id.clone();
+        let popup_app = app.clone();
+        let popup_id = tab_id.clone();
+        let download_app = app.clone();
+        let download_id = tab_id.clone();
+        let inspector = Arc::new(crate::browser_inspect::Inspector::default());
+        let navigation_inspector = Arc::clone(&inspector);
+        let load_inspector = Arc::clone(&inspector);
+        let loaded = Arc::new(AtomicBool::new(false));
+        let load_ready = Arc::clone(&loaded);
+        let builder = WebviewBuilder::new(label, WebviewUrl::External(target))
+            .data_directory(browser_data)
+            .on_navigation(move |url| {
+                if matches!(url.scheme(), "http" | "https") {
+                    // Wry 0.55 also calls this policy for subframe navigations on
+                    // WKWebView. It provides no main-frame bit. Do not publish its
+                    // URL, reset top-level readiness or revoke the page's origin
+                    // binding here. Still invalidate action refs conservatively.
+                    navigation_inspector.invalidate();
+                    // Hash/history navigations need not emit a page-load callback.
+                    // Ask the UI to sample WebView.url(), never this frame's URL.
+                    emit(&event_app, &event_id, "navigation-policy", "");
+                    true
+                } else {
+                    emit(&event_app, &event_id, "blocked-url", url.as_str());
+                    false
                 }
-                PageLoadEvent::Finished => {
-                    trace(&load_app, TraceEvent::Loaded, Some(&load_label));
-                    load_inspector.delegation.navigate(payload.url());
-                    "loaded"
+            })
+            .on_document_title_changed(move |_, title| {
+                emit(&title_app, &title_id, "title", title);
+            })
+            .on_page_load(move |_, payload| {
+                load_ready.store(
+                    matches!(payload.event(), PageLoadEvent::Finished),
+                    Ordering::SeqCst,
+                );
+                let status = match payload.event() {
+                    PageLoadEvent::Started => {
+                        trace(&load_app, TraceEvent::Loading, Some(&load_label));
+                        load_inspector.delegation.navigate(payload.url());
+                        load_inspector.invalidate();
+                        "loading"
+                    }
+                    PageLoadEvent::Finished => {
+                        trace(&load_app, TraceEvent::Loaded, Some(&load_label));
+                        load_inspector.delegation.navigate(payload.url());
+                        "loaded"
+                    }
+                };
+                // Page-load callbacks carry the native top-level URL, unlike the
+                // navigation policy. Publish it before readiness so redirects are
+                // synchronized before the UI attempts an exact-origin binding.
+                emit(&load_app, &load_id, "url", payload.url().as_str());
+                emit(&load_app, &load_id, status, payload.url().as_str());
+            })
+            .on_new_window(move |url, _| {
+                if web_url(url.as_str()).is_ok() {
+                    emit(&popup_app, &popup_id, "popup", url.as_str());
                 }
-            };
-            // Page-load callbacks carry the native top-level URL, unlike the
-            // navigation policy. Publish it before readiness so redirects are
-            // synchronized before the UI attempts an exact-origin binding.
-            emit(&load_app, &load_id, "url", payload.url().as_str());
-            emit(&load_app, &load_id, status, payload.url().as_str());
-        })
-        .on_new_window(move |url, _| {
-            if web_url(url.as_str()).is_ok() {
-                emit(&popup_app, &popup_id, "popup", url.as_str());
-            }
-            NewWindowResponse::Deny
-        })
-        .on_download(move |_, event| match event {
-            DownloadEvent::Requested { url, destination } => {
-                let Ok(directory) = download_app.path().download_dir() else {
+                NewWindowResponse::Deny
+            })
+            .on_download(move |_, event| match event {
+                DownloadEvent::Requested { url, destination } => {
+                    let Ok(directory) = download_app.path().download_dir() else {
+                        emit(
+                            &download_app,
+                            &download_id,
+                            "download-error",
+                            "Downloads folder is unavailable",
+                        );
+                        return false;
+                    };
+                    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+                        return false;
+                    };
+                    let name = safe_download_name(&url);
+                    *destination = directory.join(format!("xh-{}-{name}", now.as_nanos()));
                     emit(
                         &download_app,
                         &download_id,
-                        "download-error",
-                        "Downloads folder is unavailable",
+                        "download-start",
+                        destination.display().to_string(),
                     );
-                    return false;
-                };
-                let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
-                    return false;
-                };
-                let name = safe_download_name(&url);
-                *destination = directory.join(format!("xh-{}-{name}", now.as_nanos()));
-                emit(
-                    &download_app,
-                    &download_id,
-                    "download-start",
-                    destination.display().to_string(),
-                );
-                true
-            }
-            DownloadEvent::Finished { path, success, .. } => {
-                let kind = if success {
-                    "download-complete"
-                } else {
-                    "download-error"
-                };
-                emit(
-                    &download_app,
-                    &download_id,
-                    kind,
-                    path.map(|path| path.display().to_string())
-                        .unwrap_or_default(),
-                );
-                true
-            }
-            _ => true,
-        });
-    #[cfg(target_os = "macos")]
-    let builder = match user_agent {
-        Some(identity) => builder.user_agent(identity),
-        None => builder,
-    };
-    let child = window
-        .add_child(
-            builder,
-            LogicalPosition::new(bounds.x, bounds.y),
-            LogicalSize::new(bounds.width, bounds.height),
-        )
-        .map_err(|error| error.to_string())?;
-    trace(&app, TraceEvent::Created, Some(child.label()));
-    #[cfg(windows)]
-    if let Err(error) =
-        watch_native_location(&child, app.clone(), tab_id.clone(), Arc::clone(&inspector))
-    {
-        let _ = child.close();
-        return Err(error);
+                    true
+                }
+                DownloadEvent::Finished { path, success, .. } => {
+                    let kind = if success {
+                        "download-complete"
+                    } else {
+                        "download-error"
+                    };
+                    emit(
+                        &download_app,
+                        &download_id,
+                        kind,
+                        path.map(|path| path.display().to_string())
+                            .unwrap_or_default(),
+                    );
+                    true
+                }
+                _ => true,
+            });
+        #[cfg(target_os = "macos")]
+        let builder = match user_agent {
+            Some(identity) => builder.user_agent(identity),
+            None => builder,
+        };
+        let child = window
+            .add_child(
+                builder,
+                LogicalPosition::new(bounds.x, bounds.y),
+                LogicalSize::new(bounds.width, bounds.height),
+            )
+            .map_err(|error| error.to_string())?;
+        trace(&app, TraceEvent::Created, Some(child.label()));
+        #[cfg(windows)]
+        if let Err(error) =
+            watch_native_location(&child, app.clone(), tab_id.clone(), Arc::clone(&inspector))
+        {
+            let _ = child.close();
+            return Err(error);
+        }
+        // Fit/reparent before showing a new guest. In particular, a GTK box
+        // child must not remain packed beside the main renderer.
+        child.hide().map_err(|error| error.to_string())?;
+        inner.clock += 1;
+        let last_used = inner.clock;
+        inner.tabs.insert(
+            tab_id.clone(),
+            BrowserTab {
+                webview: child,
+                last_used,
+                inspector,
+                loaded,
+                applied_layout: None,
+            },
+        );
     }
-    if inner.active.as_deref() != Some(&tab_id) {
-        let _ = child.hide();
+    state.apply_layout().await?;
+    let inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+    if inner.active.as_deref() == Some(&tab_id) {
+        if let Some(tab) = inner.tabs.get(&tab_id) {
+            tab.webview.show().map_err(|error| error.to_string())?;
+        }
     }
-    inner.clock += 1;
-    let last_used = inner.clock;
-    inner.tabs.insert(
-        tab_id,
-        BrowserTab {
-            webview: child,
-            last_used,
-            inspector,
-            loaded,
-        },
-    );
     Ok(())
 }
 
@@ -620,57 +754,63 @@ pub async fn desktop_browser_activate(
     if tab_id.as_deref().is_some_and(|id| !valid_tab_id(id)) {
         return Err("invalid browser tab".into());
     }
-    let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
-    if inner.active != tab_id {
-        trace(
-            caller.app_handle(),
-            if tab_id.is_some() {
-                TraceEvent::Activate
-            } else {
-                TraceEvent::Hidden
-            },
-            None,
-        );
-        // Hiding and then returning to the same tab must not revive a pending
-        // observation or an old action frame.
-        for id in [inner.active.as_ref(), tab_id.as_ref()]
-            .into_iter()
-            .flatten()
-        {
-            if let Some(tab) = inner.tabs.get(id) {
-                tab.inspector.revoke();
+    let requested_tab = tab_id.clone();
+    let active_view = {
+        let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active != tab_id {
+            trace(
+                caller.app_handle(),
+                if tab_id.is_some() {
+                    TraceEvent::Activate
+                } else {
+                    TraceEvent::Hidden
+                },
+                None,
+            );
+            // Hiding and then returning to the same tab must not revive a pending
+            // observation or an old action frame.
+            for id in [inner.active.as_ref(), tab_id.as_ref()]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(tab) = inner.tabs.get(id) {
+                    tab.inspector.revoke();
+                }
             }
         }
-    }
-    inner.clock += 1;
-    let clock = inner.clock;
-    inner.active = tab_id;
-    let active = inner.active.clone();
-    if let Some(id) = active.as_deref() {
-        if let Some(tab) = inner.tabs.get_mut(id) {
-            tab.last_used = clock;
-        }
-    }
-    // Bounds may have changed while this tab was hidden. The frontend lays
-    // out the pane before selecting its tab; updating only the previously
-    // active view leaves a reselected view at its old rectangle. Hide the old
-    // views first, then apply the current logical rectangle before showing.
-    for (id, tab) in &inner.tabs {
-        if inner.active.as_deref() != Some(id.as_str()) || inner.bounds.is_none() {
-            tab.webview.hide().map_err(|error| error.to_string())?;
-        }
-    }
-    if let (Some(id), Some(bounds)) = (inner.active.as_deref(), inner.bounds) {
-        if let Some(tab) = inner.tabs.get(id) {
-            if let Err(error) = tab.webview.set_bounds(bounds.rect()) {
-                // Never expose a stale rectangle when native layout fails.
-                let _ = tab.webview.hide();
-                return Err(error.to_string());
+        inner.clock += 1;
+        let clock = inner.clock;
+        inner.active = tab_id;
+        let active = inner.active.clone();
+        if let Some(id) = active.as_deref() {
+            if let Some(tab) = inner.tabs.get_mut(id) {
+                tab.last_used = clock;
             }
-            tab.webview.show().map_err(|error| error.to_string())?;
         }
+        // Bounds may have changed while this tab was hidden. The frontend lays
+        // out the pane before selecting its tab; updating only the previously
+        // active view leaves a reselected view at its old rectangle. Hide the old
+        // views first, then apply the current logical rectangle before showing.
+        for (id, tab) in &inner.tabs {
+            if inner.active.as_deref() != Some(id.as_str()) || inner.bounds.is_none() {
+                tab.webview.hide().map_err(|error| error.to_string())?;
+            }
+        }
+        inner
+            .active
+            .as_ref()
+            .and_then(|id| inner.tabs.get(id))
+            .map(|tab| tab.webview.clone())
+    };
+    state.apply_layout().await?;
+    if let Some(view) = &active_view {
+        let inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.active != requested_tab {
+            return Err("browser tab changed before presentation".into());
+        }
+        view.show().map_err(|error| error.to_string())?;
     }
-    Ok(active.is_some_and(|id| inner.tabs.contains_key(&id)))
+    Ok(active_view.is_some())
 }
 
 #[tauri::command]
@@ -678,26 +818,21 @@ pub async fn desktop_browser_bounds(
     caller: Webview,
     state: State<'_, BrowserState>,
     bounds: BrowserBounds,
+    viewport: Option<viewport::Viewport>,
 ) -> Result<(), String> {
     ensure_main(&caller)?;
-    if !bounds.valid() {
-        return Err("invalid browser pane bounds".into());
-    }
-    let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
-    if inner.bounds != Some(bounds) {
-        for tab in inner.tabs.values() {
-            tab.inspector.invalidate();
+    let layout = viewport::Presentation::new(bounds, viewport)?;
+    {
+        let mut inner = state.0.lock().map_err(|_| "browser state unavailable")?;
+        if inner.presentation != Some(layout) {
+            for tab in inner.tabs.values() {
+                tab.inspector.invalidate();
+            }
         }
+        inner.presentation = Some(layout);
+        inner.bounds = Some(layout.bounds);
     }
-    inner.bounds = Some(bounds);
-    if let Some(id) = inner.active.as_deref() {
-        if let Some(tab) = inner.tabs.get(id) {
-            tab.webview
-                .set_bounds(bounds.rect())
-                .map_err(|error| error.to_string())?;
-        }
-    }
-    Ok(())
+    state.apply_layout().await
 }
 
 #[tauri::command]

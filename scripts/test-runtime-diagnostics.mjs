@@ -83,3 +83,71 @@ const lostStream = sidecar.slice(sidecar.indexOf('if !terminated'), sidecar.inde
 assert.match(lostStream, /host_job\.terminate\(1\)/)
 assert.match(lostStream, /active_processes == 0[\s\S]*?running\.store\(false, Ordering::SeqCst\)/)
 assert.match(lostStream, /Instant::now\(\) >= deadline/)
+
+// Separate cold production builds from the unchanged release stress harness.
+// Both jobs remain required, fatal and bounded; no stress workload is reduced.
+const workflow=readFileSync(new URL('../.github/workflows/runtime-diagnostics.yml',import.meta.url),'utf8')
+const savePolicy="save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}"
+const validationCondition="if: ${{ github.event_name != 'push' && !inputs.desktop_bundle }}"
+const hostBuild='cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins'
+function jobBlock(text,name){
+ const lines=text.split(/\r?\n/),start=lines.indexOf('  '+name+':')
+ assert.notEqual(start,-1,'missing required job '+name)
+ let end=start+1
+ while(end<lines.length&&!/^  [\w-]+:/.test(lines[end]))end++
+ return lines.slice(start,end).join('\n')
+}
+function nativeValidationPolicy(text){
+ const native=jobBlock(text,'native'),host=jobBlock(text,'windows-host-repro')
+ for(const block of [native,host]){
+  assert.match(block,/timeout-minutes: 20(?:\n|$)/,'keep the original twenty-minute job deadline')
+  assert.ok(block.includes(validationCondition),'both validation jobs must run for the same events')
+  assert.ok(block.includes(savePolicy),'PR cache uploads must remain disabled')
+  assert.doesNotMatch(block,/continue-on-error|if:\s*false/,'validation failures remain fatal')
+  assert.ok(block.includes('actions/checkout@v6'),'each workload checks out the exact workflow source')
+ }
+ assert.doesNotMatch(host,/^    needs:/m,'independent artifact compilation must not serialize stress execution')
+ assert.ok(host.includes('runs-on: windows-2025')&&host.includes('CARGO_BUILD_TARGET: x86_64-pc-windows-msvc'),'keep native Windows build target')
+ assert.ok(host.includes(hostBuild),'keep the complete production Host/sandbox build')
+ assert.ok(host.includes('diagnostics-windows-host-symbols')&&host.includes('release/xharness-host.exe')&&host.includes('release/xharness_host.pdb')&&host.includes('if-no-files-found: error'),'retain the matching required Host/PDB artifact')
+ assert.ok(!native.includes(hostBuild),'production Host build must not consume the stress job deadline')
+ for(const required of ['cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32','cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings','Validate real native EXE/PDB identity parser','Retain offline projection test'])assert.ok(native.includes(required),'missing mandatory gate '+required)
+ for(const name of ['offline_reasoning_projection_stress','offline_journal_projection_stress','offline_authoritative_restore_100_cold_starts','offline_dynamic_projection_stress']){
+  const command='cargo test --locked --release -p xharness-host '+name+' -- --ignored --nocapture'
+  const steps=native.split(/^      - /m).filter(step=>step.includes(command))
+  assert.equal(steps.length,1,'missing or changed release stress gate '+name)
+  assert.doesNotMatch(steps[0],/^\s+if:/m,'stress must run on both matrix platforms')
+ }
+}
+// Git checkout uses CRLF on Windows; parse equivalent line endings identically.
+const workflowLF=workflow.replace(/\r\n/g,'\n')
+function lineEndingVariants(text){
+ return [
+  ['LF',text],
+  ['CRLF',text.replace(/\n/g,'\r\n')],
+  ['mixed',text.split('\n').map((line,index)=>line+(index%2?'\r':'')).join('\n')],
+ ]
+}
+for(const [label,text] of lineEndingVariants(workflowLF)){
+ assert.equal(jobBlock(text,'native'),jobBlock(workflowLF,'native'),label+' native job scope')
+ assert.equal(jobBlock(text,'windows-host-repro'),jobBlock(workflowLF,'windows-host-repro'),label+' Host job scope')
+ nativeValidationPolicy(text)
+}
+function rejectedMutation(mutate,expected){
+ for(const [label,text] of lineEndingVariants(mutate(workflowLF))){
+  assert.throws(()=>nativeValidationPolicy(text),expected,label+' must reject weakened validation')
+ }
+}
+rejectedMutation(text=>text.replace(savePolicy,'save-if: true'),/PR cache uploads/)
+rejectedMutation(text=>text.replace('timeout-minutes: 20','timeout-minutes: 40'),/twenty-minute job deadline/)
+rejectedMutation(text=>text.replace('offline_dynamic_projection_stress','removed_projection_gate'),/release stress gate/)
+rejectedMutation(text=>text.replace('  windows-host-repro:','  removed-host-job:'),/missing required job/)
+rejectedMutation(text=>text.replace('release/xharness_host.pdb','release/removed.pdb'),/Host\/PDB artifact/)
+rejectedMutation(text=>text.replace('cargo test --locked --release -p xharness-host offline_reasoning','cargo test --locked -p xharness-host offline_reasoning'),/release stress gate/)
+rejectedMutation(text=>text.replace('      - name: Exercise concurrent dynamic append and Host publication','      - name: Exercise concurrent dynamic append and Host publication\n        if: false'),/remain fatal/)
+rejectedMutation(text=>{
+ const hostCache=text.lastIndexOf(savePolicy)
+ return text.slice(0,hostCache)+text.slice(hostCache).replace(savePolicy,'save-if: true')
+},/PR cache uploads/)
+rejectedMutation(text=>text.replace('      - run: cargo test --locked -p xharness-diagnostics','      - run: '+hostBuild+'\n      - run: cargo test --locked -p xharness-diagnostics'),/must not consume the stress job deadline/)
+console.log('Runtime diagnostics CI: LF/CRLF/mixed job scopes, unchanged required gates/deadlines and 27 negative mutation checks passed')

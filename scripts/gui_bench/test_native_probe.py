@@ -88,11 +88,12 @@ class NativeProbeTests(unittest.TestCase):
                    cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
                    observed={'pointers':[dict(type='click', trusted=True, id=target, x=x, y=y)
                              for target,x,y in [('native-probe',450,120), ('answer',60,35)]]})
-        for name, output, evidence, code, expected in [
-            ('complete', log, api, 0, True),
-            ('zero-but-incomplete', '', api, 0, False),
-            ('no-native-api-evidence', log, {}, 0, False),
-            ('failed-process', log, api, 1, False),
+        for name, output, evidence, code, fit_passed, expected in [
+            ('complete', log, api, 0, True, True),
+            ('zero-but-incomplete', '', api, 0, True, False),
+            ('no-native-api-evidence', log, {}, 0, True, False),
+            ('failed-process', log, api, 1, True, False),
+            ('failed-fit-viewport', log, api, 0, False, False),
         ]:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -108,6 +109,7 @@ class NativeProbeTests(unittest.TestCase):
                      patch.object(probe, 'run_probe', side_effect=fake_probe), \
                      patch.object(probe, 'native_api_evidence', return_value=evidence), \
                      patch.object(probe, 'production_native_evidence', return_value={'passed':True}), \
+                     patch('scripts.gui_bench.check_fit_viewport.verify', return_value={'passed':fit_passed}), \
                      redirect_stdout(io.StringIO()):
                     exit_code = probe.main()
                 receipt = json.loads((receipt_dir / 'receipt.json').read_text())

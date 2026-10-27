@@ -46,6 +46,9 @@ jobs:
           toolchain: '1.99.0'
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # PR jobs restore caches but never spend their validation budget saving them.
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
       - run: cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32
       - run: cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings
       - uses: actions/setup-node@v4
@@ -57,20 +60,6 @@ jobs:
         env:
           XHARNESS_TEST_NATIVE_SYMBOLS: '1'
         run: python -B scripts/test-desktop-symbols.py
-      - name: Build Windows Host for offline crash reproduction
-        if: runner.os == 'Windows'
-        run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
-      - name: Retain matching Host binary and symbols for local dump analysis
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v7
-        with:
-          name: diagnostics-windows-host-symbols
-          path: |
-            target/x86_64-pc-windows-msvc/release/xharness-host.exe
-            target/x86_64-pc-windows-msvc/release/xharness_host.pdb
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Exercise the reasoning projection crash path with synthetic data
         run: cargo test --locked --release -p xharness-host offline_reasoning_projection_stress -- --ignored --nocapture
       - name: Validate isolated journal replay with a synthetic fixture only
@@ -100,6 +89,38 @@ jobs:
         with:
           name: windows-offline-projection-test
           path: dist/offline-projection-test/
+          if-no-files-found: error
+          retention-days: 30
+
+  windows-host-repro:
+    # The production Host/PDB is an independent repro artifact, not a prerequisite
+    # of the xharness-host library stress tests. Keep both required workloads,
+    # without consuming one job's twenty minutes compiling two feature graphs.
+    if: ${{ github.event_name != 'push' && !inputs.desktop_bundle }}
+    runs-on: windows-2025
+    env:
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # PR jobs restore caches but never spend their validation budget saving them.
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      - name: Build Windows Host for offline crash reproduction
+        if: runner.os == 'Windows'
+        run: cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins
+      - name: Retain matching Host binary and symbols for local dump analysis
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostics-windows-host-symbols
+          path: |
+            target/x86_64-pc-windows-msvc/release/xharness-host.exe
+            target/x86_64-pc-windows-msvc/release/xharness_host.pdb
           if-no-files-found: error
           retention-days: 30
 

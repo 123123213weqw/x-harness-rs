@@ -139,6 +139,7 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
         main.clone(),
         app.state(),
         serde_json::from_value(json!({"x":0,"y":0,"width":780,"height":560})).unwrap(),
+        None,
     )
     .await?;
     browser::desktop_browser_activate(main.clone(), app.state(), Some("request-probe".into()))

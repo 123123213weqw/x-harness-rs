@@ -52,9 +52,11 @@ async fn completed(
 pub fn input(
     handle: PlatformWebview,
     request: super::InputRequest,
+    _viewport: (f64, f64),
     reply: Sender<Result<(), String>>,
 ) {
     use super::InputRequest;
+    // CDP input coordinates are CSS pixels already; do not apply native zoom or DPR.
     let methods = match request {
         InputRequest::Click { x, y, .. } => vec![
             (
