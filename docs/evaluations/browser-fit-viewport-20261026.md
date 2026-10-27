@@ -170,3 +170,49 @@ added after executable-source validation. This is **Linux** evidence, not fresh
 Mac/Windows certification. The integrated head remains draft and must pass fresh
 full exact-head CI before merge. The earlier intermittent Windows interrupt
 failure still has no established root-cause fix. No installed software changed.
+
+## Fresh-CI follow-up: nested formatting, procfs observation and build budget
+
+The `55e9af41` attempt is not green. Actual completed-job logs were retrieved
+through the job-log API while the overall workflow was still pending:
+
+- Windows/macOS Rust and Linux Tauri jobs stopped at the nested desktop workspace
+  formatter: `session_request` and `viewport_probe` module declarations were not
+  sorted. Root `cargo fmt --all` did not include that excluded workspace. Applied
+  its own manifest formatter and now check **both** workspace formatters. Both
+  modules and their awaited native acceptance calls are retained unchanged.
+- Linux Rust failed the process-cancellation test's **observer** after a managed
+  PID disappeared: reading `/proc/<pid>/stat` returned ESRCH, not ENOENT. The helper
+  treated that as an inspection failure. A deterministic read-result regression
+  first reproduced the original panic before the correction. The Linux-only test
+  helper now treats only ESRCH and the existing NotFound case as disappearance;
+  permission/I/O errors and malformed stat still panic. Live and zombie states
+  remain distinct. No production executor/process-lifecycle code changed.
+  The entire original cancellation-test body, including immediate owned-root
+  reaping, no-live-descendant checks and both three-second bounds, is byte-identical
+  (receipt `401-cancellation-assertions-receipt.json`).
+- The runtime Windows job also hit 20 minutes **during release stress-harness
+  compilation**, after its 12m16s production Host build. Subsequent mandatory
+  stress gates did not run, and post-cache was skipped. Ported the already
+  validated shared workflow correction: independent required Host/PDB job plus
+  the original native matrix/stress/packaging gates, unchanged profiles and
+  20-minute deadlines, with read-only PR caches. This is not an unchanged-head
+  rerun or an extended assertion deadline.
+
+After synchronizing the corrected source to WZU_Server, coding-tools all-target
+regression passed **41** tests, with seven pre-existing explicit opt-ins ignored;
+all-target Clippy denied warnings successfully. All 12 bundle tests passed,
+including three new procfs tests. All **30 predeclared** consecutive runs of the
+original process-cancellation test passed, with no added retries or longer
+bounds. The genuine isolated Linux Tauri probe also passed all native core,
+lifecycle, subframe, production-input, three-pane fit-pixel, session-request and
+cleanup checks in **17.253s**. Node lifecycle/workflow-policy and its nine negative
+mutations pass. Only documentation was appended afterward.
+
+Original failures, the expected failing before-fix test, successful regression
+log and unchanged-assertion receipt are retained under
+`dist/merge-reviewed-20261027/heartbeat-20261027-1218/`. The procfs helper was
+byte-identical on #404, so the same narrowly scoped test-only correction is also
+applied there; this does not assert that #404's current CI had failed. Both
+candidates still need fresh full exact-head CI, especially actual Mac/Windows.
+The earlier intermittent Windows interrupt root cause remains unknown.

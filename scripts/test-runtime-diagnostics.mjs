@@ -84,18 +84,50 @@ assert.match(lostStream, /host_job\.terminate\(1\)/)
 assert.match(lostStream, /active_processes == 0[\s\S]*?running\.store\(false, Ordering::SeqCst\)/)
 assert.match(lostStream, /Instant::now\(\) >= deadline/)
 
-// Cache upload is an optional optimization, never the tail of PR validation.
+// Separate cold production builds from the unchanged release stress harness.
+// Both jobs remain required, fatal and bounded; no stress workload is reduced.
 const workflow=readFileSync(new URL('../.github/workflows/runtime-diagnostics.yml',import.meta.url),'utf8')
 const savePolicy="save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}"
+const validationCondition="if: ${{ github.event_name != 'push' && !inputs.desktop_bundle }}"
+const hostBuild='cargo build --locked --release -p xharness-host-app -p xharness-sandbox --bins'
+function jobBlock(text,name){
+ const lines=text.split('\n'),start=lines.indexOf('  '+name+':')
+ assert.notEqual(start,-1,'missing required job '+name)
+ let end=start+1
+ while(end<lines.length&&!/^  [\w-]+:/.test(lines[end]))end++
+ return lines.slice(start,end).join('\n')
+}
 function nativeValidationPolicy(text){
- const native=text.slice(text.indexOf('  native:'),text.indexOf('  local-desktop:'))
- assert.ok(native.includes('timeout-minutes: 20'),'keep the original native job deadline')
- assert.ok(native.includes(savePolicy),'PR cache uploads must remain disabled')
- assert.doesNotMatch(native,/continue-on-error|if:\s*false/,'all validation failures must remain fatal')
- for(const required of ['cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32','cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings','offline_reasoning_projection_stress','offline_journal_projection_stress','offline_authoritative_restore_100_cold_starts','offline_dynamic_projection_stress','Retain offline projection test'])assert.ok(native.includes(required),'missing mandatory gate '+required)
+ const native=jobBlock(text,'native'),host=jobBlock(text,'windows-host-repro')
+ for(const block of [native,host]){
+  assert.match(block,/timeout-minutes: 20(?:\n|$)/,'keep the original twenty-minute job deadline')
+  assert.ok(block.includes(validationCondition),'both validation jobs must run for the same events')
+  assert.ok(block.includes(savePolicy),'PR cache uploads must remain disabled')
+  assert.doesNotMatch(block,/continue-on-error|if:\s*false/,'validation failures remain fatal')
+  assert.ok(block.includes('actions/checkout@v6'),'each workload checks out the exact workflow source')
+ }
+ assert.doesNotMatch(host,/^    needs:/m,'independent artifact compilation must not serialize stress execution')
+ assert.ok(host.includes('runs-on: windows-2025')&&host.includes('CARGO_BUILD_TARGET: x86_64-pc-windows-msvc'),'keep native Windows build target')
+ assert.ok(host.includes(hostBuild),'keep the complete production Host/sandbox build')
+ assert.ok(host.includes('diagnostics-windows-host-symbols')&&host.includes('release/xharness-host.exe')&&host.includes('release/xharness_host.pdb')&&host.includes('if-no-files-found: error'),'retain the matching required Host/PDB artifact')
+ assert.ok(!native.includes(hostBuild),'production Host build must not consume the stress job deadline')
+ for(const required of ['cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32','cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings','Validate real native EXE/PDB identity parser','Retain offline projection test'])assert.ok(native.includes(required),'missing mandatory gate '+required)
+ for(const name of ['offline_reasoning_projection_stress','offline_journal_projection_stress','offline_authoritative_restore_100_cold_starts','offline_dynamic_projection_stress']){
+  const command='cargo test --locked --release -p xharness-host '+name+' -- --ignored --nocapture'
+  const steps=native.split(/^      - /m).filter(step=>step.includes(command))
+  assert.equal(steps.length,1,'missing or changed release stress gate '+name)
+  assert.doesNotMatch(steps[0],/^\s+if:/m,'stress must run on both matrix platforms')
+ }
 }
 nativeValidationPolicy(workflow)
 assert.throws(()=>nativeValidationPolicy(workflow.replace(savePolicy,'save-if: true')),/PR cache uploads/)
-assert.throws(()=>nativeValidationPolicy(workflow.replace('timeout-minutes: 20','timeout-minutes: 40')),/original native job deadline/)
-assert.throws(()=>nativeValidationPolicy(workflow.replace('offline_dynamic_projection_stress','removed_projection_gate')),/missing mandatory gate/)
-console.log('Runtime diagnostics CI: read-only PR cache, unchanged deadline and mandatory regression gates passed')
+assert.throws(()=>nativeValidationPolicy(workflow.replace('timeout-minutes: 20','timeout-minutes: 40')),/twenty-minute job deadline/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('offline_dynamic_projection_stress','removed_projection_gate')),/release stress gate/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('  windows-host-repro:','  removed-host-job:')),/missing required job/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('release/xharness_host.pdb','release/removed.pdb')),/Host\/PDB artifact/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('cargo test --locked --release -p xharness-host offline_reasoning','cargo test --locked -p xharness-host offline_reasoning')),/release stress gate/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('      - name: Exercise concurrent dynamic append and Host publication','      - name: Exercise concurrent dynamic append and Host publication\n        if: false')),/remain fatal/)
+const hostCache=workflow.lastIndexOf(savePolicy)
+assert.throws(()=>nativeValidationPolicy(workflow.slice(0,hostCache)+workflow.slice(hostCache).replace(savePolicy,'save-if: true')),/PR cache uploads/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('      - run: cargo test --locked -p xharness-diagnostics','      - run: '+hostBuild+'\n      - run: cargo test --locked -p xharness-diagnostics')),/must not consume the stress job deadline/)
+console.log('Runtime diagnostics CI: independent Host/PDB build, unchanged release stress gates/deadlines, read-only PR cache and mutation checks passed')

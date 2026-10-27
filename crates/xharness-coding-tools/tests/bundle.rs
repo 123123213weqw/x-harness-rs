@@ -659,7 +659,12 @@ async fn cancelled_bash_result_is_published_only_after_the_process_tree_is_dead(
 
 #[cfg(target_os = "linux")]
 fn linux_process_state(pid: u32) -> Option<char> {
-    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+    linux_process_state_from_read(pid, fs::read_to_string(format!("/proc/{pid}/stat")))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_state_from_read(pid: u32, read: std::io::Result<String>) -> Option<char> {
+    match read {
         Ok(stat) => Some(
             stat.rsplit_once(") ")
                 .expect("process stat has a command name")
@@ -668,9 +673,58 @@ fn linux_process_state(pid: u32) -> Option<char> {
                 .next()
                 .expect("process stat has a state"),
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        // Linux procfs can lose its task between opening stat and reading it:
+        // ESRCH (Linux errno 3), like ENOENT, proves that PID has disappeared.
+        // Permission, I/O and malformed-stat errors must still fail the test.
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(3) =>
+        {
+            None
+        }
         Err(error) => panic!("cannot inspect managed pid {pid}: {error}"),
     }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_recognizes_a_pid_reaped_during_stat_read() {
+    // Linux can report ESRCH after /proc/<pid>/stat was opened but before read.
+    // ENOENT instead covers a PID that vanished before opening the file.
+    for errno in [2, 3] {
+        assert_eq!(
+            linux_process_state_from_read(42, Err(std::io::Error::from_raw_os_error(errno))),
+            None
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_keeps_live_and_zombie_states_distinct() {
+    for state in ['R', 'S', 'Z'] {
+        assert_eq!(
+            linux_process_state_from_read(42, Ok(format!("42 (a (process) name) {state} 1 2"))),
+            Some(state)
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_proc_reader_does_not_hide_inspection_failures_as_process_exit() {
+    for kind in [
+        std::io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::Other,
+    ] {
+        assert!(std::panic::catch_unwind(|| {
+            linux_process_state_from_read(42, Err(std::io::Error::from(kind)))
+        })
+        .is_err());
+    }
+    assert!(std::panic::catch_unwind(|| {
+        linux_process_state_from_read(42, Ok("invalid stat".to_owned()))
+    })
+    .is_err());
 }
 
 #[tokio::test]

@@ -32,10 +32,10 @@ mod native_api;
 mod native_startup;
 #[path = "probe_support/readiness.rs"]
 mod readiness;
-#[path = "probe_support/viewport.rs"]
-mod viewport_probe;
 #[path = "probe_support/session_request.rs"]
 mod session_request;
+#[path = "probe_support/viewport.rs"]
+mod viewport_probe;
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
