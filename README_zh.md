@@ -1,7 +1,7 @@
 # XHarness
 
 <div align="center">
-  <img src="assets/brand/xharness-brand-hero.png" alt="XHarness" width="640">
+  <img src="assets/brand/xharness-app-icon.png" alt="XHarness" width="128" height="128">
 </div>
 
 <div align="center">

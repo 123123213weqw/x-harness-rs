@@ -40,7 +40,7 @@ function isCompactionCheckpoint(event: Parameters<ConversationNodeDefinition['ma
 
 /** User, steering, and injected-context message classification Definition. */
 export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
-  historyReuse: 'local',
+  historyReuse: 'local', locationReuse: 'events',
   kind: 'input-message',
   target: 'chat',
   match: event => isSessionEvent(event, 'user/message')

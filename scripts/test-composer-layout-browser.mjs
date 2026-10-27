@@ -222,8 +222,12 @@ try {
     assert.ok(menuBox.x>=0&&menuBox.x+menuBox.width<=width+1&&menuBox.y>=0,JSON.stringify(menuBox))
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
     await goalMenu.getByRole('menuitem',{name:'Edit goal',exact:true}).click()
-    await page.getByRole('textbox',{name:'Goal objective',exact:true}).press('Escape')
-    assert.equal(await page.getByRole('textbox',{name:'Goal objective',exact:true}).count(),0)
+    const goalEditor=page.getByRole('textbox',{name:'Goal objective',exact:true})
+    await goalEditor.press('Escape')
+    // Key dispatch is not the React commit. Await the required removal rather
+    // than taking an immediate count that races WebKit's event processing.
+    await goalEditor.waitFor({state:'detached',timeout:2000})
+    assert.equal(await goalEditor.count(),0)
   }
   assert.equal(await page.evaluate(()=>__composerFixture.calls.some(call=>call.goal==='budget')),false)
   // Todo remains independent and fully readable; removing all docks leaves no empty header/footer.

@@ -1837,6 +1837,8 @@ fn empty_schema() -> Value {
 
 #[cfg(test)]
 mod tests {
+    mod flush_retry;
+
     use std::{
         collections::VecDeque,
         sync::{

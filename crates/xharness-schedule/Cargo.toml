@@ -23,6 +23,7 @@ xharness-tools = { path = "../xharness-tools" }
 [dev-dependencies]
 async-trait.workspace = true
 futures.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 xharness-core = { path = "../xharness-core" }
 xharness-jobs = { path = "../xharness-jobs" }
 xharness-session-jsonl = { path = "../xharness-session-jsonl" }

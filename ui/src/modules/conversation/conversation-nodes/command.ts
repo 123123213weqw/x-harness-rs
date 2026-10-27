@@ -187,7 +187,7 @@ export function updateCompactionState<State extends CompactionEvidence>(
 
 /** Slash-command lifecycle, including integrated manual compaction, Definition. */
 export const commandDefinition: ConversationNodeDefinition<CommandState> = {
-  historyReuse: 'local',
+  historyReuse: 'local', locationReuse: 'events',
   kind: 'command',
   target: 'chat',
   match: (event, view) => {

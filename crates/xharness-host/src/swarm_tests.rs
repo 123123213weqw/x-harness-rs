@@ -142,7 +142,7 @@ async fn inspect(host: &BasicHost, owner: &str, id: &str) -> Value {
     )
 }
 async fn settle(host: &BasicHost, id: &str) {
-    tokio::time::timeout(Duration::from_secs(15), async {
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let idle = {
                 let state = host.state.read().await;
@@ -168,8 +168,30 @@ async fn settle(host: &BasicHost, id: &str) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .expect("worker did not settle");
+    .await;
+    if let Err(error) = result {
+        let state = host.state.read().await;
+        let record = state.sessions.get(id).unwrap();
+        let diagnostic = format!(
+            "running={} queue={} projected={} paused={} restoring={}",
+            record.running,
+            record.queue.len(),
+            record.projected_queue.len(),
+            record.dispatch_paused,
+            record.restoring
+        );
+        drop(state);
+        let session = host
+            .agent_runtime
+            .authoritative_session(id)
+            .await
+            .unwrap()
+            .unwrap();
+        panic!(
+            "worker {id} did not settle: {error:?}; {diagnostic}; tail={:?}",
+            session.events().iter().rev().take(12).collect::<Vec<_>>()
+        );
+    }
 }
 async fn start(host: &BasicHost, task: &str) -> String {
     let result = host
@@ -697,7 +719,19 @@ async fn board_wait_delivery(host: &BasicHost, child: &str, message: &str) -> u3
                     {
                         found = true
                     }
-                    EventData::TurnEnd { turn: t, .. } if found && turn == Some(*t) => return *t,
+                    EventData::TurnEnd { turn: t, .. } if found && turn == Some(*t) => {
+                        // TurnEnd is durable evidence, not an idle-driver or
+                        // committed-outbox barrier. A follow-up must not steer
+                        // the previous driver's terminal handoff in this test.
+                        let state = host.state.read().await;
+                        let idle = state.sessions.get(child).is_some_and(|record| {
+                            !record.running && record.queue.is_empty() && record.projected_queue.is_empty()
+                        });
+                        let delivered = state.swarms.values().flat_map(|team| team.tasks.values()).any(|task| {
+                            matches!(&task.state, xharness_control::SwarmTaskState::Assigned {message_id, delivered: true, ..} if message_id == message)
+                        });
+                        if idle && delivered { return *t; }
+                    },
                     _ => {}
                 }
             }

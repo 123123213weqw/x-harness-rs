@@ -1026,7 +1026,8 @@ async fn english_task_persona_is_compatible_and_stable_at_the_provider_boundary(
     assert!(system.contains("The user selected danger-full-access"));
     assert!(!system.contains("workspace-write isolation"));
     assert!(system.contains("Inspect before editing"));
-    assert!(system.contains("Never create schedules unless the user requested them."));
+    assert!(system.contains("Only user-requested future work uses automation"));
+    assert!(system.contains("Never create schedules without a request."));
     assert!(!system.contains("You are a coding agent."));
     for request in requests.iter() {
         assert_eq!(request.messages[0].role, Role::System);

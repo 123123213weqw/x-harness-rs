@@ -1,0 +1,229 @@
+{
+  "schema": 1,
+  "scope": "Stable shared prompt prefix, compact memory/instruction/job guidance and description-only tool edits; no model/tool/runtime permission or output-budget changes",
+  "source": {
+    "base_commit": "52b44b83468e6a62e786b7d9dbb99cc28337ec8b",
+    "files": {
+      "crates/xharness-coding-tools/src/lib.rs": "13d816eca9b2465e4d7f875afcf5f8ea8ad98f7863461a656fb9a82c6d217cb8",
+      "crates/xharness-host-app/src/plugin_mcp.rs": "95fe4c4e2058c4afa2a3a46004fa93bdeca8dd71fd089c5edb7f61a7601c678c",
+      "crates/xharness-host/src/delegation.rs": "1032649af45f6cbfb8956805532b45a28acd1eade4bf2d5bd5681f649b841603",
+      "crates/xharness-host/src/instructions.rs": "bb43662ccfbf2f2b79565f5627e4ed511c39886eeafbbdbe595726a4b082efc5",
+      "crates/xharness-host/src/instructions/tests.rs": "d911d055508a6ecc527c1d3dd354dcd5cd3e6ff420a0300d73b8978216c7060a",
+      "crates/xharness-host/src/memory.rs": "2fa07eaf1422e083f9c4d212cc7e23aaa1e5ada90d3dbb63aca98f62eef85bbc",
+      "crates/xharness-host/src/memory/tests.rs": "f5ae9a727cec66e60bef3828d75bbdaddf38b0b05a69d9c63ca0fc1e14668231",
+      "crates/xharness-host/src/state.rs": "1f79e63dcc4a098acab541331a96b1e8b6aa984151ab88eec5ade89767dc2f5d",
+      "crates/xharness-host/tests/basic_host.rs": "75d4a2a7b9231966c01beb6eb81817813202a45efa13339f3cce2da8a8e42d9a",
+      "scripts/regression/check-prompt-wire.py": "5806d096829ee03059a0da7dae86900c28c92569281a102381f9ce04036a5915"
+    },
+    "local_rust_compilation": false
+  },
+  "implementation": {
+    "ordering": "Explicit shared-policy allowlist followed by original-order contextual sections; unknown/custom context stays in tail; single system role retained",
+    "dynamic_tail": [
+      "permission/policy",
+      "workspace/context",
+      "agent/delegated-clarification",
+      "plan/policy",
+      "global/memory",
+      "workspace/memory",
+      "workspace/instructions/AGENTS.md"
+    ],
+    "memory": "Single shared trust/write policy; compact empty/manual scope; bounded nonempty quoted index; off/unreadable remain distinct; no notes or project files rewritten",
+    "tools": "agent, plugin_mcp, bash and job_output descriptions shortened; all captured tool names, parameter schemas, guards and execution controls unchanged",
+    "audit_versions": {
+      "memory/policy": "3",
+      "tool/jobs": "6",
+      "workspace/instructions-policy": "2"
+    }
+  },
+  "validation": {
+    "rust_host": "WZU_Server, source synced including uncommitted edits; no local Rust compilation",
+    "workspace_all_targets": {
+      "passed": 2356,
+      "failed": 0,
+      "ignored_existing": 30,
+      "exit": 0,
+      "platform": "Linux; OS-gated Windows/macOS tests are not native platform acceptance"
+    },
+    "clippy": {
+      "packages": [
+        "xharness-host",
+        "xharness-host-app",
+        "xharness-coding-tools"
+      ],
+      "all_targets": true,
+      "warnings": "denied",
+      "exit": 0
+    },
+    "cargo_fmt": "passed locally, formatting only",
+    "architecture": "Exact-base dependency/stabilization gate passed; 30 Python architecture mutation tests passed under Python3.14; initial macOS system Python3.9 incompatibility preserved in evidence",
+    "wire": {
+      "passed": true,
+      "mock_requests": 12,
+      "tool_schemas_and_controls_unchanged": true,
+      "system_utf8_bytes_before": 5682,
+      "system_utf8_bytes_after": 3707,
+      "tools_json_bytes_before": 19132,
+      "tools_json_bytes_after": 17995,
+      "cross_workspace_first_difference_byte": 3388,
+      "mock_usage_is_not_cost_or_cache_evidence": true
+    },
+    "new_invariants": [
+      "Same-cwd new session/title/Host process yields identical actual provider JSON",
+      "Cross-workspace difference occurs after shared policies",
+      "Memory changes, off and corrupt scopes leave shared prefix stable",
+      "Permission, Plan, delegation and project rules preserved in contextual tail",
+      "Unknown context preserved once in original relative order",
+      "Empty vs nonempty/off/corrupt memory remain distinct; notes not truncated on disk"
+    ],
+    "doctests": {
+      "exit": 0,
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0
+    },
+    "clippy_workspace_all_targets": {
+      "exit": 0,
+      "warnings": "denied"
+    },
+    "source_hashes_match_remote": true,
+    "owned_coding_test_hosts_shutdown_via_shutdown_file": 40
+  },
+  "real_model_coding": {
+    "model": "deepseek-flash, official Responses API, unchanged default High",
+    "planned": 40,
+    "completed": 40,
+    "judge_passed": {
+      "baseline": 20,
+      "candidate": 20
+    },
+    "strict_audit_passed": {
+      "baseline": 19,
+      "candidate": 20
+    },
+    "baseline_contamination": "repo-dt-01 repeat1 accessed task mock/reference outside workspace; exclude both arms of that matched pair from clean performance comparison; retain all raw results",
+    "clean_paired": {
+      "baseline": {
+        "attempts": 19,
+        "estimated_cny": 2.4923368,
+        "mean_seconds": 63.950631578947366,
+        "fresh": 214326,
+        "provider_responses": 188
+      },
+      "candidate": {
+        "attempts": 19,
+        "estimated_cny": 2.1393184,
+        "mean_seconds": 40.22136842105263,
+        "fresh": 237012,
+        "provider_responses": 192
+      },
+      "changes_percent": {
+        "estimated_cny": -14.16415309519965,
+        "mean_seconds": -37.105596257639526,
+        "fresh": 10.584810055709525,
+        "provider_responses": 2.127659574468077
+      },
+      "excluded_pairs": [
+        {
+          "task": "repo-dt-01",
+          "repeat": 1,
+          "reason": "baseline accessed task reference/mock outside workspace"
+        }
+      ]
+    },
+    "all_attempts": {
+      "baseline": {
+        "attempts": 20,
+        "judge_passed": 20,
+        "strict_audit_passed": 19,
+        "usage": {
+          "inputTokens": 241635,
+          "cacheReadTokens": 2899200,
+          "cacheWriteTokens": 0,
+          "outputTokens": 83542,
+          "reasoningTokens": 68128
+        },
+        "first_usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 120414,
+          "outputTokens": 2125,
+          "reasoningTokens": 0
+        },
+        "provider_responses": 210,
+        "mean_seconds": 68.8467,
+        "estimated_cny": 2.8563100000000006,
+        "errors": []
+      },
+      "candidate": {
+        "attempts": 20,
+        "judge_passed": 20,
+        "strict_audit_passed": 20,
+        "usage": {
+          "inputTokens": 251919,
+          "cacheReadTokens": 2257792,
+          "cacheWriteTokens": 0,
+          "outputTokens": 64535,
+          "reasoningTokens": 42096
+        },
+        "first_usage": {
+          "cacheReadTokens": 9728,
+          "cacheWriteTokens": 0,
+          "inputTokens": 99298,
+          "outputTokens": 1744,
+          "reasoningTokens": 43
+        },
+        "provider_responses": 206,
+        "mean_seconds": 40.117000000000004,
+        "estimated_cny": 2.2600028,
+        "errors": []
+      }
+    },
+    "cost_basis": "Frozen experimental CNY rates per million: fresh2, cached0.4, output including reasoning8; estimates, not invoices",
+    "first_request_fresh_all20": {
+      "baseline": 120414,
+      "candidate": 99298,
+      "change_percent": -17.53616689089309
+    },
+    "limitations": [
+      "Public model alias and best-effort server cache not immutable/controllable",
+      "Small regression, not universal non-inferiority proof",
+      "Same OS user/full-access does not secure hidden verifiers from model",
+      "Cost estimate uses frozen CNY rates, not invoice",
+      "Debug-profile binaries in both arms; concurrent remote compilation/model trials can affect timings",
+      "No promise of universal cost/fresh-token reduction; clean-pair total fresh input increased10.6%"
+    ]
+  },
+  "browser_routing": {
+    "attempts": 4,
+    "page_goal_passed": 4,
+    "strict_no_extra_tool_passed": 2,
+    "baseline_extra": [
+      "glob AGENTS.md"
+    ],
+    "candidate_extra": [
+      "bash curl to owned local fixture for corroboration"
+    ],
+    "scope": "Real model + production Host routing through synthetic native bridge. Not real rendered WKWebView/WebKitGTK/WebView2 acceptance. Strict failures preserved, not counted as green."
+  },
+  "status": "Implementation complete, deterministic Linux regression green; coding candidate20/20 strict; supplementary browser no-extra-tool probe not fully green and overall fresh-input reduction not established. Do not claim issue393 fully solved or all acceptance green.",
+  "unchanged": [
+    "Permission enforcement and approval/cancellation/timeouts",
+    "Tool names/schemas and registry order",
+    "Memory/project data and on-disk formats",
+    "Model/reasoning/context/output controls",
+    "Installed applications, running user services, releases and schedules"
+  ],
+  "private_evidence": "/Users/wangyue/codex-build/xharness-stable-lean-evidence-20261026",
+  "evidence_sha256": {
+    "workspace-tests-final.log": "a80cdc9b30e18331b85cd88713b4520314718ccf195daded44c4a12e0708b78a",
+    "clippy-final.log": "9a30d54c8b16d7e49510b182028079bca120aeebb7d662e88f8566e6196a49f6",
+    "wire-final-r4/summary.json": "668da4bc41819d544fd0fed291c6d156cb22d3468d523ccc509b173e6108af09",
+    "live/manifest.json": "82c0e0817ce1f51580a1f6ede083b06f262fc01371d1ae4e278f1328a6bb327a",
+    "live/results.jsonl": "eefc0e95c74f30c3d6a83d47c0b76a9b651464e6194fc47471832a925d02bf36",
+    "live/analysis.json": "ac77a1842f481170d3fc2ae7886a287e6ae26a53deade4898d158f1834ddd8fb",
+    "browser-routing/results.jsonl": "6e737e3b2aa40785baa62043c882aeb9bcf235ea5c9aad35ff8e4b54e84352b8",
+    "doctests.log": "9e6789375dfecf1d220c0cdc32afaf021057ec19276f6ab09ebcec156cc47182",
+    "clippy-workspace.log": "0c79da3cdc52c1ae1157ec3c7dd09401a261625a3ced679a42ddaf71b8720c60"
+  }
+}

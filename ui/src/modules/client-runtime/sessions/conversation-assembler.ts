@@ -150,6 +150,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   private readonly locationIndex = new ConversationLocationIndex()
   private readonly dirty = new Set<InternalContext>()
   private readonly revised = new Set<InternalContext>()
+  private readonly reusableLocations = new Set<InternalContext>()
   private readonly dependents = new Map<string, Set<InternalContext>>()
   private readonly views = new Map<string, ViewState>()
   private hasMore = false
@@ -258,7 +259,8 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         this.timelineDirty = true
         publication = 'immediate'
       }
-      this.replayContexts(this.refreshMatchLocations(changed))
+      this.replayContexts(this.refreshMatchLocations(changed), true)
+      this.reusableLocations.clear()
       if (changed.size > 0) publication = 'immediate'
     } else {
       this.locationIndex.appendNonBoundary(input.event)
@@ -280,6 +282,20 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     if (fresh.length === 0 && hasMore === this.hasMore) return 'none'
     Object.assign(this, this.stageReplacement([...fresh, ...this.sortedInputs()], hasMore, true))
     return 'immediate'
+  }
+
+  /** A tail window must not silently discard a predecessor's business State.
+   * Unknown/third-party dependency chains remain pinned rather than guessed. */
+  canTrimBefore(seq: number): boolean {
+    for (const context of this.contexts.values()) {
+      if (!context.matches.some(match => match.event.seq >= seq)) continue
+      if ((context.matches[0]?.event.seq ?? seq) < seq) return false
+      for (const dependency of context.dependencies.values()) {
+        const predecessor = dependency.key === undefined ? undefined : this.contexts.get(dependency.key)
+        if (predecessor?.startSeq !== undefined && predecessor.startSeq < seq) return false
+      }
+    }
+    return true
   }
 
   /**
@@ -541,7 +557,7 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     for (const [kind, contexts] of startsByKind) this.indexStartedContexts(kind, contexts)
   }
 
-  private replayContexts(contexts: ReadonlySet<InternalContext>): void {
+  private replayContexts(contexts: ReadonlySet<InternalContext>, relocated = false): void {
     const ordered = [...contexts].sort((left, right) =>
       (left.startSeq ?? Number.POSITIVE_INFINITY) - (right.startSeq ?? Number.POSITIVE_INFINITY))
     for (const context of ordered) {
@@ -550,7 +566,14 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
         this.dirty.add(context)
         continue
       }
-      this.replayContext(context)
+      if (relocated && this.reusableLocations.has(context) && context.state !== undefined) {
+        // refreshMatchLocations already rebound the evidence. Boundary-only
+        // changes must not re-run event reducers, but dependent readers and
+        // all materializers still see a new revision and current timeline.
+        context.revision++
+        this.revised.add(context)
+        this.dirty.add(context)
+      } else this.replayContext(context)
     }
   }
 
@@ -766,18 +789,38 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
 
   private refreshMatchLocations(changedSeqs: ReadonlySet<number>): Set<InternalContext> {
     const affected = new Set<InternalContext>()
+    this.reusableLocations.clear()
     if (changedSeqs.size === 0) return affected
     for (const seq of changedSeqs) {
       for (const context of this.contextsBySeq.get(seq) ?? []) affected.add(context)
     }
     for (const context of affected) {
       let start = context.start
+      let coordinatesUnchanged = true
       const matches = context.matches.map((match): ConversationMatch => {
         if (!changedSeqs.has(match.event.seq)) return match
         const refreshed = { ...match, location: this.locationIndex.locationOf(match.event) }
+        const before = match.location, after = refreshed.location
+        if (before.kind !== after.kind
+          || ((before.kind === 'turn' || before.kind === 'step') && (after.kind === 'turn' || after.kind === 'step') && before.turn.turn !== after.turn.turn)
+          || (before.kind === 'step' && after.kind === 'step' && before.step.step !== after.step.step)) coordinatesUnchanged = false
         if (match === start) start = refreshed
         return refreshed
       })
+      if (context.definition.locationReuse === 'events' && coordinatesUnchanged) this.reusableLocations.add(context)
+      if (this.reusableLocations.has(context) && isRecord(context.state)) {
+        const rebound = new Map<unknown, ConversationMatch>()
+        context.matches.forEach((prior, index) => {
+          const next = matches[index]
+          if (next !== undefined && next !== prior) rebound.set(prior, next)
+        })
+        const changes: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(context.state)) {
+          const next = rebound.get(value)
+          if (next !== undefined) changes[key] = next
+        }
+        if (Object.keys(changes).length > 0) context.state = { ...context.state, ...changes }
+      }
       context.matches = matches
       context.start = start
     }
