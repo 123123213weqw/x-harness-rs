@@ -1,3 +1,4 @@
+import{childLifecycle}from'./child-lifecycle.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import{spawn,execFile}from'node:child_process'
@@ -7,10 +8,11 @@ import{createInterface}from'node:readline'
 import{tmpdir}from'node:os'
 import{join,resolve,dirname}from'node:path'
 test('complete generated archive boots automatic setup without a source checkout',{
+ timeout:30000,
  skip:process.platform==='win32'?'File-only integration must not modify HKCU':false,
 },async()=>{
  const temp=await mkdtemp(join(tmpdir(),'xh-archive-')),binary=join(temp,'fake-helper'),plugin=join(temp,'plugin'),home=join(temp,'home')
- let child
+ let child,life
  try{
   await writeFile(binary,'NEVER EXECUTED: packaging fixture')
   const platform=process.platform+'-'+process.arch,output=join(temp,'artifacts')
@@ -26,6 +28,7 @@ test('complete generated archive boots automatic setup without a source checkout
   for(const required of ['dist/extension-id.json','scripts/install-native.mjs','.mcp.json',`native/${platform}/xharness-browser-extension-host`])assert.ok(names.includes(required),required)
   await mkdir(home,{recursive:true})
   child=spawn(process.execPath,[join(plugin,'dist/native/mcp.js')],{env:{...process.env,HOME:home,USERPROFILE:home,XDG_CONFIG_HOME:join(home,'config'),XHARNESS_BROWSER_CONTEXT_ID:'f'.repeat(64),XHARNESS_BROWSER_CONTEXT_LABEL:'Archive fixture'}})
+  life=childLifecycle(child)
   let stderr='';child.stderr.on('data',chunk=>stderr+=chunk)
   const reply=await new Promise((resolve,reject)=>{
    const timer=setTimeout(()=>reject(Error(stderr||'archive MCP timeout')),20000)
@@ -34,5 +37,5 @@ test('complete generated archive boots automatic setup without a source checkout
   })
   const state=JSON.parse(reply.result.content[0].text)
   assert.equal(state.installation.installed,true,JSON.stringify(state));assert.equal(state.connected,false);assert.equal(state.contextId,'f'.repeat(64))
- }finally{if(child){child.stdin.end();await new Promise(resolve=>child.once('exit',resolve))}await rm(temp,{recursive:true,force:true})}
+ }finally{if(life)await life.close();await rm(temp,{recursive:true,force:true})}
 })
