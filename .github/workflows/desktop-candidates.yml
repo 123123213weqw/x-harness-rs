@@ -32,7 +32,7 @@ jobs:
       RELEASE_SCOPE: ${{ vars.XHARNESS_DESKTOP_TAG_RELEASE_SCOPE || 'all-macos-preview' }}
     steps:
       # Controls from trusted master, never a PR artifact or untrusted checkout.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5

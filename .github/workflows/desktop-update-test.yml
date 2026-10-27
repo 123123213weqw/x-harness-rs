@@ -30,7 +30,7 @@ jobs:
       UPDATE_VERSION: ${{ inputs.update_version }}
       XHARNESS_UPDATER_PUBKEY: ${{ secrets.XHARNESS_TEST_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Validate version pair and immutable test channel
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

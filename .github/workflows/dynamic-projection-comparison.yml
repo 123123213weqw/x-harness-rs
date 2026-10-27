@@ -17,10 +17,10 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           path: harness
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: 123123213weqw/x-harness-rs
           ref: ${{ matrix.ref }}
