@@ -247,3 +247,20 @@ for that previous head. The newly integrated head still requires fresh full CI,
 including actual macOS and Windows gates, before merge; #403 must merge first.
 The original stale-geometry failure and unsuccessful experiments remain recorded.
 No installed application, user profile or active conversation was changed.
+
+## Final base integration after native-session merge
+
+PR #403 merged as `8c098c50f71770108e59b95bba176e5fd936fc64`. Integrating
+that actual master into the extension-integrated candidate changed ancestry
+only: before adding this receipt, both trees were exactly
+`b48773940b20b85848a7dfa8e51ff2a6fb547ee8`. Rebuilding the production UI
+from repository source produced no asset differences; typechecking, browser
+activity and all 24 conversation-source tests passed. This avoids treating
+selected generated hashes as the source of truth.
+
+The prior `4625b436` main CI is now fully successful, including its Windows
+x86_64 native job `122143373524`: real owned-browser acceptance passed 14 cases
+with 21 screenshots, and native WebView probes passed both normal and delayed
+readiness. As with the Mac results above, these are prior-head receipts, not a
+substitute for the new integrated head's full CI. Source and deadlines were not
+weakened; no application was installed, restarted or deployed.
