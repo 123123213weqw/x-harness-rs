@@ -46,6 +46,10 @@ jobs:
           toolchain: '1.99.0'
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # PR validation must not spend its remaining test budget archiving a
+          # release/PDB target tree after all required checks have passed.
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
       - run: cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32
       - run: cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings
       - uses: actions/setup-node@v4

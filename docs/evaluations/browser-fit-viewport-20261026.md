@@ -112,3 +112,21 @@ formatting and architecture checks passed. Rust sources are byte-identical to
 `d9e30eb4`; the integration changes only the mobile UI, tests/docs and generated
 assets. This updated head still requires an entirely fresh cross-platform CI run
 and remains a draft until those exact-head native gates pass.
+
+## Diagnostic CI post-cache timeout
+
+The new-head diagnostic run `40491024148` / Windows job `122144688911`
+completed every mandatory test, warning-denying Clippy check, release build,
+offline projection stress/cold-start gate and artifact upload successfully.
+It was then cancelled in `Post Run Swatinem/rust-cache@v2`: the annotation
+explicitly reports the original 20-minute job limit. The final artifact upload
+ended at 11:09:00 UTC and cache cleanup was cancelled at 11:09:09. This was **not**
+a new `subagent.interrupt` failure and is not treated as green CI.
+
+The diagnostic workflow now follows the main CI's read-only PR cache convention:
+cache restoration is retained, but only a master push may save a target cache.
+No test, artifact or compiler gate is made optional; the 20-minute job limit and
+all assertions stay unchanged. A Node regression checks that exact save policy,
+all required diagnostic/stress gates, absence of continue-on-error, and the
+unchanged deadline; mutation checks reject cache-save, timeout and missing-gate
+regressions. Fresh exact-head Windows CI is required to validate the workflow fix.

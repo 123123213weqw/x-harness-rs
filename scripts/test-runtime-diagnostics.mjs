@@ -83,3 +83,19 @@ const lostStream = sidecar.slice(sidecar.indexOf('if !terminated'), sidecar.inde
 assert.match(lostStream, /host_job\.terminate\(1\)/)
 assert.match(lostStream, /active_processes == 0[\s\S]*?running\.store\(false, Ordering::SeqCst\)/)
 assert.match(lostStream, /Instant::now\(\) >= deadline/)
+
+// Cache upload is an optional optimization, never the tail of PR validation.
+const workflow=readFileSync(new URL('../.github/workflows/runtime-diagnostics.yml',import.meta.url),'utf8')
+const savePolicy="save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}"
+function nativeValidationPolicy(text){
+ const native=text.slice(text.indexOf('  native:'),text.indexOf('  local-desktop:'))
+ assert.ok(native.includes('timeout-minutes: 20'),'keep the original native job deadline')
+ assert.ok(native.includes(savePolicy),'PR cache uploads must remain disabled')
+ assert.doesNotMatch(native,/continue-on-error|if:\s*false/,'all validation failures must remain fatal')
+ for(const required of ['cargo test --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32','cargo clippy --locked -p xharness-diagnostics -p xharness-debug -p xharness-win32 --all-targets -- -D warnings','offline_reasoning_projection_stress','offline_journal_projection_stress','offline_authoritative_restore_100_cold_starts','offline_dynamic_projection_stress','Retain offline projection test'])assert.ok(native.includes(required),'missing mandatory gate '+required)
+}
+nativeValidationPolicy(workflow)
+assert.throws(()=>nativeValidationPolicy(workflow.replace(savePolicy,'save-if: true')),/PR cache uploads/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('timeout-minutes: 20','timeout-minutes: 40')),/original native job deadline/)
+assert.throws(()=>nativeValidationPolicy(workflow.replace('offline_dynamic_projection_stress','removed_projection_gate')),/missing mandatory gate/)
+console.log('Runtime diagnostics CI: read-only PR cache, unchanged deadline and mandatory regression gates passed')
