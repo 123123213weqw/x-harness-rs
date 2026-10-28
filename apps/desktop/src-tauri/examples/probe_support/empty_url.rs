@@ -9,7 +9,9 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
     app.run_on_main_thread(move || {
         let result = (|| {
             let window = handle
-                .get_webview_window("main")
+                // The preceding probes can leave multiple child WebViews.
+                // The native Window still exists, but is not a WebviewWindow.
+                .get_window("main")
                 .ok_or("native URL probe window missing")?;
             // Deliberately omit both with_url and with_html. On macOS the
             // resulting WKWebView has no committed document and URL == nil.
