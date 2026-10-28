@@ -54,3 +54,13 @@ test('shipped conversation entry includes the actual failure outlet',()=>{
   assert.equal(shipped,compiled.entry,'source must be rebuilt into the shipped product')
   assert.ok(shipped.includes('data-agent-error'))
 })
+
+
+test('failure notice also remains visible under the production outer conversation scroller',()=>{
+  const css = readFileSync(new URL('../ui/src/modules/conversation/chat/ChatView.css',import.meta.url),'utf8')
+  const rule = css.match(/\.IxU-fW_openError\[data-agent-error\]\{([^}]+)\}/)?.[1]
+  assert.ok(rule,'dedicated failure notice styling')
+  assert.match(rule,/position:sticky/)
+  assert.match(rule,/top:0(?:;|$)/)
+  assert.match(rule,/background:/,'sticky text must not overlap transcript without a surface')
+})
