@@ -27,6 +27,17 @@ const composerBusyLocales = {
  en: {'input.sending':'Sending…','input.stopping':'Stopping…'},
  zh: {'input.sending':'正在发送…','input.stopping':'正在停止…'},
 };
+const agentFailureLocales = {
+ en: {'chat.agentError':'Background task reported a failure: {message}'},
+ zh: {'chat.agentError':'后台任务报告异常：{message}'},
+};
+const agentFailureStyle = '\n.IxU-fW_openError[data-agent-error]{position:sticky;top:0;z-index:9;flex:none;padding:8px 16px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover-solid)}\n';
+function baselineAgentFailureStyle(source) {
+ assert.ok(source.endsWith(agentFailureStyle),'reviewed agent failure notice must remain an exact append-only delta');
+ const baseline=source.slice(0,-agentFailureStyle.length);
+ assert.equal(createHash('sha256').update(baseline).digest('hex'),'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647','unrelated ChatView styles must retain their reviewed bytes');
+ return baseline;
+}
 const composerBusyStyle = '\n._7yzX1q_primary [data-composer-busy]{animation:xh-composer-busy 1s linear infinite}\n@keyframes xh-composer-busy{to{transform:rotate(360deg)}}\n@media(prefers-reduced-motion:reduce){._7yzX1q_primary [data-composer-busy]{animation:none}}\n';
 function baselineComposerStyle(source) {
  assert.ok(source.endsWith(composerBusyStyle),'reviewed composer busy animation must remain an exact append-only delta');
@@ -57,6 +68,11 @@ function baselineProductCopy(language, locale) {
  for(const [key,expected] of Object.entries(composerBusyLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'composer busy labels are additive; keep the frozen baseline unchanged');
   assert.equal(locale[key],expected,`${language} composer busy label ${key} must match its reviewed value`);
+  delete normalized[key];
+ }
+ for(const [key,expected] of Object.entries(agentFailureLocales[language])) {
+  assert.equal(Object.hasOwn(apis[0].plugin[language],key),false,'agent failure labels are additive; keep the frozen baseline unchanged');
+  assert.equal(locale[key],expected,`${language} agent failure label ${key} must match its reviewed value`);
   delete normalized[key];
  }
  delete normalized['stats.title'];
@@ -116,6 +132,23 @@ test('reviewed composer busy labels and styles reject missing, changed and unrel
  assert.throws(()=>baselineComposerStyle('.unreviewed{color:red}'+source),/unrelated InputBar styles/);
 });
 
+test('reviewed agent failure copy and sticky notice reject missing, changed and unrelated deltas',()=>{
+ for(const language of ['en','zh']) {
+  const current=json(apis[1].plugin[language]),normalized=baselineProductCopy(language,current);
+  const missing={...current};delete missing['chat.agentError'];
+  assert.throws(()=>baselineProductCopy(language,missing),/agent failure label/);
+  assert.throws(()=>baselineProductCopy(language,{...current,'chat.agentError':'incorrect failure label'}),/agent failure label/);
+  const unrelated=baselineProductCopy(language,{...current,'chat.unreviewed':'unexpected'});
+  assert.equal(unrelated['chat.unreviewed'],'unexpected');
+  assert.notDeepEqual(unrelated,normalized,'unrelated dictionary changes must still fail strict parity');
+ }
+ const source=readFileSync(new URL('../ui/src/modules/conversation/chat/ChatView.css',import.meta.url),'utf8');
+ const baseline=baselineAgentFailureStyle(source);
+ assert.throws(()=>baselineAgentFailureStyle(baseline),/agent failure notice/);
+ assert.throws(()=>baselineAgentFailureStyle(source.replace('position:sticky;top:0;z-index:9','position:relative;top:0;z-index:9')),/agent failure notice/);
+ assert.throws(()=>baselineAgentFailureStyle('.unreviewed{color:red}'+source),/unrelated ChatView styles/);
+});
+
 test('fork/subagent breadcrumbs preserve source ancestry, missing parents and cycle guards',()=>{
  const list={byId:{parent:{id:'parent',displayTitle:'Parent',origin:'user'},fork:{id:'fork',displayTitle:'Fork',origin:'fork',parentId:'parent'},agent:{id:'agent',displayTitle:'Agent',origin:'subagent',parentId:'fork'}}};
  const readers=[legacySource,compiled.entry].map(source=>harness(exposeConversation(source,['deriveAncestry'])).plugin.deriveAncestry);
@@ -164,7 +197,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   'skeleton/PermissionSelect': 'e91048346a2948571cfa55321fd43f8a22cf96c0b0b89b4bd4882736a29eda74',
   'skeleton/TodoPanel': 'aaf719207bee33d33551031960513e1d0c8b7b01bb35a807a362f7b75e849fdc',
   'queue/QueueDock': '3835c9f5eb3ccf4c71fdb5b6b9db96a37b726c6017a43770f537de092e32c1e2',
-  // Replace only the turn activity presentation; the new spinner sheet is additive.
+  // Turn activity and failure notice are separately pinned; the new spinner sheet is additive.
   'chat/ChatView': 'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647',
   'chat/LoadingIndicator': 'a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e',
   // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
@@ -176,7 +209,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
  for(const [name,sha] of Object.entries(reviewedStyles)) {
   const id='@xharness/dsh-client-ui-conversation/'+name.split('/').at(-1)+'.module.css';
   const source=readFileSync(new URL('../ui/src/modules/conversation/'+name+'.css',import.meta.url),'utf8');
-  const baseline=name==='skeleton/InputBar'?baselineComposerStyle(source):source;
+  const baseline=name==='skeleton/InputBar'?baselineComposerStyle(source):name==='chat/ChatView'?baselineAgentFailureStyle(source):source;
   assert.equal(createHash('sha256').update(baseline).digest('hex'),sha,'reviewed product style '+name);
   assert.equal(nextCss[id],source,'emitted product style is source-fresh');
   expectedCss[id]=source;
