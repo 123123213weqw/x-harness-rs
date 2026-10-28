@@ -25,6 +25,9 @@ mod browser_picker;
 #[path = "../src/browser_request.rs"]
 mod browser_request;
 
+#[cfg(target_os = "macos")]
+#[path = "probe_support/empty_url.rs"]
+mod empty_url_probe;
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
 mod native_api;
@@ -1299,6 +1302,8 @@ async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    empty_url_probe::run(app).await?;
     #[cfg(windows)]
     bounds_probe(app, &url).await?;
     if std::env::var("XHARNESS_NATIVE_PROBE_BOUNDS_ONLY").as_deref() == Ok("1") {

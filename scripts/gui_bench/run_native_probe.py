@@ -280,6 +280,23 @@ def subframe_navigation_passed(log_text: str) -> bool:
         return False
 
 
+def empty_webview_url_passed(log_text: str) -> bool:
+    prefix = "EMPTY_WEBVIEW_URL_EVIDENCE "
+    lines = [line[len(prefix):] for line in log_text.splitlines() if line.startswith(prefix)]
+    if len(lines) != 1:
+        return False
+    try:
+        result = json.loads(lines[0])
+        return (isinstance(result, dict) and result.get('passed') is True
+                and type(result.get('nil_url_reads')) is int
+                and result.get('nil_url_reads') == 32
+                and result.get('result') == 'recoverable_not_found'
+                and result.get('main_alive') is True
+                and result.get('test_only') is True)
+    except (ValueError, TypeError):
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
@@ -320,6 +337,9 @@ def main() -> int:
     receipt['subframe_navigation_passed'] = subframe_navigation_passed(log_text)
     receipt['browser_lifecycle_passed'] = browser_lifecycle_passed(log_text)
     completed = contract_completed(log_text)
+    receipt['empty_webview_url_passed'] = empty_webview_url_passed(log_text) if sys.platform == 'darwin' else None
+    if sys.platform == 'darwin':
+        completed = completed and receipt['empty_webview_url_passed']
     api = native_api_evidence(log_text, args.evidence_dir)
     (args.evidence_dir / 'native-api-evidence.json').write_text(json.dumps(api,indent=2)+'\n')
     receipt['native_api_prototype_tested'] = api.get('status') == 'tested'
