@@ -20,6 +20,47 @@ struct Fixture {
     slow: Arc<AtomicUsize>,
     redirected: Arc<AtomicUsize>,
 }
+
+fn read_request(stream: &mut impl Read) -> std::io::Result<Vec<u8>> {
+    const LIMIT: usize = 32768;
+    let mut input = Vec::new();
+    let mut buffer = [0; 2048];
+    let header_end = loop {
+        if let Some(end) = input.windows(4).position(|part| part == b"\r\n\r\n") {
+            break end + 4;
+        }
+        let capacity = buffer.len().min(LIMIT - input.len());
+        if capacity == 0 {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        let count = stream.read(&mut buffer[..capacity])?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        input.extend_from_slice(&buffer[..count]);
+    };
+    let headers =
+        std::str::from_utf8(&input[..header_end]).map_err(|_| std::io::ErrorKind::InvalidData)?;
+    let length = headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .map(|(_, length)| length.trim().parse::<usize>())
+        .transpose()
+        .map_err(|_| std::io::ErrorKind::InvalidData)?
+        .unwrap_or(0);
+    let required = header_end
+        .checked_add(length)
+        .filter(|required| *required <= LIMIT)
+        .ok_or(std::io::ErrorKind::InvalidData)?;
+    // A POST body can arrive after the headers. Closing a TCP socket with
+    // unread input can reset it and discard the intended HTTP 503 response.
+    let mut body = vec![0; required.saturating_sub(input.len())];
+    stream.read_exact(&mut body)?;
+    input.extend_from_slice(&body);
+    Ok(input)
+}
+
 fn fixture() -> Fixture {
     let destination = TcpListener::bind("127.0.0.1:0").unwrap();
     let other = format!("http://{}/destination", destination.local_addr().unwrap());
@@ -49,14 +90,9 @@ fn fixture() -> Fixture {
             );
             std::thread::spawn(move || {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                let mut input = Vec::new();
-                let mut buffer = [0; 2048];
-                while input.len() < 32768 && !input.windows(4).any(|w| w == b"\r\n\r\n") {
-                    match stream.read(&mut buffer) {
-                        Ok(0) | Err(_) => return,
-                        Ok(n) => input.extend_from_slice(&buffer[..n]),
-                    }
-                }
+                let Ok(input) = read_request(&mut stream) else {
+                    return;
+                };
                 let raw = String::from_utf8_lossy(&input);
                 let path = raw
                     .lines()
@@ -340,4 +376,45 @@ pub async fn run(app: &tauri::AppHandle) -> Result<(), String> {
         json!({"passed":true,"http_only_reused":true,"cookie_values_exported":false,"path_scope":true,"same_origin_only":true,"redirect_not_followed":true,"read_only_write_denied":true,"write_attempts":fixture.writes.load(Ordering::SeqCst),"bounded_preview":true,"repeatable_json_read_without_http":true,"owner_switch_revokes_cache":true,"rotation_and_logout":true,"hide_cancels_delivery":true,"test_only":true,"model_started":false})
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_request;
+    use std::io::{Cursor, Read};
+
+    struct Fragmented(Cursor<Vec<u8>>);
+    impl Read for Fragmented {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let length = buffer.len().min(1);
+            self.0.read(&mut buffer[..length])
+        }
+    }
+
+    #[test]
+    fn fixture_consumes_post_body_even_when_it_arrives_after_headers() {
+        let request = b"POST /write HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}".to_vec();
+        assert_eq!(
+            read_request(&mut Fragmented(Cursor::new(request.clone()))).unwrap(),
+            request
+        );
+    }
+
+    #[test]
+    fn fixture_rejects_incomplete_body_instead_of_sending_a_false_http_receipt() {
+        let mut input = Cursor::new(b"POST /write HTTP/1.1\r\nContent-Length: 2\r\n\r\n{");
+        assert_eq!(
+            read_request(&mut input).unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[test]
+    fn fixture_keeps_the_entire_request_bounded() {
+        let mut input = Cursor::new(b"POST /write HTTP/1.1\r\nContent-Length: 32768\r\n\r\n");
+        assert_eq!(
+            read_request(&mut input).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
 }

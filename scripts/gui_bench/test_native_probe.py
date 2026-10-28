@@ -22,6 +22,8 @@ class NativeProbeTests(unittest.TestCase):
                 self.assertFalse(empty_webview_url_passed('EMPTY_WEBVIEW_URL_EVIDENCE ' + json.dumps(dict(receipt, **{field: value}))))
         source = (Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
         self.assertIn('empty_url_probe::run(app).await?', source)
+        self.assertGreater(source.index('empty_url_probe::run(app).await?'),
+                           source.index('production_native_probe(app).await?'))
 
     def test_production_bridge_has_real_native_backends_and_no_new_guest_ipc(self):
         root = Path(__file__).resolve().parents[2]

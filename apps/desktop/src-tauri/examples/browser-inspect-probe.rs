@@ -1302,8 +1302,6 @@ async fn bounds_probe(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
 }
 
 async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    empty_url_probe::run(app).await?;
     #[cfg(windows)]
     bounds_probe(app, &url).await?;
     if std::env::var("XHARNESS_NATIVE_PROBE_BOUNDS_ONLY").as_deref() == Ok("1") {
@@ -1737,6 +1735,10 @@ async fn probe(app: &tauri::AppHandle, url: String) -> Result<(), String> {
     {
         return Err("hidden tab was incorrectly inspected".into());
     }
+    // Do not let the temporary child WebView perturb the preceding focus,
+    // tracking-area or hover assertions. Its evidence is still mandatory.
+    #[cfg(target_os = "macos")]
+    empty_url_probe::run(app).await?;
     println!("Native Tauri DOM probe passed: observation, fill/select/click actual state, guest denial, duplicate/replacement/user-edit guards, callback timeout/expired action, hidden/hide-reselect races (no model/global OS input)");
     Ok(())
 }
