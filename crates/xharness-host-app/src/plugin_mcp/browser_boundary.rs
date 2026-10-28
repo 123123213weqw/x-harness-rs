@@ -8,7 +8,7 @@ pub(super) const HEADLESS_PLUGIN: &str = "browser-use";
 pub(super) const HEADLESS_SERVER: &str = "browser";
 pub(super) const EXTENSION_PLUGIN: &str = "browser-extension";
 
-pub(super) const GUIDANCE: &str = " Browser boundary: Use embedded native-browser/webview for the user's visible/current page, an existing signed-in session, or manual user participation. An explicitly enabled browser-use/browser is an isolated headless background backend for independent public-page tasks without an existing login session; it does not display or inherit the WebView's page or login state. Choose by the user's task, not by inspecting cookies. Explicit plugin/server and issued tab/frame refs identify the session; never mix references, transfer cookies/profiles, or silently switch browser backends after failure. If login, CAPTCHA or user participation is required, explain and ask before a fresh visible-browser handoff; do not replay a previous action. An explicitly enabled browser-extension/browser controls only user-authorized Chrome/Edge tabs, including background tabs, using its own session and references. The Host binds the conversation automatically; call status to check connection and tabs. The user authorizes a tab/site once in the extension; no manual pairing code. Never infer that connection, tool approval or full access authorizes another tab or origin. Discovery is configuration/capability information, not authorization or proof that a page is ready.";
+pub(super) const GUIDANCE: &str = " Browser boundary: When discovery offers native-browser/browser, prefer that chat-owned background browser for new website tasks; its sidebar is only a preview and may stay collapsed. Use native-browser/webview explicitly for an existing WebView page/login or manual participation. An explicitly enabled browser-use/browser is an isolated headless background backend for independent public-page tasks without an existing login session; it does not display or inherit the WebView's page or login state. Choose by the user's task, not by inspecting cookies. Explicit plugin/server and issued tab/frame refs identify the session; never mix references, transfer cookies/profiles, or silently switch browser backends after failure. If login, CAPTCHA or user participation is required, explain and ask before a fresh visible-browser handoff; do not replay a previous action. An explicitly enabled browser-extension/browser controls only user-authorized Chrome/Edge tabs, including background tabs, using its own session and references. The Host binds the conversation automatically; call status to check connection and tabs. The user authorizes a tab/site once in the extension; no manual pairing code. Never infer that connection, tool approval or full access authorizes another tab or origin. Discovery is configuration/capability information, not authorization or proof that a page is ready.";
 
 pub(super) fn embedded_capability() -> Value {
     json!({
@@ -336,7 +336,12 @@ mod tests {
         assert_eq!(capability["session"], "chat-bound-visible-tab");
         assert!(capability.to_string().len() < 450);
         for rule in [
+            "prefer that chat-owned background browser",
+            "Use native-browser/webview explicitly",
             "public-page tasks",
+            "browser-extension/browser controls only user-authorized Chrome/Edge tabs",
+            "no manual pairing code",
+            "Never infer that connection, tool approval or full access authorizes another tab or origin",
             "not by inspecting cookies",
             "never mix references",
             "silently switch",

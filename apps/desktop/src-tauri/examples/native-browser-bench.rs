@@ -23,6 +23,9 @@ mod browser_perform;
 mod browser_picker;
 #[path = "../src/browser_request.rs"]
 mod browser_request;
+#[path = "../src/headless_browser/mod.rs"]
+#[allow(dead_code)]
+mod headless_browser;
 #[path = "../src/lifecycle_trace.rs"]
 mod lifecycle_trace;
 #[path = "../src/native_startup.rs"]
@@ -32,6 +35,9 @@ use std::io::Write;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
+    if headless_browser::run_helper() {
+        return;
+    }
     native_startup::prepare().expect("native benchmark prerequisites failed");
     let args: Vec<String> = std::env::args().collect();
     assert_eq!(
@@ -56,6 +62,7 @@ fn main() {
     context.config_mut().app.windows.clear();
     tauri::Builder::default()
         .manage(browser::BrowserState::default())
+        .manage(headless_browser::Browsers::default())
         .manage(browser_bridge::BrowserBridge::default())
         .manage(browser_lifecycle::BrowserLifecycle::default())
         .on_page_load(|webview, payload| {

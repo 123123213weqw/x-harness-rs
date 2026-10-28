@@ -51,14 +51,14 @@ pub enum InputRequest {
     },
 }
 impl InputRequest {
-    fn frame(&self) -> &str {
+    pub(super) fn frame(&self) -> &str {
         match self {
             Self::Click { frame_id, .. }
             | Self::Move { frame_id, .. }
             | Self::Key { frame_id, .. } => frame_id,
         }
     }
-    fn validate(&self) -> Result<(), String> {
+    pub(super) fn validate(&self) -> Result<(), String> {
         if self.frame().len() != 32 || !self.frame().bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err("invalid frame_id".into());
         }

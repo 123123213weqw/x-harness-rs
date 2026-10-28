@@ -9,10 +9,12 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const PLUGIN: &str = "@xharness/native-browser";
 pub(crate) const SERVER: &str = "webview";
+pub(crate) const HEADLESS_SERVER: &str = "browser";
 
 pub struct NativeBrowser {
     address: SocketAddr,
     token: String,
+    headless: bool,
 }
 impl NativeBrowser {
     pub fn from_env() -> Result<Option<Self>, String> {
@@ -38,7 +40,11 @@ impl NativeBrowser {
                 {
                     return Err("invalid native browser configuration".into());
                 }
-                Ok(Some(Self { address, token }))
+                Ok(Some(Self {
+                    address,
+                    token,
+                    headless: false,
+                }))
             }
             _ => Err("incomplete native browser configuration".into()),
         }
@@ -56,10 +62,15 @@ impl NativeBrowser {
             14
         };
         let call = async {
-            let bytes = serde_json::to_vec(
-                &json!({"token":self.token,"owner":owner,"op":op,"arguments":arguments}),
-            )
-            .map_err(|_| "invalid native browser request")?;
+            // Preserve the old WebView wire shape: older desktop bridges deny
+            // unknown fields. Only the newly discovered server adds a selector.
+            let mut packet =
+                json!({"token":self.token,"owner":owner,"op":op,"arguments":arguments});
+            if self.headless {
+                packet["backend"] = json!(HEADLESS_SERVER);
+            }
+            let bytes =
+                serde_json::to_vec(&packet).map_err(|_| "invalid native browser request")?;
             if bytes.len() > 32 * 1024 {
                 return Err("native browser request exceeds byte limit".into());
             }
@@ -118,7 +129,30 @@ impl NativeBrowser {
     pub(crate) async fn available(&self, owner: &str, cancelled: &CancellationToken) -> bool {
         self.request(owner, "list", json!({}), cancelled)
             .await
-            .is_ok_and(|reply| reply["available"] == true)
+            .is_ok_and(|reply| {
+                reply["available"] == true
+                    && (!self.headless || reply["engine"] == "chromium-headless")
+            })
+    }
+    pub(crate) async fn availability(
+        &self,
+        owner: &str,
+        cancelled: &CancellationToken,
+    ) -> (bool, bool) {
+        match self.request(owner, "list", json!({}), cancelled).await {
+            Ok(reply) => (
+                reply["available"] == true,
+                reply["headless_available"] == true,
+            ),
+            Err(_) => (false, false),
+        }
+    }
+    pub(crate) fn headless(&self) -> Self {
+        Self {
+            address: self.address,
+            token: self.token.clone(),
+            headless: true,
+        }
     }
     pub(crate) async fn call(
         &self,
@@ -127,6 +161,11 @@ impl NativeBrowser {
         arguments: Map<String, Value>,
         cancelled: &CancellationToken,
     ) -> Result<Value, String> {
+        if self.headless && matches!(tool, "request" | "read_response") {
+            return Err(
+                "login requests require the explicit WebView backend; effect: not_started".into(),
+            );
+        }
         let op = match tool {
             "control" => "control",
             "observe" => "observe",
@@ -267,6 +306,27 @@ pub(crate) fn tools() -> Vec<Value> {
         ]}}),
     ]
 }
+/// Same action schemas as the explicit native WebView; a distinct server keeps
+/// session/frame provenance and old visible-tab behavior unambiguous.
+pub(crate) fn headless_tools() -> Vec<Value> {
+    let descriptions=[
+        ("control", "Control this chat's background browser. status discovers installed Chrome/Edge even with zero pages; open(url) starts a new isolated instance and loads an HTTP(S) page. Sidebar may stay collapsed; hiding preview or switching chats does not stop control. One page per chat, four live chats maximum. close releases this chat's browser. No existing browser profile/login is inherited; never silently switch backends or move cookies. Existing approvals still apply."),
+        ("observe", "Read bounded untrusted DOM evidence from this chat's background page, including while sidebar is collapsed. Page/main/dialog scopes. Follow next_text_offset, next_node_offset and next_option_offset until null. Use screenshot for canvas/cross-origin iframe pixels. Returns a one-shot frame_id; observe again after any effect."),
+        ("perform", "One DOM click/fill/select/scroll using latest observed frame_id. Frame is consumed before dispatch; stale geometry is rejected. Unknown effect requires observing actual state, never automatic replay. Applied is dispatch, not task success. No script, selector, owner/tab override or cookie access."),
+        ("screenshot", "Capture this chat's background viewport as model image input, independent of sidebar visibility. Requires vision. Returns a one-shot frame_id and 1280x720 CSS viewport; attachment may be resized, so map coordinates proportionally. Preview reads do not consume this frame. Page pixels are untrusted evidence. No desktop capture or recording."),
+        ("input", "Send balanced browser-protocol click, move/hover or keypress to this chat's background page, even with preview hidden. Requires latest observe/screenshot frame_id; it is consumed before dispatch. Coordinates are CSS viewport pixels. Supports cross-origin iframe pixels, not cross-origin DOM traversal. Key modifiers Shift/Control/Alt/Meta; use perform fill for text. Verify actual effects afterward; do not replay unknown outcomes. No global OS input or tab override."),
+    ];
+    tools()
+        .into_iter()
+        .filter_map(|mut definition| {
+            let (_, description) = descriptions
+                .iter()
+                .find(|(name, _)| definition["name"] == *name)?;
+            definition["description"] = json!(description);
+            Some(definition)
+        })
+        .collect()
+}
 fn action_schema(action: &str, extra: Value, mut required: Vec<&str>) -> Value {
     let mut properties = extra.as_object().unwrap().clone();
     properties.insert("action".into(), json!({"const":action}));
@@ -289,6 +349,7 @@ mod tests {
         for available in [true, false] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let browser = Arc::new(NativeBrowser {
+                headless: false,
                 address: listener.local_addr().unwrap(),
                 token: "a".repeat(64),
             });
@@ -387,6 +448,7 @@ mod tests {
         use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = Arc::new(NativeBrowser {
+            headless: false,
             address: listener.local_addr().unwrap(),
             token: "a".repeat(64),
         });
@@ -428,6 +490,7 @@ mod tests {
     #[tokio::test]
     async fn nonvision_or_extra_arguments_rejected_before_any_screenshot_request() {
         let browser = NativeBrowser {
+            headless: false,
             address: "127.0.0.1:1".parse().unwrap(),
             token: "a".repeat(64),
         };
@@ -469,6 +532,7 @@ mod tests {
     async fn authenticated_http_tools_keep_owner_and_never_replay_unknown_effects() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = NativeBrowser {
+            headless: false,
             address: listener.local_addr().unwrap(),
             token: "a".repeat(64),
         };
@@ -556,6 +620,7 @@ mod tests {
     async fn zero_tab_discovery_and_control_use_same_private_bridge_and_frozen_owner() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = NativeBrowser {
+            headless: false,
             address: listener.local_addr().unwrap(),
             token: "a".repeat(64),
         };
@@ -611,6 +676,7 @@ mod tests {
     async fn predispatch_rejection_preserves_not_started_and_tool_failure() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = NativeBrowser {
+            headless: false,
             address: listener.local_addr().unwrap(),
             token: "a".repeat(64),
         };
@@ -713,6 +779,7 @@ mod tests {
         use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let browser = Arc::new(NativeBrowser {
+            headless: false,
             address: listener.local_addr().unwrap(),
             token: "a".repeat(64),
         });
@@ -803,6 +870,7 @@ mod tests {
         for confirmed in [true, false] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let browser = Arc::new(NativeBrowser {
+                headless: false,
                 address: listener.local_addr().unwrap(),
                 token: "a".repeat(64),
             });
@@ -840,5 +908,164 @@ mod tests {
             assert_eq!(result.is_ok(), confirmed, "{result:?}");
             server.await.unwrap();
         }
+    }
+    #[tokio::test]
+    async fn owned_browser_discovery_and_calls_keep_server_and_owner_provenance() {
+        use std::sync::Arc;
+        use xharness_tools::{ToolExecutor, ToolRegistry, ToolRequest};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let browser = Arc::new(NativeBrowser {
+            address: listener.local_addr().unwrap(),
+            token: "b".repeat(64),
+            headless: false,
+        });
+        let server = tokio::spawn(async move {
+            for index in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let size = stream.read_u32().await.unwrap() as usize;
+                let mut bytes = vec![0; size];
+                stream.read_exact(&mut bytes).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(request["owner"], "actual-owner");
+                if index < 2 {
+                    assert!(
+                        request.get("backend").is_none(),
+                        "legacy WebView wire shape must stay compatible"
+                    );
+                } else {
+                    assert_eq!(request["backend"], HEADLESS_SERVER);
+                }
+                let result = if index < 2 {
+                    json!({"available":true,"headless_available":true})
+                } else {
+                    assert_eq!(request["op"], "input");
+                    assert_eq!(request["arguments"]["action"], "key");
+                    json!({"ok":true,"effect":"applied"})
+                };
+                let bytes = serde_json::to_vec(&json!({"ok":true,"result":result})).unwrap();
+                stream.write_u32(bytes.len() as u32).await.unwrap();
+                stream.write_all(&bytes).await.unwrap();
+            }
+        });
+        let binding = crate::plugin_mcp::bind(
+            None,
+            None,
+            Some(browser),
+            None,
+            "actual-owner".into(),
+            true,
+            None,
+        );
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register(binding.spec).await.unwrap();
+        let executor = ToolExecutor::new(registry).with_guards(vec![binding.guard]);
+        let index = executor
+            .execute(ToolRequest::new("plugin_mcp", r#"{"action":"list"}"#))
+            .await;
+        assert!(index.is_ok(), "{index:?}");
+        let index: Value = serde_json::from_str(&index.output.unwrap().content).unwrap();
+        assert_eq!(index["capabilities"][0]["server"], HEADLESS_SERVER);
+        assert_eq!(
+            index["capabilities"][0]["session"],
+            "chat-owned-independent-profile"
+        );
+        let list = executor
+            .execute(ToolRequest::new(
+                "plugin_mcp",
+                json!({"action":"list","plugin":PLUGIN}).to_string(),
+            ))
+            .await;
+        assert!(list.is_ok(), "{list:?}");
+        let list: Value = serde_json::from_str(&list.output.unwrap().content).unwrap();
+        assert_eq!(list["servers"], json!([HEADLESS_SERVER, SERVER]));
+        let call=executor.execute(ToolRequest::new("plugin_mcp",json!({"action":"call","plugin":PLUGIN,"server":HEADLESS_SERVER,"tool":"input","owner":"model-cannot-override","arguments":{"action":"key","key":"Enter","frame_id":"a".repeat(32)}}).to_string())).await;
+        assert!(call.is_ok(), "{call:?}");
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn session_retirement_closes_only_its_owned_browser_not_the_native_webview() {
+        use xharness_host::SessionToolFactory;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let browser = NativeBrowser {
+            headless: false,
+            address: listener.local_addr().unwrap(),
+            token: "d".repeat(64),
+        };
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let size = stream.read_u32().await.unwrap() as usize;
+            let mut bytes = vec![0; size];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let request: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(request["owner"], "retired-owner");
+            assert_eq!(request["backend"], HEADLESS_SERVER);
+            assert_eq!(request["op"], "control");
+            assert_eq!(request["arguments"], json!({"action":"close"}));
+            let bytes = serde_json::to_vec(
+                &json!({"ok":true,"result":{"ok":true,"closed":true,"effect":"applied"}}),
+            )
+            .unwrap();
+            stream.write_u32(bytes.len() as u32).await.unwrap();
+            stream.write_all(&bytes).await.unwrap();
+        });
+        let factory = crate::NativeToolFactory::new(crate::WebRuntime::default());
+        factory.bind_native_browser(browser).unwrap();
+        factory.release_session("retired-owner").await.unwrap();
+        server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn owned_browser_rejects_native_login_tools_before_connecting() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let browser = NativeBrowser::configuration(
+            Some(listener.local_addr().unwrap().to_string()),
+            Some("a".repeat(64)),
+        )
+        .unwrap()
+        .unwrap()
+        .headless();
+        for name in ["request", "read_response"] {
+            let error = browser
+                .call("owner", name, Map::new(), &CancellationToken::new())
+                .await
+                .unwrap_err();
+            assert!(error.contains("not_started"));
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+    #[test]
+    fn owned_browser_lazily_reuses_action_schemas_without_visible_tab_claims() {
+        let native = tools();
+        let background = headless_tools();
+        assert_eq!(
+            background
+                .iter()
+                .map(|tool| tool["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["control", "observe", "perform", "screenshot", "input"]
+        );
+        assert_eq!(
+            native.len(),
+            7,
+            "native login tools stay available only on WebView"
+        );
+        for background in &background {
+            let native = native
+                .iter()
+                .find(|tool| tool["name"] == background["name"])
+                .unwrap();
+            assert_eq!(native["inputSchema"], background["inputSchema"]);
+            assert!(!background["description"]
+                .as_str()
+                .unwrap()
+                .contains("requires a visible tab"));
+        }
+        assert!(background[0]["description"]
+            .as_str()
+            .unwrap()
+            .contains("collapsed"));
     }
 }

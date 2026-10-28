@@ -57,8 +57,8 @@ try{
    const store=definition.store().create();const injected=definition.inject(store.actions)
    function App(){
      const [owner,setOwner]=React.useState('chat-a');window.selectOwner=id=>{shellSessions.update({current:id,ids:[id],byId:{[id]:{blank:false}}});setOwner(id)}
-     return React.createElement(AppFrame,{...injected,useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s({current:owner,byId:{}}),actions:store.actions,
-      renderSlot:(name,props)=>name==='workspace.item'?React.createElement(browser.BrowserPane,props):null})
+     return React.createElement(React.Fragment,null,React.createElement(browser.BrowserToggle),React.createElement(AppFrame,{...injected,useStore:s=>s(React.useSyncExternalStore(store.subscribe,store.getSnapshot)),useSessions:s=>s({current:owner,byId:{}}),actions:store.actions,
+      renderSlot:(name,props)=>name==='workspace.item'?React.createElement(browser.BrowserPane,props):null}))
    }
    window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(App))
  })
@@ -239,7 +239,59 @@ try{
  await page.getByRole('button',{name:'更多浏览器操作',exact:true}).click()
  await page.getByRole('button',{name:'关闭标签页',exact:true}).click()
  await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ // The new owned browser is not a native guest: visibility controls preview
+ // traffic only, and never emits a browser close/delegation on collapse.
+ await page.evaluate(()=>{
+   const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360
+   const ctx=canvas.getContext('2d');ctx.fillStyle='green';ctx.fillRect(0,0,640,360)
+   const image=canvas.toDataURL('image/jpeg').split(',')[1]
+   window.previewPending=0;window.previewMaxPending=0;window.headlessPreviewCalls=[]
+   const original=__TAURI__.core.invoke
+   __TAURI__.core.invoke=async(command,args={})=>{
+     if(command==='desktop_headless_preview'){
+       calls.push({command,args});headlessPreviewCalls.push({...args});previewPending++;previewMaxPending=Math.max(previewMaxPending,previewPending)
+       await new Promise(resolve=>setTimeout(resolve,100));previewPending--
+       return {image,mime:'image/jpeg',width:640,height:360,tabId:args.tabId,url:'https://background.example/'}
+     }
+     if(command==='desktop_headless_control'){calls.push({command,args});return {ok:true}}
+     return original(command,args)
+   }
+   emitNative('xharness-headless-page',{owner:'chat-a',tabId:'headless:'+'a'.repeat(32),url:'https://background.example/'})
+ })
+ await page.locator('[data-headless-preview] img').waitFor()
+ assert.equal(await page.locator('.xhbrowser-home').count(),0)
+ assert.equal(await page.evaluate(()=>calls.some(c=>c.command==='desktop_browser_navigate'&&c.args.tabId.startsWith('headless:'))),false,'preview never navigates a duplicate guest WebView')
+ await page.getByRole('button',{name:'收起右侧工作区',exact:true}).click()
+ await page.waitForTimeout(200)
+ const hiddenCalls=await page.evaluate(()=>headlessPreviewCalls.length)
+ await page.evaluate(()=>emitNative('xharness-headless-page',{owner:'chat-a',tabId:'headless:'+'a'.repeat(32),url:'https://background.example/next'}))
+ assert.equal(await page.getByRole('button',{name:'展开右侧工作区',exact:true}).count(),1,'navigation cannot reopen a collapsed preview')
+ await page.waitForTimeout(1200)
+ assert.equal(await page.evaluate(()=>headlessPreviewCalls.length),hiddenCalls,'collapsed sidebar stops preview traffic')
+ assert.equal(await page.evaluate(()=>calls.some(c=>c.command==='desktop_headless_control'&&c.args.arguments.action==='close')),false,'hiding is not closing the owned browser')
+ await page.evaluate(()=>emitNative('xharness-headless-page',{owner:'chat-b',tabId:'headless:'+'b'.repeat(32),url:'https://background.example/'}))
+ assert.equal(await page.getByRole('button',{name:'展开右侧工作区',exact:true}).count(),1,'background chat cannot expand the current pane')
+ assert.equal(await page.evaluate(()=>headlessPreviewCalls.some(c=>c.owner==='chat-b')),false,'background chat does not start a preview')
+ await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click()
+ await page.locator('[data-headless-preview] img').waitFor()
+ await page.evaluate(()=>selectOwner('chat-b'))
+ await page.getByRole('button',{name:'展开右侧工作区',exact:true}).click()
+ await page.waitForFunction(()=>headlessPreviewCalls.some(c=>c.owner==='chat-b'))
+ assert.equal(await page.evaluate(()=>previewMaxPending),1,'never overlap preview reads')
+ await page.getByRole('button',{name:'关闭当前后台网页',exact:true}).click()
+ await page.waitForFunction(()=>calls.some(c=>c.command==='desktop_headless_control'&&c.args.owner==='chat-b'&&c.args.tabId==='headless:'+'b'.repeat(32)&&c.args.arguments.action==='close'))
+ await page.evaluate(()=>window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'browser',fresh:true}})))
+ const manualBefore=await page.evaluate(()=>calls.filter(c=>c.command==='desktop_browser_navigate').length)
+ await page.getByRole('textbox',{name:'网址',exact:true}).fill('https://new-owned.example/')
+ await page.getByRole('textbox',{name:'网址',exact:true}).press('Enter')
+ await page.waitForFunction(()=>calls.some(c=>c.command==='desktop_headless_control'&&c.args.owner==='chat-b'&&c.args.arguments.action==='open'&&c.args.arguments.url==='https://new-owned.example/'))
+ assert.equal(await page.evaluate(()=>calls.filter(c=>c.command==='desktop_browser_navigate').length),manualBefore,'new chat-bound manual navigation prefers the owned background browser')
+ await page.getByRole('button',{name:'更多浏览器操作',exact:true}).click()
+ await page.getByRole('button',{name:'使用原生 WebView',exact:true}).click()
+ await page.getByRole('textbox',{name:'网址',exact:true}).fill('https://explicit-native.example/')
+ await page.getByRole('textbox',{name:'网址',exact:true}).press('Enter')
+ await page.waitForFunction(()=>calls.some(c=>c.command==='desktop_browser_navigate'&&c.args.url==='https://explicit-native.example/'))
  await page.evaluate(()=>root.unmount())
  assert.deepEqual(errors,[])
- console.log(engine+': zero-tab → sidebar → load-before-promise → owner binding → ready; background/late/cancel/schema guards passed (mock transport)')
+ console.log(engine+': native lifecycle + owned headless preview/hidden/owner/close/single-flight guards passed (mock transport)')
 }finally{await browser.close()}

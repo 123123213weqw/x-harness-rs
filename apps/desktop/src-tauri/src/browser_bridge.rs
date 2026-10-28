@@ -32,6 +32,15 @@ struct Request {
     owner: String,
     op: Operation,
     arguments: Value,
+    #[serde(default)]
+    backend: Backend,
+}
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Backend {
+    #[default]
+    Webview,
+    Browser,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -171,12 +180,26 @@ async fn serve(mut stream: TcpStream, app: AppHandle, secret: &str) -> Result<()
 }
 
 async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
+    if matches!(request.backend, Backend::Browser) {
+        let op = headless_operation(&request.op)?;
+        let closing = request.arguments["action"] == "close";
+        let result = app
+            .state::<crate::headless_browser::Browsers>()
+            .dispatch(&request.owner, op, request.arguments)
+            .await?;
+        if op == "control" && result["ok"] == true {
+            let _=app.emit_to("main","xharness-headless-page",json!({"owner":request.owner,"closed":closing,"tabId":result["tab_id"],"url":result["url"]}));
+        }
+        return Ok(result);
+    }
     let state = app.state::<BrowserState>();
     if matches!(request.op, Operation::List) {
         if request.arguments != json!({}) {
             return Err("list takes no arguments".into());
         }
-        return Ok(browser_lifecycle::descriptor(&state, &request.owner));
+        let mut descriptor = browser_lifecycle::descriptor(&state, &request.owner);
+        descriptor["headless_available"] = json!(crate::headless_browser::installed_available());
+        return Ok(descriptor);
     }
     if matches!(request.op, Operation::Control) {
         let action = match parse_control(request.arguments) {
@@ -283,6 +306,19 @@ async fn dispatch(app: &AppHandle, request: Request) -> Result<Value, String> {
     }
 }
 
+// Reject WebView-only login requests before touching either backend's state.
+fn headless_operation(operation: &Operation) -> Result<&'static str, String> {
+    match operation {
+        Operation::List => Ok("list"),
+        Operation::Control => Ok("control"),
+        Operation::Observe => Ok("observe"),
+        Operation::Perform => Ok("perform"),
+        Operation::Screenshot => Ok("screenshot"),
+        Operation::Input => Ok("input"),
+        Operation::Request | Operation::ReadResponse => Err("login requests are supported only by the explicitly selected WebView backend; no cookies were transferred".into()),
+    }
+}
+
 fn rejected_action(message: &str) -> Value {
     json!({"ok":false,"effect":"not_started","message":message.chars().take(500).collect::<String>()})
 }
@@ -298,6 +334,16 @@ fn parse_control(arguments: Value) -> Result<browser_lifecycle::ControlRequest, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn headless_routing_never_falls_through_to_native_login_state() {
+        for operation in [Operation::Request, Operation::ReadResponse] {
+            assert!(headless_operation(&operation)
+                .unwrap_err()
+                .contains("WebView"));
+        }
+        assert_eq!(headless_operation(&Operation::Input).unwrap(), "input");
+        assert_eq!(headless_operation(&Operation::Observe).unwrap(), "observe");
+    }
     #[test]
     fn malformed_control_is_unstarted_and_does_not_echo_private_input() {
         for arguments in [
