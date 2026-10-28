@@ -1,3 +1,19 @@
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     store::{self, Store},
     *,
@@ -642,8 +658,12 @@ fn validate_command(command: &Command) -> Result<(), Error> {
     Ok(())
 }
 pub(crate) fn digest(value: &Value) -> String {
-    let bytes = serde_json::to_vec(value).expect("JSON serialization");
-    format!("remote-v1-{:x}", Sha256::digest(bytes))
+    // Value already is JSON data (no fallible custom Serialize implementation).
+    // Its compact Display encoding is byte-compatible with the persisted v1 digest.
+    format!(
+        "remote-v1-{:x}",
+        Sha256::digest(value.to_string().as_bytes())
+    )
 }
 fn request_key(host: &str, sender: &Sender, conversation: &str, request_id: &str) -> String {
     digest(&json!([1, host, sender, conversation, request_id]))
@@ -793,4 +813,24 @@ pub(crate) fn admit(
     d.sequence = tx.last_insert_rowid();
     store::save(tx, &d)?;
     Ok(d)
+}
+
+#[cfg(test)]
+mod digest_compatibility_tests {
+    use super::*;
+    #[test]
+    fn compact_value_digest_keeps_persisted_remote_v1_identity() {
+        for value in [
+            json!(null),
+            json!(true),
+            json!([1, 2.5, "quote\"\n中文"]),
+            json!({"z":[],"a":{"nested":true}}),
+        ] {
+            let old = format!(
+                "remote-v1-{:x}",
+                Sha256::digest(serde_json::to_vec(&value).unwrap())
+            );
+            assert_eq!(digest(&value), old);
+        }
+    }
 }

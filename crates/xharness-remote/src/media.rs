@@ -1,4 +1,20 @@
 //! Event-owned outgoing references. The native journal/store owns the bytes.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

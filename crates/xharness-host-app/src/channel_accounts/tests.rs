@@ -140,7 +140,17 @@ impl Temp {
 }
 impl Drop for Temp {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        match std::fs::remove_dir_all(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                eprintln!("account fixture cleanup failed: {:?}", error.kind());
+                assert!(
+                    std::thread::panicking(),
+                    "account fixture cleanup must succeed"
+                );
+            }
+        }
     }
 }
 fn setup() -> (
@@ -517,10 +527,16 @@ async fn actual_native_account_composes_wire_intake_outbox_and_drains_uncertain_
                     else if path.ends_with("/getUpdates") {serde_json::json!([])}
                     else if path.ends_with("/sendMessage") {sends.fetch_add(1,Ordering::SeqCst);entered.add_permits(1);stop.cancelled().await;return;}
                     else {panic!("unexpected fixture method");};
-                let body=serde_json::json!({"ok":true,"result":result}).to_string();let response=format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);let _=socket.write_all(response.as_bytes()).await;
+                let body=serde_json::json!({"ok":true,"result":result}).to_string();let response=format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body);if let Err(error)=socket.write_all(response.as_bytes()).await {
+                    // Shutdown can cancel a polling client after its request.
+                    // Only that explicit peer-close class is an allowed loss.
+                    assert!(matches!(error.kind(),std::io::ErrorKind::BrokenPipe|std::io::ErrorKind::ConnectionReset|std::io::ErrorKind::ConnectionAborted),"unexpected fixture response failure: {error}");
+                }
             });
             }
-            while handlers.join_next().await.is_some() {}
+            while let Some(joined) = handlers.join_next().await {
+                joined.expect("fixture handler must not panic");
+            }
         })
     };
     let d = Temp::new();
@@ -904,4 +920,19 @@ async fn native_account_three_workers_notify_receive_decide_then_restart_without
     service.stop().await.unwrap();
     server.abort();
     assert!(server.await.unwrap_err().is_cancelled());
+}
+
+#[test]
+fn account_identity_remains_compatible_with_pre_guard_serialization() {
+    for id in ["1", "123456", "quoted\"\n", "中文"] {
+        let account = Account {
+            channel: Channel::Telegram,
+            id: id.into(),
+        };
+        let old = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&account).unwrap())
+        );
+        assert_eq!(identity(&account), old);
+    }
 }

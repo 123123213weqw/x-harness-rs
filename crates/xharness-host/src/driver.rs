@@ -314,12 +314,18 @@ impl BasicHost {
                 "running": true,
             }));
             let host = self.as_ref().clone();
-            tokio::spawn(
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::RecoveredTurn,
                 async move { host.drive_recovered_turn(session_id, run, control_rx).await },
             );
         } else if already_running {
             let host = self.as_ref().clone();
-            tokio::spawn(async move { host.drive_background_projection(session_id, run).await });
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::BackgroundProjection,
+                async move { host.drive_background_projection(session_id, run).await },
+            );
         }
         Ok(())
     }
@@ -1010,7 +1016,11 @@ impl BasicHost {
             }));
             let host = self.clone();
             let session_id = session_id.to_owned();
-            tokio::spawn(async move { host.drive_session(session_id, control_rx).await });
+            self.spawn_session_task(
+                session_id.clone(),
+                crate::error_boundary::TaskOperation::SessionDriver,
+                async move { host.drive_session(session_id, control_rx).await },
+            );
         }
         Ok(())
     }

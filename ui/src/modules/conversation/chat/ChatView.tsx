@@ -180,6 +180,7 @@ export function ChatView({
   const running = useSession(s => s.running)
   const openState = useSession(s => s.openState)
   const openError = useSession(s => s.openError)
+  const lastAgentError = useSession(s => s.lastAgentError) ?? null
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
@@ -685,6 +686,11 @@ export function ChatView({
 
   return (
     <div className={css.root} data-chat-view-root="">
+      {lastAgentError !== null && (
+        <div className={css.openError} role="alert" data-agent-error="">
+          {t('chat.agentError', { message: lastAgentError })}
+        </div>
+      )}
       {railHost !== null && messageMarkers.length > 1 && createPortal(
         <MessageRail markers={messageMarkers} active={activeMarker} select={scrollToMessage} t={t} />,
         railHost,

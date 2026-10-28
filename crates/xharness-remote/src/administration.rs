@@ -1,4 +1,20 @@
 //! Bounded trusted desktop scope management, not Bot/controller ingress.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     gateway::{authorize, valid_id, ResultBudget},
     store, *,

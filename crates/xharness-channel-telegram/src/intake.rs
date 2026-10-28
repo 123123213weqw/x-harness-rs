@@ -1,5 +1,21 @@
 //! Long polling stops at durable remote admission, not Agent completion or an
 //! outgoing reply. No message body can select a Host, principal or session.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{Client, Error, Event, Message, MAX_ATTACHMENT_BYTES};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::Value;
@@ -145,11 +161,15 @@ impl Intake {
                 };
                 // Informational receipt, not native approval success; failure
                 // never rolls back the cursor or resends the control operation.
-                let _ = tokio::time::timeout(
+                match tokio::time::timeout(
                     Duration::from_secs(2),
                     self.client.answer_callback(&callback.id, text),
                 )
-                .await;
+                .await {
+                    Ok(Ok(())) => {},
+                    Ok(Err(_)) => eprintln!("xharness callback-receipt: transport_failed; durable admission was not retried"),
+                    Err(_) => eprintln!("xharness callback-receipt: deadline_exceeded; durable admission was not retried"),
+                }
             }
             receipts.push(receipt);
             // If this read or the next HTTP request fails, restart reloads the
@@ -333,7 +353,10 @@ impl Intake {
                 let Some(id) = question["id"].as_str() else {
                     return Err(IntakeError::Journal);
                 };
-                let Some(selected) = question["options"][option.unwrap()]["label"].as_str() else {
+                let Some(option) = option else {
+                    return Ok(reject(RejectionCode::InvalidCommand));
+                };
+                let Some(selected) = question["options"][option]["label"].as_str() else {
                     return Ok(reject(RejectionCode::InvalidCommand));
                 };
                 xharness_remote::ScopedInteractionAnswer::Question {
