@@ -115,6 +115,96 @@ fn recovered_observer_result(session: &Session, turn: u32) -> Option<LoopResult>
     })
 }
 
+/// Body-free, incremental receipt projection. A successor can be busy while
+/// this input has already settled; Agent-wide Idle is not an input receipt.
+#[derive(Default)]
+struct ObserverReceipt {
+    next_seq: usize,
+    active: Option<u32>,
+    bound: Option<u32>,
+    ended: bool,
+    cancelled: bool,
+    next_turn: Vec<String>,
+    next_step: Vec<String>,
+    #[cfg(test)]
+    examined: usize,
+}
+
+impl ObserverReceipt {
+    fn update(&mut self, session: &Session, input: &str) -> Result<(), String> {
+        use xharness_session::{EventData, InboxSpliceOutcome, InboxTarget};
+        let tail = session
+            .events()
+            .get(self.next_seq..)
+            .ok_or("durable observer journal moved behind its receipt cursor")?;
+        #[cfg(test)]
+        {
+            self.examined += tail.len();
+        }
+        for event in tail {
+            match event.data() {
+                EventData::TurnStart { turn } => self.active = Some(*turn),
+                EventData::UserMessage { message, .. } if message.id.as_deref() == Some(input) => {
+                    self.bound = self.bound.or(self.active)
+                }
+                EventData::ApprovalAsked { id, .. }
+                    if xharness_agent::approval_recovery_work_id(id) == input =>
+                {
+                    self.bound = self.bound.or(self.active)
+                }
+                EventData::QuestionRequested { invocation }
+                    if xharness_agent::question_recovery_work_id(&invocation.interaction_id)
+                        == input =>
+                {
+                    self.bound = self.bound.or(self.active)
+                }
+                EventData::CompactionStart {
+                    source_command_id: Some(id),
+                    ..
+                } if id == input => self.bound = self.bound.or(self.active),
+                EventData::TurnEnd { turn, .. } => {
+                    self.ended |= self.bound == Some(*turn);
+                    self.active = None;
+                }
+                EventData::AgentInboxSpliced {
+                    target,
+                    start,
+                    removed_count,
+                    inserted,
+                    outcome,
+                } => {
+                    let ids = match target {
+                        InboxTarget::NextTurn => &mut self.next_turn,
+                        InboxTarget::NextStep => &mut self.next_step,
+                    };
+                    let end = start
+                        .checked_add(*removed_count)
+                        .ok_or("durable observer inbox splice overflow")?;
+                    let removed = ids
+                        .get(*start..end)
+                        .ok_or("durable observer inbox splice is inconsistent")?;
+                    if *outcome == Some(InboxSpliceOutcome::Cancelled)
+                        && removed.iter().any(|id| id == input)
+                    {
+                        self.cancelled = true;
+                    }
+                    ids.splice(*start..end, inserted.iter().map(|m| m.id.clone()));
+                }
+                _ => {}
+            }
+        }
+        self.next_seq = session.events().len();
+        Ok(())
+    }
+
+    fn pending(&self, input: &str) -> bool {
+        self.next_turn
+            .iter()
+            .chain(&self.next_step)
+            .any(|id| id == input)
+    }
+}
+
 pub(super) struct DurableRunningTurn {
     handle: DurableAgentHandle,
     events: broadcast::Receiver<AgentEvent>,
@@ -122,6 +212,9 @@ pub(super) struct DurableRunningTurn {
     turn: Option<u32>,
     result: Option<LoopResult>,
     terminal: bool,
+    receipt: ObserverReceipt,
+    initialized: bool,
+    reconcile_after: tokio::time::Instant,
     next_control_id: Arc<AtomicU64>,
 }
 
@@ -134,6 +227,9 @@ impl DurableRunningTurn {
             turn: None,
             result: None,
             terminal: false,
+            receipt: ObserverReceipt::default(),
+            initialized: false,
+            reconcile_after: tokio::time::Instant::now(),
             next_control_id,
         }
     }
@@ -176,7 +272,6 @@ impl DurableRunningTurn {
     /// Recover identity/termination from durable facts, never from another turn's
     /// terminal notification. Steering consumes the same input ID inside a turn.
     async fn reconcile(&mut self) -> Result<(), String> {
-        use xharness_session::EventData;
         let session = self
             .handle
             .inbox()
@@ -185,56 +280,28 @@ impl DurableRunningTurn {
             .await
             .map_err(|e| e.to_string())?
             .ok_or("observer session disappeared")?;
-        let mut active = None;
-        let mut bound = None;
-        for event in session.events() {
-            match event.data() {
-                EventData::TurnStart { turn } => active = Some(*turn),
-                EventData::UserMessage { message, .. }
-                    if message.id.as_deref() == Some(self.target_input_id.as_str()) =>
-                {
-                    bound = active;
-                    break;
-                }
-                EventData::ApprovalAsked { id, .. }
-                    if xharness_agent::approval_recovery_work_id(id) == self.target_input_id =>
-                {
-                    bound = active;
-                    break;
-                }
-                EventData::QuestionRequested { invocation }
-                    if xharness_agent::question_recovery_work_id(&invocation.interaction_id)
-                        == self.target_input_id =>
-                {
-                    bound = active;
-                    break;
-                }
-                EventData::CompactionStart {
-                    source_command_id: Some(command_id),
-                    ..
-                } if command_id == &self.target_input_id => {
-                    bound = active;
-                    break;
-                }
-                EventData::TurnEnd { .. } => active = None,
-                _ => {}
-            }
-        }
-        self.turn = bound;
+        self.receipt.update(&session, &self.target_input_id)?;
+        // TurnStarted can precede its atomic journal commit. Do not erase that
+        // live binding just because a concurrent read still sees the prior cut.
+        self.turn = self.receipt.bound.or(self.turn);
         if let Some(turn) = self.turn {
-            if let Some(result) = recovered_observer_result(&session, turn) {
+            if let Some(result) = self
+                .receipt
+                .ended
+                .then(|| recovered_observer_result(&session, turn))
+                .flatten()
+            {
                 self.result = Some(result);
                 self.terminal = true;
             }
-        } else if self.handle.status() == xharness_agent::AgentStatus::Idle {
-            let inbox = xharness_agent::InboxProjection::from_session(&session)
-                .map_err(|e| e.to_string())?;
-            let pending = inbox
-                .next_turn()
-                .iter()
-                .chain(inbox.next_step())
-                .any(|m| m.id == self.target_input_id);
-            if !pending || crate::delegation::restored_dispatch_paused(&session) {
+        } else {
+            let pending = self.receipt.pending(&self.target_input_id);
+            let idle = self.handle.status() == xharness_agent::AgentStatus::Idle;
+            // A durable cancellation is sufficient even if a different turn is
+            // busy. Mere absence is NOT: /compact may be preparing its prelude.
+            if (!pending && self.receipt.cancelled)
+                || (idle && (!pending || crate::delegation::restored_dispatch_paused(&session)))
+            {
                 let mut result =
                     Self::failed_result("pending input was removed or parked before execution");
                 result.status = LoopStatus::Cancelled;
@@ -255,16 +322,26 @@ impl DurableRunningTurn {
     }
 
     async fn receive_event(&mut self) -> Option<LoopEvent> {
+        if !self.initialized {
+            self.recover_or_fail().await;
+            self.initialized = true;
+            self.reconcile_after = tokio::time::Instant::now() + Duration::from_secs(1);
+        }
         while !self.terminal {
+            // An absolute deadline survives next_event cancellation and cannot
+            // be starved by a continuous stream belonging to another input.
+            if tokio::time::Instant::now() >= self.reconcile_after {
+                if self.turn.is_none() || self.handle.status() == xharness_agent::AgentStatus::Idle
+                {
+                    self.recover_or_fail().await;
+                }
+                self.reconcile_after = tokio::time::Instant::now() + Duration::from_secs(1);
+                continue;
+            }
             let received =
-                match tokio::time::timeout(Duration::from_secs(1), self.events.recv()).await {
+                match tokio::time::timeout_at(self.reconcile_after, self.events.recv()).await {
                     Ok(event) => event,
                     Err(_) => {
-                        // No polling of the full transcript while a model/tool is busy.
-                        // This also closes a stranded observer after an idle removal.
-                        if self.handle.status() == xharness_agent::AgentStatus::Idle {
-                            self.recover_or_fail().await;
-                        }
                         continue;
                     }
                 };
@@ -404,5 +481,86 @@ impl RunningTurn for DurableRunningTurn {
         self.result.clone().unwrap_or_else(|| {
             Self::failed_result("durable Agent ended without publishing a result")
         })
+    }
+}
+
+#[cfg(test)]
+mod receipt_tests {
+    use super::*;
+    use xharness_session::{EventData, InboxSpliceOutcome, InboxTarget, Revision};
+
+    #[test]
+    fn receipt_folds_only_new_events_and_retains_only_pending_ids() {
+        let mut session = Session::new(SessionHeader::new("receipt-cursor")).unwrap();
+        let mut events = Vec::new();
+        for ordinal in 0..5000 {
+            events.push(
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![InboxMessage::user(
+                        format!("id-{ordinal}"),
+                        "body must not be retained",
+                    )],
+                    outcome: None,
+                }
+                .into(),
+            );
+            events.push(
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextTurn,
+                    start: 0,
+                    removed_count: 1,
+                    inserted: Vec::new(),
+                    outcome: Some(InboxSpliceOutcome::Cancelled),
+                }
+                .into(),
+            );
+        }
+        session.append_batch(Revision::ZERO, events).unwrap();
+        let mut receipt = ObserverReceipt::default();
+        for _ in 0..10 {
+            receipt.update(&session, "id-4999").unwrap();
+        }
+        assert_eq!(
+            receipt.examined, 10000,
+            "unchanged cuts must not be rescanned"
+        );
+        assert!(receipt.cancelled && receipt.next_turn.is_empty() && receipt.next_step.is_empty());
+        session
+            .append(
+                session.revision(),
+                EventData::AgentInboxSpliced {
+                    target: InboxTarget::NextStep,
+                    start: 0,
+                    removed_count: 0,
+                    inserted: vec![InboxMessage::user("next", "x".repeat(65536))],
+                    outcome: None,
+                },
+            )
+            .unwrap();
+        receipt.update(&session, "id-4999").unwrap();
+        assert_eq!(receipt.examined, 10001);
+        assert_eq!(receipt.next_step, ["next"]);
+        assert!(!receipt.pending("id-4999"));
+    }
+
+    #[test]
+    fn receipt_rejects_regression_instead_of_replaying_or_fabricating_completion() {
+        let mut session = Session::new(SessionHeader::new("receipt-regression")).unwrap();
+        session
+            .append(
+                Revision::ZERO,
+                EventData::AgentDispatchPaused { paused: true },
+            )
+            .unwrap();
+        let mut receipt = ObserverReceipt::default();
+        receipt.update(&session, "input").unwrap();
+        let stale = Session::new(SessionHeader::new("receipt-regression")).unwrap();
+        assert!(receipt
+            .update(&stale, "input")
+            .unwrap_err()
+            .contains("moved behind"));
     }
 }

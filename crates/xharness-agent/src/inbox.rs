@@ -19,20 +19,11 @@ pub struct InboxProjection {
 impl InboxProjection {
     /// Replay a validated session snapshot into its two pending-input lists.
     pub fn from_session(session: &Session) -> Result<Self, InboxError> {
-        let mut projection = Self::default();
-        for logged in session.events() {
-            if let EventData::AgentInboxSpliced {
-                target,
-                start,
-                removed_count,
-                inserted,
-                ..
-            } = logged.data()
-            {
-                projection.apply(*target, *start, *removed_count, inserted.clone())?;
-            }
-        }
-        Ok(projection)
+        let pending = PendingInbox::from_session(session)?;
+        Ok(Self {
+            next_turn: pending.next_turn.into_iter().cloned().collect(),
+            next_step: pending.next_step.into_iter().cloned().collect(),
+        })
     }
 
     pub fn next_turn(&self) -> &[InboxMessage] {
@@ -54,26 +45,6 @@ impl InboxProjection {
         }
     }
 
-    fn apply(
-        &mut self,
-        target: InboxTarget,
-        start: usize,
-        removed_count: usize,
-        inserted: Vec<InboxMessage>,
-    ) -> Result<Vec<InboxMessage>, InboxError> {
-        let list = match target {
-            InboxTarget::NextTurn => &mut self.next_turn,
-            InboxTarget::NextStep => &mut self.next_step,
-        };
-        let end = start
-            .checked_add(removed_count)
-            .ok_or(InboxError::ProjectionCorrupt)?;
-        if start > list.len() || end > list.len() {
-            return Err(InboxError::ProjectionCorrupt);
-        }
-        Ok(list.splice(start..end, inserted).collect())
-    }
-
     fn locate(&self, message_id: &str) -> Option<(InboxTarget, usize)> {
         for target in [InboxTarget::NextTurn, InboxTarget::NextStep] {
             if let Some(index) = self
@@ -85,6 +56,54 @@ impl InboxProjection {
             }
         }
         None
+    }
+}
+
+/// Transient replay indexes borrow immutable journal payloads. Materialize
+/// only messages still pending at the final cut, not every historical body.
+#[derive(Default)]
+struct PendingInbox<'a> {
+    next_turn: Vec<&'a InboxMessage>,
+    next_step: Vec<&'a InboxMessage>,
+}
+
+impl<'a> PendingInbox<'a> {
+    fn from_session(session: &'a Session) -> Result<Self, InboxError> {
+        let mut pending = Self::default();
+        for logged in session.events() {
+            if let EventData::AgentInboxSpliced {
+                target,
+                start,
+                removed_count,
+                inserted,
+                ..
+            } = logged.data()
+            {
+                pending.apply(*target, *start, *removed_count, inserted)?;
+            }
+        }
+        Ok(pending)
+    }
+
+    fn apply(
+        &mut self,
+        target: InboxTarget,
+        start: usize,
+        removed_count: usize,
+        inserted: &'a [InboxMessage],
+    ) -> Result<(), InboxError> {
+        let list = match target {
+            InboxTarget::NextTurn => &mut self.next_turn,
+            InboxTarget::NextStep => &mut self.next_step,
+        };
+        let end = start
+            .checked_add(removed_count)
+            .ok_or(InboxError::ProjectionCorrupt)?;
+        if start > list.len() || end > list.len() {
+            return Err(InboxError::ProjectionCorrupt);
+        }
+        list.splice(start..end, inserted.iter());
+        Ok(())
     }
 }
 
@@ -603,4 +622,103 @@ fn splice(
         outcome,
     }
     .into()
+}
+
+#[cfg(test)]
+mod projection_replay_tests {
+    use super::*;
+    #[test]
+    fn historical_bodies_are_borrowed_and_only_final_pending_inputs_are_materialized() {
+        let mut session = Session::new(SessionHeader::new("borrowed-inbox")).unwrap();
+        let mut events = Vec::new();
+        for n in 0..1000 {
+            let target = if n % 2 == 0 {
+                InboxTarget::NextTurn
+            } else {
+                InboxTarget::NextStep
+            };
+            events.push(splice(
+                target,
+                0,
+                0,
+                vec![InboxMessage::user(format!("past-{n}"), "Δ".repeat(8192))],
+                None,
+            ));
+            events.push(splice(
+                target,
+                0,
+                1,
+                vec![],
+                Some(InboxSpliceOutcome::Cancelled),
+            ));
+        }
+        let mut last = InboxMessage::user("last", "final next-turn");
+        last.source = Some(serde_json::json!({"kind":"agent-settlement"}));
+        let step = InboxMessage::user("step", "final next-step");
+        events.push(splice(
+            InboxTarget::NextTurn,
+            0,
+            0,
+            vec![last.clone()],
+            None,
+        ));
+        events.push(splice(
+            InboxTarget::NextStep,
+            0,
+            0,
+            vec![step.clone()],
+            None,
+        ));
+        session.append_batch(Revision::ZERO, events).unwrap();
+        let refs = PendingInbox::from_session(&session).unwrap();
+        assert_eq!(refs.next_turn.len(), 1);
+        assert_eq!(refs.next_step.len(), 1);
+        for (at, expected) in [(2000, refs.next_turn[0]), (2001, refs.next_step[0])] {
+            let EventData::AgentInboxSpliced { inserted, .. } = session.events()[at].data() else {
+                panic!("fixture event")
+            };
+            assert!(
+                std::ptr::eq(expected, &inserted[0]),
+                "replay must borrow the exact source, not clone historical payloads"
+            );
+        }
+        let owned = InboxProjection::from_session(&session).unwrap();
+        assert_eq!(owned.next_turn(), &[last]);
+        assert_eq!(owned.next_step(), &[step]);
+        assert_eq!(
+            session.events().len(),
+            2002,
+            "complete durable history remains intact"
+        );
+    }
+
+    #[test]
+    fn borrowed_projection_keeps_splice_bounds_and_order() {
+        let messages = [InboxMessage::user("a", "a"), InboxMessage::user("b", "b")];
+        let replacement = [InboxMessage::user("c", "c")];
+        let mut pending = PendingInbox::default();
+        pending
+            .apply(InboxTarget::NextTurn, 0, 0, &messages)
+            .unwrap();
+        pending
+            .apply(InboxTarget::NextTurn, 1, 1, &replacement)
+            .unwrap();
+        assert_eq!(
+            pending
+                .next_turn
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "c"]
+        );
+        for (start, count) in [(3, 0), (0, 3), (usize::MAX, 1)] {
+            assert!(matches!(
+                pending.apply(InboxTarget::NextTurn, start, count, &[]),
+                Err(InboxError::ProjectionCorrupt)
+            ));
+            assert_eq!(pending.next_turn.len(), 2);
+        }
+        pending.apply(InboxTarget::NextTurn, 0, 2, &[]).unwrap();
+        assert!(pending.next_turn.is_empty());
+    }
 }

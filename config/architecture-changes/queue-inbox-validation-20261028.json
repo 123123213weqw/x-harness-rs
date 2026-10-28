@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Eliminate repeated pending-body cloning and duplicate scans in full journal validation, plus full resident-tail serialization on local queue/start/user/header deltas in the isolated long-queue regression.",
+  "compatibility": "Keep all event/revision/CAS/flush rules, splice validation and first-duplicate errors, atomic rollback, full history and restore behavior. Compare 6000 mutations against the original validator and compare bounded incremental JSON/byte/resident accounting to the canonical full fold; reused consumed IDs, checkpoints, cold routes and unknown events retain full replacement. Native Windows and wire/persistence CI remain required; this record is a plan, not evidence of that CI.",
+  "paths": {
+    "crates/xharness-projection/src/tail_update.rs": {
+      "before": "bc31d58f7eb51525cc7591e30bdf631e8cdbbb77483ad019bcadcc594a2c5ce9",
+      "after": "eb25bd6e8025ff29acb921a8736576d7d8be2581f3879cd913c4dd09de16ee39"
+    },
+    "crates/xharness-session/src/inbox_validation.rs": {
+      "before": null,
+      "after": "f88fbaac239106add13a2cfa1198d235d58ee8e38e8a2414d746ddc2aba494c7"
+    },
+    "crates/xharness-session/src/lib.rs": {
+      "before": "755c4614418a0a10156630d43a0a65c1d4f04cae343f4330247a07766eefde29",
+      "after": "fbe045f81221a43a1c63692217adfed60de2932a21854b0d3373cdaa3a241e07"
+    },
+    "crates/xharness-session/src/session.rs": {
+      "before": "46b170e62f2f6a2158cf7d774d65522cc93897f0f1f8f4d2b0ced7445be713d9",
+      "after": "66427641145c3b641ffbf95ffcbb35c4268fb99b9a4f9c8196ac6661074ba4f4"
+    },
+    "crates/xharness-session/tests/inbox_validation.rs": {
+      "before": null,
+      "after": "ff31d43d8e2470b828b0c555ca7954b4b0ae1b88898b9a906c68dcc61ec81416"
+    }
+  },
+  "regressions": [
+    "native",
+    "persistence",
+    "windows",
+    "wire"
+  ]
+}
