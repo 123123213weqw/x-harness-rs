@@ -5,6 +5,21 @@
 //! mutations and Session selection events without depending on the Host aggregate.
 
 #![forbid(unsafe_code)]
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
 
 use std::collections::BTreeMap;
 

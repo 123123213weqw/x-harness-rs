@@ -34,6 +34,7 @@ pub use delegation_concurrency::DelegationConcurrency;
 pub use memory::{MemoryMode, GLOBAL_MEMORY_URI, MEMORY_MAX_BYTES, MEMORY_URI};
 mod display;
 mod driver;
+mod error_boundary;
 mod event_gateway;
 mod execution;
 pub use execution::ExecutionGate;

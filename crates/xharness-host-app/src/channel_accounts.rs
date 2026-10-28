@@ -1,4 +1,20 @@
 //! Native account lifecycle/credential composition, not Agent or platform logic.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::model_settings::CredentialStore;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -187,7 +203,11 @@ fn telegram_id(account: &Account) -> Result<u64, ChannelFailure> {
 fn identity(account: &Account) -> String {
     format!(
         "{:x}",
-        Sha256::digest(serde_json::to_vec(account).expect("account serialization"))
+        Sha256::digest(
+            serde_json::json!({"channel":account.channel,"id":account.id})
+                .to_string()
+                .as_bytes()
+        )
     )
 }
 
@@ -459,9 +479,13 @@ impl AccountManager {
         let result = 'manager: loop {
             tokio::select! {biased;_=shutdown.cancelled()=>break Ok(()),_=self.changed.notified()=>{},_=tick.tick()=>{}}
             for (key, (revision, _, task)) in &mut accounts {
-                if task.as_ref().is_some_and(JoinHandle::is_finished)
-                    && task.take().expect("finished account task").await.is_err()
-                {
+                if !task.as_ref().is_some_and(JoinHandle::is_finished) {
+                    continue;
+                }
+                let Some(completed) = task.take() else {
+                    continue;
+                };
+                if completed.await.is_err() {
                     if let Some(status) = self.status.lock().await.get_mut(key) {
                         if status.revision == *revision {
                             status.connection = ConnectionState::Failed {

@@ -112,7 +112,10 @@
         "scripts/regression/test_check_architecture.py",
         ".github/workflows/ci.yml",
         "scripts/test-ci-tiering.py",
-        "scripts/regression/run-suite.sh"
+        "scripts/regression/run-suite.sh",
+        ".clippy.toml",
+        "scripts/regression/test-business-error-compiler-guard.py",
+        "scripts/test-business-error-visibility.mjs"
       ],
       "regressions": [
         "architecture",

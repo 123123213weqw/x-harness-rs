@@ -462,6 +462,7 @@ jobs:
         run: |
           node scripts/generate-session-terminal-contract.mjs --from "$XHARNESS_SESSION_TERMINAL_EXPORT" --check
           node --test scripts/test-session-terminal-contract.mjs
+          node --test scripts/test-business-error-visibility.mjs
       - name: File display wire is generated from actual Rust DTOs
         env:
           XHARNESS_FILE_DISPLAY_EXPORT: ${{ runner.temp }}/file-display-export
@@ -496,6 +497,18 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo test --locked -p xharness-process --test process dropping_ -- --test-threads=1
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Prove business error guards with actual compiler mutations
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: python3 -B scripts/regression/test-business-error-compiler-guard.py --root . --evidence-dir dist/business-error-guard
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: business-error-compiler-guard
+          path: dist/business-error-guard/
+          if-no-files-found: warn
+          retention-days: 14
+
 
   rust-windows:
     name: Rust / Windows x86_64

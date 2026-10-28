@@ -3,7 +3,23 @@
 //! Durable-to-Web reduction remains in `xharness-projection`; this gateway
 //! owns carrier framing, channel selection and the shared frame vocabulary.
 
-use serde_json::{json, Value};
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
+use serde_json::{json, Map, Value};
 use tokio::sync::broadcast;
 use xharness_api::{RpcId, ServerRequest};
 use xharness_projection::{project_session_event_view, project_web_event_view};
@@ -31,41 +47,61 @@ impl EventGateway {
     }
 
     pub(crate) fn publish_mux(&self, rpc_id: RpcId, payload: Value) {
-        if let Ok(frame) = ServerRequest::frame(rpc_id, payload) {
-            let _ = self.mux.send(frame);
-        }
+        Self::publish(&self.mux, rpc_id, payload, "mux");
     }
 
     pub(crate) fn publish_host(&self, rpc_id: RpcId, payload: Value) {
-        if let Ok(frame) = ServerRequest::frame(rpc_id, payload) {
-            let _ = self.host.send(frame);
+        Self::publish(&self.host, rpc_id, payload, "host");
+    }
+
+    fn publish(
+        sender: &broadcast::Sender<ServerRequest>,
+        rpc_id: RpcId,
+        payload: Value,
+        channel: &'static str,
+    ) {
+        let frame = match ServerRequest::frame(rpc_id.clone(), payload) {
+            Ok(frame) => frame,
+            Err(error) => {
+                // Framing failure must be visible to both the owning stream and
+                // operations. Never put the malformed payload into diagnostics.
+                eprintln!(
+                    "XHARNESS_FAILURE {}",
+                    json!({"event":"event_frame_failure", "channel":channel, "code":"invalid_event_frame"})
+                );
+                ServerRequest::new(
+                    rpc_id,
+                    "stream/error",
+                    json!({"type":"stream/error", "error":error}),
+                )
+            }
+        };
+        if sender.send(frame).is_err() {
+            // A broadcast SendError means exactly zero live subscribers, not a
+            // failed durable write. Live frames are intentionally disposable;
+            // reconnect reconstructs from authoritative history. Do not retry,
+            // log normal disconnected clients as faults, or imply delivery.
         }
     }
 
     pub(crate) fn session_event(session_id: &str, event: Value, view: Option<Value>) -> Value {
-        let mut frame = json!({
-            "type": "session/event",
-            "sessionId": session_id,
-            "event": event,
-        });
+        let mut frame = Map::from_iter([
+            ("type".to_owned(), json!("session/event")),
+            ("sessionId".to_owned(), json!(session_id)),
+            ("event".to_owned(), event),
+        ]);
         if let Some(view) = view {
-            frame
-                .as_object_mut()
-                .expect("session event frame is an object")
-                .insert("view".to_owned(), view);
+            frame.insert("view".to_owned(), view);
         }
-        frame
+        Value::Object(frame)
     }
 
     pub(crate) fn history_event(event: Value, view: Option<Value>) -> Value {
-        let mut envelope = json!({"event": event});
+        let mut envelope = Map::from_iter([("event".to_owned(), event)]);
         if let Some(view) = view {
-            envelope
-                .as_object_mut()
-                .expect("history event envelope is an object")
-                .insert("view".to_owned(), view);
+            envelope.insert("view".to_owned(), view);
         }
-        envelope
+        Value::Object(envelope)
     }
 
     pub(crate) fn durable_view(session: &Session, event: &LoggedEvent) -> Option<Value> {
@@ -129,5 +165,38 @@ mod tests {
         assert!(mux.try_recv().is_err());
         assert_eq!(host.try_recv().unwrap().rpc_id.as_str(), "h");
         assert!(host.try_recv().is_err());
+    }
+    #[test]
+    fn malformed_events_produce_a_stream_failure_instead_of_disappearing() {
+        let gateway = EventGateway::new(16);
+        let mut mux = gateway.subscribe_mux();
+        let mut host = gateway.subscribe_host();
+        for channel in ["mux", "host"] {
+            let payload = json!({"secret":"not a valid event"});
+            if channel == "mux" {
+                gateway.publish_mux(RpcId::new("bad"), payload);
+            } else {
+                gateway.publish_host(RpcId::new("bad"), payload);
+            }
+            let frame = if channel == "mux" {
+                mux.try_recv().unwrap()
+            } else {
+                host.try_recv().unwrap()
+            };
+            assert_eq!(frame.method, "stream/error");
+            assert_eq!(frame.rpc_id.as_str(), "bad");
+            assert_eq!(frame.payload["error"]["code"], "internal");
+            assert!(!frame.payload.to_string().contains("secret"));
+        }
+    }
+
+    #[test]
+    fn disconnected_live_channel_has_no_false_delivery_or_replay() {
+        let gateway = EventGateway::new(16);
+        gateway.publish_host(RpcId::new("offline"), json!({"type":"host/session-status"}));
+        let mut connected = gateway.subscribe_host();
+        assert!(connected.try_recv().is_err());
+        gateway.publish_host(RpcId::new("online"), json!({"type":"host/session-status"}));
+        assert_eq!(connected.try_recv().unwrap().rpc_id.as_str(), "online");
     }
 }

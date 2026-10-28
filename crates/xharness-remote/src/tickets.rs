@@ -1,5 +1,21 @@
 //! Opaque scoped single-use interaction handles. Not controller credentials;
 //! durable private inbox/outbox may retain handles; Debug always redacts them.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::{
     gateway::{valid_id, ResultBudget},
     store,

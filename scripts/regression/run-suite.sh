@@ -39,6 +39,7 @@ mkdir -p "$LOGS"
 
 export PATH="$HOME/.cargo/bin:$PATH"
 export CARGO_TERM_COLOR=never
+export XHARNESS_REMOTE_RUST=1
 export RUST_BACKTRACE=1
 export CARGO_TARGET_DIR="${XHARNESS_REGRESSION_TARGET_DIR:-$HOME/codex-build/x-harness-rs/target}"
 cd "$SOURCE"
@@ -148,6 +149,8 @@ run_full() {
   run_case process-drop-cleanup cargo test --locked -p xharness-process \
     --test process dropping_ -- --test-threads=1
   run_case rust-clippy cargo clippy --locked --workspace --all-targets -- -D warnings
+  run_case business-error-compiler-guard python3 -B scripts/regression/test-business-error-compiler-guard.py --root "$SOURCE" --evidence-dir "$ARTIFACTS/business-error-guard"
+  run_case business-error-ui node --test scripts/test-business-error-visibility.mjs
   run_ui_contracts
 }
 

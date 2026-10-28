@@ -174,6 +174,94 @@ FORBIDDEN_SOURCE_FRAGMENTS = {
 }
 
 
+# Keep production error handling compiler-enforced at all extracted business
+# seams. The scope grows automatically with either architecture declaration.
+BUSINESS_ERROR_LINTS = frozenset({
+    "clippy::unwrap_used", "clippy::expect_used",
+    "clippy::let_underscore_must_use", "unused_must_use",
+})
+BUSINESS_ERROR_GUARD = "#![deny(" + ",".join(sorted(BUSINESS_ERROR_LINTS)) + ")]\n#![cfg_attr(not(test),forbid(" + ",".join(sorted(BUSINESS_ERROR_LINTS)) + "))]\n"
+
+ERROR_BOUNDARIES = {
+    "crates/xharness-host/src/event_gateway.rs",
+    "crates/xharness-host/src/error_boundary.rs",
+}
+
+
+def business_error_sources(policy: dict) -> set[str]:
+    return (set(SOURCE_BOUNDARIES) | ERROR_BOUNDARIES
+            | {"crates/xharness-host/src/" + row["source"] for row in policy["managedModules"]})
+
+
+def module_prologue_attributes(text: str) -> list[str]:
+    """Read only real, unconditional inner attributes, before the first item.
+
+    This protects enrollment, not Rust semantics. Real compiler mutations below
+    must also reject every forbidden operation, including attempted local allows.
+    """
+    tail = text.lstrip()
+    attributes = []
+    while tail:
+        if tail.startswith("//"):
+            newline = tail.find("\n")
+            if newline < 0:
+                break
+            tail = tail[newline + 1:].lstrip()
+        elif tail.startswith("/*"):
+            depth, index = 1, 2
+            while index < len(tail) and depth:
+                if tail.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif tail.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            if depth:
+                break
+            tail = tail[index:].lstrip()
+        elif tail.startswith("#!["):
+            end = tail.find("]")
+            if end < 0:
+                break
+            attributes.append(tail[3:end])
+            tail = tail[end + 1:].lstrip()
+        else:
+            break
+    return attributes
+
+
+def has_business_error_guards(text: str) -> bool:
+    denied, production_forbidden = set(), set()
+    for attribute in module_prologue_attributes(text):
+        match = re.fullmatch(r"\s*deny\s*\(\s*([\w:,\s]+)\)\s*", attribute)
+        if match:
+            denied.update(name.strip() for name in match[1].split(",") if name.strip())
+        match = re.fullmatch(r"\s*cfg_attr\s*\(\s*not\s*\(\s*test\s*\)\s*,\s*forbid\s*\(\s*([\w:,\s]+)\)\s*,?\s*\)\s*", attribute)
+        if match:
+            production_forbidden.update(name.strip() for name in match[1].split(",") if name.strip())
+    # Tokio's test macro emits allow(expect_used). Keep test builds at deny,
+    # but prohibit ALL local overrides in actual production compilation.
+    return BUSINESS_ERROR_LINTS <= denied and BUSINESS_ERROR_LINTS <= production_forbidden
+
+
+def check_business_error_guards(root: Path, policy: dict) -> list[str]:
+    errors = []
+    config = root / ".clippy.toml"
+    expected = {'allow-expect-in-tests = true', 'allow-unwrap-in-tests = true',
+                'allow-expect-in-consts = false', 'allow-unwrap-in-consts = false'}
+    settings = [line.split("#",1)[0].strip() for line in config.read_text().splitlines()] if config.is_file() else []
+    settings = [line for line in settings if line]
+    if set(settings) != expected or len(settings) != len(expected):
+        errors.append(".clippy.toml: error policy allows assertions only in tests, not production type exemptions")
+    for relative in sorted(business_error_sources(policy)):
+        path = root / relative
+        if not path.is_file() or not has_business_error_guards(path.read_text()):
+            errors.append(f"{relative}: requires unconditional deny plus exact non-test forbid of all business error lints")
+    return errors
+
+
 def has_forbid_unsafe_prologue(text: str) -> bool:
     """Require an unconditional module-wide guard before code/other attributes.
 
@@ -327,6 +415,7 @@ def main() -> int:
         errors.append("unsupported managed Host architecture policy version")
     else:
         errors.extend(check_managed_host_modules(ROOT, host_policy))
+        errors.extend(check_business_error_guards(ROOT, host_policy))
 
     if errors:
         print("architecture dependency regression:")

@@ -1,4 +1,20 @@
 //! Durable native event projection. No Agent, global RPC, reasoning or raw diagnostics.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::let_underscore_must_use,
+    unused_must_use
+)]
+#![cfg_attr(
+    not(test),
+    forbid(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::let_underscore_must_use,
+        unused_must_use
+    )
+)]
+
 use crate::replies::split_text;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enforce recoverable business errors in every extracted business seam; prevent panic-based extraction and discarded Results, and make RPC and detached session-worker failures observable without false success.",
+  "compatibility": "Preserve existing RPC names, error codes, session and account identity hashes, authoritative task ownership, native/Windows acceptance gates and all unconditional unsafe-code forbids. Tests may assert fatally; production builds forbid local overrides. No history migration, implicit retries, installation or signing changes.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "e8185f9bd3f3b0392d591c1f5ddf1b3425ec4859fc9820a5e8b48d5c614f715f",
+      "after": "d439a164fe4e40dcb94b6e9577b6e0e3478f24c3bd3b72a17ce00b65bad26007"
+    },
+    "config/architecture-freeze.json": {
+      "before": "521cdf17d123a6395901d3f88555a0869cb9749a0216d620e01bb383ffa7d069",
+      "after": "2ab27d8bbd9469db6f10ae806829cdb8201aa64feaef9c4976ee5b1a09c93f9c"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "b883ec719368d1260796021edd32f861e12556f02d069e734cd640cd61e7e5fa",
+      "after": "c8f42495509bd4b015f6c9053aa693e7689f10024c2ba27cb164b99b3f7d1b30"
+    },
+    "scripts/regression/run-suite.sh": {
+      "before": "aa3309fe85072f75cf502b66d6ee339fa39faa58027e3e2a37656633b27b30fa",
+      "after": "b5537503475e11a8147168c67d85fdaf7e006ce2211b699af9be9c72da347432"
+    },
+    "scripts/regression/test_check_architecture.py": {
+      "before": "3d9bc88deabe6f397acd245b0b8235a44307d1b91d7eebb5f87069b5e12e44bf",
+      "after": "a9bdc59934a67848f4ec93f421b50fd41c5f47da66f63dc67c229319f61a9933"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows",
+    "wire",
+    "persistence"
+  ]
+}
