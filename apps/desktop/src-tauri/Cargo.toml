@@ -54,7 +54,17 @@ objc2-foundation = "0.3.2"
 block2 = "0.6.2"
 objc2-web-kit = "0.3.2"
 
+[dev-dependencies]
+# The native probe must exercise the same Wry instance used by Tauri.
+wry = { version = "=0.55.1", default-features = false, features = ["os-webview"] }
+
+[patch.crates-io]
+# A nil WKWebView.URL must be an error, not a main-thread panic. Keep the
+# dependency/API version unchanged; upstream provenance is checked in CI.
+wry = { path = "vendor/wry" }
+
 # Keep the desktop shell outside the repository's main Rust workspace. The
 # Host remains a reusable server/CLI binary, while each platform CI build first
 # compiles it and stages it as this app's target-specific Tauri sidecar.
 [workspace]
+exclude = ["vendor/wry"]

@@ -6,10 +6,28 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed, core_native_apis_passed, native_coordinates_verified
+from scripts.gui_bench.run_native_probe import command, environment, cleanup, cleanup_profile, hard_capabilities, contract_completed, core_native_apis_passed, native_coordinates_verified, empty_webview_url_passed
 
 
 class NativeProbeTests(unittest.TestCase):
+    def test_nil_webview_url_evidence_is_required_and_fail_closed(self):
+        import json
+        receipt = dict(passed=True, nil_url_reads=32, result='recoverable_not_found', main_alive=True, test_only=True)
+        line = 'EMPTY_WEBVIEW_URL_EVIDENCE ' + json.dumps(receipt)
+        self.assertTrue(empty_webview_url_passed(line))
+        for bad in ['', 'EMPTY_WEBVIEW_URL_EVIDENCE invalid', line + '\n' + line]:
+            self.assertFalse(empty_webview_url_passed(bad))
+        for field, value in [('passed', False), ('nil_url_reads', 0), ('nil_url_reads', 32.0), ('result', 'unverified'), ('main_alive', False), ('test_only', False)]:
+            with self.subTest(field=field):
+                self.assertFalse(empty_webview_url_passed('EMPTY_WEBVIEW_URL_EVIDENCE ' + json.dumps(dict(receipt, **{field: value}))))
+        source = (Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
+        self.assertIn('empty_url_probe::run(app).await?', source)
+        self.assertGreater(source.index('empty_url_probe::run(app).await?'),
+                           source.index('production_native_probe(app).await?'))
+        fixture = (Path(__file__).resolve().parents[2] / 'apps/desktop/src-tauri/examples/probe_support/empty_url.rs').read_text()
+        self.assertIn('.get_window("main")', fixture)
+        self.assertNotIn('.get_webview_window("main")', fixture)
+
     def test_production_bridge_has_real_native_backends_and_no_new_guest_ipc(self):
         root = Path(__file__).resolve().parents[2]
         source=(root/'apps/desktop/src-tauri/examples/browser-inspect-probe.rs').read_text()
@@ -83,17 +101,21 @@ class NativeProbeTests(unittest.TestCase):
         log = ("Native lifecycle probe passed:\nNative Tauri DOM probe passed:\n"
                + "HARD_CAPABILITY_EVIDENCE " + json.dumps(capabilities)
                + "\nSUBFRAME_NAVIGATION_EVIDENCE " + json.dumps(subframe)
-               + '\nBROWSER_LIFECYCLE_EVIDENCE {"passed":true,"test_only":true,"main_alive":true,"created":2,"close_accepted":2}')
+               + '\nBROWSER_LIFECYCLE_EVIDENCE {"passed":true,"test_only":true,"main_alive":true,"created":2,"close_accepted":2}'
+               + '\nEMPTY_WEBVIEW_URL_EVIDENCE {"passed":true,"nil_url_reads":32,"result":"recoverable_not_found","main_alive":true,"test_only":true}')
         api = dict(status='tested', native_mouse={'passed':True}, native_keyboard={'passed':True},
                    cross_origin_pointer={'passed':True}, snapshot_sequence_verified=True,
                    observed={'pointers':[dict(type='click', trusted=True, id=target, x=x, y=y)
                              for target,x,y in [('native-probe',450,120), ('answer',60,35)]]})
-        for name, output, evidence, code, fit_passed, expected in [
-            ('complete', log, api, 0, True, True),
-            ('zero-but-incomplete', '', api, 0, True, False),
-            ('no-native-api-evidence', log, {}, 0, True, False),
-            ('failed-process', log, api, 1, True, False),
-            ('failed-fit-viewport', log, api, 0, False, False),
+        without_nil = '\n'.join(line for line in log.splitlines() if not line.startswith('EMPTY_WEBVIEW_URL_EVIDENCE '))
+        for name, platform, output, evidence, code, fit_passed, expected in [
+            ('complete', 'darwin', log, api, 0, True, True),
+            ('zero-but-incomplete', 'darwin', '', api, 0, True, False),
+            ('no-native-api-evidence', 'darwin', log, {}, 0, True, False),
+            ('failed-process', 'darwin', log, api, 1, True, False),
+            ('failed-fit-viewport', 'darwin', log, api, 0, False, False),
+            ('missing-nil-url', 'darwin', without_nil, api, 0, True, False),
+            ('nil-url-is-macos-only', 'linux', without_nil, api, 0, True, True),
         ]:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -105,7 +127,8 @@ class NativeProbeTests(unittest.TestCase):
                     handle.write(output.encode('utf-8'))
                     return code
 
-                with patch.object(probe.sys, 'argv', ['probe', str(binary), '--evidence-dir', str(receipt_dir)]), \
+                with patch.object(probe.sys, 'platform', platform), \
+                     patch.object(probe.sys, 'argv', ['probe', str(binary), '--evidence-dir', str(receipt_dir)]), \
                      patch.object(probe, 'run_probe', side_effect=fake_probe), \
                      patch.object(probe, 'native_api_evidence', return_value=evidence), \
                      patch.object(probe, 'production_native_evidence', return_value={'passed':True}), \

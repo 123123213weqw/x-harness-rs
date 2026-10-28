@@ -50,6 +50,8 @@ jobs:
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-desktop-build-cache.py
           python3 -B scripts/test-ci-browser-runtime.py
+          python3 -B scripts/check-wry-vendor.py
+          python3 -B scripts/test-wry-vendor.py
       - name: Browser routing fixture and oracle regression (offline)
         run: python3 -B scripts/experiments/test-browser-routing-ab.py
       - uses: actions/upload-artifact@v7
