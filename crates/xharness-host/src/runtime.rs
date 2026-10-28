@@ -2495,6 +2495,8 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
 mod tests {
     mod admission_performance_tests;
     mod dispatch_tests;
+    mod queue_receipt_tests;
+    mod queue_timing;
     mod stream_performance_tests;
     use std::{
         collections::VecDeque,
