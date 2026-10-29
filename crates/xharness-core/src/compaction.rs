@@ -26,6 +26,8 @@ pub(crate) enum SummaryError {
     Output,
     #[error("compaction made no progress: {0}")]
     NoBenefit(String),
+    #[error("compaction input measurement temporarily unavailable; original history is unchanged")]
+    MeasurementUnavailable,
     #[error("{0}")]
     Provider(ProviderError),
     #[error("{0}")]
@@ -215,6 +217,9 @@ impl SummaryRunner {
             // same disposable image projection before both admission and wire
             // encoding, otherwise large visual history can deadlock compaction.
             let mut surface = ContextSurface::identity(request.messages);
+            surface
+                .defer_superseded_tool_images()
+                .map_err(|e| SummaryError::Invalid(e.to_string()))?;
             surface.defer_images_over_budget(MAX_REQUEST_IMAGE_BYTES);
             request.messages = surface.messages;
             request.max_output_tokens = Some(output);
@@ -308,7 +313,10 @@ impl SummaryRunner {
         Ok(notes)
     }
 
-    async fn admit(&self, request: &ProviderRequest) -> Result<TokenBudgetReport, SummaryError> {
+    async fn admit(
+        &mut self,
+        request: &ProviderRequest,
+    ) -> Result<TokenBudgetReport, SummaryError> {
         let mut budget = self.guard.budget().clone();
         budget.reserved_output_tokens = request.max_output_tokens.unwrap_or(8192);
         // A summary has its own dynamic output budget; this never changes
@@ -327,9 +335,13 @@ impl SummaryRunner {
                 value.unwrap_or_else(|_| Err(ProviderError::retryable("compaction input count deadline exceeded")))
             }
         };
+        let mut transient = false;
+        let mut retry_after = None;
         let count = match count {
             Ok(count) => count,
             Err(error) if error.retryable && guard.allows_counter_fallback() => {
+                transient = true;
+                retry_after = error.retry_after_ms;
                 self.provider.input_counter_failed();
                 None
             }
@@ -341,7 +353,7 @@ impl SummaryRunner {
                 .then(|| self.provider.estimate_input_tokens(request))
                 .flatten()
         });
-        let checked = if let Some(count) = count {
+        let mut checked = if let Some(count) = count {
             guard.check_provider_count(&count)
         } else {
             let mut system_messages = Vec::new();
@@ -363,7 +375,47 @@ impl SummaryRunner {
                 tools: Vec::new(),
             })
         };
+        if retry_after.is_none_or(|delay| delay == 0)
+            && checked
+                .as_ref()
+                .err()
+                .and_then(TokenBudgetError::report)
+                .is_some_and(|r| !r.is_exact())
+        {
+            let token = self.cancellation.child_token();
+            let _cancel_on_drop = token.clone().drop_guard();
+            let fresh = tokio::select! {
+                _ = self.cancellation.cancelled() => return Err(SummaryError::Cancelled),
+                result = tokio::time::timeout(guard.counter_timeout(), self.provider.recount_input_tokens(request, token)) => result,
+            };
+            match fresh {
+                Ok(Ok(Some(count))) => checked = guard.check_provider_count(&count),
+                Ok(Err(error)) if !error.retryable => return Err(provider_error(error)),
+                Ok(Ok(None)) => {}
+                _ => transient = true,
+            }
+        }
+        if transient {
+            checked = checked.map_err(|e| {
+                e.with_fallback_reason(Some("transient_counter_failure".into()))
+                    .with_counter_failure(None, retry_after)
+            });
+        }
+        let report = checked
+            .as_ref()
+            .ok()
+            .or_else(|| checked.as_ref().err().and_then(TokenBudgetError::report));
+        self.progress.summary_budget =
+            report.map(serde_json::to_value).transpose().map_err(|e| {
+                SummaryError::Invalid(format!("could not serialize summary budget: {e}"))
+            })?;
+        // Flush even a rejected auxiliary count; it must not vanish when no
+        // summary text was produced. Only closed numeric metadata is recorded.
+        self.report(CompactionStage::Preparing, None).await?;
         checked.map_err(|error| match error {
+            TokenBudgetError::Exceeded { ref report, .. } if transient && !report.is_exact() => {
+                SummaryError::MeasurementUnavailable
+            }
             TokenBudgetError::Exceeded { .. } => SummaryError::Input(error.to_string()),
             _ => SummaryError::Invalid(error.to_string()),
         })

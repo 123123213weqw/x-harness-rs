@@ -327,3 +327,47 @@ Linux、macOS arm64、Windows 的 `cargo test --workspace --all-targets` 均通�
 全工作区 Clippy 通过。Linux Core 单元 28 项、Loop 集成 92 项全部通过，预算随机矩阵也已执行。
 本节约 32253 组矩阵/生成场景位于 13 个新增测试函数内，不能与独立测试函数数混算。
 当时 Windows 原生安装包构建和 Unix 更新演练仍在继续，不能称整个 CI 已绿；本批未合并、发布或部署。
+
+## Multimodal metering and transient counter recovery
+
+Admission and candidate validation retain the full `TokenBudgetReport` on both
+accepted and rejected counts: meter, accuracy, request SHA-256, fallback category,
+HTTP status, Retry-After and bounded recount count. `estimate` is a breakdown
+field, not an accuracy claim. Only the same exact counter/accuracy is comparable
+for before/after token gain. Otherwise both replacement spans use the same local
+planner price, and the complete candidate must still pass hard admission.
+
+An estimated overflow gets at most two fresh counter verifications. These may
+bypass a local transient-counter cooldown, never an unsupported capability,
+auth failure, execution gate or upstream Retry-After. Cancellation and steering
+remain active during counting and waiting. An unverifiable estimated candidate
+is a retryable measurement failure, not deterministic `no_benefit`; it is not
+cached as a permanently bad source. Candidate text remains disposable until the
+existing strict journal CAS/flush transaction succeeds.
+
+Compaction progress adds optional content-free `budgetBefore`, `budgetAfter`,
+`summaryBudget`, `sourceRange` and typed `validation` evidence, including rejected
+candidate counts. Existing journals missing these fields replay unchanged. This
+is an additive writer update for the paired new Host/reader; older binaries with
+strict progress decoding must not be used to read newly written progress fields.
+The original append-only history, session format and event names are unchanged.
+
+The image allowance no longer contains attachment-caption bytes. Captions are
+priced as text. Current multimodal calibration has a new route/encoder scope
+and records only numeric visual shape. After at least eight compatible samples,
+it estimates the COMPLETE mixed request, including visual cost once, with a
+25% margin plus 256 tokens. Scope, text distribution, image count/pixel growth,
+and maximum dimensions constrain reuse; large extrapolations/different sizes
+remain conservative. Mixed totals never become text-only or inferred per-image
+prices. A violated prediction invalidates the route's observations. Native
+complete-request counts remain authoritative; no Qwen processor formula is
+inferred from a model name or copied from another provider.
+
+Only the latest visual **tool transaction** (including parallel image reads)
+is materialized on the disposable model surface. Older tool screenshots and
+exact duplicates become session-scoped `attachment://` read references while
+retaining existing textual observations. Explicit user images, opaque replay
+items and interrupted messages are not subject to this observation window.
+The existing 40 MiB wire resource budget still applies. Main admission, auxiliary
+summarization and candidate validation use this same image projection. No raw
+image, message, tool result or authorization in durable history is deleted.

@@ -10326,3 +10326,5 @@ async fn stable_working_set_fresh_pressure_rebalances_without_resurrecting_old_r
         .iter()
         .any(|m| m.role == Role::Tool && m.content.contains("CALIBRATION_RAW_")));
 }
+
+include!("cases/multimodal_metering.rs");

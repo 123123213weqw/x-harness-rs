@@ -695,6 +695,11 @@ async fn unsupported_token_count_endpoint_is_cached_as_a_capability_miss() {
         .is_none());
     server.await.unwrap();
     assert!(provider
+        .recount_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_none());
+    assert!(provider
         .count_input_tokens(&request, CancellationToken::new())
         .await
         .unwrap()
@@ -1712,3 +1717,98 @@ mod mixed_calibration;
 
 #[path = "protocol/mixed_calibration_live.rs"]
 mod mixed_calibration_live;
+
+#[tokio::test]
+async fn fresh_count_bypasses_only_cooldown_and_restores_normal_counter() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let request = read_http_request(&mut socket).await;
+            assert!(String::from_utf8_lossy(&request)
+                .starts_with("POST /v1/chat/completions/input_tokens"));
+            let body = r#"{"input_tokens":123}"#;
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
+        }
+    });
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "fixture",
+        "fixture",
+    ))
+    .unwrap();
+    let request = ProviderRequest {
+        messages: vec![AgentMessage::user("synthetic")],
+        tools: vec![],
+        step: 1,
+        reasoning_effort: None,
+        max_output_tokens: Some(256),
+        debug_scope: Default::default(),
+    };
+    provider.input_counter_failed();
+    assert!(provider
+        .count_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        provider
+            .recount_input_tokens(&request, CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap()
+            .input_tokens,
+        123
+    );
+    assert_eq!(
+        provider
+            .count_input_tokens(&request, CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap()
+            .input_tokens,
+        123
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn fresh_counter_respects_upstream_retry_after_across_calls() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let _ = read_http_request(&mut socket).await;
+        socket.write_all(b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 300\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+    });
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "fixture",
+        "fixture",
+    ))
+    .unwrap();
+    let request = ProviderRequest {
+        messages: vec![AgentMessage::user("synthetic")],
+        tools: vec![],
+        step: 1,
+        reasoning_effort: None,
+        max_output_tokens: None,
+        debug_scope: Default::default(),
+    };
+    let first = provider
+        .count_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(first.retry_after_ms, Some(300_000));
+    server.await.unwrap();
+    provider.input_counter_failed();
+    let fresh = provider
+        .recount_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(fresh.http_status, Some(429));
+    assert!(fresh.retry_after_ms.is_some_and(|delay| delay > 290_000));
+}

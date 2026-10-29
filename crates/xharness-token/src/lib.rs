@@ -6,7 +6,7 @@
 //! an HTTP request that the model server must reject.
 
 mod calibration;
-pub use calibration::{Calibration, WireFeatures, MAX_CALIBRATION_BYTES};
+pub use calibration::{Calibration, ImageFeatures, WireFeatures, MAX_CALIBRATION_BYTES};
 
 use std::{fmt, sync::Arc};
 
@@ -388,6 +388,14 @@ impl TokenBudget {
 #[serde(rename_all = "camelCase")]
 pub struct TokenBudgetReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_rechecks")]
+    pub counter_rechecks: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counter_retry_after_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_reason: Option<String>,
     pub meter: String,
     #[serde(default)]
@@ -399,6 +407,28 @@ pub struct TokenBudgetReport {
     pub safety_margin_tokens: u64,
     pub available_input_tokens: u64,
     pub estimate: TokenBreakdown,
+}
+
+const fn is_zero_rechecks(value: &u8) -> bool {
+    *value == 0
+}
+
+impl TokenBudgetReport {
+    pub fn is_exact(&self) -> bool {
+        matches!(
+            self.accuracy,
+            TokenCountAccuracy::ExactRequest | TokenCountAccuracy::ExactTokenizer
+        )
+    }
+
+    /// Learned prices may change between calls. Only the same exact counter
+    /// provides a comparable before/after measurement for compaction gain.
+    pub fn comparable_to(&self, other: &Self) -> bool {
+        self.is_exact()
+            && other.is_exact()
+            && self.meter == other.meter
+            && self.accuracy == other.accuracy
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
@@ -417,7 +447,37 @@ pub enum TokenBudgetError {
         reserved_output_tokens: u64,
         minimum_output_tokens: u64,
         safety_margin_tokens: u64,
+        /// Preserve provenance on rejection too, not just successful requests.
+        report: Box<TokenBudgetReport>,
     },
+}
+
+impl TokenBudgetError {
+    pub fn report(&self) -> Option<&TokenBudgetReport> {
+        match self {
+            Self::Exceeded { report, .. } => Some(report),
+            _ => None,
+        }
+    }
+
+    pub fn with_fallback_reason(mut self, reason: Option<String>) -> Self {
+        if let Self::Exceeded { report, .. } = &mut self {
+            report.fallback_reason = reason;
+        }
+        self
+    }
+
+    pub fn with_counter_failure(
+        mut self,
+        status: Option<u16>,
+        retry_after_ms: Option<u64>,
+    ) -> Self {
+        if let Self::Exceeded { report, .. } = &mut self {
+            report.counter_http_status = status;
+            report.counter_retry_after_ms = retry_after_ms;
+        }
+        self
+    }
 }
 
 /// Cloneable meter + hard budget supplied to a prepared loop.
@@ -479,17 +539,11 @@ impl TokenGuard {
         let mut estimate = self.meter.estimate(request)?;
         estimate.recompute_total();
         let available_input_tokens = self.budget.available_input_tokens();
-        if estimate.total_input_tokens > available_input_tokens {
-            return Err(TokenBudgetError::Exceeded {
-                estimated_input_tokens: estimate.total_input_tokens,
-                available_input_tokens,
-                context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
-                minimum_output_tokens: self.budget.minimum_output_tokens,
-                safety_margin_tokens: self.budget.safety_margin_tokens,
-            });
-        }
-        Ok(TokenBudgetReport {
+        self.admit(TokenBudgetReport {
+            request_sha256: None,
+            counter_rechecks: 0,
+            counter_http_status: None,
+            counter_retry_after_ms: None,
             fallback_reason: None,
             meter: self.meter.id().to_owned(),
             accuracy: self.meter.accuracy(),
@@ -519,17 +573,11 @@ impl TokenGuard {
             ..TokenBreakdown::default()
         };
         let available_input_tokens = self.budget.available_input_tokens();
-        if count.input_tokens > available_input_tokens {
-            return Err(TokenBudgetError::Exceeded {
-                estimated_input_tokens: count.input_tokens,
-                available_input_tokens,
-                context_window_tokens: self.budget.context_window_tokens,
-                reserved_output_tokens: self.budget.reserved_output_tokens,
-                minimum_output_tokens: self.budget.minimum_output_tokens,
-                safety_margin_tokens: self.budget.safety_margin_tokens,
-            });
-        }
-        Ok(TokenBudgetReport {
+        self.admit(TokenBudgetReport {
+            request_sha256: None,
+            counter_rechecks: 0,
+            counter_http_status: None,
+            counter_retry_after_ms: None,
             fallback_reason: None,
             meter: count.counter.clone(),
             accuracy: count.accuracy,
@@ -541,6 +589,21 @@ impl TokenGuard {
             available_input_tokens,
             estimate,
         })
+    }
+
+    fn admit(&self, report: TokenBudgetReport) -> Result<TokenBudgetReport, TokenBudgetError> {
+        if report.estimate.total_input_tokens > report.available_input_tokens {
+            return Err(TokenBudgetError::Exceeded {
+                estimated_input_tokens: report.estimate.total_input_tokens,
+                available_input_tokens: report.available_input_tokens,
+                context_window_tokens: report.context_window_tokens,
+                reserved_output_tokens: report.reserved_output_tokens,
+                minimum_output_tokens: report.minimum_output_tokens,
+                safety_margin_tokens: report.safety_margin_tokens,
+                report: Box::new(report),
+            });
+        }
+        Ok(report)
     }
 
     /// Rebind an auxiliary reserve while preserving meter and counter policy.
@@ -716,7 +779,15 @@ mod tests {
         let provider = guard
             .check_provider_count(&ProviderInputTokenCount::exact_request("test", count))
             .unwrap_err();
-        assert_eq!(local, provider);
+        assert_eq!(local.to_string(), provider.to_string());
+        assert_eq!(
+            local.report().unwrap().accuracy,
+            TokenCountAccuracy::ConservativeUpperBound
+        );
+        assert_eq!(
+            provider.report().unwrap().accuracy,
+            TokenCountAccuracy::ExactRequest
+        );
         assert!(matches!(
             local,
             TokenBudgetError::Exceeded {

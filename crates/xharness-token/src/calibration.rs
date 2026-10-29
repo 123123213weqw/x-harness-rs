@@ -6,6 +6,16 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod mixed;
 
+/// Numeric visual shape, not image content or an inferred image token price.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageFeatures {
+    pub count: u64,
+    pub pixels: u64,
+    pub max_width: u32,
+    pub max_height: u32,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireFeatures {
@@ -13,8 +23,19 @@ pub struct WireFeatures {
     pub buckets: [u64; 3],
     pub framing: u64,
     pub image_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<ImageFeatures>,
 }
 impl WireFeatures {
+    /// Attachment captions are text; never hide their byte allowance in the
+    /// image-token bucket or infer an image price from mixed reported usage.
+    pub fn add_attachment_text(&mut self, text: &str) {
+        for ch in text.chars() {
+            let bucket = if ch.is_ascii() { 0 } else { 2 };
+            self.buckets[bucket] = self.buckets[bucket].saturating_add(ch.len_utf8() as u64);
+        }
+        self.framing = self.framing.saturating_add(64);
+    }
     pub fn from_body(body: &Value, image_tokens: u64) -> Self {
         fn walk(v: &Value, structured: bool, f: &mut WireFeatures) {
             match v {
@@ -191,6 +212,14 @@ impl Calibration {
                         || (s.features.image_tokens != 0) != mixed
                         || s.features.image_tokens > 1_000_000_000_000
                         || s.features.units() > 1_000_000_000_000
+                        || s.features.images.as_ref().is_some_and(|i| {
+                            i.count == 0
+                                || i.count > 1_000_000
+                                || i.pixels == 0
+                                || i.pixels > 1_000_000_000_000
+                                || i.max_width == 0
+                                || i.max_height == 0
+                        })
                     {
                         return Err("invalid calibration sample".into());
                     }
@@ -243,6 +272,15 @@ impl Calibration {
     }
 
     pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
+        if let Some(total) = self.mixed_request_upper(scope, features) {
+            // This is a learned COMPLETE multimodal envelope. It already
+            // contains visual cost; adding image_tokens would count it twice.
+            return ProviderInputTokenCount {
+                counter: format!("wire-calibration/v2:{scope}"),
+                input_tokens: total,
+                accuracy: TokenCountAccuracy::Estimated,
+            };
+        }
         let (mut text_tokens, mut text_accuracy) = self.estimate_text(scope, features);
         // Mixed totals are never text measurements. Only a mixed query may
         // reuse their conservative upper envelope when pure-text training is cold.
@@ -313,6 +351,7 @@ mod tests {
             buckets: [8493, 289574, 10314],
             framing: 7039,
             image_tokens: 0,
+            ..Default::default()
         };
         let mut calibration = Calibration::default();
         for i in 0..7 {
@@ -693,3 +732,5 @@ mod snapshot_tests {
 
 #[cfg(test)]
 mod mixed_tests;
+#[cfg(test)]
+mod multimodal_tests;
