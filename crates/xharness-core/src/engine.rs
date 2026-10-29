@@ -3091,6 +3091,11 @@ impl Runner {
                                     | SessionEventData::AgentSettlementDelivered { .. }
                                     | SessionEventData::AgentFailureDelivered { .. }
                                     | SessionEventData::SessionModelSelected { .. }
+                                    // Desired settings change the NEXT executor,
+                                    // not the immutable capability of this run.
+                                    | SessionEventData::PermissionPreset { .. }
+                                    | SessionEventData::SandboxMode { .. }
+                                    | SessionEventData::AgentPresetSelected { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }

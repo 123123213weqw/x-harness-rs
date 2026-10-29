@@ -1720,7 +1720,12 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         let (Some(handle), Some(events)) = (handle, events) else {
             return Ok(SessionObservation::Unsupported);
         };
-        if open.is_none() && handle.status() == xharness_agent::AgentStatus::Idle {
+        // An open journal alone is not proof of a live Core: a failed writer
+        // can leave an abandoned open turn behind an idle/unavailable worker.
+        // Never attach an observer that can wait forever for a non-existent run.
+        if handle.availability() != xharness_agent::WorkerAvailability::Ready
+            || handle.status() == xharness_agent::AgentStatus::Idle
+        {
             return Ok(SessionObservation::Unsupported);
         }
         let mut run = DurableRunningTurn::new(

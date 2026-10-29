@@ -215,6 +215,18 @@ async fn running_permission_selection_uses_latest_at_next_real_turn_in_both_runt
         assert_eq!(view(&host).await["pending"], false);
         assert_eq!(view(&host).await["activeValue"], Value::Null);
         if durable {
+            let journal = store.load("p").await.unwrap().unwrap();
+            let ends = journal
+                .events()
+                .iter()
+                .filter_map(|e| match e.data() {
+                    xharness_session::EventData::TurnEnd { reason, .. } => Some(reason.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            // Merely clearing Host.running would hide a journal write failure
+            // and let the next turn "recover" healthy work as Interrupted.
+            assert_eq!(ends, vec![xharness_session::TurnEndReason::Completed; 2]);
             let restored = BasicHost::new(
                 HostConfig::new(std::env::temp_dir()),
                 None,

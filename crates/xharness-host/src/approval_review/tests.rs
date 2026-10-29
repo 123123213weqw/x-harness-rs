@@ -492,7 +492,8 @@ async fn permission_change_discards_old_verdict_without_escalating_sandbox() {
             .ok()
             .unwrap()
     });
-    let (host, count, _) = start(provider.clone(), PermissionPreset::WorkspaceWriteAiReview).await;
+    let (host, count, store) =
+        start(provider.clone(), PermissionPreset::WorkspaceWriteAiReview).await;
     waiting_review(&provider).await;
     let result = host
         .call_dynamic(
@@ -536,6 +537,14 @@ async fn permission_change_discards_old_verdict_without_escalating_sandbox() {
     )
     .await;
     settled(&host).await;
+    let journal = store.load("p").await.unwrap().unwrap();
+    assert!(journal.events().iter().any(|e| matches!(
+        e.data(),
+        xharness_session::EventData::TurnEnd {
+            reason: xharness_session::TurnEndReason::UserInterrupted,
+            ..
+        }
+    )));
 }
 
 #[tokio::test]

@@ -1441,3 +1441,57 @@ async fn orphaned_host_driver_reattaches_active_agent_without_restarting_it() {
     )));
     runtime.shutdown(Duration::from_secs(1)).await;
 }
+
+#[tokio::test]
+async fn abandoned_open_turn_is_not_mistaken_for_a_live_idle_worker() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let header = SessionHeader::new("abandoned-observer");
+    store.create(header.clone()).await.unwrap();
+    store
+        .append(
+            "abandoned-observer",
+            Revision::ZERO,
+            vec![xharness_session::EventData::TurnStart { turn: 1 }.into()],
+        )
+        .await
+        .unwrap();
+    let runtime = DurableLoopAgentRuntime::new(
+        "test",
+        "test",
+        None,
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        16,
+    );
+    let before = store
+        .load("abandoned-observer")
+        .await
+        .unwrap()
+        .unwrap()
+        .revision();
+    assert!(matches!(
+        runtime.observe_session("abandoned-observer").await.unwrap(),
+        SessionObservation::Unsupported
+    ));
+    assert!(runtime.supervisor.get("abandoned-observer").await.is_none());
+    let handle = runtime.supervisor.activate(header).await.unwrap();
+    handle.when_ready().await.unwrap();
+    assert_eq!(handle.status(), xharness_agent::AgentStatus::Idle);
+    assert!(matches!(
+        runtime.observe_session("abandoned-observer").await.unwrap(),
+        SessionObservation::Unsupported
+    ));
+    assert_eq!(
+        store
+            .load("abandoned-observer")
+            .await
+            .unwrap()
+            .unwrap()
+            .revision(),
+        before,
+        "status observation must not close, wake or replay abandoned work"
+    );
+    runtime.shutdown(Duration::from_secs(1)).await;
+}
