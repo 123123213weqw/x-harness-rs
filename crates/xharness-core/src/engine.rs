@@ -3113,6 +3113,7 @@ impl Runner {
                                     // not the immutable capability of this run.
                                     | SessionEventData::PermissionPreset { .. }
                                     | SessionEventData::SandboxMode { .. }
+                                    | SessionEventData::ApprovalPolicy { .. }
                                     | SessionEventData::AgentPresetSelected { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }

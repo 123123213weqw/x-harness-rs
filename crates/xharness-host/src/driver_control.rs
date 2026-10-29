@@ -20,6 +20,7 @@ use crate::{
     runtime::{RunningTurn, TurnControlFuture},
     state::DriverCommand,
 };
+use futures::FutureExt;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use xharness_core::{LoopControlError, LoopEvent};
@@ -41,7 +42,14 @@ impl ControlPump {
             tokio::select! {
                 event=run.next_event()=> {
                     if event.is_none() {
-                        if let Some((_,ack))=self.pending.take() { acknowledge(ack,Err(LoopControlError::Closed)); }
+                        if let Some((future,ack))=self.pending.take() {
+                            // The terminal notification and an already committed
+                            // command ACK can be ready together. Preserve that
+                            // scoped receipt before the Agent starts a successor.
+                            // Never await a genuinely pending ACK at this boundary.
+                            let result=future.now_or_never().unwrap_or(Err(LoopControlError::Closed));
+                            acknowledge(ack,result);
+                        }
                     }
                     return event;
                 }
@@ -157,5 +165,25 @@ mod tests {
                 .is_none()
         );
         assert_eq!(accepted.await.unwrap(), Err(LoopControlError::Closed));
+    }
+
+    #[tokio::test]
+    async fn terminal_race_preserves_an_already_ready_control_receipt() {
+        for _ in 0..64 {
+            let (events, receiver) = mpsc::channel(1);
+            drop(events);
+            let mut run = HeldControl {
+                events: receiver,
+                entered: Arc::new(tokio::sync::Notify::new()),
+            };
+            let (_controls, mut rx) = mpsc::channel(1);
+            let (ack, accepted) = oneshot::channel();
+            let mut pump = ControlPump {
+                pending: Some((Box::pin(async { Ok(()) }), ack)),
+                closed: false,
+            };
+            assert!(pump.next(&mut run, &mut rx).await.is_none());
+            assert_eq!(accepted.await.unwrap(), Ok(()));
+        }
     }
 }
