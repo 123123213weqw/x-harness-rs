@@ -301,14 +301,17 @@ async fn failed_session_resumes_on_same_route_after_counter_recovery() {
         &after.derive_messages()[..original_messages.len()],
         original_messages.as_slice()
     );
-    assert!(after
+    let resumed_headers = after
         .events()
         .iter()
+        .skip(original.events().len())
         .filter_map(|e| match e.data() {
             SessionEventData::RequestHeader { header } => Some(header.provider.as_str()),
             _ => None,
         })
-        .all(|p| p == "custom"));
+        .collect::<Vec<_>>();
+    assert!(!resumed_headers.is_empty());
+    assert!(resumed_headers.iter().all(|p| *p == "custom"));
     assert!(!after
         .events()
         .iter()
