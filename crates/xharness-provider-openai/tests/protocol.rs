@@ -1812,3 +1812,61 @@ async fn fresh_counter_respects_upstream_retry_after_across_calls() {
     assert_eq!(fresh.http_status, Some(429));
     assert!(fresh.retry_after_ms.is_some_and(|delay| delay > 290_000));
 }
+
+#[tokio::test]
+async fn in_flight_count_success_does_not_revoke_newer_server_backoff() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut first, _) = listener.accept().await.unwrap();
+        read_http_request(&mut first).await;
+        started_tx.send(()).unwrap();
+        let (mut second, _) = listener.accept().await.unwrap();
+        read_http_request(&mut second).await;
+        second.write_all(b"HTTP/1.1 429 Too Many Requests\r\ncontent-length: 2\r\nretry-after: 300\r\nconnection: close\r\n\r\n{}").await.unwrap();
+        release_rx.await.unwrap();
+        let body = r#"{"input_tokens":123}"#;
+        first.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
+    });
+    let provider = OpenAiProvider::new(OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        format!("http://{address}/v1"),
+        "fixture",
+        "fixture",
+    ))
+    .unwrap();
+    let request = ProviderRequest {
+        messages: vec![AgentMessage::user("synthetic")],
+        tools: vec![],
+        step: 1,
+        reasoning_effort: None,
+        max_output_tokens: Some(256),
+        debug_scope: Default::default(),
+    };
+    let concurrent = provider.clone();
+    let request_copy = request.clone();
+    let first = tokio::spawn(async move {
+        concurrent
+            .count_input_tokens(&request_copy, CancellationToken::new())
+            .await
+    });
+    started_rx.await.unwrap();
+    let limited = provider
+        .count_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(limited.http_status, Some(429));
+    release_tx.send(()).unwrap();
+    assert_eq!(first.await.unwrap().unwrap().unwrap().input_tokens, 123);
+    server.await.unwrap();
+    let still_limited = provider
+        .recount_input_tokens(&request, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(still_limited.http_status, Some(429));
+    assert!(still_limited
+        .retry_after_ms
+        .is_some_and(|delay| delay > 290_000));
+}

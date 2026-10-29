@@ -954,9 +954,9 @@ impl OpenAiProvider {
         if let Ok(mut at) = self.counter_retry_at.lock() {
             *at = None;
         }
-        if let Ok(mut state) = self.counter_retry_after.lock() {
-            *state = None;
-        }
+        // Do not revoke a newer server-mandated backoff: another count may
+        // have received Retry-After while this successful call was in flight.
+        // Expired server deadlines are harmless; only local cooldown is cleared.
         Ok(Some(ProviderInputTokenCount::exact_request(
             self.config.token_counter_id(),
             input_tokens,
