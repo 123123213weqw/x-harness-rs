@@ -715,11 +715,13 @@ impl BasicHost {
             }
             None => store.publish_catalog_entry(entry).await,
         };
-        if let Err(error) = published {
+        if published.is_err() {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
             xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Catalogue);
-            xharness_diagnostics::diagnostic_stderr!("xharness catalogue update skipped: {error}");
+            xharness_diagnostics::diagnostic_stderr!(
+                "xharness catalogue update skipped; authoritative journal retained"
+            );
         }
     }
 
@@ -818,7 +820,7 @@ impl BasicHost {
             .read()
             .await
             .sessions
-            .get(session_id)
+            .get(&session_id)
             .is_some_and(|s| {
                 s.running
                     && s.driver_epoch.is_some()

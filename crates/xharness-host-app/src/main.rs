@@ -160,11 +160,8 @@ async fn main_inner(
         (Some(root), Some(control)) => debug.with_runtime_diagnostics(root.into(), control.into()),
         _ => debug,
     };
-    if let Some(trace) = trace {
-        xharness_diagnostics::diagnostic_stderr!(
-            "xharness full debug trace: {}",
-            trace.directory.display()
-        );
+    if trace.is_some() {
+        xharness_diagnostics::diagnostic_stderr!("xharness full debug trace enabled");
     }
     let result = if let Some(execution) = &hosted {
         tokio::select! {
@@ -295,9 +292,12 @@ async fn run(
                 tools.bind_plugins(Arc::clone(&manager))?;
                 Some(manager)
             }
-            Err(error) => {
+            Err(_) => {
+                xharness_diagnostics::record_failure(
+                    xharness_diagnostics::FailureCode::PluginStore,
+                );
                 xharness_diagnostics::diagnostic_stderr!(
-                    "plugin store unavailable; Agent startup continues: {error}"
+                    "plugin store unavailable; Agent startup continues"
                 );
                 None
             }
@@ -555,8 +555,9 @@ async fn run(
         let (necessary, deferred) = match hydration_host.populate_startup_catalog(store).await {
             Ok(catalogue) => catalogue,
             Err(error) => {
+                xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Catalogue);
                 xharness_diagnostics::diagnostic_stderr!(
-                    "xharness background catalogue discovery failed: {error}"
+                    "xharness background catalogue discovery failed"
                 );
                 hydration_host.report_startup_catalog_failure(&error).await;
                 return;
@@ -566,9 +567,14 @@ async fn run(
         for session_id in &necessary {
             match hydration_host.hydrate_session(session_id).await {
                 Ok(()) => resumed += 1,
-                Err(error) => xharness_diagnostics::diagnostic_stderr!(
-                    "xharness recovery issue for {session_id}: {error}"
-                ),
+                Err(_) => {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::Catalogue,
+                    );
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "xharness indexed recovery failed; task state remains unverified"
+                    );
+                }
             }
         }
         let (catalogued_sessions, catalogue_issues) =
@@ -599,22 +605,33 @@ async fn run(
             workers.spawn(async move { one_host.hydrate_session(&one_id).await });
             match workers.join_next().await {
                 Some(Ok(Ok(()))) => {}
-                Some(Ok(Err(error))) => {
+                Some(Ok(Err(_))) => {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::Catalogue,
+                    );
                     xharness_diagnostics::diagnostic_stderr!(
-                        "xharness background recovery issue for {session_id}: {error}"
+                        "xharness background recovery failed; task state remains unverified"
                     )
                 }
-                Some(Err(error)) => xharness_diagnostics::diagnostic_stderr!(
-                    "xharness background recovery worker failed for {session_id}: {error}"
-                ),
+                Some(Err(error)) => {
+                    xharness_diagnostics::record_failure(if error.is_panic() {
+                        xharness_diagnostics::FailureCode::TaskPanicked
+                    } else {
+                        xharness_diagnostics::FailureCode::TaskCancelled
+                    });
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "xharness background recovery worker failed"
+                    );
+                }
                 None => unreachable!("one recovery worker was just spawned"),
             }
             tokio::task::yield_now().await;
         }
-        if let Err(error) = job_continuations.recover().await {
-            xharness_diagnostics::diagnostic_stderr!(
-                "xharness Job continuation recovery failed: {error}"
+        if job_continuations.recover().await.is_err() {
+            xharness_diagnostics::record_failure(
+                xharness_diagnostics::FailureCode::JobContinuation,
             );
+            xharness_diagnostics::diagnostic_stderr!("xharness Job continuation recovery failed");
         }
         hydration_host.backfill_startup_metrics().await;
     });

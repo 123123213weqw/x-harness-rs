@@ -43,6 +43,7 @@ pub enum FailureCode {
     JobContinuation,
     EventFrame,
     DriverUnavailable,
+    PluginStore,
 }
 
 static RECORDER: OnceLock<Mutex<Recorder>> = OnceLock::new();
@@ -82,6 +83,9 @@ pub fn install_failure_recorder(root: &Path) -> io::Result<()> {
 
 pub fn record_failure(code: FailureCode) {
     FAILURES.fetch_add(1, Ordering::Relaxed);
+    if matches!(code, FailureCode::RecorderWrite) {
+        STORAGE_FAILURES.fetch_add(1, Ordering::Relaxed);
+    }
     if let Some(recorder) = RECORDER.get() {
         let mut record = Record::new(Phase::RuntimeFailure);
         record.pid = Some(std::process::id());
