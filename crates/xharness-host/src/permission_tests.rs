@@ -197,7 +197,7 @@ async fn running_permission_selection_uses_latest_at_next_real_turn_in_both_runt
         select(&host, "tighten", "workspace-write").await;
         assert_eq!(view(&host).await["activeValue"], "danger-full-access");
         release.add_permits(1);
-        tokio::time::timeout(Duration::from_secs(5), async {
+        let settled = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if !host.state.read().await.sessions["p"].running {
                     break;
@@ -205,8 +205,13 @@ async fn running_permission_selection_uses_latest_at_next_real_turn_in_both_runt
                 tokio::task::yield_now().await;
             }
         })
-        .await
-        .unwrap();
+        .await;
+        if settled.is_err() {
+            panic!(
+                "permission turn did not settle: durable={durable}, {}",
+                host.test_activity_snapshot("p").await
+            );
+        }
         assert_eq!(view(&host).await["pending"], false);
         assert_eq!(view(&host).await["activeValue"], Value::Null);
         if durable {

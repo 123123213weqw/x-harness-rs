@@ -1114,10 +1114,13 @@ async fn concurrent_stop_is_not_overwritten_by_resume_commit() {
         .await
         .is_err());
     rt.release.notify_one();
-    tokio::time::timeout(Duration::from_secs(3), stop)
+    let result = tokio::time::timeout(Duration::from_secs(3), stop)
         .await
-        .unwrap()
         .unwrap();
+    // This fixture deliberately has no control receiver or executing Core.
+    // Persist the pause under the admission gate, but do not report a stop as
+    // confirmed solely because the fixture omitted its control channel.
+    assert!(result.unwrap_err().message.contains("outcome unknown"));
     tokio::time::timeout(Duration::from_secs(3), driver)
         .await
         .unwrap()

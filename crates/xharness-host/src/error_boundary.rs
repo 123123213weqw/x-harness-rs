@@ -179,6 +179,45 @@ where
 }
 
 impl crate::BasicHost {
+    #[cfg(test)]
+    pub(crate) async fn test_activity_snapshot(&self, id: &str) -> String {
+        let host = {
+            let state = self.state.read().await;
+            let r = &state.sessions[id];
+            format!(
+                "running={}, control_closed={:?}, epoch={:?}, queued={}, paused={}, cursor={:?}",
+                r.running,
+                r.control.as_ref().map(|c| c.is_closed()),
+                r.driver_epoch,
+                r.queue.len(),
+                r.dispatch_paused,
+                r.authoritative_seq
+            )
+        };
+        let durable = self.agent_runtime.authoritative_session(id).await;
+        let facts = durable.as_ref().ok().and_then(|s| s.as_ref()).map(|s| {
+            s.events()
+                .iter()
+                .filter_map(|e| match e.data() {
+                    xharness_session::EventData::TurnStart { turn } => {
+                        Some(format!("start:{turn}"))
+                    }
+                    xharness_session::EventData::TurnEnd { turn, reason } => {
+                        Some(format!("end:{turn}:{reason:?}"))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        });
+        let observed = match self.agent_runtime.observe_session(id).await {
+            Ok(crate::runtime::SessionObservation::Idle) => "idle",
+            Ok(crate::runtime::SessionObservation::Active(_)) => "active",
+            Ok(crate::runtime::SessionObservation::Unsupported) => "unsupported",
+            Err(_) => "read_error",
+        };
+        format!("{host}, observation={observed}, durable_turns={facts:?}")
+    }
+
     pub(crate) async fn spawn_session_task<F>(
         &self,
         session_id: String,
