@@ -1,5 +1,7 @@
 //! XHarness' embeddable, provider-independent agent loop.
 
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
+
 mod checkpoint;
 mod compaction;
 mod context_composition;

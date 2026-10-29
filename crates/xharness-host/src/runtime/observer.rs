@@ -271,6 +271,16 @@ impl DurableRunningTurn {
             {
                 self.result = Some(result);
                 self.terminal = true;
+            } else if self.handle.is_stopped()
+                || self.handle.status() == xharness_agent::AgentStatus::Idle
+            {
+                // A missing durable end is NOT success. The executor can die
+                // after a side effect; finish this observer with explicit
+                // uncertainty instead of waiting forever or waking it again.
+                self.result = Some(Self::failed_result(
+                    "turn executor ended without a durable terminal receipt; execution outcome unknown",
+                ));
+                self.terminal = true;
             }
         } else {
             let pending = self.receipt.pending(&self.target_input_id);
