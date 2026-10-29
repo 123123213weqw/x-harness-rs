@@ -2270,7 +2270,9 @@ impl Runner {
             "system": self.messages.iter().find(|m| m.role == Role::System),
             "target": &plan.spec.target, "context": context_window_tokens,
             "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
-            "pipelineVersion":7, "retryConfig":self.request.config.provider_retry_budget_ms,
+            // Old no-benefit records used incompatible mixed metering and
+            // visual pricing. They must not block recovery after this upgrade.
+            "pipelineVersion":8, "retryConfig":self.request.config.provider_retry_budget_ms,
             "workingSetInputSample":self.workset_input_sample,
             "tools":context_tools, "mainBudget":self.request.token_guard.as_ref().map(|g|g.budget()),
         }))?;

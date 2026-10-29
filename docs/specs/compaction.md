@@ -342,7 +342,9 @@ bypass a local transient-counter cooldown, never an unsupported capability,
 auth failure, execution gate or upstream Retry-After. Cancellation and steering
 remain active during counting and waiting. An unverifiable estimated candidate
 is a retryable measurement failure, not deterministic `no_benefit`; it is not
-cached as a permanently bad source. Candidate text remains disposable until the
+cached as a permanently bad source. The deterministic-failure fingerprint uses
+pipeline version 8, so pre-fix no-benefit records cannot block a corrected
+attempt after restart. Candidate text remains disposable until the
 existing strict journal CAS/flush transaction succeeds. If optional pressure
 maintenance cannot verify an auxiliary request or candidate, close that attempt
 as failed and revalidate the unchanged original request through the full guard.
