@@ -526,11 +526,30 @@ pub struct AgentResumeReport {
     pub recovered_compaction_work_id: Option<String>,
 }
 
+pub type TurnControlFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), LoopControlError>> + Send + 'static>,
+>;
+pub enum SessionObservation {
+    Unsupported,
+    Idle,
+    Active(Box<dyn RunningTurn>),
+}
+
 /// A live turn owned by the Host driver. This seam prevents Web control-plane
 /// code from depending on a particular loop or future long-lived Agent
 /// implementation.
 #[async_trait]
 pub trait RunningTurn: Send + 'static {
+    /// An owned command future must not borrow the event cursor. It is polled
+    /// concurrently, in FIFO order, with bounded acknowledgement waiting.
+    fn detached_control(
+        &self,
+        _command: LoopCommand,
+        _metadata: Option<serde_json::Value>,
+    ) -> Option<TurnControlFuture> {
+        None
+    }
+
     async fn next_event(&mut self) -> Option<LoopEvent>;
 
     async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError>;
@@ -551,6 +570,15 @@ pub trait RunningTurn: Send + 'static {
 
 #[async_trait]
 impl RunningTurn for LoopRun {
+    fn detached_control(
+        &self,
+        command: LoopCommand,
+        _: Option<serde_json::Value>,
+    ) -> Option<TurnControlFuture> {
+        let control = self.control_handle();
+        Some(Box::pin(async move { control.send(command).await }))
+    }
+
     async fn next_event(&mut self) -> Option<LoopEvent> {
         self.next().await
     }
@@ -584,6 +612,15 @@ pub struct AuxiliaryModel {
 /// actual turn implementation.
 #[async_trait]
 pub trait AgentRuntime: Send + Sync + 'static {
+    /// Observe already admitted work only. Never activate, wake, replay or build
+    /// a request as a side effect of status repair.
+    async fn observe_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<SessionObservation, AgentRuntimeError> {
+        Ok(SessionObservation::Unsupported)
+    }
+
     async fn process_runs(
         &self,
         _session_id: &str,
@@ -1638,6 +1675,68 @@ impl DurableLoopAgentRuntime {
 
 #[async_trait]
 impl AgentRuntime for DurableLoopAgentRuntime {
+    async fn observe_session(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionObservation, AgentRuntimeError> {
+        let handle = self.supervisor.get(session_id).await;
+        let events = handle.as_ref().map(DurableAgentHandle::subscribe);
+        let session = self
+            .store
+            .load(session_id)
+            .await
+            .map_err(|e| AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            })?
+            .ok_or_else(|| AgentRuntimeError::Preparation {
+                message: "observer session disappeared".into(),
+            })?;
+        let open = session
+            .events()
+            .iter()
+            .rev()
+            .find_map(|e| match e.data() {
+                xharness_session::EventData::TurnStart { turn } => Some(Some(*turn)),
+                xharness_session::EventData::TurnEnd { .. } => Some(None),
+                _ => None,
+            })
+            .flatten();
+        let inbox = xharness_agent::InboxProjection::from_session(&session).map_err(|e| {
+            AgentRuntimeError::Preparation {
+                message: e.to_string(),
+            }
+        })?;
+        let pending = if xharness_agent::DispatchState::from_session(&session)
+            .decide(&inbox)
+            .can_run()
+        {
+            inbox.dispatch_inputs().next().map(|i| i.id.clone())
+        } else {
+            None
+        };
+        if open.is_none() && pending.is_none() {
+            return Ok(SessionObservation::Idle);
+        }
+        let (Some(handle), Some(events)) = (handle, events) else {
+            return Ok(SessionObservation::Unsupported);
+        };
+        if open.is_none() && handle.status() == xharness_agent::AgentStatus::Idle {
+            return Ok(SessionObservation::Unsupported);
+        }
+        let mut run = DurableRunningTurn::new(
+            PreparedDurableTurn {
+                handle,
+                events,
+                input_id: pending.unwrap_or_default(),
+            },
+            self.next_control_id.clone(),
+        );
+        if let Some(turn) = open {
+            run.bind_turn(turn);
+        }
+        Ok(SessionObservation::Active(Box::new(run)))
+    }
+
     async fn read_display_diff(
         &self,
         session_id: &str,

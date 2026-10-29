@@ -274,7 +274,31 @@ struct CommandEnvelope {
     acknowledgement: oneshot::Sender<Result<(), LoopControlError>>,
 }
 
+/// Cloneable command face; it never owns or polls the event cursor.
+#[derive(Clone)]
+pub struct LoopControlHandle {
+    command_tx: mpsc::Sender<CommandEnvelope>,
+}
+impl LoopControlHandle {
+    pub async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError> {
+        let (acknowledgement, accepted) = oneshot::channel();
+        self.command_tx
+            .send(CommandEnvelope {
+                command,
+                acknowledgement,
+            })
+            .await
+            .map_err(|_| LoopControlError::Closed)?;
+        accepted.await.unwrap_or(Err(LoopControlError::Closed))
+    }
+}
+
 impl LoopRun {
+    pub fn control_handle(&self) -> LoopControlHandle {
+        LoopControlHandle {
+            command_tx: self.command_tx.clone(),
+        }
+    }
     /// Returns this run as a stream. It can only be consumed once, in order.
     pub fn events(&mut self) -> &mut Self {
         self

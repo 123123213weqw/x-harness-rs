@@ -51,7 +51,8 @@ impl RpcObservation {
 
     pub(crate) fn finish(&self, result: &RpcResult) {
         if let Some(record) = self.failure_record(result) {
-            eprintln!("XHARNESS_FAILURE {record}");
+            xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Rpc);
+            xharness_diagnostics::diagnostic_stderr!("XHARNESS_FAILURE {record}");
         }
     }
 }
@@ -164,7 +165,11 @@ where
                 TaskFailure::Panicked => "task_panicked",
                 TaskFailure::Cancelled => "task_cancelled",
             };
-            eprintln!(
+            xharness_diagnostics::record_failure(match failure {
+                TaskFailure::Panicked => xharness_diagnostics::FailureCode::TaskPanicked,
+                TaskFailure::Cancelled => xharness_diagnostics::FailureCode::TaskCancelled,
+            });
+            xharness_diagnostics::diagnostic_stderr!(
                 "XHARNESS_FAILURE {}",
                 json!({"event":"background_task_failure", "operation":operation.as_str(), "code":code})
             );
@@ -174,7 +179,7 @@ where
 }
 
 impl crate::BasicHost {
-    pub(crate) fn spawn_session_task<F>(
+    pub(crate) async fn spawn_session_task<F>(
         &self,
         session_id: String,
         operation: TaskOperation,
@@ -182,15 +187,38 @@ impl crate::BasicHost {
     ) where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
+        let epoch = if operation == TaskOperation::BackgroundProjection {
+            None
+        } else {
+            self.state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .and_then(|s| s.driver_epoch.clone())
+        };
         let host = self.clone();
-        let _supervisor = spawn_observed(operation, work, move |_failure| async move {
-            // Do not clear running/control or pretend to roll back an admitted
-            // durable turn. The runtime may still own it, or a newer driver may
-            // already exist. Surface the unknown outcome without replaying it.
+        let completed_host = host.clone();
+        let completed_id = session_id.clone();
+        let completed_epoch = epoch.clone();
+        let observed_work = async move {
+            work.await;
+            if let Some(epoch) = completed_epoch {
+                completed_host
+                    .repair_session_driver(completed_id, epoch)
+                    .await;
+            }
+        };
+        let _supervisor = spawn_observed(operation, observed_work, move |_failure| async move {
+            // Notify independently of the diagnostic sink. Replacement is
+            // epoch-fenced and observes existing work; it never replays input.
             host.push_host(json!({
                 "type":"host/agent-error", "sessionId":session_id,
                 "message":"Conversation worker stopped unexpectedly; the task outcome is unknown. Reload this session before retrying.",
             }));
+            if let Some(epoch) = epoch {
+                host.repair_session_driver(session_id, epoch).await;
+            }
         });
     }
 }
@@ -204,6 +232,68 @@ mod task_tests {
     };
     use std::time::Duration;
 
+    #[tokio::test]
+    async fn broken_stderr_child() {
+        let Some(root) = std::env::var_os("XHARNESS_BOUNDARY_TEST_ROOT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        xharness_diagnostics::install_failure_recorder(&root).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let reached = Arc::new(AtomicBool::new(false));
+        let callback = reached.clone();
+        spawn_observed(
+            TaskOperation::SessionDriver,
+            async {
+                panic!("private fixture panic");
+            },
+            move |_| async move {
+                callback.store(true, Ordering::SeqCst);
+            },
+        )
+        .await
+        .unwrap();
+        assert!(reached.load(Ordering::SeqCst));
+        assert!(xharness_diagnostics::failure_status().stderr_write_failures > 0);
+        let records = xharness_diagnostics::Recorder::open(root)
+            .unwrap()
+            .snapshot()
+            .unwrap();
+        let encoded = serde_json::to_string(&records).unwrap();
+        assert!(encoded.contains("task_panicked"));
+        assert!(encoded.contains("stderr_write"));
+        assert!(!encoded.contains("private fixture panic"));
+        println!("BOUNDARY_REPRO callback_reached=true monitor_panicked=false durable_closed_metadata=true");
+    }
+    #[test]
+    fn broken_stderr_cannot_panic_the_monitor_or_skip_its_callback() {
+        use std::process::{Command, Stdio};
+        let root = std::env::temp_dir().join(format!(
+            "xharness-broken-stderr-{}-{}",
+            std::process::id(),
+            crate::state::now_ms()
+        ));
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "error_boundary::task_tests::broken_stderr_child",
+                "--nocapture",
+            ])
+            .env("XHARNESS_BOUNDARY_TEST_ROOT", &root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(child.stderr.take().unwrap());
+        let output = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(output.status.success(), "{stdout}");
+        assert!(
+            stdout.contains("callback_reached=true monitor_panicked=false"),
+            "{stdout}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[tokio::test]
     async fn child_panic_is_observed_even_when_the_monitor_handle_is_dropped() {
         let (send, receive) = tokio::sync::oneshot::channel();
@@ -291,7 +381,8 @@ mod task_tests {
             "observed-failure".into(),
             TaskOperation::SessionDriver,
             async { panic!("fixture panic") },
-        );
+        )
+        .await;
         let frame = tokio::time::timeout(Duration::from_secs(2), frames.recv())
             .await
             .unwrap()

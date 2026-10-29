@@ -29,6 +29,7 @@ pub(super) async fn describe(host: &BasicHost, payload: &Value) -> Result<Value,
     };
     Ok(json!({
         "version": host.config.version,
+        "diagnosticFailures": xharness_diagnostics::failure_status(),
         "cwd": host.config.cwd,
         "provider": host.config.provider_id,
         "model": host.config.model_id,

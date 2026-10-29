@@ -1319,3 +1319,122 @@ async fn deployment_policy_fences_host_injected_history_and_goal_tools() {
         }
     }
 }
+
+#[tokio::test]
+async fn orphaned_host_driver_reattaches_active_agent_without_restarting_it() {
+    use xharness_api::{ApiBackend, RpcId, RpcMethod};
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let provider = Arc::new(BlockFirstTurn {
+        attempts: AtomicUsize::new(0),
+    });
+    let runtime = Arc::new(DurableLoopAgentRuntime::new(
+        "test",
+        "test-model",
+        Some(provider.clone()),
+        Arc::new(NoTools),
+        Arc::new(IdentityContextPolicy),
+        store.clone(),
+        Arc::new(MemoryLeaseManager::default()),
+        64,
+    ));
+    let mut config = crate::HostConfig::new(std::env::temp_dir());
+    config.provider_id = "test".into();
+    config.model_id = "test-model".into();
+    let host = crate::BasicHost::with_agent_runtime(config, runtime.clone());
+    crate::rpc::session_lifecycle::create(&host, &json!({"sessionId":"orphan"}))
+        .await
+        .unwrap();
+    let mut message = AgentMessage::user("synthetic input");
+    message.id = Some("stable-input".into());
+    let request = AgentTurnRequest {
+        session_id: "orphan".into(),
+        cwd: std::env::temp_dir().to_string_lossy().into(),
+        route: ModelRoute::new("test", "test-model"),
+        permission: PermissionPreset::WorkspaceWrite,
+        prompt: None,
+        messages: vec![message],
+        input_metadata: None,
+    };
+    runtime.admit_turn(request.clone()).await.unwrap();
+    let observer = runtime.start_turn(request).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while provider.attempts.load(AtomicOrdering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(observer); // Observer loss must not cancel or replay the Agent's Core.
+    let handle = runtime.supervisor.get("orphan").await.unwrap();
+    assert!(matches!(
+        handle
+            .control_turn(Some(u32::MAX), LoopCommand::InterruptByUser)
+            .await,
+        Err(xharness_agent::AgentCommandError::NoActiveTurn)
+    ));
+    assert!(!store
+        .load("orphan")
+        .await
+        .unwrap()
+        .unwrap()
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), xharness_session::EventData::TurnEnd { .. })));
+    let (dead, rx) = tokio::sync::mpsc::channel(4);
+    drop(rx);
+    {
+        let mut state = host.state.write().await;
+        let r = state.sessions.get_mut("orphan").unwrap();
+        r.running = true;
+        r.control = Some(dead);
+        r.driver_epoch = Some(Arc::new(crate::driver_lifecycle::DriverEpoch::default()));
+    }
+    let response = host
+        .call(
+            RpcId::new("list"),
+            RpcMethod::SessionList,
+            json!({}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(response.is_ok());
+    assert!(!host.state.read().await.sessions["orphan"]
+        .control
+        .as_ref()
+        .unwrap()
+        .is_closed());
+    let response = host
+        .call(
+            RpcId::new("stop"),
+            RpcMethod::SessionCancel,
+            json!({"sessionId":"orphan"}),
+            CancellationToken::new(),
+        )
+        .await;
+    assert!(response.is_ok(), "{response:?}");
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while host.state.read().await.sessions["orphan"].running {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(provider.attempts.load(AtomicOrdering::SeqCst), 1);
+    let durable = store.load("orphan").await.unwrap().unwrap();
+    assert_eq!(
+        durable
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), xharness_session::EventData::UserMessage { .. }))
+            .count(),
+        1
+    );
+    assert!(durable.events().iter().any(|e| matches!(
+        e.data(),
+        xharness_session::EventData::TurnEnd {
+            reason: TurnEndReason::UserInterrupted,
+            ..
+        }
+    )));
+    runtime.shutdown(Duration::from_secs(1)).await;
+}

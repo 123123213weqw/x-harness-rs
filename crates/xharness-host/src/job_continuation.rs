@@ -300,7 +300,9 @@ impl JobContinuationController {
                     controller.reconcile().await
                 };
                 if let Err(error) = result {
-                    eprintln!("Job continuation reconciliation failed: {error}");
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "Job continuation reconciliation failed: {error}"
+                    );
                 }
             }
         }));
