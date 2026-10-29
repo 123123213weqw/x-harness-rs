@@ -343,11 +343,17 @@ auth failure, execution gate or upstream Retry-After. Cancellation and steering
 remain active during counting and waiting. An unverifiable estimated candidate
 is a retryable measurement failure, not deterministic `no_benefit`; it is not
 cached as a permanently bad source. Candidate text remains disposable until the
-existing strict journal CAS/flush transaction succeeds.
+existing strict journal CAS/flush transaction succeeds. If optional pressure
+maintenance cannot verify an auxiliary request or candidate, close that attempt
+as failed and revalidate the unchanged original request through the full guard.
+Manual and hard-overflow compaction still surface the retryable failure. This is
+not permission to send an unadmitted request or report failed maintenance as applied.
 
 Compaction progress adds optional content-free `budgetBefore`, `budgetAfter`,
 `summaryBudget`, `sourceRange` and typed `validation` evidence, including rejected
-candidate counts. Existing journals missing these fields replay unchanged. This
+candidate counts. Pending auxiliary progress is drained before propagating a
+completed summary failure, including admission failures before the first call.
+Existing journals missing these fields replay unchanged. This
 is an additive writer update for the paired new Host/reader; older binaries with
 strict progress decoding must not be used to read newly written progress fields.
 The original append-only history, session format and event names are unchanged.
@@ -358,8 +364,10 @@ and records only numeric visual shape. After at least eight compatible samples,
 it estimates the COMPLETE mixed request, including visual cost once, with a
 25% margin plus 256 tokens. Scope, text distribution, image count/pixel growth,
 and maximum dimensions constrain reuse; large extrapolations/different sizes
-remain conservative. Mixed totals never become text-only or inferred per-image
-prices. A violated prediction invalidates the route's observations. Native
+remain conservative. Calibration observation digests include ordered attachment
+references and captions, so different same-size images cannot collapse into one
+sample. Malformed numeric observations cannot replace a warm envelope. Mixed
+totals never become text-only or inferred per-image prices. A violated prediction invalidates the route's observations. Native
 complete-request counts remain authoritative; no Qwen processor formula is
 inferred from a model name or copied from another provider.
 

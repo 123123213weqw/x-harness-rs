@@ -302,6 +302,13 @@ impl fmt::Debug for OpenAiProviderConfig {
     }
 }
 
+#[derive(Clone, Copy)]
+struct CounterRetryAfter {
+    started: Instant,
+    delay_ms: u64,
+    status: u16,
+}
+
 #[derive(Clone)]
 pub struct OpenAiProvider {
     config: Arc<OpenAiProviderConfig>,
@@ -312,7 +319,7 @@ pub struct OpenAiProvider {
     counter_retry_at: Arc<std::sync::Mutex<Option<Instant>>>,
     // Server-mandated Retry-After is not the optional local cooldown. Even a
     // fresh verification must respect it, including across subsequent steps.
-    counter_retry_after: Arc<std::sync::Mutex<Option<(Instant, u64, u16)>>>,
+    counter_retry_after: Arc<std::sync::Mutex<Option<CounterRetryAfter>>>,
     capability_cache: Arc<Mutex<Option<CachedCapabilities>>>,
     debug: DebugRecorder,
     attachments: Option<Arc<dyn xharness_attachments::AttachmentStore>>,
@@ -642,7 +649,23 @@ impl OpenAiProvider {
             "openai-wire/v2"
         };
         let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":encoder,"usageSemantics":self.config.usage_input_semantics})).unwrap()));
-        let request_id = format!("{:x}", Sha256::digest(serde_json::to_vec(&body).unwrap()));
+        // The text-only body omits content_blocks until asynchronous wire
+        // expansion. Hash their ordered references too, so different images
+        // or captions cannot collapse into one calibration observation. Only
+        // the digest is retained; attachment identifiers are not persisted.
+        let identity = if encoder == "openai-wire/v3-visual-shape" {
+            json!({"body": &body, "contentBlocks": request.messages.iter().map(|m| &m.content_blocks).collect::<Vec<_>>()})
+        } else {
+            body.clone()
+        };
+        let request_id = format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&identity).map_err(|e| ProviderError::new(format!(
+                    "counter identity encoding failed: {e}"
+                )))?
+            )
+        );
         let messages = request
             .messages
             .iter()
@@ -811,18 +834,25 @@ impl OpenAiProvider {
         cancellation: CancellationToken,
         fresh: bool,
     ) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
-        if let Ok(state) = self.counter_retry_after.lock() {
-            if let Some((at, delay, status)) = *state {
-                let remaining =
-                    delay.saturating_sub(at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
-                if remaining > 0 {
-                    let mut error = ProviderError::http(
-                        status,
-                        "input token counter Retry-After is still active",
-                    );
-                    error.retry_after_ms = Some(remaining);
-                    return Err(error);
-                }
+        let retry_after = *self
+            .counter_retry_after
+            .lock()
+            .map_err(|_| ProviderError::new("input token counter retry state unavailable"))?;
+        if let Some(state) = retry_after {
+            let remaining = state.delay_ms.saturating_sub(
+                state
+                    .started
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64,
+            );
+            if remaining > 0 {
+                let mut error = ProviderError::http(
+                    state.status,
+                    "input token counter Retry-After is still active",
+                );
+                error.retry_after_ms = Some(remaining);
+                return Err(error);
             }
         }
         if !fresh
@@ -888,7 +918,11 @@ impl OpenAiProvider {
             if error.retryable {
                 if let Some(delay) = retry_after {
                     if let Ok(mut state) = self.counter_retry_after.lock() {
-                        *state = Some((Instant::now(), delay, code));
+                        *state = Some(CounterRetryAfter {
+                            started: Instant::now(),
+                            delay_ms: delay,
+                            status: code,
+                        });
                     }
                 }
             }
@@ -1688,11 +1722,21 @@ mod tests {
                 },
             }]),
         ];
-        let (_, _, base) = p.count_features(&r).unwrap();
+        let (scope, base_id, base) = p.count_features(&r).unwrap();
         r.messages[0].content_blocks.push(ContentBlock::Text {
             text: "caption 中文".into(),
         });
-        let (_, _, caption) = p.count_features(&r).unwrap();
+        let (_, caption_id, caption) = p.count_features(&r).unwrap();
+        assert_ne!(base_id, caption_id);
+        if let ContentBlock::Image { attachment } = &mut r.messages[0].content_blocks[0] {
+            attachment.id = "b".repeat(64);
+        }
+        let (new_scope, new_id, _) = p.count_features(&r).unwrap();
+        assert_eq!(scope, new_scope);
+        assert_ne!(
+            caption_id, new_id,
+            "different same-size images must warm independently"
+        );
         assert_eq!(base.image_tokens, caption.image_tokens);
         assert_eq!(
             caption.units() - base.units(),

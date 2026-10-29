@@ -983,7 +983,10 @@ impl Runner {
                             .as_ref()
                             .is_some_and(|r| !r.is_exact())
                         {
-                            return Err(measurement_unavailable());
+                            let failure = measurement_unavailable();
+                            let message =
+                                format!("token budget rejected request: {error}; {failure}");
+                            return Err(failure.context(message));
                         }
                         return Err(RunFailure::Failed(format!(
                             "token budget rejected request: {error}; no further safe compaction was available"
@@ -1766,11 +1769,13 @@ impl Runner {
                 report.counter_rechecks = attempt + 1;
             }
         }
-        let request_sha256 = sha256_json(
-            &json!({"messages":provider_request.messages,"tools":provider_request.tools,"reasoning":provider_request.reasoning_effort,"output":provider_request.max_output_tokens}),
-        )?;
-        if let Some(report) = &mut self.last_budget_report {
-            report.request_sha256 = Some(request_sha256);
+        if self.last_budget_report.is_some() {
+            let request_sha256 = sha256_json(
+                &json!({"messages":provider_request.messages,"tools":provider_request.tools,"reasoning":provider_request.reasoning_effort,"output":provider_request.max_output_tokens}),
+            )?;
+            if let Some(report) = &mut self.last_budget_report {
+                report.request_sha256 = Some(request_sha256);
+            }
         }
         if let TokenBudgetCheck::Ready(Some(report)) = &mut check {
             if let Some(measured) = &self.last_budget_report {
@@ -2746,6 +2751,9 @@ impl Runner {
                 "compact-{}-{}-{}-{}",
                 self.run_id, turn, self.step, journal.next_seq
             );
+            let failure = measurement_unavailable();
+            let message = format!("{failure}; no eligible raw span: protected user inputs, open/unknown tools, provider replay state or fixed system/schema overhead cannot be compacted");
+            let failure = failure.context(message);
             let budget = self
                 .last_budget_report
                 .as_ref()
@@ -2775,7 +2783,7 @@ impl Runner {
                         compaction_id: id,
                         source_command_id: command.map(str::to_owned),
                         turn: Some(turn),
-                        error: Some(measurement_unavailable().to_string()),
+                        error: Some(failure.to_string()),
                         outcome: Some(CompactionEndOutcome::Failed),
                         fingerprint: None,
                     },
@@ -2783,7 +2791,7 @@ impl Runner {
                 true,
             )
             .await?;
-            return Err(measurement_unavailable());
+            return Err(failure);
         }
         if trigger == CompactionTrigger::ContextOverflow {
             return Err(RunFailure::Failed("no eligible raw span: protected user inputs, open/unknown tools, provider replay state or fixed system/schema overhead cannot be compacted; choose a larger context or reduce the explicit request".into()));
@@ -2913,7 +2921,12 @@ impl Runner {
                     "could not serialize input budget: {e}"
                 ))
             })?;
+        let source_range = Some(SequenceRange {
+            start: plan.range.start_seq,
+            end: plan.range.end_seq,
+        });
         let mut last_progress = CompactionProgress {
+            source_range,
             budget_before: budget_before.clone(),
             input_tokens_before: Some(input_tokens_before),
             ..Default::default()
@@ -2963,15 +2976,28 @@ impl Runner {
                     if let Some(mut progress) = progress {
                         progress.input_tokens_before = Some(input_tokens_before);
                         progress.budget_before = budget_before.clone();
+                        progress.source_range = source_range;
                         last_progress = progress.clone();
                         last_progress_at = tokio::time::Instant::now();
                         self.journal_compaction_progress(compaction_id, source_command_id, turn, progress).await
                             .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
                     } else { progress_open = false; }
                 }
-                result = &mut summary => break result?,
+                result = &mut summary => break result,
             }
         };
+        // A final report can be queued by the same poll that completes the
+        // summary future. Drain it before propagating failure, or rejected
+        // auxiliary admission would lose its durable measurement evidence.
+        while let Ok(mut progress) = progress_rx.try_recv() {
+            progress.input_tokens_before = Some(input_tokens_before);
+            progress.budget_before = budget_before.clone();
+            progress.source_range = source_range;
+            self.journal_compaction_progress(compaction_id, source_command_id, turn, progress)
+                .await
+                .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
+        }
+        let output = output?;
         self.debug("compaction.summary_completed", || {
             json!({
                 "calls": output.calls, "splits": output.splits, "usage": output.usage,
@@ -2981,6 +3007,7 @@ impl Runner {
         Ok(CompactionSummaryOutput {
             progress: CompactionProgress {
                 budget_before,
+                source_range,
                 input_tokens_before: Some(input_tokens_before),
                 ..output.progress
             },

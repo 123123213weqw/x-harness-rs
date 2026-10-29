@@ -337,10 +337,20 @@ impl SummaryRunner {
         };
         let mut transient = false;
         let mut retry_after = None;
+        let mut http_status = None;
+        let mut rechecks = 0;
+        let mut fallback_reason = None;
         let count = match count {
-            Ok(count) => count,
+            Ok(count) => {
+                if count.is_none() {
+                    fallback_reason = Some("counter_unavailable".to_owned());
+                }
+                count
+            }
             Err(error) if error.retryable && guard.allows_counter_fallback() => {
                 transient = true;
+                http_status = error.http_status;
+                fallback_reason = Some("transient_counter_failure".to_owned());
                 retry_after = error.retry_after_ms;
                 self.provider.input_counter_failed();
                 None
@@ -382,6 +392,7 @@ impl SummaryRunner {
                 .and_then(TokenBudgetError::report)
                 .is_some_and(|r| !r.is_exact())
         {
+            rechecks = 1;
             let token = self.cancellation.child_token();
             let _cancel_on_drop = token.clone().drop_guard();
             let fresh = tokio::select! {
@@ -389,18 +400,43 @@ impl SummaryRunner {
                 result = tokio::time::timeout(guard.counter_timeout(), self.provider.recount_input_tokens(request, token)) => result,
             };
             match fresh {
-                Ok(Ok(Some(count))) => checked = guard.check_provider_count(&count),
+                Ok(Ok(Some(count))) => {
+                    checked = guard.check_provider_count(&count);
+                    transient = false;
+                    fallback_reason = None;
+                    http_status = None;
+                    retry_after = None;
+                }
                 Ok(Err(error)) if !error.retryable => return Err(provider_error(error)),
+                Ok(Err(error)) => {
+                    transient = true;
+                    http_status = error.http_status;
+                    retry_after = error.retry_after_ms;
+                }
                 Ok(Ok(None)) => {}
-                _ => transient = true,
+                Err(_) => transient = true,
             }
         }
         if transient {
-            checked = checked.map_err(|e| {
-                e.with_fallback_reason(Some("transient_counter_failure".into()))
-                    .with_counter_failure(None, retry_after)
-            });
+            fallback_reason = Some("transient_counter_failure".to_owned());
         }
+        checked = checked
+            .map(|mut report| {
+                report.fallback_reason = fallback_reason.clone();
+                report.counter_http_status = http_status;
+                report.counter_retry_after_ms = retry_after;
+                report.counter_rechecks = rechecks;
+                report
+            })
+            .map_err(|error| {
+                let mut error = error
+                    .with_fallback_reason(fallback_reason)
+                    .with_counter_failure(http_status, retry_after);
+                if let TokenBudgetError::Exceeded { report, .. } = &mut error {
+                    report.counter_rechecks = rechecks;
+                }
+                error
+            });
         let report = checked
             .as_ref()
             .ok()
