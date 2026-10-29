@@ -360,18 +360,24 @@ is an additive writer update for the paired new Host/reader; older binaries with
 strict progress decoding must not be used to read newly written progress fields.
 The original append-only history, session format and event names are unchanged.
 
-The image allowance no longer contains attachment-caption bytes. Captions are
-priced as text. Current multimodal calibration has a new route/encoder scope
-and records only numeric visual shape. After at least eight compatible samples,
-it estimates the COMPLETE mixed request, including visual cost once, with a
-25% margin plus 256 tokens. Scope, text distribution, image count/pixel growth,
-and maximum dimensions constrain reuse; large extrapolations/different sizes
-remain conservative. Calibration observation digests include ordered attachment
-references and captions, so different same-size images cannot collapse into one
-sample. Malformed numeric observations cannot replace a warm envelope. Mixed
-totals never become text-only or inferred per-image prices. A violated prediction invalidates the route's observations. Native
-complete-request counts remain authoritative; no Qwen processor formula is
-inferred from a model name or copied from another provider.
+The image allowance no longer contains attachment-caption bytes. Captions and
+attachment references have a separate conservative text allowance, so unseen
+caption bytes cannot be discounted by a body-only text ratio. Verified text
+calibration keeps its existing route/encoder scope and remains reusable with
+images. Current multimodal observations record numeric visual shape; legacy
+rows without shape cannot train the complete visual envelope. After at least
+eight compatible samples, that envelope estimates the COMPLETE mixed request,
+including visual cost once, with a 25% margin plus 256 tokens. Any new caption
+units are charged conservatively on top of the observed total before margin;
+old caption cost is never subtracted or inferred from mixed reported usage.
+Scope, body-text distribution, image count/pixel growth and maximum dimensions
+constrain reuse; large extrapolations/different sizes remain conservative.
+Observation digests include ordered attachment references and captions, so
+different same-size images cannot collapse into one sample. Malformed numeric
+observations cannot replace a warm envelope. Mixed totals never become text-only
+or inferred per-image prices. A violated prediction invalidates the route's
+observations. Native complete-request counts remain authoritative; no Qwen
+processor formula is inferred from a model name or copied from another provider.
 
 Only the latest visual **tool transaction** (including parallel image reads)
 is materialized on the disposable model surface. Older tool screenshots and

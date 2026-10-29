@@ -34,6 +34,10 @@ pub struct WireFeatures {
     pub buckets: [u64; 3],
     pub framing: u64,
     pub image_tokens: u64,
+    /// Conservative caption/reference bytes plus framing, not image tokens.
+    /// Do not discount previously unseen attachment text by a body-only ratio.
+    #[serde(default, skip_serializing_if = "is_zero_units")]
+    pub attachment_text_units: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub images: Option<ImageFeatures>,
 }
@@ -41,12 +45,12 @@ impl WireFeatures {
     /// Attachment captions are text; never hide their byte allowance in the
     /// image-token bucket or infer an image price from mixed reported usage.
     pub fn add_attachment_text(&mut self, text: &str) {
-        for ch in text.chars() {
-            let bucket = if ch.is_ascii() { 0 } else { 2 };
-            self.buckets[bucket] = self.buckets[bucket].saturating_add(ch.len_utf8() as u64);
-        }
-        self.framing = self.framing.saturating_add(64);
+        self.attachment_text_units = self
+            .attachment_text_units
+            .saturating_add(text.len() as u64)
+            .saturating_add(64);
     }
+
     pub fn from_body(body: &Value, image_tokens: u64) -> Self {
         fn walk(v: &Value, structured: bool, f: &mut WireFeatures) {
             match v {
@@ -105,6 +109,10 @@ impl WireFeatures {
         f
     }
     pub fn units(&self) -> u64 {
+        self.template_units()
+            .saturating_add(self.attachment_text_units)
+    }
+    fn template_units(&self) -> u64 {
         self.buckets
             .iter()
             .copied()
@@ -112,8 +120,8 @@ impl WireFeatures {
             .max(1)
     }
     fn similar_text(&self, other: &Self) -> bool {
-        let a = self.units() as f64;
-        let b = other.units() as f64;
+        let a = self.template_units() as f64;
+        let b = other.template_units() as f64;
         a / b <= 2.0
             && b / a <= 2.0
             && self
@@ -125,6 +133,10 @@ impl WireFeatures {
                 < 0.30
     }
 }
+const fn is_zero_units(value: &u64) -> bool {
+    *value == 0
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sample {
@@ -221,6 +233,7 @@ impl Calibration {
                         || s.actual == 0
                         || s.actual > 1_000_000_000_000
                         || (s.features.image_tokens != 0) != mixed
+                        || (!mixed && s.features.attachment_text_units != 0)
                         || s.features.image_tokens > 1_000_000_000_000
                         || s.features.units() > 1_000_000_000_000
                         || s.features.images.as_ref().is_some_and(|i| !i.is_valid())
@@ -264,14 +277,18 @@ impl Calibration {
         if rows.len() >= 8 {
             let ratio = rows
                 .iter()
-                .map(|s| s.actual as f64 / s.features.units() as f64)
+                .map(|s| s.actual as f64 / s.features.template_units() as f64)
                 .fold(0.0_f64, f64::max);
             (
-                ((features.units() as f64 * ratio * 1.25).ceil() as u64).saturating_add(256),
+                ((features.template_units() as f64 * ratio * 1.25).ceil() as u64)
+                    .saturating_add(256),
                 TokenCountAccuracy::Calibrated,
             )
         } else {
-            (features.units(), TokenCountAccuracy::ConservativeUpperBound)
+            (
+                features.template_units(),
+                TokenCountAccuracy::ConservativeUpperBound,
+            )
         }
     }
 
@@ -297,9 +314,11 @@ impl Calibration {
         }
         ProviderInputTokenCount {
             counter: format!("wire-calibration/v1:{scope}"),
-            input_tokens: text_tokens.saturating_add(features.image_tokens),
+            input_tokens: text_tokens
+                .saturating_add(features.attachment_text_units)
+                .saturating_add(features.image_tokens),
             // The image allowance is still estimated, not a measured image cost.
-            accuracy: if features.image_tokens == 0
+            accuracy: if (features.image_tokens == 0 && features.attachment_text_units == 0)
                 || text_accuracy == TokenCountAccuracy::ConservativeUpperBound
             {
                 text_accuracy
@@ -314,6 +333,11 @@ impl Calibration {
         }
         if features.image_tokens != 0 {
             self.observe_mixed(scope, request_id, features, actual);
+            return;
+        }
+        // Complete caption-bearing text usage does not identify the cost of
+        // the body separately. Keep verified body-only calibration untouched.
+        if features.attachment_text_units != 0 {
             return;
         }
         if self.scopes.len() >= 64 && !self.scopes.contains_key(scope) {

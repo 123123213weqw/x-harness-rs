@@ -30,11 +30,18 @@ impl Calibration {
                 continue;
             }
             count += 1;
-            let growth = (features.units() as f64 / sample.features.units() as f64)
+            let growth = (features.template_units() as f64
+                / sample.features.template_units() as f64)
                 .max(ratio)
                 .max(pixel_ratio)
                 .max(1.0);
-            upper = upper.max(sample.actual as f64 * growth);
+            // Old captions are already in the observed complete total. New
+            // caption growth is charged conservatively, never inferred from a
+            // text-only ratio or hidden in the independent image allowance.
+            let caption_growth = features
+                .attachment_text_units
+                .saturating_sub(sample.features.attachment_text_units);
+            upper = upper.max(sample.actual as f64 * growth + caption_growth as f64);
         }
         (count >= 8).then(|| ((upper * 1.25).ceil() as u64).saturating_add(256))
     }
@@ -53,11 +60,12 @@ impl Calibration {
                 // The complete reported input includes its image cost. Keeping
                 // it all gives an upper text envelope, not a text measurement.
                 // Add the current request's independent image allowance later.
-                ratio = ratio.max(sample.actual as f64 / sample.features.units() as f64);
+                ratio = ratio.max(sample.actual as f64 / sample.features.template_units() as f64);
             }
         }
-        (count >= 8)
-            .then(|| ((features.units() as f64 * ratio * 1.25).ceil() as u64).saturating_add(256))
+        (count >= 8).then(|| {
+            ((features.template_units() as f64 * ratio * 1.25).ceil() as u64).saturating_add(256)
+        })
     }
 
     pub(super) fn observe_mixed(

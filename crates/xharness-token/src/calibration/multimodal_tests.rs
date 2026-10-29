@@ -7,6 +7,7 @@ fn visual() -> WireFeatures {
         buckets: [189_318, 202_698, 6_360],
         framing: 68_743,
         image_tokens: 906_197,
+        attachment_text_units: 0,
         images: Some(ImageFeatures {
             count: 130,
             pixels: 130 * 1920 * 1080,
@@ -140,4 +141,36 @@ fn malformed_visual_observations_do_not_poison_warm_calibration() {
     c.observe(&scope, &format!("{:064x}", 99), f.clone(), 0);
     assert_eq!(c.snapshot().unwrap(), before);
     assert_eq!(c.estimate(&scope, &f).input_tokens, 247_074);
+}
+
+#[test]
+fn complete_visual_envelope_charges_new_caption_growth_conservatively() {
+    let (c, scope, mut f) = warm();
+    let before = c.estimate(&scope, &f).input_tokens;
+    let image_allowance = f.image_tokens;
+    f.add_attachment_text(&"c".repeat(900_000));
+    assert_eq!(f.image_tokens, image_allowance);
+    assert!(c.estimate(&scope, &f).input_tokens >= before + 900_064);
+}
+
+#[test]
+fn caption_only_usage_never_trains_or_invalidates_verified_body_text() {
+    let mut c = Calibration::default();
+    let scope = "a".repeat(64);
+    let f = WireFeatures {
+        buckets: [10_000, 0, 0],
+        ..Default::default()
+    };
+    for i in 0..8 {
+        c.observe(&scope, &format!("{i:064x}"), f.clone(), 2_500);
+    }
+    let baseline = c.estimate(&scope, &f);
+    let mut captioned = f.clone();
+    captioned.add_attachment_text(&"c".repeat(900_000));
+    assert_eq!(
+        c.estimate(&scope, &captioned).input_tokens,
+        baseline.input_tokens + 900_064
+    );
+    c.observe(&scope, &format!("{:064x}", 99), captioned, 1);
+    assert_eq!(c.estimate(&scope, &f), baseline);
 }

@@ -639,21 +639,19 @@ impl OpenAiProvider {
         for k in ["messages", "input", "max_tokens", "max_output_tokens"] {
             controls.as_object_mut().unwrap().remove(k);
         }
-        let encoder = if request
+        // Keep verified body-only text training reusable with images. Legacy
+        // mixed rows lack numeric shape and cannot train the complete visual
+        // envelope; captions have their own unscaled allowance in WireFeatures.
+        let has_attachment_blocks = request
             .messages
             .iter()
-            .any(|m| !m.content_blocks.is_empty())
-        {
-            "openai-wire/v3-visual-shape"
-        } else {
-            "openai-wire/v2"
-        };
-        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":encoder,"usageSemantics":self.config.usage_input_semantics})).unwrap()));
+            .any(|m| !m.content_blocks.is_empty());
+        let scope=format!("{:x}",Sha256::digest(serde_json::to_vec(&json!({"endpoint":self.config.endpoint(),"controls":controls,"encoder":"openai-wire/v2","usageSemantics":self.config.usage_input_semantics})).unwrap()));
         // The text-only body omits content_blocks until asynchronous wire
         // expansion. Hash their ordered references too, so different images
         // or captions cannot collapse into one calibration observation. Only
         // the digest is retained; attachment identifiers are not persisted.
-        let identity = if encoder == "openai-wire/v3-visual-shape" {
+        let identity = if has_attachment_blocks {
             json!({"body": &body, "contentBlocks": request.messages.iter().map(|m| &m.content_blocks).collect::<Vec<_>>()})
         } else {
             body.clone()
