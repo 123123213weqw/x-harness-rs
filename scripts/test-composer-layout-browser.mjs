@@ -15,7 +15,7 @@ const engine=process.env.UI_TEST_BROWSER??'chromium',browser=await require('play
 const server=composerPreview(),output=resolve(process.env.UI_TEST_OUTPUT??'dist/composer-layout')
 mkdirSync(output,{recursive:true})
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
-const readings=[],planReadings=[]
+const readings=[],planReadings=[],primaryReadings=[]
 try {
   const page=await browser.newPage({viewport:{width:1280,height:780}}),errors=[]
   page.on('pageerror',error=>errors.push(error.message))
@@ -148,12 +148,14 @@ try {
   await page.waitForFunction(()=>__composerFixture.calls.some(call=>call.send==='Keep this draft'))
   assert.equal(await page.evaluate(()=>__composerFixture.calls.find(call=>call.send).mode),'queue')
   await page.waitForFunction(()=>document.querySelector('textarea').value==='')
-  // Addressed children retain independent Stop and Send actions at narrow widths.
+  // Addressed children share the same Stop/Send seat; Enter still queues follow-ups.
   await set({subagent:{address:{mode:'continuable'},parentAvailable:true}})
   await input.fill('Child follow-up')
   assert.equal(await page.getByRole('button',{name:'Stop generating',exact:true}).count(),1)
-  await page.getByRole('button',{name:'Send message',exact:true}).click()
+  assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).count(),0)
+  await input.press('Enter')
   await page.waitForFunction(()=>__composerFixture.calls.some(call=>call.send==='Child follow-up'))
+  assert.equal(await page.evaluate(()=>__composerFixture.calls.find(call=>call.send==='Child follow-up').mode),'queue')
   for(const width of [375,320]) {
     await page.setViewportSize({width,height:780})
     const layout=await geometry()
@@ -164,6 +166,96 @@ try {
   await input.fill('Send in idle mode')
   await page.getByRole('button',{name:'Send message',exact:true}).click()
   await page.waitForFunction(()=>__composerFixture.calls.some(call=>call.send==='Send in idle mode'))
+  // Goal execution and session running are separate facts. Changing Goal state
+  // must never add a second primary button, including in a continuable child.
+  const primary=()=>page.getByRole('button',{name:/^(Stop generating|Stopping…|Sending…|Send message)$/})
+  const goalStates=[null,'running','queued','waiting','paused','blocked','complete']
+  for(const goalState of goalStates) for(const child of [false,true]) for(const running of [false,true]) {
+    await set({goal:goalState!==null,goalState:goalState??'paused',running,stopRequested:false,
+      subagent:child?{address:{mode:'continuable'},parentAvailable:true}:null})
+    await input.fill('Goal follow-up')
+    const context=JSON.stringify({goalState,child,running})
+    assert.equal(await primary().count(),1,context+' has one primary action')
+    assert.equal(await page.getByRole('button',{name:'Stop generating',exact:true}).count(),Number(running),context)
+    assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).count(),Number(!running),context)
+    primaryReadings.push({goalState,child,running,label:await primary().getAttribute('aria-label'),count:await primary().count()})
+    if(goalState!==null) {
+      const bounds=await page.locator('[data-goal-bar]').evaluate(goal=>{
+        const card=goal.closest('[data-composer-card]').getBoundingClientRect()
+        return {card:{left:card.left,right:card.right},buttons:[...goal.querySelectorAll('button')].map(button=>{
+          const box=button.getBoundingClientRect();return {left:box.left,right:box.right,label:button.getAttribute('aria-label')}
+        })}
+      })
+      assert.ok(bounds.buttons.every(button=>button.left>=bounds.card.left&&button.right<=bounds.card.right),context+' Goal buttons fit: '+JSON.stringify(bounds))
+    }
+    if(goalState==='running'&&child&&running)await page.locator('[data-composer-card]').screenshot({path:resolve(output,`${engine}-goal-child-stop-card.png`),animations:'disabled'})
+    if(running) {
+      const before=await page.evaluate(()=>({stops:__composerFixture.calls.filter(call=>call.stop).length,
+        sends:__composerFixture.calls.filter(call=>call.send).length}))
+      await primary().click()
+      assert.deepEqual(await page.evaluate(()=>({stops:__composerFixture.calls.filter(call=>call.stop).length,
+        sends:__composerFixture.calls.filter(call=>call.send).length})),{stops:before.stops+1,sends:before.sends},context+' stops without sending')
+      assert.equal(await input.inputValue(),'Goal follow-up',context+' preserves the draft')
+    }
+  }
+  // Stop can remain pending on either side of the running-state transition.
+  // The same seat stays busy/disabled; neither click nor keyboard can send.
+  for(const child of [false,true]) for(const running of [false,true]) {
+    await set({goal:true,goalState:'running',running,stopRequested:true,
+      subagent:child?{address:{mode:'continuable'},parentAvailable:true}:null})
+    await input.fill('Goal follow-up')
+    const stopping=page.getByRole('button',{name:'Stopping…',exact:true})
+    assert.equal(await primary().count(),1)
+    assert.equal(await stopping.isDisabled(),true)
+    assert.equal(await stopping.getAttribute('aria-busy'),'true')
+    assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).count(),0)
+    assert.equal(await input.inputValue(),'Goal follow-up')
+    if(!child&&!running)await page.locator('[data-composer-card]').screenshot({path:resolve(output,`${engine}-pending-stop-card.png`),animations:'disabled'})
+    const before=await page.evaluate(()=>__composerFixture.calls.filter(call=>call.send).length)
+    for(const key of ['Enter','Control+Enter','Meta+Enter']) {
+      await input.press(key)
+      assert.equal(await page.evaluate(()=>__composerFixture.calls.filter(call=>call.send).length),before,
+        JSON.stringify({child,running,key})+' cannot bypass pending Stop acknowledgement')
+      assert.equal(await input.inputValue(),'Goal follow-up')
+    }
+    await set({stopRequested:false})
+    const restored=page.getByRole('button',{name:running?'Stop generating':'Send message',exact:true})
+    assert.equal(await restored.isEnabled(),true)
+    if(!running) {
+      await input.press('Enter')
+      await page.waitForFunction(before=>__composerFixture.calls.filter(call=>call.send).length===before+1,before)
+      await page.waitForFunction(()=>document.querySelector('textarea').value==='')
+    }
+  }
+  // Empty accelerated Enter must not steer the pending queue during Stop.
+  await input.fill('')
+  await set({running:true,stopRequested:true,subagent:null,queue:[{id:'pending-stop',placement:'queued',text:'Queued follow-up',preview:'Queued follow-up'}]})
+  const steers=await page.evaluate(()=>__composerFixture.calls.filter(call=>call.steerQueue).length)
+  for(const key of ['Control+Enter','Meta+Enter']) {
+    await input.press(key)
+    assert.equal(await page.evaluate(()=>__composerFixture.calls.filter(call=>call.steerQueue).length),steers)
+  }
+  await set({stopRequested:false})
+  await input.press('Control+Enter')
+  assert.equal(await page.evaluate(()=>__composerFixture.calls.filter(call=>call.steerQueue).length),steers+1)
+  await set({queue:[]})
+  // Goal pause controls future automatic turns, not the current session Stop.
+  await set({goal:true,goalState:'running',running:true,subagent:null})
+  await input.fill('Keep while pausing Goal')
+  const stops=await page.evaluate(()=>__composerFixture.calls.filter(call=>call.stop).length)
+  await page.getByRole('button',{name:'Pause goal',exact:true}).click()
+  assert.equal(await page.evaluate(()=>__composerFixture.calls.filter(call=>call.goal==='pause').length),1)
+  assert.equal(await page.evaluate(()=>__composerFixture.calls.filter(call=>call.stop).length),stops)
+  assert.equal(await input.inputValue(),'Keep while pausing Goal')
+  // Losing a child's parent locks input but must leave its running Stop usable.
+  await set({running:true,subagent:{address:{mode:'continuable'},parentAvailable:false}})
+  assert.equal(await input.isDisabled(),true)
+  assert.equal(await primary().count(),1)
+  assert.equal(await page.getByRole('button',{name:'Stop generating',exact:true}).isEnabled(),true)
+  await set({goal:true,goalState:'paused',running:false,stopRequested:false,subagent:null})
+  await input.fill('')
+  assert.equal(await primary().count(),1)
+  assert.equal(await page.getByRole('button',{name:'Send message',exact:true}).isDisabled(),true)
   // Stats disclosure is keyboard operable, not hover-only or clipped.
   const summary=page.locator('[data-composer-stats] > button')
   await summary.focus();await summary.press('Enter')
@@ -316,5 +408,6 @@ try {
   assert.deepEqual(errors,[])
   writeFileSync(resolve(output,`${engine}-geometry.json`),JSON.stringify(readings,null,2)+'\n')
   writeFileSync(resolve(output,`${engine}-plan-geometry.json`),JSON.stringify(planReadings,null,2)+'\n')
-  console.log(`${engine}: plan clipping/floor/reading position; 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; draft/caret; Goal edit/menu/read-only rounds; Todo; keyboard stats; menus; hero continuity passed`)
+  writeFileSync(resolve(output,`${engine}-goal-primary-matrix.json`),JSON.stringify(primaryReadings,null,2)+'\n')
+  console.log(`${engine}: plan clipping/floor/reading position; 20 light/dark viewport cases; long names; native picker; Stop/Queue/Send; 28 Goal/child/running cases; 4 pending-Stop states with keyboard/queue guards; Goal pause separation; draft/caret; Goal edit/menu/read-only rounds; Todo; keyboard stats; menus; hero continuity passed`)
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve))}

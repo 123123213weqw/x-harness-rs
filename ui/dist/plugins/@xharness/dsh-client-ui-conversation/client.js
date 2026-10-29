@@ -564,7 +564,7 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
     // (undefined = capability absent → the chip renders nothing).
     const permissions = useProjection('permissions');
     // A continuable child without its live parent cannot accept human input,
-    // but its independent Stop below stays available while it runs.
+    // but its primary Stop below stays available while it runs.
     const continuable = subagent?.address.mode === 'continuable';
     const parentOffline = continuable && !subagent.parentAvailable;
     // Running input stays free; locked = session removed, the
@@ -585,7 +585,7 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
     // and keyboard users can reach the recovery action.
     const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined;
     const textareaDisabled = removed || (locked && !workspaceTrigger);
-    const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+    const canSteerQueue = !locked && !machineBusy && !stopRequested && !commandMenuOpen && empty && running && subagent === null
         && input.queue.some(row => row.placement === 'queued');
     (0, react_1.useEffect)(() => {
         if (input === undefined || inputActions === undefined)
@@ -811,7 +811,9 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
         e.preventDefault();
         if (e.repeat)
             return; // held-down Enter must not machine-gun sends
-        if (locked || machineBusy)
+        // Match the disabled Stop seat: no submit or queue steering while the
+        // previous stop request is still awaiting acknowledgement.
+        if (locked || machineBusy || stopRequested)
             return;
         const accelerated = e.ctrlKey || e.metaKey;
         // Empty-draft accelerated Enter acts on the queue instead of the (empty)
@@ -943,11 +945,10 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
         if (el !== null)
             toggleCommandMenu?.(selectionOf(el));
     };
-    // Ordinary sessions retain their primary Send/Stop toggle. A continuable
-    // child keeps Send as the primary action and exposes Stop independently so
-    // pointer users can queue follow-ups while its current turn is running.
-    const primaryStops = running && subagent === null;
-    const interruptible = running && continuable;
+    // Keep one primary action across ordinary, Goal and child sessions.
+    // Running input can still queue follow-ups through the Enter policy.
+    // Retain Stop until acknowledgement instead of briefly exposing Send.
+    const primaryStops = running || stopRequested;
     const stopLabel = stopRequested ? t('input.stopping') : t('input.stop');
     const primaryLabel = primaryStops ? stopLabel : machineBusy ? t('input.sending') : t('input.send');
     const onPrimary = () => {
@@ -1028,7 +1029,7 @@ function InputBar({ useSession, useInput, inputActions, keyboard, addImages, rem
     }
     const modelControl = renderSlot('conversation.input.model', { locked: modelSeatLocked, compact });
     const contextControl = (0, jsx_runtime_1.jsx)(ContextMeter_1.ContextMeter, { useProjection: useProjection, t: t });
-    const primaryControls = (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [interruptible && ((0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: stopLabel, side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": stopLabel, "aria-busy": stopRequested, disabled: stop === undefined || stopRequested, onMouseDown: keepFocus, onClick: stop, children: stopRequested ? (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, "data-composer-busy": true, children: (0, jsx_runtime_1.jsx)("circle", { cx: "8", cy: "8", r: "5.5", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeDasharray: "24 11" }) }) : (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) }) }) })), (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: primaryLabel, side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": primaryLabel, "aria-busy": primaryStops ? stopRequested : machineBusy, disabled: primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy, onMouseDown: keepFocus, onClick: onPrimary, children: (primaryStops ? stopRequested : machineBusy) ? (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, "data-composer-busy": true, children: (0, jsx_runtime_1.jsx)("circle", { cx: "8", cy: "8", r: "5.5", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeDasharray: "24 11" }) }) : primaryStops ? ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) })) : ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z", fill: "currentColor" }) })) }) })] });
+    const primaryControls = (0, jsx_runtime_1.jsx)(primitives_1.Tooltip, { label: primaryLabel, side: "top", delayMs: 500, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: InputBar_styles_1.default.primary, "aria-label": primaryLabel, "aria-busy": primaryStops ? stopRequested : machineBusy, disabled: primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy, onMouseDown: keepFocus, onClick: onPrimary, children: (primaryStops ? stopRequested : machineBusy) ? (0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, "data-composer-busy": true, children: (0, jsx_runtime_1.jsx)("circle", { cx: "8", cy: "8", r: "5.5", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeDasharray: "24 11" }) }) : primaryStops ? ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("rect", { x: "3", y: "3", width: "10", height: "10", rx: "3", fill: "currentColor" }) })) : ((0, jsx_runtime_1.jsx)("svg", { viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": true, children: (0, jsx_runtime_1.jsx)("path", { d: "M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z", fill: "currentColor" }) })) }) });
     return ((0, jsx_runtime_1.jsxs)("div", { className: (0, classnames_1.default)(InputBar_styles_1.default.root, variant === 'hero' && InputBar_styles_1.default.hero), "data-composer-layout": compact ? 'compact' : 'hero', children: [toast !== null && ((0, jsx_runtime_1.jsx)(primitives_1.Toast, { text: toast.text, icon: (0, jsx_runtime_1.jsx)(primitives_1.IconWarningOutline16, {}), anchor: cardRef.current, onDone: dismissToast }, toast.seq)), notice?.level === 'info' && ((0, jsx_runtime_1.jsx)("div", { className: InputBar_styles_1.default.notice, role: "status", children: notice.text })), (0, jsx_runtime_1.jsxs)("div", { ref: cardRef, className: (0, classnames_1.default)(InputBar_styles_1.default.card, workspaceTrigger && InputBar_styles_1.default.cardWorkspaceTrigger), "data-composer-card": true, "data-xh-silver-input": workspaceTrigger ? undefined : '', onClick: workspaceTrigger ? onRequestWorkspace : undefined, onPointerDown: workspaceTrigger ? (e) => { e.stopPropagation(); } : undefined, children: [overlay !== undefined && (0, jsx_runtime_1.jsx)("div", { className: InputBar_styles_1.default.overlayAnchor, children: overlay }), accessory !== undefined && (0, jsx_runtime_1.jsx)("div", { className: InputBar_styles_1.default.accessory, children: accessory }), renderSlot('conversation.input.attachments', {
                         attachments,
                         canAcceptDrop,
