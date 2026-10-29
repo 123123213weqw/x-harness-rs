@@ -1829,6 +1829,7 @@ mod projection_encoding_tests {
                                 delay_ms: Some(8000),
                                 input_tokens_before: Some(180000),
                                 input_tokens_after: None,
+                                ..CompactionProgress::default()
                             },
                         }
                         .into(),

@@ -115,3 +115,29 @@ fn attachment_caption_is_text_not_visual_allowance() {
     assert_eq!(f.image_tokens, allowance);
     assert_eq!(f.units() - old_text, "caption 中文".len() as u64 + 64);
 }
+
+#[test]
+fn malformed_visual_observations_do_not_poison_warm_calibration() {
+    let (mut c, scope, f) = warm();
+    let before = c.snapshot().unwrap();
+    for shape in [
+        ImageFeatures::default(),
+        ImageFeatures {
+            count: 1_000_001,
+            ..f.images.clone().unwrap()
+        },
+    ] {
+        c.observe(
+            &scope,
+            &format!("{:064x}", 99),
+            WireFeatures {
+                images: Some(shape),
+                ..f.clone()
+            },
+            1_000_000_000,
+        );
+    }
+    c.observe(&scope, &format!("{:064x}", 99), f.clone(), 0);
+    assert_eq!(c.snapshot().unwrap(), before);
+    assert_eq!(c.estimate(&scope, &f).input_tokens, 247_074);
+}

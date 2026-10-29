@@ -16,6 +16,17 @@ pub struct ImageFeatures {
     pub max_height: u32,
 }
 
+impl ImageFeatures {
+    fn is_valid(&self) -> bool {
+        self.count > 0
+            && self.count <= 1_000_000
+            && self.pixels > 0
+            && self.pixels <= 1_000_000_000_000
+            && self.max_width > 0
+            && self.max_height > 0
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireFeatures {
@@ -212,14 +223,7 @@ impl Calibration {
                         || (s.features.image_tokens != 0) != mixed
                         || s.features.image_tokens > 1_000_000_000_000
                         || s.features.units() > 1_000_000_000_000
-                        || s.features.images.as_ref().is_some_and(|i| {
-                            i.count == 0
-                                || i.count > 1_000_000
-                                || i.pixels == 0
-                                || i.pixels > 1_000_000_000_000
-                                || i.max_width == 0
-                                || i.max_height == 0
-                        })
+                        || s.features.images.as_ref().is_some_and(|i| !i.is_valid())
                     {
                         return Err("invalid calibration sample".into());
                     }

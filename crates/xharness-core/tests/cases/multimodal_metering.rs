@@ -10,14 +10,14 @@ impl ModelProvider for MeterSwitchProbe {
     async fn count_input_tokens(&self, _: &ProviderRequest, _: CancellationToken) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
         let call = self.counts.fetch_add(1, Ordering::SeqCst);
         if self.mode == 0 { return Err(ProviderError::http(503, "fixture counter offline")); }
-        if call == 2 {
+        if call == 2 && self.mode != 5 || call == 1 && self.mode == 5 {
             return if self.mode == 3 { Ok(None) } else { Err(ProviderError::http(503, "fixture candidate counter offline")) };
         }
-        Ok(Some(ProviderInputTokenCount::exact_request("fixture-native", match call { 0 if self.mode == 3 => 800, 0 => 980, 1 => 500, _ => 300 })))
+        Ok(Some(ProviderInputTokenCount::exact_request("fixture-native", match call { 0 if self.mode == 3 => 800, 0 if self.mode >= 4 => 900, 0 => 980, 1 => 500, _ => 300 })))
     }
     async fn recount_input_tokens(&self, _: &ProviderRequest, _: CancellationToken) -> Result<Option<ProviderInputTokenCount>, ProviderError> {
         self.recounts.fetch_add(1, Ordering::SeqCst);
-        if self.mode == 2 { return Err(ProviderError::http(503, "fixture remains offline")); }
+        if matches!(self.mode, 2 | 4 | 5) { return Err(ProviderError::http(503, "fixture remains offline")); }
         Ok(Some(ProviderInputTokenCount::exact_request("fixture-native", 300)))
     }
     fn estimate_input_tokens(&self, _: &ProviderRequest) -> Option<ProviderInputTokenCount> {
@@ -30,7 +30,7 @@ async fn meter_switch_request(mode: u8) -> (LoopRequest, Arc<MeterSwitchProbe>, 
     let id = format!("meter-switch-{mode}");
     seed_long_compaction_history(store.as_ref(), &id).await;
     let provider = Arc::new(MeterSwitchProbe {
-        inner: ScriptProvider::new(if mode == 0 { vec![vec![Ok(completed())]] } else { vec![vec![Ok(ProviderEvent::TextDelta("CHECKPOINT".into())), Ok(completed())], vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())]] }),
+        inner: ScriptProvider::new(if mode == 0 || mode == 5 { vec![vec![Ok(completed())]] } else { vec![vec![Ok(ProviderEvent::TextDelta("CHECKPOINT".into())), Ok(completed())], vec![Ok(ProviderEvent::TextDelta("done".into())), Ok(completed())]] }),
         counts: AtomicUsize::new(0), recounts: AtomicUsize::new(0), mode,
     });
     let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("new work")]);
@@ -38,7 +38,7 @@ async fn meter_switch_request(mode: u8) -> (LoopRequest, Arc<MeterSwitchProbe>, 
     request.journal_store = Some(store.clone());
     request.config.provider_retry_base_delay_ms = 1;
     request.token_guard = Some(TokenGuard::conservative(TokenBudget { context_window_tokens: 1000, reserved_output_tokens: 40, minimum_output_tokens: 40, safety_margin_tokens: 10 }).unwrap());
-    request.compaction = Some(CompactionConfig { threshold_ratio: None, threshold_tokens: Some(750), retain_ratio: None, retain_tokens: Some(10), max_tokens: 64, ..CompactionConfig::default() });
+    request.compaction = Some(CompactionConfig { threshold_ratio: 0.75, retain_ratio: None, retain_tokens: Some(10), max_tokens: 64, ..CompactionConfig::default() });
     (request, provider, store)
 }
 
@@ -123,4 +123,26 @@ async fn failed_session_resumes_on_same_route_after_counter_recovery() {
     assert_eq!(&after.derive_messages()[..original_messages.len()], original_messages.as_slice());
     assert!(after.events().iter().filter_map(|e| match e.data() { SessionEventData::RequestHeader { header } => Some(header.provider.as_str()), _ => None }).all(|p| p == "custom"));
     assert!(!after.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+}
+
+#[tokio::test]
+async fn optional_pressure_counter_outage_revalidates_original_history() {
+    // 4 fails candidate counting; 5 fails auxiliary admission before any summary.
+    for mode in [4, 5] {
+        let (request, provider, store) = meter_switch_request(mode).await;
+        let (_, result) = collect(LoopEngine.start(request)).await;
+        assert_eq!(result.status, LoopStatus::Completed, "mode={mode}: {:?}", result.error);
+        let session = store.load(&format!("meter-switch-{mode}")).await.unwrap().unwrap();
+        assert!(session.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionEnd {
+            outcome: Some(xharness_session::CompactionEndOutcome::Failed), ..
+        })));
+        assert!(!session.events().iter().any(|e| matches!(e.data(), SessionEventData::CompactionSummary { .. })));
+        assert!(session.derive_messages().iter().any(|m| m.content.contains("OLD-CONTEXT")));
+        assert_eq!(provider.inner.attempts(), if mode == 4 { 2 } else { 1 });
+        let report = session.events().iter().rev().find_map(|e| match e.data() {
+            SessionEventData::RequestHeader { header } => header.options.get("tokenBudget"), _ => None
+        }).unwrap();
+        assert_eq!(report["accuracy"], "exact_request");
+        assert_eq!(report["estimate"]["totalInputTokens"], 300);
+    }
 }

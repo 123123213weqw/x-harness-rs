@@ -7,7 +7,7 @@ impl Calibration {
     /// large extrapolations remain cold and retain conservative admission.
     pub(super) fn mixed_request_upper(&self, scope: &str, features: &WireFeatures) -> Option<u64> {
         let visual = features.images.as_ref()?;
-        if visual.count == 0 || visual.pixels == 0 {
+        if !visual.is_valid() {
             return None;
         }
         let now = now_ms();
@@ -70,7 +70,9 @@ impl Calibration {
         // Invalid numeric observations cannot poison a previously learned bound.
         if features.units() > 1_000_000_000_000
             || features.image_tokens > 1_000_000_000_000
+            || actual == 0
             || actual > 1_000_000_000_000
+            || features.images.as_ref().is_some_and(|i| !i.is_valid())
         {
             return;
         }

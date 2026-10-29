@@ -1829,7 +1829,12 @@ impl Runner {
         let guard = guard.clone();
         let provider_cancellation = self.cancellation.child_token();
         let provider = self.request.provider.clone();
-        let mut count_future = Box::pin(tokio::time::timeout(guard.counter_timeout(), async {
+        let timeout = deadline.map_or(guard.counter_timeout(), |deadline| {
+            guard
+                .counter_timeout()
+                .min(deadline.saturating_duration_since(tokio::time::Instant::now()))
+        });
+        let mut count_future = Box::pin(tokio::time::timeout(timeout, async {
             if fresh {
                 provider
                     .recount_input_tokens(provider_request, provider_cancellation.clone())
@@ -2302,6 +2307,10 @@ impl Runner {
                         .await;
                 }
                 let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
+                let measurement_pending = matches!(
+                    &error,
+                    crate::compaction::SummaryError::MeasurementUnavailable
+                );
                 let failure_message = error.to_string();
                 let error = match error {
                     crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
@@ -2331,6 +2340,11 @@ impl Runner {
                 .await?;
                 return if interrupted {
                     Ok(CompactionOutcome::Interrupted)
+                } else if measurement_pending && trigger == CompactionTrigger::Pressure {
+                    // Optional maintenance must not kill an already-admitted
+                    // request. Re-enter the normal pipeline on unchanged history;
+                    // its full guard still decides whether generation is safe.
+                    Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed))
                 } else {
                     Err(error)
                 };
@@ -2586,6 +2600,15 @@ impl Runner {
             .await?;
             return match validation {
                 Ok(_) => Ok(CompactionOutcome::Interrupted),
+                Err(_)
+                    if trigger == CompactionTrigger::Pressure
+                        && progress.validation
+                            == Some(CompactionValidation::EstimatedOverBudget) =>
+                {
+                    // Failed evidence is durable, but no candidate was applied.
+                    // Revalidate the original request instead of caching NoBenefit.
+                    Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed))
+                }
                 Err(error) => Err(error),
             };
         }
