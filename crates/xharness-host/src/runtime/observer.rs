@@ -234,28 +234,6 @@ impl DurableRunningTurn {
         }
     }
 
-    fn inbox_message(
-        &self,
-        mut message: AgentMessage,
-        source: Option<serde_json::Value>,
-    ) -> Result<InboxMessage, LoopControlError> {
-        if message.role != Role::User {
-            return Err(LoopControlError::Rejected(
-                "durable steering currently accepts user messages only".to_owned(),
-            ));
-        }
-        let id = message.id.clone().unwrap_or_else(|| {
-            let ordinal = self.next_control_id.fetch_add(1, Ordering::Relaxed);
-            format!("control-{}-{ordinal}", self.handle.id())
-        });
-        message.id = Some(id.clone());
-        Ok(InboxMessage {
-            id,
-            message,
-            source,
-        })
-    }
-
     fn failed_result(message: impl Into<String>) -> LoopResult {
         let message = message.into();
         LoopResult {
@@ -292,6 +270,16 @@ impl DurableRunningTurn {
                 .flatten()
             {
                 self.result = Some(result);
+                self.terminal = true;
+            } else if self.handle.is_stopped()
+                || self.handle.status() == xharness_agent::AgentStatus::Idle
+            {
+                // A missing durable end is NOT success. The executor can die
+                // after a side effect; finish this observer with explicit
+                // uncertainty instead of waiting forever or waking it again.
+                self.result = Some(Self::failed_result(
+                    "turn executor ended without a durable terminal receipt; execution outcome unknown",
+                ));
                 self.terminal = true;
             }
         } else {
@@ -331,10 +319,9 @@ impl DurableRunningTurn {
             // An absolute deadline survives next_event cancellation and cannot
             // be starved by a continuous stream belonging to another input.
             if tokio::time::Instant::now() >= self.reconcile_after {
-                if self.turn.is_none() || self.handle.status() == xharness_agent::AgentStatus::Idle
-                {
-                    self.recover_or_fail().await;
-                }
+                // A scoped durable end is authoritative even while a successor
+                // keeps the Agent busy or its terminal broadcast was lost.
+                self.recover_or_fail().await;
                 self.reconcile_after = tokio::time::Instant::now() + Duration::from_secs(1);
                 continue;
             }
@@ -415,6 +402,52 @@ impl DurableRunningTurn {
         None
     }
 
+    pub(super) fn bind_turn(&mut self, turn: u32) {
+        self.turn = Some(turn);
+        self.receipt.bound = Some(turn);
+    }
+    fn command_future(
+        &self,
+        command: LoopCommand,
+        metadata: Option<serde_json::Value>,
+    ) -> TurnControlFuture {
+        let control = DurableCommand {
+            handle: self.handle.clone(),
+            next_control_id: self.next_control_id.clone(),
+            turn: self.turn,
+        };
+        Box::pin(async move { control.send_command(command, metadata).await })
+    }
+}
+
+struct DurableCommand {
+    handle: DurableAgentHandle,
+    next_control_id: Arc<AtomicU64>,
+    turn: Option<u32>,
+}
+impl DurableCommand {
+    fn inbox_message(
+        &self,
+        mut message: AgentMessage,
+        source: Option<serde_json::Value>,
+    ) -> Result<InboxMessage, LoopControlError> {
+        if message.role != Role::User {
+            return Err(LoopControlError::Rejected(
+                "durable steering currently accepts user messages only".to_owned(),
+            ));
+        }
+        let id = message.id.clone().unwrap_or_else(|| {
+            let ordinal = self.next_control_id.fetch_add(1, Ordering::Relaxed);
+            format!("control-{}-{ordinal}", self.handle.id())
+        });
+        message.id = Some(id.clone());
+        Ok(InboxMessage {
+            id,
+            message,
+            source,
+        })
+    }
+
     async fn send_command(
         &self,
         command: LoopCommand,
@@ -433,24 +466,7 @@ impl DurableRunningTurn {
                     .steer(self.inbox_message(message, input_metadata)?)
                     .await
             }
-            LoopCommand::Pause => self.handle.pause().await,
-            LoopCommand::Resume => self.handle.resume().await,
-            LoopCommand::Cancel => self.handle.cancel_turn().await,
-            LoopCommand::InterruptByUser => self.handle.interrupt_by_user().await,
-            LoopCommand::ApproveTool { call_id } => self.handle.approve_tool(call_id).await,
-            LoopCommand::ReviewToolDecision {
-                call_id,
-                approved,
-                user_request_seq,
-                user_request_sha256,
-            } => {
-                self.handle
-                    .review_tool_decision(call_id, approved, user_request_seq, user_request_sha256)
-                    .await
-            }
-            LoopCommand::RejectTool { call_id, reason } => {
-                self.handle.reject_tool(call_id, reason).await
-            }
+            command => self.handle.control_turn(self.turn, command).await,
         };
         result.map_err(loop_control_error)
     }
@@ -458,12 +474,20 @@ impl DurableRunningTurn {
 
 #[async_trait]
 impl RunningTurn for DurableRunningTurn {
+    fn detached_control(
+        &self,
+        command: LoopCommand,
+        metadata: Option<serde_json::Value>,
+    ) -> Option<TurnControlFuture> {
+        Some(self.command_future(command, metadata))
+    }
+
     async fn next_event(&mut self) -> Option<LoopEvent> {
         self.receive_event().await
     }
 
     async fn send(&mut self, command: LoopCommand) -> Result<(), LoopControlError> {
-        self.send_command(command, None).await
+        self.command_future(command, None).await
     }
 
     async fn send_with_metadata(
@@ -471,7 +495,7 @@ impl RunningTurn for DurableRunningTurn {
         command: LoopCommand,
         input_metadata: Option<serde_json::Value>,
     ) -> Result<(), LoopControlError> {
-        self.send_command(command, input_metadata).await
+        self.command_future(command, input_metadata).await
     }
 
     async fn result(&mut self) -> LoopResult {
@@ -562,5 +586,98 @@ mod receipt_tests {
             .update(&stale, "input")
             .unwrap_err()
             .contains("moved behind"));
+    }
+    struct FinishFirstThenBlock {
+        calls: std::sync::atomic::AtomicUsize,
+        release: Arc<tokio::sync::Notify>,
+    }
+    #[async_trait::async_trait]
+    impl xharness_core::ModelProvider for FinishFirstThenBlock {
+        async fn stream(
+            &self,
+            _: xharness_core::ProviderRequest,
+            _: CancellationToken,
+        ) -> Result<xharness_core::ProviderStream, xharness_core::ProviderError> {
+            let first = self.calls.fetch_add(1, Ordering::SeqCst) == 0;
+            let release = self.release.clone();
+            if first {
+                Ok(Box::pin(async_stream::stream! {
+                    release.notified().await;
+                    yield Ok(xharness_core::ProviderEvent::Completed { finish_reason:Some(xharness_core::FinishReason::Stop), usage:None, provider_items:vec![] });
+                }))
+            } else {
+                Ok(Box::pin(futures::stream::pending()))
+            }
+        }
+    }
+    #[tokio::test]
+    async fn bound_observer_reconciles_lost_end_even_while_successor_agent_is_busy() {
+        let store: Arc<dyn Store> = Arc::new(xharness_session::MemorySessionStore::default());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(FinishFirstThenBlock {
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            release: release.clone(),
+        });
+        let runtime = DurableLoopAgentRuntime::new(
+            "test",
+            "test",
+            Some(provider.clone()),
+            Arc::new(crate::NoTools),
+            Arc::new(xharness_core::IdentityContextPolicy),
+            store.clone(),
+            Arc::new(xharness_agent::MemoryLeaseManager::default()),
+            64,
+        );
+        let request = |id: &str| {
+            let mut message = AgentMessage::user("synthetic");
+            message.id = Some(id.into());
+            AgentTurnRequest {
+                session_id: "lost-terminal".into(),
+                cwd: std::env::temp_dir().to_string_lossy().into(),
+                route: ModelRoute::new("test", "test"),
+                permission: PermissionPreset::WorkspaceWrite,
+                prompt: None,
+                messages: vec![message],
+                input_metadata: None,
+            }
+        };
+        let prepared = runtime.prepare_turn(request("one")).await.unwrap();
+        let handle = prepared.handle.clone();
+        handle.wake().await.unwrap();
+        let mut observer = DurableRunningTurn::new(prepared, runtime.next_control_id.clone());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                observer.reconcile().await.unwrap();
+                if observer.turn.is_some() && provider.calls.load(Ordering::SeqCst) == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        observer.initialized = true;
+        let _second = runtime.prepare_turn(request("two")).await.unwrap();
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while provider.calls.load(Ordering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(handle.status(), xharness_agent::AgentStatus::Running);
+        // Deliberate loss without a Lagged notification. The durable receipt,
+        // not global Idle or a successor's terminal, must finish this observer.
+        observer.events = handle.subscribe();
+        observer.reconcile_after = tokio::time::Instant::now();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), observer.next_event())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(observer.result().await.status, LoopStatus::Completed);
+        runtime.shutdown(Duration::from_secs(1)).await;
     }
 }

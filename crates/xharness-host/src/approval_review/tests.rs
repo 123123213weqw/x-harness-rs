@@ -272,7 +272,7 @@ async fn start(
     (host, count, store)
 }
 async fn settled(host: &BasicHost) {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let settled = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if !host.state.read().await.sessions["p"].running {
                 break;
@@ -280,8 +280,13 @@ async fn settled(host: &BasicHost) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .unwrap();
+    .await;
+    if settled.is_err() {
+        panic!(
+            "approval turn did not settle: {}",
+            host.test_activity_snapshot("p").await
+        );
+    }
 }
 async fn waiting_review(provider: &Fake) {
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -487,7 +492,8 @@ async fn permission_change_discards_old_verdict_without_escalating_sandbox() {
             .ok()
             .unwrap()
     });
-    let (host, count, _) = start(provider.clone(), PermissionPreset::WorkspaceWriteAiReview).await;
+    let (host, count, store) =
+        start(provider.clone(), PermissionPreset::WorkspaceWriteAiReview).await;
     waiting_review(&provider).await;
     let result = host
         .call_dynamic(
@@ -531,6 +537,14 @@ async fn permission_change_discards_old_verdict_without_escalating_sandbox() {
     )
     .await;
     settled(&host).await;
+    let journal = store.load("p").await.unwrap().unwrap();
+    assert!(journal.events().iter().any(|e| matches!(
+        e.data(),
+        xharness_session::EventData::TurnEnd {
+            reason: xharness_session::TurnEndReason::UserInterrupted,
+            ..
+        }
+    )));
 }
 
 #[tokio::test]

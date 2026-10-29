@@ -274,7 +274,31 @@ struct CommandEnvelope {
     acknowledgement: oneshot::Sender<Result<(), LoopControlError>>,
 }
 
+/// Cloneable command face; it never owns or polls the event cursor.
+#[derive(Clone)]
+pub struct LoopControlHandle {
+    command_tx: mpsc::Sender<CommandEnvelope>,
+}
+impl LoopControlHandle {
+    pub async fn send(&self, command: LoopCommand) -> Result<(), LoopControlError> {
+        let (acknowledgement, accepted) = oneshot::channel();
+        self.command_tx
+            .send(CommandEnvelope {
+                command,
+                acknowledgement,
+            })
+            .await
+            .map_err(|_| LoopControlError::Closed)?;
+        accepted.await.unwrap_or(Err(LoopControlError::Closed))
+    }
+}
+
 impl LoopRun {
+    pub fn control_handle(&self) -> LoopControlHandle {
+        LoopControlHandle {
+            command_tx: self.command_tx.clone(),
+        }
+    }
     /// Returns this run as a stream. It can only be consumed once, in order.
     pub fn events(&mut self) -> &mut Self {
         self
@@ -418,10 +442,28 @@ impl LoopEngine {
             workset_reselect: false,
         };
         let runner_journal = Arc::clone(&event_journal);
+        let worker = tokio::spawn(async move { runner.run().await });
         tokio::spawn(async move {
-            let result = runner.run().await;
+            // The event journal must close even when the executor panics or is
+            // cancelled. Never serialize a JoinError's private panic payload,
+            // fabricate a durable TurnEnd, or replay a tool after unknown work.
+            let result = match worker.await {
+                Ok(result) => result,
+                Err(_) => LoopResult {
+                    status: LoopStatus::Failed,
+                    final_text: String::new(),
+                    messages: Vec::new(),
+                    usage: None,
+                    step_usage: Vec::new(),
+                    finish_reason: None,
+                    error: Some("turn executor stopped unexpectedly; execution outcome unknown; no work replayed".into()),
+                },
+            };
             runner_journal.close();
-            let _ = result_tx.send(Some(result));
+            if result_tx.send(Some(result)).is_err() {
+                // Every consumer is already gone. This is not permission to
+                // retry unknown execution or reopen the terminal event stream.
+            }
         });
         LoopRun {
             events: event_journal.subscribe(run_id.clone(), 1),
@@ -3067,6 +3109,12 @@ impl Runner {
                                     | SessionEventData::AgentSettlementDelivered { .. }
                                     | SessionEventData::AgentFailureDelivered { .. }
                                     | SessionEventData::SessionModelSelected { .. }
+                                    // Desired settings change the NEXT executor,
+                                    // not the immutable capability of this run.
+                                    | SessionEventData::PermissionPreset { .. }
+                                    | SessionEventData::SandboxMode { .. }
+                                    | SessionEventData::ApprovalPolicy { .. }
+                                    | SessionEventData::AgentPresetSelected { .. }
                                     | SessionEventData::CommandRun { .. }
                                     | SessionEventData::CommandDone { .. }
                                     | SessionEventData::SessionTitle { .. }
@@ -3294,9 +3342,10 @@ impl Runner {
                 header.options.insert("harnessSnapshot".into(), reference);
             }
             Ok(None) => {}
-            Err(error) => {
+            Err(_) => {
                 // Optional inspection must not fail or alter the provider call.
-                eprintln!("xharness Harness snapshot capture failed: {error}");
+                // The durable header below is the closed failure evidence;
+                // anonymous stderr may no longer have a desktop reader.
                 header.options.insert(
                     "harnessSnapshot".into(),
                     json!({"kind":"omitted","reason":"archive_failed"}),
@@ -3315,11 +3364,10 @@ impl Runner {
             .await
         {
             Ok(header) => header,
-            Err(error) => {
+            Err(_) => {
                 // Optional diagnostics must not turn a healthy provider call
                 // into a failed Agent turn. The compact durable request fact
                 // still identifies this attempt and its accounting.
-                eprintln!("xharness optional request audit capture failed: {error}");
                 missing_audit
             }
         };

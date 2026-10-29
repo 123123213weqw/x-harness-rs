@@ -299,8 +299,13 @@ impl JobContinuationController {
                 } else {
                     controller.reconcile().await
                 };
-                if let Err(error) = result {
-                    eprintln!("Job continuation reconciliation failed: {error}");
+                if result.is_err() {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::JobContinuation,
+                    );
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "Job continuation reconciliation failed; retry remains owned by the controller"
+                    );
                 }
             }
         }));

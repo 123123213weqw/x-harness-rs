@@ -4,6 +4,8 @@
 //! contract: every upstream RPC method has a validated baseline behavior,
 //! while session prompts are driven by the provider-neutral Rust loop.
 
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
+
 // Keep only weak references in the index. An active guard (or a task waiting
 // for that guard) owns the strong Arc; completed one-shot operations such as
 // `agent-operation:*` must not leave a permanent map entry.
@@ -13,6 +15,8 @@ type SessionGateMap =
 mod approval_review;
 mod automation;
 mod bootstrap;
+mod driver_control;
+mod driver_lifecycle;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;
 mod credential_processor;
@@ -106,7 +110,7 @@ pub use runtime::{
     AgentResumeReport, AgentRuntime, AgentRuntimeError, AgentSessionRequest, AgentTurnRequest,
     AuxiliaryModel, DurableLoopAgentRuntime, LoopAgentRuntime, ModelDescriptor, ModelReasoning,
     ModelReasoningEffort, ModelRegistry, ModelRegistryError, ModelRoute, RegisteredModel,
-    RunningTurn,
+    RunningTurn, SessionObservation, TurnControlFuture,
 };
 pub use state::{AgentPreset, GoalState, PermissionPreset, SessionRecord, WorkspaceRecord};
 

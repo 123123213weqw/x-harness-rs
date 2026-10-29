@@ -289,10 +289,15 @@ pub async fn desktop_export_diagnostics(app: AppHandle) -> Result<String, String
         } else {
             None
         };
+        let failure_root = state.diagnostics.root.join("host/failures");
+        let failures = if failure_root.exists() {
+            Some(Recorder::open(failure_root).and_then(|recorder| recorder.snapshot())
+                .map_err(|_| "无法读取后台故障记录，未导出")?)
+        } else { None };
         let report = serde_json::to_vec(&serde_json::json!({
             "version": env!("CARGO_PKG_VERSION"), "platform": std::env::consts::OS,
             "arch": std::env::consts::ARCH, "storageError": inner.storage_error || state.diagnostics.root.join("host/write-failed").exists() || state.diagnostics.control.with_extension("failed").exists(),
-            "previousAbnormalExit": inner.incident, "metadata": snapshot, "hostMetadata": host,
+            "previousAbnormalExit": inner.incident, "metadata": snapshot, "hostMetadata": host, "hostFailures": failures,
             "privacy": "No chat, tool arguments, credentials, raw stderr or memory dumps included"
         }))
         .map_err(|_| "无法生成诊断包".to_owned())?;

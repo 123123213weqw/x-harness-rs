@@ -65,7 +65,8 @@ impl EventGateway {
             Err(error) => {
                 // Framing failure must be visible to both the owning stream and
                 // operations. Never put the malformed payload into diagnostics.
-                eprintln!(
+                xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::EventFrame);
+                xharness_diagnostics::diagnostic_stderr!(
                     "XHARNESS_FAILURE {}",
                     json!({"event":"event_frame_failure", "channel":channel, "code":"invalid_event_frame"})
                 );

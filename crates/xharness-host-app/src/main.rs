@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
+
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use tokio::net::TcpListener;
@@ -106,6 +108,16 @@ async fn main_inner(
     }
     // Must precede even debug/config writes and all session restoration.
     let _ownership = xharness_host_app::ownership::acquire(&args.state_dir).await?;
+    let failure_root = env::var_os("XHARNESS_DIAGNOSTICS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| args.state_dir.join("diagnostics"))
+        .join("failures");
+    if xharness_diagnostics::install_failure_recorder(&failure_root).is_err() {
+        xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::RecorderWrite);
+        xharness_diagnostics::diagnostic_stderr!(
+            "xharness failure recorder unavailable; status remains visible through host.describe"
+        );
+    }
     // A reusable development path is initialized once, BEFORE any Live /
     // Ready / PreparedReady publication. Watchers must never clear it: a stop
     // can arrive immediately after readiness and before their first poll.
@@ -135,7 +147,7 @@ async fn main_inner(
     ) {
         // Best effort only: diagnostic setup must not prevent normal startup.
         if xharness_win32::install_crash_signal(&PathBuf::from(context), &event).is_err() {
-            eprintln!("xharness crash signal unavailable");
+            xharness_diagnostics::diagnostic_stderr!("xharness crash signal unavailable");
         }
     }
     *failure_code = Some(StartupFailureCode::Diagnostics);
@@ -148,8 +160,8 @@ async fn main_inner(
         (Some(root), Some(control)) => debug.with_runtime_diagnostics(root.into(), control.into()),
         _ => debug,
     };
-    if let Some(trace) = trace {
-        eprintln!("xharness full debug trace: {}", trace.directory.display());
+    if trace.is_some() {
+        xharness_diagnostics::diagnostic_stderr!("xharness full debug trace enabled");
     }
     let result = if let Some(execution) = &hosted {
         tokio::select! {
@@ -280,8 +292,13 @@ async fn run(
                 tools.bind_plugins(Arc::clone(&manager))?;
                 Some(manager)
             }
-            Err(error) => {
-                eprintln!("plugin store unavailable; Agent startup continues: {error}");
+            Err(_) => {
+                xharness_diagnostics::record_failure(
+                    xharness_diagnostics::FailureCode::PluginStore,
+                );
+                xharness_diagnostics::diagnostic_stderr!(
+                    "plugin store unavailable; Agent startup continues"
+                );
                 None
             }
         };
@@ -365,7 +382,7 @@ async fn run(
     } = migration
     {
         if cleared_fields > 0 {
-            eprintln!("output budget migration v1: reset {cleared_fields} legacy overrides; backup retained");
+            xharness_diagnostics::diagnostic_stderr!("output budget migration v1: reset {cleared_fields} legacy overrides; backup retained");
         }
     }
 
@@ -447,7 +464,7 @@ async fn run(
         ))
         .await?;
     debug.flush().await?;
-    eprintln!("xharness host live on http://{}", local_addr);
+    xharness_diagnostics::diagnostic_stderr!("xharness host live on http://{}", local_addr);
 
     *failure_code = Some(StartupFailureCode::SessionRestore);
     startup_progress.stage(StartupStage::HistoryRestore);
@@ -529,7 +546,7 @@ async fn run(
         ))
         .await?;
     debug.flush().await?;
-    eprintln!("xharness host ready on http://{}", local_addr);
+    xharness_diagnostics::diagnostic_stderr!("xharness host ready on http://{}", local_addr);
     *failure_code = None;
     host.start_auto_titles().await;
     let hydration_host = host.clone();
@@ -538,7 +555,10 @@ async fn run(
         let (necessary, deferred) = match hydration_host.populate_startup_catalog(store).await {
             Ok(catalogue) => catalogue,
             Err(error) => {
-                eprintln!("xharness background catalogue discovery failed: {error}");
+                xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Catalogue);
+                xharness_diagnostics::diagnostic_stderr!(
+                    "xharness background catalogue discovery failed"
+                );
                 hydration_host.report_startup_catalog_failure(&error).await;
                 return;
             }
@@ -547,7 +567,14 @@ async fn run(
         for session_id in &necessary {
             match hydration_host.hydrate_session(session_id).await {
                 Ok(()) => resumed += 1,
-                Err(error) => eprintln!("xharness recovery issue for {session_id}: {error}"),
+                Err(_) => {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::Catalogue,
+                    );
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "xharness indexed recovery failed; task state remains unverified"
+                    );
+                }
             }
         }
         let (catalogued_sessions, catalogue_issues) =
@@ -566,7 +593,7 @@ async fn run(
             ))
             .await;
         let _ = hydration_debug.flush().await;
-        eprintln!("xharness catalog ready; recovered {resumed}/{} indexed active sessions; {} legacy sessions deferred", necessary.len(), deferred.len());
+        xharness_diagnostics::diagnostic_stderr!("xharness catalog ready; recovered {resumed}/{} indexed active sessions; {} legacy sessions deferred", necessary.len(), deferred.len());
         let mut workers = tokio::task::JoinSet::new();
         // Streaming discovery already prioritizes recent ids. A user opening
         // an old session can hydrate it concurrently through the per-id gate.
@@ -578,18 +605,33 @@ async fn run(
             workers.spawn(async move { one_host.hydrate_session(&one_id).await });
             match workers.join_next().await {
                 Some(Ok(Ok(()))) => {}
-                Some(Ok(Err(error))) => {
-                    eprintln!("xharness background recovery issue for {session_id}: {error}")
+                Some(Ok(Err(_))) => {
+                    xharness_diagnostics::record_failure(
+                        xharness_diagnostics::FailureCode::Catalogue,
+                    );
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "xharness background recovery failed; task state remains unverified"
+                    )
                 }
-                Some(Err(error)) => eprintln!(
-                    "xharness background recovery worker failed for {session_id}: {error}"
-                ),
+                Some(Err(error)) => {
+                    xharness_diagnostics::record_failure(if error.is_panic() {
+                        xharness_diagnostics::FailureCode::TaskPanicked
+                    } else {
+                        xharness_diagnostics::FailureCode::TaskCancelled
+                    });
+                    xharness_diagnostics::diagnostic_stderr!(
+                        "xharness background recovery worker failed"
+                    );
+                }
                 None => unreachable!("one recovery worker was just spawned"),
             }
             tokio::task::yield_now().await;
         }
-        if let Err(error) = job_continuations.recover().await {
-            eprintln!("xharness Job continuation recovery failed: {error}");
+        if job_continuations.recover().await.is_err() {
+            xharness_diagnostics::record_failure(
+                xharness_diagnostics::FailureCode::JobContinuation,
+            );
+            xharness_diagnostics::diagnostic_stderr!("xharness Job continuation recovery failed");
         }
         hydration_host.backfill_startup_metrics().await;
     });

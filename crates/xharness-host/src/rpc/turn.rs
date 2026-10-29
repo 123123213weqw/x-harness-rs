@@ -560,6 +560,7 @@ pub(crate) async fn send_control(
     session_id: &str,
     command: LoopCommand,
 ) -> Result<(), RpcError> {
+    host.reconcile_closed_drivers(Some(session_id)).await;
     let cancel_is_idempotent =
         matches!(&command, LoopCommand::Cancel | LoopCommand::InterruptByUser);
     // Order stop with queue admission and the paused-to-running handoff.
@@ -582,31 +583,68 @@ pub(crate) async fn send_control(
         .control
         .clone();
     let Some(control) = control else {
-        return Ok(());
+        let running = host
+            .state
+            .read()
+            .await
+            .sessions
+            .get(session_id)
+            .is_some_and(|s| s.running);
+        return if running {
+            Err(RpcError::internal(
+                "session driver unavailable; execution outcome unknown",
+            ))
+        } else {
+            Ok(())
+        };
     };
     let (acknowledgement, accepted) = oneshot::channel();
-    if control
-        .send(DriverCommand {
+    let sent = tokio::time::timeout(
+        crate::driver_control::ACK_TIMEOUT,
+        control.send(DriverCommand {
             command,
             input_metadata: None,
             acknowledgement,
-        })
-        .await
-        .is_err()
-    {
-        return if cancel_is_idempotent {
-            Ok(())
-        } else {
-            Err(RpcError::internal("session driver is no longer available"))
-        };
-    }
+        }),
+    )
+    .await;
     drop(admission_guard);
-    match accepted.await {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(LoopControlError::Closed)) | Err(_) if cancel_is_idempotent => Ok(()),
-        Ok(Err(error)) => Err(RpcError::internal(error.to_string())),
+    if !matches!(sent, Ok(Ok(()))) {
+        return verified_closed_control(host, session_id, cancel_is_idempotent).await;
+    }
+
+    match tokio::time::timeout(crate::driver_control::ACK_TIMEOUT, accepted).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(LoopControlError::Closed))) | Ok(Err(_)) => {
+            verified_closed_control(host, session_id, cancel_is_idempotent).await
+        }
+        Ok(Ok(Err(error))) => Err(RpcError::internal(error.to_string())),
         Err(_) => Err(RpcError::internal(
-            "session driver closed without acknowledgement",
+            "control acknowledgement timed out; execution outcome unknown; not retried",
         )),
+    }
+}
+
+async fn verified_closed_control(host: &BasicHost, id: &str, stop: bool) -> Result<(), RpcError> {
+    host.reconcile_closed_drivers(Some(id)).await;
+    let running = host
+        .state
+        .read()
+        .await
+        .sessions
+        .get(id)
+        .is_some_and(|s| s.running);
+    if stop
+        && (!running
+            || matches!(
+                host.agent_runtime.observe_session(id).await,
+                Ok(crate::runtime::SessionObservation::Idle)
+            ))
+    {
+        Ok(())
+    } else {
+        Err(RpcError::internal(
+            "session driver closed without confirming control; execution outcome unknown",
+        ))
     }
 }

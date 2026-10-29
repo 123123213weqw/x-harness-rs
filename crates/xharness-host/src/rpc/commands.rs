@@ -237,6 +237,9 @@ async fn execute_compact(
             .ok_or_else(|| session_not_found(session_id))?;
         session.running = true;
         session.control = Some(control_tx);
+        session.driver_epoch = Some(std::sync::Arc::new(
+            crate::driver_lifecycle::DriverEpoch::default(),
+        ));
     }
     host.push_host(json!({
         "type":"host/session-status",
@@ -245,9 +248,17 @@ async fn execute_compact(
     }));
     let host = host.clone();
     let session_id = session_id.to_owned();
-    tokio::spawn(async move {
-        host.drive_recovered_turn(session_id, run, control_rx).await;
-    });
+    let runner = host.clone();
+    host.spawn_session_task(
+        session_id.clone(),
+        crate::error_boundary::TaskOperation::RecoveredTurn,
+        async move {
+            runner
+                .drive_recovered_turn(session_id, run, control_rx)
+                .await;
+        },
+    )
+    .await;
     Ok(json!({
         "commandId":command_id,
         "result":{"kind":"success","text":"Compaction started"},
