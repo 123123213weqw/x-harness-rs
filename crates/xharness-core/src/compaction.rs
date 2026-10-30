@@ -61,6 +61,7 @@ pub(crate) struct SummaryRunner {
     entropy: u64,
     max_output: u64,
     calls: usize,
+    call_limit: usize,
     splits: usize,
     usage: Option<TokenUsage>,
     max_output_used: u64,
@@ -106,6 +107,7 @@ impl SummaryRunner {
             entropy: 0,
             max_output,
             calls: 0,
+            call_limit: 64,
             splits: 0,
             usage: None,
             max_output_used: 0,
@@ -138,6 +140,13 @@ impl SummaryRunner {
             }
         }
         Ok(())
+    }
+    pub fn with_limits(mut self, calls: usize, output: Option<u64>) -> Self {
+        self.call_limit = calls.min(64);
+        if let Some(output) = output {
+            self.max_output = self.max_output.min(output);
+        }
+        self
     }
     pub fn with_debug(mut self, debug: DebugRecorder) -> Self {
         self.debug = debug;
@@ -184,7 +193,7 @@ impl SummaryRunner {
         if self.cancellation.is_cancelled() {
             return Err(SummaryError::Cancelled);
         }
-        if self.calls >= 64 && self.content_attempts < 64 {
+        if self.calls >= self.call_limit && self.content_attempts < 64 {
             return Err(SummaryError::Provider(ProviderError::retryable(
                 "auxiliary transaction call budget exhausted",
             )));
@@ -271,7 +280,7 @@ impl SummaryRunner {
                     break;
                 }
                 Err(SummaryError::Provider(mut error)) => {
-                    if self.calls >= 64 {
+                    if self.calls >= self.call_limit {
                         error.message = format!(
                             "auxiliary transaction call budget exhausted: {}",
                             error.message
@@ -462,7 +471,7 @@ impl SummaryRunner {
         merging: bool,
         deadline: Option<tokio::time::Instant>,
     ) -> Result<String, SummaryError> {
-        if self.calls >= 64 && self.content_attempts < 64 {
+        if self.calls >= self.call_limit && self.content_attempts < 64 {
             return Err(SummaryError::Provider(ProviderError::retryable(
                 "auxiliary transaction call budget exhausted",
             )));
@@ -785,6 +794,40 @@ mod tests {
             cancellation,
             1,
         )
+    }
+
+    #[tokio::test]
+    async fn shared_call_limit_is_a_retryable_failure_not_cached_no_benefit() {
+        for limit in [0, 1] {
+            let fake = Arc::new(Fake {
+                mode: 8,
+                ..Fake::default()
+            });
+            let error = runner(fake.clone(), CancellationToken::new())
+                .with_limits(limit, Some(32))
+                .run(vec![AgentMessage::user("raw evidence ".repeat(30))])
+                .await
+                .err()
+                .expect("bounded summary must stop");
+            assert!(matches!(error, SummaryError::Provider(ref e)
+                if e.retryable && e.message.contains("call budget exhausted")));
+            let requests = fake.requests.lock().unwrap();
+            assert_eq!(requests.len(), limit);
+            assert!(requests.iter().all(|r| r.max_output_tokens == Some(32)));
+        }
+    }
+
+    #[tokio::test]
+    async fn tighter_recovery_output_ceiling_never_grows_back() {
+        let fake = Arc::new(Fake::default());
+        let result = runner(fake.clone(), CancellationToken::new())
+            .with_limits(2, Some(32))
+            .run(vec![AgentMessage::user("original evidence")])
+            .await
+            .unwrap();
+        assert_eq!(result.calls, 1);
+        assert_eq!(result.max_output_tokens, 32);
+        assert_eq!(fake.requests.lock().unwrap()[0].max_output_tokens, Some(32));
     }
 
     #[tokio::test]

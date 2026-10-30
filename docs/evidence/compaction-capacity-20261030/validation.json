@@ -1,0 +1,16 @@
+{
+  "remote": "WZU_Server",
+  "exit_code": 0,
+  "workspace_all_targets": "passed",
+  "affected_all_target_strict_clippy": "passed",
+  "summary_rows": 181,
+  "passed_execution_summary_sum": 2448,
+  "failed_execution_summary_sum": 0,
+  "ignored_execution_summary_sum": 32,
+  "count_scope": "Sum of Rust harness result rows, including child-process test runs; not a unique test-function or matrix-case count.",
+  "log_sha256": "c0027001ced0f620044839d4ad31bdafdd9a1a9136b7d00eca7e826e4e2053e9",
+  "local_formatting": "passed",
+  "local_architecture_and_freeze": "passed",
+  "static_architecture_mutation_tests": 34,
+  "local_rust_compilation": false
+}

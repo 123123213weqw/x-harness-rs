@@ -1,0 +1,13 @@
+{
+  "all_remote_rust_sources_match": true,
+  "files": {
+    "crates/xharness-agent/tests/failure_admission.rs": "0f1389a2a2bb0c7c45fdcbb3d733d9a2f6d60576ec36199d7dcbc00c7501b36f",
+    "crates/xharness-core/src/compaction.rs": "1b9a0ad75123dff7434ab479fc2341cf4bbc029eb6a8fb52341813aa65aa461f",
+    "crates/xharness-core/src/engine.rs": "1fa24541394cb3cfa1d80298530096778828977585dd3129abd092cb2db7d13f",
+    "crates/xharness-core/tests/cases/budget_verification.rs": "9645e88d22e892ec9e84139d864f53afa3bd3683f2458ca03311db56262d4019",
+    "crates/xharness-core/tests/cases/compaction_recovery.rs": "af4f1522722ae64d92e1513302ecf730b466683a3206c9773563194d3f46bbc7",
+    "crates/xharness-core/tests/loop.rs": "15e3be6f3a4f11498aff14eef5aa408510875a389e4d19aed9e6015d0123b454",
+    "crates/xharness-host-app/examples/old_session_compaction.rs": "55cc259f9829e7fd720b47df75fe2628af88bb490d79a4d9c0225bc7d8d139ee",
+    "crates/xharness-host/tests/basic_host.rs": "cbc2316a14b21583aacc8ffe0323b0c4d043318914b40a9ee28e8adb0c1f372d"
+  }
+}

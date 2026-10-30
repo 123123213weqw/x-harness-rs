@@ -358,10 +358,35 @@ async fn budget_verification_manual_unverified_request_does_not_spend_summary_ca
     )
     .await;
     let baseline = store.load("verify-manual").await.unwrap().unwrap();
+    store
+        .append(
+            "verify-manual",
+            baseline.revision(),
+            vec![SessionEventData::CommandRun {
+                command_id: "verify-manual-command".into(),
+                name: "compact".into(),
+                args: None,
+                source: xharness_session::CommandSource::User,
+            }
+            .into()],
+        )
+        .await
+        .unwrap();
+    request.messages.clear();
     request.manual_compaction_command_id = Some("verify-manual-command".into());
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
     assert_eq!(provider.inner.attempts(), 0);
+    assert!(
+        result
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("measurement unavailable"),
+        "{:?}",
+        result.error
+    );
+    assert_eq!(provider.counted.lock().unwrap().len(), 2);
     let session = store.load("verify-manual").await.unwrap().unwrap();
     assert_no_budget_recovery_transaction(&session, baseline.events().len());
 }

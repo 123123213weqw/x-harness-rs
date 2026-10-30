@@ -352,7 +352,7 @@ auth failure, execution gate or upstream Retry-After. Cancellation and steering
 remain active during counting and waiting. An unverifiable over-budget auxiliary request or candidate
 is a retryable measurement failure, not deterministic `no_benefit`; it is not
 cached as a permanently bad source. The deterministic-failure fingerprint uses
-pipeline version 9, so pre-fix no-benefit records cannot block a corrected
+pipeline version 10, so pre-fix no-benefit records cannot block a corrected
 attempt after restart. Candidate text remains disposable until the
 existing strict journal CAS/flush transaction succeeds. If optional pressure
 maintenance cannot verify an auxiliary request or candidate, close that attempt
@@ -396,3 +396,44 @@ items and interrupted messages are not subject to this observation window.
 The existing 40 MiB wire resource budget still applies. Main admission, auxiliary
 summarization and candidate validation use this same image projection. No raw
 image, message, tool result or authorization in durable history is deleted.
+
+
+## Bounded complete-candidate capacity recovery
+
+A candidate that shrinks but still exceeds the confirmed input limit is a
+capacity rejection, not deterministic `NoBenefit`. The coordinator keeps the
+original full-request budget and original surface frozen. It stages notes in
+memory for disjoint eligible raw spans; generated notes are never used as raw
+input to another model summary. If no additional span is eligible, it regenerates
+the largest staged note from the original evidence with a halved output ceiling.
+User anchors, unresolved tools, replay state and established checkpoints retain
+their existing protection. Fixed/protected context can still make recovery
+impossible; no compactor can guarantee admission for an arbitrary input.
+
+One recovery is bounded to 16 candidate attempts, 64 shared summary-generation
+calls and a 600-second summary-recovery deadline. Counter I/O retains its own
+bounded admission/verification policy. Comparable exact candidates that stop
+shrinking terminate early. Transient counting/generation failures, exhausted
+capacity and cancellation do not create permanent no-benefit fingerprints.
+Optional pressure recovery revalidates the unchanged original; hard overflow
+and manual failures remain visible and never authorize an oversized generation.
+
+Before publication, the coordinator builds and counts the complete combined
+candidate, including real schemas, prompts, controls, image projection, output
+reserve and predicted checkpoint sequence handles. Only an admitted candidate
+can publish: all progress/summary/replacement/end events are appended in one
+strict journal CAS batch and flushed. Concurrent metadata invalidates the
+reservation too. Failed validation or cancellation closes every staged start
+without any replacement; a post-append flush failure consults authoritative
+journal ends and must never append `Failed` after an already durable `Applied`.
+
+Synthetic regressions cover disjoint-span batching, regeneration from raw
+sources, nonshrinking termination, final-counter outage, cancellation during a
+second note, concurrent-metadata CAS rejection, shared-call exhaustion, tighter
+output ceilings and existing flush-failure behavior. The opt-in
+`old_session_compaction` example refuses roots without `ACCEPTANCE_COPY_ONLY`;
+it tests a private journal copy through the production core/adapter with no
+native tools or UI. It is not a byte-identical incident, UI/crash or semantic
+summary-quality acceptance. Upstream counting observations must distinguish
+native success, fallback, unavailable capability and service failures rather
+than assuming every model always supports native counts.

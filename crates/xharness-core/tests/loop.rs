@@ -6784,7 +6784,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
         request.compaction = Some(CompactionConfig {
             retain_ratio: None,
             retain_tokens: Some(10),
-            max_tokens: 64,
+            max_tokens: 1,
             ..CompactionConfig::default()
         });
         let (_, result) = collect(LoopEngine.start(request)).await;
@@ -6811,7 +6811,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             session.events().iter().any(|e| matches!(
                 e.data(),
                 SessionEventData::CompactionEnd {
-                    outcome: Some(xharness_session::CompactionEndOutcome::NoBenefit),
+                    outcome: Some(xharness_session::CompactionEndOutcome::Failed),
                     ..
                 }
             )),
@@ -6831,11 +6831,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
                 .iter()
                 .any(|m| m.content.contains("SMALL-CANDIDATE")));
         } else {
-            assert!(result
-                .error
-                .as_deref()
-                .unwrap()
-                .contains("does not reduce the complete request"));
+            assert!(result.error.as_deref().unwrap().contains("capacity"));
         }
     }
 }
@@ -10336,3 +10332,5 @@ async fn stable_working_set_fresh_pressure_rebalances_without_resurrecting_old_r
 include!("cases/multimodal_metering.rs");
 
 include!("cases/budget_verification.rs");
+
+include!("cases/compaction_recovery.rs");

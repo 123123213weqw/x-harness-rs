@@ -1,0 +1,271 @@
+{
+  "scope": "Existing installed Host, 8 configured routes / 10 models; synthetic text and declared-image probes with 18 production tool definitions; no tool calls. Not patched compaction acceptance.",
+  "interpretation": "Native observed is a positive observation, not a permanent capability promise. No native observed does not distinguish unsupported from transient failure. HTTP status is generation status, not evidence that a counting endpoint is unsupported. Numeric accuracy labels are preserved from the Host journal.",
+  "privacy": "No credentials exported; authenticated same-owner loopback Host RPC; isolated synthetic sessions cancelled/archived; no original conversation changed.",
+  "results": [
+    {
+      "route": "deepseek-claude-code",
+      "model": "deepseek-flash",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 2063,
+          "turn_outcome": "completed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27845,
+          "usage_total_input_tokens": 6627,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0
+        },
+        {
+          "kind": "image_with_production_tools",
+          "elapsed_ms": 2041,
+          "turn_outcome": "completed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 29332,
+          "usage_total_input_tokens": 6871,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "glm",
+      "model": "glm-5.3",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 5028,
+          "turn_outcome": "completed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27814,
+          "usage_total_input_tokens": 6310,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0
+        },
+        {
+          "kind": "image_with_production_tools",
+          "elapsed_ms": 1030,
+          "turn_outcome": "failed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 32373,
+          "usage_total_input_tokens": 0,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0,
+          "provider_failure": {
+            "retryable": false,
+            "http_status": 400,
+            "retry_after_ms": null
+          }
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "glm",
+      "model": "glm-5.3-flash",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 10041,
+          "turn_outcome": "completed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27844,
+          "usage_total_input_tokens": 6310,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0
+        },
+        {
+          "kind": "image_with_production_tools",
+          "elapsed_ms": 6049,
+          "turn_outcome": "completed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 32403,
+          "usage_total_input_tokens": 6371,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "glm",
+      "model": "glm-5.3-flashx",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 3026,
+          "turn_outcome": "failed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27795,
+          "usage_total_input_tokens": 0,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0,
+          "provider_failure": {
+            "retryable": true,
+            "http_status": 429,
+            "retry_after_ms": null
+          },
+          "last_retry_status": null
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "flash-next-l40",
+      "model": "qwen3.8-flash-next-uncensored-fp8",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "outcome": "deadline_exceeded",
+          "turn_outcome": "user_interrupted",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27890,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "last_retry_status": null
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "glm53-l40-mtp3",
+      "model": "glm-5.3-flash-uncensored-mtp3",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "outcome": "deadline_exceeded",
+          "turn_outcome": "user_interrupted",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27810,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "last_retry_status": null
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "qwen",
+      "model": "qwen3.8-27b-uncensored",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 9055,
+          "turn_outcome": "completed",
+          "accuracy": "exact_request",
+          "counted_input_tokens": 6697,
+          "usage_total_input_tokens": 6697,
+          "native_observed": true,
+          "tool_definitions": 18,
+          "native_matches_usage": true,
+          "tool_calls": 0
+        },
+        {
+          "kind": "image_with_production_tools",
+          "elapsed_ms": 2035,
+          "turn_outcome": "completed",
+          "accuracy": "exact_request",
+          "counted_input_tokens": 6758,
+          "usage_total_input_tokens": 6758,
+          "native_observed": true,
+          "tool_definitions": 18,
+          "native_matches_usage": true,
+          "tool_calls": 0
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "qwen3",
+      "model": "qwen3.8-27b",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 1014,
+          "turn_outcome": "failed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27792,
+          "usage_total_input_tokens": 0,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0,
+          "provider_failure": {
+            "retryable": false,
+            "http_status": 404,
+            "retry_after_ms": null
+          }
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "qwen31",
+      "model": "qwen3.8-27b-uncensored",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "elapsed_ms": 17089,
+          "turn_outcome": "failed",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27803,
+          "usage_total_input_tokens": 0,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "native_matches_usage": null,
+          "tool_calls": 0,
+          "provider_failure": {
+            "retryable": true,
+            "http_status": 502,
+            "retry_after_ms": null
+          },
+          "last_retry_status": null
+        }
+      ],
+      "archived": true
+    },
+    {
+      "route": "openai-next",
+      "model": "claude-opus-5",
+      "transport": "existing_authenticated_Host; no provider credential export",
+      "cases": [
+        {
+          "kind": "text_with_production_tools",
+          "outcome": "deadline_exceeded",
+          "turn_outcome": "user_interrupted",
+          "accuracy": "conservative_upper_bound",
+          "counted_input_tokens": 27794,
+          "native_observed": false,
+          "tool_definitions": 18,
+          "last_retry_status": null
+        }
+      ],
+      "archived": true
+    }
+  ]
+}
