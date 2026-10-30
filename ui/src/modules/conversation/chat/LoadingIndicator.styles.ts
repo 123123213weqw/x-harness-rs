@@ -1,5 +1,5 @@
 import css from './LoadingIndicator.css'
-export default { root: 'xhLoading_root', rotor: 'xhLoading_rotor', icon: 'xhLoading_icon' }
+export default { root: 'xhLoading_root', icon: 'xhLoading_icon', pixel: 'xhLoading_pixel' }
 const tagId = '@xharness/dsh-client-ui-conversation/LoadingIndicator.module.css'
 if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {
   const tag = document.createElement('style')

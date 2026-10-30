@@ -92,6 +92,7 @@ try {
   }
   const liveNodes={get:key=>nodes.get(key),values:()=>[...nodes.values()]}
   window.publish=()=>snapshot.set({...snapshot.getSnapshot(),chat:{order:[...order],nodes:liveNodes,timeline:{turns:new Map(turns)},locations:{getTurn:id=>order.filter(k=>nodes.get(k).location.turn.turn===id)}}})
+  window.setRunStart=time=>{turns.set(1,{...turns.get(1),start:time===null?undefined:{time}});publish()}
   window.finish=(closing=true,start=true,error=false)=>{
    const previous=turns.get(1),final=closing?nodes.get('final1').data:null
    const tail={turn:1,seq:110,time:165000,closing:final,branchUnavailable:false,ttftMs:200,tokensPerSecond:35}
@@ -139,26 +140,43 @@ try {
    render()
   }
  })
- // The actual ChatView owns the spinner: streaming and the elapsed clock must
+ // The actual ChatView owns the pixel ring: streaming and the elapsed clock must
  // retain its DOM/animation identity; only authoritative idle removes it.
- const rotor = page.locator('[data-xh-loading-rotor]')
+ const rotor = page.locator('[data-xh-loading-ring]')
  await rotor.waitFor()
  assert.equal(await rotor.count(), 1)
  assert.equal(await page.locator('[data-xh-loading-indicator]').getAttribute('aria-label'), 'Working…')
  assert.equal(await page.locator('[data-xh-loading-indicator]').textContent(), '')
  await page.evaluate(() => {
-  window.initialRotor = document.querySelector('[data-xh-loading-rotor]')
-  window.initialRotation = initialRotor.getAnimations()[0]
+  window.initialRotor = document.querySelector('[data-xh-loading-ring]')
+  window.initialPixel = initialRotor.querySelector('rect')
+  window.initialRotation = initialPixel.getAnimations()[0]
   window.initialRotationTime = initialRotation.currentTime
   publish() // streaming/chat publication without a new turn
  })
  await page.waitForFunction(() => initialRotation.currentTime > initialRotationTime + 1000)
- assert.equal(await page.evaluate(() => document.querySelector('[data-xh-loading-rotor]') === initialRotor && initialRotor.getAnimations()[0] === initialRotation), true)
+ assert.equal(await page.evaluate(() => document.querySelector('[data-xh-loading-ring]') === initialRotor && initialPixel.getAnimations()[0] === initialRotation), true)
  assert.equal(await page.locator('[class$="_turnStatusClock"]').count(), 1)
+ assert.match(await page.getByRole('timer').textContent(), /^\d+h \d{2}m \d{2}s$/)
+ assert.equal(await page.getByRole('timer').getAttribute('aria-live'), 'off')
  assert.equal(await page.locator('[class$="_turnStatus"]').getByText('Working…', {exact:true}).count(), 0)
  await page.emulateMedia({reducedMotion:'reduce'})
- assert.deepEqual(await rotor.evaluate(e => [getComputedStyle(e).animationName, getComputedStyle(e.parentElement).animationName]), ['none','none'])
+ assert.deepEqual(await rotor.evaluate(e => [getComputedStyle(e.querySelector('rect')).animationName, getComputedStyle(e.parentElement).animationName]), ['none','none'])
  await page.emulateMedia({reducedMotion:'no-preference'})
+ // Logged time survives a fresh session seat; an unlogged boundary starts
+ // from mount time, and changing sessions must not inherit the old fallback.
+ await page.evaluate(() => setRunStart(Date.now() - 3_723_000))
+ await page.waitForFunction(() => /^1h 02m 0[3-9]s$/.test(document.querySelector('[role="timer"]').textContent))
+ const loggedElapsed = Number(await page.getByRole('timer').getAttribute('data-elapsed-ms'))
+ await page.evaluate(() => setId('clock-remount'))
+ await page.waitForFunction(() => /^1h 02m 0[3-9]s$/.test(document.querySelector('[role="timer"]').textContent))
+ assert.ok(Number(await page.getByRole('timer').getAttribute('data-elapsed-ms')) >= loggedElapsed, 'remount retains logged turn/start')
+ await page.evaluate(() => { setRunStart(null); setId('clock-fallback') })
+ await page.waitForFunction(() => document.querySelector('[role="timer"]').textContent === '0s')
+ await page.waitForFunction(() => Number(document.querySelector('[role="timer"]').dataset.elapsedMs) >= 1000)
+ await page.evaluate(() => setId('other-unlogged-session'))
+ await page.waitForFunction(() => document.querySelector('[role="timer"]').textContent === '0s')
+ await page.evaluate(() => { setId('s'); setRunStart(0) })
  // In-flight process stays visible even if Session running briefly flips false.
  assert.equal(await page.locator('[data-turn-process-summary]').count(),0)
  const scroll=page.locator('[data-conversation-scroll]')
