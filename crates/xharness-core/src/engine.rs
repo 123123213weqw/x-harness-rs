@@ -65,8 +65,10 @@ enum StopReason {
 }
 
 enum TokenBudgetCheck {
-    Ready(Option<TokenBudgetReport>),
-    Exceeded {
+    Admitted(Option<TokenBudgetReport>),
+    /// A non-exact rejection requires verification, never overflow recovery.
+    NeedsVerification(Box<TokenBudgetReport>),
+    ConfirmedOverBudget {
         current_input_tokens: u64,
         context_window_tokens: u64,
         error: String,
@@ -836,7 +838,7 @@ impl Runner {
                     .check_token_budget(&provider_request, &prepared, &context_tools)
                     .await?
                 {
-                    TokenBudgetCheck::Ready(report) => {
+                    TokenBudgetCheck::Admitted(report) => {
                         if let Some(report) = &report {
                             if !working_set_attempted
                                 && context_tools.iter().any(|t| {
@@ -923,7 +925,15 @@ impl Runner {
                             context_origins,
                         );
                     }
-                    TokenBudgetCheck::Exceeded {
+                    TokenBudgetCheck::NeedsVerification(report) => {
+                        self.debug(
+                            "token_budget.needs_verification",
+                            || json!({"budget": &report}),
+                        )
+                        .await;
+                        return Err(measurement_unavailable(&report));
+                    }
+                    TokenBudgetCheck::ConfirmedOverBudget {
                         current_input_tokens,
                         context_window_tokens,
                         error,
@@ -977,16 +987,6 @@ impl Runner {
                                     return Err(compaction_error.context(message));
                                 }
                             }
-                        }
-                        if self
-                            .last_budget_report
-                            .as_ref()
-                            .is_some_and(|r| !r.is_exact())
-                        {
-                            let failure = measurement_unavailable();
-                            let message =
-                                format!("token budget rejected request: {error}; {failure}");
-                            return Err(failure.context(message));
                         }
                         return Err(RunFailure::Failed(format!(
                             "token budget rejected request: {error}; no further safe compaction was available"
@@ -1725,12 +1725,7 @@ impl Runner {
         // not evidence of native context overflow. Recheck this exact surface,
         // bypassing only the optional counter cooldown, never the hard budget.
         for attempt in 0..2 {
-            if !matches!(check, TokenBudgetCheck::Exceeded { .. })
-                || self
-                    .last_budget_report
-                    .as_ref()
-                    .is_none_or(TokenBudgetReport::is_exact)
-            {
+            if !matches!(check, TokenBudgetCheck::NeedsVerification(_)) {
                 break;
             }
             let report = self.last_budget_report.as_ref();
@@ -1777,9 +1772,11 @@ impl Runner {
                 report.request_sha256 = Some(request_sha256);
             }
         }
-        if let TokenBudgetCheck::Ready(Some(report)) = &mut check {
-            if let Some(measured) = &self.last_budget_report {
-                *report = measured.clone();
+        if let Some(measured) = &self.last_budget_report {
+            match &mut check {
+                TokenBudgetCheck::Admitted(Some(report)) => *report = measured.clone(),
+                TokenBudgetCheck::NeedsVerification(report) => **report = measured.clone(),
+                _ => {}
             }
         }
         Ok(check)
@@ -1804,11 +1801,14 @@ impl Runner {
     fn rejected_budget(&mut self, error: TokenBudgetError) -> Result<TokenBudgetCheck, RunFailure> {
         self.last_budget_report = error.report().cloned();
         match &error {
+            TokenBudgetError::Exceeded { report, .. } if !report.is_exact() => {
+                Ok(TokenBudgetCheck::NeedsVerification(report.clone()))
+            }
             TokenBudgetError::Exceeded {
                 estimated_input_tokens,
                 context_window_tokens,
                 ..
-            } => Ok(TokenBudgetCheck::Exceeded {
+            } => Ok(TokenBudgetCheck::ConfirmedOverBudget {
                 current_input_tokens: *estimated_input_tokens,
                 context_window_tokens: *context_window_tokens,
                 error: error.to_string(),
@@ -1829,7 +1829,7 @@ impl Runner {
     ) -> Result<TokenBudgetCheck, RunFailure> {
         self.last_budget_report = None;
         let Some(guard) = &self.request.token_guard else {
-            return Ok(TokenBudgetCheck::Ready(None));
+            return Ok(TokenBudgetCheck::Admitted(None));
         };
         let guard = guard.clone();
         let provider_cancellation = self.cancellation.child_token();
@@ -1881,7 +1881,7 @@ impl Runner {
                         // returning a number. This is a hard overflow signal,
                         // never an auth/general-400 fallback or permission to send.
                         provider_cancellation.cancel();
-                        return Ok(TokenBudgetCheck::Exceeded {
+                        return Ok(TokenBudgetCheck::ConfirmedOverBudget {
                             current_input_tokens: guard.budget().context_window_tokens,
                             context_window_tokens: guard.budget().context_window_tokens,
                             error: format!("provider counter rejected context: {error}"),
@@ -1923,7 +1923,7 @@ impl Runner {
                     report.counter_http_status = counter_http_status;
                     report.counter_retry_after_ms = counter_retry_after_ms;
                     self.last_budget_report = Some(report.clone());
-                    Ok(TokenBudgetCheck::Ready(Some(report)))
+                    Ok(TokenBudgetCheck::Admitted(Some(report)))
                 }
                 Err(error) => self.rejected_budget(
                     error
@@ -1958,7 +1958,7 @@ impl Runner {
                 report.counter_http_status = counter_http_status;
                 report.counter_retry_after_ms = counter_retry_after_ms;
                 self.last_budget_report = Some(report.clone());
-                Ok(TokenBudgetCheck::Ready(Some(report)))
+                Ok(TokenBudgetCheck::Admitted(Some(report)))
             }
             Err(error) => self.rejected_budget(
                 error
@@ -2000,20 +2000,23 @@ impl Runner {
                 .check_token_budget(&provider_request, &prepared, &context_tools)
                 .await?
             {
-                TokenBudgetCheck::Ready(Some(report)) => (
+                TokenBudgetCheck::Admitted(Some(report)) => (
                     report.estimate.total_input_tokens,
                     report.context_window_tokens,
                 ),
-                TokenBudgetCheck::Ready(None) => {
+                TokenBudgetCheck::Admitted(None) => {
                     return Err(RunFailure::Failed(
                         "manual compaction requires an active token guard".to_owned(),
                     ))
                 }
-                TokenBudgetCheck::Exceeded {
+                TokenBudgetCheck::ConfirmedOverBudget {
                     current_input_tokens,
                     context_window_tokens,
                     ..
                 } => (current_input_tokens, context_window_tokens),
+                TokenBudgetCheck::NeedsVerification(report) => {
+                    return Err(measurement_unavailable(&report))
+                }
                 TokenBudgetCheck::Interrupted => {
                     return Err(RunFailure::Stopped(StopReason::Cancelled))
                 }
@@ -2272,7 +2275,7 @@ impl Runner {
             "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
             // Old no-benefit records used incompatible mixed metering and
             // visual pricing. They must not block recovery after this upgrade.
-            "pipelineVersion":8, "retryConfig":self.request.config.provider_retry_budget_ms,
+            "pipelineVersion":9, "retryConfig":self.request.config.provider_retry_budget_ms,
             "workingSetInputSample":self.workset_input_sample,
             "tools":context_tools, "mainBudget":self.request.token_guard.as_ref().map(|g|g.budget()),
         }))?;
@@ -2316,13 +2319,13 @@ impl Runner {
                 let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
                 let measurement_pending = matches!(
                     &error,
-                    crate::compaction::SummaryError::MeasurementUnavailable
+                    crate::compaction::SummaryError::MeasurementUnavailable(_)
                 );
                 let failure_message = error.to_string();
                 let error = match error {
                     crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
-                    crate::compaction::SummaryError::MeasurementUnavailable => {
-                        measurement_unavailable()
+                    crate::compaction::SummaryError::MeasurementUnavailable(report) => {
+                        measurement_unavailable(&report)
                     }
                     crate::compaction::SummaryError::Provider(error) => {
                         RunFailure::provider(&error, failure_message)
@@ -2507,7 +2510,7 @@ impl Runner {
                 .as_ref()
                 .map(|r| r.estimate.total_input_tokens);
             match checked {
-                TokenBudgetCheck::Ready(report) => {
+                TokenBudgetCheck::Admitted(report) => {
                     let comparable = budget_before
                         .as_ref()
                         .zip(report.as_ref())
@@ -2532,15 +2535,11 @@ impl Runner {
                         return Ok(Some(false));
                     }
                 }
-                TokenBudgetCheck::Exceeded { .. } => {
-                    if self
-                        .last_budget_report
-                        .as_ref()
-                        .is_some_and(|r| !r.is_exact())
-                    {
-                        progress.validation = Some(CompactionValidation::EstimatedOverBudget);
-                        return Err(measurement_unavailable());
-                    }
+                TokenBudgetCheck::NeedsVerification(report) => {
+                    progress.validation = Some(CompactionValidation::EstimatedOverBudget);
+                    return Err(measurement_unavailable(&report));
+                }
+                TokenBudgetCheck::ConfirmedOverBudget { .. } => {
                     progress.validation = Some(CompactionValidation::ExactOverBudget);
                     return Ok(Some(false));
                 }
@@ -2742,59 +2741,6 @@ impl Runner {
         let Some(journal) = &self.journal else {
             return Ok(CompactionOutcome::NotApplied);
         };
-        if trigger == CompactionTrigger::ContextOverflow
-            && self
-                .last_budget_report
-                .as_ref()
-                .is_some_and(|r| !r.is_exact())
-        {
-            let turn = journal.turn;
-            let id = format!(
-                "compact-{}-{}-{}-{}",
-                self.run_id, turn, self.step, journal.next_seq
-            );
-            let failure = measurement_unavailable();
-            let message = format!("{failure}; no eligible raw span: protected user inputs, open/unknown tools, provider replay state or fixed system/schema overhead cannot be compacted");
-            let failure = failure.context(message);
-            let budget = self
-                .last_budget_report
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()
-                .map_err(|e| {
-                    RunFailure::Failed(format!("could not serialize rejected budget: {e}"))
-                })?;
-            self.journal_append(
-                vec![
-                    SessionEventData::CompactionStart {
-                        compaction_id: id.clone(),
-                        source_command_id: command.map(str::to_owned),
-                        turn: Some(turn),
-                    },
-                    SessionEventData::CompactionProgress {
-                        compaction_id: id.clone(),
-                        source_command_id: command.map(str::to_owned),
-                        turn: Some(turn),
-                        progress: CompactionProgress {
-                            budget_before: budget,
-                            validation: Some(CompactionValidation::EstimatedOverBudget),
-                            ..Default::default()
-                        },
-                    },
-                    SessionEventData::CompactionEnd {
-                        compaction_id: id,
-                        source_command_id: command.map(str::to_owned),
-                        turn: Some(turn),
-                        error: Some(failure.to_string()),
-                        outcome: Some(CompactionEndOutcome::Failed),
-                        fingerprint: None,
-                    },
-                ],
-                true,
-            )
-            .await?;
-            return Err(failure);
-        }
         if trigger == CompactionTrigger::ContextOverflow {
             return Err(RunFailure::Failed("no eligible raw span: protected user inputs, open/unknown tools, provider replay state or fixed system/schema overhead cannot be compacted; choose a larger context or reduce the explicit request".into()));
         }
@@ -5813,10 +5759,18 @@ enum RunFailure {
         failure: xharness_session::ProviderFailure,
     },
 }
-fn measurement_unavailable() -> RunFailure {
+fn measurement_unavailable(report: &TokenBudgetReport) -> RunFailure {
+    let detail = format!(
+        " (estimated input={}, available input={}, accuracy={:?})",
+        report.estimate.total_input_tokens, report.available_input_tokens, report.accuracy
+    );
     RunFailure::Provider {
-        message: "input token measurement unavailable: conservative estimate is over budget, not a confirmed provider overflow; retry when a verified count is available or reduce visual context; original history is unchanged".into(),
-        failure: xharness_session::ProviderFailure { retryable: true, http_status: None, retry_after_ms: None },
+        message: format!("input token measurement unavailable{detail}: estimate is over budget, not a confirmed provider overflow; retry when a verified count is available or reduce the request; original history is unchanged"),
+        failure: xharness_session::ProviderFailure {
+            retryable: true,
+            http_status: report.counter_http_status,
+            retry_after_ms: report.counter_retry_after_ms,
+        },
     }
 }
 

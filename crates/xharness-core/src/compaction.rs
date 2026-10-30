@@ -27,7 +27,7 @@ pub(crate) enum SummaryError {
     #[error("compaction made no progress: {0}")]
     NoBenefit(String),
     #[error("compaction input measurement temporarily unavailable; original history is unchanged")]
-    MeasurementUnavailable,
+    MeasurementUnavailable(Box<TokenBudgetReport>),
     #[error("{0}")]
     Provider(ProviderError),
     #[error("{0}")]
@@ -449,8 +449,8 @@ impl SummaryRunner {
         // summary text was produced. Only closed numeric metadata is recorded.
         self.report(CompactionStage::Preparing, None).await?;
         checked.map_err(|error| match error {
-            TokenBudgetError::Exceeded { ref report, .. } if transient && !report.is_exact() => {
-                SummaryError::MeasurementUnavailable
+            TokenBudgetError::Exceeded { report, .. } if !report.is_exact() => {
+                SummaryError::MeasurementUnavailable(report)
             }
             TokenBudgetError::Exceeded { .. } => SummaryError::Input(error.to_string()),
             _ => SummaryError::Invalid(error.to_string()),

@@ -337,13 +337,22 @@ field, not an accuracy claim. Only the same exact counter/accuracy is comparable
 for before/after token gain. Otherwise both replacement spans use the same local
 planner price, and the complete candidate must still pass hard admission.
 
+Budget checks distinguish `Admitted`, `ConfirmedOverBudget`, and
+`NeedsVerification`. The latter means a non-exact estimate exceeds the local
+budget, not that the provider confirmed overflow. It cannot start overflow
+compaction, activate a working set, send a generation request, or cache
+`no_benefit`. If verification remains unavailable, the turn fails recoverably
+on unchanged history, preserving counter HTTP status and Retry-After. Manual
+compaction uses the same check. Existing under-budget compatibility admission
+is unchanged; this does not require native counters for every request.
+
 An estimated overflow gets at most two fresh counter verifications. These may
 bypass a local transient-counter cooldown, never an unsupported capability,
 auth failure, execution gate or upstream Retry-After. Cancellation and steering
-remain active during counting and waiting. An unverifiable estimated candidate
+remain active during counting and waiting. An unverifiable over-budget auxiliary request or candidate
 is a retryable measurement failure, not deterministic `no_benefit`; it is not
 cached as a permanently bad source. The deterministic-failure fingerprint uses
-pipeline version 8, so pre-fix no-benefit records cannot block a corrected
+pipeline version 9, so pre-fix no-benefit records cannot block a corrected
 attempt after restart. Candidate text remains disposable until the
 existing strict journal CAS/flush transaction succeeds. If optional pressure
 maintenance cannot verify an auxiliary request or candidate, close that attempt
