@@ -24,7 +24,7 @@ import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
 import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
-import { formatRunDuration } from './message-chrome'
+import { ElapsedTime } from './ElapsedTime'
 import { isChatNode } from '../contract/chat-node-codec'
 import { MessageMarkerCache } from './message-preview'
 import css from './ChatView.styles'
@@ -135,30 +135,10 @@ function TurnStatus({ startTime, t }: {
   /** The owning view's locale seat. */
   t: ChatViewSlotProps['t']
 }) {
-  const [mountedAt] = useState(() => Date.now())
-  // Anchored to turn/start so a mid-turn reload keeps the real
-  // elapsed time and the final footer's Ran-for label matches this clock.
-  const anchor = startTime ?? mountedAt
-  const [elapsedMs, setElapsedMs] = useState(() => Math.max(0, Date.now() - anchor))
-  useEffect(() => {
-    const tick = (): void => {
-      setElapsedMs(Math.max(0, Date.now() - anchor))
-    }
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => { clearInterval(id) }
-  }, [anchor])
-  // Short turns keep just the spinner; the clock only appears once the turn
-  // has clearly been running for a while.
-  const showClock = elapsedMs >= 15_000
   return (
     <div className={css.turnStatus}>
       <LoadingIndicator active label={t('xh.turn.working')} />
-      {showClock && (
-        <span className={css.turnStatusClock} aria-hidden>
-          {formatRunDuration(elapsedMs, t)}
-        </span>
-      )}
+      <ElapsedTime className={css.turnStatusClock} startTime={startTime} />
     </div>
   )
 }
@@ -748,7 +728,7 @@ export function ChatView({
               double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
-          {running && <TurnStatus startTime={runningTurnStart} t={t} />}
+          {running && <TurnStatus key={sessionId} startTime={runningTurnStart} t={t} />}
           {pendingSteering.map(item => (
             <PendingSteeringBubble
               key={item.id}

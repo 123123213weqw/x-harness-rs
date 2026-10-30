@@ -199,7 +199,7 @@ test('real source entry preserves published ABI, injection, exact stylesheet tag
   'queue/QueueDock': '3835c9f5eb3ccf4c71fdb5b6b9db96a37b726c6017a43770f537de092e32c1e2',
   // Turn activity and failure notice are separately pinned; the new spinner sheet is additive.
   'chat/ChatView': 'ea56a6c3f52b53edd7d339e8d5c97a9c1a76fe032832c509bef447b84b164647',
-  'chat/LoadingIndicator': 'a0e65b3b7f0373e84b3120ca7cc357aebae7434c1c967d42eafc1afb74641c9e',
+  'chat/LoadingIndicator': 'eab9ae6b02846b4d42d31cf3b573224d178e3c4cd0fe00bd23c8e0e980acc5f1',
   // Narrow-viewport tab strip: a 16px gap plus horizontal scroll below 600px,
   // and a 44px row on coarse pointers. Every byte above that append is
   // unchanged; the desktop declarations (gap 36, 27px row) are untouched.

@@ -15,7 +15,7 @@ const answer={status:'settled',turn:1,step:1,blocks,finalNode:{kind:'assistant',
 const tail = { turn:1,seq:25,time:165000,closing:answer,branchUnavailable:false }
 const node = (kind,data={}) => ({key:kind,kind,data})
 
-test('running status uses the accessible spinner in both locales, keeps the elapsed clock, and disappears when idle', () => {
+test('running status uses the accessible pixel ring in both locales, shows the elapsed clock immediately, and disappears when idle', () => {
   for (const language of ['en', 'zh']) {
     assert.equal(plugin[language]['xh.turn.working'], 'Working…')
     const localized = (key, args = {}) => (plugin[language][key] ?? key).replace(/\{(\w+)\}/g, (_, k) => args[k])
@@ -45,9 +45,15 @@ test('running status uses the accessible spinner in both locales, keeps the elap
       assert.equal(indicator.props['aria-live'], 'polite')
       assert.equal(indicator.props['aria-label'], 'Working…')
       assert.equal(indicator.props['data-xh-loading-indicator'], 'true')
-      const clocks = descendants(status, n => n.type === 'span')
-      assert.equal(clocks.length, start === null ? 0 : 1)
-      if (start !== null) assert.match(clocks[0].props.children, language === 'en' ? /^\d+s$/ : /^\d+秒$/)
+      const clocks = descendants(status, n => typeof n.type === 'function' && n.type.name === 'ElapsedTime')
+      assert.equal(clocks.length, 1)
+      assert.equal(clocks[0].props.startTime, start)
+      hooks.reset()
+      const clock = hooks.render(() => clocks[0].type(clocks[0].props))
+      assert.equal(clock.props.role, 'timer')
+      assert.equal(clock.props['aria-live'], 'off')
+      assert.match(clock.props.children.props.children, start === null ? /^0s$/ : /^20s$/)
+
     }
   }
 })
