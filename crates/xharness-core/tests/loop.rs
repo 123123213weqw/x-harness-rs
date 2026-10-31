@@ -229,8 +229,10 @@ async fn fresh_tool_observation_still_obeys_whole_request_budget() {
     .await;
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
-    assert!(result.error.unwrap().contains("token budget rejected"));
-    assert_eq!(provider.attempts(), 1, "no oversized second model request");
+    // This fixture has no native counter: the byte ceiling cannot prove
+    // actual overflow, but it still must not authorize the next request.
+    assert!(result.error.unwrap().contains("measurement unavailable"));
+    assert_eq!(provider.attempts(), 1, "no unadmitted second model request");
 }
 
 #[derive(Default)]
@@ -2991,7 +2993,7 @@ async fn invalid_request_fails_before_the_provider_is_called() {
 
 #[tokio::test]
 async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
-    let provider = Arc::new(ScriptProvider::new([vec![Ok(completed())]]));
+    let provider = Arc::new(ExactCountingProvider::new(64_196, [vec![Ok(completed())]]));
     let guard = TokenGuard::new(
         Arc::new(FixedTokenMeter { total: 64_196 }),
         TokenBudget {
@@ -3008,7 +3010,8 @@ async fn hard_token_budget_rejects_64196_before_a_53248_provider_attempt() {
 
     let (_, result) = collect(LoopEngine.start(request)).await;
     assert_eq!(result.status, LoopStatus::Failed);
-    assert_eq!(provider.attempts(), 0);
+    assert_eq!(provider.inner.attempts(), 0);
+    assert_eq!(provider.count_attempts.load(Ordering::SeqCst), 1);
     let error = result.error.unwrap();
     assert!(error.contains("64196"), "{error}");
     assert!(error.contains("context=53248"), "{error}");
@@ -6826,7 +6829,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
         request.compaction = Some(CompactionConfig {
             retain_ratio: None,
             retain_tokens: Some(10),
-            max_tokens: 64,
+            max_tokens: 1,
             ..CompactionConfig::default()
         });
         let (_, result) = collect(LoopEngine.start(request)).await;
@@ -6853,7 +6856,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
             session.events().iter().any(|e| matches!(
                 e.data(),
                 SessionEventData::CompactionEnd {
-                    outcome: Some(xharness_session::CompactionEndOutcome::NoBenefit),
+                    outcome: Some(xharness_session::CompactionEndOutcome::Failed),
                     ..
                 }
             )),
@@ -6873,11 +6876,7 @@ async fn oversized_candidate_is_not_committed_even_when_summary_is_smaller() {
                 .iter()
                 .any(|m| m.content.contains("SMALL-CANDIDATE")));
         } else {
-            assert!(result
-                .error
-                .as_deref()
-                .unwrap()
-                .contains("does not reduce the complete request"));
+            assert!(result.error.as_deref().unwrap().contains("capacity"));
         }
     }
 }
@@ -7043,12 +7042,15 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
             "USER-EVIDENCE:{}; scope=read-only; do not publish",
             "x".repeat(6_000)
         );
-        let provider = Arc::new(ScriptProvider::new([vec![
-            Ok(ProviderEvent::TextDelta(
-                "read-only observation complete".into(),
-            )),
-            Ok(completed()),
-        ]]));
+        let provider = Arc::new(ExactCountingProvider::new(
+            input,
+            [vec![
+                Ok(ProviderEvent::TextDelta(
+                    "read-only observation complete".into(),
+                )),
+                Ok(completed()),
+            ]],
+        ));
         let journal = Arc::new(EventMemorySessionStore::default());
         let mut request =
             LoopRequest::new(provider.clone(), vec![AgentMessage::user(original.clone())]);
@@ -7084,7 +7086,7 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
             result.error
         );
         assert_eq!(
-            provider.attempts(),
+            provider.inner.attempts(),
             usize::from(input == 900),
             "no auxiliary or unsafe main request can be sent for protected source"
         );
@@ -7109,7 +7111,7 @@ async fn pinned_raw_user_is_not_summarized_and_hard_overflow_sends_nothing() {
                 )),
                 "soft no-eligible must close explicitly without rewriting the user instruction"
             );
-            assert!(provider.requests()[0]
+            assert!(provider.inner.requests()[0]
                 .messages
                 .iter()
                 .any(|message| message.content == original));
@@ -10371,3 +10373,9 @@ async fn stable_working_set_fresh_pressure_rebalances_without_resurrecting_old_r
         .iter()
         .any(|m| m.role == Role::Tool && m.content.contains("CALIBRATION_RAW_")));
 }
+
+include!("cases/multimodal_metering.rs");
+
+include!("cases/budget_verification.rs");
+
+include!("cases/compaction_recovery.rs");

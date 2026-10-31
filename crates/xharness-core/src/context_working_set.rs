@@ -3,6 +3,22 @@ use std::collections::{HashMap, HashSet};
 use xharness_context::{WorkingSetSource, WorkingSetSourceKind};
 use xharness_session::{EventData, Message, Session, SurfaceMessage, ToolOutcome};
 
+/// Visual retirement requires journal evidence too. Unknown/open tool units,
+/// opaque provider replay and interrupted work must remain lossless.
+pub(crate) fn visual_history_is_known(
+    messages: &[Message],
+    sources: &[Option<WorkingSetSource>],
+) -> bool {
+    messages.len() == sources.len()
+        && !sources.iter().flatten().any(|s| s.outcome_unknown)
+        && messages.iter().zip(sources).all(|(message, source)| {
+            !message.interrupted
+                && message.provider_items.is_empty()
+                && (message.role != xharness_session::MessageRole::Tool
+                    || source.is_some_and(|s| s.kind == WorkingSetSourceKind::ToolResult))
+        })
+}
+
 pub(crate) fn sources(
     session: &Session,
     surface: &[SurfaceMessage],
@@ -306,5 +322,37 @@ mod stable_tests {
         ] {
             assert!(StableSelection::restore(&invalid).is_none());
         }
+    }
+}
+
+#[cfg(test)]
+mod visual_provenance_tests {
+    use super::*;
+    #[test]
+    fn missing_unknown_interrupted_and_opaque_sources_do_not_retire_visual_history() {
+        let mut messages = vec![
+            Message::system("system"),
+            Message::tool("call", "visual observation"),
+        ];
+        let mut sources = vec![
+            None,
+            Some(WorkingSetSource {
+                seq: 3,
+                kind: WorkingSetSourceKind::ToolResult,
+                outcome_unknown: false,
+            }),
+        ];
+        assert!(visual_history_is_known(&messages, &sources));
+        assert!(!visual_history_is_known(&messages, &[]));
+        sources[1].as_mut().unwrap().outcome_unknown = true;
+        assert!(!visual_history_is_known(&messages, &sources));
+        sources[1].as_mut().unwrap().outcome_unknown = false;
+        messages[1].interrupted = true;
+        assert!(!visual_history_is_known(&messages, &sources));
+        messages[1].interrupted = false;
+        messages[0]
+            .provider_items
+            .push(serde_json::json!({"opaque":true}));
+        assert!(!visual_history_is_known(&messages, &sources));
     }
 }

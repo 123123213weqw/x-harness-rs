@@ -6,6 +6,7 @@ fn mixed(units: u64) -> WireFeatures {
         buckets: [units * 68 / 100, units * 29 / 100, units / 100],
         framing: units - units * 68 / 100 - units * 29 / 100 - units / 100,
         image_tokens: 145_575,
+        ..Default::default()
     }
 }
 
@@ -20,6 +21,7 @@ fn mixed_growth_recovers_after_text_samples_become_incompatible() {
                 buckets: [20_000, 65_000, 500],
                 framing: 10_000,
                 image_tokens: 0,
+                ..Default::default()
             },
             28_000,
         );

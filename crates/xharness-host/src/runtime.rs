@@ -440,6 +440,14 @@ impl ModelProvider for RouteBoundProvider {
         self.inner.count_input_tokens(request, cancellation).await
     }
 
+    async fn recount_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<xharness_core::ProviderInputTokenCount>, xharness_core::ProviderError> {
+        self.inner.recount_input_tokens(request, cancellation).await
+    }
+
     async fn capabilities(
         &self,
         cancellation: tokio_util::sync::CancellationToken,

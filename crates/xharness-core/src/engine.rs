@@ -25,8 +25,8 @@ use xharness_compaction::{
 use xharness_debug::DebugScope;
 use xharness_session::{
     ApprovalOutcome, AssistantChunk, CommandResultKind, CompactionEndOutcome, CompactionProgress,
-    CompactionStage, EventData as SessionEventData, LlmFailure, LlmRetryMode, PendingToolApproval,
-    RequestHeader, Revision, SequenceRange, SessionEvent, SessionHeader,
+    CompactionStage, CompactionValidation, EventData as SessionEventData, LlmFailure, LlmRetryMode,
+    PendingToolApproval, RequestHeader, Revision, SequenceRange, SessionEvent, SessionHeader,
     Store as EventSessionStore, SurfaceReplace, ToolOutcome, ToolResultData, TurnEndReason,
 };
 
@@ -65,8 +65,10 @@ enum StopReason {
 }
 
 enum TokenBudgetCheck {
-    Ready(Option<TokenBudgetReport>),
-    Exceeded {
+    Admitted(Option<TokenBudgetReport>),
+    /// A non-exact rejection requires verification, never overflow recovery.
+    NeedsVerification(Box<TokenBudgetReport>),
+    ConfirmedOverBudget {
         current_input_tokens: u64,
         context_window_tokens: u64,
         error: String,
@@ -87,6 +89,40 @@ struct CompactionSummaryOutput {
     text: String,
     usage: Option<TokenUsage>,
     max_output_tokens: u64,
+}
+
+// One bounded recovery transaction may stage several disjoint raw spans.
+// Only the final, fully admitted surface is ever committed to the real journal.
+const MAX_COMPACTION_CANDIDATES: usize = 16;
+const MAX_COMPACTION_SUMMARY_CALLS: usize = 64;
+const COMPACTION_RECOVERY_TIME: Duration = Duration::from_secs(600);
+
+struct StagedCompaction {
+    id: String,
+    plan: CompactionPlan,
+    summary: CompactionSummaryOutput,
+    checkpoint: AgentMessage,
+    checkpoint_tokens: u64,
+}
+struct CompactionRecovery {
+    pieces: Vec<StagedCompaction>,
+    budget_before: Option<TokenBudgetReport>,
+    source_sha256: Option<String>,
+    previous_candidate: Option<TokenBudgetReport>,
+    deadline: tokio::time::Instant,
+    calls: usize,
+    round: usize,
+    input_tokens_before: u64,
+    needs_reduction: bool,
+    capacity_failed: bool,
+    capacity_detail: String,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CandidateValidation {
+    Admitted,
+    NoReduction,
+    OverBudget,
+    Interrupted,
 }
 
 pub struct LoopRun {
@@ -434,6 +470,7 @@ impl LoopEngine {
             overflow_recoveries: 0,
             last_input_tokens: None,
             recent_input_growth: VecDeque::new(),
+            last_budget_report: None,
             failed_compactions: HashMap::new(),
             workset_pressure: false,
             workset_input_sample: None,
@@ -609,6 +646,7 @@ struct Runner {
     overflow_recoveries: u32,
     last_input_tokens: Option<u64>,
     recent_input_growth: VecDeque<u64>,
+    last_budget_report: Option<TokenBudgetReport>,
     failed_compactions: HashMap<String, String>,
     workset_pressure: bool,
     workset_selection: Option<crate::context_working_set::StableSelection>,
@@ -876,7 +914,7 @@ impl Runner {
                     .check_token_budget(&provider_request, &prepared, &context_tools)
                     .await?
                 {
-                    TokenBudgetCheck::Ready(report) => {
+                    TokenBudgetCheck::Admitted(report) => {
                         if let Some(report) = &report {
                             if !working_set_attempted
                                 && context_tools.iter().any(|t| {
@@ -963,7 +1001,15 @@ impl Runner {
                             context_origins,
                         );
                     }
-                    TokenBudgetCheck::Exceeded {
+                    TokenBudgetCheck::NeedsVerification(report) => {
+                        self.debug(
+                            "token_budget.needs_verification",
+                            || json!({"budget": &report}),
+                        )
+                        .await;
+                        return Err(measurement_unavailable(&report));
+                    }
+                    TokenBudgetCheck::ConfirmedOverBudget {
                         current_input_tokens,
                         context_window_tokens,
                         error,
@@ -1412,6 +1458,8 @@ impl Runner {
                     crate::context_working_set::aligned(&context_messages, &surface, &sources);
             }
         }
+        let allow_visual_window =
+            crate::context_working_set::visual_history_is_known(&context_messages, &origins);
         let history_available = context_tools
             .iter()
             .any(|tool| tool.get("name").and_then(Value::as_str) == Some("history"));
@@ -1473,6 +1521,7 @@ impl Runner {
             &origins,
             &attribution,
             working_plan.as_ref(),
+            allow_visual_window,
         )
         .await
     }
@@ -1484,6 +1533,7 @@ impl Runner {
         origins: &[Option<xharness_context::WorkingSetSource>],
         attribution: &[xharness_token::ContextMessageOrigin],
         working_plan: Option<&xharness_session::SessionPlan>,
+        allow_visual_window: bool,
     ) -> Result<crate::context_composition::PreparedContext, RunFailure> {
         let working_attribution =
             crate::context_composition::project_origins(attribution, &working);
@@ -1556,6 +1606,11 @@ impl Runner {
         // Account for exactly the image references that will be sent on the
         // wire. In particular, a long conversation must not fail forever once
         // its accumulated attachments exceed one request's resource budget.
+        if allow_visual_window {
+            prepared
+                .defer_superseded_tool_images()
+                .map_err(|e| RunFailure::Failed(e.to_string()))?;
+        }
         prepared.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
         if let Some(note) =
             crate::plan_context::snapshot(&prepared.messages, working_plan, context_tools)
@@ -1737,17 +1792,143 @@ impl Runner {
         surface: &ContextSurface,
         tools: &[Value],
     ) -> Result<TokenBudgetCheck, RunFailure> {
+        let mut check = self
+            .check_token_budget_once(provider_request, surface, tools, false, None)
+            .await?;
+        let recovery_deadline = tokio::time::Instant::now()
+            + Duration::from_millis(self.request.config.provider_retry_budget_ms);
+        // A conservative estimate crossing the limit is a request to verify,
+        // not evidence of native context overflow. Recheck this exact surface,
+        // bypassing only the optional counter cooldown, never the hard budget.
+        for attempt in 0..2 {
+            if !matches!(check, TokenBudgetCheck::NeedsVerification(_)) {
+                break;
+            }
+            let report = self.last_budget_report.as_ref();
+            let retry_after = report.and_then(|r| r.counter_retry_after_ms);
+            if attempt > 0
+                && report.and_then(|r| r.fallback_reason.as_deref())
+                    != Some("transient_counter_failure")
+            {
+                break;
+            }
+            let wait = retry_after.unwrap_or_else(|| {
+                if attempt > 0 || report.is_some_and(|r| r.counter_http_status == Some(429)) {
+                    self.request.config.provider_retry_base_delay_ms
+                } else {
+                    0
+                }
+            });
+            if Duration::from_millis(wait)
+                >= recovery_deadline.saturating_duration_since(tokio::time::Instant::now())
+            {
+                break;
+            }
+            if wait > 0 && self.wait_token_recount(wait).await? {
+                return Ok(TokenBudgetCheck::Interrupted);
+            }
+            check = self
+                .check_token_budget_once(
+                    provider_request,
+                    surface,
+                    tools,
+                    true,
+                    Some(recovery_deadline),
+                )
+                .await?;
+            if let Some(report) = &mut self.last_budget_report {
+                report.counter_rechecks = attempt + 1;
+            }
+        }
+        if self.last_budget_report.is_some() {
+            let request_sha256 = sha256_json(
+                &json!({"messages":provider_request.messages,"tools":provider_request.tools,"reasoning":provider_request.reasoning_effort,"output":provider_request.max_output_tokens}),
+            )?;
+            if let Some(report) = &mut self.last_budget_report {
+                report.request_sha256 = Some(request_sha256);
+            }
+        }
+        if let Some(measured) = &self.last_budget_report {
+            match &mut check {
+                TokenBudgetCheck::Admitted(Some(report)) => *report = measured.clone(),
+                TokenBudgetCheck::NeedsVerification(report) => **report = measured.clone(),
+                _ => {}
+            }
+        }
+        Ok(check)
+    }
+
+    async fn wait_token_recount(&mut self, delay_ms: u64) -> Result<bool, RunFailure> {
+        let wake = tokio::time::Instant::now() + Duration::from_millis(delay_ms);
+        loop {
+            tokio::select! {
+                _ = self.cancellation.cancelled() => return Err(self.stopped_failure()),
+                _ = tokio::time::sleep_until(wake) => return Ok(false),
+                command = self.command_rx.recv(), if self.command_open => match command {
+                    Some(envelope) => {
+                        if self.handle_envelope(envelope, true).await? || self.paused { return Ok(true); }
+                    }
+                    None => self.command_open = false,
+                }
+            }
+        }
+    }
+
+    fn rejected_budget(&mut self, error: TokenBudgetError) -> Result<TokenBudgetCheck, RunFailure> {
+        self.last_budget_report = error.report().cloned();
+        match &error {
+            TokenBudgetError::Exceeded { report, .. } if !report.is_exact() => {
+                Ok(TokenBudgetCheck::NeedsVerification(report.clone()))
+            }
+            TokenBudgetError::Exceeded {
+                estimated_input_tokens,
+                context_window_tokens,
+                ..
+            } => Ok(TokenBudgetCheck::ConfirmedOverBudget {
+                current_input_tokens: *estimated_input_tokens,
+                context_window_tokens: *context_window_tokens,
+                error: error.to_string(),
+            }),
+            _ => Err(RunFailure::Failed(format!(
+                "token budget rejected request: {error}"
+            ))),
+        }
+    }
+
+    async fn check_token_budget_once(
+        &mut self,
+        provider_request: &ProviderRequest,
+        surface: &ContextSurface,
+        tools: &[Value],
+        fresh: bool,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<TokenBudgetCheck, RunFailure> {
+        self.last_budget_report = None;
         let Some(guard) = &self.request.token_guard else {
-            return Ok(TokenBudgetCheck::Ready(None));
+            return Ok(TokenBudgetCheck::Admitted(None));
         };
         let guard = guard.clone();
         let provider_cancellation = self.cancellation.child_token();
         let provider = self.request.provider.clone();
-        let mut count_future = Box::pin(tokio::time::timeout(
-            guard.counter_timeout(),
-            provider.count_input_tokens(provider_request, provider_cancellation.clone()),
-        ));
+        let timeout = deadline.map_or(guard.counter_timeout(), |deadline| {
+            guard
+                .counter_timeout()
+                .min(deadline.saturating_duration_since(tokio::time::Instant::now()))
+        });
+        let mut count_future = Box::pin(tokio::time::timeout(timeout, async {
+            if fresh {
+                provider
+                    .recount_input_tokens(provider_request, provider_cancellation.clone())
+                    .await
+            } else {
+                provider
+                    .count_input_tokens(provider_request, provider_cancellation.clone())
+                    .await
+            }
+        }));
         let mut fallback_reason = None;
+        let mut counter_http_status = None;
+        let mut counter_retry_after_ms = None;
         let provider_count = loop {
             enum CountProgress {
                 Command(Option<CommandEnvelope>),
@@ -1765,13 +1946,18 @@ impl Runner {
             };
             match progress {
                 CountProgress::Ready(count) => match count {
-                    Ok(value) => break value,
+                    Ok(value) => {
+                        if value.is_none() {
+                            fallback_reason = Some("counter_unavailable".to_owned());
+                        }
+                        break value;
+                    }
                     Err(error) if error.is_context_overflow() => {
                         // A native counter may reject an oversized request before
                         // returning a number. This is a hard overflow signal,
                         // never an auth/general-400 fallback or permission to send.
                         provider_cancellation.cancel();
-                        return Ok(TokenBudgetCheck::Exceeded {
+                        return Ok(TokenBudgetCheck::ConfirmedOverBudget {
                             current_input_tokens: guard.budget().context_window_tokens,
                             context_window_tokens: guard.budget().context_window_tokens,
                             error: format!("provider counter rejected context: {error}"),
@@ -1779,6 +1965,8 @@ impl Runner {
                     }
                     Err(error) if error.retryable && guard.allows_counter_fallback() => {
                         fallback_reason = Some("transient_counter_failure".to_owned());
+                        counter_http_status = error.http_status;
+                        counter_retry_after_ms = error.retry_after_ms;
                         provider.input_counter_failed();
                         self.debug("token_count.fallback",|| json!({"reason":"transient_counter_failure","status":error.http_status})).await;
                         break None;
@@ -1808,22 +1996,16 @@ impl Runner {
             return match guard.check_provider_count(&count) {
                 Ok(mut report) => {
                     report.fallback_reason = fallback_reason.clone();
-                    Ok(TokenBudgetCheck::Ready(Some(report)))
+                    report.counter_http_status = counter_http_status;
+                    report.counter_retry_after_ms = counter_retry_after_ms;
+                    self.last_budget_report = Some(report.clone());
+                    Ok(TokenBudgetCheck::Admitted(Some(report)))
                 }
-                Err(
-                    error @ TokenBudgetError::Exceeded {
-                        estimated_input_tokens,
-                        context_window_tokens,
-                        ..
-                    },
-                ) => Ok(TokenBudgetCheck::Exceeded {
-                    current_input_tokens: estimated_input_tokens,
-                    context_window_tokens,
-                    error: error.to_string(),
-                }),
-                Err(error) => Err(RunFailure::Failed(format!(
-                    "token budget rejected request: {error}"
-                ))),
+                Err(error) => self.rejected_budget(
+                    error
+                        .with_fallback_reason(fallback_reason)
+                        .with_counter_failure(counter_http_status, counter_retry_after_ms),
+                ),
             };
         }
         let mut system_messages = Vec::new();
@@ -1849,22 +2031,16 @@ impl Runner {
         }) {
             Ok(mut report) => {
                 report.fallback_reason = fallback_reason.clone();
-                Ok(TokenBudgetCheck::Ready(Some(report)))
+                report.counter_http_status = counter_http_status;
+                report.counter_retry_after_ms = counter_retry_after_ms;
+                self.last_budget_report = Some(report.clone());
+                Ok(TokenBudgetCheck::Admitted(Some(report)))
             }
-            Err(
-                error @ TokenBudgetError::Exceeded {
-                    estimated_input_tokens,
-                    context_window_tokens,
-                    ..
-                },
-            ) => Ok(TokenBudgetCheck::Exceeded {
-                current_input_tokens: estimated_input_tokens,
-                context_window_tokens,
-                error: error.to_string(),
-            }),
-            Err(error) => Err(RunFailure::Failed(format!(
-                "token budget rejected request: {error}"
-            ))),
+            Err(error) => self.rejected_budget(
+                error
+                    .with_fallback_reason(fallback_reason)
+                    .with_counter_failure(counter_http_status, counter_retry_after_ms),
+            ),
         }
     }
 
@@ -1900,20 +2076,23 @@ impl Runner {
                 .check_token_budget(&provider_request, &prepared, &context_tools)
                 .await?
             {
-                TokenBudgetCheck::Ready(Some(report)) => (
+                TokenBudgetCheck::Admitted(Some(report)) => (
                     report.estimate.total_input_tokens,
                     report.context_window_tokens,
                 ),
-                TokenBudgetCheck::Ready(None) => {
+                TokenBudgetCheck::Admitted(None) => {
                     return Err(RunFailure::Failed(
                         "manual compaction requires an active token guard".to_owned(),
                     ))
                 }
-                TokenBudgetCheck::Exceeded {
+                TokenBudgetCheck::ConfirmedOverBudget {
                     current_input_tokens,
                     context_window_tokens,
                     ..
                 } => (current_input_tokens, context_window_tokens),
+                TokenBudgetCheck::NeedsVerification(report) => {
+                    return Err(measurement_unavailable(&report))
+                }
                 TokenBudgetCheck::Interrupted => {
                     return Err(RunFailure::Stopped(StopReason::Cancelled))
                 }
@@ -1994,6 +2173,139 @@ impl Runner {
         context_tools: &[Value],
         source_command_id: Option<&str>,
     ) -> Result<CompactionOutcome, RunFailure> {
+        let mut recovery = CompactionRecovery {
+            pieces: Vec::new(),
+            budget_before: self.last_budget_report.clone(),
+            source_sha256: None,
+            previous_candidate: None,
+            deadline: tokio::time::Instant::now() + COMPACTION_RECOVERY_TIME,
+            calls: 0,
+            round: 0,
+            input_tokens_before: current_input_tokens,
+            needs_reduction: false,
+            capacity_failed: false,
+            capacity_detail: "candidate recovery budget exhausted".into(),
+        };
+        for round in 0..MAX_COMPACTION_CANDIDATES {
+            recovery.round = round;
+            if recovery.calls >= MAX_COMPACTION_SUMMARY_CALLS
+                || tokio::time::Instant::now() >= recovery.deadline
+            {
+                break;
+            }
+            recovery.needs_reduction = false;
+            // Each candidate replaces the same immutable original surface.
+            // A preceding rejected candidate is not the before-count baseline.
+            self.last_budget_report = recovery.budget_before.clone();
+            let result = self
+                .try_compact_attempt(
+                    trigger,
+                    current_input_tokens,
+                    context_window_tokens,
+                    context_tools,
+                    source_command_id,
+                    &mut recovery,
+                )
+                .await;
+            if matches!(&result, Ok(CompactionOutcome::Applied)) {
+                return result;
+            }
+            if result.is_ok() && recovery.needs_reduction {
+                continue;
+            }
+            let interrupted = matches!(
+                &result,
+                Ok(CompactionOutcome::Interrupted) | Err(RunFailure::Stopped(_))
+            );
+            self.close_staged_compactions(&mut recovery, source_command_id, interrupted)
+                .await?;
+            if recovery.capacity_failed && trigger == CompactionTrigger::Pressure {
+                return Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed));
+            }
+            return result;
+        }
+        self.close_staged_compactions(&mut recovery, source_command_id, false)
+            .await?;
+        if trigger == CompactionTrigger::Pressure {
+            // Optional maintenance must revalidate the unchanged original.
+            return Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed));
+        }
+        Err(RunFailure::Failed(format!(
+            "compaction capacity recovery exhausted: {}; original history is unchanged",
+            recovery.capacity_detail
+        )))
+    }
+
+    async fn close_staged_compactions(
+        &mut self,
+        recovery: &mut CompactionRecovery,
+        command: Option<&str>,
+        interrupted: bool,
+    ) -> Result<(), RunFailure> {
+        let turn = self.journal.as_ref().map(|j| j.turn);
+        // append may have succeeded before flush returned an error. Consult
+        // authoritative journal facts; never append Failed after Applied.
+        let ended = if recovery.pieces.is_empty() {
+            HashSet::new()
+        } else {
+            let journal = self
+                .journal
+                .as_ref()
+                .ok_or_else(|| RunFailure::Failed("compaction lost journal".into()))?;
+            let latest = journal.store.load(&journal.session_id).await
+                .map_err(|_| RunFailure::Failed("cannot reconcile staged compaction outcome; reload the journal before retrying".into()))?
+                .ok_or_else(|| RunFailure::Failed("staged compaction journal disappeared".into()))?;
+            latest
+                .events()
+                .iter()
+                .filter_map(|event| match event.data() {
+                    SessionEventData::CompactionEnd { compaction_id, .. } => {
+                        Some(compaction_id.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<HashSet<_>>()
+        };
+        recovery.pieces.retain(|piece| !ended.contains(&piece.id));
+        let events = recovery
+            .pieces
+            .drain(..)
+            .map(|piece| SessionEventData::CompactionEnd {
+                compaction_id: piece.id,
+                source_command_id: command.map(str::to_owned),
+                turn,
+                outcome: Some(if interrupted {
+                    CompactionEndOutcome::Interrupted
+                } else {
+                    CompactionEndOutcome::Failed
+                }),
+                fingerprint: None,
+                error: Some(if interrupted {
+                    "staged compaction interrupted; original history is unchanged".into()
+                } else {
+                    format!(
+                        "{}; staged notes discarded; original history is unchanged",
+                        recovery.capacity_detail
+                    )
+                }),
+            })
+            .collect::<Vec<_>>();
+        if !events.is_empty() {
+            self.journal_append(events, true).await?;
+        }
+        Ok(())
+    }
+
+    async fn try_compact_attempt(
+        &mut self,
+        trigger: CompactionTrigger,
+        current_input_tokens: u64,
+        context_window_tokens: u64,
+        context_tools: &[Value],
+        source_command_id: Option<&str>,
+        recovery: &mut CompactionRecovery,
+    ) -> Result<CompactionOutcome, RunFailure> {
+        let budget_before = recovery.budget_before.clone();
         let Some(config) = self.request.compaction.clone() else {
             return Ok(CompactionOutcome::NotApplied);
         };
@@ -2014,21 +2326,48 @@ impl Runner {
                 RunFailure::Failed("compaction session disappeared before planning".to_owned())
             })?;
         let surface = session.derive_surface_messages();
+        let source_sha256 = sha256_json(&json!({"surface": &surface, "tools": context_tools,
+            "plan": xharness_session::session_plan(&session)}))?;
+        if recovery
+            .source_sha256
+            .as_ref()
+            .is_some_and(|old| old != &source_sha256)
+            || (!recovery.pieces.is_empty()
+                && self
+                    .journal
+                    .as_ref()
+                    .is_none_or(|j| j.next_seq != session.next_seq()))
+        {
+            return Ok(CompactionOutcome::Interrupted);
+        }
+        recovery.source_sha256 = Some(source_sha256);
         let origins = crate::context_working_set::sources(&session, &surface);
         let mut protected = crate::context_working_set::protected(&surface, &origins);
+        for piece in &recovery.pieces {
+            protected.extend(piece.plan.range.shadowed_seqs.iter().copied());
+        }
+        let mut priced =
+            ContextSurface::identity(surface.iter().map(|n| n.message.clone()).collect());
+        if crate::context_working_set::visual_history_is_known(&priced.messages, &origins) {
+            priced
+                .defer_superseded_tool_images()
+                .map_err(|e| RunFailure::Failed(e.to_string()))?;
+        }
+        priced.defer_images_over_budget(crate::MAX_REQUEST_IMAGE_BYTES);
         let mut nodes = surface
             .iter()
-            .map(|node| {
+            .zip(&priced.messages)
+            .map(|(node, message)| {
                 if let Some(SessionEventData::ToolResult { result, .. }) =
                     session.events().get(node.seq as usize).map(|e| e.data())
                 {
                     return Ok(SurfaceNode::tool_result(
                         node.seq,
-                        estimate_message_tokens(&node.message)?,
+                        estimate_message_tokens(message)?,
                         result.call_id.clone(),
                     ));
                 }
-                surface_node(node.seq, &node.message)
+                surface_node(node.seq, message)
             })
             .collect::<Result<Vec<_>, _>>()?;
         if context_tools
@@ -2062,7 +2401,11 @@ impl Runner {
         let plan = match planner
             .plan_incremental_with_input_budget(
                 &CompactionRequest {
-                    trigger,
+                    trigger: if recovery.pieces.is_empty() {
+                        trigger
+                    } else {
+                        CompactionTrigger::ContextOverflow
+                    },
                     target,
                     context_window_tokens,
                     current_input_tokens,
@@ -2080,6 +2423,33 @@ impl Runner {
             .map_err(|error| RunFailure::Failed(error.to_string()))?
         {
             CompactionDecision::Planned { plan } => *plan,
+            CompactionDecision::NoBalancedRange { .. } if !recovery.pieces.is_empty() => {
+                // All remaining eligible spans are covered. Regenerate the
+                // largest staged note from ORIGINAL raw evidence, never from
+                // a summary, with a strictly smaller output ceiling.
+                let index = recovery
+                    .pieces
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.plan.spec.max_tokens > 1)
+                    .max_by_key(|(_, p)| p.checkpoint_tokens)
+                    .map(|(i, _)| i);
+                let Some(index) = index else {
+                    recovery.capacity_failed = true;
+                    recovery.capacity_detail = "compaction capacity floor: no additional eligible raw span or smaller summary ceiling; protected/fixed context cannot be reduced by this transaction".into();
+                    return Err(RunFailure::Failed(recovery.capacity_detail.clone()));
+                };
+                let piece = recovery.pieces.remove(index);
+                let mut plan = piece.plan;
+                plan.spec.max_tokens = (plan.spec.max_tokens / 2).max(1);
+                self.journal_append(vec![SessionEventData::CompactionEnd {
+                    compaction_id: piece.id, source_command_id: source_command_id.map(str::to_owned),
+                    turn: self.journal.as_ref().map(|j| j.turn),
+                    outcome: Some(CompactionEndOutcome::Failed), fingerprint: None,
+                    error: Some("candidate remains over budget; regenerate original evidence with a smaller summary ceiling; no replacement committed".into()),
+                }], true).await?;
+                plan
+            }
             CompactionDecision::NoBalancedRange { .. } => {
                 return self
                     .end_ineligible_compaction(trigger, source_command_id)
@@ -2160,7 +2530,9 @@ impl Runner {
             "system": self.messages.iter().find(|m| m.role == Role::System),
             "target": &plan.spec.target, "context": context_window_tokens,
             "output": plan.spec.max_tokens, "reasoning": &self.request.compaction_reasoning_effort,
-            "pipelineVersion":7, "retryConfig":self.request.config.provider_retry_budget_ms,
+            // Old no-benefit records used incompatible mixed metering and
+            // visual pricing. They must not block recovery after this upgrade.
+            "pipelineVersion":10, "retryConfig":self.request.config.provider_retry_budget_ms,
             "workingSetInputSample":self.workset_input_sample,
             "tools":context_tools, "mainBudget":self.request.token_guard.as_ref().map(|g|g.budget()),
         }))?;
@@ -2177,7 +2549,7 @@ impl Runner {
                 &compaction_id,
                 source_command_id,
                 turn,
-                current_input_tokens,
+                recovery,
             )
             .await
         };
@@ -2202,9 +2574,16 @@ impl Runner {
                         .await;
                 }
                 let interrupted = matches!(&error, crate::compaction::SummaryError::Interrupted);
+                let measurement_pending = matches!(
+                    &error,
+                    crate::compaction::SummaryError::MeasurementUnavailable(_)
+                );
                 let failure_message = error.to_string();
                 let error = match error {
                     crate::compaction::SummaryError::Cancelled => self.stopped_failure(),
+                    crate::compaction::SummaryError::MeasurementUnavailable(report) => {
+                        measurement_unavailable(&report)
+                    }
                     crate::compaction::SummaryError::Provider(error) => {
                         RunFailure::provider(&error, failure_message)
                     }
@@ -2228,12 +2607,28 @@ impl Runner {
                 .await?;
                 return if interrupted {
                     Ok(CompactionOutcome::Interrupted)
+                } else if measurement_pending && trigger == CompactionTrigger::Pressure {
+                    // Optional maintenance must not kill an already-admitted
+                    // request. Re-enter the normal pipeline on unchanged history;
+                    // its full guard still decides whether generation is safe.
+                    Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed))
                 } else {
                     Err(error)
                 };
             }
         };
         let mut progress = summary.progress.clone();
+        progress.budget_before = budget_before
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| {
+                RunFailure::Failed(format!("could not serialize compaction budget: {e}"))
+            })?;
+        progress.source_range = Some(SequenceRange {
+            start: plan.range.start_seq,
+            end: plan.range.end_seq,
+        });
         progress.stage = CompactionStage::Validating;
         progress.delay_ms = None;
         self.journal_compaction_progress(&compaction_id, source_command_id, turn, progress.clone())
@@ -2258,20 +2653,15 @@ impl Runner {
             frame_summary(&evidence).map_err(|error| RunFailure::Failed(error.to_string()))?;
         let checkpoint_tokens = estimate_message_tokens(&AgentMessage::user(&checkpoint))?;
 
-        let shadowed_range = SequenceRange {
-            start: plan.range.start_seq,
-            end: plan.range.end_seq,
-        };
-        let usage = summary
-            .usage
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| {
-                RunFailure::Failed(format!("could not serialize compaction usage: {error}"))
-            })?;
         let checkpoint_message = AgentMessage::user(checkpoint)
             .with_id(format!("compaction-checkpoint-{compaction_id}"));
+        recovery.pieces.push(StagedCompaction {
+            id: compaction_id.clone(),
+            plan: plan.clone(),
+            summary,
+            checkpoint: checkpoint_message,
+            checkpoint_tokens,
+        });
         // Build exactly the surface that Session::surface_replace will publish,
         // then include the same prompt/policy/tools/control notes as a real call.
         // No candidate summary becomes durable before this admission succeeds.
@@ -2280,19 +2670,14 @@ impl Runner {
             .as_ref()
             .ok_or_else(|| RunFailure::Failed("compaction lost commit cursor".into()))?
             .next_seq;
-        let checkpoint_seq = commit_next_seq
-            .checked_add(2)
-            .ok_or_else(|| RunFailure::Failed("compaction sequence overflow".into()))?;
+
         let mut candidate_selection = None;
-        let validation: Result<Option<bool>, RunFailure> = async {
+        let validation: Result<CandidateValidation, RunFailure> = async {
             let mut candidate = surface
                 .iter()
                 .map(|node| node.message.clone())
                 .collect::<Vec<_>>();
-            candidate.splice(
-                plan.range.start_index..=plan.range.end_index,
-                [checkpoint_message.clone()],
-            );
+
             let tool_definitions = self.tool_definitions().await;
             let tools = tool_definitions
                 .iter()
@@ -2305,14 +2690,27 @@ impl Runner {
                     source.kind = xharness_context::WorkingSetSourceKind::Checkpoint;
                 }
             }
-            candidate_origins.splice(
-                plan.range.start_index..=plan.range.end_index,
-                [Some(xharness_context::WorkingSetSource {
-                    seq: checkpoint_seq,
-                    kind: xharness_context::WorkingSetSourceKind::Checkpoint,
-                    outcome_unknown: false,
-                })],
-            );
+            let mut order = (0..recovery.pieces.len()).collect::<Vec<_>>();
+            order.sort_by_key(|&i| std::cmp::Reverse(recovery.pieces[i].plan.range.start_index));
+            for index in order {
+                let piece = &recovery.pieces[index];
+                let checkpoint_seq = commit_next_seq
+                    .checked_add((index as u64).saturating_mul(4))
+                    .and_then(|seq| seq.checked_add(2))
+                    .ok_or_else(|| RunFailure::Failed("compaction sequence overflow".into()))?;
+                candidate.splice(
+                    piece.plan.range.start_index..=piece.plan.range.end_index,
+                    [piece.checkpoint.clone()],
+                );
+                candidate_origins.splice(
+                    piece.plan.range.start_index..=piece.plan.range.end_index,
+                    [Some(xharness_context::WorkingSetSource {
+                        seq: checkpoint_seq,
+                        kind: xharness_context::WorkingSetSourceKind::Checkpoint,
+                        outcome_unknown: false,
+                    })],
+                );
+            }
             let prefixed_candidate = self.compaction_prefixed_history(candidate);
             let prefix_len = prefixed_candidate
                 .len()
@@ -2339,6 +2737,10 @@ impl Runner {
                     &candidate_origins,
                     &[],
                     xharness_session::session_plan(&session).as_ref(),
+                    crate::context_working_set::visual_history_is_known(
+                        &prefixed_candidate,
+                        &candidate_origins,
+                    ),
                 )
                 .await?
                 .surface;
@@ -2354,23 +2756,60 @@ impl Runner {
                     .map(|guard| guard.budget().reserved_output_tokens),
                 debug_scope: self.debug_scope(),
             };
-            match self.check_token_budget(&request, &prepared, &tools).await? {
-                TokenBudgetCheck::Ready(report) => {
-                    progress.input_tokens_after =
-                        report.as_ref().map(|r| r.estimate.total_input_tokens);
-                    self.debug("compaction.candidate_budget", || json!({"budget":report}))
-                        .await;
-                    if progress
-                        .input_tokens_after
-                        .is_some_and(|after| after >= current_input_tokens)
-                        || (progress.input_tokens_after.is_none()
-                            && checkpoint_tokens >= plan.range.shadowed_token_count)
-                    {
-                        return Ok(Some(false));
+            let checked = self.check_token_budget(&request, &prepared, &tools).await?;
+            progress.budget_after = self
+                .last_budget_report
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|e| {
+                    RunFailure::Failed(format!("could not serialize candidate budget: {e}"))
+                })?;
+            progress.input_tokens_after = self
+                .last_budget_report
+                .as_ref()
+                .map(|r| r.estimate.total_input_tokens);
+            match checked {
+                TokenBudgetCheck::Admitted(report) => {
+                    let comparable = budget_before
+                        .as_ref()
+                        .zip(report.as_ref())
+                        .is_some_and(|(before, after)| before.comparable_to(after));
+                    let no_gain = if comparable {
+                        progress
+                            .input_tokens_after
+                            .is_some_and(|after| after >= current_input_tokens)
+                    } else {
+                        // Same local pricing on both replacement spans. Never
+                        // compare exact tokens against an unrelated estimate.
+                        recovery
+                            .pieces
+                            .iter()
+                            .fold(0u64, |sum, p| sum.saturating_add(p.checkpoint_tokens))
+                            >= recovery.pieces.iter().fold(0u64, |sum, p| {
+                                sum.saturating_add(p.plan.range.shadowed_token_count)
+                            })
+                    };
+                    progress.validation = Some(if no_gain {
+                        CompactionValidation::NoReduction
+                    } else if comparable {
+                        CompactionValidation::AdmittedExact
+                    } else {
+                        CompactionValidation::AdmittedWithLocalGain
+                    });
+                    if no_gain {
+                        return Ok(CandidateValidation::NoReduction);
                     }
                 }
-                TokenBudgetCheck::Exceeded { .. } => return Ok(Some(false)),
-                TokenBudgetCheck::Interrupted => return Ok(None),
+                TokenBudgetCheck::NeedsVerification(report) => {
+                    progress.validation = Some(CompactionValidation::EstimatedOverBudget);
+                    return Err(measurement_unavailable(&report));
+                }
+                TokenBudgetCheck::ConfirmedOverBudget { .. } => {
+                    progress.validation = Some(CompactionValidation::ExactOverBudget);
+                    return Ok(CandidateValidation::OverBudget);
+                }
+                TokenBudgetCheck::Interrupted => return Ok(CandidateValidation::Interrupted),
             }
             self.ensure_running()?;
             let latest = store
@@ -2387,93 +2826,141 @@ impl Runner {
                     .as_ref()
                     .is_none_or(|journal| journal.next_seq != commit_next_seq)
             {
-                return Ok(None);
+                return Ok(CandidateValidation::Interrupted);
             }
-            Ok(Some(true))
+            Ok(CandidateValidation::Admitted)
         }
         .await;
-        if matches!(validation, Ok(Some(false))) {
-            return self.end_no_benefit(&compaction_id,source_command_id,turn,trigger,fingerprint,
-                "candidate does not reduce the complete request enough to pass admission; original history is unchanged".into()).await;
-        }
-        if !matches!(validation, Ok(Some(true))) {
-            let message = match &validation {
-                Ok(None) => {
-                    "compaction candidate validation interrupted or source changed; original history is unchanged".to_owned()
-                }
-                Err(error) => error.to_string(),
-                Ok(Some(_)) => unreachable!(),
-            };
-            self.journal_append(
-                vec![SessionEventData::CompactionEnd {
-                    outcome: Some(if validation.is_ok() {
-                        CompactionEndOutcome::Interrupted
-                    } else {
-                        CompactionEndOutcome::Failed
-                    }),
-                    fingerprint: None,
-                    compaction_id: compaction_id.clone(),
-                    source_command_id: source_command_id.map(str::to_owned),
-                    turn: Some(turn),
-                    error: Some(message),
-                }],
-                true,
+        if !matches!(validation, Ok(CandidateValidation::Admitted)) {
+            // The candidate remains disposable. Persist rejected measurement
+            // evidence before closing, without moving the successful commit cursor.
+            self.journal_compaction_progress(
+                &compaction_id,
+                source_command_id,
+                turn,
+                progress.clone(),
             )
             .await?;
+        }
+        if let Some(piece) = recovery.pieces.last_mut() {
+            piece.summary.progress = progress.clone();
+        }
+        if matches!(validation, Ok(CandidateValidation::OverBudget)) {
+            recovery.capacity_detail = self.last_budget_report.as_ref().map_or_else(
+                || "provider confirmed candidate overflow without a numeric count".into(),
+                |report| {
+                    format!(
+                        "candidate input={} still exceeds available input={}",
+                        report.estimate.total_input_tokens, report.available_input_tokens
+                    )
+                },
+            );
+            if recovery
+                .previous_candidate
+                .as_ref()
+                .zip(self.last_budget_report.as_ref())
+                .is_some_and(|(previous, current)| {
+                    previous.comparable_to(current)
+                        && current.estimate.total_input_tokens
+                            >= previous.estimate.total_input_tokens
+                })
+            {
+                recovery.capacity_failed = true;
+                return Err(RunFailure::Failed(format!(
+                    "{}; bounded reduction stopped making progress; original history is unchanged",
+                    recovery.capacity_detail
+                )));
+            }
+            recovery.previous_candidate = self.last_budget_report.clone();
+            recovery.needs_reduction = true;
+            return Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed));
+        }
+        if matches!(validation, Ok(CandidateValidation::NoReduction)) {
+            if recovery.pieces.len() == 1 {
+                recovery.pieces.clear();
+                return self.end_no_benefit(&compaction_id,source_command_id,turn,trigger,fingerprint,
+                    "candidate does not reduce the complete request; original history is unchanged".into()).await;
+            }
+            return Err(RunFailure::Failed(
+                "combined candidate has no measured reduction; original history is unchanged"
+                    .into(),
+            ));
+        }
+        if !matches!(validation, Ok(CandidateValidation::Admitted)) {
             return match validation {
                 Ok(_) => Ok(CompactionOutcome::Interrupted),
+                Err(_)
+                    if trigger == CompactionTrigger::Pressure
+                        && progress.validation
+                            == Some(CompactionValidation::EstimatedOverBudget) =>
+                {
+                    Ok(CompactionOutcome::Skipped(CompactionEndOutcome::Failed))
+                }
                 Err(error) => Err(error),
             };
         }
         self.failed_compactions.clear();
         self.ensure_running()?;
-        progress.stage = CompactionStage::Committing;
-        let committed = self
-            .commit_compaction_events(vec![
+        let mut events = Vec::new();
+        for piece in &recovery.pieces {
+            let mut committed_progress = piece.summary.progress.clone();
+            committed_progress.stage = CompactionStage::Committing;
+            committed_progress.validation = progress.validation;
+            committed_progress.budget_after = progress.budget_after.clone();
+            committed_progress.input_tokens_after = progress.input_tokens_after;
+            let range = SequenceRange {
+                start: piece.plan.range.start_seq,
+                end: piece.plan.range.end_seq,
+            };
+            events.extend([
                 SessionEventData::CompactionProgress {
-                    compaction_id: compaction_id.clone(),
+                    compaction_id: piece.id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
-                    progress,
+                    progress: committed_progress,
                 },
                 SessionEventData::CompactionSummary {
-                    compaction_id: compaction_id.clone(),
+                    compaction_id: piece.id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
-                    summary: summary.text,
-                    shadowed_range,
-                    shadowed_seqs: plan.range.shadowed_seqs.clone(),
-                    shadowed_token_count: plan.range.shadowed_token_count,
-                    provider: current_provider,
-                    model: current_model,
-                    max_tokens: Some(summary.max_output_tokens),
-                    usage,
+                    summary: piece.summary.text.clone(),
+                    shadowed_range: range,
+                    shadowed_seqs: piece.plan.range.shadowed_seqs.clone(),
+                    shadowed_token_count: piece.plan.range.shadowed_token_count,
+                    provider: current_provider.clone(),
+                    model: current_model.clone(),
+                    max_tokens: Some(piece.summary.max_output_tokens),
+                    usage: piece
+                        .summary
+                        .usage
+                        .as_ref()
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .map_err(|e| {
+                            RunFailure::Failed(format!("could not serialize compaction usage: {e}"))
+                        })?,
                 },
                 SessionEventData::UserMessage {
-                    message: checkpoint_message,
+                    message: piece.checkpoint.clone(),
                     surface_replace: Some(SurfaceReplace {
-                        compaction_id: compaction_id.clone(),
-                        shadowed_range,
-                        shadowed_seqs: plan.range.shadowed_seqs.clone(),
+                        compaction_id: piece.id.clone(),
+                        shadowed_range: range,
+                        shadowed_seqs: piece.plan.range.shadowed_seqs.clone(),
                     }),
                 },
                 SessionEventData::CompactionEnd {
-                    outcome: Some(CompactionEndOutcome::Applied),
-                    fingerprint: None,
-                    compaction_id: compaction_id.clone(),
+                    compaction_id: piece.id.clone(),
                     source_command_id: source_command_id.map(str::to_owned),
                     turn: Some(turn),
+                    outcome: Some(CompactionEndOutcome::Applied),
+                    fingerprint: None,
                     error: None,
                 },
-            ])
-            .await?;
-        if !committed {
-            self.journal_append(vec![SessionEventData::CompactionEnd {
-                compaction_id:compaction_id.clone(),source_command_id:source_command_id.map(str::to_owned),turn:Some(turn),
-                outcome:Some(CompactionEndOutcome::Interrupted),fingerprint:None,
-                error:Some("compaction commit cursor changed; candidate discarded and original history retained".into()),
-            }],true).await?;
+            ]);
+        }
+        if !self.commit_compaction_events(events).await? {
             return Ok(CompactionOutcome::Interrupted);
         }
+        recovery.pieces.clear();
         self.reload_journal_messages().await?;
         // Reuse exactly the candidate admitted before this atomic commit.
         self.workset_selection = candidate_selection;
@@ -2626,8 +3113,9 @@ impl Runner {
         compaction_id: &str,
         source_command_id: Option<&str>,
         turn: u32,
-        input_tokens_before: u64,
+        recovery: &mut CompactionRecovery,
     ) -> Result<CompactionSummaryOutput, crate::compaction::SummaryError> {
+        let input_tokens_before = recovery.input_tokens_before;
         if self.cancellation.is_cancelled() {
             return Err(crate::compaction::SummaryError::Cancelled);
         }
@@ -2653,6 +3141,7 @@ impl Runner {
         let cancellation = self.cancellation.child_token();
         let _cancel_on_drop = cancellation.clone().drop_guard();
         let (progress_tx, mut progress_rx) = mpsc::channel(4);
+        let calls_before = recovery.calls;
         let summary = crate::compaction::SummaryRunner::new(
             self.request.provider.clone(),
             guard,
@@ -2660,13 +3149,33 @@ impl Runner {
             cancellation.clone(),
             plan.spec.compaction_retries,
         )
+        .with_limits(
+            MAX_COMPACTION_SUMMARY_CALLS.saturating_sub(calls_before),
+            (recovery.round > 0).then_some(plan.spec.max_tokens),
+        )
         .with_debug(self.request.debug.clone())
         .with_recovery(self.request.config.clone(), self.retry_entropy())
         .with_progress(progress_tx)
         .run(selected.to_vec());
         tokio::pin!(summary);
         let mut progress_open = true;
+        let budget_before = self
+            .last_budget_report
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| {
+                crate::compaction::SummaryError::Invalid(format!(
+                    "could not serialize input budget: {e}"
+                ))
+            })?;
+        let source_range = Some(SequenceRange {
+            start: plan.range.start_seq,
+            end: plan.range.end_seq,
+        });
         let mut last_progress = CompactionProgress {
+            source_range,
+            budget_before: budget_before.clone(),
             input_tokens_before: Some(input_tokens_before),
             ..Default::default()
         };
@@ -2674,6 +3183,10 @@ impl Runner {
         let output = loop {
             tokio::select! {
                 biased;
+                _ = tokio::time::sleep_until(recovery.deadline) => {
+                    cancellation.cancel();
+                    return Err(crate::compaction::SummaryError::Provider(ProviderError::retryable("complete compaction recovery deadline exceeded")));
+                }
                 _ = self.cancellation.cancelled() => return Err(crate::compaction::SummaryError::Cancelled),
                 command = self.command_rx.recv(), if self.command_open => {
                     match command {
@@ -2714,15 +3227,32 @@ impl Runner {
                 progress = progress_rx.recv(), if progress_open => {
                     if let Some(mut progress) = progress {
                         progress.input_tokens_before = Some(input_tokens_before);
+                        progress.budget_before = budget_before.clone();
+                        progress.source_range = source_range;
+                        recovery.calls = calls_before.saturating_add(progress.calls as usize);
                         last_progress = progress.clone();
                         last_progress_at = tokio::time::Instant::now();
                         self.journal_compaction_progress(compaction_id, source_command_id, turn, progress).await
                             .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
                     } else { progress_open = false; }
                 }
-                result = &mut summary => break result?,
+                result = &mut summary => break result,
             }
         };
+        // A final report can be queued by the same poll that completes the
+        // summary future. Drain it before propagating failure, or rejected
+        // auxiliary admission would lose its durable measurement evidence.
+        while let Ok(mut progress) = progress_rx.try_recv() {
+            progress.input_tokens_before = Some(input_tokens_before);
+            progress.budget_before = budget_before.clone();
+            progress.source_range = source_range;
+            recovery.calls = calls_before.saturating_add(progress.calls as usize);
+            self.journal_compaction_progress(compaction_id, source_command_id, turn, progress)
+                .await
+                .map_err(|e| crate::compaction::SummaryError::Invalid(e.to_string()))?;
+        }
+        let output = output?;
+        recovery.calls = calls_before.saturating_add(output.calls);
         self.debug("compaction.summary_completed", || {
             json!({
                 "calls": output.calls, "splits": output.splits, "usage": output.usage,
@@ -2731,6 +3261,8 @@ impl Runner {
         .await;
         Ok(CompactionSummaryOutput {
             progress: CompactionProgress {
+                budget_before,
+                source_range,
                 input_tokens_before: Some(input_tokens_before),
                 ..output.progress
             },
@@ -5540,6 +6072,21 @@ enum RunFailure {
         failure: xharness_session::ProviderFailure,
     },
 }
+fn measurement_unavailable(report: &TokenBudgetReport) -> RunFailure {
+    let detail = format!(
+        " (estimated input={}, available input={}, accuracy={:?})",
+        report.estimate.total_input_tokens, report.available_input_tokens, report.accuracy
+    );
+    RunFailure::Provider {
+        message: format!("input token measurement unavailable{detail}: estimate is over budget, not a confirmed provider overflow; retry when a verified count is available or reduce the request; original history is unchanged"),
+        failure: xharness_session::ProviderFailure {
+            retryable: true,
+            http_status: report.counter_http_status,
+            retry_after_ms: report.counter_retry_after_ms,
+        },
+    }
+}
+
 impl RunFailure {
     fn provider(error: &ProviderError, message: String) -> Self {
         Self::Provider {

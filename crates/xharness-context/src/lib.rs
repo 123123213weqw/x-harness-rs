@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use xharness_compaction::{ToolResultPruner, ToolResultPrunerConfig};
 use xharness_session::{ContentBlock, Message, MessageRole};
 
+mod visual_history;
 mod working_set;
 pub use working_set::{
     approximate_working_set_tokens, calibrate_working_set_tokens, project_working_set,

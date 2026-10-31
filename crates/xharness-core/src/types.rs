@@ -294,6 +294,16 @@ pub trait ModelProvider: Send + Sync + 'static {
         Ok(None)
     }
 
+    /// Bounded admission recovery may bypass a transient counter cooldown.
+    /// Unsupported counters still return None; this never permits generation.
+    async fn recount_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<xharness_token::ProviderInputTokenCount>, ProviderError> {
+        self.count_input_tokens(request, cancellation).await
+    }
+
     /// Notify the adapter that its optional counter had a transient failure.
     fn input_counter_failed(&self) {}
 
