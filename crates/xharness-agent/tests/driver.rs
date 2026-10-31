@@ -644,3 +644,113 @@ async fn explicit_interrupt_reaches_durable_loop_and_idle_repeat_does_not_add_ma
     assert_eq!(before.derive_messages(), after.derive_messages());
     handle.shutdown(Duration::from_secs(1)).await;
 }
+
+#[tokio::test]
+async fn explicit_idle_restart_preserves_history_and_does_not_wake_durable_input() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(store.clone(), Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("restart-idle"))
+        .await
+        .unwrap();
+    let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
+        scripts: Arc::new(Mutex::new(VecDeque::from([answer("only once")]))),
+    });
+    let handle = DurableAgentHandle::start(activation, Arc::new(Factory { provider }), 64);
+    handle.when_ready().await.unwrap();
+    // A next-step input is durable but does not implicitly start a new turn.
+    handle
+        .inject(InboxMessage::user("deferred", "do not replay"))
+        .await
+        .unwrap();
+    let before = store
+        .load("restart-idle")
+        .await
+        .unwrap()
+        .unwrap()
+        .events()
+        .len();
+    let mut events = handle.subscribe();
+    let generation = handle.worker_generation().unwrap();
+    for increment in 1..=3 {
+        tokio::time::timeout(Duration::from_secs(2), handle.restart_idle())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            handle.availability(),
+            xharness_agent::WorkerAvailability::Ready
+        );
+        assert_eq!(handle.worker_generation(), Some(generation + increment));
+        assert_eq!(handle.status(), xharness_agent::AgentStatus::Idle);
+        assert_eq!(
+            store
+                .load("restart-idle")
+                .await
+                .unwrap()
+                .unwrap()
+                .events()
+                .len(),
+            before
+        );
+    }
+    handle
+        .followup(InboxMessage::user("prompt", "run once"))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let AgentEvent::TurnFinished { result, .. } = events.recv().await.unwrap() {
+                assert_eq!(result.final_text, "only once");
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    handle.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn idle_restart_is_session_local_and_rejects_active_work_without_cancelling_it() {
+    let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let registry = AgentRegistry::new(store, Arc::new(MemoryLeaseManager::default()));
+    let polled = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(AtomicBool::new(false));
+    let busy = DurableAgentHandle::start(
+        registry.activate(SessionHeader::new("busy")).await.unwrap(),
+        Arc::new(Factory {
+            provider: Arc::new(HangingProvider {
+                polled: polled.clone(),
+                stream_dropped: dropped.clone(),
+            }),
+        }),
+        64,
+    );
+    let idle = DurableAgentHandle::start(
+        registry.activate(SessionHeader::new("idle")).await.unwrap(),
+        Arc::new(Factory {
+            provider: Arc::new(ScriptProvider {
+                scripts: Arc::new(Mutex::new(VecDeque::new())),
+            }),
+        }),
+        64,
+    );
+    busy.followup(InboxMessage::user("prompt", "stay busy"))
+        .await
+        .unwrap();
+    polled.notified().await;
+    idle.when_ready().await.unwrap();
+    let busy_generation = busy.worker_generation();
+    idle.restart_idle().await.unwrap();
+    assert_eq!(busy.worker_generation(), busy_generation);
+    assert_eq!(busy.status(), xharness_agent::AgentStatus::Running);
+    assert!(!dropped.load(Ordering::Acquire));
+    assert!(matches!(
+        busy.restart_idle().await,
+        Err(xharness_agent::AgentCommandError::Busy)
+    ));
+    assert!(!dropped.load(Ordering::Acquire));
+    busy.shutdown(Duration::from_secs(1)).await;
+    idle.shutdown(Duration::from_secs(1)).await;
+}

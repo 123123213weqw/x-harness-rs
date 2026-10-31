@@ -63,7 +63,7 @@ try{
    window.root=ReactDOM.createRoot(document.getElementById('root'));root.render(React.createElement(App))
  })
  await page.waitForFunction(()=>restoreDone&&nativeListeners.get('xharness-browser-control-open')?.size===1&&calls.some(c=>c.command==='desktop_browser_persist'))
- assert.equal(await page.locator('.xhbrowser-pane').count(),0)
+ assert.equal(await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-pane').count(),0)
  const requestId='a'.repeat(32),tabId=`browser:${requestId}`
  await page.evaluate(requestId=>emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://example.com/'}),requestId)
  await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='ready'),requestId)
@@ -77,19 +77,19 @@ try{
  // Presentation comes from authenticated native invocation metadata, not
  // page loading, queued text or generic/headless MCP activity.
  await page.waitForFunction(()=>nativeListeners.get('xharness-browser-activity')?.size===1)
- const pane=page.locator('.xhbrowser-pane')
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane')?.dataset.modelActive)
+ const pane=page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-pane')
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane')?.dataset.modelActive)
  assert.equal(await pane.getAttribute('data-model-active'),null)
- const beforeActivity=await page.locator('.xhbrowser-content').boundingBox()
+ const beforeActivity=await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-content').boundingBox()
  const activity={id:'101',backend:'embedded',owner:'chat-a',tabId,operation:'observe',phase:'started'}
  for(const patch of [{backend:'headless'},{owner:'chat-b'},{tabId:'browser:other'}]){
    await page.evaluate(value=>emitNative('xharness-browser-activity',value),{...activity,...patch})
    assert.equal(await pane.getAttribute('data-model-active'),null)
  }
  await page.evaluate(value=>emitNative('xharness-browser-activity',value),activity)
- await page.waitForFunction(()=>document.querySelector('.xhbrowser-pane')?.dataset.modelActive==='true')
+ await page.waitForFunction(()=>document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane')?.dataset.modelActive==='true')
  await pane.getByRole('status').waitFor()
- assert.deepEqual(await page.locator('.xhbrowser-content').boundingBox(),beforeActivity,'activity never shifts or resizes the native child rectangle')
+ assert.deepEqual(await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-content').boundingBox(),beforeActivity,'activity never shifts or resizes the native child rectangle')
  assert.equal(await pane.evaluate(node=>getComputedStyle(node).borderTopWidth),'2px')
  await page.emulateMedia({reducedMotion:'reduce'})
  assert.equal(await pane.evaluate(node=>getComputedStyle(node).transitionDuration),'0s')
@@ -104,8 +104,8 @@ try{
  },activity)
  assert.equal(await pane.getAttribute('data-model-active'),'true','one finish cannot clear another active call')
  await page.evaluate(value=>emitNative('xharness-browser-activity',{...value,id:'102',phase:'finished'}),activity)
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane')?.dataset.modelActive)
- assert.deepEqual(await page.locator('.xhbrowser-content').boundingBox(),beforeActivity)
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane')?.dataset.modelActive)
+ assert.deepEqual(await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-content').boundingBox(),beforeActivity)
  // Completed request cannot be replayed or deleted by a late cancel.
  await page.evaluate(requestId=>emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://example.com/'}),requestId)
  await page.waitForTimeout(50)
@@ -121,12 +121,12 @@ try{
    nativeTabs.get(tabId).url='https://example.com/#section'
    emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:''})
  },tabId)
- await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/#section')
+ await page.waitForFunction(()=>document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-address-form input')?.value==='https://example.com/#section')
  await page.evaluate(tabId=>{
    nativeTabs.get(tabId).url='https://example.com/'
    emitNative('xharness-browser-event',{tabId,kind:'navigation-policy',value:''})
  },tabId)
- await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/')
+ await page.waitForFunction(()=>document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-address-form input')?.value==='https://example.com/')
  // A delayed native sample must not overwrite a newer top-level load event.
  await page.evaluate(tabId=>{
    const invoke=__TAURI__.core.invoke
@@ -154,17 +154,22 @@ try{
  await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='ready'),redirected)
  // Native readiness is not a React paint receipt. Wait for the controlled
  // input's commit, then keep the exact URL and origin assertions below.
- await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://final.example/path',{},{timeout:5000})
+ await page.waitForFunction(()=>document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-address-form input')?.value==='https://final.example/path',{},{timeout:5000})
  assert.equal(await page.getByRole('textbox',{name:'网址'}).inputValue(),'https://final.example/path')
  assert.equal(await page.evaluate(id=>calls.filter(c=>c.command==='desktop_browser_delegate'&&c.args.tabId==='browser:'+id).at(-1).args.expectedOrigin,redirected),'https://final.example')
  await page.getByRole('button',{name:'关闭 final.example',exact:true}).click()
- await page.waitForFunction(()=>document.querySelector('.xhbrowser-address-form input')?.value==='https://example.com/')
+ await page.waitForFunction(()=>document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-address-form input')?.value==='https://example.com/')
  await page.evaluate(()=>selectOwner('chat-b'))
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane'))
+ assert.equal(await page.locator('[data-workspace-page-owner=\"chat-a\"][hidden] .xhbrowser-pane').count(),1,'settled background page remains mounted but hidden')
+ await page.waitForFunction(()=>activeTab===null)
+ const backgroundDelegates=await page.evaluate(()=>calls.filter(c=>c.command==='desktop_browser_delegate').length)
+ await page.waitForTimeout(100)
+ assert.equal(await page.evaluate(()=>calls.filter(c=>c.command==='desktop_browser_delegate').length),backgroundDelegates,'retention cannot renew a hidden browser action grant')
  const other='b'.repeat(32)
  await page.evaluate(requestId=>emitNative('xharness-browser-control-open',{requestId,owner:'chat-a',url:'https://other.example/'}),other)
  await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='failed'),other)
- assert.equal(await page.locator('.xhbrowser-pane').count(),0,'background owner cannot steal current chat')
+ assert.equal(await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-pane').count(),0,'background owner cannot steal current chat')
  assert.equal(await page.evaluate(id=>calls.some(c=>c.command==='desktop_browser_navigate'&&c.args.tabId===`browser:${id}`),other),false)
  // Malformed scheme/credentials and request IDs do not schedule navigation.
  const before=await page.evaluate(()=>calls.length)
@@ -177,7 +182,7 @@ try{
    emitNative('xharness-browser-control-open',{requestId:'e'.repeat(32),owner:'chat-b',url:'https://late.example/'})
  })
  await page.waitForTimeout(50)
- assert.equal(await page.locator('.xhbrowser-pane').count(),0)
+ assert.equal(await page.locator('.xhworkspace-item:not([hidden]) .xhbrowser-pane').count(),0)
  // In-flight open cancellation closes only that provisional tab, not history.
  await page.evaluate(()=>{
    const invoke=__TAURI__.core.invoke
@@ -186,7 +191,7 @@ try{
  })
  await page.waitForFunction(()=>typeof window.releaseNavigation==='function')
  await page.evaluate(()=>emitNative('xharness-browser-control-cancel','d'.repeat(32)))
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane'))
  await page.evaluate(()=>releaseNavigation())
  await page.waitForTimeout(100)
  assert.equal(await page.evaluate(()=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId==='d'.repeat(32)&&c.args.reply.status==='ready')),false)
@@ -209,7 +214,7 @@ try{
  const closeId='3'.repeat(32)
  await page.evaluate(({closeId,tabId})=>emitNative('xharness-browser-control-close',{requestId:closeId,owner:'chat-a',tabId}),{closeId,tabId})
  await page.waitForFunction(id=>calls.some(c=>c.command==='desktop_browser_control_reply'&&c.args.requestId===id&&c.args.reply.status==='closed'),closeId)
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane'))
  assert.equal(await page.evaluate(id=>nativeTabs.has(id),tabId),false)
  await page.waitForFunction(()=>!JSON.parse(localStorage.getItem('xharness:browser-spaces-v1')??'{}')['chat-a'])
  const next='4'.repeat(32)
@@ -230,7 +235,7 @@ try{
  await page.waitForFunction(()=>typeof window.releaseCloseSample==='function')
  await page.getByRole('button',{name:'关闭当前网页',exact:true}).click()
  await page.waitForFunction(id=>!nativeTabs.has('browser:'+id),next,{timeout:2000})
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane'))
  await page.evaluate(()=>releaseCloseSample())
  await page.waitForTimeout(100)
  assert.equal(await page.evaluate(id=>nativeTabs.has('browser:'+id),next),false,'late callback cannot resurrect a manually closed page')
@@ -238,7 +243,7 @@ try{
  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('xharness:workspace-open',{detail:{kind:'browser',fresh:true}})))
  await page.getByRole('button',{name:'更多浏览器操作',exact:true}).click()
  await page.getByRole('button',{name:'关闭标签页',exact:true}).click()
- await page.waitForFunction(()=>!document.querySelector('.xhbrowser-pane'))
+ await page.waitForFunction(()=>!document.querySelector('.xhworkspace-item:not([hidden]) .xhbrowser-pane'))
  await page.evaluate(()=>root.unmount())
  assert.deepEqual(errors,[])
  console.log(engine+': zero-tab → sidebar → load-before-promise → owner binding → ready; background/late/cancel/schema guards passed (mock transport)')

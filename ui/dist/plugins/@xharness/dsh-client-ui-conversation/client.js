@@ -41,6 +41,7 @@ const hub_1 = require("./input/hub");
 const submission_policy_1 = require("./input/submission-policy");
 const EnterBehaviorRow_1 = require("./settings/EnterBehaviorRow");
 const ChatView_1 = require("./chat/ChatView");
+const SessionRecoveryButton_1 = require("./skeleton/SessionRecoveryButton");
 const scroll_memory_1 = require("./chat/scroll-memory");
 const StatsLine_1 = require("./chat/StatsLine");
 const ApprovalPanel_1 = require("./skeleton/ApprovalPanel");
@@ -264,6 +265,21 @@ function apply(ctx) {
             open: (id) => { sessions.open(id); },
         }),
     }, ConversationSession_1.ConversationSessionHeader);
+    slots.inject('conversation.session.header.utilities', () => slots.register({
+        name: 'conversation.session.header.utilities', id: 'session-recovery', order: 90, locale: locales_1.NS,
+        inject: (sessionId) => ({
+            recover: async () => {
+                const session = sessions.binding(sessionId)?.session;
+                if (session === undefined)
+                    throw new Error(t('session.recoverUnavailable'));
+                const result = await session.command('/reload');
+                if (!result.ok)
+                    throw new Error(result.error.message);
+                if (!result.value.matched)
+                    throw new Error(t('session.recoverUnavailable'));
+            },
+        }),
+    }, SessionRecoveryButton_1.SessionRecoveryButton));
     // The default composer body: its own single slot inside the composer
     // chain's fallback. Public machine surface arrives via the
     // provide channel above; the keyboard command face and the stop/retry
@@ -4701,7 +4717,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatView = ChatView;
 exports.scrollFollowAtBottom = scrollFollowAtBottom;
 const jsx_runtime_1 = require("react/jsx-runtime");
-const pending_tool_1 = require("./pending-tool");
 const use_adaptive_tool_fold_1 = require("./use-adaptive-tool-fold");
 const process_mode_1 = require("./process-mode");
 // ChatView: the default conversation view — one stable keyed parent list over
@@ -4722,7 +4737,7 @@ const react_1 = require("react");
 const react_dom_1 = require("react-dom");
 const primitives_1 = require("../primitives");
 const MessageItem_1 = require("./MessageItem");
-const ChatNodeSeat_1 = require("./ChatNodeSeat");
+const ChatFlow_1 = require("./ChatFlow");
 const TranscriptWindowRow_1 = require("./TranscriptWindowRow");
 const message_chrome_1 = require("./message-chrome");
 const chat_node_codec_1 = require("../contract/chat-node-codec");
@@ -5019,6 +5034,9 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
     // One independently subscribed resident entry per loaded turn, including
     // partial history pages without the original user/start event. No full-turn
     // pinning: only the live tip and pending tools bypass row windowing.
+    // Structural publication is separate from timeline/content updates. Older
+    // registrants without the optional version keep the conservative fallback.
+    const structureVersion = nodeStore.structureVersion;
     const processHeads = (0, react_1.useMemo)(() => {
         const heads = new Set();
         const turns = new Set();
@@ -5035,7 +5053,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
             heads.add(key);
         }
         return heads;
-    }, [order, nodeStore, timeline]);
+    }, [order, nodeStore, structureVersion, structureVersion === undefined ? timeline : undefined]);
     const firstKey = order[0];
     const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null;
     const lastKey = order.at(-1) ?? null;
@@ -5378,10 +5396,7 @@ function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, op
         if (position !== null)
             chatScroll.save(position);
     }, [pageIntent, chatScroll]);
-    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.root, "data-chat-view-root": "", children: [lastAgentError !== null && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.openError, role: "alert", "data-agent-error": "", children: t('chat.agentError', { message: lastAgentError }) })), railHost !== null && messageMarkers.length > 1 && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsx)(MessageRail_1.MessageRail, { markers: messageMarkers, active: activeMarker, select: scrollToMessage, t: t }), railHost), (0, jsx_runtime_1.jsxs)("div", { ref: listRef, className: ChatView_styles_1.default.scroll, children: [(0, jsx_runtime_1.jsxs)("div", { ref: columnRef, className: ChatView_styles_1.default.column, "data-chat-flow": "", children: [openState === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.hint, children: t('chat.loadingHistory') }), openState === 'error' && openError !== null && ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.openError, role: "alert", children: [t('chat.loadError', { message: openError.message, code: openError.code }), (0, jsx_runtime_1.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlderAnchored, children: t('retry') })] })), hasMore && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.older, children: (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loadingOlder, onClick: loadOlderAnchored, children: loadingOlder ? t('loading') : t('chat.loadOlder') }) })), order.flatMap((nodeKey) => [
-                                ...(processHeads.has(nodeKey) ? [(0, jsx_runtime_1.jsx)(ChatNodeSeat_1.TurnProcessSummarySeat, { nodeKey: nodeKey, useSession: useSession, expandedTurns: expandedTurns, foldedTools: foldedTools, toggleTurnProcess: toggleTurnProcess, t: t }, `${sessionId}:process:${nodeKey}`)] : []),
-                                (0, jsx_runtime_1.jsx)(ChatNodeSeat_1.ChatNodeSeat, { nodeKey: nodeKey, expandedTurns: expandedTurns, foldedTools: foldedTools, invalidateFoldedTool: invalidateFoldedTool, keepMounted: running && (nodeKey === lastKey || (0, pending_tool_1.transcriptHasPendingTool)(nodeStore.get(nodeKey))), editMessage: editMessage, forkMessage: forkMessage, editAvailable: !running, useSession: useSession, selectedCallId: selectedCallId, cwd: cwd, openFile: requestOpenFile, inspectCall: inspectCall, forkAt: forkAt, renderMessageImages: renderMessageImages, fileMentions: fileMentions, renderSlot: renderSlot, t: t }, `${sessionId}:node:${nodeKey}`),
-                            ]), running && (0, jsx_runtime_1.jsx)(TurnStatus, { startTime: runningTurnStart, t: t }), pendingSteering.map(item => ((0, jsx_runtime_1.jsx)(MessageItem_1.PendingSteeringBubble, { content: item.content, renderMessageImages: renderMessageImages, t: t }, item.id)))] }), !atBottom && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.toBottomSlot, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ChatView_styles_1.default.toBottom, "aria-label": t('chat.toBottom'), onClick: () => {
+    return ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.root, "data-chat-view-root": "", children: [lastAgentError !== null && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.openError, role: "alert", "data-agent-error": "", children: t('chat.agentError', { message: lastAgentError }) })), railHost !== null && messageMarkers.length > 1 && (0, react_dom_1.createPortal)((0, jsx_runtime_1.jsx)(MessageRail_1.MessageRail, { markers: messageMarkers, active: activeMarker, select: scrollToMessage, t: t }), railHost), (0, jsx_runtime_1.jsxs)("div", { ref: listRef, className: ChatView_styles_1.default.scroll, children: [(0, jsx_runtime_1.jsxs)("div", { ref: columnRef, className: ChatView_styles_1.default.column, "data-chat-flow": "", children: [openState === 'loading' && (0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.hint, children: t('chat.loadingHistory') }), openState === 'error' && openError !== null && ((0, jsx_runtime_1.jsxs)("div", { className: ChatView_styles_1.default.openError, role: "alert", children: [t('chat.loadError', { message: openError.message, code: openError.code }), (0, jsx_runtime_1.jsx)("button", { type: "button", "data-history-retry": "", onClick: loadOlderAnchored, children: t('retry') })] })), hasMore && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.older, children: (0, jsx_runtime_1.jsx)("button", { type: "button", disabled: loadingOlder, onClick: loadOlderAnchored, children: loadingOlder ? t('loading') : t('chat.loadOlder') }) })), (0, jsx_runtime_1.jsx)(ChatFlow_1.ChatFlow, { order: order, processHeads: processHeads, sessionId: sessionId, lastKey: lastKey, expandedTurns: expandedTurns, foldedTools: foldedTools, invalidateFoldedTool: invalidateFoldedTool, editMessage: editMessage, forkMessage: forkMessage, editAvailable: !running, useSession: useSession, selectedCallId: selectedCallId, cwd: cwd, openFile: requestOpenFile, inspectCall: inspectCall, forkAt: forkAt, renderMessageImages: renderMessageImages, fileMentions: fileMentions, renderSlot: renderSlot, t: t, toggleTurnProcess: toggleTurnProcess }), running && (0, jsx_runtime_1.jsx)(TurnStatus, { startTime: runningTurnStart, t: t }), pendingSteering.map(item => ((0, jsx_runtime_1.jsx)(MessageItem_1.PendingSteeringBubble, { content: item.content, renderMessageImages: renderMessageImages, t: t }, item.id)))] }), !atBottom && ((0, jsx_runtime_1.jsx)("div", { className: ChatView_styles_1.default.toBottomSlot, children: (0, jsx_runtime_1.jsx)("button", { type: "button", className: ChatView_styles_1.default.toBottom, "aria-label": t('chat.toBottom'), onClick: () => {
                                 const local = listRef.current;
                                 /* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */
                                 if (local !== null)
@@ -5400,145 +5415,6 @@ function scrollFollowAtBottom(current, top, floor, observed, recentInput) {
     // Near-bottom tolerance is for downward re-entry, never for cancelling an
     // upward gesture. A layout shrink/clamp without movement keeps ownership.
     return delta > 0 && floor - top <= FOLLOW_THRESHOLD + 1;
-}
-
-},
-"src/modules/conversation/chat/pending-tool.js": function(module, exports, require) {
-// source: src/modules/conversation/chat/pending-tool.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.transcriptHasPendingTool = transcriptHasPendingTool;
-const chat_node_codec_1 = require("../contract/chat-node-codec");
-/** Pending root and recursive Computer privacy effects survive offscreen settlement. */
-function transcriptHasPendingTool(node) {
-    if (!(0, chat_node_codec_1.isChatNode)(node) || node.kind !== 'tool-call')
-        return false;
-    const stack = [node.data.root];
-    for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
-        if (!('kind' in block))
-            return true;
-        for (const child of block.subCalls)
-            stack.push(child);
-    }
-    return false;
-}
-
-},
-"src/modules/conversation/contract/chat-node-codec.js": function(module, exports, require) {
-// source: src/modules/conversation/contract/chat-node-codec.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.isChatNode = isChatNode;
-exports.isChatData = isChatData;
-const zod_1 = require("zod");
-const compaction_outcome_1 = require("../../shared/compaction-outcome");
-const n = zod_1.z.number(), s = zod_1.z.string(), nullable = s.nullable();
-const base = { seq: n, time: n };
-const attachment = zod_1.z.looseObject({ attachmentId: s, mediaType: s, bytes: n, name: s.optional(), width: n.nullable().optional(), height: n.nullable().optional() });
-const content = zod_1.z.unknown();
-const callView = zod_1.z.looseObject({ card: s, kind: s.optional(), title: s.optional(), locations: zod_1.z.array(zod_1.z.object({ path: s, line: n.optional() })).optional() }).nullable();
-const resultView = zod_1.z.looseObject({ card: s }).nullable();
-const callBase = { ...base, callId: s, callView };
-const tool = zod_1.z.lazy(() => zod_1.z.union([
-    zod_1.z.looseObject({ callId: s, callView, time: n, name: s, argsRaw: s, turn: n, step: n, subCalls: zod_1.z.array(tool) }).refine(value => !('kind' in value)),
-    zod_1.z.looseObject({ ...callBase, kind: zod_1.z.literal('tool-result'), call: zod_1.z.object({ name: s, argsRaw: s }).nullable(), callTime: n.nullable(),
-        content: zod_1.z.array(content), isError: zod_1.z.boolean(), error: zod_1.z.object({ name: s, code: s }).optional(), meta: zod_1.z.unknown().optional(), resultView, subCalls: zod_1.z.array(tool),
-    }),
-]));
-const blocks = zod_1.z.array(zod_1.z.union([
-    zod_1.z.looseObject({ kind: zod_1.z.enum(['text', 'reasoning']), text: s }),
-    zod_1.z.looseObject({ kind: zod_1.z.literal('image'), attachment }),
-    zod_1.z.looseObject({ kind: zod_1.z.literal('tool-call'), callId: s, name: s, argsRaw: s }),
-    zod_1.z.looseObject({ kind: zod_1.z.literal('other'), block: zod_1.z.unknown() }),
-]));
-const finalAssistant = zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('assistant'), turn: n, step: n, blocks,
-    messageId: s.optional(), usage: zod_1.z.unknown().optional(), interrupted: zod_1.z.literal(true).optional(),
-    provenance: zod_1.z.object({ provider: s, model: s }).optional(),
-    requestConfig: zod_1.z.looseObject({ provider: s, model: s, purpose: s.optional(), thinking: s.optional(), reasoningEffort: s.optional(), temperature: n.optional(), maxTokens: n.optional(), stop: zod_1.z.array(s).optional() }).optional(),
-    timing: zod_1.z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n, receptionMs: n.optional() }).optional(),
-});
-const assistant = zod_1.z.looseObject({ status: zod_1.z.enum(['running', 'settled', 'interrupted']), turn: n, step: n, blocks, time: n, usage: zod_1.z.unknown().optional(), finalNode: finalAssistant.optional() });
-const command = zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('command'), commandId: s, name: nullable, args: nullable,
-    outcome: zod_1.z.looseObject({ kind: zod_1.z.enum(['success', 'error']), text: s.optional(), sourceEventSeq: n.optional() }).nullable(),
-});
-const progress = zod_1.z.looseObject({ stage: zod_1.z.enum(['preparing', 'summarizing', 'splitting', 'merging', 'retrying', 'paused', 'validating', 'committing']),
-    calls: n, completedParts: n, splits: n, retries: n, delayMs: n.nullish(), inputTokensBefore: n.nullish(), inputTokensAfter: n.nullish(),
-}).optional();
-const compaction = zod_1.z.union([
-    zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('compaction'), summary: nullable, summaryEventSeq: n.nullable(), shadowedItemCount: n.nullable(), shadowedTokenCount: n.nullable(), progress, startedAt: n.optional(), endedAt: n.optional() }),
-    zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('compaction'), status: zod_1.z.enum(['running', 'failed', 'skipped', 'cancelled']), progress, progressTime: n.optional(), error: nullable, outcome: compaction_outcome_1.CompactionEndOutcomeSchema.optional(), endedAt: n.optional() }),
-]);
-const retryBase = { ...base, kind: zod_1.z.literal('model-retry'), turn: n, step: n, retryId: s, retry: n, retryState: zod_1.z.enum(['scheduled', 'started', 'cancelled']) };
-const retryFacts = { delayMs: n, policyKey: s, provider: s, failure: zod_1.z.looseObject({ message: s, code: s }) };
-const retry = zod_1.z.union([
-    zod_1.z.looseObject({ ...retryBase, ...retryFacts, mode: zod_1.z.literal('normal'), maxRetries: n }),
-    zod_1.z.looseObject({ ...retryBase, ...retryFacts, mode: zod_1.z.literal('always') }),
-    zod_1.z.looseObject({ ...retryBase, partial: zod_1.z.literal(true) }),
-]);
-const schemas = {
-    user: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('user'), content: zod_1.z.array(content), source: zod_1.z.unknown(), referenceLabels: zod_1.z.array(s).optional() }),
-    steering: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('steering'), messageId: s, content: zod_1.z.array(content), source: zod_1.z.unknown(), referenceLabels: zod_1.z.array(s).optional() }),
-    context: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('context'), content: zod_1.z.array(content), source: zod_1.z.unknown(), provenance: zod_1.z.object({ role: zod_1.z.enum(['inject', 'recall']), label: nullable }), form: zod_1.z.enum(['instructions', 'catalog', 'snapshot', 'notice', 'relay', 'recall']).nullable() }),
-    command,
-    compaction,
-    'manual-compaction': zod_1.z.looseObject({ command, compaction: compaction.nullable() }),
-    'assistant-step': assistant,
-    'tool-call': zod_1.z.looseObject({ root: tool }),
-    'model-retry': zod_1.z.looseObject({ attempts: zod_1.z.array(retry), current: retry }),
-    'turn-error': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('turn-error'), turn: n, step: n, message: s, code: s.optional() }),
-    'turn-max-tokens': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('turn-max-tokens'), turn: n, step: n }),
-    unknown: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('unknown'), type: s, data: zod_1.z.unknown() }),
-    'run-checkpoint': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('run-checkpoint'), turn: n, step: n, noticeKind: s, message: s }),
-    'turn-tail': zod_1.z.looseObject({ ...base, turn: n, closing: assistant.extend({ finalNode: finalAssistant }).nullable(), branchUnavailable: zod_1.z.boolean(), ttftMs: n.optional(), tokensPerSecond: n.optional() }),
-};
-function knownKind(value) { return Object.hasOwn(schemas, value); }
-/** Validate a foreign published node without cloning a valid owner's immutable payload. */
-function isChatNode(node) {
-    return node !== undefined && knownKind(node.kind) && schemas[node.kind].safeParse(node.data).success;
-}
-/** Location store values are owner-decoded rather than unsound generic getters. */
-function isChatData(kind, value) {
-    return schemas[kind].safeParse(value).success;
-}
-
-},
-"src/modules/shared/compaction-outcome.js": function(module, exports, require) {
-// source: src/modules/shared/compaction-outcome.ts
-
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.CompactionEndOutcomeSchema = void 0;
-exports.isCompactionEndOutcome = isCompactionEndOutcome;
-exports.compactionTerminalPhase = compactionTerminalPhase;
-exports.validCompactionTerminalData = validCompactionTerminalData;
-const zod_1 = require("zod");
-/** Additive durable terminal outcome. Absence retains legacy error semantics. */
-exports.CompactionEndOutcomeSchema = zod_1.z.enum(['applied', 'no_benefit', 'no_eligible_source', 'interrupted', 'failed']);
-function isCompactionEndOutcome(value) {
-    return exports.CompactionEndOutcomeSchema.safeParse(value).success;
-}
-function compactionTerminalPhase(outcome, error) {
-    switch (outcome) {
-        case 'applied': return 'succeeded';
-        case 'no_benefit':
-        case 'no_eligible_source': return 'skipped';
-        case 'interrupted': return 'cancelled';
-        case 'failed': return 'failed';
-        case undefined: return error == null ? 'succeeded' : 'failed';
-    }
-}
-/** Validate explicit outcome/error consistency; legacy payloads remain accepted. */
-function validCompactionTerminalData(value) {
-    switch (value.outcome) {
-        case 'applied':
-        case 'no_benefit':
-        case 'no_eligible_source': return value.error == null;
-        case 'interrupted':
-        case 'failed': return typeof value.error === 'string' && value.error.trim() !== '';
-        case undefined: return true;
-    }
 }
 
 },
@@ -5822,6 +5698,123 @@ function planToolFold(rows, viewportHeight, share = exports.TOOL_FOLD_VIEWPORT_S
         }
     }
     return hidden;
+}
+
+},
+"src/modules/conversation/contract/chat-node-codec.js": function(module, exports, require) {
+// source: src/modules/conversation/contract/chat-node-codec.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.isChatNode = isChatNode;
+exports.isChatData = isChatData;
+const zod_1 = require("zod");
+const compaction_outcome_1 = require("../../shared/compaction-outcome");
+const n = zod_1.z.number(), s = zod_1.z.string(), nullable = s.nullable();
+const base = { seq: n, time: n };
+const attachment = zod_1.z.looseObject({ attachmentId: s, mediaType: s, bytes: n, name: s.optional(), width: n.nullable().optional(), height: n.nullable().optional() });
+const content = zod_1.z.unknown();
+const callView = zod_1.z.looseObject({ card: s, kind: s.optional(), title: s.optional(), locations: zod_1.z.array(zod_1.z.object({ path: s, line: n.optional() })).optional() }).nullable();
+const resultView = zod_1.z.looseObject({ card: s }).nullable();
+const callBase = { ...base, callId: s, callView };
+const tool = zod_1.z.lazy(() => zod_1.z.union([
+    zod_1.z.looseObject({ callId: s, callView, time: n, name: s, argsRaw: s, turn: n, step: n, subCalls: zod_1.z.array(tool) }).refine(value => !('kind' in value)),
+    zod_1.z.looseObject({ ...callBase, kind: zod_1.z.literal('tool-result'), call: zod_1.z.object({ name: s, argsRaw: s }).nullable(), callTime: n.nullable(),
+        content: zod_1.z.array(content), isError: zod_1.z.boolean(), error: zod_1.z.object({ name: s, code: s }).optional(), meta: zod_1.z.unknown().optional(), resultView, subCalls: zod_1.z.array(tool),
+    }),
+]));
+const blocks = zod_1.z.array(zod_1.z.union([
+    zod_1.z.looseObject({ kind: zod_1.z.enum(['text', 'reasoning']), text: s }),
+    zod_1.z.looseObject({ kind: zod_1.z.literal('image'), attachment }),
+    zod_1.z.looseObject({ kind: zod_1.z.literal('tool-call'), callId: s, name: s, argsRaw: s }),
+    zod_1.z.looseObject({ kind: zod_1.z.literal('other'), block: zod_1.z.unknown() }),
+]));
+const finalAssistant = zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('assistant'), turn: n, step: n, blocks,
+    messageId: s.optional(), usage: zod_1.z.unknown().optional(), interrupted: zod_1.z.literal(true).optional(),
+    provenance: zod_1.z.object({ provider: s, model: s }).optional(),
+    requestConfig: zod_1.z.looseObject({ provider: s, model: s, purpose: s.optional(), thinking: s.optional(), reasoningEffort: s.optional(), temperature: n.optional(), maxTokens: n.optional(), stop: zod_1.z.array(s).optional() }).optional(),
+    timing: zod_1.z.object({ stepStartTime: n.nullable(), firstTokenTime: n.nullable(), completedTime: n, receptionMs: n.optional() }).optional(),
+});
+const assistant = zod_1.z.looseObject({ status: zod_1.z.enum(['running', 'settled', 'interrupted']), turn: n, step: n, blocks, time: n, usage: zod_1.z.unknown().optional(), finalNode: finalAssistant.optional() });
+const command = zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('command'), commandId: s, name: nullable, args: nullable,
+    outcome: zod_1.z.looseObject({ kind: zod_1.z.enum(['success', 'error']), text: s.optional(), sourceEventSeq: n.optional() }).nullable(),
+});
+const progress = zod_1.z.looseObject({ stage: zod_1.z.enum(['preparing', 'summarizing', 'splitting', 'merging', 'retrying', 'paused', 'validating', 'committing']),
+    calls: n, completedParts: n, splits: n, retries: n, delayMs: n.nullish(), inputTokensBefore: n.nullish(), inputTokensAfter: n.nullish(),
+}).optional();
+const compaction = zod_1.z.union([
+    zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('compaction'), summary: nullable, summaryEventSeq: n.nullable(), shadowedItemCount: n.nullable(), shadowedTokenCount: n.nullable(), progress, startedAt: n.optional(), endedAt: n.optional() }),
+    zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('compaction'), status: zod_1.z.enum(['running', 'failed', 'skipped', 'cancelled']), progress, progressTime: n.optional(), error: nullable, outcome: compaction_outcome_1.CompactionEndOutcomeSchema.optional(), endedAt: n.optional() }),
+]);
+const retryBase = { ...base, kind: zod_1.z.literal('model-retry'), turn: n, step: n, retryId: s, retry: n, retryState: zod_1.z.enum(['scheduled', 'started', 'cancelled']) };
+const retryFacts = { delayMs: n, policyKey: s, provider: s, failure: zod_1.z.looseObject({ message: s, code: s }) };
+const retry = zod_1.z.union([
+    zod_1.z.looseObject({ ...retryBase, ...retryFacts, mode: zod_1.z.literal('normal'), maxRetries: n }),
+    zod_1.z.looseObject({ ...retryBase, ...retryFacts, mode: zod_1.z.literal('always') }),
+    zod_1.z.looseObject({ ...retryBase, partial: zod_1.z.literal(true) }),
+]);
+const schemas = {
+    user: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('user'), content: zod_1.z.array(content), source: zod_1.z.unknown(), referenceLabels: zod_1.z.array(s).optional() }),
+    steering: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('steering'), messageId: s, content: zod_1.z.array(content), source: zod_1.z.unknown(), referenceLabels: zod_1.z.array(s).optional() }),
+    context: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('context'), content: zod_1.z.array(content), source: zod_1.z.unknown(), provenance: zod_1.z.object({ role: zod_1.z.enum(['inject', 'recall']), label: nullable }), form: zod_1.z.enum(['instructions', 'catalog', 'snapshot', 'notice', 'relay', 'recall']).nullable() }),
+    command,
+    compaction,
+    'manual-compaction': zod_1.z.looseObject({ command, compaction: compaction.nullable() }),
+    'assistant-step': assistant,
+    'tool-call': zod_1.z.looseObject({ root: tool }),
+    'model-retry': zod_1.z.looseObject({ attempts: zod_1.z.array(retry), current: retry }),
+    'turn-error': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('turn-error'), turn: n, step: n, message: s, code: s.optional() }),
+    'turn-max-tokens': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('turn-max-tokens'), turn: n, step: n }),
+    unknown: zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('unknown'), type: s, data: zod_1.z.unknown() }),
+    'run-checkpoint': zod_1.z.looseObject({ ...base, kind: zod_1.z.literal('run-checkpoint'), turn: n, step: n, noticeKind: s, message: s }),
+    'turn-tail': zod_1.z.looseObject({ ...base, turn: n, closing: assistant.extend({ finalNode: finalAssistant }).nullable(), branchUnavailable: zod_1.z.boolean(), ttftMs: n.optional(), tokensPerSecond: n.optional() }),
+};
+function knownKind(value) { return Object.hasOwn(schemas, value); }
+/** Validate a foreign published node without cloning a valid owner's immutable payload. */
+function isChatNode(node) {
+    return node !== undefined && knownKind(node.kind) && schemas[node.kind].safeParse(node.data).success;
+}
+/** Location store values are owner-decoded rather than unsound generic getters. */
+function isChatData(kind, value) {
+    return schemas[kind].safeParse(value).success;
+}
+
+},
+"src/modules/shared/compaction-outcome.js": function(module, exports, require) {
+// source: src/modules/shared/compaction-outcome.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CompactionEndOutcomeSchema = void 0;
+exports.isCompactionEndOutcome = isCompactionEndOutcome;
+exports.compactionTerminalPhase = compactionTerminalPhase;
+exports.validCompactionTerminalData = validCompactionTerminalData;
+const zod_1 = require("zod");
+/** Additive durable terminal outcome. Absence retains legacy error semantics. */
+exports.CompactionEndOutcomeSchema = zod_1.z.enum(['applied', 'no_benefit', 'no_eligible_source', 'interrupted', 'failed']);
+function isCompactionEndOutcome(value) {
+    return exports.CompactionEndOutcomeSchema.safeParse(value).success;
+}
+function compactionTerminalPhase(outcome, error) {
+    switch (outcome) {
+        case 'applied': return 'succeeded';
+        case 'no_benefit':
+        case 'no_eligible_source': return 'skipped';
+        case 'interrupted': return 'cancelled';
+        case 'failed': return 'failed';
+        case undefined: return error == null ? 'succeeded' : 'failed';
+    }
+}
+/** Validate explicit outcome/error consistency; legacy payloads remain accepted. */
+function validCompactionTerminalData(value) {
+    switch (value.outcome) {
+        case 'applied':
+        case 'no_benefit':
+        case 'no_eligible_source': return value.error == null;
+        case 'interrupted':
+        case 'failed': return typeof value.error === 'string' && value.error.trim() !== '';
+        case undefined: return true;
+    }
 }
 
 },
@@ -6934,6 +6927,25 @@ function MessageEditActions({ content, seq, editMessage, forkMessage, t }) {
 }
 
 },
+"src/modules/conversation/chat/ChatFlow.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/ChatFlow.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ChatFlow = void 0;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+const ChatNodeSeat_1 = require("./ChatNodeSeat");
+/** The structural list is independent of streaming content and shell chrome.
+ * Node seats retain their own subscriptions, including pending-tool pinning. */
+exports.ChatFlow = (0, react_1.memo)(function ChatFlow({ order, processHeads, sessionId, lastKey, ...owner }) {
+    return (0, jsx_runtime_1.jsx)(jsx_runtime_1.Fragment, { children: order.flatMap(nodeKey => [
+            ...(processHeads.has(nodeKey) ? [(0, jsx_runtime_1.jsx)(ChatNodeSeat_1.TurnProcessSummarySeat, { nodeKey: nodeKey, ...owner }, `${sessionId}:process:${nodeKey}`)] : []),
+            (0, jsx_runtime_1.jsx)(ChatNodeSeat_1.ChatNodeSeat, { nodeKey: nodeKey, keepMounted: !owner.editAvailable && nodeKey === lastKey, ...owner }, `${sessionId}:node:${nodeKey}`),
+        ]) });
+});
+
+},
 "src/modules/conversation/chat/ChatNodeSeat.js": function(module, exports, require) {
 // source: src/modules/conversation/chat/ChatNodeSeat.tsx
 
@@ -6944,6 +6956,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatNodeSeat = exports.TurnProcessSummarySeat = void 0;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const pending_tool_1 = require("./pending-tool");
 const chat_node_codec_1 = require("../contract/chat-node-codec");
 const react_1 = require("react");
 const primitives_1 = require("../primitives");
@@ -7028,7 +7041,7 @@ exports.ChatNodeSeat = (0, react_1.memo)(function ChatNodeSeat({ nodeKey, select
     // keyed-slot entry passed alongside that same Node. TypeScript does not
     // distribute an object containing a union into a union of objects itself.
     const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode);
-    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted ?? false, presentationState: presentationState, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-anchor-seq": node.anchorSeq, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
+    return ((0, jsx_runtime_1.jsx)(TranscriptWindowRow_1.TranscriptWindowRow, { keepMounted: keepMounted === true || (!editAvailable && (0, pending_tool_1.transcriptHasPendingTool)(node)), presentationState: presentationState, className: ChatView_styles_1.default.flowItem, "data-chat-anchor-key": node.key, "data-chat-anchor-seq": node.anchorSeq, "data-chat-flow-key": node.key, "data-chat-flow-kind": node.kind, "data-chat-auto-fold-turn": node.kind === 'tool-call' &&
             (location?.kind === 'turn' || location?.kind === 'step') && location.turn.status === 'open' && tail === undefined ? turn : undefined, "data-chat-auto-fold-eligible": autoFoldable ? 'true' : 'false', children: routedOwner === undefined ? (0, jsx_runtime_1.jsx)(primitives_1.JsonBlock, { label: t('message.unknownSurface', { type: node.kind }), payload: node.data, truncatedLabel: (total) => t('json.truncated', { total }) }) : renderSlot('conversation.chat.node', routedOwner, {
             entryKey: routedOwner.node.kind,
             hookContext: nodeKey,
@@ -7052,6 +7065,28 @@ function ownerFor(owner, node) {
         case 'run-checkpoint': return { ...owner, node };
         case 'turn-tail': return { ...owner, node };
     }
+}
+
+},
+"src/modules/conversation/chat/pending-tool.js": function(module, exports, require) {
+// source: src/modules/conversation/chat/pending-tool.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.transcriptHasPendingTool = transcriptHasPendingTool;
+const chat_node_codec_1 = require("../contract/chat-node-codec");
+/** Pending root and recursive Computer privacy effects survive offscreen settlement. */
+function transcriptHasPendingTool(node) {
+    if (!(0, chat_node_codec_1.isChatNode)(node) || node.kind !== 'tool-call')
+        return false;
+    const stack = [node.data.root];
+    for (let block = stack.pop(); block !== undefined; block = stack.pop()) {
+        if (!('kind' in block))
+            return true;
+        for (const child of block.subCalls)
+            stack.push(child);
+    }
+    return false;
 }
 
 },
@@ -7766,6 +7801,57 @@ Object.defineProperty(exports, '__esModule', { value: true });
 exports.default = ".xhLoading_root {\n  display: flex;\n  align-items: center;\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  animation: xhLoading_enter var(--xh-duration-stream-in, 900ms) var(--xh-ease-stream, cubic-bezier(.16, 1, .3, 1)) both;\n}\n.xhLoading_rotor {\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  flex: 0 0 16px;\n  width: 16px;\n  height: 16px;\n  transform-origin: center;\n  animation: xhLoading_spin 1s linear infinite;\n}\n.xhLoading_icon { display: block; flex: none; width: 16px; height: 16px; }\n@keyframes xhLoading_spin { to { transform: rotate(360deg); } }\n@keyframes xhLoading_enter { from { opacity: 0; } to { opacity: 1; } }\n@media (prefers-reduced-motion: reduce) {\n  .xhLoading_root, .xhLoading_rotor { animation: none; }\n}\n";
 
 },
+"src/modules/conversation/skeleton/SessionRecoveryButton.js": function(module, exports, require) {
+// source: src/modules/conversation/skeleton/SessionRecoveryButton.tsx
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SessionRecoveryButton = SessionRecoveryButton;
+const jsx_runtime_1 = require("react/jsx-runtime");
+const react_1 = require("react");
+/** The Host owns recovery. This control never edits a draft or fabricates idle. */
+function SessionRecoveryButton({ sessionId, recover, t }) {
+    const running = (0, react_1.useRef)(false);
+    const generation = (0, react_1.useRef)(0);
+    const [busy, setBusy] = (0, react_1.useState)(false);
+    const [error, setError] = (0, react_1.useState)('');
+    const [complete, setComplete] = (0, react_1.useState)(false);
+    (0, react_1.useEffect)(() => {
+        generation.current++;
+        running.current = false;
+        setBusy(false);
+        setError('');
+        setComplete(false);
+        return () => { generation.current++; };
+    }, [sessionId]);
+    const run = async () => {
+        if (running.current)
+            return;
+        running.current = true;
+        const current = ++generation.current;
+        setBusy(true);
+        setError('');
+        setComplete(false);
+        try {
+            await recover();
+            if (current === generation.current)
+                setComplete(true);
+        }
+        catch (error) {
+            if (current === generation.current)
+                setError(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            if (current === generation.current) {
+                running.current = false;
+                setBusy(false);
+            }
+        }
+    };
+    return (0, jsx_runtime_1.jsxs)("span", { "data-session-recovery": "", style: { display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }, children: [(0, jsx_runtime_1.jsx)("button", { type: "button", disabled: busy, "aria-busy": busy, title: t('session.recoverHint'), style: { font: 'inherit', fontSize: 12, color: 'var(--dsw-alias-label-secondary)', background: 'transparent', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 6, padding: '4px 8px', whiteSpace: 'nowrap', cursor: busy ? 'wait' : 'pointer' }, onClick: () => { void run(); }, children: t(busy ? 'session.recovering' : 'session.recover') }), complete && (0, jsx_runtime_1.jsx)("span", { role: "status", children: t('session.recovered') }), error && (0, jsx_runtime_1.jsx)("span", { role: "alert", title: error, style: { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }, children: error })] });
+}
+
+},
 "src/modules/conversation/chat/scroll-memory.js": function(module, exports, require) {
 // source: src/modules/conversation/chat/scroll-memory.ts
 
@@ -8162,6 +8248,11 @@ const PLAN_NEXT_ACTION_ZH = "描述你的任务以生成计划";
 const PLAN_NEXT_ACTION_EN = "describe your task to generate plan";
 exports.NS = 'conversation';
 exports.en = {
+    'session.recover': 'Recover task',
+    'session.recoverHint': 'Recover this idle task without resending input. Stop active work first. Other tasks and drafts are unchanged.',
+    'session.recovering': 'Recovering…',
+    'session.recovered': 'Recovered',
+    'session.recoverUnavailable': 'This Host does not support single-task recovery.',
     "tool.arguments.generating": "Generating tool input",
     "tool.arguments.received": "{size} received",
     "tool.arguments.elapsed": "{seconds}s",
@@ -8388,6 +8479,11 @@ exports.en = {
     "clock.ymd": "{y}-{m}-{d}"
 };
 exports.zh = {
+    'session.recover': '恢复任务',
+    'session.recoverHint': '恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。',
+    'session.recovering': '恢复中…',
+    'session.recovered': '已恢复',
+    'session.recoverUnavailable': '当前 Host 不支持单任务恢复。',
     "tool.arguments.generating": "正在生成工具参数",
     "tool.arguments.received": "已接收 {size}",
     "tool.arguments.elapsed": "{seconds} 秒",
@@ -9917,8 +10013,15 @@ const EMPTY_LIST = [];
 function sameReferences(left, right) {
     return left.length === right.length && left.every((value, index) => value === right[index]);
 }
+function sameStructure(a, b) {
+    if (a === undefined || a.kind !== b.kind || a.visibility !== b.visibility || a.anchorSeq !== b.anchorSeq)
+        return false;
+    const left = locationCoordinates(a.location), right = locationCoordinates(b.location);
+    return left.turn === right.turn && left.step === right.step;
+}
 class MutableChatNodeStore {
     constructor() {
+        this.structureVersion = 0;
         this.byKey = new Map();
         this.valuesCache = EMPTY_LIST;
         this.valuesDirty = false;
@@ -9934,6 +10037,7 @@ class MutableChatNodeStore {
         return this.valuesCache;
     }
     replace(nodes) {
+        this.structureVersion++;
         this.byKey.clear();
         for (const node of nodes)
             this.byKey.set(node.key, node);
@@ -9945,6 +10049,8 @@ class MutableChatNodeStore {
         for (const node of nodes) {
             if (this.byKey.get(node.key) === node)
                 continue;
+            if (!sameStructure(this.byKey.get(node.key), node))
+                this.structureVersion++;
             this.byKey.set(node.key, node);
             changed = true;
         }
@@ -12521,7 +12627,7 @@ exports.default = "._0kRAKq_root{flex-direction:column;display:flex}._0kRAKq_row
 
 }
 };
-const __dependencies = {"src/modules/conversation/index.js":{"./apply":"src/modules/conversation/apply.js","./service":"src/modules/conversation/service.js","./edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js"},"src/modules/conversation/apply.js":{"./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js","./runtime-values":"src/modules/conversation/runtime-values.js","./stores":"src/modules/conversation/stores.js","./service":"src/modules/conversation/service.js","./input/blocks":"src/modules/conversation/input/blocks.js","./input/hub":"src/modules/conversation/input/hub.js","./input/submission-policy":"src/modules/conversation/input/submission-policy.js","./settings/EnterBehaviorRow":"src/modules/conversation/settings/EnterBehaviorRow.js","./chat/ChatView":"src/modules/conversation/chat/ChatView.js","./chat/scroll-memory":"src/modules/conversation/chat/scroll-memory.js","./chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./skeleton/ApprovalPanel":"src/modules/conversation/skeleton/ApprovalPanel.js","./skeleton/TodoPanel":"src/modules/conversation/skeleton/TodoPanel.js","./queue/QueueDock":"src/modules/conversation/queue/QueueDock.js","./skeleton/ConversationRoot":"src/modules/conversation/skeleton/ConversationRoot.js","./skeleton/ConversationSession":"src/modules/conversation/skeleton/ConversationSession.js","./skeleton/DetailsPanel":"src/modules/conversation/skeleton/DetailsPanel.js","./locales":"src/modules/conversation/locales.js","./conversation-nodes/register":"src/modules/conversation/conversation-nodes/register.js","./chat/register-node-renderers":"src/modules/conversation/chat/register-node-renderers.js","./submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/edit/EditableInputBar.js":{"../skeleton/InputBar":"src/modules/conversation/skeleton/InputBar.js"},"src/modules/conversation/skeleton/InputBar.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","../input/decorations":"src/modules/conversation/input/decorations.js","../image-labels":"src/modules/conversation/image-labels.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextMeter":"src/modules/conversation/skeleton/ContextMeter.js","./PermissionSelect":"src/modules/conversation/skeleton/PermissionSelect.js","./safari":"src/modules/conversation/skeleton/safari.js","./InputBar.styles":"src/modules/conversation/skeleton/InputBar.styles.js","./ComposerAddMenu":"src/modules/conversation/skeleton/ComposerAddMenu.js","../attachments":"src/modules/conversation/attachments.js","../../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/conversation/classnames.js":{},"src/modules/conversation/primitives.js":{},"src/modules/conversation/input/decorations.js":{},"src/modules/conversation/image-labels.js":{},"src/modules/conversation/reference/ReferenceIcon.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/skeleton/ContextMeter.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./ContextMeter.styles":"src/modules/conversation/skeleton/ContextMeter.styles.js"},"src/modules/conversation/chat/StatsLine.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./StatsLine.styles":"src/modules/conversation/chat/StatsLine.styles.js"},"src/modules/shared/reception-metrics.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/conversation/chat/message-chrome.js":{},"src/modules/conversation/chat/turn-metrics.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js"},"src/modules/conversation/chat/StatsLine.styles.js":{"./StatsLine.css":"src/modules/conversation/chat/StatsLine.css"},"src/modules/conversation/chat/StatsLine.css":{},"src/modules/conversation/skeleton/ContextMeter.styles.js":{"./ContextMeter.css":"src/modules/conversation/skeleton/ContextMeter.css"},"src/modules/conversation/skeleton/ContextMeter.css":{},"src/modules/conversation/skeleton/PermissionSelect.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","./PermissionSelect.styles":"src/modules/conversation/skeleton/PermissionSelect.styles.js"},"src/modules/conversation/skeleton/PermissionSelect.styles.js":{"./PermissionSelect.css":"src/modules/conversation/skeleton/PermissionSelect.css"},"src/modules/conversation/skeleton/PermissionSelect.css":{},"src/modules/conversation/skeleton/safari.js":{},"src/modules/conversation/skeleton/InputBar.styles.js":{"./InputBar.css":"src/modules/conversation/skeleton/InputBar.css"},"src/modules/conversation/skeleton/InputBar.css":{},"src/modules/conversation/skeleton/ComposerAddMenu.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/attachments.js":{"./input/contract":"src/modules/conversation/input/contract.js"},"src/modules/conversation/input/contract.js":{},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/edit/actions.js":{"./MessageEditor":"src/modules/conversation/edit/MessageEditor.js"},"src/modules/conversation/edit/MessageEditor.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/wire-guards.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/runtime-values.js":{"./types/model":"src/modules/conversation/types/model.js","./chat/chunk-values":"src/modules/conversation/chat/chunk-values.js"},"src/modules/conversation/types/model.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/chat/chunk-values.js":{},"src/modules/conversation/stores.js":{"./contract/chat-store-codec":"src/modules/conversation/contract/chat-store-codec.js","./runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/contract/chat-store-codec.js":{},"src/modules/conversation/service.js":{"./core-context":"src/modules/conversation/core-context.js","./attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/input/blocks.js":{"../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/input/hub.js":{"../edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","../edit/persistence":"src/modules/conversation/edit/persistence.js","../queue/store":"src/modules/conversation/queue/store.js","./facade":"src/modules/conversation/input/facade.js"},"src/modules/conversation/edit/persistence.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/queue/store.js":{},"src/modules/conversation/input/facade.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./machine":"src/modules/conversation/input/machine.js"},"src/modules/conversation/input/machine.js":{},"src/modules/conversation/input/submission-policy.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","../submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/submission-settings.js":{},"src/modules/conversation/settings/EnterBehaviorRow.js":{"../primitives":"src/modules/conversation/primitives.js","./EnterBehaviorRow.styles":"src/modules/conversation/settings/EnterBehaviorRow.styles.js"},"src/modules/conversation/settings/EnterBehaviorRow.styles.js":{"./EnterBehaviorRow.css":"src/modules/conversation/settings/EnterBehaviorRow.css"},"src/modules/conversation/settings/EnterBehaviorRow.css":{},"src/modules/conversation/chat/ChatView.js":{"./pending-tool":"src/modules/conversation/chat/pending-tool.js","./use-adaptive-tool-fold":"src/modules/conversation/chat/use-adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./ChatNodeSeat":"src/modules/conversation/chat/ChatNodeSeat.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./message-preview":"src/modules/conversation/chat/message-preview.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./MessageRail":"src/modules/conversation/chat/MessageRail.js","./history-page-intent":"src/modules/conversation/chat/history-page-intent.js","./LoadingIndicator":"src/modules/conversation/chat/LoadingIndicator.js"},"src/modules/conversation/chat/pending-tool.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/contract/chat-node-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/conversation/chat/use-adaptive-tool-fold.js":{"./process-mode":"src/modules/conversation/chat/process-mode.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/chat/process-mode.js":{"../../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/conversation/chat/adaptive-tool-fold.js":{},"src/modules/conversation/chat/MessageItem.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./ContextInjectionRow":"src/modules/conversation/chat/ContextInjectionRow.js","./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js","../edit/MessageEditActions":"src/modules/conversation/edit/MessageEditActions.js"},"src/modules/conversation/chat/CompactionProgressCard.js":{"../primitives":"src/modules/conversation/primitives.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/transcript-state.js":{},"src/modules/conversation/chat/MessageItem.styles.js":{"./MessageItem.css":"src/modules/conversation/chat/MessageItem.css"},"src/modules/conversation/chat/MessageItem.css":{},"src/modules/conversation/chat/CompactionItem.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/ContextInjectionRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextBody":"src/modules/conversation/chat/ContextBody.js","./ContextInjectionRow.styles":"src/modules/conversation/chat/ContextInjectionRow.styles.js"},"src/modules/conversation/chat/ContextBody.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","./ContextBody.styles":"src/modules/conversation/chat/ContextBody.styles.js"},"src/modules/conversation/chat/ContextBody.styles.js":{"./ContextBody.css":"src/modules/conversation/chat/ContextBody.css"},"src/modules/conversation/chat/ContextBody.css":{},"src/modules/conversation/chat/ContextInjectionRow.styles.js":{"./ContextInjectionRow.css":"src/modules/conversation/chat/ContextInjectionRow.css"},"src/modules/conversation/chat/ContextInjectionRow.css":{},"src/modules/conversation/chat/MessageIconActions.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./use-calendar-day":"src/modules/conversation/chat/use-calendar-day.js","./MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/use-calendar-day.js":{"./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/MessageIconActions.styles.js":{"./MessageIconActions.css":"src/modules/conversation/chat/MessageIconActions.css"},"src/modules/conversation/chat/MessageIconActions.css":{},"src/modules/conversation/edit/MessageEditActions.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/ChatNodeSeat.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../primitives":"src/modules/conversation/primitives.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./turn-process":"src/modules/conversation/chat/turn-process.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js"},"src/modules/conversation/chat/ChatView.styles.js":{"./ChatView.css":"src/modules/conversation/chat/ChatView.css"},"src/modules/conversation/chat/ChatView.css":{},"src/modules/conversation/chat/TranscriptWindowRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/turn-process.js":{"./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js"},"src/modules/conversation/chat/TurnTailNodeView.js":{"./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./turn-assistant":"src/modules/conversation/chat/turn-assistant.js","./TurnTailNodeView.styles":"src/modules/conversation/chat/TurnTailNodeView.styles.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/turn-assistant.js":{},"src/modules/conversation/chat/TurnTailNodeView.styles.js":{"./TurnTailNodeView.css":"src/modules/conversation/chat/TurnTailNodeView.css"},"src/modules/conversation/chat/TurnTailNodeView.css":{},"src/modules/conversation/chat/message-preview.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/chat/MessageRail.js":{"../primitives":"src/modules/conversation/primitives.js","./MessageRail.styles":"src/modules/conversation/chat/MessageRail.styles.js"},"src/modules/conversation/chat/MessageRail.styles.js":{"./MessageRail.css":"src/modules/conversation/chat/MessageRail.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/conversation/chat/MessageRail.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/conversation/chat/history-page-intent.js":{},"src/modules/conversation/chat/LoadingIndicator.js":{"./LoadingIndicator.styles":"src/modules/conversation/chat/LoadingIndicator.styles.js"},"src/modules/conversation/chat/LoadingIndicator.styles.js":{"./LoadingIndicator.css":"src/modules/conversation/chat/LoadingIndicator.css"},"src/modules/conversation/chat/LoadingIndicator.css":{},"src/modules/conversation/chat/scroll-memory.js":{},"src/modules/conversation/skeleton/ApprovalPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../contract/slots":"src/modules/conversation/contract/slots.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./ApprovalPanel.styles":"src/modules/conversation/skeleton/ApprovalPanel.styles.js"},"src/modules/conversation/contract/slots.js":{},"src/modules/conversation/chat/tool-node-reader.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/skeleton/ApprovalPanel.styles.js":{"./ApprovalPanel.css":"src/modules/conversation/skeleton/ApprovalPanel.css"},"src/modules/conversation/skeleton/ApprovalPanel.css":{},"src/modules/conversation/skeleton/TodoPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./TodoPanel.styles":"src/modules/conversation/skeleton/TodoPanel.styles.js"},"src/modules/conversation/locales.js":{},"src/modules/conversation/skeleton/TodoPanel.styles.js":{"./TodoPanel.css":"src/modules/conversation/skeleton/TodoPanel.css"},"src/modules/conversation/skeleton/TodoPanel.css":{},"src/modules/conversation/queue/QueueDock.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./QueueDock.styles":"src/modules/conversation/queue/QueueDock.styles.js"},"src/modules/conversation/queue/QueueDock.styles.js":{"./QueueDock.css":"src/modules/conversation/queue/QueueDock.css"},"src/modules/conversation/queue/QueueDock.css":{},"src/modules/conversation/skeleton/ConversationRoot.js":{"../classnames":"src/modules/conversation/classnames.js","./EmptyHero":"src/modules/conversation/skeleton/EmptyHero.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/EmptyHero.js":{"../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/HeroShell.styles.js":{"./HeroShell.css":"src/modules/conversation/skeleton/HeroShell.css"},"src/modules/conversation/skeleton/HeroShell.css":{},"src/modules/conversation/skeleton/ConversationRoot.styles.js":{"./ConversationRoot.css":"src/modules/conversation/skeleton/ConversationRoot.css"},"src/modules/conversation/skeleton/ConversationRoot.css":{},"src/modules/conversation/skeleton/ConversationSession.js":{"../classnames":"src/modules/conversation/classnames.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./DetailsPanel.styles":"src/modules/conversation/skeleton/DetailsPanel.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.styles.js":{"./DetailsPanel.css":"src/modules/conversation/skeleton/DetailsPanel.css"},"src/modules/conversation/skeleton/DetailsPanel.css":{},"src/modules/conversation/conversation-nodes/register.js":{"./checkpoint":"src/modules/conversation/conversation-nodes/checkpoint.js","./assistant":"src/modules/conversation/conversation-nodes/assistant.js","./chat-snapshot-builder":"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction":"src/modules/conversation/conversation-nodes/compaction.js","./fallback":"src/modules/conversation/conversation-nodes/fallback.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./message":"src/modules/conversation/conversation-nodes/message.js","./retry":"src/modules/conversation/conversation-nodes/retry.js","./tool":"src/modules/conversation/conversation-nodes/tool.js","./turn-error":"src/modules/conversation/conversation-nodes/turn-error.js","./turn-max-tokens":"src/modules/conversation/conversation-nodes/turn-max-tokens.js","./turn-tail":"src/modules/conversation/conversation-nodes/turn-tail.js"},"src/modules/conversation/conversation-nodes/checkpoint.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/contract/wire-event-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../shared/generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/conversation/conversation-nodes/common.js":{},"src/modules/conversation/conversation-nodes/assistant.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../chat/preparing-call":"src/modules/conversation/chat/preparing-call.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/preparing-call.js":{},"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../contract/chat-nodes":"src/modules/conversation/contract/chat-nodes.js"},"src/modules/conversation/contract/chat-nodes.js":{},"src/modules/conversation/conversation-nodes/command.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/compaction-lifecycle.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/compaction.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js"},"src/modules/conversation/conversation-nodes/fallback.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/inbox.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/message.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/retry.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/tool.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-error.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-max-tokens.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-tail.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/register-node-renderers.js":{"../locales":"src/modules/conversation/locales.js","./CheckpointView":"src/modules/conversation/chat/CheckpointView.js","./AssistantNodeView":"src/modules/conversation/chat/AssistantNodeView.js","./CommandNodeView":"src/modules/conversation/chat/CommandNodeView.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js"},"src/modules/conversation/chat/CheckpointView.js":{"./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/AssistantNodeView.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./AssistantMarkdown":"src/modules/conversation/chat/AssistantMarkdown.js"},"src/modules/conversation/chat/AssistantMarkdown.js":{"../primitives":"src/modules/conversation/primitives.js","./ReasoningRow":"src/modules/conversation/chat/ReasoningRow.js","./AssistantMarkdown.styles":"src/modules/conversation/chat/AssistantMarkdown.styles.js","./preparing-call":"src/modules/conversation/chat/preparing-call.js","./ToolArgumentProgress":"src/modules/conversation/chat/ToolArgumentProgress.js"},"src/modules/conversation/chat/ReasoningRow.js":{"../primitives":"src/modules/conversation/primitives.js","./use-throttled-visual-update":"src/modules/conversation/chat/use-throttled-visual-update.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./ReasoningRow.styles":"src/modules/conversation/chat/ReasoningRow.styles.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./process-mode":"src/modules/conversation/chat/process-mode.js","./reasoning-summary":"src/modules/conversation/chat/reasoning-summary.js","./use-reasoning-summary":"src/modules/conversation/chat/use-reasoning-summary.js"},"src/modules/conversation/chat/use-throttled-visual-update.js":{},"src/modules/conversation/chat/accessibility.styles.js":{"./accessibility.css":"src/modules/conversation/chat/accessibility.css"},"src/modules/conversation/chat/accessibility.css":{},"src/modules/conversation/chat/ReasoningRow.styles.js":{"./ReasoningRow.css":"src/modules/conversation/chat/ReasoningRow.css"},"src/modules/conversation/chat/ReasoningRow.css":{},"src/modules/conversation/chat/reasoning-summary.js":{},"src/modules/conversation/chat/use-reasoning-summary.js":{"./reasoning-summary":"src/modules/conversation/chat/reasoning-summary.js"},"src/modules/conversation/chat/AssistantMarkdown.styles.js":{"./AssistantMarkdown.css":"src/modules/conversation/chat/AssistantMarkdown.css"},"src/modules/conversation/chat/AssistantMarkdown.css":{},"src/modules/conversation/chat/ToolArgumentProgress.js":{"./tool-argument-view":"src/modules/conversation/chat/tool-argument-view.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/tool-argument-view.js":{},"src/modules/conversation/chat/CommandNodeView.js":{"./CompactionCommandCard":"src/modules/conversation/chat/CompactionCommandCard.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js"},"src/modules/conversation/chat/CompactionCommandCard.js":{"./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js"},"src/modules/conversation/chat/GenericCommandCard.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./GenericCommandCard.styles":"src/modules/conversation/chat/GenericCommandCard.styles.js"},"src/modules/conversation/chat/GenericCommandCard.styles.js":{"./GenericCommandCard.css":"src/modules/conversation/chat/GenericCommandCard.css"},"src/modules/conversation/chat/GenericCommandCard.css":{}};
+const __dependencies = {"src/modules/conversation/index.js":{"./apply":"src/modules/conversation/apply.js","./service":"src/modules/conversation/service.js","./edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js"},"src/modules/conversation/apply.js":{"./edit/EditableInputBar":"src/modules/conversation/edit/EditableInputBar.js","./edit/actions":"src/modules/conversation/edit/actions.js","./runtime-values":"src/modules/conversation/runtime-values.js","./stores":"src/modules/conversation/stores.js","./service":"src/modules/conversation/service.js","./input/blocks":"src/modules/conversation/input/blocks.js","./input/hub":"src/modules/conversation/input/hub.js","./input/submission-policy":"src/modules/conversation/input/submission-policy.js","./settings/EnterBehaviorRow":"src/modules/conversation/settings/EnterBehaviorRow.js","./chat/ChatView":"src/modules/conversation/chat/ChatView.js","./skeleton/SessionRecoveryButton":"src/modules/conversation/skeleton/SessionRecoveryButton.js","./chat/scroll-memory":"src/modules/conversation/chat/scroll-memory.js","./chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./skeleton/ApprovalPanel":"src/modules/conversation/skeleton/ApprovalPanel.js","./skeleton/TodoPanel":"src/modules/conversation/skeleton/TodoPanel.js","./queue/QueueDock":"src/modules/conversation/queue/QueueDock.js","./skeleton/ConversationRoot":"src/modules/conversation/skeleton/ConversationRoot.js","./skeleton/ConversationSession":"src/modules/conversation/skeleton/ConversationSession.js","./skeleton/DetailsPanel":"src/modules/conversation/skeleton/DetailsPanel.js","./locales":"src/modules/conversation/locales.js","./conversation-nodes/register":"src/modules/conversation/conversation-nodes/register.js","./chat/register-node-renderers":"src/modules/conversation/chat/register-node-renderers.js","./submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/edit/EditableInputBar.js":{"../skeleton/InputBar":"src/modules/conversation/skeleton/InputBar.js"},"src/modules/conversation/skeleton/InputBar.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","../input/decorations":"src/modules/conversation/input/decorations.js","../image-labels":"src/modules/conversation/image-labels.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextMeter":"src/modules/conversation/skeleton/ContextMeter.js","./PermissionSelect":"src/modules/conversation/skeleton/PermissionSelect.js","./safari":"src/modules/conversation/skeleton/safari.js","./InputBar.styles":"src/modules/conversation/skeleton/InputBar.styles.js","./ComposerAddMenu":"src/modules/conversation/skeleton/ComposerAddMenu.js","../attachments":"src/modules/conversation/attachments.js","../../shared/composer-files":"src/modules/shared/composer-files.js"},"src/modules/conversation/classnames.js":{},"src/modules/conversation/primitives.js":{},"src/modules/conversation/input/decorations.js":{},"src/modules/conversation/image-labels.js":{},"src/modules/conversation/reference/ReferenceIcon.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/skeleton/ContextMeter.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/StatsLine":"src/modules/conversation/chat/StatsLine.js","./ContextMeter.styles":"src/modules/conversation/skeleton/ContextMeter.styles.js"},"src/modules/conversation/chat/StatsLine.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./StatsLine.styles":"src/modules/conversation/chat/StatsLine.styles.js"},"src/modules/shared/reception-metrics.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/runtime-types.js":{},"src/modules/conversation/chat/message-chrome.js":{},"src/modules/conversation/chat/turn-metrics.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js"},"src/modules/conversation/chat/StatsLine.styles.js":{"./StatsLine.css":"src/modules/conversation/chat/StatsLine.css"},"src/modules/conversation/chat/StatsLine.css":{},"src/modules/conversation/skeleton/ContextMeter.styles.js":{"./ContextMeter.css":"src/modules/conversation/skeleton/ContextMeter.css"},"src/modules/conversation/skeleton/ContextMeter.css":{},"src/modules/conversation/skeleton/PermissionSelect.js":{"../classnames":"src/modules/conversation/classnames.js","../primitives":"src/modules/conversation/primitives.js","./PermissionSelect.styles":"src/modules/conversation/skeleton/PermissionSelect.styles.js"},"src/modules/conversation/skeleton/PermissionSelect.styles.js":{"./PermissionSelect.css":"src/modules/conversation/skeleton/PermissionSelect.css"},"src/modules/conversation/skeleton/PermissionSelect.css":{},"src/modules/conversation/skeleton/safari.js":{},"src/modules/conversation/skeleton/InputBar.styles.js":{"./InputBar.css":"src/modules/conversation/skeleton/InputBar.css"},"src/modules/conversation/skeleton/InputBar.css":{},"src/modules/conversation/skeleton/ComposerAddMenu.js":{"../primitives":"src/modules/conversation/primitives.js"},"src/modules/conversation/attachments.js":{"./input/contract":"src/modules/conversation/input/contract.js"},"src/modules/conversation/input/contract.js":{},"src/modules/shared/composer-files.js":{"./runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/edit/actions.js":{"./MessageEditor":"src/modules/conversation/edit/MessageEditor.js"},"src/modules/conversation/edit/MessageEditor.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/wire-guards.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/runtime-values.js":{"./types/model":"src/modules/conversation/types/model.js","./chat/chunk-values":"src/modules/conversation/chat/chunk-values.js"},"src/modules/conversation/types/model.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/chat/chunk-values.js":{},"src/modules/conversation/stores.js":{"./contract/chat-store-codec":"src/modules/conversation/contract/chat-store-codec.js","./runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/contract/chat-store-codec.js":{},"src/modules/conversation/service.js":{"./core-context":"src/modules/conversation/core-context.js","./attachments":"src/modules/conversation/attachments.js"},"src/modules/conversation/core-context.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/input/blocks.js":{"../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/input/hub.js":{"../edit/MessageEditor":"src/modules/conversation/edit/MessageEditor.js","../edit/persistence":"src/modules/conversation/edit/persistence.js","../queue/store":"src/modules/conversation/queue/store.js","./facade":"src/modules/conversation/input/facade.js"},"src/modules/conversation/edit/persistence.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js"},"src/modules/conversation/queue/store.js":{},"src/modules/conversation/input/facade.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./machine":"src/modules/conversation/input/machine.js"},"src/modules/conversation/input/machine.js":{},"src/modules/conversation/input/submission-policy.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","../submission-settings":"src/modules/conversation/submission-settings.js"},"src/modules/conversation/submission-settings.js":{},"src/modules/conversation/settings/EnterBehaviorRow.js":{"../primitives":"src/modules/conversation/primitives.js","./EnterBehaviorRow.styles":"src/modules/conversation/settings/EnterBehaviorRow.styles.js"},"src/modules/conversation/settings/EnterBehaviorRow.styles.js":{"./EnterBehaviorRow.css":"src/modules/conversation/settings/EnterBehaviorRow.css"},"src/modules/conversation/settings/EnterBehaviorRow.css":{},"src/modules/conversation/chat/ChatView.js":{"./use-adaptive-tool-fold":"src/modules/conversation/chat/use-adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./ChatFlow":"src/modules/conversation/chat/ChatFlow.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./message-preview":"src/modules/conversation/chat/message-preview.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./MessageRail":"src/modules/conversation/chat/MessageRail.js","./history-page-intent":"src/modules/conversation/chat/history-page-intent.js","./LoadingIndicator":"src/modules/conversation/chat/LoadingIndicator.js"},"src/modules/conversation/chat/use-adaptive-tool-fold.js":{"./process-mode":"src/modules/conversation/chat/process-mode.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/chat/process-mode.js":{"../../shared/process-display":"src/modules/shared/process-display.js"},"src/modules/shared/process-display.js":{},"src/modules/conversation/chat/adaptive-tool-fold.js":{},"src/modules/conversation/contract/chat-node-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js"},"src/modules/shared/compaction-outcome.js":{},"src/modules/conversation/chat/MessageItem.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./ContextInjectionRow":"src/modules/conversation/chat/ContextInjectionRow.js","./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js","../edit/MessageEditActions":"src/modules/conversation/edit/MessageEditActions.js"},"src/modules/conversation/chat/CompactionProgressCard.js":{"../primitives":"src/modules/conversation/primitives.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/transcript-state.js":{},"src/modules/conversation/chat/MessageItem.styles.js":{"./MessageItem.css":"src/modules/conversation/chat/MessageItem.css"},"src/modules/conversation/chat/MessageItem.css":{},"src/modules/conversation/chat/CompactionItem.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/ContextInjectionRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","../reference/ReferenceIcon":"src/modules/conversation/reference/ReferenceIcon.js","./ContextBody":"src/modules/conversation/chat/ContextBody.js","./ContextInjectionRow.styles":"src/modules/conversation/chat/ContextInjectionRow.styles.js"},"src/modules/conversation/chat/ContextBody.js":{"../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","./ContextBody.styles":"src/modules/conversation/chat/ContextBody.styles.js"},"src/modules/conversation/chat/ContextBody.styles.js":{"./ContextBody.css":"src/modules/conversation/chat/ContextBody.css"},"src/modules/conversation/chat/ContextBody.css":{},"src/modules/conversation/chat/ContextInjectionRow.styles.js":{"./ContextInjectionRow.css":"src/modules/conversation/chat/ContextInjectionRow.css"},"src/modules/conversation/chat/ContextInjectionRow.css":{},"src/modules/conversation/chat/MessageIconActions.js":{"../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js","./use-calendar-day":"src/modules/conversation/chat/use-calendar-day.js","./MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/use-calendar-day.js":{"./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/MessageIconActions.styles.js":{"./MessageIconActions.css":"src/modules/conversation/chat/MessageIconActions.css"},"src/modules/conversation/chat/MessageIconActions.css":{},"src/modules/conversation/edit/MessageEditActions.js":{"../primitives":"src/modules/conversation/primitives.js","../chat/MessageIconActions.styles":"src/modules/conversation/chat/MessageIconActions.styles.js"},"src/modules/conversation/chat/ChatFlow.js":{"./ChatNodeSeat":"src/modules/conversation/chat/ChatNodeSeat.js"},"src/modules/conversation/chat/ChatNodeSeat.js":{"./pending-tool":"src/modules/conversation/chat/pending-tool.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../primitives":"src/modules/conversation/primitives.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js","./TranscriptWindowRow":"src/modules/conversation/chat/TranscriptWindowRow.js","./turn-process":"src/modules/conversation/chat/turn-process.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js","./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js","./process-mode":"src/modules/conversation/chat/process-mode.js"},"src/modules/conversation/chat/pending-tool.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js"},"src/modules/conversation/chat/ChatView.styles.js":{"./ChatView.css":"src/modules/conversation/chat/ChatView.css"},"src/modules/conversation/chat/ChatView.css":{},"src/modules/conversation/chat/TranscriptWindowRow.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/turn-process.js":{"./adaptive-tool-fold":"src/modules/conversation/chat/adaptive-tool-fold.js"},"src/modules/conversation/chat/TurnTailNodeView.js":{"./MessageIconActions":"src/modules/conversation/chat/MessageIconActions.js","./turn-assistant":"src/modules/conversation/chat/turn-assistant.js","./TurnTailNodeView.styles":"src/modules/conversation/chat/TurnTailNodeView.styles.js","../primitives":"src/modules/conversation/primitives.js","./message-chrome":"src/modules/conversation/chat/message-chrome.js"},"src/modules/conversation/chat/turn-assistant.js":{},"src/modules/conversation/chat/TurnTailNodeView.styles.js":{"./TurnTailNodeView.css":"src/modules/conversation/chat/TurnTailNodeView.css"},"src/modules/conversation/chat/TurnTailNodeView.css":{},"src/modules/conversation/chat/message-preview.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/conversation/chat/MessageRail.js":{"../primitives":"src/modules/conversation/primitives.js","./MessageRail.styles":"src/modules/conversation/chat/MessageRail.styles.js"},"src/modules/conversation/chat/MessageRail.styles.js":{"./MessageRail.css":"src/modules/conversation/chat/MessageRail.css","../../shared/foundation-styles":"src/modules/shared/foundation-styles.js"},"src/modules/conversation/chat/MessageRail.css":{},"src/modules/shared/foundation-styles.js":{},"src/modules/conversation/chat/history-page-intent.js":{},"src/modules/conversation/chat/LoadingIndicator.js":{"./LoadingIndicator.styles":"src/modules/conversation/chat/LoadingIndicator.styles.js"},"src/modules/conversation/chat/LoadingIndicator.styles.js":{"./LoadingIndicator.css":"src/modules/conversation/chat/LoadingIndicator.css"},"src/modules/conversation/chat/LoadingIndicator.css":{},"src/modules/conversation/skeleton/SessionRecoveryButton.js":{},"src/modules/conversation/chat/scroll-memory.js":{},"src/modules/conversation/skeleton/ApprovalPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../contract/slots":"src/modules/conversation/contract/slots.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./ApprovalPanel.styles":"src/modules/conversation/skeleton/ApprovalPanel.styles.js"},"src/modules/conversation/contract/slots.js":{},"src/modules/conversation/chat/tool-node-reader.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js"},"src/modules/conversation/skeleton/ApprovalPanel.styles.js":{"./ApprovalPanel.css":"src/modules/conversation/skeleton/ApprovalPanel.css"},"src/modules/conversation/skeleton/ApprovalPanel.css":{},"src/modules/conversation/skeleton/TodoPanel.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./TodoPanel.styles":"src/modules/conversation/skeleton/TodoPanel.styles.js"},"src/modules/conversation/locales.js":{},"src/modules/conversation/skeleton/TodoPanel.styles.js":{"./TodoPanel.css":"src/modules/conversation/skeleton/TodoPanel.css"},"src/modules/conversation/skeleton/TodoPanel.css":{},"src/modules/conversation/queue/QueueDock.js":{"../primitives":"src/modules/conversation/primitives.js","../locales":"src/modules/conversation/locales.js","./QueueDock.styles":"src/modules/conversation/queue/QueueDock.styles.js"},"src/modules/conversation/queue/QueueDock.styles.js":{"./QueueDock.css":"src/modules/conversation/queue/QueueDock.css"},"src/modules/conversation/queue/QueueDock.css":{},"src/modules/conversation/skeleton/ConversationRoot.js":{"../classnames":"src/modules/conversation/classnames.js","./EmptyHero":"src/modules/conversation/skeleton/EmptyHero.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/EmptyHero.js":{"../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","./HeroShell.styles":"src/modules/conversation/skeleton/HeroShell.styles.js"},"src/modules/conversation/skeleton/HeroShell.styles.js":{"./HeroShell.css":"src/modules/conversation/skeleton/HeroShell.css"},"src/modules/conversation/skeleton/HeroShell.css":{},"src/modules/conversation/skeleton/ConversationRoot.styles.js":{"./ConversationRoot.css":"src/modules/conversation/skeleton/ConversationRoot.css"},"src/modules/conversation/skeleton/ConversationRoot.css":{},"src/modules/conversation/skeleton/ConversationSession.js":{"../classnames":"src/modules/conversation/classnames.js","./ConversationRoot.styles":"src/modules/conversation/skeleton/ConversationRoot.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../primitives":"src/modules/conversation/primitives.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/tool-node-reader":"src/modules/conversation/chat/tool-node-reader.js","./DetailsPanel.styles":"src/modules/conversation/skeleton/DetailsPanel.styles.js"},"src/modules/conversation/skeleton/DetailsPanel.styles.js":{"./DetailsPanel.css":"src/modules/conversation/skeleton/DetailsPanel.css"},"src/modules/conversation/skeleton/DetailsPanel.css":{},"src/modules/conversation/conversation-nodes/register.js":{"./checkpoint":"src/modules/conversation/conversation-nodes/checkpoint.js","./assistant":"src/modules/conversation/conversation-nodes/assistant.js","./chat-snapshot-builder":"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction":"src/modules/conversation/conversation-nodes/compaction.js","./fallback":"src/modules/conversation/conversation-nodes/fallback.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./message":"src/modules/conversation/conversation-nodes/message.js","./retry":"src/modules/conversation/conversation-nodes/retry.js","./tool":"src/modules/conversation/conversation-nodes/tool.js","./turn-error":"src/modules/conversation/conversation-nodes/turn-error.js","./turn-max-tokens":"src/modules/conversation/conversation-nodes/turn-max-tokens.js","./turn-tail":"src/modules/conversation/conversation-nodes/turn-tail.js"},"src/modules/conversation/conversation-nodes/checkpoint.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/contract/wire-event-codec.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../../shared/generated/session-terminal":"src/modules/shared/generated/session-terminal.js"},"src/modules/shared/generated/session-terminal.js":{},"src/modules/conversation/conversation-nodes/common.js":{},"src/modules/conversation/conversation-nodes/assistant.js":{"../../shared/reception-metrics":"src/modules/shared/reception-metrics.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../chat/preparing-call":"src/modules/conversation/chat/preparing-call.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/preparing-call.js":{},"src/modules/conversation/conversation-nodes/chat-snapshot-builder.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../contract/chat-nodes":"src/modules/conversation/contract/chat-nodes.js"},"src/modules/conversation/contract/chat-nodes.js":{},"src/modules/conversation/conversation-nodes/command.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../wire-guards":"src/modules/conversation/wire-guards.js","../../shared/runtime-types":"src/modules/shared/runtime-types.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/compaction-lifecycle.js":{"../../shared/compaction-outcome":"src/modules/shared/compaction-outcome.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/compaction.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js","./command":"src/modules/conversation/conversation-nodes/command.js","./compaction-lifecycle":"src/modules/conversation/conversation-nodes/compaction-lifecycle.js"},"src/modules/conversation/conversation-nodes/fallback.js":{"../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/inbox.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../wire-guards":"src/modules/conversation/wire-guards.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js"},"src/modules/conversation/conversation-nodes/message.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./inbox":"src/modules/conversation/conversation-nodes/inbox.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/retry.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/tool.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-error.js":{"../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-max-tokens.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/conversation-nodes/turn-tail.js":{"../../shared/runtime-types":"src/modules/shared/runtime-types.js","../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","../contract/wire-event-codec":"src/modules/conversation/contract/wire-event-codec.js","../runtime-values":"src/modules/conversation/runtime-values.js","../chat/turn-metrics":"src/modules/conversation/chat/turn-metrics.js","./common":"src/modules/conversation/conversation-nodes/common.js"},"src/modules/conversation/chat/register-node-renderers.js":{"../locales":"src/modules/conversation/locales.js","./CheckpointView":"src/modules/conversation/chat/CheckpointView.js","./AssistantNodeView":"src/modules/conversation/chat/AssistantNodeView.js","./CommandNodeView":"src/modules/conversation/chat/CommandNodeView.js","./MessageItem":"src/modules/conversation/chat/MessageItem.js","./TurnTailNodeView":"src/modules/conversation/chat/TurnTailNodeView.js"},"src/modules/conversation/chat/CheckpointView.js":{"./MessageItem.styles":"src/modules/conversation/chat/MessageItem.styles.js"},"src/modules/conversation/chat/AssistantNodeView.js":{"../contract/chat-node-codec":"src/modules/conversation/contract/chat-node-codec.js","./AssistantMarkdown":"src/modules/conversation/chat/AssistantMarkdown.js"},"src/modules/conversation/chat/AssistantMarkdown.js":{"../primitives":"src/modules/conversation/primitives.js","./ReasoningRow":"src/modules/conversation/chat/ReasoningRow.js","./AssistantMarkdown.styles":"src/modules/conversation/chat/AssistantMarkdown.styles.js","./preparing-call":"src/modules/conversation/chat/preparing-call.js","./ToolArgumentProgress":"src/modules/conversation/chat/ToolArgumentProgress.js"},"src/modules/conversation/chat/ReasoningRow.js":{"../primitives":"src/modules/conversation/primitives.js","./use-throttled-visual-update":"src/modules/conversation/chat/use-throttled-visual-update.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./ReasoningRow.styles":"src/modules/conversation/chat/ReasoningRow.styles.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js","./process-mode":"src/modules/conversation/chat/process-mode.js","./reasoning-summary":"src/modules/conversation/chat/reasoning-summary.js","./use-reasoning-summary":"src/modules/conversation/chat/use-reasoning-summary.js"},"src/modules/conversation/chat/use-throttled-visual-update.js":{},"src/modules/conversation/chat/accessibility.styles.js":{"./accessibility.css":"src/modules/conversation/chat/accessibility.css"},"src/modules/conversation/chat/accessibility.css":{},"src/modules/conversation/chat/ReasoningRow.styles.js":{"./ReasoningRow.css":"src/modules/conversation/chat/ReasoningRow.css"},"src/modules/conversation/chat/ReasoningRow.css":{},"src/modules/conversation/chat/reasoning-summary.js":{},"src/modules/conversation/chat/use-reasoning-summary.js":{"./reasoning-summary":"src/modules/conversation/chat/reasoning-summary.js"},"src/modules/conversation/chat/AssistantMarkdown.styles.js":{"./AssistantMarkdown.css":"src/modules/conversation/chat/AssistantMarkdown.css"},"src/modules/conversation/chat/AssistantMarkdown.css":{},"src/modules/conversation/chat/ToolArgumentProgress.js":{"./tool-argument-view":"src/modules/conversation/chat/tool-argument-view.js","./transcript-state":"src/modules/conversation/chat/transcript-state.js"},"src/modules/conversation/chat/tool-argument-view.js":{},"src/modules/conversation/chat/CommandNodeView.js":{"./CompactionCommandCard":"src/modules/conversation/chat/CompactionCommandCard.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js","./ChatView.styles":"src/modules/conversation/chat/ChatView.styles.js"},"src/modules/conversation/chat/CompactionCommandCard.js":{"./CompactionProgressCard":"src/modules/conversation/chat/CompactionProgressCard.js","./CompactionItem":"src/modules/conversation/chat/CompactionItem.js","./GenericCommandCard":"src/modules/conversation/chat/GenericCommandCard.js"},"src/modules/conversation/chat/GenericCommandCard.js":{"./transcript-state":"src/modules/conversation/chat/transcript-state.js","../primitives":"src/modules/conversation/primitives.js","./accessibility.styles":"src/modules/conversation/chat/accessibility.styles.js","./GenericCommandCard.styles":"src/modules/conversation/chat/GenericCommandCard.styles.js"},"src/modules/conversation/chat/GenericCommandCard.styles.js":{"./GenericCommandCard.css":"src/modules/conversation/chat/GenericCommandCard.css"},"src/modules/conversation/chat/GenericCommandCard.css":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

@@ -394,6 +394,11 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const result = await commandRemote(this.ctx).execute(session.sessionId, line, images)
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    if (submittedCommandName(line) === 'reload' && result.value.result.kind === 'success') {
+      const binding = this.sessions().binding?.(session.sessionId)
+      if (binding === undefined) throw new Error('Session restarted but its local history binding is unavailable')
+      await binding.session.recoverHistory()
+    }
     this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
     // An image-carrying submission consumed its images only on handler
     // success; an error outcome keeps draft and images in the composer.

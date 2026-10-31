@@ -393,7 +393,12 @@ function AppFrame({ useStore, useSessions, actions, navigation, renderSlot, }) {
                         collapsed: sidebarCollapsed,
                         width: sidebarContentWidth,
                         navigation,
-                    }) }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(CenterColumn, { swarm: centerPage === 'swarm', children: (0, jsx_runtime_1.jsxs)("div", { className: "xhfeature-shell", "data-swarm-active": centerPage === 'swarm' || undefined, children: [(0, jsx_runtime_1.jsx)("div", { className: "xhswarm-seat", hidden: centerPage !== 'swarm', children: centerPage === 'swarm' && renderSlot('swarm.center', { showConversation: setSwarmVisible }) }), (0, jsx_runtime_1.jsx)("div", { className: "xhassistant-seat", hidden: centerPage !== 'assistant', children: centerPage === 'assistant' && renderSlot('assistant.center', { showConversation: setAssistantVisible }) }), (0, jsx_runtime_1.jsx)("div", { className: "xhwork-conversation", hidden: centerPage !== 'chat' && !(centerPage === 'assistant' && assistantVisible) && !(centerPage === 'swarm' && swarmVisible), "aria-label": centerPage === 'assistant' ? 'Little X chat' : undefined, children: renderSlot('conversation', {}) }), centerPage === 'plugins' && (0, jsx_runtime_1.jsxs)("main", { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)' }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", style: { cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit' }, "aria-label": "Back to chat", onClick: closeCenterPage, children: ["\u2190 ", navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'] }), renderSlot('plugins.center', {})] }), centerPage === 'work' && (0, jsx_runtime_1.jsx)(WorkCenter_1.WorkCenter, { close: closeCenterPage, renderTasks: () => renderSlot('work.center.tasks', { openSession: openWorkSession }), renderAutomations: () => renderSlot('work.center.automations', { openSession: openWorkSession }), renderExecutions: () => renderSlot('work.center.executions', { openSession: openWorkSession }) }), centerPage === 'review' && renderSlot('review.center', { close: closeCenterPage })] }) }), workspaceDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: AppFrame_styles_1.default.workspaceScrim, "aria-label": "\u5173\u95ED\u5DE5\u4F5C\u533A", onClick: () => updateSpace(value => ({ ...value, collapsed: true })) }), (0, jsx_runtime_1.jsx)(DetailsColumn, { children: (0, jsx_runtime_1.jsx)(workspace_pane_1.XhWorkspacePane, { space: space, open: workspaceOpen, sessionId: spaceKey === '__global__' ? null : spaceKey, renderSlot: renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: updateItem, onNewBrowser: () => openWorkspace('browser', true) }) })] }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.overlayLayer, "data-shell-overlay": true, children: renderSlot('shell.overlay', {}) }), !sidebarCollapsed && !sidebarDrawer && (0, jsx_runtime_1.jsx)(DragHandle, { side: "sidebar", left: cols.sidebar, onStart: onSidebarStart, onDrag: onSidebarDrag, onEnd: onDragEnd }), workspaceDockWidth > 0 && (0, jsx_runtime_1.jsx)(DragHandle, { side: "details", left: viewport - workspaceDockWidth, onStart: onWorkspaceStart, onDrag: onWorkspaceDrag, onEnd: onDragEnd })] }));
+                    }) }) }), (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(CenterColumn, { swarm: centerPage === 'swarm', children: (0, jsx_runtime_1.jsxs)("div", { className: "xhfeature-shell", "data-swarm-active": centerPage === 'swarm' || undefined, children: [(0, jsx_runtime_1.jsx)("div", { className: "xhswarm-seat", hidden: centerPage !== 'swarm', children: centerPage === 'swarm' && renderSlot('swarm.center', { showConversation: setSwarmVisible }) }), (0, jsx_runtime_1.jsx)("div", { className: "xhassistant-seat", hidden: centerPage !== 'assistant', children: centerPage === 'assistant' && renderSlot('assistant.center', { showConversation: setAssistantVisible }) }), (0, jsx_runtime_1.jsx)("div", { className: "xhwork-conversation", hidden: centerPage !== 'chat' && !(centerPage === 'assistant' && assistantVisible) && !(centerPage === 'swarm' && swarmVisible), "aria-label": centerPage === 'assistant' ? 'Little X chat' : undefined, children: renderSlot('conversation', {}) }), centerPage === 'plugins' && (0, jsx_runtime_1.jsxs)("main", { style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px clamp(20px, 5vw, 56px)' }, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", style: { cursor: 'pointer', background: 'none', border: 0, color: 'var(--dsw-alias-label-secondary)', padding: '0 0 24px', font: 'inherit' }, "aria-label": "Back to chat", onClick: closeCenterPage, children: ["\u2190 ", navigator.language.startsWith('zh') ? '返回对话' : 'Back to chat'] }), renderSlot('plugins.center', {})] }), centerPage === 'work' && (0, jsx_runtime_1.jsx)(WorkCenter_1.WorkCenter, { close: closeCenterPage, renderTasks: () => renderSlot('work.center.tasks', { openSession: openWorkSession }), renderAutomations: () => renderSlot('work.center.automations', { openSession: openWorkSession }), renderExecutions: () => renderSlot('work.center.executions', { openSession: openWorkSession }) }), centerPage === 'review' && renderSlot('review.center', { close: closeCenterPage })] }) }), workspaceDrawer && (0, jsx_runtime_1.jsx)("button", { type: "button", className: AppFrame_styles_1.default.workspaceScrim, "aria-label": "\u5173\u95ED\u5DE5\u4F5C\u533A", onClick: () => updateSpace(value => ({ ...value, collapsed: true })) }), (0, jsx_runtime_1.jsx)(DetailsColumn, { children: (0, jsx_runtime_1.jsx)(workspace_pane_1.XhWorkspacePane, { space: space, spaces: spaces, open: workspaceOpen, sessionId: spaceKey === '__global__' ? null : spaceKey, renderSlot: renderSlot, onSelect: id => updateSpace(value => ({ ...value, activeId: id })), onClose: closeWorkspace, onUpdate: updateItem, onUpdateOwner: (owner, id, patch) => setSpaces(all => {
+                                const prior = all[owner];
+                                if (!prior?.items.some(item => item.id === id))
+                                    return all;
+                                return { ...all, [owner]: { ...prior, items: prior.items.map(item => item.id === id ? { ...item, ...patch } : item) } };
+                            }), onNewBrowser: () => openWorkspace('browser', true) }) })] }), (0, jsx_runtime_1.jsx)("div", { className: AppFrame_styles_1.default.overlayLayer, "data-shell-overlay": true, children: renderSlot('shell.overlay', {}) }), !sidebarCollapsed && !sidebarDrawer && (0, jsx_runtime_1.jsx)(DragHandle, { side: "sidebar", left: cols.sidebar, onStart: onSidebarStart, onDrag: onSidebarDrag, onEnd: onDragEnd }), workspaceDockWidth > 0 && (0, jsx_runtime_1.jsx)(DragHandle, { side: "details", left: viewport - workspaceDockWidth, onStart: onWorkspaceStart, onDrag: onWorkspaceDrag, onEnd: onDragEnd })] }));
 }
 
 },
@@ -631,6 +636,39 @@ function xhCreateBrowserWindowController(tauri) {
 // source: src/modules/layout/workspace-pane.tsx
 
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.xhWorkspaceStorageKey = exports.xhWorkspaceEmpty = void 0;
 exports.xhLoadBrowserSpaces = xhLoadBrowserSpaces;
@@ -642,6 +680,8 @@ exports.xhWorkspaceClose = xhWorkspaceClose;
 exports.XhWorkspacePane = XhWorkspacePane;
 exports.workspaceOpenDetail = workspaceOpenDetail;
 const jsx_runtime_1 = require("react/jsx-runtime");
+const React = __importStar(require("react"));
+const retained_pages_1 = require("./retained-pages");
 const file_display_options_1 = require("../shared/generated/file-display-options");
 const runtime_types_1 = require("../shared/runtime-types");
 exports.xhWorkspaceEmpty = { items: [], activeId: null };
@@ -727,9 +767,36 @@ function xhWorkspaceClose(space, id) {
     const items = space.items.filter(item => item.id !== id);
     return { ...space, items, activeId: space.activeId === id ? (items[Math.min(index, items.length - 1)]?.id ?? null) : space.activeId };
 }
-function XhWorkspacePane({ space, open, sessionId, renderSlot, onSelect, onClose, onUpdate, onNewBrowser }) {
+function XhWorkspacePane({ space, spaces, open, sessionId, renderSlot, onSelect, onClose, onUpdate, onUpdateOwner, onNewBrowser }) {
     const active = space.items.find(item => item.id === space.activeId);
-    return (0, jsx_runtime_1.jsxs)("section", { className: "xhworkspace", "aria-label": "\u5DE5\u4F5C\u533A", hidden: !open, children: [(0, jsx_runtime_1.jsxs)("div", { className: "xhworkspace-tabs", role: "tablist", "aria-label": "\u5DE5\u4F5C\u533A\u6807\u7B7E", children: [space.items.map(item => (0, jsx_runtime_1.jsxs)("div", { className: "xhworkspace-tab", "data-active": item.id === space.activeId || undefined, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", role: "tab", "aria-selected": item.id === space.activeId, onClick: () => onSelect(item.id), title: item.title, children: [item.kind !== 'browser' && (0, jsx_runtime_1.jsx)("span", { className: "xhworkspace-kind", "aria-hidden": true, children: item.kind === 'tool' ? '⌘' : '▤' }), (0, jsx_runtime_1.jsx)("span", { className: "xhworkspace-title", children: item.title })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xhworkspace-tab-close", "aria-label": `关闭 ${item.title}`, onClick: () => onClose(item.id), title: "\u5173\u95ED\u6807\u7B7E", children: "\u00D7" })] }, item.id)), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xhworkspace-new", "aria-label": "\u65B0\u5EFA\u6D4F\u89C8\u5668\u6807\u7B7E", onClick: onNewBrowser, title: "\u65B0\u5EFA\u6D4F\u89C8\u5668\u6807\u7B7E", children: "+" })] }), (0, jsx_runtime_1.jsx)("div", { className: "xhworkspace-body", children: active && (0, jsx_runtime_1.jsx)("div", { className: `xhworkspace-item xhworkspace-${active.kind}`, role: "tabpanel", children: active.kind === 'tool' ? renderSlot('details', {}) : renderSlot('workspace.item', { item: active, sessionId, open, onUpdate: patch => onUpdate(active.id, patch), onClose: () => onClose(active.id), onNewBrowser }) }, active.id) })] });
+    const owner = sessionId ?? '__global__';
+    const all = spaces ?? { [owner]: space };
+    const [pages, setPages] = React.useState([]);
+    const [, tick] = React.useState(0);
+    const next = (0, retained_pages_1.planRetainedPages)(pages, all, owner, space.activeId, open, Date.now());
+    if (next !== pages)
+        setPages(next);
+    React.useEffect(() => {
+        const deadlines = next.filter(page => !open || page.owner !== owner || page.id !== space.activeId)
+            .map(page => page.usedAt + retained_pages_1.RETAINED_PAGE_IDLE_MS - Date.now());
+        if (!deadlines.length)
+            return;
+        const timer = setTimeout(() => tick(value => value + 1), Math.max(1, Math.min(...deadlines)));
+        return () => clearTimeout(timer);
+    }, [next, owner, space.activeId, open]);
+    return (0, jsx_runtime_1.jsxs)("section", { className: "xhworkspace", "aria-label": "\u5DE5\u4F5C\u533A", hidden: !open, children: [(0, jsx_runtime_1.jsxs)("div", { className: "xhworkspace-tabs", role: "tablist", "aria-label": "\u5DE5\u4F5C\u533A\u6807\u7B7E", children: [space.items.map(item => (0, jsx_runtime_1.jsxs)("div", { className: "xhworkspace-tab", "data-active": item.id === space.activeId || undefined, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", role: "tab", "aria-selected": item.id === space.activeId, onClick: () => onSelect(item.id), title: item.title, children: [item.kind !== 'browser' && (0, jsx_runtime_1.jsx)("span", { className: "xhworkspace-kind", "aria-hidden": true, children: item.kind === 'tool' ? '⌘' : '▤' }), (0, jsx_runtime_1.jsx)("span", { className: "xhworkspace-title", children: item.title })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xhworkspace-tab-close", "aria-label": `关闭 ${item.title}`, onClick: () => onClose(item.id), title: "\u5173\u95ED\u6807\u7B7E", children: "\u00D7" })] }, item.id)), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "xhworkspace-new", "aria-label": "\u65B0\u5EFA\u6D4F\u89C8\u5668\u6807\u7B7E", onClick: onNewBrowser, title: "\u65B0\u5EFA\u6D4F\u89C8\u5668\u6807\u7B7E", children: "+" })] }), (0, jsx_runtime_1.jsxs)("div", { className: "xhworkspace-body", children: [next.map(page => {
+                        const item = all[page.owner]?.items.find(item => item.id === page.id);
+                        if (item === undefined)
+                            return null;
+                        const visible = open && page.owner === owner && page.id === space.activeId;
+                        return (0, jsx_runtime_1.jsx)("div", { className: `xhworkspace-item xhworkspace-${item.kind}`, role: "tabpanel", hidden: !visible, "aria-hidden": !visible, style: visible ? undefined : { display: 'none' }, ...visible ? {} : { inert: '' }, "data-workspace-page-state": visible ? 'visible' : 'retained', "data-workspace-page-owner": page.owner, children: renderSlot('workspace.item', { item, sessionId: page.owner === '__global__' ? null : page.owner, open: visible,
+                                onUpdate: patch => { if (onUpdateOwner)
+                                    onUpdateOwner(page.owner, item.id, patch);
+                                else if (page.owner === owner)
+                                    onUpdate(item.id, patch); },
+                                onClose: () => { if (page.owner === owner)
+                                    onClose(item.id); }, onNewBrowser }) }, page.key);
+                    }), active?.kind === 'tool' && (0, jsx_runtime_1.jsx)("div", { className: `xhworkspace-item xhworkspace-${active.kind}`, role: "tabpanel", children: active.kind === 'tool' ? renderSlot('details', {}) : renderSlot('workspace.item', { item: active, sessionId, open, onUpdate: patch => onUpdate(active.id, patch), onClose: () => onClose(active.id), onNewBrowser }) }, (0, retained_pages_1.pageKey)(owner, active.id))] })] });
 }
 /** Actual DOM event fields produced by BrowserToggle/ToolDetails/FileView. */
 function workspaceOpenDetail(value) {
@@ -743,6 +810,49 @@ function workspaceOpenDetail(value) {
     if (kind !== 'browser' && kind !== 'tool' && kind !== 'file')
         return undefined;
     return { kind, ...gitDiff === undefined ? {} : { gitDiff }, ...typeof raw.fresh === 'boolean' ? { fresh: raw.fresh } : {}, ...typeof raw.source === 'string' ? { source: raw.source } : {}, ...typeof raw.title === 'string' ? { title: raw.title } : {}, ...typeof raw.sessionId === 'string' ? { sessionId: raw.sessionId } : {}, ...typeof raw.url === 'string' ? { url: raw.url } : {}, ...typeof raw.relativeTo === 'string' ? { relativeTo: raw.relativeTo } : {} };
+}
+
+},
+"src/modules/layout/retained-pages.js": function(module, exports, require) {
+// source: src/modules/layout/retained-pages.ts
+
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.pageKey = exports.RETAINED_PAGE_IDLE_MS = exports.RETAINED_PAGE_LIMIT = void 0;
+exports.canRetainPage = canRetainPage;
+exports.planRetainedPages = planRetainedPages;
+exports.RETAINED_PAGE_LIMIT = 4;
+exports.RETAINED_PAGE_IDLE_MS = 5 * 60000;
+const pageKey = (owner, id) => JSON.stringify([owner, id]);
+exports.pageKey = pageKey;
+/** Only existing read-only file panes and settled browser tabs opt in. Tools
+ * and provisional model rendezvous retain their original teardown contract. */
+function canRetainPage(item) {
+    return item.kind === 'file' || item.kind === 'browser' && !item.modelRequestId;
+}
+/** Presentation cache only: never invent tabs, persist content, grant browser
+ * actions, or keep a closed item alive. Evict least recently viewed pages. */
+function planRetainedPages(previous, spaces, owner, activeId, open, now) {
+    const active = open ? spaces[owner]?.items.find(item => item.id === activeId && item.kind !== 'tool') : undefined;
+    const activeKey = active === undefined ? undefined : (0, exports.pageKey)(owner, active.id);
+    const kept = previous.filter(page => {
+        const item = spaces[page.owner]?.items.find(item => item.id === page.id);
+        return item !== undefined && (page.key === activeKey || canRetainPage(item)
+            && (page.visible || now - page.usedAt < exports.RETAINED_PAGE_IDLE_MS));
+    }).map(page => {
+        const visible = page.key === activeKey;
+        return visible === page.visible ? page : { ...page, visible, usedAt: now };
+    });
+    if (active !== undefined && !kept.some(page => page.key === activeKey)) {
+        kept.push({ key: (0, exports.pageKey)(owner, active.id), owner, id: active.id, usedAt: now, visible: true });
+    }
+    const evicted = new Set([...kept].filter(page => page.key !== activeKey)
+        .sort((a, b) => b.usedAt - a.usedAt).slice(exports.RETAINED_PAGE_LIMIT - (active === undefined ? 0 : 1)).map(page => page.key));
+    const next = kept.filter(page => !evicted.has(page.key));
+    return next.length === previous.length && next.every((page, index) => {
+        const old = previous[index];
+        return old?.key === page.key && old.usedAt === page.usedAt && old.visible === page.visible;
+    }) ? previous : next;
 }
 
 },
@@ -1329,7 +1439,7 @@ function observeShellPage(page, setActive) {
 
 }
 };
-const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js","./shell-navigation":"src/modules/layout/shell-navigation.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","../browser/model-control":"src/modules/browser/model-control.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"../shared/generated/file-display-options":"src/modules/shared/generated/file-display-options.js","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/shared/generated/file-display-options.js":{},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/model-control.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{},"src/modules/layout/shell-navigation.js":{"../shared/shell-route":"src/modules/shared/shell-route.js"},"src/modules/shared/shell-route.js":{}};
+const __dependencies = {"src/modules/layout/index.js":{"./AppFrame":"src/modules/layout/AppFrame.js","./stores":"src/modules/layout/stores.js","./service":"src/modules/layout/service.js","./theme-presenter":"src/modules/layout/theme-presenter.js","./shell-navigation":"src/modules/layout/shell-navigation.js"},"src/modules/layout/AppFrame.js":{"./columns":"src/modules/layout/columns.js","./AppFrame.styles":"src/modules/layout/AppFrame.styles.js","./WorkCenter":"src/modules/layout/WorkCenter.js","./browser-window-controller":"src/modules/layout/browser-window-controller.js","./workspace-pane":"src/modules/layout/workspace-pane.js","../shared/workspace-dock":"src/modules/shared/workspace-dock.js","../browser/model-control":"src/modules/browser/model-control.js"},"src/modules/layout/columns.js":{},"src/modules/layout/AppFrame.styles.js":{"./AppFrame.css":"src/modules/layout/AppFrame.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/AppFrame.css":{},"src/modules/views-types.js":{},"src/modules/layout/WorkCenter.js":{"./WorkCenter.css":"src/modules/layout/WorkCenter.css","../views-types":"src/modules/views-types.js"},"src/modules/layout/WorkCenter.css":{},"src/modules/layout/browser-window-controller.js":{},"src/modules/layout/workspace-pane.js":{"./retained-pages":"src/modules/layout/retained-pages.js","../shared/generated/file-display-options":"src/modules/shared/generated/file-display-options.js","../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/retained-pages.js":{},"src/modules/shared/generated/file-display-options.js":{},"src/modules/shared/runtime-types.js":{},"src/modules/shared/workspace-dock.js":{},"src/modules/browser/model-control.js":{"../shared/runtime-types":"src/modules/shared/runtime-types.js"},"src/modules/layout/stores.js":{"./columns":"src/modules/layout/columns.js"},"src/modules/layout/service.js":{},"src/modules/layout/theme-presenter.js":{},"src/modules/layout/shell-navigation.js":{"../shared/shell-route":"src/modules/shared/shell-route.js"},"src/modules/shared/shell-route.js":{}};
 const __cache = Object.create(null);
 const __load = id => {
   if (__cache[id]) return __cache[id].exports;

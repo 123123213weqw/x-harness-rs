@@ -4286,6 +4286,66 @@
         "UI_TEST_BROWSER": "webkit"
       },
       "weight": 120
+    },
+    {
+      "id": "contract-175",
+      "suite": "contract",
+      "argv": [
+        "node",
+        "--test",
+        "scripts/test-retained-pages.mjs",
+        "scripts/test-chat-structure.mjs"
+      ],
+      "env": {},
+      "weight": 15
+    },
+    {
+      "id": "browser-248",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-session-recovery-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-249",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-session-recovery-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-250",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-workspace-retention-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "chromium"
+      },
+      "weight": 20
+    },
+    {
+      "id": "browser-251",
+      "suite": "browser",
+      "argv": [
+        "node",
+        "scripts/test-workspace-retention-browser.mjs"
+      ],
+      "env": {
+        "UI_TEST_BROWSER": "webkit"
+      },
+      "weight": 20
     }
   ]
 }

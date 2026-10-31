@@ -1,4 +1,3 @@
-import { transcriptHasPendingTool } from './pending-tool'
 import { useAdaptiveToolFold } from './use-adaptive-tool-fold'
 import { useProcessMode } from './process-mode'
 // ChatView: the default conversation view — one stable keyed parent list over
@@ -22,7 +21,7 @@ import type { ConversationTimelineSnapshot } from "../types/runtime"
 import { Button, IconChevronDownOutline14, Modal } from '../primitives'
 import type { ChatViewSlotProps, RenderMessageImages } from '../contract/slots'
 import { PendingSteeringBubble } from './MessageItem'
-import { ChatNodeSeat, TurnProcessSummarySeat } from './ChatNodeSeat'
+import { ChatFlow } from './ChatFlow'
 import { bindTranscriptFollow } from './TranscriptWindowRow'
 import { formatRunDuration } from './message-chrome'
 import { isChatNode } from '../contract/chat-node-codec'
@@ -360,6 +359,9 @@ export function ChatView({
   // One independently subscribed resident entry per loaded turn, including
   // partial history pages without the original user/start event. No full-turn
   // pinning: only the live tip and pending tools bypass row windowing.
+  // Structural publication is separate from timeline/content updates. Older
+  // registrants without the optional version keep the conservative fallback.
+  const structureVersion = nodeStore.structureVersion
   const processHeads = useMemo(() => {
     const heads = new Set<string>()
     const turns = new Set<number>()
@@ -373,7 +375,7 @@ export function ChatView({
       heads.add(key)
     }
     return heads
-  }, [order, nodeStore, timeline])
+  }, [order, nodeStore, structureVersion, structureVersion === undefined ? timeline : undefined])
 
   const firstKey = order[0]
   const firstSeq = firstKey === undefined ? null : nodeStore.get(firstKey)?.anchorSeq ?? null
@@ -711,38 +713,12 @@ export function ChatView({
               </button>
             </div>
           )}
-          {order.flatMap((nodeKey) => [
-            ...(processHeads.has(nodeKey) ? [<TurnProcessSummarySeat
-              key={`${sessionId}:process:${nodeKey}`}
-              nodeKey={nodeKey}
-              useSession={useSession}
-              expandedTurns={expandedTurns}
-              foldedTools={foldedTools}
-              toggleTurnProcess={toggleTurnProcess}
-              t={t}
-            />] : []),
-            <ChatNodeSeat
-              key={`${sessionId}:node:${nodeKey}`}
-              nodeKey={nodeKey}
-              expandedTurns={expandedTurns}
-              foldedTools={foldedTools}
-              invalidateFoldedTool={invalidateFoldedTool}
-              keepMounted={running && (nodeKey === lastKey || transcriptHasPendingTool(nodeStore.get(nodeKey)))}
-              editMessage={editMessage}
-              forkMessage={forkMessage}
-              editAvailable={!running}
-              useSession={useSession}
-              selectedCallId={selectedCallId}
-              cwd={cwd}
-              openFile={requestOpenFile}
-              inspectCall={inspectCall}
-              forkAt={forkAt}
-              renderMessageImages={renderMessageImages}
-              fileMentions={fileMentions}
-              renderSlot={renderSlot}
-              t={t}
-            />,
-          ])}
+          <ChatFlow order={order} processHeads={processHeads} sessionId={sessionId} lastKey={lastKey}
+            expandedTurns={expandedTurns} foldedTools={foldedTools} invalidateFoldedTool={invalidateFoldedTool}
+            editMessage={editMessage} forkMessage={forkMessage} editAvailable={!running}
+            useSession={useSession} selectedCallId={selectedCallId} cwd={cwd} openFile={requestOpenFile}
+            inspectCall={inspectCall} forkAt={forkAt} renderMessageImages={renderMessageImages}
+            fileMentions={fileMentions} renderSlot={renderSlot} t={t} toggleTurnProcess={toggleTurnProcess} />
           {/* No pending placeholders: questions (ui-user-questions) and approvals
               (ApprovalPanel) both take over the composer, so a flow card would
               double-render the same wait. */}

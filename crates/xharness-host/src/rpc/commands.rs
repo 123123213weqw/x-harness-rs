@@ -36,7 +36,8 @@ pub(super) async fn list(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             "description": "Compact eligible conversation history now",
             "input": {"hint": ""},
         },
-        {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}}
+        {"name":"goal","description":"Set a persistent Goal and continue automatically until review, pause or budget limit","input":{"hint":"<objective> | pause | resume | complete | clear | edit <objective> | budget <rounds>"}},
+        {"name":"reload","description":"Recover this idle session without resending input or restarting the Host","input":{"hint":""}}
     ]))
 }
 
@@ -46,6 +47,38 @@ pub(super) async fn execute(host: &BasicHost, payload: &Value) -> Result<Option<
         .ok_or_else(|| bad_request("commands/execute requires args"))?;
     let session_id = required_string(args, "agentId")?;
     let line = required_string(args, "line")?;
+    if line.trim() == "/reload" || line.trim_start().starts_with("/reload ") {
+        let images = required_array(args, "images")?;
+        if line.trim() != "/reload" || !images.is_empty() {
+            return Err(bad_request("/reload accepts no arguments or attachments"));
+        }
+        host.recover_idle_session(&session_id).await?;
+        let command_id = host.mint_id("recovery");
+        let text = "Session worker is ready. No input was replayed; other sessions are unchanged.";
+        host.commit_session_events(
+            &session_id,
+            vec![
+                SessionEventData::CommandRun {
+                    command_id: command_id.clone(),
+                    name: "reload".into(),
+                    args: None,
+                    source: CommandSource::User,
+                }
+                .into(),
+                SessionEventData::CommandDone {
+                    command_id: command_id.clone(),
+                    kind: CommandResultKind::Success,
+                    text: Some(text.into()),
+                    source_event_seq: None,
+                }
+                .into(),
+            ],
+        )
+        .await?;
+        return Ok(Some(
+            json!({"commandId":command_id,"result":{"kind":"success","text":text}}),
+        ));
+    }
     if line.trim() == "/goal" || line.trim_start().starts_with("/goal ") {
         let images = required_array(args, "images")?;
         return execute_goal(

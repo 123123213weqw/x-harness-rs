@@ -350,7 +350,11 @@ export function AppFrame({
         {centerPage === 'review' && renderSlot('review.center', {close: closeCenterPage})}
         </div></CenterColumn>
         {workspaceDrawer&&<button type="button" className={css.workspaceScrim} aria-label="关闭工作区" onClick={()=>updateSpace(value=>({...value,collapsed:true}))} />}
-        <DetailsColumn><XhWorkspacePane space={space} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
+        <DetailsColumn><XhWorkspacePane space={space} spaces={spaces} open={workspaceOpen} sessionId={spaceKey==='__global__'?null:spaceKey} renderSlot={renderSlot} onSelect={id=>updateSpace(value=>({...value,activeId:id}))} onClose={closeWorkspace} onUpdate={updateItem} onUpdateOwner={(owner,id,patch)=>setSpaces(all=>{
+          const prior=all[owner]
+          if(!prior?.items.some(item=>item.id===id))return all
+          return {...all,[owner]:{...prior,items:prior.items.map(item=>item.id===id?{...item,...patch}:item)}}
+        })} onNewBrowser={()=>openWorkspace('browser',true)} /></DetailsColumn>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
