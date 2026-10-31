@@ -47,7 +47,7 @@ jobs:
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -60,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
         run: python3 -B scripts/desktop-release-build.py resolve-source --release-run-id "$RELEASE_RUN_ID"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: inputs.mode == 'candidate'
         with:
           ref: ${{ steps.source.outputs.source_sha }}
@@ -106,7 +106,7 @@ jobs:
         run: |
           echo "CANDIDATE=$RUNNER_TEMP/desktop-unix-candidate" >> "$GITHUB_ENV"
           echo "UNIX_ROOT=$RUNNER_TEMP/desktop-unix-update" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Resolve exact candidate source from the trusted master control workflow
@@ -116,7 +116,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
         run: python3 -B scripts/desktop-release-build.py resolve-source --release-run-id "$RELEASE_RUN_ID"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: inputs.mode == 'candidate'
         with:
           ref: ${{ steps.source.outputs.source_sha }}

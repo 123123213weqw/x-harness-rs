@@ -41,7 +41,7 @@ jobs:
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:RELEASE_RUN_ID" | ConvertFrom-Json
           if ($LASTEXITCODE -or $run.conclusion -ne 'success' -or $run.path -ne '.github/workflows/desktop-release.yml' -or ($run.event -notin @('push', 'workflow_dispatch')) -or ($run.event -eq 'push' -and $run.head_branch -notmatch '^desktop-v[0-9]+\.[0-9]+\.[0-9]+$') -or ($run.event -eq 'workflow_dispatch' -and $run.head_branch -ne 'master') -or $run.head_sha -notmatch '^[a-f0-9]{40}$') { throw 'Untrusted candidate source' }
           "sha=$($run.head_sha)" >> $env:GITHUB_OUTPUT
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.source.outputs.sha }}
       - uses: actions/setup-node@v4
