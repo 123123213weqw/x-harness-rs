@@ -171,6 +171,8 @@ jobs:
       # Offline only: no Keychain, SSH, live model requests or deployment.
       - run: python3 -B scripts/experiments/test-compaction-coding.py
       - run: python3 -B scripts/experiments/test-compaction-multiround.py
+      - name: Tool-result ablation fixtures, scoring and frozen receipts (offline)
+        run: python3 -B scripts/experiments/test-tool-result-ablation.py
 
   cloud-offline-guards:
     name: Cloud lifecycle offline guards
