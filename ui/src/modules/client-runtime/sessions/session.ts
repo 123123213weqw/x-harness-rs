@@ -125,6 +125,7 @@ export class Session implements SessionFace {
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
+  private agentErrorGeneration = 0
   /** Live events buffered during open/resync and stitched by sequence once history lands. */
   private liveBuffer: { event: SessionWireEvent; view: ToolEventView | undefined }[] = []
   /** Gap repair in flight; live events detour to the buffer until the tail page lands. */
@@ -409,7 +410,22 @@ export class Session implements SessionFace {
   private async doCommand(line: string): Promise<RemoteResult<{ matched: boolean }>> {
     const result = await this.remote.commands.execute(this.sessionId, line, [])
     if (!result.ok) return result
+    if (line.trim() === '/reload' && result.value !== undefined) {
+      if (result.value.result.kind !== 'success') return transportError(new Error(result.value.result.text ?? 'Session restart was not successful'))
+      try { await this.recoverHistory() } catch (error) { return transportError(error) }
+    }
     return { ok: true, value: { matched: result.value !== undefined } }
+  }
+
+  /** Called only after an explicit successful worker-recovery receipt. */
+  async recoverHistory(): Promise<void> {
+    const errorGeneration = this.agentErrorGeneration
+    await this.resync()
+    if (this.openState !== 'open') throw new Error(this.openError?.message ?? 'Session restarted but history could not be restored')
+    // A new turn/error may arrive while history is in flight. Recovery owns
+    // only the prior error, even when the newer message has identical text.
+    if (this.agentErrorGeneration === errorGeneration) this.lastAgentError = null
+    this.notifier.markDirty()
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -663,6 +679,7 @@ export class Session implements SessionFace {
    * @param message - the stringified error.
    */
   handleAgentError(message: string): void {
+    this.agentErrorGeneration++
     this.lastAgentError = message
     this.notifier.markDirty()
   }

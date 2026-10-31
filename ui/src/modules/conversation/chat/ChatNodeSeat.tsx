@@ -1,3 +1,4 @@
+import { transcriptHasPendingTool } from './pending-tool'
 import { isChatData, isChatNode } from '../contract/chat-node-codec'
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { JsonBlock } from '../primitives'
@@ -11,7 +12,7 @@ import { toolCanAutoFold, type FoldedTools } from './adaptive-tool-fold'
 import type { TranscriptValues } from './transcript-state'
 import { useProcessMode } from './process-mode'
 
-interface ChatNodeSeatProps extends ChatNodeOwnerProps {
+export interface ChatNodeSeatProps extends ChatNodeOwnerProps {
   readonly nodeKey: string
   readonly keepMounted?: boolean
   readonly useSession: ChatViewSlotProps['useSession']
@@ -109,7 +110,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const routedOwner = routedNode === undefined ? undefined : ownerFor(owner, routedNode)
   return (
     <TranscriptWindowRow
-      keepMounted={keepMounted ?? false}
+      keepMounted={keepMounted === true || (!editAvailable && transcriptHasPendingTool(node))}
       presentationState={presentationState}
       className={css.flowItem}
       data-chat-anchor-key={node.key}

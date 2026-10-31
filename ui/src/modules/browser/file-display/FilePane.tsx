@@ -58,7 +58,7 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
   useEffect(()=>{
     actionGeneration.current++;setNativeBusy(false)
     setFile(undefined);setError('');setActionError('');setCopied(false);setZoom(0);setSource(false)
-    if(!open||!owner)return
+    if(!owner)return
     const controller=new AbortController();let objectUrl:string|undefined
     void (async()=>{
       if(!item.gitDiff){
@@ -74,7 +74,7 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
       else setFile(result)
     }).catch((e:unknown)=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:String(e))})
     return()=>{controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl)}
-  },[open,owner,item.source,item.relativeTo,item.gitDiff,revision,client])
+  },[owner,item.source,item.relativeTo,item.gitDiff,revision,client])
   const path=file?.path??item.source
   const html=useMemo(()=>file?.kind==='text'&&isHtmlPath(file.path)?staticHtmlDocument(file.text):undefined,[file])
   const nativeAction=async(mode:'open'|'reveal'):Promise<void>=>{
@@ -84,7 +84,7 @@ export function FilePane({item,open,sessionId,client}:WorkspaceItemOwner&{client
     catch(error:unknown){if(generation===actionGeneration.current)setActionError(error instanceof Error?error.message:String(error))}
     finally{if(generation===actionGeneration.current)setNativeBusy(false)}
   }
-  return <section className="xhfile-pane" aria-label={label('文件预览','File preview')}>
+  return <section className="xhfile-pane" data-file-page-state={open?'visible':'retained'} aria-label={label('文件预览','File preview')}>
     <header className="xhfile-toolbar">
       <span className="xhfile-path" title={path}>{path}</span>
       {!item.gitDiff&&client.canReveal(path)&&<button type="button" disabled={nativeBusy} onClick={()=>{void nativeAction('reveal')}}>{label('在文件夹中显示','Show in folder')}</button>}
