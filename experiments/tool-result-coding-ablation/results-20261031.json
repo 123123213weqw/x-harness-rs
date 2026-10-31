@@ -1,0 +1,3038 @@
+{
+  "status": "complete",
+  "completed_at": "2026-10-31T11:10:46+0800",
+  "sessions": 96,
+  "continuation_turns": 288,
+  "executed_hidden_assertions": 7488,
+  "completed_real_provider_streams": 1951,
+  "actual_input_tokens": 21093863,
+  "production_source_modified": false,
+  "merged_or_released": false,
+  "runtime_and_runner_hashes_frozen": true,
+  "all_remote_source_hashes_matched": {
+    "crates/xharness-host-app/examples/tool_result_coding_eval.rs": true,
+    "crates/xharness-host-app/examples/tool_result_coding_targeted.rs": true,
+    "crates/xharness-host/src/history_tool.rs": true,
+    "crates/xharness-core/src/engine.rs": true,
+    "crates/xharness-context/src/lib.rs": true,
+    "crates/xharness-provider-openai/src/provider.rs": true,
+    "crates/xharness-provider-openai/src/protocol.rs": true,
+    "experiments/tool-result-coding-ablation/run.py": true,
+    "experiments/tool-result-coding-ablation/run_targeted.py": true,
+    "experiments/tool-result-coding-ablation/fixtures.py": true,
+    "experiments/tool-result-coding-ablation/fixtures_targeted.py": true,
+    "Cargo.lock": true
+  },
+  "native_ledgers_and_phase_results_match_local": true,
+  "artifact_files": 3688,
+  "artifact_bytes": 134657314,
+  "credential_scan": "no exact credential bytes found; key never emitted",
+  "rust_execution": "remote WZU_Server only",
+  "cohorts": {
+    "matrix": {
+      "status": "complete",
+      "sessions": 72,
+      "expected_sessions": 72,
+      "phase_evaluations": 216,
+      "hidden_assertion_executions": 5616,
+      "completed_real_provider_streams": 1552,
+      "provider_errors_or_pending": {},
+      "actual_input_tokens": 15581215,
+      "actual_output_tokens_including_reasoning": 483859,
+      "largest_actual_request_input": 36040,
+      "all_completed_requests_within_configured_context": true,
+      "history_calls": {
+        "search:ok": 203,
+        "read:ok": 169,
+        "search:error": 238,
+        "read:error": 165
+      },
+      "injected_history_errors": 403,
+      "groups": {
+        "full": {
+          "n": 12,
+          "all_stages_verified": 12,
+          "all_stages_code_correct": 12,
+          "final_code_correct": 12,
+          "total_input_tokens": 3049114,
+          "mean_input_tokens": 254092.83333333334,
+          "mean_input_successful_sessions": 254092.83333333334,
+          "tokens_per_verified_success_including_failures": 254092.83333333334,
+          "mean_latency_s": 39.31941666666667,
+          "mean_latency_successful_s": 39.31941666666667,
+          "injected_history_errors": 16,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 1053510,
+              "mean_input_tokens": 263377.5,
+              "mean_input_successful_sessions": 263377.5,
+              "tokens_per_verified_success_including_failures": 263377.5,
+              "mean_latency_s": 37.0695,
+              "mean_latency_successful_s": 37.0695,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 1040625,
+              "mean_input_tokens": 260156.25,
+              "mean_input_successful_sessions": 260156.25,
+              "tokens_per_verified_success_including_failures": 260156.25,
+              "mean_latency_s": 35.18625,
+              "mean_latency_successful_s": 35.18625,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 954979,
+              "mean_input_tokens": 238744.75,
+              "mean_input_successful_sessions": 238744.75,
+              "tokens_per_verified_success_including_failures": 238744.75,
+              "mean_latency_s": 45.7025,
+              "mean_latency_successful_s": 45.7025,
+              "injected_history_errors": 12
+            }
+          },
+          "paired_regressions_vs_full": [],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 12,
+            "input_reduction_vs_full": 0.0
+          },
+          "history_calls": 46,
+          "history_errors": 16,
+          "fallback_policy_invocations": 0
+        },
+        "current": {
+          "n": 12,
+          "all_stages_verified": 8,
+          "all_stages_code_correct": 8,
+          "final_code_correct": 8,
+          "total_input_tokens": 2588653,
+          "mean_input_tokens": 215721.08333333334,
+          "mean_input_successful_sessions": 193405.625,
+          "tokens_per_verified_success_including_failures": 323581.625,
+          "mean_latency_s": 60.02325,
+          "mean_latency_successful_s": 53.141,
+          "injected_history_errors": 84,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 743951,
+              "mean_input_tokens": 185987.75,
+              "mean_input_successful_sessions": 185987.75,
+              "tokens_per_verified_success_including_failures": 185987.75,
+              "mean_latency_s": 50.891,
+              "mean_latency_successful_s": 50.891,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 803294,
+              "mean_input_tokens": 200823.5,
+              "mean_input_successful_sessions": 200823.5,
+              "tokens_per_verified_success_including_failures": 200823.5,
+              "mean_latency_s": 55.391,
+              "mean_latency_successful_s": 55.391,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 0,
+              "all_stages_code_correct": 0,
+              "final_code_correct": 0,
+              "total_input_tokens": 1041408,
+              "mean_input_tokens": 260352,
+              "mean_input_successful_sessions": null,
+              "tokens_per_verified_success_including_failures": null,
+              "mean_latency_s": 73.78775,
+              "mean_latency_successful_s": null,
+              "injected_history_errors": 80
+            }
+          },
+          "paired_regressions_vs_full": [
+            "billing-outage",
+            "duration-outage",
+            "pagination-outage",
+            "records-outage"
+          ],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 8,
+            "input_reduction_vs_full": 0.26115317302848196
+          },
+          "history_calls": 159,
+          "history_errors": 84,
+          "fallback_policy_invocations": 0
+        },
+        "typed_all": {
+          "n": 12,
+          "all_stages_verified": 8,
+          "all_stages_code_correct": 8,
+          "final_code_correct": 8,
+          "total_input_tokens": 2050375,
+          "mean_input_tokens": 170864.58333333334,
+          "mean_input_successful_sessions": 138103.125,
+          "tokens_per_verified_success_including_failures": 256296.875,
+          "mean_latency_s": 56.413333333333334,
+          "mean_latency_successful_s": 46.044,
+          "injected_history_errors": 97,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 557330,
+              "mean_input_tokens": 139332.5,
+              "mean_input_successful_sessions": 139332.5,
+              "tokens_per_verified_success_including_failures": 139332.5,
+              "mean_latency_s": 45.90825,
+              "mean_latency_successful_s": 45.90825,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 547495,
+              "mean_input_tokens": 136873.75,
+              "mean_input_successful_sessions": 136873.75,
+              "tokens_per_verified_success_including_failures": 136873.75,
+              "mean_latency_s": 46.17975,
+              "mean_latency_successful_s": 46.17975,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 0,
+              "all_stages_code_correct": 0,
+              "final_code_correct": 0,
+              "total_input_tokens": 945550,
+              "mean_input_tokens": 236387.5,
+              "mean_input_successful_sessions": null,
+              "tokens_per_verified_success_including_failures": null,
+              "mean_latency_s": 77.152,
+              "mean_latency_successful_s": null,
+              "injected_history_errors": 93
+            }
+          },
+          "paired_regressions_vs_full": [
+            "billing-outage",
+            "duration-outage",
+            "pagination-outage",
+            "records-outage"
+          ],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 8,
+            "input_reduction_vs_full": 0.47241939989542225
+          },
+          "history_calls": 179,
+          "history_errors": 97,
+          "fallback_policy_invocations": 0
+        },
+        "typed_fresh": {
+          "n": 12,
+          "all_stages_verified": 8,
+          "all_stages_code_correct": 8,
+          "final_code_correct": 8,
+          "total_input_tokens": 2614474,
+          "mean_input_tokens": 217872.83333333334,
+          "mean_input_successful_sessions": 164740.75,
+          "tokens_per_verified_success_including_failures": 326809.25,
+          "mean_latency_s": 65.81325,
+          "mean_latency_successful_s": 46.76075,
+          "injected_history_errors": 113,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 645411,
+              "mean_input_tokens": 161352.75,
+              "mean_input_successful_sessions": 161352.75,
+              "tokens_per_verified_success_including_failures": 161352.75,
+              "mean_latency_s": 47.04225,
+              "mean_latency_successful_s": 47.04225,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 672515,
+              "mean_input_tokens": 168128.75,
+              "mean_input_successful_sessions": 168128.75,
+              "tokens_per_verified_success_including_failures": 168128.75,
+              "mean_latency_s": 46.47925,
+              "mean_latency_successful_s": 46.47925,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 0,
+              "all_stages_code_correct": 0,
+              "final_code_correct": 0,
+              "total_input_tokens": 1296548,
+              "mean_input_tokens": 324137,
+              "mean_input_successful_sessions": null,
+              "tokens_per_verified_success_including_failures": null,
+              "mean_latency_s": 103.91825,
+              "mean_latency_successful_s": null,
+              "injected_history_errors": 109
+            }
+          },
+          "paired_regressions_vs_full": [
+            "billing-outage",
+            "duration-outage",
+            "pagination-outage",
+            "records-outage"
+          ],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 8,
+            "input_reduction_vs_full": 0.37065852965544244
+          },
+          "history_calls": 180,
+          "history_errors": 113,
+          "fallback_policy_invocations": 0
+        },
+        "typed_pressure": {
+          "n": 12,
+          "all_stages_verified": 10,
+          "all_stages_code_correct": 10,
+          "final_code_correct": 10,
+          "total_input_tokens": 2465227,
+          "mean_input_tokens": 205435.58333333334,
+          "mean_input_successful_sessions": 184570.4,
+          "tokens_per_verified_success_including_failures": 246522.7,
+          "mean_latency_s": 48.24058333333333,
+          "mean_latency_successful_s": 42.8777,
+          "injected_history_errors": 54,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 778225,
+              "mean_input_tokens": 194556.25,
+              "mean_input_successful_sessions": 194556.25,
+              "tokens_per_verified_success_including_failures": 194556.25,
+              "mean_latency_s": 39.99875,
+              "mean_latency_successful_s": 39.99875,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 761514,
+              "mean_input_tokens": 190378.5,
+              "mean_input_successful_sessions": 190378.5,
+              "tokens_per_verified_success_including_failures": 190378.5,
+              "mean_latency_s": 46.9095,
+              "mean_latency_successful_s": 46.9095,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 2,
+              "all_stages_code_correct": 2,
+              "final_code_correct": 2,
+              "total_input_tokens": 925488,
+              "mean_input_tokens": 231372,
+              "mean_input_successful_sessions": 152982.5,
+              "tokens_per_verified_success_including_failures": 462744.0,
+              "mean_latency_s": 57.8135,
+              "mean_latency_successful_s": 40.572,
+              "injected_history_errors": 50
+            }
+          },
+          "paired_regressions_vs_full": [
+            "billing-outage",
+            "pagination-outage"
+          ],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 10,
+            "input_reduction_vs_full": 0.2446369214877555
+          },
+          "history_calls": 101,
+          "history_errors": 54,
+          "fallback_policy_invocations": 0
+        },
+        "typed_recover": {
+          "n": 12,
+          "all_stages_verified": 12,
+          "all_stages_code_correct": 12,
+          "final_code_correct": 12,
+          "total_input_tokens": 2813372,
+          "mean_input_tokens": 234447.66666666666,
+          "mean_input_successful_sessions": 234447.66666666666,
+          "tokens_per_verified_success_including_failures": 234447.66666666666,
+          "mean_latency_s": 49.16275,
+          "mean_latency_successful_s": 49.16275,
+          "injected_history_errors": 39,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 615738,
+              "mean_input_tokens": 153934.5,
+              "mean_input_successful_sessions": 153934.5,
+              "tokens_per_verified_success_including_failures": 153934.5,
+              "mean_latency_s": 45.420249999999996,
+              "mean_latency_successful_s": 45.420249999999996,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 782959,
+              "mean_input_tokens": 195739.75,
+              "mean_input_successful_sessions": 195739.75,
+              "tokens_per_verified_success_including_failures": 195739.75,
+              "mean_latency_s": 39.83075,
+              "mean_latency_successful_s": 39.83075,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 1414675,
+              "mean_input_tokens": 353668.75,
+              "mean_input_successful_sessions": 353668.75,
+              "tokens_per_verified_success_including_failures": 353668.75,
+              "mean_latency_s": 62.23725,
+              "mean_latency_successful_s": 62.23725,
+              "injected_history_errors": 35
+            }
+          },
+          "paired_regressions_vs_full": [],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 12,
+            "input_reduction_vs_full": 0.0773149183664501
+          },
+          "history_calls": 110,
+          "history_errors": 39,
+          "fallback_policy_invocations": 79
+        }
+      },
+      "failures": [
+        {
+          "case": "billing-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": true,
+          "failed_assertions": [
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-34",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-38",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": true,
+          "failed_assertions": [
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-34",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-38",
+              "category": "AssertionError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            },
+            {
+              "label": "check-42",
+              "category": "AssertionError",
+              "expression": "app.quote(0,3)=={'units': 0, 'subtotal_cents': 0, 'total_cents': 0, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-43",
+              "category": "AssertionError",
+              "expression": "app.quote(1,3)=={'units': 1, 'subtotal_cents': 113, 'total_cents': 147, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-44",
+              "category": "AssertionError",
+              "expression": "app.quote(15,3)=={'units': 5, 'subtotal_cents': 565, 'total_cents': 599, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-45",
+              "category": "AssertionError",
+              "expression": "app.quote(18,3)=={'units': 6, 'subtotal_cents': 678, 'total_cents': 653, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-46",
+              "category": "AssertionError",
+              "expression": "app.quote(1000,3)=={'units': 334, 'subtotal_cents': 37742, 'total_cents': 34477, 'policy': 'R-67204'}"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,0)==0"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,5000)==0"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,3333)==0"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,10000)==0"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,0)==1"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,5000)==1"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,3333)==1"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,10000)==0"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,0)==3"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,5000)==2"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,10000)==0"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,0)==101"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,5000)==51"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,10000)==0"
+            },
+            {
+              "label": "check-36",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,0)==9999"
+            },
+            {
+              "label": "check-37",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,5000)==5000"
+            },
+            {
+              "label": "check-38",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            },
+            {
+              "label": "check-39",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,10000)==0"
+            },
+            {
+              "label": "check-40",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(True,1))"
+            },
+            {
+              "label": "check-41",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(1,10001))"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,0)==0"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,5000)==0"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,3333)==0"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,10000)==0"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,0)==1"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,5000)==1"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,3333)==1"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,10000)==0"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,0)==3"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,5000)==2"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,10000)==0"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,0)==101"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,5000)==51"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,10000)==0"
+            },
+            {
+              "label": "check-36",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,0)==9999"
+            },
+            {
+              "label": "check-37",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,5000)==5000"
+            },
+            {
+              "label": "check-38",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            },
+            {
+              "label": "check-39",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,10000)==0"
+            },
+            {
+              "label": "check-40",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(True,1))"
+            },
+            {
+              "label": "check-41",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(1,10001))"
+            },
+            {
+              "label": "check-42",
+              "category": "NotImplementedError",
+              "expression": "app.quote(0,3)=={'units': 0, 'subtotal_cents': 0, 'total_cents': 0, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-43",
+              "category": "NotImplementedError",
+              "expression": "app.quote(1,3)=={'units': 1, 'subtotal_cents': 113, 'total_cents': 147, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-44",
+              "category": "NotImplementedError",
+              "expression": "app.quote(15,3)=={'units': 5, 'subtotal_cents': 565, 'total_cents': 599, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-45",
+              "category": "NotImplementedError",
+              "expression": "app.quote(18,3)=={'units': 6, 'subtotal_cents': 678, 'total_cents': 653, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-46",
+              "category": "NotImplementedError",
+              "expression": "app.quote(1000,3)=={'units': 334, 'subtotal_cents': 37742, 'total_cents': 34477, 'policy': 'R-67204'}"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,0)==0"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,5000)==0"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,3333)==0"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,10000)==0"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,0)==1"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,5000)==1"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,3333)==1"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,10000)==0"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,0)==3"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,5000)==2"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,10000)==0"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,0)==101"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,5000)==51"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,10000)==0"
+            },
+            {
+              "label": "check-36",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,0)==9999"
+            },
+            {
+              "label": "check-37",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,5000)==5000"
+            },
+            {
+              "label": "check-38",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            },
+            {
+              "label": "check-39",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,10000)==0"
+            },
+            {
+              "label": "check-40",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(True,1))"
+            },
+            {
+              "label": "check-41",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(1,10001))"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,0)==0"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,5000)==0"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,3333)==0"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(0,10000)==0"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,0)==1"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,5000)==1"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,3333)==1"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(1,10000)==0"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,0)==3"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,5000)==2"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,3333)==2"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(3,10000)==0"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,0)==101"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,5000)==51"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,3333)==67"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(101,10000)==0"
+            },
+            {
+              "label": "check-36",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,0)==9999"
+            },
+            {
+              "label": "check-37",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,5000)==5000"
+            },
+            {
+              "label": "check-38",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,3333)==6666"
+            },
+            {
+              "label": "check-39",
+              "category": "NotImplementedError",
+              "expression": "utils.discount_cents(9999,10000)==0"
+            },
+            {
+              "label": "check-40",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(True,1))"
+            },
+            {
+              "label": "check-41",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.discount_cents(1,10001))"
+            },
+            {
+              "label": "check-42",
+              "category": "NotImplementedError",
+              "expression": "app.quote(0,3)=={'units': 0, 'subtotal_cents': 0, 'total_cents': 0, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-43",
+              "category": "NotImplementedError",
+              "expression": "app.quote(1,3)=={'units': 1, 'subtotal_cents': 113, 'total_cents': 147, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-44",
+              "category": "NotImplementedError",
+              "expression": "app.quote(15,3)=={'units': 5, 'subtotal_cents': 565, 'total_cents': 599, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-45",
+              "category": "NotImplementedError",
+              "expression": "app.quote(18,3)=={'units': 6, 'subtotal_cents': 678, 'total_cents': 653, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-46",
+              "category": "NotImplementedError",
+              "expression": "app.quote(1000,3)=={'units': 334, 'subtotal_cents': 37742, 'total_cents': 34477, 'policy': 'R-67204'}"
+            }
+          ]
+        },
+        {
+          "case": "billing-outage",
+          "strategy": "typed_pressure",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": true,
+          "failed_assertions": [
+            {
+              "label": "check-42",
+              "category": "AssertionError",
+              "expression": "app.quote(0,3)=={'units': 0, 'subtotal_cents': 0, 'total_cents': 0, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-43",
+              "category": "AssertionError",
+              "expression": "app.quote(1,3)=={'units': 1, 'subtotal_cents': 113, 'total_cents': 147, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-44",
+              "category": "AssertionError",
+              "expression": "app.quote(15,3)=={'units': 5, 'subtotal_cents': 565, 'total_cents': 599, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-45",
+              "category": "AssertionError",
+              "expression": "app.quote(18,3)=={'units': 6, 'subtotal_cents': 678, 'total_cents': 653, 'policy': 'R-67204'}"
+            },
+            {
+              "label": "check-46",
+              "category": "AssertionError",
+              "expression": "app.quote(1000,3)=={'units': 334, 'subtotal_cents': 37742, 'total_cents': 34477, 'policy': 'R-67204'}"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(0)=={'delays_ms': [], 'total_ms': 0, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(1)=={'delays_ms': [313], 'total_ms': 313, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(4)=={'delays_ms': [313, 626, 1252, 2504], 'total_ms': 4695, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(9)=={'delays_ms': [313, 626, 1252, 2504, 5008, 5094, 5094, 5094, 5094], 'total_ms': 30079, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-36",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(True))"
+            },
+            {
+              "label": "check-37",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(-1))"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(0)=={'delays_ms': [], 'total_ms': 0, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(1)=={'delays_ms': [313], 'total_ms': 313, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(4)=={'delays_ms': [313, 626, 1252, 2504], 'total_ms': 4695, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(9)=={'delays_ms': [313, 626, 1252, 2504, 5008, 5094, 5094, 5094, 5094], 'total_ms': 30079, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-36",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(True))"
+            },
+            {
+              "label": "check-37",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(-1))"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            }
+          ]
+        },
+        {
+          "case": "duration-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,-500)==0"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,0)==313"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,1000)==1313"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(0,5094)==5094"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,-500)==126"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,0)==626"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,1000)==1626"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(1,5094)==5094"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,-500)==2004"
+            },
+            {
+              "label": "check-22",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,0)==2504"
+            },
+            {
+              "label": "check-23",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,1000)==3504"
+            },
+            {
+              "label": "check-24",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(3,5094)==5094"
+            },
+            {
+              "label": "check-25",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,-500)==5094"
+            },
+            {
+              "label": "check-26",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,0)==5094"
+            },
+            {
+              "label": "check-27",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,1000)==5094"
+            },
+            {
+              "label": "check-28",
+              "category": "NotImplementedError",
+              "expression": "utils.retry_delay(8,5094)==5094"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(True))"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(-1))"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.retry_delay(1,True))"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(0)=={'delays_ms': [], 'total_ms': 0, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-33",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(1)=={'delays_ms': [313], 'total_ms': 313, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-34",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(4)=={'delays_ms': [313, 626, 1252, 2504], 'total_ms': 4695, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-35",
+              "category": "NotImplementedError",
+              "expression": "app.retry_plan(9)=={'delays_ms': [313, 626, 1252, 2504, 5008, 5094, 5094, 5094, 5094], 'total_ms': 30079, 'policy': 'R-43837'}"
+            },
+            {
+              "label": "check-36",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(True))"
+            },
+            {
+              "label": "check-37",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.retry_plan(-1))"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,None)=={'items': [0, 1], 'next_cursor': 'C2107:2:26', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:2:26')=={'items': [2, 3], 'next_cursor': 'C2107:4:28', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:6:30')=={'items': [6], 'next_cursor': None, 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:20:44')=={'items': [], 'next_cursor': None, 'policy': 'R-19996'}"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "limit_reached",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,None)=={'items': [0, 1], 'next_cursor': 'C2107:2:26', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:2:26')=={'items': [2, 3], 'next_cursor': 'C2107:4:28', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:6:30')=={'items': [6], 'next_cursor': None, 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:20:44')=={'items': [], 'next_cursor': None, 'policy': 'R-19996'}"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "limit_reached",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            },
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,None)=={'items': [0, 1], 'next_cursor': 'C2107:2:26', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-30",
+              "category": "ValueError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:2:26')=={'items': [2, 3], 'next_cursor': 'C2107:4:28', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-31",
+              "category": "ValueError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:6:30')=={'items': [6], 'next_cursor': None, 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-32",
+              "category": "ValueError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:20:44')=={'items': [], 'next_cursor': None, 'policy': 'R-19996'}"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_pressure",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            }
+          ]
+        },
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_pressure",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(0)=='C2107:0:24'"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:0:24')==0"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1)=='C2107:1:25'"
+            },
+            {
+              "label": "check-17",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1:25')==1"
+            },
+            {
+              "label": "check-18",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(11)=='C2107:11:35'"
+            },
+            {
+              "label": "check-19",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:11:35')==11"
+            },
+            {
+              "label": "check-20",
+              "category": "NotImplementedError",
+              "expression": "utils.encode_cursor(1000)=='C2107:1000:54'"
+            },
+            {
+              "label": "check-21",
+              "category": "NotImplementedError",
+              "expression": "utils.decode_cursor('C2107:1000:54')==1000"
+            },
+            {
+              "label": "check-22",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('wrong:1:1'))"
+            },
+            {
+              "label": "check-23",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:01:25'))"
+            },
+            {
+              "label": "check-24",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor('C2107:1:999'))"
+            },
+            {
+              "label": "check-25",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(None))"
+            },
+            {
+              "label": "check-26",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.decode_cursor(True))"
+            },
+            {
+              "label": "check-27",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(True))"
+            },
+            {
+              "label": "check-28",
+              "category": "AssertionError",
+              "expression": "raises(lambda:utils.encode_cursor(-1))"
+            },
+            {
+              "label": "check-29",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,None)=={'items': [0, 1], 'next_cursor': 'C2107:2:26', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-30",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:2:26')=={'items': [2, 3], 'next_cursor': 'C2107:4:28', 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-31",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:6:30')=={'items': [6], 'next_cursor': None, 'policy': 'R-19996'}"
+            },
+            {
+              "label": "check-32",
+              "category": "NotImplementedError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C2107:20:44')=={'items': [], 'next_cursor': None, 'policy': 'R-19996'}"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-11",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([])==[]"
+            },
+            {
+              "label": "check-12",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "(lambda rows: (utils.dedupe(rows),rows)==([{'id':'a','seq':1}],[{'id':'a','seq':1}]))([{'id':'a','seq':1}])"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "current",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-11",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([])==[]"
+            },
+            {
+              "label": "check-12",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "(lambda rows: (utils.dedupe(rows),rows)==([{'id':'a','seq':1}],[{'id':'a','seq':1}]))([{'id':'a','seq':1}])"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "app.summarize([])=={'totals': {}, 'total_amount': 0, 'policy': 'R-74806'}"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "app.summarize([{'id': ' a ', 'amount': 2}, {'id': 'a', 'amount': '-1'}, {'id': 'b', 'amount': '0'}])=={'totals': {'a': 1, 'b': 0}, 'total_amount': 1, 'policy': 'R-74806'}"
+            },
+            {
+              "label": "check-17",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.summarize([{'id':'a','amount':True}]))"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-11",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([])==[]"
+            },
+            {
+              "label": "check-12",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "(lambda rows: (utils.dedupe(rows),rows)==([{'id':'a','seq':1}],[{'id':'a','seq':1}]))([{'id':'a','seq':1}])"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "typed_all",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-11",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([])==[]"
+            },
+            {
+              "label": "check-12",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "NotImplementedError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            },
+            {
+              "label": "check-14",
+              "category": "NotImplementedError",
+              "expression": "(lambda rows: (utils.dedupe(rows),rows)==([{'id':'a','seq':1}],[{'id':'a','seq':1}]))([{'id':'a','seq':1}])"
+            },
+            {
+              "label": "check-15",
+              "category": "NotImplementedError",
+              "expression": "app.summarize([])=={'totals': {}, 'total_amount': 0, 'policy': 'R-74806'}"
+            },
+            {
+              "label": "check-16",
+              "category": "NotImplementedError",
+              "expression": "app.summarize([{'id': ' a ', 'amount': 2}, {'id': 'a', 'amount': '-1'}, {'id': 'b', 'amount': '0'}])=={'totals': {'a': 1, 'b': 0}, 'total_amount': 1, 'policy': 'R-74806'}"
+            },
+            {
+              "label": "check-17",
+              "category": "AssertionError",
+              "expression": "raises(lambda:app.summarize([{'id':'a','amount':True}]))"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 2,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": true,
+          "failed_assertions": [
+            {
+              "label": "check-12",
+              "category": "AssertionError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "AssertionError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            }
+          ]
+        },
+        {
+          "case": "records-outage",
+          "strategy": "typed_fresh",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": true,
+          "failed_assertions": [
+            {
+              "label": "check-12",
+              "category": "AssertionError",
+              "expression": "utils.dedupe([{'id': 'b', 'seq': 1, 'v': 1}, {'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}])==[{'id': 'a', 'seq': 2, 'v': 0}, {'id': 'b', 'seq': 1, 'v': 2}]"
+            },
+            {
+              "label": "check-13",
+              "category": "AssertionError",
+              "expression": "utils.dedupe([{'id': 'x', 'seq': 10, 'v': 0}, {'id': 'x', 'seq': 1, 'v': 7}])==[{'id': 'x', 'seq': 10, 'v': 0}]"
+            },
+            {
+              "label": "check-15",
+              "category": "AssertionError",
+              "expression": "app.summarize([])=={'totals': {}, 'total_amount': 0, 'policy': 'R-74806'}"
+            },
+            {
+              "label": "check-16",
+              "category": "AssertionError",
+              "expression": "app.summarize([{'id': ' a ', 'amount': 2}, {'id': 'a', 'amount': '-1'}, {'id': 'b', 'amount': '0'}])=={'totals': {'a': 1, 'b': 0}, 'total_amount': 1, 'policy': 'R-74806'}"
+            }
+          ]
+        }
+      ],
+      "code_correct_but_not_verified": [],
+      "limitations": [
+        "Generated projects and small matched case set, not production success probability.",
+        "Normal, transient and persistent outage are experimental strata, not measured field incidence.",
+        "Real LoopEngine/provider/JSONL journal/history/executor; compact and working-set retirement disabled.",
+        "The pressure arm uses an explicit experimental UTF-8-byte soft trigger, not a native admission-token limit.",
+        "Fallback restores already-visible original bodies within the same allowed source surface; not an authorization bypass or resurrection of retired inaccessible history.",
+        "Tokens for failed runs remain in cost totals; success-only paired cost also reported.",
+        "Native usage is normalized by the existing production adapter. No estimate-based dollar claims."
+      ]
+    },
+    "targeted-matrix": {
+      "status": "complete",
+      "sessions": 24,
+      "expected_sessions": 24,
+      "phase_evaluations": 72,
+      "hidden_assertion_executions": 1872,
+      "completed_real_provider_streams": 399,
+      "provider_errors_or_pending": {},
+      "actual_input_tokens": 5512648,
+      "actual_output_tokens_including_reasoning": 134230,
+      "largest_actual_request_input": 35005,
+      "all_completed_requests_within_configured_context": true,
+      "history_calls": {
+        "search:ok": 33,
+        "read:ok": 31,
+        "read:error": 9,
+        "search:error": 27
+      },
+      "injected_history_errors": 35,
+      "groups": {
+        "full": {
+          "n": 12,
+          "all_stages_verified": 12,
+          "all_stages_code_correct": 12,
+          "final_code_correct": 12,
+          "total_input_tokens": 3364419,
+          "mean_input_tokens": 280368.25,
+          "mean_input_successful_sessions": 280368.25,
+          "tokens_per_verified_success_including_failures": 280368.25,
+          "mean_latency_s": 40.37683333333334,
+          "mean_latency_successful_s": 40.37683333333334,
+          "injected_history_errors": 14,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 1205015,
+              "mean_input_tokens": 301253.75,
+              "mean_input_successful_sessions": 301253.75,
+              "tokens_per_verified_success_including_failures": 301253.75,
+              "mean_latency_s": 40.85525,
+              "mean_latency_successful_s": 40.85525,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 1251546,
+              "mean_input_tokens": 312886.5,
+              "mean_input_successful_sessions": 312886.5,
+              "tokens_per_verified_success_including_failures": 312886.5,
+              "mean_latency_s": 41.07275,
+              "mean_latency_successful_s": 41.07275,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 907858,
+              "mean_input_tokens": 226964.5,
+              "mean_input_successful_sessions": 226964.5,
+              "tokens_per_verified_success_including_failures": 226964.5,
+              "mean_latency_s": 39.2025,
+              "mean_latency_successful_s": 39.2025,
+              "injected_history_errors": 10
+            }
+          },
+          "paired_regressions_vs_full": [],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 12,
+            "input_reduction_vs_full": 0.0
+          },
+          "history_calls": 48,
+          "history_errors": 15,
+          "fallback_policy_invocations": 0
+        },
+        "typed_targeted": {
+          "n": 12,
+          "all_stages_verified": 11,
+          "all_stages_code_correct": 11,
+          "final_code_correct": 11,
+          "total_input_tokens": 2148229,
+          "mean_input_tokens": 179019.08333333334,
+          "mean_input_successful_sessions": 176538.27272727274,
+          "tokens_per_verified_success_including_failures": 195293.54545454544,
+          "mean_latency_s": 44.62441666666667,
+          "mean_latency_successful_s": 42.40318181818182,
+          "injected_history_errors": 21,
+          "by_fault": {
+            "normal": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 709670,
+              "mean_input_tokens": 177417.5,
+              "mean_input_successful_sessions": 177417.5,
+              "tokens_per_verified_success_including_failures": 177417.5,
+              "mean_latency_s": 38.90825,
+              "mean_latency_successful_s": 38.90825,
+              "injected_history_errors": 0
+            },
+            "transient": {
+              "n": 4,
+              "all_stages_verified": 4,
+              "all_stages_code_correct": 4,
+              "final_code_correct": 4,
+              "total_input_tokens": 633094,
+              "mean_input_tokens": 158273.5,
+              "mean_input_successful_sessions": 158273.5,
+              "tokens_per_verified_success_including_failures": 158273.5,
+              "mean_latency_s": 38.71875,
+              "mean_latency_successful_s": 38.71875,
+              "injected_history_errors": 4
+            },
+            "outage": {
+              "n": 4,
+              "all_stages_verified": 3,
+              "all_stages_code_correct": 3,
+              "final_code_correct": 3,
+              "total_input_tokens": 805465,
+              "mean_input_tokens": 201366.25,
+              "mean_input_successful_sessions": 199719,
+              "tokens_per_verified_success_including_failures": 268488.3333333333,
+              "mean_latency_s": 56.24625,
+              "mean_latency_successful_s": 51.97566666666667,
+              "injected_history_errors": 17
+            }
+          },
+          "paired_regressions_vs_full": [
+            "pagination-outage"
+          ],
+          "paired_improvements_vs_full": [],
+          "paired_success_cost": {
+            "n": 11,
+            "input_reduction_vs_full": 0.36833245670445436
+          },
+          "history_calls": 52,
+          "history_errors": 21,
+          "fallback_policy_invocations": 0
+        }
+      },
+      "failures": [
+        {
+          "case": "pagination-outage",
+          "strategy": "typed_targeted",
+          "fault": "outage",
+          "phase": 3,
+          "engine_status": "completed",
+          "engine_error": null,
+          "code_correct": false,
+          "fresh_public_test_proof": false,
+          "failed_assertions": [
+            {
+              "label": "check-29",
+              "category": "AssertionError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,None)=={'items': [0, 1], 'next_cursor': 'C3814:2:41', 'policy': 'R-60128'}"
+            },
+            {
+              "label": "check-30",
+              "category": "AssertionError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C3814:2:41')=={'items': [2, 3], 'next_cursor': 'C3814:4:43', 'policy': 'R-60128'}"
+            },
+            {
+              "label": "check-31",
+              "category": "AssertionError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C3814:6:45')=={'items': [6], 'next_cursor': None, 'policy': 'R-60128'}"
+            },
+            {
+              "label": "check-32",
+              "category": "AssertionError",
+              "expression": "app.list_page([0, 1, 2, 3, 4, 5, 6],2,'C3814:20:59')=={'items': [], 'next_cursor': None, 'policy': 'R-60128'}"
+            }
+          ]
+        }
+      ],
+      "code_correct_but_not_verified": [],
+      "limitations": [
+        "Generated projects and small matched case set, not production success probability.",
+        "Normal, transient and persistent outage are experimental strata, not measured field incidence.",
+        "Real LoopEngine/provider/JSONL journal/history/executor; compact and working-set retirement disabled.",
+        "The pressure arm uses an explicit experimental UTF-8-byte soft trigger, not a native admission-token limit.",
+        "Fallback restores already-visible original bodies within the same allowed source surface; not an authorization bypass or resurrection of retired inaccessible history.",
+        "Tokens for failed runs remain in cost totals; success-only paired cost also reported.",
+        "Native usage is normalized by the existing production adapter. No estimate-based dollar claims."
+      ]
+    }
+  },
+  "limitations": [
+    "Generated projects, not private production sessions or a production success-rate estimate.",
+    "Faults are deliberate model-facing history-channel failures; original backend storage stays healthy.",
+    "No near-window capacity/LLM-summary/working-set/GUI acceptance tested.",
+    "A targeted recovery prototype failed once on return-shape interpretation; retained, not rerolled or rescored.",
+    "The initial targeted pilot modifying assembled System was rejected by unchanged Core protection; fixed by transient runtime-control evidence, not by weakening the guard."
+  ]
+}
