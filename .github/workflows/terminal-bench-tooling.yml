@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python -B -m unittest discover -s scripts/terminal_bench -v
@@ -32,7 +32,7 @@ jobs:
       LITELLM_LOCAL_MODEL_COST_MAP: 'True'
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python -m pip install -r scripts/terminal_bench/requirements.txt

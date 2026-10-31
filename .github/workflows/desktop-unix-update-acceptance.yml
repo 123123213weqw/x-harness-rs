@@ -121,7 +121,7 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.source_sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
