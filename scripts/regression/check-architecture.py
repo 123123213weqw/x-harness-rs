@@ -183,6 +183,9 @@ BUSINESS_ERROR_LINTS = frozenset({
 BUSINESS_ERROR_GUARD = "#![deny(" + ",".join(sorted(BUSINESS_ERROR_LINTS)) + ")]\n#![cfg_attr(not(test),forbid(" + ",".join(sorted(BUSINESS_ERROR_LINTS)) + "))]\n"
 
 ERROR_BOUNDARIES = {
+    "crates/xharness-host/src/driver_control.rs",
+    "crates/xharness-host/src/driver_lifecycle.rs",
+    "crates/xharness-diagnostics/src/failure.rs",
     "crates/xharness-host/src/event_gateway.rs",
     "crates/xharness-host/src/error_boundary.rs",
 }

@@ -442,6 +442,7 @@ impl BasicHost {
                     _ => None,
                 });
             let record = SessionRecord {
+                driver_epoch: None,
                 dispatch_paused: crate::delegation::restored_dispatch_paused(&session)
                     || pause_incomplete_tools,
                 delegated: delegation_parent.is_some(),
@@ -692,6 +693,9 @@ impl BasicHost {
                             .expect("restored session remains registered");
                         record.running = true;
                         record.control = Some(control_tx);
+                        record.driver_epoch = Some(std::sync::Arc::new(
+                            crate::driver_lifecycle::DriverEpoch::default(),
+                        ));
                     }
                     let host = self.as_ref().clone();
                     if let Some(work_id) = runtime_report
@@ -713,14 +717,25 @@ impl BasicHost {
                                     "runtime lost recovered interaction work {work_id:?}"
                                 ),
                             })?;
-                        tokio::spawn(async move {
-                            host.drive_recovered_turn(session_id, recovered, control_rx)
-                                .await
-                        });
+                        let runner = host.clone();
+                        host.spawn_session_task(
+                            session_id.clone(),
+                            crate::error_boundary::TaskOperation::RecoveredTurn,
+                            async move {
+                                runner
+                                    .drive_recovered_turn(session_id, recovered, control_rx)
+                                    .await
+                            },
+                        )
+                        .await;
                     } else {
-                        tokio::spawn(
-                            async move { host.drive_session(session_id, control_rx).await },
-                        );
+                        let runner = host.clone();
+                        host.spawn_session_task(
+                            session_id.clone(),
+                            crate::error_boundary::TaskOperation::SessionDriver,
+                            async move { runner.drive_session(session_id, control_rx).await },
+                        )
+                        .await;
                     }
                 }
                 Err(error) => {
@@ -919,6 +934,7 @@ impl BasicHost {
                 context_window_tokens: indexed.and_then(|e| e.context_window_tokens),
             };
             let record = SessionRecord {
+                driver_epoch: None,
                 dispatch_paused: true,
                 delegated: false,
                 restoring: true,

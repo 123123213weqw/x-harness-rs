@@ -309,6 +309,7 @@ impl BasicHost {
                 self.state.write().await.sessions.insert(
                     id.into(),
                     SessionRecord {
+                        driver_epoch: None,
                         dispatch_paused: restored_dispatch_paused(&branch),
                         delegated: true,
                         restoring: false,

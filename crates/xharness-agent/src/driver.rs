@@ -162,6 +162,10 @@ enum DriverCommand {
     Steer(InboxMessage),
     Inject(InboxMessage),
     Control(LoopCommand),
+    ScopedControl {
+        turn: u32,
+        command: LoopCommand,
+    },
 }
 
 struct CommandEnvelope {
@@ -528,6 +532,21 @@ impl DurableAgentHandle {
 
     pub async fn resume(&self) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Control(LoopCommand::Resume)).await
+    }
+
+    /// Commands delayed behind an old turn must not affect its successor.
+    pub async fn control_turn(
+        &self,
+        turn: Option<u32>,
+        command: LoopCommand,
+    ) -> Result<(), AgentCommandError> {
+        match turn {
+            Some(turn) => {
+                self.send(DriverCommand::ScopedControl { turn, command })
+                    .await
+            }
+            None => self.send(DriverCommand::Control(command)).await,
+        }
     }
 
     pub async fn interrupt_by_user(&self) -> Result<(), AgentCommandError> {
@@ -1257,7 +1276,7 @@ impl DriverWorker {
                     None => break,
                 },
                 command = self.commands.recv() => match command {
-                    Some(command) => self.handle_active(command, &run).await,
+                    Some(command) => self.handle_active(command, &run, turn).await,
                     None => {
                         let _ = run.send(LoopCommand::Cancel).await;
                         while let Some(event) = run.next().await {
@@ -1429,13 +1448,32 @@ impl DriverWorker {
             DriverCommand::Control(LoopCommand::Cancel | LoopCommand::InterruptByUser) => {
                 self.park_pending().await
             }
-            DriverCommand::Control(_) => Err(AgentCommandError::NoActiveTurn),
+            DriverCommand::Control(_) | DriverCommand::ScopedControl { .. } => {
+                Err(AgentCommandError::NoActiveTurn)
+            }
         };
         let _ = envelope.acknowledgement.send(result);
     }
 
-    async fn handle_active(&mut self, envelope: CommandEnvelope, run: &xharness_core::LoopRun) {
-        let result = match envelope.command {
+    async fn handle_active(
+        &mut self,
+        envelope: CommandEnvelope,
+        run: &xharness_core::LoopRun,
+        active_turn: u32,
+    ) {
+        let command = match envelope.command {
+            DriverCommand::ScopedControl { turn, command } if turn == active_turn => {
+                DriverCommand::Control(command)
+            }
+            DriverCommand::ScopedControl { .. } => {
+                let _ = envelope
+                    .acknowledgement
+                    .send(Err(AgentCommandError::NoActiveTurn));
+                return;
+            }
+            command => command,
+        };
+        let result = match command {
             DriverCommand::Wake => {
                 self.wake_requested = true;
                 Ok(())
@@ -1476,6 +1514,7 @@ impl DriverWorker {
                     Err(error) => Err(error),
                 }
             }
+            DriverCommand::ScopedControl { .. } => Err(AgentCommandError::NoActiveTurn),
             DriverCommand::Control(command) => {
                 if matches!(command, LoopCommand::Cancel | LoopCommand::InterruptByUser) {
                     if let Err(e) = self.goal_controller().pause().await {

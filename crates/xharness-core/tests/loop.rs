@@ -1,4 +1,49 @@
 #[tokio::test]
+async fn panicked_executor_closes_event_stream_and_reports_unknown_without_replay() {
+    struct PanicProvider(std::sync::atomic::AtomicUsize);
+    #[async_trait]
+    impl ModelProvider for PanicProvider {
+        async fn stream(
+            &self,
+            _: ProviderRequest,
+            _: CancellationToken,
+        ) -> Result<ProviderStream, ProviderError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            panic!("synthetic private panic payload");
+        }
+    }
+    let provider = Arc::new(PanicProvider(std::sync::atomic::AtomicUsize::new(0)));
+    let store = Arc::new(EventMemorySessionStore::default());
+    let mut request = LoopRequest::new(provider.clone(), vec![AgentMessage::user("fixture")]);
+    request.session_id = Some("executor-panic".into());
+    request.journal_store = Some(store.clone());
+    let mut run = LoopEngine.start(request);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while run.next().await.is_some() {}
+        run.result().await
+    })
+    .await
+    .expect("executor loss must not strand the event cursor");
+    assert_eq!(result.status, LoopStatus::Failed);
+    let message = result.error.unwrap();
+    assert!(message.contains("outcome unknown"));
+    assert!(!message.contains("synthetic private panic payload"));
+    assert_eq!(provider.0.load(Ordering::SeqCst), 1);
+    let journal = store.load("executor-panic").await.unwrap().unwrap();
+    assert!(journal
+        .events()
+        .iter()
+        .any(|e| matches!(e.data(), SessionEventData::TurnStart { .. })));
+    assert!(
+        !journal
+            .events()
+            .iter()
+            .any(|e| matches!(e.data(), SessionEventData::TurnEnd { .. })),
+        "a monitor must not invent a durable terminal receipt after unknown execution"
+    );
+}
+
+#[tokio::test]
 async fn durable_large_result_has_recoverable_original_and_exact_call() {
     let original = format!(
         "{}MIDDLE-EVIDENCE{}",
