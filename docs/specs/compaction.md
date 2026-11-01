@@ -146,10 +146,15 @@ Checkpoint Preamble
    摘要拒绝提交。成功 Replace 后重新构造完整请求，并再次走 Provider 原生计数/Token Guard。
 5. Web 投影公开全部 `compaction/*`，替换消息携带
    `surfaceOp={op:"replace",start,end}` 与 `sourceEventSeqs`。
-6. `/compact` 是空闲 Session 的无输入 Maintenance Turn：先持久写入 `command/run`，再以同一
+6. `/compact` 是空闲 Session 的无对话输入 Maintenance Turn：先持久写入 `command/run`，再以同一
    `commandId` 关联 `compaction/start|summary|end`，完成后写 `command/done`。它不创建用户消息、
-   不调用普通 Agent 回复；运行中 Session、参数或附件会明确拒绝。Host/Agent 重启会从未闭合的
-   `command/run` 恢复，同一命令不会被当成普通消息重复执行。
+   不调用普通 Agent 回复；运行中 Session 与附件会明确拒绝。可选的 `/compact <focus>` 只作为本轮
+   摘要提示追加到固定 Compact Instruction，不进入对话历史、不扩大任务范围；`command/run` 的
+   `args` 是它跨重启的唯一持久副本。Host/Agent 重启会从未闭合的 `command/run` 恢复命令与焦点，
+   同一命令不会被当成普通消息重复执行。
+   维护回合的完成依据是相同 `commandId` 的 `command/run` → `command/done`，不是普通 Inbox
+   消息是否仍存在；即使完成广播早于 Host 重新订阅，也必须从持久回执恢复成功／失败，不能误报取消。
+   旧的无参数 Runtime/Agent 调用入口保留；不支持焦点的旧实现明确拒绝焦点，而不是静默丢弃。
 7. 自动压缩的 Web 节点从 `compaction/start` 起立即显示“正在压缩”动画；成功 Checkpoint 原位
    替换为可展开摘要，失败或取消在 `compaction/end` 后移除临时节点。实时事件与分页历史使用同一
    reducer，避免刷新前后表现不同。
