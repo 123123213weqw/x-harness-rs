@@ -892,6 +892,23 @@ pub trait AgentRuntime: Send + Sync + 'static {
         })
     }
 
+    /// Optional focus is an additive capability. Legacy implementations remain
+    /// source-compatible and must not silently discard a requested focus.
+    async fn start_manual_compaction_with_instructions(
+        &self,
+        session_id: &str,
+        command_id: &str,
+        instructions: Option<&str>,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        if instructions.is_some() {
+            return Err(AgentRuntimeError::Preparation {
+                message: "manual compaction is unavailable for this runtime with a focus"
+                    .to_owned(),
+            });
+        }
+        self.start_manual_compaction(session_id, command_id).await
+    }
+
     /// Subscribe to runtime-originated ordinary turns such as due Schedule
     /// reminders. The notice is emitted only after an event receiver has been
     /// installed, so the Host can safely attach live projection.
@@ -2372,7 +2389,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         }
         if let Some(work_id) = &recovered_compaction_work_id {
             handle
-                .compact(work_id.clone())
+                .compact_with_instructions(work_id.clone(), compaction_focus(&session, work_id))
                 .await
                 .map_err(agent_command_error)?;
         }
@@ -2436,6 +2453,16 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         session_id: &str,
         command_id: &str,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
+        self.start_manual_compaction_with_instructions(session_id, command_id, None)
+            .await
+    }
+
+    async fn start_manual_compaction_with_instructions(
+        &self,
+        session_id: &str,
+        command_id: &str,
+        instructions: Option<&str>,
+    ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
         self.require_execution()?;
         let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
             AgentRuntimeError::Preparation {
@@ -2448,7 +2475,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             input_id: command_id.to_owned(),
         };
         handle
-            .compact(command_id.to_owned())
+            .compact_with_instructions(command_id.to_owned(), instructions.map(str::to_owned))
             .await
             .map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
@@ -2624,6 +2651,23 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
         }
     }
     None
+}
+
+/// The optional `/compact <focus>` text is durable in the command/run event.
+/// Read it only for the exact unfinished command so a restart preserves it.
+fn compaction_focus(session: &Session, command_id: &str) -> Option<String> {
+    session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            xharness_session::EventData::CommandRun {
+                command_id: id,
+                name,
+                args,
+                ..
+            } if name == "compact" && id == command_id => args.clone(),
+            _ => None,
+        })
 }
 
 #[cfg(test)]
@@ -2868,125 +2912,216 @@ mod tests {
 
     #[tokio::test]
     async fn restart_recovers_one_open_manual_compaction_as_a_maintenance_turn() {
-        let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
-        store
-            .create(SessionHeader::new("manual-compact-recovery"))
-            .await
-            .unwrap();
-        store
-            .append(
-                "manual-compact-recovery",
-                Revision::ZERO,
-                vec![
-                    SessionEventData::TurnStart { turn: 1 }.into(),
-                    SessionEventData::UserMessage {
-                        message: AgentMessage::user(format!("OLD-CONTEXT:{}", "x".repeat(6_000))),
-                        surface_replace: None,
-                    }
-                    .into(),
-                    SessionEventData::StepStart { turn: 1, step: 1 }.into(),
-                    SessionEventData::RequestHeader {
-                        header: xharness_session::RequestHeader::new("test", "test-model"),
-                    }
-                    .into(),
-                    SessionEventData::AssistantMessage {
-                        turn: 1,
-                        step: 1,
-                        message: AgentMessage::assistant("old answer"),
-                        usage: None,
-                    }
-                    .into(),
-                    SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
-                    SessionEventData::TurnEnd {
-                        turn: 1,
-                        reason: TurnEndReason::Completed,
-                    }
-                    .into(),
-                    SessionEventData::CommandRun {
-                        command_id: "manual-command".to_owned(),
-                        name: "compact".to_owned(),
-                        args: None,
-                        source: CommandSource::User,
-                    }
-                    .into(),
-                ],
-            )
-            .await
-            .unwrap();
-        let provider: Arc<dyn ModelProvider> = Arc::new(ScriptProvider {
-            answers: Mutex::new(VecDeque::from([
-                "## Current Work\n- restored compact command".to_owned(),
-            ])),
-        });
-        let guard = TokenGuard::conservative(TokenBudget {
-            context_window_tokens: 10_000,
-            reserved_output_tokens: 256,
-            minimum_output_tokens: 256,
-            safety_margin_tokens: 64,
-        })
-        .unwrap();
-        let runtime = DurableLoopAgentRuntime::new(
-            "test",
-            "test-model",
-            Some(provider),
-            Arc::new(NoTools),
-            Arc::new(IdentityContextPolicy),
-            Arc::clone(&store),
-            Arc::new(MemoryLeaseManager::default()),
-            64,
-        )
-        .with_token_guard(Some(guard))
-        .with_compaction(Some(CompactionConfig {
-            retain_ratio: None,
-            retain_tokens: Some(10),
-            max_tokens: 256,
-            ..CompactionConfig::default()
-        }));
-
-        let report = runtime
-            .resume_session(AgentSessionRequest {
-                session_id: "manual-compact-recovery".to_owned(),
-                cwd: "/workspace".to_owned(),
-                route: ModelRoute::new("test", "test-model"),
-                permission: PermissionPreset::WorkspaceWrite,
-                prompt: None,
+        for focus in [None, Some("preserve parser regression evidence")] {
+            let store: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+            store
+                .create(SessionHeader::new("manual-compact-recovery"))
+                .await
+                .unwrap();
+            store
+                .append(
+                    "manual-compact-recovery",
+                    Revision::ZERO,
+                    vec![
+                        SessionEventData::TurnStart { turn: 1 }.into(),
+                        SessionEventData::UserMessage {
+                            message: AgentMessage::user(format!(
+                                "OLD-CONTEXT:{}",
+                                "x".repeat(6_000)
+                            )),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        SessionEventData::StepStart { turn: 1, step: 1 }.into(),
+                        SessionEventData::RequestHeader {
+                            header: xharness_session::RequestHeader::new("test", "test-model"),
+                        }
+                        .into(),
+                        SessionEventData::AssistantMessage {
+                            turn: 1,
+                            step: 1,
+                            message: AgentMessage::assistant(format!(
+                                "old answer {}",
+                                "evidence ".repeat(800)
+                            )),
+                            usage: None,
+                        }
+                        .into(),
+                        SessionEventData::StepEnd { turn: 1, step: 1 }.into(),
+                        SessionEventData::TurnEnd {
+                            turn: 1,
+                            reason: TurnEndReason::Completed,
+                        }
+                        .into(),
+                        SessionEventData::TurnStart { turn: 2 }.into(),
+                        SessionEventData::UserMessage {
+                            message: AgentMessage::user(
+                                "current work remains outside the old compacted span",
+                            ),
+                            surface_replace: None,
+                        }
+                        .into(),
+                        SessionEventData::StepStart { turn: 2, step: 1 }.into(),
+                        SessionEventData::RequestHeader {
+                            header: xharness_session::RequestHeader::new("test", "test-model"),
+                        }
+                        .into(),
+                        SessionEventData::AssistantMessage {
+                            turn: 2,
+                            step: 1,
+                            message: AgentMessage::assistant("current answer"),
+                            usage: None,
+                        }
+                        .into(),
+                        SessionEventData::StepEnd { turn: 2, step: 1 }.into(),
+                        SessionEventData::TurnEnd {
+                            turn: 2,
+                            reason: TurnEndReason::Completed,
+                        }
+                        .into(),
+                        SessionEventData::CommandRun {
+                            command_id: "manual-command".to_owned(),
+                            name: "compact".to_owned(),
+                            args: focus.map(str::to_owned),
+                            source: CommandSource::User,
+                        }
+                        .into(),
+                    ],
+                )
+                .await
+                .unwrap();
+            struct FocusProvider {
+                requests: Mutex<Vec<ProviderRequest>>,
+            }
+            #[async_trait]
+            impl ModelProvider for FocusProvider {
+                fn provider_name(&self) -> &str {
+                    "test"
+                }
+                fn model_name(&self) -> Option<&str> {
+                    Some("test-model")
+                }
+                async fn stream(
+                    &self,
+                    request: ProviderRequest,
+                    _: CancellationToken,
+                ) -> Result<ProviderStream, ProviderError> {
+                    self.requests.lock().unwrap().push(request);
+                    Ok(Box::pin(stream::iter([
+                        Ok(ProviderEvent::TextDelta(
+                            "## Current Work\n- restored compact command".to_owned(),
+                        )),
+                        Ok(ProviderEvent::Completed {
+                            finish_reason: Some(FinishReason::Stop),
+                            usage: None,
+                            provider_items: Vec::new(),
+                        }),
+                    ])))
+                }
+            }
+            let provider = Arc::new(FocusProvider {
+                requests: Mutex::new(Vec::new()),
+            });
+            let guard = TokenGuard::conservative(TokenBudget {
+                context_window_tokens: 34_816,
+                reserved_output_tokens: 256,
+                minimum_output_tokens: 256,
+                safety_margin_tokens: 64,
             })
-            .await
             .unwrap();
-        assert_eq!(
-            report.recovered_compaction_work_id.as_deref(),
-            Some("manual-command")
-        );
-        let mut turn = runtime
-            .take_resumed_turn("manual-compact-recovery", "manual-command")
-            .await
-            .unwrap()
-            .expect("recovered compaction observer");
-        while turn.next_event().await.is_some() {}
-        let result = turn.result().await;
-        assert_eq!(result.status, xharness_core::LoopStatus::Completed);
+            let runtime = DurableLoopAgentRuntime::new(
+                "test",
+                "test-model",
+                Some(provider.clone()),
+                Arc::new(NoTools),
+                Arc::new(IdentityContextPolicy),
+                Arc::clone(&store),
+                Arc::new(MemoryLeaseManager::default()),
+                64,
+            )
+            .with_token_guard(Some(guard))
+            .with_compaction(Some(CompactionConfig {
+                retain_ratio: None,
+                retain_tokens: Some(10),
+                max_tokens: 256,
+                ..CompactionConfig::default()
+            }));
 
-        let session = store
-            .load("manual-compact-recovery")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(session.events().iter().any(|event| matches!(
-            event.data(),
-            SessionEventData::CompactionStart {
-                source_command_id: Some(id),
-                ..
-            } if id == "manual-command"
-        )));
-        assert!(session.events().iter().any(|event| matches!(
-            event.data(),
-            SessionEventData::CommandDone {
-                command_id,
-                kind: CommandResultKind::Success,
-                ..
-            } if command_id == "manual-command"
-        )));
-        runtime.shutdown(Duration::from_secs(1)).await;
+            let report = runtime
+                .resume_session(AgentSessionRequest {
+                    session_id: "manual-compact-recovery".to_owned(),
+                    cwd: "/workspace".to_owned(),
+                    route: ModelRoute::new("test", "test-model"),
+                    permission: PermissionPreset::WorkspaceWrite,
+                    prompt: None,
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                report.recovered_compaction_work_id.as_deref(),
+                Some("manual-command")
+            );
+            let mut turn = runtime
+                .take_resumed_turn("manual-compact-recovery", "manual-command")
+                .await
+                .unwrap()
+                .expect("recovered compaction observer");
+            while turn.next_event().await.is_some() {}
+            let result = turn.result().await;
+            assert_eq!(
+                result.status,
+                xharness_core::LoopStatus::Completed,
+                "recovered maintenance result: {result:?}"
+            );
+
+            let session = store
+                .load("manual-compact-recovery")
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(session.events().iter().any(|event| matches!(
+                event.data(),
+                SessionEventData::CompactionStart {
+                    source_command_id: Some(id),
+                    ..
+                } if id == "manual-command"
+            )));
+            assert!(session.events().iter().any(|event| matches!(
+                event.data(),
+                SessionEventData::CommandDone {
+                    command_id,
+                    kind: CommandResultKind::Success,
+                    ..
+                } if command_id == "manual-command"
+            )));
+            {
+                let requests = provider.requests.lock().unwrap();
+                assert_eq!(
+                    requests.len(),
+                    1,
+                    "restart runs only the maintenance summary"
+                );
+                let instruction = &requests[0].messages.last().unwrap().content;
+                match focus {
+                    Some(focus) => {
+                        assert!(
+                            instruction.contains(focus),
+                            "restart must preserve the exact focus"
+                        );
+                        assert!(
+                            !session
+                                .derive_messages()
+                                .iter()
+                                .any(|m| m.content.contains(focus)),
+                            "the focus is not a new conversation message"
+                        );
+                    }
+                    None => assert!(!instruction
+                        .contains("Additional focus for this user-requested compaction")),
+                }
+            }
+            runtime.shutdown(Duration::from_secs(1)).await;
+        }
     }
 
     #[tokio::test]

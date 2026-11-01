@@ -3260,6 +3260,7 @@ impl Runner {
         )
         .with_debug(self.request.debug.clone())
         .with_recovery(self.request.config.clone(), self.retry_entropy())
+        .with_manual_instructions(self.request.manual_compaction_instructions.clone())
         .with_progress(progress_tx)
         .run(selected.to_vec());
         tokio::pin!(summary);

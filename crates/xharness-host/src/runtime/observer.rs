@@ -124,6 +124,8 @@ struct ObserverReceipt {
     bound: Option<u32>,
     ended: bool,
     cancelled: bool,
+    manual_started: bool,
+    manual_done: Option<(xharness_session::CommandResultKind, Option<String>)>,
     next_turn: Vec<String>,
     next_step: Vec<String>,
     #[cfg(test)]
@@ -143,6 +145,19 @@ impl ObserverReceipt {
         }
         for event in tail {
             match event.data() {
+                EventData::CommandRun {
+                    command_id, name, ..
+                } if command_id == input && name == "compact" => {
+                    self.manual_started = true;
+                }
+                EventData::CommandDone {
+                    command_id,
+                    kind,
+                    text,
+                    ..
+                } if command_id == input && self.manual_started => {
+                    self.manual_done = Some((*kind, text.clone()));
+                }
                 EventData::TurnStart { turn } => self.active = Some(*turn),
                 EventData::UserMessage { message, .. } if message.id.as_deref() == Some(input) => {
                     self.bound = self.bound.or(self.active)
@@ -198,10 +213,12 @@ impl ObserverReceipt {
     }
 
     fn pending(&self, input: &str) -> bool {
-        self.next_turn
-            .iter()
-            .chain(&self.next_step)
-            .any(|id| id == input)
+        (self.manual_started && self.manual_done.is_none())
+            || self
+                .next_turn
+                .iter()
+                .chain(&self.next_step)
+                .any(|id| id == input)
     }
 }
 
@@ -259,6 +276,33 @@ impl DurableRunningTurn {
             .map_err(|e| e.to_string())?
             .ok_or("observer session disappeared")?;
         self.receipt.update(&session, &self.target_input_id)?;
+        // Maintenance has no ordinary inbox input or user-message/TurnEnd
+        // receipt. Its exact durable command completion is authoritative even
+        // when the Agent finished before this observer received broadcasts.
+        if let Some((kind, text)) = &self.receipt.manual_done {
+            self.result = Some(LoopResult {
+                status: if *kind == xharness_session::CommandResultKind::Success {
+                    LoopStatus::Completed
+                } else {
+                    LoopStatus::Failed
+                },
+                final_text: String::new(),
+                messages: Vec::new(),
+                usage: None,
+                step_usage: Vec::new(),
+                finish_reason: None,
+                error: if *kind == xharness_session::CommandResultKind::Error {
+                    Some(
+                        text.clone()
+                            .unwrap_or_else(|| "manual compaction failed without details".into()),
+                    )
+                } else {
+                    None
+                },
+            });
+            self.terminal = true;
+            return Ok(());
+        }
         // TurnStarted can precede its atomic journal commit. Do not erase that
         // live binding just because a concurrent read still sees the prior cut.
         self.turn = self.receipt.bound.or(self.turn);
@@ -287,7 +331,12 @@ impl DurableRunningTurn {
             let idle = self.handle.status() == xharness_agent::AgentStatus::Idle;
             // A durable cancellation is sufficient even if a different turn is
             // busy. Mere absence is NOT: /compact may be preparing its prelude.
-            if (!pending && self.receipt.cancelled)
+            if self.receipt.manual_started && (idle || self.handle.is_stopped()) {
+                self.result = Some(Self::failed_result(
+                    "manual compaction executor ended without a durable command receipt; execution outcome unknown",
+                ));
+                self.terminal = true;
+            } else if (!pending && self.receipt.cancelled)
                 || (idle && (!pending || crate::delegation::restored_dispatch_paused(&session)))
             {
                 let mut result =
@@ -512,6 +561,76 @@ impl RunningTurn for DurableRunningTurn {
 mod receipt_tests {
     use super::*;
     use xharness_session::{EventData, InboxSpliceOutcome, InboxTarget, Revision};
+
+    #[test]
+    fn maintenance_receipts_are_exact_command_scoped_and_not_inbox_cancellations() {
+        use xharness_session::{CommandResultKind, CommandSource};
+        let mut session = Session::new(SessionHeader::new("manual-receipt")).unwrap();
+        session
+            .append(
+                Revision::ZERO,
+                EventData::CommandRun {
+                    command_id: "compact-owner".into(),
+                    name: "compact".into(),
+                    args: Some("preserve parser evidence".into()),
+                    source: CommandSource::User,
+                },
+            )
+            .unwrap();
+        let mut receipt = ObserverReceipt::default();
+        receipt.update(&session, "compact-owner").unwrap();
+        assert!(receipt.pending("compact-owner") && receipt.manual_done.is_none());
+        session
+            .append(
+                session.revision(),
+                EventData::CommandRun {
+                    command_id: "foreign".into(),
+                    name: "plan".into(),
+                    args: None,
+                    source: CommandSource::User,
+                },
+            )
+            .unwrap();
+        session
+            .append(
+                session.revision(),
+                EventData::CommandDone {
+                    command_id: "foreign".into(),
+                    kind: CommandResultKind::Success,
+                    text: None,
+                    source_event_seq: None,
+                },
+            )
+            .unwrap();
+        receipt.update(&session, "compact-owner").unwrap();
+        assert!(receipt.pending("compact-owner") && receipt.manual_done.is_none());
+        session
+            .append(
+                session.revision(),
+                EventData::CommandDone {
+                    command_id: "compact-owner".into(),
+                    kind: CommandResultKind::Error,
+                    text: Some("bounded synthetic failure".into()),
+                    source_event_seq: None,
+                },
+            )
+            .unwrap();
+        receipt.update(&session, "compact-owner").unwrap();
+        assert!(!receipt.pending("compact-owner"));
+        assert_eq!(
+            receipt.manual_done,
+            Some((
+                CommandResultKind::Error,
+                Some("bounded synthetic failure".into())
+            ))
+        );
+        let mut foreign = ObserverReceipt::default();
+        foreign.update(&session, "foreign").unwrap();
+        assert!(
+            !foreign.manual_started && foreign.manual_done.is_none(),
+            "a foreign completion has no authority without its command/run"
+        );
+    }
 
     #[test]
     fn receipt_folds_only_new_events_and_retains_only_pending_ids() {
