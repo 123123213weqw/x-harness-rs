@@ -695,7 +695,9 @@ test('connection: fixture mutations, edit-before-user forks and generic Remote f
     const workspace=await api.workspace.create({path:'/tmp/ab-workspace'});trace.push(workspace);trace.push(await api.workspace.rename({workspaceId:workspace.result.value.workspace.workspaceId,title:'A/B'}));trace.push(await api.workspace.delete({workspaceId:workspace.result.value.workspace.workspaceId}))
     const created=await api.sessions.create({cwd:'/tmp/source-ab'});trace.push(created);trace.push(await api.sessions.rename({sessionId:created.result.value.sessionId,title:'new title'}));trace.push(await api.sessions.history({sessionId:created.result.value.sessionId}));trace.push(await f.handle.rpc.call('/api','commands/list',{args:{agentId:'fx-alpha'}}));await assert.rejects(f.handle.rpc.call('/rpc','unknown/test',{args:{}}),/unavailable/);traces.push(json(trace))
   }
-  assert.deepEqual(traces[1],traces[0])
+  // New removal receipts carry archive membership, even for an empty workspace.
+  const expected=structuredClone(traces[0]);expected[6].result.value.archivedSessionIds=[]
+  assert.deepEqual(traces[1],expected)
 })
 
 test('connection: production compiler declares the pinned platform Zod singleton',async()=>{

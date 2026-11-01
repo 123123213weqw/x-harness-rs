@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "verified_at_utc": "2026-11-01T02:08:31.898541+00:00",
+  "integrated_base": "4ab403e0bb671b69fe56c5355bcf10dad7010c0b",
+  "source_sha256": {
+    "config/architecture-changes/workspace-removal-archive-20261101.json": "771cc34cbd5c5cee3fee7911a04710969a3c09188b261ffa08c6adcad143fb4a",
+    "crates/xharness-api/src/protocol.rs": "99027beb4eda6992281d2a7430e9e56a1ffbaf4c733a3e419295da5ff4b4e9e2",
+    "crates/xharness-api/tests/contract.rs": "3bcb37fec65ff195bd936c103a62a57fae393a508c0fdd141120d496b55c648e",
+    "crates/xharness-host/src/restore.rs": "d483b2c01ef7ba80d7db160c6addf15dc4da9c81bfd656d903ad711ad0c09fe3",
+    "crates/xharness-host/src/workspace_processor.rs": "10993d25918e9445d0e638c55c1f78639f95546e0434be142b5f2e95b309fa3e",
+    "docs/specs/session-lifecycle.md": "edd1bccf512636465c1cda5f35324e7ddbfc128bb14e461d8cf8f1ab19beaf0e",
+    "scripts/test-foundation-source-modules.mjs": "ff9e6a9e65c9c302bc80f2884fc2a258d9b62c62048b057a20cf7b0ee0ab1795",
+    "scripts/test-work-catalog.mjs": "9e045d26851cf91a0b9a1a5211d215851ce2712ca115952efc37260da21b47a6",
+    "scripts/test-workspace-source-module.mjs": "7c6f377552bf1522d118e47c9d3e56dea6279fc27225d47bc30280b5432ea690",
+    "ui/dist/asset-manifest.json": "49a09d455a7da781f0552930d79c8ff3adf2974c835456c95e509841b9667e0d",
+    "ui/dist/client-graph.json": "2b3fcc5211f562130a7ddc14d258d2dbf4940c044277c5ce5aec4b0113d62f7f",
+    "ui/dist/index.html": "919f70eeb84f109a9a1b07b11854bef74aa8f81033eee658f37d71217d4b7eca",
+    "ui/dist/plugins/@xharness/dsh-client-connection/client.js": "67d1688828896599d4ae1eb2d41317633cd08b99226b05a04c630bc1ee0191e0",
+    "ui/dist/plugins/@xharness/dsh-client-runtime/client.js": "8716f8797a6527c6f0198f0fa20f1fef4cf5902cdcfa05f593e490971aeabb9d",
+    "ui/dist/plugins/@xharness/dsh-client-ui-workspace/client.js": "d9d577fdd2def9952b0b64007adb95910b8a85493f13f88ca4e3b6c311d4b84f",
+    "ui/src/modules/client-connection/contracts/host/apiproxy/api/workspace.schema.ts": "8b2e87f53cf522cbced18fe904db16963fcb8329e6ebb443ea3b9df1928627ef",
+    "ui/src/modules/client-connection/contracts/host/apiproxy/api/workspace.ts": "d27c152760e41030f8592a9c0ce0e14b3907dcadf328a7e543dafecf866922cd",
+    "ui/src/modules/client-connection/fixture.ts": "a73afed4f3d90607812d3405797887be5c56232892417a610106a1f2925acdcd",
+    "ui/src/modules/client-runtime/workspaces/manager.ts": "843042753891af69244688aeab10b0697bbde5759665f3ec8f5fe36e3463e9b7",
+    "ui/src/modules/workspace/contract/slots.ts": "bfe77691c76b365f6f0d1329f830a6662e7a997cb4e85f861df9f2c58f40a73c",
+    "ui/src/modules/workspace/locales.ts": "7709a1c96b355b8df5452b0b997f3bdbc2f2dcd692cb6513dbabf41681a0a8ac"
+  },
+  "rust": {
+    "execution": "WZU_Server only",
+    "tests_passed": 566,
+    "tests_failed": 0,
+    "existing_ignored_diagnostics": 9,
+    "strict_clippy_all_targets": [
+      "xharness-api",
+      "xharness-host"
+    ],
+    "remote_pinned_cargo_fmt": "passed",
+    "local_rust_compilation": false
+  },
+  "compiler_negative_mutations": {
+    "business_error_cases": 35,
+    "passed": true,
+    "original_source_bytes_restored": true,
+    "restored_positive_exit_code": 0
+  },
+  "architecture": {
+    "dependency_boundary": "passed",
+    "freeze": "passed",
+    "mutation_tests_passed": 34
+  },
+  "ui": {
+    "foundation_and_workspace_parity_passed": 135,
+    "final_workspace_module_rerun_passed": 12,
+    "work_catalog_manager_runtime_passed": 19,
+    "strict_production_build": {
+      "modules": 61,
+      "assets": 190
+    },
+    "workspace_browser_regressions": {
+      "chromium": {
+        "passed": true,
+        "page_errors": [],
+        "initial_pixels_sha256": "2475eb902a5cb3e494969a7351c1e1e40749b87f736f6034e5c5f0e2fa9a211a"
+      },
+      "webkit": {
+        "passed": true,
+        "page_errors": [],
+        "initial_pixels_sha256": "fbb2cb53df0881d1f9f215857fe6329ce84ce0ab08b4ac1d202375b68fe76c89"
+      }
+    }
+  },
+  "scope": {
+    "workspace_removal": "one durable archive-and-remove commit; receipt replay after restart",
+    "retained": [
+      "journals",
+      "attachments",
+      "project directory",
+      "running work"
+    ],
+    "frontend": [
+      "no Host stream",
+      "stale baseline",
+      "newer archive frame",
+      "legacy receipt",
+      "denied mutation",
+      "archived current selection",
+      "no cancellation"
+    ]
+  },
+  "installed_app_replaced": false,
+  "host_restarted": false,
+  "cross_platform_ci": "pending PR"
+}
