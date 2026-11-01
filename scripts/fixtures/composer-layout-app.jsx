@@ -48,7 +48,8 @@ const projection = store({
   permissions:{currentValue:'danger-full-access',activeValue:'danger-full-access',pending:false,options:[{value:'workspace-write',name:'workspace-write'},{value:'danger-full-access',name:'full-access'}]},
 })
 const directory = store({status:'ready',current:{provider:'fixture',model:'qwen',contextWindowTokens:262144},groups:[{id:'fixture',name:'Preview',models:[{id:'qwen',name:'qwen3.8-27b-uncensored',contextWindow:262144,reasoning:{efforts:[{id:'high',name:'High'},{id:'max',name:'Maximum'}]}}]}],failures:[],routable:true,error:null})
-const shell = new SessionInputShell({actx:{},defaultSink:async(text,images,mode)=>{calls.push({send:text,images,mode});return {kind:'success'}},commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''}})
+const shell = new SessionInputShell({actx:{},defaultSink:async(text,images,mode)=>{calls.push({send:text,images,mode});return {kind:'success'}},commandImages:{serialize:async()=>[],release:()=>{},unsupportedNotice:()=>''},
+  queue:{getSnapshot:()=>snapshot.getSnapshot().queue,subscribe:snapshot.subscribe},steerQueue:()=>calls.push({steerQueue:true})})
 const useSession = hook(snapshot), useInput = hook(shell.state)
 const useProjection = (key, select) => { const values=useSyncExternalStore(projection.subscribe,projection.getSnapshot); return select ? select(values[key]) : values[key] }
 const goalAction = name => async value => { calls.push({goal:name,value}); return {ok:true,value:{}} }
@@ -86,8 +87,14 @@ const render = () => flushSync(()=>root.render(<App/>))
 window.__composerFixture = { calls, shell, snapshot, projection, directory, render,
   set: changes => flushSync(()=>{
     if ('locale' in changes) language.set(changes.locale)
-    if('running' in changes || 'hero' in changes || 'removed' in changes || 'subagent' in changes) snapshot.set({...snapshot.getSnapshot(),...('running' in changes?{running:changes.running}:{}),...('removed' in changes?{removed:changes.removed}:{}),...('subagent' in changes?{subagent:changes.subagent}:{}),...('hero' in changes?{composerPhase:changes.hero?'blank':'active'}:{})})
-    if('goal' in changes) projection.set({...projection.getSnapshot(),goal:changes.goal?{goal,roundsStarted:257,execution:{state:'paused',enabled:true,roundsStarted:257,maxGoalRounds:256}}:null})
+    if('running' in changes || 'stopRequested' in changes || 'hero' in changes || 'removed' in changes || 'subagent' in changes) snapshot.set({...snapshot.getSnapshot(),...('running' in changes?{running:changes.running}:{}),...('stopRequested' in changes?{stopRequested:changes.stopRequested}:{}),...('removed' in changes?{removed:changes.removed}:{}),...('subagent' in changes?{subagent:changes.subagent}:{}),...('hero' in changes?{composerPhase:changes.hero?'blank':'active'}:{})})
+    if('goal' in changes || 'goalState' in changes) {
+      const current=projection.getSnapshot().goal
+      const enabled='goal' in changes?changes.goal:current!=null
+      const state=changes.goalState??current?.execution?.state??'paused'
+      const phase=state==='complete'?'complete':state==='paused'?'paused':state==='blocked'?'blocked':'active'
+      projection.set({...projection.getSnapshot(),goal:enabled?{goal:{...goal,phase},roundsStarted:257,execution:{state,enabled:true,roundsStarted:257,maxGoalRounds:256}}:null})
+    }
     if('hero' in changes)sessions.set({...sessions.getSnapshot(),byId:{fixture:{...sessions.getSnapshot().byId.fixture,blank:changes.hero}}})
     if('queue' in changes)snapshot.set({...snapshot.getSnapshot(),queue:changes.queue})
     if('taskPlan' in changes) projection.set({...projection.getSnapshot(),taskPlan:changes.taskPlan})
