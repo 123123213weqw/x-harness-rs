@@ -117,7 +117,7 @@ export function InputBar({
   const permissions = useProjection('permissions')
 
   // A continuable child without its live parent cannot accept human input,
-  // but its independent Stop below stays available while it runs.
+  // but its primary Stop below stays available while it runs.
   const continuable = subagent?.address.mode === 'continuable'
   const parentOffline = continuable && !subagent.parentAvailable
   // Running input stays free; locked = session removed, the
@@ -138,7 +138,7 @@ export function InputBar({
   // and keyboard users can reach the recovery action.
   const workspaceTrigger = inert && !removed && onRequestWorkspace !== undefined
   const textareaDisabled = removed || (locked && !workspaceTrigger)
-  const canSteerQueue = !locked && !machineBusy && !commandMenuOpen && empty && running && subagent === null
+  const canSteerQueue = !locked && !machineBusy && !stopRequested && !commandMenuOpen && empty && running && subagent === null
     && input.queue.some(row => row.placement === 'queued')
 
   useEffect(() => {
@@ -348,7 +348,9 @@ export function InputBar({
     }
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
-    if (locked || machineBusy) return
+    // Match the disabled Stop seat: no submit or queue steering while the
+    // previous stop request is still awaiting acknowledgement.
+    if (locked || machineBusy || stopRequested) return
     const accelerated = e.ctrlKey || e.metaKey
     // Empty-draft accelerated Enter acts on the queue instead of the (empty)
     // draft: the machine rejects empty drafts, so the gesture steers every
@@ -476,11 +478,10 @@ export function InputBar({
     if (el !== null) toggleCommandMenu?.(selectionOf(el))
   }
 
-  // Ordinary sessions retain their primary Send/Stop toggle. A continuable
-  // child keeps Send as the primary action and exposes Stop independently so
-  // pointer users can queue follow-ups while its current turn is running.
-  const primaryStops = running && subagent === null
-  const interruptible = running && continuable
+  // Keep one primary action across ordinary, Goal and child sessions.
+  // Running input can still queue follow-ups through the Enter policy.
+  // Retain Stop until acknowledgement instead of briefly exposing Send.
+  const primaryStops = running || stopRequested
   const stopLabel = stopRequested ? t('input.stopping') : t('input.stop')
   const primaryLabel = primaryStops ? stopLabel : machineBusy ? t('input.sending') : t('input.send')
   const onPrimary = (): void => {
@@ -595,50 +596,29 @@ export function InputBar({
 
   const modelControl = renderSlot('conversation.input.model', { locked: modelSeatLocked, compact })
   const contextControl = <ContextMeter useProjection={useProjection} t={t} />
-  const primaryControls = <>
-              {interruptible && (
-                <Tooltip label={stopLabel} side="top" delayMs={500}>
-                  <button
-                    type="button"
-                    className={css.primary}
-                    aria-label={stopLabel}
-                    aria-busy={stopRequested}
-                    disabled={stop === undefined || stopRequested}
-                    onMouseDown={keepFocus}
-                    onClick={stop}
-                  >
-                    {stopRequested ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
-                      <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
-                    </svg> : <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                      <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                    </svg>}
-                  </button>
-                </Tooltip>
-              )}
-              <Tooltip label={primaryLabel} side="top" delayMs={500}>
-                <button
-                  type="button"
-                  className={css.primary}
-                  aria-label={primaryLabel}
-                  aria-busy={primaryStops ? stopRequested : machineBusy}
-                  disabled={primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy}
-                  onMouseDown={keepFocus}
-                  onClick={onPrimary}
-                >
-                  {(primaryStops ? stopRequested : machineBusy) ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
-                    <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
-                  </svg> : primaryStops ? (
-                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                      <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                      <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
-                    </svg>
-                  )}
-                </button>
-              </Tooltip>
-  </>
+  const primaryControls = <Tooltip label={primaryLabel} side="top" delayMs={500}>
+    <button
+      type="button"
+      className={css.primary}
+      aria-label={primaryLabel}
+      aria-busy={primaryStops ? stopRequested : machineBusy}
+      disabled={primaryStops ? stop === undefined || stopRequested : empty || disabled || machineBusy}
+      onMouseDown={keepFocus}
+      onClick={onPrimary}
+    >
+      {(primaryStops ? stopRequested : machineBusy) ? <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden data-composer-busy>
+        <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="24 11" />
+      </svg> : primaryStops ? (
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+          <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+          <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
+        </svg>
+      )}
+    </button>
+  </Tooltip>
   return (
     <div className={clsx(css.root, variant === 'hero' && css.hero)} data-composer-layout={compact ? 'compact' : 'hero'}>
       {toast !== null && (
