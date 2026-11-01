@@ -3,6 +3,58 @@ use std::collections::{HashMap, HashSet};
 use xharness_context::{WorkingSetSource, WorkingSetSourceKind};
 use xharness_session::{EventData, Message, Session, SurfaceMessage, ToolOutcome};
 
+/// Pin only unknown/open/opaque tool units. An unrelated historical unknown
+/// outcome must not disable visual retirement for every subsequent screenshot.
+pub(crate) fn protected_visual_tool_calls(
+    messages: &[Message],
+    sources: &[Option<WorkingSetSource>],
+) -> HashSet<String> {
+    let mut protected = HashSet::new();
+    for (i, message) in messages.iter().enumerate() {
+        let source = sources.get(i).copied().flatten();
+        let unknown = message.interrupted
+            || !message.provider_items.is_empty()
+            || source.is_some_and(|s| s.outcome_unknown)
+            || (message.role == xharness_session::MessageRole::Tool
+                && source.is_none_or(|s| s.kind != WorkingSetSourceKind::ToolResult));
+        if unknown {
+            protected.extend(message.tool_calls.iter().map(|c| c.id.clone()));
+            protected.extend(message.tool_call_id.iter().cloned());
+        }
+    }
+    protected
+}
+
+/// Current genuine user attachment identities, before runtime notices or
+/// synthetic history references can introduce additional user-role messages.
+pub(crate) fn current_user_images(
+    messages: &[Message],
+    sources: &[Option<WorkingSetSource>],
+) -> HashSet<(String, String)> {
+    let current = if sources.len() == messages.len() && sources.iter().any(Option::is_some) {
+        messages.iter().zip(sources).rev().find_map(|(m, s)| {
+            s.is_some_and(|s| s.kind == WorkingSetSourceKind::RawUser)
+                .then_some(m)
+        })
+    } else {
+        messages
+            .iter()
+            .rev()
+            .find(|m| m.role == xharness_session::MessageRole::User)
+    };
+    current
+        .into_iter()
+        .flat_map(|m| &m.content_blocks)
+        .filter_map(|b| {
+            if let xharness_session::ContentBlock::Image { attachment } = b {
+                Some((attachment.session_id.clone(), attachment.id.clone()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn sources(
     session: &Session,
     surface: &[SurfaceMessage],
@@ -306,5 +358,40 @@ mod stable_tests {
         ] {
             assert!(StableSelection::restore(&invalid).is_none());
         }
+    }
+}
+
+#[cfg(test)]
+mod visual_provenance_tests {
+    use super::*;
+    #[test]
+    fn unknown_and_opaque_protection_is_local_to_affected_tool_units() {
+        let mut messages = vec![
+            Message::system("system"),
+            Message::tool("call", "visual observation"),
+        ];
+        let mut sources = vec![
+            None,
+            Some(WorkingSetSource {
+                seq: 3,
+                kind: WorkingSetSourceKind::ToolResult,
+                outcome_unknown: false,
+            }),
+        ];
+        assert!(protected_visual_tool_calls(&messages, &sources).is_empty());
+        assert!(protected_visual_tool_calls(&messages, &[]).contains("call"));
+        sources[1].as_mut().unwrap().outcome_unknown = true;
+        assert!(protected_visual_tool_calls(&messages, &sources).contains("call"));
+        sources[1].as_mut().unwrap().outcome_unknown = false;
+        messages[1].interrupted = true;
+        assert!(protected_visual_tool_calls(&messages, &sources).contains("call"));
+        messages[1].interrupted = false;
+        messages[0]
+            .provider_items
+            .push(serde_json::json!({"opaque":true}));
+        assert!(
+            protected_visual_tool_calls(&messages, &sources).is_empty(),
+            "unrelated opaque system state must not pin known tool units"
+        );
     }
 }

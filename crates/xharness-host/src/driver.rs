@@ -303,6 +303,9 @@ impl BasicHost {
                 let (control_tx, control_rx) = mpsc::channel::<DriverCommand>(64);
                 record.running = true;
                 record.control = Some(control_tx);
+                record.driver_epoch = Some(std::sync::Arc::new(
+                    crate::driver_lifecycle::DriverEpoch::default(),
+                ));
                 exclusive_control = Some(control_rx);
             }
             already_running
@@ -318,14 +321,16 @@ impl BasicHost {
                 session_id.clone(),
                 crate::error_boundary::TaskOperation::RecoveredTurn,
                 async move { host.drive_recovered_turn(session_id, run, control_rx).await },
-            );
+            )
+            .await;
         } else if already_running {
             let host = self.as_ref().clone();
             self.spawn_session_task(
                 session_id.clone(),
                 crate::error_boundary::TaskOperation::BackgroundProjection,
                 async move { host.drive_background_projection(session_id, run).await },
-            );
+            )
+            .await;
         }
         Ok(())
     }
@@ -710,10 +715,13 @@ impl BasicHost {
             }
             None => store.publish_catalog_entry(entry).await,
         };
-        if let Err(error) = published {
+        if published.is_err() {
             // The journal is authoritative. A failed or racing index write is
             // repaired lazily on the next startup, never a model-loop failure.
-            eprintln!("xharness catalogue update skipped: {error}");
+            xharness_diagnostics::record_failure(xharness_diagnostics::FailureCode::Catalogue);
+            xharness_diagnostics::diagnostic_stderr!(
+                "xharness catalogue update skipped; authoritative journal retained"
+            );
         }
     }
 
@@ -807,6 +815,20 @@ impl BasicHost {
             source,
             fingerprint,
         } = admission;
+        if self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .is_some_and(|s| {
+                s.running
+                    && s.driver_epoch.is_some()
+                    && s.control.as_ref().is_none_or(|c| c.is_closed())
+            })
+        {
+            return Err(RpcError::internal("conversation driver unavailable; input was not admitted; reload status before retrying"));
+        }
         let _ = prompt_message(rpc_id.as_str(), &text, &content)?;
         let session_id = session_id.as_str();
         // Only an explicit user prompt resumes a stopped admission gate.
@@ -1002,6 +1024,9 @@ impl BasicHost {
                 let (control_tx, control_rx) = mpsc::channel(64);
                 session.running = true;
                 session.control = Some(control_tx);
+                session.driver_epoch = Some(std::sync::Arc::new(
+                    crate::driver_lifecycle::DriverEpoch::default(),
+                ));
                 start_driver = Some(control_rx);
             }
         }
@@ -1020,7 +1045,8 @@ impl BasicHost {
                 session_id.clone(),
                 crate::error_boundary::TaskOperation::SessionDriver,
                 async move { host.drive_session(session_id, control_rx).await },
-            );
+            )
+            .await;
         }
         Ok(())
     }
@@ -1030,6 +1056,13 @@ impl BasicHost {
         session_id: String,
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
+        let epoch = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|s| s.driver_epoch.clone());
         loop {
             // Serialize the pause check, gate commit and runtime handoff with
             // queue edits and prompt admission. Never keep this guard while
@@ -1046,6 +1079,47 @@ impl BasicHost {
                     }
                 }
             };
+            if !self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| {
+                    crate::driver_lifecycle::DriverEpoch::matches(&s.driver_epoch, &epoch)
+                })
+            {
+                return;
+            }
+            let empty = self
+                .state
+                .read()
+                .await
+                .sessions
+                .get(&session_id)
+                .is_some_and(|s| s.queue.is_empty());
+            if empty {
+                match self.agent_runtime.observe_session(&session_id).await {
+                    Ok(crate::runtime::SessionObservation::Active(run)) => {
+                        drop(admission_guard);
+                        self.consume_recovered_turn(&session_id, run, &mut control_rx)
+                            .await;
+                        continue;
+                    }
+                    Ok(crate::runtime::SessionObservation::Unsupported)
+                        if self.agent_runtime.has_authoritative_sessions() =>
+                    {
+                        self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":"Runtime activity could not be verified; execution outcome unknown."}));
+                        return;
+                    }
+                    Err(error) => {
+                        self.push_host(json!({"type":"host/agent-error","sessionId":session_id,"message":error.to_string()}));
+                        // Leave execution unknown, never fabricate idle on a read error.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
             let (mut paused, queued_user_prompt) = {
                 let state = self.state.read().await;
                 let Some(record) = state.sessions.get(&session_id) else {
@@ -1079,6 +1153,7 @@ impl BasicHost {
                 if let Some(record) = state.sessions.get_mut(&session_id) {
                     record.running = false;
                     record.control = None;
+                    record.driver_epoch = None;
                 }
                 drop(state);
                 self.push_permission_projection(&session_id).await;
@@ -1110,6 +1185,7 @@ impl BasicHost {
                     }
                     session.running = false;
                     session.control = None;
+                    session.driver_epoch = None;
                 }
                 drop(state);
                 self.emit_queue(&session_id).await;
@@ -1150,37 +1226,52 @@ impl BasicHost {
     pub(crate) async fn drive_recovered_turn(
         self,
         session_id: String,
-        mut run: Box<dyn RunningTurn>,
+        run: Box<dyn RunningTurn>,
         mut control_rx: mpsc::Receiver<DriverCommand>,
     ) {
+        let epoch = self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .and_then(|s| s.driver_epoch.clone());
+        self.consume_recovered_turn(&session_id, run, &mut control_rx)
+            .await;
+        if !self
+            .state
+            .read()
+            .await
+            .sessions
+            .get(&session_id)
+            .is_some_and(|s| crate::driver_lifecycle::DriverEpoch::matches(&s.driver_epoch, &epoch))
+        {
+            return;
+        }
+        self.drive_session(session_id, control_rx).await;
+    }
+
+    async fn consume_recovered_turn(
+        &self,
+        session_id: &str,
+        mut run: Box<dyn RunningTurn>,
+        control_rx: &mut mpsc::Receiver<DriverCommand>,
+    ) {
         let outcome = async {
-            loop {
-                tokio::select! {
-                    event = run.next_event() => match event {
-                        Some(event) => {
-                            self.sync_authoritative_session(&session_id).await?;
-                            self.project_authoritative_control_event(&session_id, event).await?;
-                        }
-                        None => break,
-                    },
-                    command = control_rx.recv() => {
-                        if let Some(command) = command {
-                            let result = run
-                                .send_with_metadata(command.command, command.input_metadata)
-                                .await;
-                            let _ = command.acknowledgement.send(result);
-                        }
-                    }
-                }
+            let mut controls = crate::driver_control::ControlPump::default();
+            while let Some(event) = controls.next(run.as_mut(), control_rx).await {
+                self.sync_authoritative_session(session_id).await?;
+                self.project_authoritative_control_event(session_id, event)
+                    .await?;
             }
             let _ = run.result().await;
-            self.sync_authoritative_session(&session_id).await?;
+            self.sync_authoritative_session(session_id).await?;
             self.state
                 .write()
                 .await
                 .pending
                 .retain(|_, pending| match pending {
-                    PendingResponse::Approval { session_id: id, .. } => id != &session_id,
+                    PendingResponse::Approval { session_id: id, .. } => id.as_str() != session_id,
                 });
             Ok::<(), RpcError>(())
         }
@@ -1192,7 +1283,6 @@ impl BasicHost {
                 "message": error.message,
             }));
         }
-        self.drive_session(session_id, control_rx).await;
     }
 
     /// Project a runtime-originated turn while an existing Host driver owns
@@ -1305,40 +1395,27 @@ impl BasicHost {
         drop(admission_guard);
         let mut current_step = None;
 
-        loop {
-            tokio::select! {
-                event = run.next_event() => match event {
-                    Some(event) => {
-                        if authoritative {
-                            match event.kind {
-                                // These fragments are still inside the Core's
-                                // bounded journal batch. The following
-                                // StreamCheckpoint (or any terminal/control
-                                // boundary) refreshes them with authoritative
-                                // sequence coordinates in one store read.
-                                LoopEventKind::TextDelta(_)
-                                | LoopEventKind::ReasoningDelta(_)
-                                | LoopEventKind::ToolCallDelta { .. } => {}
-                                _ => {
-                                    self.sync_authoritative_session(session_id).await?;
-                                    self.project_authoritative_control_event(session_id, event).await?;
-                                }
-                            }
-                        } else {
-                            self.project_loop_event(session_id, turn, &mut current_step, event)
-                                .await?;
-                        }
-                    }
-                    None => break,
-                },
-                command = control_rx.recv() => {
-                    if let Some(command) = command {
-                        let result = run
-                            .send_with_metadata(command.command, command.input_metadata)
-                            .await;
-                        let _ = command.acknowledgement.send(result);
+        let mut controls = crate::driver_control::ControlPump::default();
+        while let Some(event) = controls.next(run.as_mut(), control_rx).await {
+            if authoritative {
+                match event.kind {
+                    // These fragments are still inside the Core's
+                    // bounded journal batch. The following
+                    // StreamCheckpoint (or any terminal/control
+                    // boundary) refreshes them with authoritative
+                    // sequence coordinates in one store read.
+                    LoopEventKind::TextDelta(_)
+                    | LoopEventKind::ReasoningDelta(_)
+                    | LoopEventKind::ToolCallDelta { .. } => {}
+                    _ => {
+                        self.sync_authoritative_session(session_id).await?;
+                        self.project_authoritative_control_event(session_id, event)
+                            .await?;
                     }
                 }
+            } else {
+                self.project_loop_event(session_id, turn, &mut current_step, event)
+                    .await?;
             }
         }
 

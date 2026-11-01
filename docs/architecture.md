@@ -255,3 +255,25 @@ Tool handlers and schemas remain flexible; existing shared execution and
 compatibility tests still apply. See [the stabilization policy](specs/stabilization-freeze.md)
 for content-bound change records, hard identity/RPC pins, Windows CI enrollment
 and the limits of source-level checks.
+
+
+### Host driver convergence and diagnostic ownership (2026-10-30)
+
+The reviewed new edge `xharness-host -> xharness-diagnostics` terminates at the
+existing dependency-leaf recorder. It carries closed failure categories only,
+not prompts, task payloads, credentials, or business decisions. A process-owned,
+rotating `host/failures` stream survives loss of the desktop's anonymous stderr
+reader; fallible console mirroring cannot unwind RPCs or task monitors. Sink
+failure counters are visible in `host.describe` and metadata-only exports.
+
+Host driver epochs are process-local Arc identities, never durable execution
+receipts. Repair checks ownership under admission before replacing a control
+receiver. It subscribes to existing Agent work without waking/replaying tools or
+messages. Only a proved quiescent durable runtime may clear `running`; an unknown
+outcome remains visible and cannot acknowledge a successful stop. Recovery is
+bounded to one replacement; background projection workers never own status.
+
+Ordered command futures are independent from event cursors and have bounded ack
+waiting. Delayed Agent controls are scoped to their original turn so they cannot
+cancel a successor. Durable terminal reconciliation runs even while the Agent is
+busy with a successor; background process status remains independent of a turn.

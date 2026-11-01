@@ -5,7 +5,7 @@ import type {CommandUiRuntime} from './service'
 export interface SnapshotStore<Value> {getSnapshot(): Value; subscribe(listener: () => void): () => void; set(value: Value): void; update(edit: (draft: Value) => void): void}
 export interface CommandDescriptor {name: string; description: string; input?: {hint: string; images?: boolean}}
 export type CommandResult = {kind: 'success'; text?: string} | {kind: 'error'; text: string}
-export interface CommandSessions {scope(id: string): CommandContext | undefined; scopeOf(context: CommandContext): string | undefined; subagentAddress(id: string): unknown | undefined}
+export interface CommandSessions {binding?(id: string): {session: {recoverHistory(): Promise<void>}} | undefined; scope(id: string): CommandContext | undefined; scopeOf(context: CommandContext): string | undefined; subagentAddress(id: string): unknown | undefined}
 export interface CommandLocale {register(namespace: string, values: {zh: Readonly<Record<string,string>>; en: Readonly<Record<string,string>>}): () => void; bind(namespace: string): Translation}
 /** The command contributor owns only dispatch, source registration and popup state. */
 export interface CommandContext {

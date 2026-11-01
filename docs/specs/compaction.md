@@ -327,3 +327,113 @@ Linux、macOS arm64、Windows 的 `cargo test --workspace --all-targets` 均通�
 全工作区 Clippy 通过。Linux Core 单元 28 项、Loop 集成 92 项全部通过，预算随机矩阵也已执行。
 本节约 32253 组矩阵/生成场景位于 13 个新增测试函数内，不能与独立测试函数数混算。
 当时 Windows 原生安装包构建和 Unix 更新演练仍在继续，不能称整个 CI 已绿；本批未合并、发布或部署。
+
+## Multimodal metering and transient counter recovery
+
+Admission and candidate validation retain the full `TokenBudgetReport` on both
+accepted and rejected counts: meter, accuracy, request SHA-256, fallback category,
+HTTP status, Retry-After and bounded recount count. `estimate` is a breakdown
+field, not an accuracy claim. Only the same exact counter/accuracy is comparable
+for before/after token gain. Otherwise both replacement spans use the same local
+planner price, and the complete candidate must still pass hard admission.
+
+Budget checks distinguish `Admitted`, `ConfirmedOverBudget`, and
+`NeedsVerification`. The latter means a non-exact estimate exceeds the local
+budget, not that the provider confirmed overflow. It cannot start overflow
+compaction, activate a working set, send a generation request, or cache
+`no_benefit`. If verification remains unavailable, the turn fails recoverably
+on unchanged history, preserving counter HTTP status and Retry-After. Manual
+compaction uses the same check. Existing under-budget compatibility admission
+is unchanged; this does not require native counters for every request.
+
+An estimated overflow gets at most two fresh counter verifications. These may
+bypass a local transient-counter cooldown, never an unsupported capability,
+auth failure, execution gate or upstream Retry-After. Cancellation and steering
+remain active during counting and waiting. An unverifiable over-budget auxiliary request or candidate
+is a retryable measurement failure, not deterministic `no_benefit`; it is not
+cached as a permanently bad source. The deterministic-failure fingerprint uses
+pipeline version 10, so pre-fix no-benefit records cannot block a corrected
+attempt after restart. Candidate text remains disposable until the
+existing strict journal CAS/flush transaction succeeds. If optional pressure
+maintenance cannot verify an auxiliary request or candidate, close that attempt
+as failed and revalidate the unchanged original request through the full guard.
+Manual and hard-overflow compaction still surface the retryable failure. This is
+not permission to send an unadmitted request or report failed maintenance as applied.
+
+Compaction progress adds optional content-free `budgetBefore`, `budgetAfter`,
+`summaryBudget`, `sourceRange` and typed `validation` evidence, including rejected
+candidate counts. Pending auxiliary progress is drained before propagating a
+completed summary failure, including admission failures before the first call.
+Existing journals missing these fields replay unchanged. This
+is an additive writer update for the paired new Host/reader; older binaries with
+strict progress decoding must not be used to read newly written progress fields.
+The original append-only history, session format and event names are unchanged.
+
+The image allowance no longer contains attachment-caption bytes. Captions and
+attachment references have a separate conservative text allowance, so unseen
+caption bytes cannot be discounted by a body-only text ratio. Verified text
+calibration keeps its existing route/encoder scope and remains reusable with
+images. Current multimodal observations record numeric visual shape; legacy
+rows without shape cannot train the complete visual envelope. After at least
+eight compatible samples, that envelope estimates the COMPLETE mixed request,
+including visual cost once, with a 25% margin plus 256 tokens. Any new caption
+units are charged conservatively on top of the observed total before margin;
+old caption cost is never subtracted or inferred from mixed reported usage.
+Scope, body-text distribution, image count/pixel growth and maximum dimensions
+constrain reuse; large extrapolations/different sizes remain conservative.
+Observation digests include ordered attachment references and captions, so
+different same-size images cannot collapse into one sample. Malformed numeric
+observations cannot replace a warm envelope. Mixed totals never become text-only
+or inferred per-image prices. A violated prediction invalidates the route's
+observations. Native complete-request counts remain authoritative; no Qwen
+processor formula is inferred from a model name or copied from another provider.
+
+Only the latest visual **tool transaction** (including parallel image reads)
+is materialized on the disposable model surface. Older tool screenshots and
+exact duplicates become session-scoped `attachment://` read references while
+retaining existing textual observations. Explicit user images, opaque replay
+items and interrupted messages are not subject to this observation window.
+The existing 40 MiB wire resource budget still applies. Main admission, auxiliary
+summarization and candidate validation use this same image projection. No raw
+image, message, tool result or authorization in durable history is deleted.
+
+
+## Bounded complete-candidate capacity recovery
+
+A candidate that shrinks but still exceeds the confirmed input limit is a
+capacity rejection, not deterministic `NoBenefit`. The coordinator keeps the
+original full-request budget and original surface frozen. It stages notes in
+memory for disjoint eligible raw spans; generated notes are never used as raw
+input to another model summary. If no additional span is eligible, it regenerates
+the largest staged note from the original evidence with a halved output ceiling.
+User anchors, unresolved tools, replay state and established checkpoints retain
+their existing protection. Fixed/protected context can still make recovery
+impossible; no compactor can guarantee admission for an arbitrary input.
+
+One recovery is bounded to 16 candidate attempts, 64 shared summary-generation
+calls and a 600-second summary-recovery deadline. Counter I/O retains its own
+bounded admission/verification policy. Comparable exact candidates that stop
+shrinking terminate early. Transient counting/generation failures, exhausted
+capacity and cancellation do not create permanent no-benefit fingerprints.
+Optional pressure recovery revalidates the unchanged original; hard overflow
+and manual failures remain visible and never authorize an oversized generation.
+
+Before publication, the coordinator builds and counts the complete combined
+candidate, including real schemas, prompts, controls, image projection, output
+reserve and predicted checkpoint sequence handles. Only an admitted candidate
+can publish: all progress/summary/replacement/end events are appended in one
+strict journal CAS batch and flushed. Concurrent metadata invalidates the
+reservation too. Failed validation or cancellation closes every staged start
+without any replacement; a post-append flush failure consults authoritative
+journal ends and must never append `Failed` after an already durable `Applied`.
+
+Synthetic regressions cover disjoint-span batching, regeneration from raw
+sources, nonshrinking termination, final-counter outage, cancellation during a
+second note, concurrent-metadata CAS rejection, shared-call exhaustion, tighter
+output ceilings and existing flush-failure behavior. The opt-in
+`old_session_compaction` example refuses roots without `ACCEPTANCE_COPY_ONLY`;
+it tests a private journal copy through the production core/adapter with no
+native tools or UI. It is not a byte-identical incident, UI/crash or semantic
+summary-quality acceptance. Upstream counting observations must distinguish
+native success, fallback, unavailable capability and service failures rather
+than assuming every model always supports native counts.

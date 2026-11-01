@@ -26,6 +26,8 @@ import { InputBar } from './skeleton/InputBar'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow'
 import { ChatView } from './chat/ChatView'
+import { SessionRecoveryButton } from './skeleton/SessionRecoveryButton'
+import type { SessionRecoveryInjected } from './skeleton/SessionRecoveryButton'
 import { ChatScrollMemory } from './chat/scroll-memory'
 import { StatsLine } from './chat/StatsLine'
 import { ApprovalPanel } from './skeleton/ApprovalPanel'
@@ -273,6 +275,19 @@ export function apply(ctx: Context): void {
       open: (id) => { sessions.open(id) },
     }),
   }, ConversationSessionHeader)
+
+  slots.inject('conversation.session.header.utilities', () => slots.register({
+    name: 'conversation.session.header.utilities', id: 'session-recovery', order: 90, locale: NS,
+    inject: (sessionId: SessionId): SessionRecoveryInjected => ({
+      recover: async () => {
+        const session = sessions.binding(sessionId)?.session
+        if (session === undefined) throw new Error(t('session.recoverUnavailable'))
+        const result = await session.command('/reload')
+        if (!result.ok) throw new Error(result.error.message)
+        if (!result.value.matched) throw new Error(t('session.recoverUnavailable'))
+      },
+    }),
+  }, SessionRecoveryButton))
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback. Public machine surface arrives via the

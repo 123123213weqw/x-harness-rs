@@ -6,6 +6,27 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod mixed;
 
+/// Numeric visual shape, not image content or an inferred image token price.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageFeatures {
+    pub count: u64,
+    pub pixels: u64,
+    pub max_width: u32,
+    pub max_height: u32,
+}
+
+impl ImageFeatures {
+    fn is_valid(&self) -> bool {
+        self.count > 0
+            && self.count <= 1_000_000
+            && self.pixels > 0
+            && self.pixels <= 1_000_000_000_000
+            && self.max_width > 0
+            && self.max_height > 0
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WireFeatures {
@@ -13,8 +34,23 @@ pub struct WireFeatures {
     pub buckets: [u64; 3],
     pub framing: u64,
     pub image_tokens: u64,
+    /// Conservative caption/reference bytes plus framing, not image tokens.
+    /// Do not discount previously unseen attachment text by a body-only ratio.
+    #[serde(default, skip_serializing_if = "is_zero_units")]
+    pub attachment_text_units: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub images: Option<ImageFeatures>,
 }
 impl WireFeatures {
+    /// Attachment captions are text; never hide their byte allowance in the
+    /// image-token bucket or infer an image price from mixed reported usage.
+    pub fn add_attachment_text(&mut self, text: &str) {
+        self.attachment_text_units = self
+            .attachment_text_units
+            .saturating_add(text.len() as u64)
+            .saturating_add(64);
+    }
+
     pub fn from_body(body: &Value, image_tokens: u64) -> Self {
         fn walk(v: &Value, structured: bool, f: &mut WireFeatures) {
             match v {
@@ -73,6 +109,10 @@ impl WireFeatures {
         f
     }
     pub fn units(&self) -> u64 {
+        self.template_units()
+            .saturating_add(self.attachment_text_units)
+    }
+    fn template_units(&self) -> u64 {
         self.buckets
             .iter()
             .copied()
@@ -80,8 +120,8 @@ impl WireFeatures {
             .max(1)
     }
     fn similar_text(&self, other: &Self) -> bool {
-        let a = self.units() as f64;
-        let b = other.units() as f64;
+        let a = self.template_units() as f64;
+        let b = other.template_units() as f64;
         a / b <= 2.0
             && b / a <= 2.0
             && self
@@ -93,6 +133,10 @@ impl WireFeatures {
                 < 0.30
     }
 }
+const fn is_zero_units(value: &u64) -> bool {
+    *value == 0
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Sample {
@@ -189,8 +233,10 @@ impl Calibration {
                         || s.actual == 0
                         || s.actual > 1_000_000_000_000
                         || (s.features.image_tokens != 0) != mixed
+                        || (!mixed && s.features.attachment_text_units != 0)
                         || s.features.image_tokens > 1_000_000_000_000
                         || s.features.units() > 1_000_000_000_000
+                        || s.features.images.as_ref().is_some_and(|i| !i.is_valid())
                     {
                         return Err("invalid calibration sample".into());
                     }
@@ -231,18 +277,31 @@ impl Calibration {
         if rows.len() >= 8 {
             let ratio = rows
                 .iter()
-                .map(|s| s.actual as f64 / s.features.units() as f64)
+                .map(|s| s.actual as f64 / s.features.template_units() as f64)
                 .fold(0.0_f64, f64::max);
             (
-                ((features.units() as f64 * ratio * 1.25).ceil() as u64).saturating_add(256),
+                ((features.template_units() as f64 * ratio * 1.25).ceil() as u64)
+                    .saturating_add(256),
                 TokenCountAccuracy::Calibrated,
             )
         } else {
-            (features.units(), TokenCountAccuracy::ConservativeUpperBound)
+            (
+                features.template_units(),
+                TokenCountAccuracy::ConservativeUpperBound,
+            )
         }
     }
 
     pub fn estimate(&self, scope: &str, features: &WireFeatures) -> ProviderInputTokenCount {
+        if let Some(total) = self.mixed_request_upper(scope, features) {
+            // This is a learned COMPLETE multimodal envelope. It already
+            // contains visual cost; adding image_tokens would count it twice.
+            return ProviderInputTokenCount {
+                counter: format!("wire-calibration/v2:{scope}"),
+                input_tokens: total,
+                accuracy: TokenCountAccuracy::Estimated,
+            };
+        }
         let (mut text_tokens, mut text_accuracy) = self.estimate_text(scope, features);
         // Mixed totals are never text measurements. Only a mixed query may
         // reuse their conservative upper envelope when pure-text training is cold.
@@ -255,9 +314,11 @@ impl Calibration {
         }
         ProviderInputTokenCount {
             counter: format!("wire-calibration/v1:{scope}"),
-            input_tokens: text_tokens.saturating_add(features.image_tokens),
+            input_tokens: text_tokens
+                .saturating_add(features.attachment_text_units)
+                .saturating_add(features.image_tokens),
             // The image allowance is still estimated, not a measured image cost.
-            accuracy: if features.image_tokens == 0
+            accuracy: if (features.image_tokens == 0 && features.attachment_text_units == 0)
                 || text_accuracy == TokenCountAccuracy::ConservativeUpperBound
             {
                 text_accuracy
@@ -272,6 +333,11 @@ impl Calibration {
         }
         if features.image_tokens != 0 {
             self.observe_mixed(scope, request_id, features, actual);
+            return;
+        }
+        // Complete caption-bearing text usage does not identify the cost of
+        // the body separately. Keep verified body-only calibration untouched.
+        if features.attachment_text_units != 0 {
             return;
         }
         if self.scopes.len() >= 64 && !self.scopes.contains_key(scope) {
@@ -313,6 +379,7 @@ mod tests {
             buckets: [8493, 289574, 10314],
             framing: 7039,
             image_tokens: 0,
+            ..Default::default()
         };
         let mut calibration = Calibration::default();
         for i in 0..7 {
@@ -693,3 +760,5 @@ mod snapshot_tests {
 
 #[cfg(test)]
 mod mixed_tests;
+#[cfg(test)]
+mod multimodal_tests;

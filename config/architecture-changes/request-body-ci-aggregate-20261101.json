@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Provide the protected branch literal CI check as a real fail-closed aggregate over every original applicable workflow job, explicitly authorized by the user.",
+  "compatibility": "No original job, command, shard, runner, version, lockfile or branch protection is removed or relaxed. All 16 upstream job results are required; only the existing native signed rehearsal may be skipped outside a push to master. Failed, cancelled, missing, empty and unexpected skipped evidence cannot pass. Independent review and other workflows remain separate merge requirements. Manual dispatch uses a distinct CI / manual diagnostics name so it cannot impersonate PR-specific merge admission.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "3cfc636036ceba181c67c555e0fe8a97064d46e5f4ea6d67aea3853fcf0649f0",
+      "after": "210cf04673ed058a34314578504a706a1fcbc498d323bec1a0834567ec637111"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

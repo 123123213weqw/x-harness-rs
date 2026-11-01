@@ -692,6 +692,15 @@ pub struct DeletedResponse {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceDeletedResponse {
+    pub deleted: bool,
+    /// Older Hosts only remove the registration and omit archive membership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_session_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceOrderResponse {
     pub workspace_ids: Vec<String>,
 }
@@ -931,7 +940,7 @@ typed_rpc_catalog! {
     WorkspaceList => (EmptyParams, WorkspaceListResponse),
     WorkspaceCreate => (WorkspaceCreateParams, WorkspaceCreateResponse),
     WorkspaceRename => (WorkspaceRenameParams, WorkspaceResponse),
-    WorkspaceDelete => (WorkspaceIdParams, DeletedResponse),
+    WorkspaceDelete => (WorkspaceIdParams, WorkspaceDeletedResponse),
     WorkspaceInsertBefore => (WorkspaceInsertBeforeParams, WorkspaceOrderResponse),
     WorkspaceInsertSessionBefore => (WorkspaceInsertSessionBeforeParams, WorkspaceResponse),
     WorkspaceArchiveSession => (SessionIdParams, ArchivedSessionsResponse),

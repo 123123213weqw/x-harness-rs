@@ -271,6 +271,7 @@ async fn create_inner(
         }
     }
     let record = SessionRecord {
+        driver_epoch: None,
         dispatch_paused: false,
         delegated: false,
         restoring: false,
@@ -844,6 +845,7 @@ pub(super) async fn fork(host: &BasicHost, payload: &Value) -> Result<Value, Rpc
             )
         };
     let child = SessionRecord {
+        driver_epoch: None,
         dispatch_paused: false,
         delegated: false,
         restoring: false,

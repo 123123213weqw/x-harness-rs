@@ -17,6 +17,13 @@ struct SnapshotRuntime(Arc<dyn Store>);
 
 #[async_trait::async_trait]
 impl AgentRuntime for SnapshotRuntime {
+    async fn observe_session(
+        &self,
+        _: &str,
+    ) -> Result<crate::runtime::SessionObservation, AgentRuntimeError> {
+        Ok(crate::runtime::SessionObservation::Idle)
+    }
+
     fn has_available_route(&self) -> bool {
         false
     }
@@ -1327,4 +1334,66 @@ async fn working_plan_reaches_mux_and_history_without_republishing_on_unrelated_
         .iter()
         .any(|event| event["type"] == "session/plan-updated"));
     assert_eq!(history["projections"]["values"]["taskPlan"], plan);
+}
+
+#[tokio::test]
+async fn closed_driver_list_read_repairs_completed_status_without_replaying() {
+    let (host, store) = fixture().await;
+    let (tx, rx) = mpsc::channel(4);
+    drop(rx);
+    {
+        let mut state = host.state.write().await;
+        let record = state.sessions.get_mut(ID).unwrap();
+        record.running = true;
+        record.control = Some(tx);
+        record.driver_epoch = Some(Arc::new(crate::driver_lifecycle::DriverEpoch::default()));
+    }
+    let header = store
+        .archive_request(RequestHeader::new("test", "test"))
+        .await
+        .unwrap();
+    let before = store.load(ID).await.unwrap().unwrap();
+    store
+        .append(
+            ID,
+            before.revision(),
+            completed_turn(1, "synthetic", &header),
+        )
+        .await
+        .unwrap();
+    let list = rpc_value(&host, RpcMethod::SessionList, json!({})).await;
+    assert_eq!(list["items"][0]["running"], false);
+    assert!(!host.state.read().await.sessions[ID].running);
+    assert_eq!(
+        store
+            .load(ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .filter(|e| matches!(e.data(), EventData::TurnStart { .. }))
+            .count(),
+        1
+    );
+}
+#[tokio::test]
+async fn stale_failure_cannot_clear_a_successor_epoch() {
+    let (host, _) = fixture().await;
+    let old = Arc::new(crate::driver_lifecycle::DriverEpoch::default());
+    let new = Arc::new(crate::driver_lifecycle::DriverEpoch::default());
+    let (tx, _rx) = mpsc::channel(4);
+    {
+        let mut state = host.state.write().await;
+        let record = state.sessions.get_mut(ID).unwrap();
+        record.running = true;
+        record.control = Some(tx.clone());
+        record.driver_epoch = Some(new.clone());
+    }
+    host.repair_session_driver(ID.into(), old).await;
+    let state = host.state.read().await;
+    let record = &state.sessions[ID];
+    assert!(record.running);
+    assert!(Arc::ptr_eq(record.driver_epoch.as_ref().unwrap(), &new));
+    assert!(record.control.as_ref().unwrap().same_channel(&tx));
 }

@@ -8,6 +8,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod failure;
+pub use failure::{
+    diagnostic_stderr, failure_status, install_failure_recorder, record_failure, FailureCode,
+    FailureStatus,
+};
+
 pub const SEGMENT_BYTES: u64 = 1024 * 1024;
 pub const SEGMENTS: usize = 4;
 pub const DEEP_SECONDS: u64 = 15 * 60;
@@ -225,6 +231,7 @@ pub fn now_ms() -> u64 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    RuntimeFailure,
     HeapValidation,
     Activity,
     DesktopStart,
@@ -313,6 +320,8 @@ pub struct Resources {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Record {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<FailureCode>,
     pub version: Option<[u32; 3]>,
     pub activity: Option<Activity>,
     pub sequence: Option<u64>,
@@ -337,6 +346,7 @@ pub struct Record {
 impl Record {
     pub fn new(phase: Phase) -> Self {
         Self {
+            failure: None,
             version: None,
             activity: None,
             sequence: None,

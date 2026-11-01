@@ -442,6 +442,7 @@ impl BasicHost {
                     _ => None,
                 });
             let record = SessionRecord {
+                driver_epoch: None,
                 dispatch_paused: crate::delegation::restored_dispatch_paused(&session)
                     || pause_incomplete_tools,
                 delegated: delegation_parent.is_some(),
@@ -692,6 +693,9 @@ impl BasicHost {
                             .expect("restored session remains registered");
                         record.running = true;
                         record.control = Some(control_tx);
+                        record.driver_epoch = Some(std::sync::Arc::new(
+                            crate::driver_lifecycle::DriverEpoch::default(),
+                        ));
                     }
                     let host = self.as_ref().clone();
                     if let Some(work_id) = runtime_report
@@ -713,14 +717,25 @@ impl BasicHost {
                                     "runtime lost recovered interaction work {work_id:?}"
                                 ),
                             })?;
-                        tokio::spawn(async move {
-                            host.drive_recovered_turn(session_id, recovered, control_rx)
-                                .await
-                        });
+                        let runner = host.clone();
+                        host.spawn_session_task(
+                            session_id.clone(),
+                            crate::error_boundary::TaskOperation::RecoveredTurn,
+                            async move {
+                                runner
+                                    .drive_recovered_turn(session_id, recovered, control_rx)
+                                    .await
+                            },
+                        )
+                        .await;
                     } else {
-                        tokio::spawn(
-                            async move { host.drive_session(session_id, control_rx).await },
-                        );
+                        let runner = host.clone();
+                        host.spawn_session_task(
+                            session_id.clone(),
+                            crate::error_boundary::TaskOperation::SessionDriver,
+                            async move { runner.drive_session(session_id, control_rx).await },
+                        )
+                        .await;
                     }
                 }
                 Err(error) => {
@@ -919,6 +934,7 @@ impl BasicHost {
                 context_window_tokens: indexed.and_then(|e| e.context_window_tokens),
             };
             let record = SessionRecord {
+                driver_epoch: None,
                 dispatch_paused: true,
                 delegated: false,
                 restoring: true,
@@ -4293,6 +4309,90 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn removing_workspace_atomically_archives_members_and_replays_after_restart() {
+        let harness = WorkspaceHarness::new("archive-remove", &["dir-a", "dir-b"]);
+        harness.seed_sessions().await;
+        let host = harness.boot_and_list().await;
+        let rows = workspace_rows(&host).await;
+        let workspace_id = rows
+            .iter()
+            .find(|(_, _, ids)| ids == &["dir-a"])
+            .unwrap()
+            .0
+            .clone();
+        let before = harness.session_store.load("dir-a").await.unwrap().unwrap();
+        let revision = harness.control_store.load().await.unwrap().revision();
+        let payload = json!({"workspaceId": workspace_id});
+        let rpc_id = RpcId::new("remove-and-archive-once");
+        let result = host
+            .call(
+                rpc_id.clone(),
+                RpcMethod::WorkspaceDelete,
+                payload.clone(),
+                CancellationToken::new(),
+            )
+            .await;
+        let RpcResult::Success {
+            value: Some(ref value),
+        } = result
+        else {
+            panic!("workspace remove failed: {result:?}");
+        };
+        assert_eq!(
+            value,
+            &json!({"deleted":true,"archivedSessionIds":["dir-a"]})
+        );
+        let after_revision = harness.control_store.load().await.unwrap().revision();
+        assert_eq!(
+            after_revision.0,
+            revision.0 + 1,
+            "one commit, not archive-then-remove RPCs"
+        );
+        {
+            let state = host.state.read().await;
+            assert!(!state.workspaces.contains_key(&workspace_id));
+            assert!(state.sessions.contains_key("dir-a"));
+            assert!(state.sessions.contains_key("dir-b"));
+            assert_eq!(
+                state.archived_sessions,
+                BTreeSet::from(["dir-a".to_owned()])
+            );
+            assert!(state.deleted_sessions.is_empty());
+        }
+        let after = harness.session_store.load("dir-a").await.unwrap().unwrap();
+        assert_eq!(before.header(), after.header());
+        assert_eq!(before.events(), after.events());
+        drop(host);
+
+        let host = harness.boot_and_list().await;
+        let replay = host
+            .call(
+                rpc_id,
+                RpcMethod::WorkspaceDelete,
+                payload,
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(
+            replay, result,
+            "receipt survives a removed target and restart"
+        );
+        assert_eq!(
+            harness.control_store.load().await.unwrap().revision(),
+            after_revision
+        );
+        let state = host.state.read().await;
+        assert!(!state.workspaces.contains_key(&workspace_id));
+        assert_eq!(
+            state.archived_sessions,
+            BTreeSet::from(["dir-a".to_owned()])
+        );
+        assert!(state.sessions.contains_key("dir-a"));
+        assert!(state.deleted_sessions.is_empty());
+        assert!(harness.custom["dir-a"].is_dir());
     }
 
     /// A session's Workspace identity must depend only on its directory, never

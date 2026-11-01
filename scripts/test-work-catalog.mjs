@@ -146,3 +146,44 @@ test('Permanent child removal fences late list, lineage and catalog frames witho
  assert.equal(manager.getListSnapshot().items.length,0)
  manager.dispose?.()
 })
+
+test('Workspace removal installs atomic archives before notifying or resolving, without a Host stream',async()=>{
+ const ws={workspaceId:'w',title:'Project',path:'/w',sessionIds:['a','b'],createdAt:'2026-09-01',updatedAt:'2026-09-01'}
+ let pull=async()=>result({items:[ws],archivedSessionIds:['existing']})
+ const manager=new WorkspaceManager({workspace:{list:()=>pull(),delete:async()=>result({deleted:true,archivedSessionIds:['a','b','existing']})}})
+ await manager.refresh();const seen=[];manager.subscribe(()=>seen.push(plain(manager.getSnapshot())))
+ const old=deferred();pull=()=>old.promise;const refresh=manager.refresh()
+ await manager.delete('w')
+ assert.deepEqual(plain(manager.getSnapshot().items),[]);assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['a','b','existing'])
+ assert.equal(seen.some(row=>row.items.length===0&&!row.archivedSessionIds.includes('a')),false,'no orphan flash before archive membership')
+ old.resolve(result({items:[ws],archivedSessionIds:['existing']}));await refresh
+ assert.deepEqual(plain(manager.getSnapshot().items),[]);assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['a','b','existing'])
+})
+test('Newer archive frames outrank delayed removal receipts, including unarchive',async()=>{
+ const gate=deferred(),manager=new WorkspaceManager({workspace:{delete:()=>gate.promise}})
+ const remove=manager.delete('w')
+ manager.handleHostEnvelope({rpcId:'later',payload:{type:'host/archived-sessions-changed',archivedSessionIds:['newer']}})
+ gate.resolve(result({deleted:true,archivedSessionIds:['older']}));await remove
+ assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['newer'])
+})
+test('Legacy removal receipts do not invent archives; denied removal changes neither owner projection',async()=>{
+ const ws={workspaceId:'w',title:'Project',path:'/w',sessionIds:['a'],createdAt:'2026-09-01',updatedAt:'2026-09-01'}
+ let deny=true;const manager=new WorkspaceManager({workspace:{list:async()=>result({items:[ws],archivedSessionIds:['existing']}),delete:async()=>deny?{result:{ok:false,error:{code:'internal',message:'write failed',details:{}}}}:result({deleted:true})}})
+ await manager.refresh();const before=plain(manager.getSnapshot());assert.equal((await manager.delete('w')).ok,false);assert.deepEqual(plain(manager.getSnapshot()),before)
+ deny=false;await manager.delete('w');assert.deepEqual(plain(manager.getSnapshot().items),[]);assert.deepEqual(plain(manager.getSnapshot().archivedSessionIds),['existing'])
+})
+
+const workspaceRuntimeCode=require('esbuild').buildSync({entryPoints:[new URL('../ui/src/modules/client-runtime/workspaces/service.ts',import.meta.url).pathname],alias:{immer:new URL('../ui/src/modules/client-runtime/vendor/immer/src/immer.ts',import.meta.url).pathname},define:{'process.env.NODE_ENV':'"production"'},bundle:true,write:false,format:'cjs',platform:'node'}).outputFiles[0].text
+const workspaceRuntimeModule={exports:{}}
+vm.runInNewContext(workspaceRuntimeCode,{module:workspaceRuntimeModule,exports:workspaceRuntimeModule.exports,queueMicrotask,Promise,Map,Set,Error,console})
+test('Actual workspace runtime clears only the archived selection and never stops running work',async()=>{
+ for(const current of ['a','other']){
+  const ws={workspaceId:'w',title:'Project',path:'/w',sessionIds:['a'],createdAt:'2026-09-01',updatedAt:'2026-09-01'}
+  let state={current,ids:['a','other'],byId:{a:{running:true,updatedAt:1},other:{running:false,updatedAt:2}},phase:'ready'},clears=0
+  const sessions={list:{getSnapshot:()=>state,subscribe:()=>()=>{}},clear:()=>{clears++;state={...state,current:undefined}},cancel:()=>{throw Error('archival must never cancel a task')}}
+  const runtime=new workspaceRuntimeModule.exports.WorkspaceRuntime({reflect:{provide(){}}},{workspace:{list:async()=>result({items:[ws],archivedSessionIds:[]}),delete:async()=>result({deleted:true,archivedSessionIds:['a']})}},sessions)
+  await runtime.refresh();await runtime.delete('w')
+  assert.equal(clears,current==='a'?1:0);assert.equal(state.current,current==='a'?undefined:'other');assert.equal(state.byId.a.running,true)
+  assert.deepEqual(plain(runtime.list.getSnapshot().archivedSessionIds),['a']);assert.deepEqual(plain(runtime.list.getSnapshot().items),[])
+ }
+})

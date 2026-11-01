@@ -1766,6 +1766,7 @@ exports.workspaceDeleteRequestSchema = zod_1.z.object({
 /** workspace.delete response value. */
 exports.workspaceDeleteValueSchema = zod_1.z.object({
     deleted: zod_1.z.literal(true),
+    archivedSessionIds: zod_1.z.array(sessions_schema_1.sessionIdSchema).optional(),
 });
 /** workspace.insertBefore request payload (anchor omitted = append to end). */
 exports.workspaceInsertBeforeRequestSchema = zod_1.z.object({

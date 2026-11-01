@@ -288,6 +288,7 @@ pub(crate) fn restore(host: &BasicHost, tail: &SessionRecoveryTail) -> Option<Se
     let state = restored_state(host, tail)?;
     let header = &tail.checkpoint.header;
     Some(SessionRecord {
+        driver_epoch: None,
         dispatch_paused: state.dispatch_paused,
         delegated: state.delegated,
         restoring: false,

@@ -1,4 +1,5 @@
 //! Small platform-native launcher for Chrome/Edge Native Messaging. No Host or browser state.
+#![cfg_attr(not(test), forbid(clippy::print_stderr))]
 #![forbid(unsafe_code)]
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use serde::Deserialize;
@@ -102,7 +103,7 @@ fn main() {
     match run() {
         Ok(code) => std::process::exit(code),
         Err(message) => {
-            eprintln!("XHarness Browser: {message}");
+            xharness_diagnostics::diagnostic_stderr!("XHarness Browser: {message}");
             std::process::exit(1);
         }
     }

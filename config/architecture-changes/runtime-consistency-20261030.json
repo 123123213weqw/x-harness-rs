@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "kind": "bugfix",
+  "reason": "Prevent broken stderr from unwinding Host workers, and enforce error guards on new control and lifecycle boundaries.",
+  "compatibility": "Only adds a dependency on the existing diagnostics leaf and expands compiler enforcement. No existing wire fields, native identity, persistence schema or lint fence is removed.",
+  "paths": {
+    "config/architecture-dependencies.json": {
+      "before": "97f93e2ab55647c986e91a350446b6d1a6fb94ee551d610d5a78f8c68aca768e",
+      "after": "900f87d40d6e8514cc27b01798c0210fcd96d871b88f90edcc43c30be04a83fb"
+    },
+    "scripts/regression/check-architecture.py": {
+      "before": "c8f42495509bd4b015f6c9053aa693e7689f10024c2ba27cb164b99b3f7d1b30",
+      "after": "4813ca4538d373182a9e0df76154b077cccb1e134d2f3585dad0ec01541a53c0"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

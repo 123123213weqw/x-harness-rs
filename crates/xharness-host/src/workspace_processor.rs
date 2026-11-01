@@ -152,7 +152,15 @@ impl WorkspaceProcessor {
     }
 
     pub(crate) fn delete(&self, workspace_id: &str) -> Result<WorkspaceMutation, RpcError> {
-        self.workspace(workspace_id)?;
+        let workspace = self.workspace(workspace_id)?;
+        let mut archived = self.state.archived_sessions.clone();
+        archived.extend(
+            workspace
+                .session_ids
+                .iter()
+                .filter(|id| self.state.session_ids.contains(*id))
+                .cloned(),
+        );
         let order = self
             .state
             .workspace_order
@@ -162,6 +170,11 @@ impl WorkspaceProcessor {
             .collect::<Vec<_>>();
         Ok(WorkspaceMutation::new(
             vec![
+                // Archive membership and registry removal share one durable
+                // commit. Never delete journals or stop the sessions' work.
+                ControlEvent::ArchivedSessionsSet {
+                    session_ids: archived.iter().cloned().collect(),
+                },
                 ControlEvent::WorkspaceRemoved {
                     workspace_id: workspace_id.to_owned(),
                 },
@@ -169,8 +182,14 @@ impl WorkspaceProcessor {
                     workspace_ids: order.clone(),
                 },
             ],
-            json!({"deleted": true}),
+            json!({"deleted": true, "archivedSessionIds": archived}),
             vec![
+                // Hide associated rows before the removed registration could
+                // make them transiently appear under Ungrouped in clients.
+                json!({
+                    "type": "host/archived-sessions-changed",
+                    "archivedSessionIds": archived,
+                }),
                 json!({"type": "host/workspace-removed", "workspaceId": workspace_id}),
                 json!({
                     "type": "host/workspace-order-changed",
@@ -396,5 +415,61 @@ mod tests {
             .insert_session_before("a", "s1", Some("missing"), || "now".to_owned())
             .unwrap_err();
         assert_eq!(error.code, RpcErrorCode::WorkspaceMoveInvalid);
+    }
+
+    #[test]
+    fn delete_archives_only_live_members_in_the_same_mutation_without_deleting_data() {
+        let mut processor = processor();
+        processor
+            .state
+            .archived_sessions
+            .insert("existing".to_owned());
+        processor.state.session_ids.insert("unrelated".to_owned());
+        processor
+            .state
+            .workspaces
+            .get_mut("a")
+            .unwrap()
+            .session_ids
+            .extend(["s1".to_owned(), "stale-deleted-id".to_owned()]);
+        let mutation = processor.delete("a").unwrap();
+        assert_eq!(
+            mutation.response,
+            json!({
+                "deleted": true, "archivedSessionIds": ["existing", "s1", "s2"],
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&mutation.control_events).unwrap(),
+            json!([
+                {"type":"archived_sessions_set", "data":{"session_ids":["existing","s1","s2"]}},
+                {"type":"workspace_removed", "data":{"workspace_id":"a"}},
+                {"type":"workspace_order_set", "data":{"workspace_ids":["b"]}},
+            ])
+        );
+        assert_eq!(
+            mutation.host_events[0],
+            json!({
+                "type":"host/archived-sessions-changed", "archivedSessionIds":["existing","s1","s2"],
+            })
+        );
+        assert_eq!(mutation.host_events[1]["type"], "host/workspace-removed");
+        assert_eq!(
+            processor.state.archived_sessions,
+            BTreeSet::from(["existing".to_owned()])
+        );
+        assert!(processor.state.workspaces.contains_key("a"));
+        assert!(processor.state.session_ids.contains("s1"));
+    }
+
+    #[test]
+    fn delete_empty_workspace_preserves_existing_archives_and_validates_target() {
+        let mut processor = processor();
+        processor.state.archived_sessions.insert("s1".to_owned());
+        let mutation = processor.delete("b").unwrap();
+        assert_eq!(mutation.response["archivedSessionIds"], json!(["s1"]));
+        let error = processor.delete("missing").unwrap_err();
+        assert_eq!(error.code, RpcErrorCode::WorkspaceNotFound);
+        assert_eq!(processor.state.workspace_order, ["a", "b"]);
     }
 }

@@ -45,10 +45,17 @@ function baselineComposerStyle(source) {
  assert.equal(createHash('sha256').update(baseline).digest('hex'),'62fa5c5f10a5c38f6d04f8a082a9f9fe470a1d11453dcaec442ce3350519029d','unrelated InputBar styles must retain their reviewed bytes');
  return baseline;
 }
+const recoveryLocales = {
+ en: {'session.recover':'Recover task','session.recoverHint':'Recover this idle task without resending input. Stop active work first. Other tasks and drafts are unchanged.','session.recovering':'Recovering…','session.recovered':'Recovered','session.recoverUnavailable':'This Host does not support single-task recovery.'},
+ zh: {'session.recover':'恢复任务','session.recoverHint':'恢复当前空闲任务，不重发输入。请先停止正在执行的工作；其他任务和草稿不变。','session.recovering':'恢复中…','session.recovered':'已恢复','session.recoverUnavailable':'当前 Host 不支持单任务恢复。'},
+};
 function baselineProductCopy(language, locale) {
  assert.equal(locale['xh.turn.working'], 'Working…');
  assert.equal(locale['stats.title'], language === 'en' ? 'Conversation statistics' : '对话统计', 'reviewed statistics label');
  const normalized = {...locale, 'xh.turn.working': apis[0].plugin[language]['xh.turn.working']};
+ for(const [key,expected] of Object.entries(recoveryLocales[language])) {
+  assert.equal(locale[key],expected,'reviewed recovery label '+key);delete normalized[key];
+ }
  for(const [key,expected] of Object.entries(contextMeterLocales[language])) {
   assert.equal(Object.hasOwn(apis[0].plugin[language],key),false);
   assert.equal(locale[key],expected,`${language} request-bound meter label ${key}`);
@@ -232,6 +239,11 @@ test('complete apply registration: keyed nodes, resident shell, overlays, docks,
  const ctx={effect:fn=>{const off=fn();if(typeof off==='function')effects.push(off)},locale:{register:(...args)=>dicts.push(args),bind:()=>k=>k},sessions:{provide:spec=>{events.push(['provide',spec.hooks,spec.props]);return()=>{}},list:{getSnapshot:()=>({byId:{}})},scope(){},on:()=>()=>{}},workspaces:{},layout:{},settingsScope:{bind:()=>host},conversationEvents:{register:d=>defs.push({kind:d.kind,target:d.target}),registerFallback:d=>defs.push({kind:d.kind,target:d.target,fallback:true})},conversationViews:{register:d=>views.push({target:d.target})},slots:{inject:(_n,fn)=>fn(),register:(spec,component)=>slots.push({spec,component}),entries:()=>[],subscribe:()=>()=>{},getVersion:()=>0},get:n=>ctx[n],on:(n)=>{events.push(n);return()=>{}},plugin:(plugin,config)=>{if(typeof plugin==='function')new plugin(ctx,config);else plugin.apply(ctx)}};
  api.apply(ctx);
  const normalize=slots.map(({spec})=>json({...spec,inject:undefined,select:undefined,store:undefined,label:typeof spec.label==='function'?spec.label():spec.label})).sort((a,b)=>(a.name+':'+(a.key??a.id??'')).localeCompare(b.name+':'+(b.key??b.id??'')));
+ if(api===apis[1].plugin){
+  const recovery=normalize.findIndex(spec=>spec.name==='conversation.session.header.utilities'&&spec.id==='session-recovery');
+  assert.ok(recovery>=0);assert.deepEqual(normalize[recovery],{name:'conversation.session.header.utilities',id:'session-recovery',order:90,locale:'conversation'});
+  normalize.splice(recovery,1);
+ }
  // Explicit additive environment slot, while old registrations remain unchanged.
  if(api===apis[1].plugin){const root=normalize.find(spec=>spec.name==='conversation');assert.deepEqual(root.children['conversation.hero.runtimeEnvironment'],{kind:'single',scope:'root'});delete root.children['conversation.hero.runtimeEnvironment'];}
  const baselineDicts=json(dicts).map(([ns,languages])=>[ns,Object.fromEntries(Object.entries(languages).map(([language,values])=>[language,Object.fromEntries(Object.entries(api === apis[1].plugin ? baselineProductCopy(language, values) : values).filter(([key])=>!key.startsWith('tool.arguments.')&&!['approval.reviewing','message.turnFinished','message.expandProcess','message.collapseProcess','message.foldedTools','message.expandedTools','chat.messageRail','chat.messageRail.message'].includes(key)))]))]);

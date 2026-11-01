@@ -69,6 +69,7 @@ export const workspaceDeleteRequestSchema = z.object({
 /** workspace.delete response value. */
 export const workspaceDeleteValueSchema = z.object({
   deleted: z.literal(true),
+  archivedSessionIds: z.array(sessionIdSchema).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'workspace.delete'>>>
 
 /** workspace.insertBefore request payload (anchor omitted = append to end). */
