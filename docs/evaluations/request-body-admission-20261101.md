@@ -88,8 +88,9 @@ its original shard and parity gates, not replaced by this aggregate.
 
 PR and master-push runs expose the required `CI` check. Manual dispatch uses
 `CI / manual diagnostics`, so it cannot substitute for PR-only native smoke
-admission. The seven aggregate regression tests include all dependency mutations
-and actual CLI exit-code cases; they run in the aggregate, early UI build and
+admission. The eight aggregate regression tests include all dependency mutations,
+actual CLI exit-code cases, and LF/CRLF checkout equivalence with negative
+failure-guard mutations; they run in the aggregate, early UI build and
 native Windows validation. Existing job commands, matrix sizes, runner/action
 versions and lockfiles are unchanged apart from those additional test calls.
 The frozen workflow change has a content-bound compatibility record against

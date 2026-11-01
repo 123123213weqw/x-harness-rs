@@ -10,7 +10,9 @@ const needs = (master = false) => Object.fromEntries(requiredCiJobs.map(name => 
   result: name === 'unix-update-rehearsal' && !master ? 'skipped' : 'success',
 }]))
 
-test('literal CI check runs always and directly depends on every workflow job', () => {
+function assertWorkflowGate(input) {
+  // Git's native Windows checkout uses CRLF; normalize only line terminators.
+  const source = input.replace(/\r\n/g, '\n')
   const jobs = source.slice(source.indexOf('\njobs:\n'))
   const names = [...jobs.matchAll(/^  ([\w-]+):$/gm)].map(match => match[1])
   assert.deepEqual(names.filter(name => name !== 'ci').sort(), [...requiredCiJobs].sort())
@@ -26,15 +28,34 @@ test('literal CI check runs always and directly depends on every workflow job', 
   assert.ok(!aggregate.includes('continue-on-error'))
   assert.ok(!aggregate.includes('|| true'))
   assert.ok(source.includes('node --test scripts/test-ci-gate.mjs'))
-})
+}
 
-test('early and native Windows regression enrollment preserves existing failure handling', () => {
+function assertRegressionEnrollment(input) {
+  const source = input.replace(/\r\n/g, '\n')
   const windows = source.split('\n  rust-windows:\n')[1].split(/\n  [\w-]+:\n/)[0]
   assert.ok(windows.includes("python -B -m unittest scripts/regression/test_check_architecture.py scripts/regression/test_architecture_freeze.py\n          if ($LASTEXITCODE) { throw 'Architecture stabilization regression failed' }"))
   assert.ok(windows.indexOf('actions/setup-node@') < windows.indexOf('node --test scripts/test-ci-gate.mjs'))
   assert.ok(windows.includes('- name: Native Windows fail-closed CI aggregate regression\n        run: node --test scripts/test-ci-gate.mjs'))
   const ui = source.split('\n  ui-build:\n')[1].split(/\n  [\w-]+:\n/)[0]
   assert.ok(ui.includes('node --test scripts/test-ci-gate.mjs'))
+}
+
+test('literal CI check runs always and directly depends on every workflow job', () => {
+  assertWorkflowGate(source)
+})
+
+test('early and native Windows regression enrollment preserves existing failure handling', () => {
+  assertRegressionEnrollment(source)
+})
+
+test('LF and CRLF checkouts enforce the same workflow and native failure guards', () => {
+  const lf = source.replace(/\r\n/g, '\n')
+  for (const workflow of [lf, lf.replace(/\n/g, '\r\n')]) {
+    assert.doesNotThrow(() => assertWorkflowGate(workflow))
+    assert.doesNotThrow(() => assertRegressionEnrollment(workflow))
+    assert.throws(() => assertWorkflowGate(workflow.replaceAll('    if: ${{ always() }}', '    if: ${{ success() }}')))
+    assert.throws(() => assertRegressionEnrollment(workflow.replace("if ($LASTEXITCODE) { throw 'Architecture stabilization regression failed' }", '# missing native failure guard')))
+  }
 })
 
 test('PR and manual runs accept only the explicit release-only skip', () => {
