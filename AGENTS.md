@@ -1,5 +1,17 @@
 # Development policy
 
+## Dependency update policy
+
+- Prioritize our product features and bug fixes. Do not proactively propose,
+  reopen, rebase, or merge dependency, runtime, SDK, or GitHub Actions version
+  upgrade PRs, or refresh lockfiles solely to follow upstream releases.
+- Dependency changes require an explicit user request, or prior user agreement
+  that a minimal change is necessary for the requested feature or fix.
+- Keep automatic dependency PR generators disabled. Do not change existing
+  security alert, scanning, or push-protection settings as part of this policy.
+- Feature PRs still require passing CI, review, and the existing architecture
+  gates before merging; disabling dependency proposals does not weaken gates.
+
 ## Rust remote compilation
 
 - 禁止在本机执行会编译 Rust 的命令，包括 `cargo build`、`cargo check`、

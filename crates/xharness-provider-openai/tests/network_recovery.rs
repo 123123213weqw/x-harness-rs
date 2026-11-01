@@ -190,7 +190,7 @@ async fn until(check: impl Fn() -> bool) {
 
 #[tokio::test]
 async fn http_status_retry_matrix_is_bounded() {
-    for status in [400, 401, 403, 404, 422, 408, 429, 500, 502, 503, 504] {
+    for status in [400, 401, 403, 404, 413, 422, 408, 429, 500, 502, 503, 504] {
         let expected = if status == 408 || status == 429 || status >= 500 {
             3
         } else {
@@ -739,4 +739,45 @@ async fn peer_protocol_version_alert_fails_immediately_instead_of_waiting_for_ne
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
         assert!(result.error.unwrap().contains("ProtocolVersion"));
     }
+}
+
+#[tokio::test]
+async fn final_json_admission_sends_exact_bytes_and_blocks_before_a_second_socket() {
+    let server = FaultServer::start(vec![success(), success()]).await;
+    let mut request = request();
+    request.messages = vec![AgentMessage::user("界\n\"🙂")];
+    let body = xharness_provider_openai::build_openai_request(
+        OpenAiProtocol::ChatCompletions,
+        "fixture",
+        &request,
+    );
+    let bytes = serde_json::to_vec(&body).unwrap();
+    let config = OpenAiProviderConfig::new(
+        OpenAiProtocol::ChatCompletions,
+        &server.url,
+        "fixture",
+        "fixture",
+    )
+    .with_request_body_limit(bytes.len());
+    let provider = OpenAiProvider::new(config).unwrap();
+    let mut stream = provider
+        .stream(request.clone(), CancellationToken::new())
+        .await
+        .unwrap();
+    while let Some(event) = stream.next().await {
+        event.unwrap();
+    }
+    assert_eq!(server.count(), 1);
+    assert_eq!(
+        serde_json::to_vec(&server.requests.lock().unwrap()[0]).unwrap(),
+        bytes
+    );
+    request.messages[0].content.push_str("extra");
+    assert!(provider
+        .stream(request, CancellationToken::new())
+        .await
+        .err()
+        .unwrap()
+        .is_request_body_too_large());
+    assert_eq!(server.count(), 1);
 }

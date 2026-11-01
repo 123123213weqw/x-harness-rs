@@ -1,10 +1,9 @@
 name: Pinned PowerShell LTS dependency updates
 on:
-  schedule:
-    - cron: '0 0 * * 1' # Monday 08:00 Asia/Shanghai
+  # Dependency upgrades are opt-in, never scheduled automatically.
   workflow_dispatch:
 
-# Only this trusted default-branch schedule can propose the one lock file.
+# Only an explicitly requested default-branch dispatch may propose the one lock file.
 # It never signs, releases, approves reviews, or merges a pull request.
 permissions:
   contents: write

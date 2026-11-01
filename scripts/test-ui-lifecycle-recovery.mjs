@@ -172,3 +172,43 @@ const freshAssembler=assembler(freshCtx.definition);freshAssembler.replaceWindow
 const shippedAssembler=assembler(ctx.definition);shippedAssembler.replaceWindow(rows.slice(4),true);shippedAssembler.flush();
 assert.deepEqual(plain(freshAssembler.snapshot('chat')),plain(shippedAssembler.snapshot('chat')));
 console.log('Fresh retry patch matches the shipped reducer');
+
+// Explicit reload owns one session history boundary, not the draft or prompt.
+for (const failHistory of [false, true]) {
+ let commands = 0, histories = 0, prompts = 0
+ const session = new runtime.Session('reload-case', {
+  sessions: {
+   history: async () => { histories++; if (failHistory) throw Error('history unavailable'); return ok([]) },
+   prompt: async () => { prompts++; throw Error('must not prompt') },
+  },
+ }, { commands: { execute: async () => { commands++; return { ok: true, value: { result: { kind: 'success' } } } } } })
+ session.installWindow([], false); session.openState = 'open'; session.handleAgentError('original worker error')
+ const result = await session.command('/reload')
+ assert.equal(commands, 1); assert.equal(histories, 1); assert.equal(prompts, 0)
+ assert.equal(result.ok, !failHistory)
+ assert.equal(session.getSnapshot().lastAgentError, failHistory ? 'original worker error' : null)
+}
+for (const reply of [
+ { ok: false, error: { code: 'busy', message: 'stop first', details: [] } },
+ { ok: true, value: { result: { kind: 'error', text: 'failed ready' } } },
+]) {
+ let histories = 0
+ const session = new runtime.Session('rejected-reload', {
+  sessions: { history: async () => { histories++; return ok([]) } },
+ }, { commands: { execute: async () => reply } })
+ session.installWindow([], false); session.openState = 'open'
+ assert.equal((await session.command('/reload')).ok, false)
+ assert.equal(histories, 0, 'a rejected recovery cannot clear or replace history')
+}
+console.log('explicit reload: one command, no prompt replay, history receipt required, rejection/failure preserved')
+{
+ let release
+ const session = new runtime.Session('late-error-reload', {
+  sessions: { history: () => new Promise(resolve => { release = resolve }) },
+ }, {})
+ session.installWindow([], false); session.openState = 'open'; session.handleAgentError('same error text')
+ const work = session.recoverHistory(); await new Promise(resolve => setImmediate(resolve))
+ session.handleAgentError('same error text'); release(ok([])); await work
+ assert.equal(session.getSnapshot().lastAgentError, 'same error text', 'recovery must not clear a newer error, including identical text')
+}
+console.log('explicit reload preserves new agent errors received during history recovery')

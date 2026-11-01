@@ -1,4 +1,6 @@
 import * as React from 'react'
+import { pageKey, planRetainedPages, RETAINED_PAGE_IDLE_MS } from './retained-pages'
+import type { RetainedPage } from './retained-pages'
 import type {BrowserItem,BrowserPatch} from '../browser/index'
 import {GIT_DIFF_SCOPES} from '../shared/generated/file-display-options'
 import type {GitDiffScope} from '../shared/generated/file-display'
@@ -83,10 +85,23 @@ export type WorkspaceRenderSlot={
   (name:'details',owner:Record<string,never>):React.ReactNode
   (name:'workspace.item',owner:WorkspaceItemOwner):React.ReactNode
 }
-export function XhWorkspacePane({space,open,sessionId,renderSlot,onSelect,onClose,onUpdate,onNewBrowser}:{
-  space:WorkspaceSpace;open:boolean;sessionId:string|null;renderSlot:WorkspaceRenderSlot;onSelect(id:string):void;onClose(id:string):void;onUpdate(id:string,patch:BrowserPatch):void;onNewBrowser():void
+export function XhWorkspacePane({space,spaces,open,sessionId,renderSlot,onSelect,onClose,onUpdate,onUpdateOwner,onNewBrowser}:{
+  space:WorkspaceSpace;spaces?:BrowserSpaces;open:boolean;sessionId:string|null;renderSlot:WorkspaceRenderSlot;onSelect(id:string):void;onClose(id:string):void;onUpdate(id:string,patch:BrowserPatch):void;onUpdateOwner?(owner:string,id:string,patch:BrowserPatch):void;onNewBrowser():void
 }){
   const active=space.items.find(item=>item.id===space.activeId)
+  const owner=sessionId??'__global__'
+  const all=spaces??{[owner]:space}
+  const [pages,setPages]=React.useState<readonly RetainedPage[]>([])
+  const [,tick]=React.useState(0)
+  const next=planRetainedPages(pages,all,owner,space.activeId,open,Date.now())
+  if(next!==pages)setPages(next)
+  React.useEffect(()=>{
+    const deadlines=next.filter(page=>!open||page.owner!==owner||page.id!==space.activeId)
+      .map(page=>page.usedAt+RETAINED_PAGE_IDLE_MS-Date.now())
+    if(!deadlines.length)return
+    const timer=setTimeout(()=>tick(value=>value+1),Math.max(1,Math.min(...deadlines)))
+    return()=>clearTimeout(timer)
+  },[next,owner,space.activeId,open])
   return <section className="xhworkspace" aria-label="工作区" hidden={!open}>
     <div className="xhworkspace-tabs" role="tablist" aria-label="工作区标签">
       {space.items.map(item=><div className="xhworkspace-tab" key={item.id} data-active={item.id===space.activeId||undefined}>
@@ -97,9 +112,23 @@ export function XhWorkspacePane({space,open,sessionId,renderSlot,onSelect,onClos
       </div>)}
       <button type="button" className="xhworkspace-new" aria-label="新建浏览器标签" onClick={onNewBrowser} title="新建浏览器标签">+</button>
     </div>
-    <div className="xhworkspace-body">{active&&<div key={active.id} className={`xhworkspace-item xhworkspace-${active.kind}`} role="tabpanel">
-      {active.kind==='tool'?renderSlot('details',{}):renderSlot('workspace.item',{item:active,sessionId,open,onUpdate:patch=>onUpdate(active.id,patch),onClose:()=>onClose(active.id),onNewBrowser})}
-    </div>}</div>
+    <div className="xhworkspace-body">
+      {next.map(page=>{
+        const item=all[page.owner]?.items.find(item=>item.id===page.id)
+        if(item===undefined)return null
+        const visible=open&&page.owner===owner&&page.id===space.activeId
+        return <div key={page.key} className={`xhworkspace-item xhworkspace-${item.kind}`} role="tabpanel"
+          hidden={!visible} aria-hidden={!visible} style={visible?undefined:{display:'none'}}
+          {...visible?{}:{inert:''}} data-workspace-page-state={visible?'visible':'retained'} data-workspace-page-owner={page.owner}>
+          {renderSlot('workspace.item',{item,sessionId:page.owner==='__global__'?null:page.owner,open:visible,
+            onUpdate:patch=>{if(onUpdateOwner)onUpdateOwner(page.owner,item.id,patch);else if(page.owner===owner)onUpdate(item.id,patch)},
+            onClose:()=>{if(page.owner===owner)onClose(item.id)},onNewBrowser})}
+        </div>
+      })}
+      {active?.kind==='tool'&&<div key={pageKey(owner,active.id)} className={`xhworkspace-item xhworkspace-${active.kind}`} role="tabpanel">
+        {active.kind==='tool'?renderSlot('details',{}):renderSlot('workspace.item',{item:active,sessionId,open,onUpdate:patch=>onUpdate(active.id,patch),onClose:()=>onClose(active.id),onNewBrowser})}
+      </div>}
+    </div>
   </section>
 }
 

@@ -262,6 +262,39 @@ impl ContextPolicy for CompactingPolicy {
     }
 }
 
+// The RPC catalogue smoke must interrupt a genuinely live child, not race
+// an instantaneous fake response against driver teardown on every platform.
+struct InterruptibleBaselineProvider {
+    entered: Arc<Notify>,
+}
+#[async_trait]
+impl ModelProvider for InterruptibleBaselineProvider {
+    fn provider_name(&self) -> &str {
+        "test"
+    }
+    fn model_name(&self) -> Option<&str> {
+        Some("test-model")
+    }
+    async fn stream(
+        &self,
+        request: ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ProviderStream, ProviderError> {
+        if request
+            .messages
+            .iter()
+            .any(|m| m.role == Role::User && m.content == "child followup")
+        {
+            self.entered.notify_one();
+            return Ok(Box::pin(stream::once(async move {
+                cancellation.cancelled().await;
+                Err(ProviderError::new("synthetic interrupted baseline child"))
+            })));
+        }
+        TextProvider.stream(request, cancellation).await
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     host: Arc<BasicHost>,
@@ -350,6 +383,9 @@ impl Fixture {
     }
 
     fn new_at(timestamp: u128) -> Self {
+        Self::new_at_with_provider(timestamp, Arc::new(TextProvider))
+    }
+    fn new_at_with_provider(timestamp: u128, provider: Arc<dyn ModelProvider>) -> Self {
         // Wall-clock timestamps can repeat across parallel tests on Windows.
         // Each fixture owns (and later removes) exactly one distinct directory.
         static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -364,7 +400,7 @@ impl Fixture {
         config.provider_id = "test".to_owned();
         config.provider_display_name = "Test Provider".to_owned();
         config.model_id = "test-model".to_owned();
-        let host = BasicHost::new(config, Some(Arc::new(TextProvider)), Arc::new(NoTools));
+        let host = BasicHost::new(config, Some(provider), Arc::new(NoTools));
         Self {
             root,
             host,
@@ -1592,7 +1628,16 @@ async fn concurrent_prompt_retry_is_admitted_once_and_payload_reuse_conflicts() 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_upstream_rpc_has_baseline_behavior() {
-    let mut fx = Fixture::new();
+    let child_entered = Arc::new(Notify::new());
+    let mut fx = Fixture::new_at_with_provider(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        Arc::new(InterruptibleBaselineProvider {
+            entered: child_entered.clone(),
+        }),
+    );
 
     let preview = fx
         .value(
@@ -1753,6 +1798,9 @@ async fn every_upstream_rpc_has_baseline_behavior() {
         }),
     )
     .await;
+    tokio::time::timeout(Duration::from_secs(5), child_entered.notified())
+        .await
+        .expect("baseline child must reach the cancellable provider before interruption");
     fx.value(
         RpcMethod::SubagentInterrupt,
         json!({

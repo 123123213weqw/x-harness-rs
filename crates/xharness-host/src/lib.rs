@@ -17,6 +17,7 @@ mod automation;
 mod bootstrap;
 mod driver_control;
 mod driver_lifecycle;
+mod session_recovery;
 pub use bootstrap::{prepare_goal_session, GoalBootstrapReceipt, GoalBootstrapSpec};
 mod control;
 mod credential_processor;

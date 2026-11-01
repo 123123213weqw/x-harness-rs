@@ -2049,6 +2049,7 @@ fn compaction_progress_is_metadata_only_and_rejects_invalid_lifecycles() {
         delay_ms: Some(1000),
         input_tokens_before: Some(100),
         input_tokens_after: None,
+        ..Default::default()
     };
     let before = session.derive_messages();
     session
@@ -2320,4 +2321,17 @@ fn only_applied_outcome_commits_a_summary_and_replacement() {
             vec![Message::user(if applied { "note" } else { "original" })]
         );
     }
+}
+
+#[test]
+fn legacy_compaction_progress_keeps_optional_metering_evidence_absent() {
+    let legacy = serde_json::json!({"stage":"preparing","calls":0,"completedParts":0,"splits":0,"retries":0});
+    let progress: xharness_session::CompactionProgress =
+        serde_json::from_value(legacy.clone()).unwrap();
+    assert!(
+        progress.budget_before.is_none()
+            && progress.budget_after.is_none()
+            && progress.summary_budget.is_none()
+    );
+    assert_eq!(serde_json::to_value(progress).unwrap(), legacy);
 }

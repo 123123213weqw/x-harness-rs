@@ -50,6 +50,28 @@ pub struct CompactionProgress {
     pub input_tokens_before: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens_after: Option<u64>,
+    /// Content-free TokenBudgetReport snapshots. Kept at the neutral event
+    /// boundary without adding a dependency on a concrete token-meter crate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_before: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_after: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_budget: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SequenceRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<CompactionValidation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionValidation {
+    AdmittedExact,
+    AdmittedWithLocalGain,
+    ExactOverBudget,
+    EstimatedOverBudget,
+    NoReduction,
 }
 
 /// Inclusive durable coordinates shadowed by one context-surface mutation.

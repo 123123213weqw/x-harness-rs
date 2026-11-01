@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Enroll opt-in tool-result experiment fixtures and retained result receipts in the existing offline compaction CI job.",
+  "compatibility": "Adds a credential-free Python validation step only. Existing job identities, Rust/native gates, permissions, concurrency and acceptance conditions remain unchanged. No live API or SSH runs in CI.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "d439a164fe4e40dcb94b6e9577b6e0e3478f24c3bd3b72a17ce00b65bad26007",
+      "after": "3cfc636036ceba181c67c555e0fe8a97064d46e5f4ea6d67aea3853fcf0649f0"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "windows"
+  ]
+}

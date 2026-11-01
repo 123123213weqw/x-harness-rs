@@ -185,6 +185,7 @@ BUSINESS_ERROR_GUARD = "#![deny(" + ",".join(sorted(BUSINESS_ERROR_LINTS)) + ")]
 ERROR_BOUNDARIES = {
     "crates/xharness-host/src/driver_control.rs",
     "crates/xharness-host/src/driver_lifecycle.rs",
+    "crates/xharness-host/src/session_recovery.rs",
     "crates/xharness-diagnostics/src/failure.rs",
     "crates/xharness-host/src/event_gateway.rs",
     "crates/xharness-host/src/error_boundary.rs",

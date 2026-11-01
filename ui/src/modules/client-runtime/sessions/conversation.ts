@@ -404,6 +404,9 @@ export interface PromptError {
  * through this store.
  */
 export interface ChatNodeStore {
+  /** Changes only when node kind, location or order-relevant metadata changes. */
+  readonly structureVersion?: number
+
   /** @param key - stable Conversation Context key. @returns current Node, when visible or hidden. */
   get(key: string): ChatConversationViewNode | undefined
   /** @returns all currently materialized Nodes without imposing render order. */

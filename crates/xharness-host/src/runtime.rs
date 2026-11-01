@@ -440,6 +440,14 @@ impl ModelProvider for RouteBoundProvider {
         self.inner.count_input_tokens(request, cancellation).await
     }
 
+    async fn recount_input_tokens(
+        &self,
+        request: &xharness_core::ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<xharness_core::ProviderInputTokenCount>, xharness_core::ProviderError> {
+        self.inner.recount_input_tokens(request, cancellation).await
+    }
+
     async fn capabilities(
         &self,
         cancellation: tokio_util::sync::CancellationToken,
@@ -619,6 +627,14 @@ pub trait AgentRuntime: Send + Sync + 'static {
         _session_id: &str,
     ) -> Result<SessionObservation, AgentRuntimeError> {
         Ok(SessionObservation::Unsupported)
+    }
+
+    /// Input-free replacement of one idle worker. Deployments must explicitly
+    /// opt in; a reload must never fall back to shutting down the whole Host.
+    async fn restart_idle_session(&self, _session_id: &str) -> Result<(), AgentRuntimeError> {
+        Err(AgentRuntimeError::Preparation {
+            message: "single-session restart is unavailable".into(),
+        })
     }
 
     async fn process_runs(
@@ -1740,6 +1756,21 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             run.bind_turn(turn);
         }
         Ok(SessionObservation::Active(Box::new(run)))
+    }
+
+    async fn restart_idle_session(&self, session_id: &str) -> Result<(), AgentRuntimeError> {
+        let _admission = self.lock_input_admission(session_id).await;
+        let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
+            AgentRuntimeError::Preparation {
+                message: "session worker is not attached".into(),
+            }
+        })?;
+        handle
+            .restart_idle()
+            .await
+            .map_err(|error| AgentRuntimeError::Preparation {
+                message: error.to_string(),
+            })
     }
 
     async fn read_display_diff(

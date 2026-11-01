@@ -171,6 +171,8 @@ jobs:
       # Offline only: no Keychain, SSH, live model requests or deployment.
       - run: python3 -B scripts/experiments/test-compaction-coding.py
       - run: python3 -B scripts/experiments/test-compaction-multiround.py
+      - name: Tool-result ablation fixtures, scoring and frozen receipts (offline)
+        run: python3 -B scripts/experiments/test-tool-result-ablation.py
 
   cloud-offline-guards:
     name: Cloud lifecycle offline guards
@@ -221,6 +223,7 @@ jobs:
       - name: Validate sharding, baseline coverage and fail-closed gate
         run: |
           node --test scripts/test-ci-ui-suite.mjs
+          node --test scripts/test-ci-gate.mjs
           python3 -B scripts/test-ci-tiering.py
           python3 -B scripts/test-ci-latency.py
           node --test scripts/test-ci-ui-timing.mjs
@@ -549,6 +552,8 @@ jobs:
           node-version: 22
       - name: Install locked UI toolchain for native wire and desktop contracts
         run: npm ci --prefix ui --ignore-scripts
+      - name: Native Windows fail-closed CI aggregate regression
+        run: node --test scripts/test-ci-gate.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.99.0'
@@ -999,3 +1004,26 @@ jobs:
       - run: node scripts/test-updater-signature.mjs
       - run: python3 scripts/test-desktop-assets.py
       - run: python3 scripts/test-desktop-release.py
+
+  # Real aggregate for the protected branch's literal `CI` required context.
+  # All original jobs remain mandatory; no status is posted via the API.
+  ci:
+    # Manual diagnostics must not publish the PR merge-required check name.
+    name: ${{ github.event_name == 'workflow_dispatch' && 'CI / manual diagnostics' || 'CI' }}
+    needs: [architecture-freeze, release-checkpoints, unix-update-rehearsal, update-channel-contract, compaction-evaluator-contract, cloud-offline-guards, context-layout, ui-build, ui-contracts, ui-browser, ui-parity, rust-linux, rust-windows, macos-fixed-signing-contract, rust-macos-arm64, desktop-linux]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Test fail-closed aggregation and require every applicable result
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node --test scripts/test-ci-gate.mjs
+          node scripts/ci-gate.mjs

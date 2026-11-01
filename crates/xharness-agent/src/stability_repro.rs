@@ -40,6 +40,7 @@ struct ToggleFailStore {
     inner: Arc<dyn Store>,
     failing: Arc<AtomicBool>,
     reads: Arc<AtomicUsize>,
+    fail_at_read: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -53,8 +54,9 @@ impl Store for ToggleFailStore {
     }
 
     async fn load(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
-        self.reads.fetch_add(1, Ordering::AcqRel);
-        if self.failing.load(Ordering::Acquire) {
+        let read = self.reads.fetch_add(1, Ordering::AcqRel) + 1;
+        if self.failing.load(Ordering::Acquire) || self.fail_at_read.load(Ordering::Acquire) == read
+        {
             return Err(StoreError::Backend {
                 message: "injected read failure".to_owned(),
             });
@@ -150,6 +152,7 @@ async fn a_transient_store_error_does_not_kill_the_worker() {
         inner: Arc::clone(&inner),
         failing: Arc::clone(&failing),
         reads: Arc::new(AtomicUsize::new(0)),
+        fail_at_read: Arc::new(AtomicUsize::new(0)),
     });
 
     let registry = Arc::new(AgentRegistry::new(
@@ -202,6 +205,7 @@ async fn subscriptions_survive_a_recoverable_storage_error() {
         inner: Arc::clone(&inner),
         failing: Arc::clone(&failing),
         reads: Arc::new(AtomicUsize::new(0)),
+        fail_at_read: Arc::new(AtomicUsize::new(0)),
     });
     let registry = Arc::new(AgentRegistry::new(
         Arc::clone(&store),
@@ -522,6 +526,7 @@ async fn persistent_startup_fault_has_backoff_and_recovers_without_a_command() {
         inner: Arc::new(MemorySessionStore::default()),
         failing: failing.clone(),
         reads: reads.clone(),
+        fail_at_read: Arc::new(AtomicUsize::new(0)),
     });
     let registry = AgentRegistry::new(store, Arc::new(MemoryLeaseManager::default()));
     let activation = registry
@@ -659,4 +664,62 @@ async fn stopped_waiter_detects_replacement_even_if_it_missed_backoff() {
         .await
         .unwrap();
     supervisor.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_restart_keeps_no_replay_fence_across_failed_replacement_startup() {
+    let inner: Arc<dyn Store> = Arc::new(MemorySessionStore::default());
+    let reads = Arc::new(AtomicUsize::new(0));
+    let fail_at_read = Arc::new(AtomicUsize::new(0));
+    let store: Arc<dyn Store> = Arc::new(ToggleFailStore {
+        inner: inner.clone(),
+        failing: Arc::new(AtomicBool::new(false)),
+        reads: reads.clone(),
+        fail_at_read: fail_at_read.clone(),
+    });
+    let registry = AgentRegistry::new(store, Arc::new(MemoryLeaseManager::default()));
+    let activation = registry
+        .activate(SessionHeader::new("restart-startup-fault"))
+        .await
+        .unwrap();
+    let handle = crate::DurableAgentHandle::start(
+        activation,
+        Arc::new(Factory(Arc::new(ScriptProvider {
+            scripts: StdMutex::new(VecDeque::new()),
+        }))),
+        64,
+    );
+    handle.when_ready().await.unwrap();
+    let generation = handle.worker_generation().unwrap();
+    let before = inner.load("restart-startup-fault").await.unwrap().unwrap();
+    inner
+        .append(
+            "restart-startup-fault",
+            before.revision(),
+            vec![SessionEvent::new(xharness_session::EventData::CommandRun {
+                command_id: "parked-compact".into(),
+                name: "compact".into(),
+                args: None,
+                source: xharness_session::CommandSource::User,
+            })],
+        )
+        .await
+        .unwrap();
+    // Boundary verification is the next read. Fail the successor's startup
+    // reconcile, not that boundary; a third generation must still not replay.
+    fail_at_read.store(reads.load(Ordering::Acquire) + 2, Ordering::Release);
+    tokio::time::timeout(Duration::from_secs(3), handle.restart_idle())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(handle.worker_generation(), Some(generation + 2));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let after = inner.load("restart-startup-fault").await.unwrap().unwrap();
+    assert_eq!(
+        after.events().len(),
+        before.events().len() + 1,
+        "replacement retry replayed parked maintenance"
+    );
+    assert_eq!(handle.status(), crate::AgentStatus::Idle);
+    handle.shutdown(Duration::from_secs(1)).await;
 }

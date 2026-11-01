@@ -196,7 +196,7 @@ async fn nonshrinking_compaction_parks_receipts_and_explicit_user_retry_is_atomi
     assert!(result
         .error
         .unwrap()
-        .contains("required compaction produced no safe gain"));
+        .contains("bounded reduction stopped making progress"));
     assert_eq!(parked(&mut events).await, ["child:1", "child:2", "child:3"]);
     assert!(store
         .load("parent")
@@ -205,9 +205,26 @@ async fn nonshrinking_compaction_parks_receipts_and_explicit_user_retry_is_atomi
         .unwrap()
         .dispatch_paused());
     let summaries = provider.summaries.load(Ordering::SeqCst);
-    assert!(summaries > 0, "the real compaction summary ran");
+    assert_eq!(summaries, 2, "the real bounded capacity recovery ran");
     assert!(
         store
+            .load("parent")
+            .await
+            .unwrap()
+            .unwrap()
+            .events()
+            .iter()
+            .any(|e| matches!(
+                e.data(),
+                EventData::CompactionEnd {
+                    outcome: Some(xharness_session::CompactionEndOutcome::Failed),
+                    ..
+                }
+            )),
+        "the real non-shrinking over-budget candidate failed capacity validation"
+    );
+    assert!(
+        !store
             .load("parent")
             .await
             .unwrap()
@@ -221,7 +238,7 @@ async fn nonshrinking_compaction_parks_receipts_and_explicit_user_retry_is_atomi
                     ..
                 }
             )),
-        "the real non-shrinking candidate failed budget validation"
+        "capacity failure must not poison a no-benefit cache"
     );
     let counts = provider.counts.load(Ordering::SeqCst);
     handle.wake().await.unwrap();

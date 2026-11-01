@@ -241,6 +241,12 @@ impl ProviderError {
             || (message.contains("context window") && message.contains("exceed"))
     }
 
+    /// Byte admission is separate from token context overflow. A 413 may be
+    /// returned by an intermediary before inference, without a JSON body.
+    pub fn is_request_body_too_large(&self) -> bool {
+        self.http_status == Some(413)
+    }
+
     /// A committed stream may only be continued automatically after a
     /// transport failure. HTTP and protocol failures need their own policy;
     /// treating them as a dropped connection could repeat unsafe work.
@@ -292,6 +298,16 @@ pub trait ModelProvider: Send + Sync + 'static {
         _cancellation: CancellationToken,
     ) -> Result<Option<xharness_token::ProviderInputTokenCount>, ProviderError> {
         Ok(None)
+    }
+
+    /// Bounded admission recovery may bypass a transient counter cooldown.
+    /// Unsupported counters still return None; this never permits generation.
+    async fn recount_input_tokens(
+        &self,
+        request: &ProviderRequest,
+        cancellation: CancellationToken,
+    ) -> Result<Option<xharness_token::ProviderInputTokenCount>, ProviderError> {
+        self.count_input_tokens(request, cancellation).await
     }
 
     /// Notify the adapter that its optional counter had a transient failure.

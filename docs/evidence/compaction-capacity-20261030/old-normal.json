@@ -1,0 +1,156 @@
+{
+  "applied_notes": 1,
+  "context": 262144,
+  "counter_timeout_secs": 10,
+  "counts": [
+    {
+      "elapsed_ms": 2075,
+      "fresh": false,
+      "messages": 1061,
+      "result": {
+        "input": 251639,
+        "status": "native"
+      },
+      "status": "returned"
+    },
+    {
+      "elapsed_ms": 1208,
+      "fresh": false,
+      "messages": 632,
+      "result": {
+        "input": 120404,
+        "status": "native"
+      },
+      "status": "returned"
+    },
+    {
+      "elapsed_ms": 1208,
+      "fresh": false,
+      "messages": 632,
+      "result": {
+        "input": 120404,
+        "status": "native"
+      },
+      "status": "returned"
+    },
+    {
+      "elapsed_ms": 1000,
+      "fresh": false,
+      "messages": 432,
+      "result": {
+        "input": 132596,
+        "status": "native"
+      },
+      "status": "returned"
+    },
+    {
+      "elapsed_ms": 930,
+      "fresh": false,
+      "messages": 432,
+      "result": {
+        "input": 132596,
+        "status": "native"
+      },
+      "status": "returned"
+    }
+  ],
+  "elapsed_ms": 419952,
+  "measurement_unavailable": false,
+  "original_copy_prefix_preserved": true,
+  "progress": [
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 0,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 0,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 1,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 1,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 1,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 2,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 2,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": null,
+      "before": 251639,
+      "calls": 2,
+      "splits": 0,
+      "validation": null
+    },
+    {
+      "after": 132596,
+      "before": 251639,
+      "calls": 2,
+      "splits": 0,
+      "validation": "admitted_exact"
+    }
+  ],
+  "requests": [
+    {
+      "finish": "length",
+      "native_input": 120404,
+      "output_limit": 512,
+      "safe": true,
+      "tools": 0,
+      "usage_input": 120404
+    },
+    {
+      "finish": "stop",
+      "native_input": 120404,
+      "output_limit": 1024,
+      "safe": true,
+      "tools": 0,
+      "usage_input": 120404
+    },
+    {
+      "finish": "stop",
+      "native_input": 132596,
+      "output_limit": 8192,
+      "safe": true,
+      "tools": 0,
+      "usage_input": 132596
+    }
+  ],
+  "scope": "production LoopEngine and OpenAI adapter; real old journal copy; thinking off; no production tools or UI; not byte-identical incident replay",
+  "status": "completed",
+  "summary_tokens": 512,
+  "visible_response_bytes": 1173,
+  "fixture": "normal corrected copy; 262144 harness context"
+}

@@ -1,4 +1,6 @@
 version: 2
+# Automatic dependency PRs are disabled by repository policy. Re-enable only
+# after an explicit user request; security alert/scanning settings are separate.
 updates:
   - package-ecosystem: cargo
     directories: ["/", "/apps/desktop/src-tauri"]
@@ -7,7 +9,7 @@ updates:
       day: monday
       time: "08:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     groups:
       rust-compatible:
         update-types: [minor, patch]
@@ -18,7 +20,7 @@ updates:
       day: monday
       time: "08:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     groups:
       js-compatible:
         update-types: [minor, patch]
@@ -29,4 +31,4 @@ updates:
       day: monday
       time: "08:00"
       timezone: Asia/Shanghai
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 0
