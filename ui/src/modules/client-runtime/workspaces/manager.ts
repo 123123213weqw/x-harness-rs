@@ -56,6 +56,8 @@ export class WorkspaceManager {
   private orderRequestGeneration = 0
   /** Increments on order frames so a later remote commit outranks an older unary echo. */
   private orderFrameGeneration = 0
+  /** A newer archive frame outranks an older workspace-removal unary receipt. */
+  private archiveFrameGeneration = 0
   /** Last complete order accepted from a Host baseline, frame, or current unary echo. */
   private committedOrder: WorkspaceId[] = []
   /**
@@ -154,14 +156,20 @@ export class WorkspaceManager {
   }
 
   /**
-   * Delete a Workspace registration and remove its local projection from the
-   * unary response without waiting for the Host frame.
+   * Remove a Workspace and install its atomically archived sessions from the
+   * unary receipt, without relying on the Host stream being connected.
    * @param workspaceId - target workspace.
    * @returns the wire result.
    */
-  async delete(workspaceId: WorkspaceId): Promise<RpcResult<{ deleted: true }>> {
+  async delete(workspaceId: WorkspaceId): Promise<RpcResult<{ deleted: true; archivedSessionIds?: SessionId[] | undefined }>> {
+    const archiveGeneration = this.archiveFrameGeneration
     const { result } = await this.api.workspace.delete({ workspaceId })
-    if (result.ok) this.remove(workspaceId, true)
+    if (result.ok) {
+      if (result.value.archivedSessionIds !== undefined && archiveGeneration === this.archiveFrameGeneration) {
+        this.installArchived(result.value.archivedSessionIds)
+      }
+      this.remove(workspaceId, true)
+    }
     return result
   }
 
@@ -252,6 +260,7 @@ export class WorkspaceManager {
       this.forgetDeletedSessions([envelope.payload.sessionId])
     }
     else if (envelope.payload.type === 'host/archived-sessions-changed') {
+      this.archiveFrameGeneration++
       this.installArchived(envelope.payload.archivedSessionIds)
     }
   }
