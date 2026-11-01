@@ -155,6 +155,7 @@ enum DriverCommand {
     /// command id also scopes the Host observer and durable lifecycle.
     Compact {
         command_id: String,
+        instructions: Option<String>,
     },
     Followup(InboxMessage),
     /// Admit a maintenance-generated followup only at an idle actor boundary.
@@ -549,9 +550,19 @@ impl DurableAgentHandle {
         self.send(DriverCommand::RecoverOpenTurn).await
     }
 
+    /// Preserve the original input-free maintenance entry point.
     pub async fn compact(&self, command_id: impl Into<String>) -> Result<(), AgentCommandError> {
+        self.compact_with_instructions(command_id, None).await
+    }
+
+    pub async fn compact_with_instructions(
+        &self,
+        command_id: impl Into<String>,
+        instructions: Option<String>,
+    ) -> Result<(), AgentCommandError> {
         self.send(DriverCommand::Compact {
             command_id: command_id.into(),
+            instructions,
         })
         .await
     }
@@ -848,7 +859,7 @@ struct DriverWorker {
     status: watch::Sender<AgentStatus>,
     wake_requested: bool,
     recovery_requested: bool,
-    pending_compaction: Option<String>,
+    pending_compaction: Option<PendingCompaction>,
     recover_pending_compaction: bool,
     shutdown: CancellationToken,
 }
@@ -1096,13 +1107,14 @@ impl DriverWorker {
                     permit = &mut acquire => break permit.map_err(AgentCommandError::Failed)?,
                 }
             };
-            if let Some(command_id) = self.pending_compaction.take() {
+            if let Some(pending) = self.pending_compaction.take() {
                 let mut request = self
                     .factory
                     .build(self.activation.id(), Vec::new())
                     .await
                     .map_err(AgentCommandError::Failed)?;
-                request.manual_compaction_command_id = Some(command_id.clone());
+                request.manual_compaction_command_id = Some(pending.command_id.clone());
+                request.manual_compaction_instructions = pending.instructions;
                 request.session_id = Some(self.activation.id().to_owned());
                 request.journal_store = Some(self.activation.inbox().store());
                 if dispatch_paused {
@@ -1116,7 +1128,8 @@ impl DriverWorker {
                         .map_err(inbox_error)?;
                 }
                 let turn = self.next_turn().await?;
-                self.drive_request(request, turn, vec![command_id]).await?;
+                self.drive_request(request, turn, vec![pending.command_id])
+                    .await?;
                 admission_retries = 0;
                 continue;
             }
@@ -1466,11 +1479,17 @@ impl DriverWorker {
                 self.set_status(AgentStatus::Running);
                 Ok(())
             }
-            DriverCommand::Compact { command_id } => {
+            DriverCommand::Compact {
+                command_id,
+                instructions,
+            } => {
                 if self.pending_compaction.is_some() {
                     Err(AgentCommandError::Busy)
                 } else {
-                    self.pending_compaction = Some(command_id);
+                    self.pending_compaction = Some(PendingCompaction {
+                        command_id,
+                        instructions,
+                    });
                     self.wake_requested = true;
                     self.set_status(AgentStatus::Running);
                     Ok(())
@@ -1646,7 +1665,12 @@ impl DriverWorker {
     }
 }
 
-fn pending_manual_compaction(session: &xharness_session::Session) -> Option<String> {
+struct PendingCompaction {
+    command_id: String,
+    instructions: Option<String>,
+}
+
+fn pending_manual_compaction(session: &xharness_session::Session) -> Option<PendingCompaction> {
     let mut settled = HashSet::new();
     for event in session.events().iter().rev() {
         match event.data() {
@@ -1654,9 +1678,17 @@ fn pending_manual_compaction(session: &xharness_session::Session) -> Option<Stri
                 settled.insert(command_id.as_str());
             }
             EventData::CommandRun {
-                command_id, name, ..
+                command_id,
+                name,
+                args,
+                ..
             } if name == "compact" && !settled.contains(command_id.as_str()) => {
-                return Some(command_id.clone());
+                return Some(PendingCompaction {
+                    command_id: command_id.clone(),
+                    // The command line is the only durable copy of an explicit
+                    // user focus; a restart must not silently drop it.
+                    instructions: args.clone(),
+                });
             }
             _ => {}
         }

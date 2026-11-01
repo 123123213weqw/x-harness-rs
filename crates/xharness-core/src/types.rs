@@ -849,6 +849,10 @@ pub struct LoopRequest {
     /// sending a normal model turn. The value is the durable slash-command id
     /// used to correlate `command/*` and `compaction/*` events.
     pub manual_compaction_command_id: Option<String>,
+    /// Optional user-supplied focus for exactly one manual compaction. It is
+    /// appended to the fixed summary instruction and never becomes new user
+    /// history or task scope. Only valid with `manual_compaction_command_id`.
+    pub manual_compaction_instructions: Option<String>,
     /// Formal policy-aware tool runtime. This is the sole tool registration,
     /// approval and scheduling path used by Core.
     pub tool_executor: Option<xharness_tools::ToolExecutor>,
@@ -879,6 +883,7 @@ impl LoopRequest {
             token_guard: None,
             compaction: None,
             manual_compaction_command_id: None,
+            manual_compaction_instructions: None,
             tool_executor: None,
             session_id: None,
             session_store: Arc::new(crate::MemorySessionStore::default()),
@@ -940,6 +945,27 @@ impl LoopRequest {
                     "manual compaction is an input-free maintenance turn",
                 ));
             }
+            if let Some(instructions) = &self.manual_compaction_instructions {
+                if instructions.trim().is_empty() {
+                    return Err(LoopValidationError::new(
+                        "manual compaction instructions must not be blank",
+                    ));
+                }
+                if instructions.len() > 4096 {
+                    return Err(LoopValidationError::new(
+                        "manual compaction instructions exceed 4096 UTF-8 bytes",
+                    ));
+                }
+                if instructions.contains('\0') {
+                    return Err(LoopValidationError::new(
+                        "manual compaction instructions must not contain NUL",
+                    ));
+                }
+            }
+        } else if self.manual_compaction_instructions.is_some() {
+            return Err(LoopValidationError::new(
+                "manual compaction instructions require a manual compaction command id",
+            ));
         }
         Ok(())
     }

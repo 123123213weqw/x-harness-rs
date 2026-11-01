@@ -446,3 +446,16 @@ same native gate rejects actual height 633. Original source bytes were restored,
 rebuilt, and the positive native gate passed again. No local Rust compilation,
 installed app/Host changes, model calls, or existing user browser/profile access.
 Exact-head macOS/Windows/Linux CI remains a separate merge requirement.
+
+
+## Latest-master integration after compact-focus merge
+
+Normal-merged the validated compact-focus master without rebasing or force.
+The combined source passes 534 Rust tests across Host-app and desktop all-target
+suites (9 pre-existing opt-in ignores), strict all-target Clippy, all 35 actual
+business-error compiler mutations and restored positive, plus the 15 real Chrome
+cases / 23 screenshots. Owned Rust sources and build inputs are hash-bound to
+the remote tested tree. The shared historical-reader fixture also carries the
+bounded, task-yielding concurrent-page regression validated on local cached
+Chromium and WebKit; no production history API or acceptance assertion is
+weakened. Fresh exact-head cross-platform CI is still required before merging.

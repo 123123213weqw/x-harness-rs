@@ -10579,3 +10579,37 @@ async fn counter_413_rebuilds_old_images_but_never_drops_current_user_attachment
         }
     }
 }
+
+#[test]
+fn manual_compaction_focus_enforces_utf8_boundaries_and_cannot_leak_into_automatic_runs() {
+    let request = || {
+        let mut r = LoopRequest::new(Arc::new(ScriptProvider::new([])), Vec::new());
+        r.manual_compaction_command_id = Some("focus-validation".to_owned());
+        r.compaction = Some(CompactionConfig::default());
+        r.token_guard = Some(TokenGuard::conservative(TokenBudget::new(34_816, 4_096)).unwrap());
+        r.journal_store = Some(Arc::new(EventMemorySessionStore::default()));
+        r
+    };
+    for focus in ["x".repeat(4096), "界".repeat(1365)] {
+        let mut r = request();
+        r.manual_compaction_instructions = Some(focus);
+        assert!(r.validate().is_ok());
+    }
+    for (focus, reason) in [
+        ("x".repeat(4097), "4096 UTF-8 bytes"),
+        ("界".repeat(1366), "4096 UTF-8 bytes"),
+        (" \n\t".to_owned(), "must not be blank"),
+        ("a\0b".to_owned(), "must not contain NUL"),
+    ] {
+        let mut r = request();
+        r.manual_compaction_instructions = Some(focus);
+        assert!(r.validate().unwrap_err().to_string().contains(reason));
+    }
+    let mut automatic = request();
+    automatic.manual_compaction_command_id = None;
+    automatic.manual_compaction_instructions = Some("manual-only focus".to_owned());
+    assert!(
+        automatic.validate().is_err(),
+        "automatic compaction cannot inherit a manual focus"
+    );
+}

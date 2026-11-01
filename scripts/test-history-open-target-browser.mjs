@@ -34,16 +34,29 @@ try {
     const row = seq => ({ event: { seq, time: seq, type: 'user/message', surfaceOp: 'append', data: { id: String(seq), source: { kind: 'user' }, content: [{ type: 'text', text: 'Message ' + seq }], text: 'Message ' + seq } } })
     const pageOf = (before = 201) => { const start = Math.max(1, before - 50); return { events: Array.from({ length: before - start }, (_, i) => row(start + i)), hasMore: start > 1 } }
     window.calls = []; window.hold = false; window.releaseTail = undefined
+    window.holdOlder = false; window.releaseOlder = undefined
     const api = { sessions: { history: async p => {
       calls.push(p.beforeSeq ?? null)
       if (hold && p.beforeSeq === undefined) await new Promise(r => { window.releaseTail = r })
+      if (holdOlder && p.beforeSeq !== undefined) await new Promise(r => { window.releaseOlder = r })
       await new Promise(r => setTimeout(r, 10))
       return { result: { ok: true, value: pageOf(p.beforeSeq) } }
     } } }
     window.manager = new runtime.SessionManager(api, {}, undefined, undefined, conversation)
     for (const sessionId of ['reader', 'other']) manager.summaries.push({ sessionId, running: false, blank: false })
     manager.select('reader'); window.session = manager.get('reader'); await session.open()
-    while (session.hasMore) await session.loadOlder()
+    window.expandAllHistory = async () => {
+      const deadline = performance.now() + 6000
+      while (session.hasMore) {
+        if (performance.now() >= deadline) throw Error('fixture history expansion made no progress')
+        // loadOlder deliberately returns immediately when another read owns
+        // loadingOlder. Yield a task, not only a resolved promise: otherwise
+        // this fixture can starve that read's timer/response indefinitely.
+        if (!session.getSnapshot().loadingOlder) await session.loadOlder()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      }
+    }
+    await expandAllHistory()
     window.memory = new ui.ChatScrollMemory((id, position) => {
       const seq = position?.anchorSeq
       manager.get(id).setHistoryOpenTarget(position === null ? { kind: 'latest' }
@@ -123,7 +136,21 @@ try {
   await settle()
   assert.ok(Math.abs((await anchorOffset()) - before) < 2, 'pagination preserves the restored reader')
   // Expand all again, return to bottom, and reopen: never reload that old range.
-  await page.evaluate(async () => { while (session.hasMore) await session.loadOlder(); memory.requestFollow('reader') })
+  // Exercise that exact overlap deterministically instead of depending on
+  // whether the preceding UI paging callback has settled on a busy runner.
+  await page.evaluate(() => { holdOlder = true; window.concurrentOlder = session.loadOlder() })
+  await page.waitForFunction(() => typeof releaseOlder === 'function')
+  const draining = page.evaluate(async () => {
+    window.drainStarted = true
+    await expandAllHistory(); memory.requestFollow('reader')
+  })
+  // Observe the pending promise immediately so a failed latch is not an
+  // unhandled rejection while the finally block closes the test browser.
+  void draining.catch(() => {})
+  await page.waitForFunction(() => window.drainStarted, undefined, { timeout: 6000 })
+  await page.evaluate(() => { holdOlder = false; releaseOlder() })
+  await draining
+  await page.evaluate(() => concurrentOlder)
   await settle()
   assert.equal((await page.evaluate(() => state())).bookmark, null)
   await page.evaluate(() => evict()); await page.evaluate(() => reopen())
@@ -185,5 +212,5 @@ try {
   assert.ok(await page.locator('[data-heavy-message]').count() < 30, 'large conversation still uses bounded virtual rows')
   await page.evaluate(() => unmount())
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
+  console.log(JSON.stringify({ engine, anchor: { seq: saved.anchorSeq, offsetBefore: before }, restoredPages: restored.calls.length, latestPages: latest.calls.length, pagination: 'preserved', concurrentPaging: 'pending read completes without microtask starvation', windowing: 'bounded', coldLayout: 'bookmark retained', explicitFollow: 'supersedes bookmark', largeHistory: { messages: 100000, requests: 2, rows: 51, obsoleteRead: 'aborted' } }))
 } finally { await browser.close() }
