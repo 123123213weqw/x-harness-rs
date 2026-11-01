@@ -670,7 +670,7 @@ async fn full_access_is_advertised_confirmed_once_and_applied_to_current_and_fut
 }
 
 #[tokio::test]
-async fn compact_command_rejects_arguments_and_settles_its_durable_lifecycle() {
+async fn compact_command_accepts_a_summary_focus_and_settles_its_durable_lifecycle() {
     let mut fx = Fixture::new();
     let created = fx
         .value(
@@ -687,7 +687,7 @@ async fn compact_command_rejects_arguments_and_settles_its_durable_lifecycle() {
             json!({
                 "args": {
                     "agentId": session_id,
-                    "line": "/compact unexpected",
+                    "line": "/compact focus on the parser changes",
                     "images": []
                 }
             }),
@@ -701,11 +701,13 @@ async fn compact_command_rejects_arguments_and_settles_its_durable_lifecycle() {
     else {
         panic!("compact argument validation failed: {response:?}");
     };
+    // The fixture runtime is ephemeral, so the command settles with the
+    // runtime limitation rather than the old "no arguments accepted" error.
     assert_eq!(response["result"]["kind"], "error");
-    assert_eq!(
-        response["result"]["text"],
-        "/compact does not accept arguments"
-    );
+    assert!(response["result"]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("manual compaction is unavailable for this runtime"));
 
     let history = fx
         .value(RpcMethod::SessionHistory, json!({"sessionId": session_id}))
@@ -723,7 +725,50 @@ async fn compact_command_rejects_arguments_and_settles_its_durable_lifecycle() {
         .collect::<Vec<_>>();
     assert_eq!(command_events.len(), 2);
     assert_eq!(command_events[0]["event"]["data"]["name"], "compact");
+    assert_eq!(
+        command_events[0]["event"]["data"]["args"],
+        json!("focus on the parser changes")
+    );
     assert_eq!(command_events[1]["event"]["data"]["kind"], "error");
+}
+
+#[tokio::test]
+async fn compact_command_rejects_an_oversized_focus_before_admission() {
+    let mut fx = Fixture::new();
+    let created = fx
+        .value(
+            RpcMethod::SessionCreate,
+            json!({"cwd": fx.root.to_string_lossy()}),
+        )
+        .await;
+    let session_id = created["sessionId"].as_str().unwrap();
+    let response = fx
+        .host
+        .call_dynamic(
+            RpcId::new("commands-compact-oversized-focus"),
+            "commands/execute",
+            json!({
+                "args": {
+                    "agentId": session_id,
+                    "line": format!("/compact {}", "x".repeat(4097)),
+                    "images": []
+                }
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .expect("compact command is mounted");
+    let RpcResult::Success {
+        value: Some(response),
+    } = response
+    else {
+        panic!("compact focus validation failed: {response:?}");
+    };
+    assert_eq!(response["result"]["kind"], "error");
+    assert_eq!(
+        response["result"]["text"],
+        "/compact focus must be at most 4096 UTF-8 bytes"
+    );
 }
 
 #[tokio::test]

@@ -193,12 +193,24 @@ async fn execute_compact(
 ) -> Result<Value, RpcError> {
     let _session_guard = host.lock_admission(session_id).await;
     let command_id = host.mint_id("command");
+    let instructions = raw_input.trim();
+    // The focus is a single-turn summary hint, not new conversation history.
+    // Bound it here so an oversized paste cannot become a provider request.
+    let invalid_focus = if instructions.len() > 4096 {
+        Some("/compact focus must be at most 4096 UTF-8 bytes".to_owned())
+    } else if instructions.contains('\0') {
+        Some("/compact focus must not contain NUL".to_owned())
+    } else {
+        None
+    };
     host.commit_session_events(
         session_id,
         vec![SessionEventData::CommandRun {
             command_id: command_id.clone(),
             name: "compact".to_owned(),
-            args: (!raw_input.is_empty()).then(|| raw_input.to_owned()),
+            // Never copy an oversized rejected focus into the durable journal.
+            args: (invalid_focus.is_none() && !instructions.is_empty())
+                .then(|| instructions.to_owned()),
             source: CommandSource::User,
         }
         .into()],
@@ -207,8 +219,8 @@ async fn execute_compact(
 
     let rejection = if !images.is_empty() {
         Some("/compact does not accept image attachments".to_owned())
-    } else if !raw_input.is_empty() {
-        Some("/compact does not accept arguments".to_owned())
+    } else if let Some(text) = invalid_focus {
+        Some(text)
     } else {
         let state = host.state.read().await;
         let session = state
@@ -240,7 +252,11 @@ async fn execute_compact(
 
     let run = match host
         .agent_runtime
-        .start_manual_compaction(session_id, &command_id)
+        .start_manual_compaction(
+            session_id,
+            &command_id,
+            (!instructions.is_empty()).then_some(instructions),
+        )
         .await
     {
         Ok(run) => run,

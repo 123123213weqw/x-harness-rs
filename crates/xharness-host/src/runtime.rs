@@ -882,10 +882,12 @@ pub trait AgentRuntime: Send + Sync + 'static {
     }
 
     /// Admit one input-free, durable manual compaction maintenance turn.
+    /// `instructions` is an optional user focus for this compaction only.
     async fn start_manual_compaction(
         &self,
         _session_id: &str,
         _command_id: &str,
+        _instructions: Option<&str>,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
         Err(AgentRuntimeError::Preparation {
             message: "manual compaction is unavailable for this runtime".to_owned(),
@@ -2372,7 +2374,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         }
         if let Some(work_id) = &recovered_compaction_work_id {
             handle
-                .compact(work_id.clone())
+                .compact(work_id.clone(), compaction_focus(&session, work_id))
                 .await
                 .map_err(agent_command_error)?;
         }
@@ -2435,6 +2437,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
         &self,
         session_id: &str,
         command_id: &str,
+        instructions: Option<&str>,
     ) -> Result<Box<dyn RunningTurn>, AgentRuntimeError> {
         self.require_execution()?;
         let handle = self.supervisor.get(session_id).await.ok_or_else(|| {
@@ -2448,7 +2451,7 @@ impl AgentRuntime for DurableLoopAgentRuntime {
             input_id: command_id.to_owned(),
         };
         handle
-            .compact(command_id.to_owned())
+            .compact(command_id.to_owned(), instructions.map(str::to_owned))
             .await
             .map_err(agent_command_error)?;
         Ok(self.running_from_prepared(prepared))
@@ -2624,6 +2627,23 @@ fn pending_manual_compaction(session: &Session) -> Option<String> {
         }
     }
     None
+}
+
+/// The optional `/compact <focus>` text is durable in the command/run event.
+/// Read it only for the exact unfinished command so a restart preserves it.
+fn compaction_focus(session: &Session, command_id: &str) -> Option<String> {
+    session
+        .events()
+        .iter()
+        .find_map(|event| match event.data() {
+            xharness_session::EventData::CommandRun {
+                command_id: id,
+                name,
+                args,
+                ..
+            } if name == "compact" && id == command_id => args.clone(),
+            _ => None,
+        })
 }
 
 #[cfg(test)]
@@ -3532,7 +3552,7 @@ mod tests {
             .await
             .is_err());
         assert!(runtime
-            .start_manual_compaction("fenced", "compact")
+            .start_manual_compaction("fenced", "compact", None)
             .await
             .is_err());
         assert!(runtime.auxiliary_model(&route).is_none());
