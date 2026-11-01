@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "compatible-addition",
+  "reason": "Integrate owned-browser native acceptance with the latest strict CI aggregate and restore fixed viewport on every fresh control CDP connection.",
+  "compatibility": "No dependency versions or lockfiles refreshed. Existing native probes, privacy-safe HTTP request counters, bounded HTTP-body parsing, UI retention, strict CI checks and cleanup remain intact. Added real control-cancellation CSS geometry/PNG/edge-input acceptance runs on existing platform jobs. Preview connections remain read-only and never set emulation.",
+  "paths": {
+    ".github/workflows/ci.yml": {
+      "before": "210cf04673ed058a34314578504a706a1fcbc498d323bec1a0834567ec637111",
+      "after": "ef3ba90de15b6731bd41d83c51958ec021d7e7b6b661e029a50608dd97847a68"
+    },
+    "apps/desktop/src-tauri/Cargo.toml": {
+      "before": "a2e655a6b253960577fab21221c79291b910a30a449b1bc80f81a8e0a672ecc5",
+      "after": "75a0bccfd9ec92f48002528187cdea006960b613eb824872a63eb5a4e9d6deb6"
+    }
+  },
+  "regressions": [
+    "architecture",
+    "native",
+    "updater",
+    "windows"
+  ]
+}

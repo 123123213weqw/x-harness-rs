@@ -23,6 +23,7 @@ import {workspaceDockEvents} from '../shared/workspace-dock'
 import type {BrowserSpaces,WorkspaceItem,WorkspaceSpace,WorkspaceOpenDetail} from './workspace-pane'
 import type {BrowserPatch} from '../browser/index'
 import {listenModelBrowser} from '../browser/model-control'
+import {objectValue} from '../shared/runtime-types'
 import type { ShellNavigation } from './shell-navigation'
 const xhWorkspaceWindow=xhCreateBrowserWindowController(typeof window==='undefined'?undefined:window.__TAURI__)
 
@@ -127,6 +128,31 @@ export function AppFrame({
   const space=spaces[spaceKey]??xhWorkspaceEmpty
   const nextWorkspaceId=useRef(xhNextWorkspaceId(spaces))
   useEffect(()=>{
+    const native=window.__TAURI__;if(!native)return
+    let disposed=false,stop:(()=>void)|undefined
+    native.event.listen('xharness-headless-page',event=>{
+      if(disposed)return
+      const payload=objectValue(event.payload)
+      if(typeof payload.owner!=='string'||!payload.owner||payload.owner.length>128)return
+      const owner=payload.owner
+      if(payload.closed===true){
+        setSpaces(all=>{const space=all[owner];if(!space)return all;const items=space.items.filter(item=>item.id!==payload.tabId);return{...all,[owner]:{...space,items,activeId:items.some(item=>item.id===space.activeId)?space.activeId:items[0]?.id??null}}});return
+      }
+      if(typeof payload.tabId!=='string'||!/^headless:[0-9a-f]{32}$/.test(payload.tabId)||typeof payload.url!=='string')return
+      const id=payload.tabId,url=payload.url
+      try{const parsed=new URL(url);if(!['http:','https:'].includes(parsed.protocol)||parsed.username||parsed.password)return}catch{return}
+      setSpaces(all=>{
+        const space=all[owner]??xhWorkspaceEmpty
+        const existing=space.items.find(item=>item.id===id)
+        const item:WorkspaceItem={id,kind:'browser',source:'browser',title:new URL(url).hostname,entries:[...(existing?.entries??[]).slice(-49),url],position:Math.min(existing?.entries.length??0,49)}
+        const items=space.items.filter(item=>!item.id.startsWith('headless:')&&!(item.id===space.activeId&&item.kind==='browser'&&item.entries.length===0))
+        // Background chats are updated without selecting them or stealing focus.
+        return{...all,[owner]:{items:[...items,item],activeId:id,collapsed:existing!==undefined?space.collapsed===true:owner!==spaceKeyRef.current}}
+      })
+    }).then(unlisten=>{if(disposed)unlisten();else stop=unlisten}).catch(()=>{})
+    return()=>{disposed=true;stop?.()}
+  },[])
+  useEffect(()=>{
     if(browserRestored)xhSaveBrowserSpaces(spaces)
     nextWorkspaceId.current=Math.max(nextWorkspaceId.current,xhNextWorkspaceId(spaces))
   },[spaces,browserRestored])
@@ -187,7 +213,7 @@ export function AppFrame({
     if(id==='tool')actions.closeDetails()
     if(space.items.some(item=>item.id===id&&item.kind==='browser')){
       window.dispatchEvent(new CustomEvent('xharness:browser-closing',{detail:{id}}))
-      window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id}}))
+      window.dispatchEvent(new CustomEvent('xharness:browser-close',{detail:{id,owner:spaceKeyRef.current}}))
     }
     updateSpace(value=>xhWorkspaceClose(value,id))
   }

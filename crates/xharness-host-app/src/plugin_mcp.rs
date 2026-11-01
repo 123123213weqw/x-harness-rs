@@ -174,7 +174,7 @@ fn spec(
     ToolSpec::new(
         ToolDefinition::new(
             "plugin_mcp",
-            format!("{}{}", "Discover and control XHarness's embedded browser when available; display files or invoke enabled MCP. list -> plugins, +plugin -> servers, +server -> tools; describe loads schema; call invokes. File display: builtin/ui/display. Schemas load lazily; do not bypass approvals.\nEmbedded browser: Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it. Use web_fetch for lightweight public-page reading when opening or rendering is not requested. For JS/interaction, discover embedded before desktop automation; after empty/title-only fetches, check the embedded browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. Report unavailability/failure; never claim a page opened without a successful result.", browser_boundary::GUIDANCE),
+            format!("{}{}", "Discover and control XHarness's built-in browser when available; display files or invoke enabled MCP. list -> plugins, +plugin -> servers, +server -> tools; describe loads schema; call invokes. File display: builtin/ui/display. Schemas load lazily; do not bypass approvals.\nBuilt-in browser: Discover availability first; zero open tabs does not mean unavailable. An explicit request to open or view a page requires opening it. Use web_fetch for lightweight public-page reading when opening or rendering is not requested. For JS/interaction, discover built-in before desktop automation; after empty/title-only fetches, check the built-in browser before ending an unresolved page-reading request. Use computer for desktop applications or an explicitly requested external browser. Respect explicit browser choices. Report unavailability/failure; never claim a page opened without a successful result.", browser_boundary::GUIDANCE),
             json!({"type":"object","properties":{
                 "action":{"type":"string","enum":["list","describe","call"]},
                 "plugin":{"type":"string"},"server":{"type":"string"},"tool":{"type":"string"},
@@ -199,8 +199,13 @@ fn spec(
                     if ui.is_some() { plugins.push(builtin_ui::PLUGIN.into()); }
                     let mut capabilities = Vec::new();
                     if let Some(native) = &native {
-                        if native.available(&owner, &context.cancellation).await {
+                        let (visible_ready,headless_ready)=native.availability(&owner,&context.cancellation).await;
+                        if headless_ready {
                             plugins.push(crate::native_browser::PLUGIN.into());
+                            capabilities.push(json!({"plugin":crate::native_browser::PLUGIN,"server":crate::native_browser::HEADLESS_SERVER,"backend":"owned-headless","visibility":"optional-sidebar-preview","session":"chat-owned-independent-profile","description":"Preferred built-in browser. Reuses installed Chrome/Edge in a new isolated instance; sidebar may be collapsed. No existing login inherited. Describe control to open."}));
+                        }
+                        if visible_ready {
+                            if !plugins.iter().any(|plugin|plugin==crate::native_browser::PLUGIN){plugins.push(crate::native_browser::PLUGIN.into());}
                             capabilities.push(browser_boundary::embedded_capability());
                         }
                     }
@@ -247,10 +252,16 @@ fn spec(
                 if plugin == crate::native_browser::PLUGIN {
                     let native = native.ok_or_else(|| error("native browser is unavailable"))?;
                     if action == "list" && args.get("server").is_none() {
-                        if !native.available(&owner, &context.cancellation).await { return Err(error("native browser bridge unavailable")); }
-                        return Ok(ToolOutput::text(json!({"servers":[crate::native_browser::SERVER]}).to_string()));
+                        let mut servers=Vec::new();
+                        let (visible_ready,headless_ready)=native.availability(&owner,&context.cancellation).await;
+                        if headless_ready {servers.push(crate::native_browser::HEADLESS_SERVER);}
+                        if visible_ready {servers.push(crate::native_browser::SERVER);}
+                        if servers.is_empty(){return Err(error("browser bridge unavailable"));}
+                        return Ok(ToolOutput::text(json!({"servers":servers}).to_string()));
                     }
-                    if args.get("server").and_then(Value::as_str) != Some(crate::native_browser::SERVER) { return Err(error("unknown native browser server")); }
+                    let headless=args.get("server").and_then(Value::as_str)==Some(crate::native_browser::HEADLESS_SERVER);
+                    if !headless&&args.get("server").and_then(Value::as_str) != Some(crate::native_browser::SERVER) { return Err(error("unknown native browser server")); }
+                    let native=if headless {Arc::new(native.headless())}else{native};
                     if action == "call" {
                         let tool = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                         let parameters = match args.get("arguments") { None => Map::new(), Some(Value::Object(parameters)) => parameters.clone(), _ => return Err(error("native arguments must be an object")) };
@@ -261,7 +272,7 @@ fn spec(
                         return call_output(native.call(&owner, tool, parameters, &context.cancellation).await.map_err(error)?);
                     }
                     if !native.available(&owner, &context.cancellation).await { return Err(error("native browser bridge unavailable")); }
-                    let tools = crate::native_browser::tools();
+                    let tools = if headless {crate::native_browser::headless_tools()}else{crate::native_browser::tools()};
                     if action == "describe" {
                         let name = args.get("tool").and_then(Value::as_str).ok_or_else(|| error("tool required"))?;
                         return Ok(ToolOutput::text(json!({"tool":tools.iter().find(|tool| tool["name"] == name).ok_or_else(|| error("unknown native browser tool"))?}).to_string()));
@@ -380,15 +391,15 @@ mod tests {
         assert_eq!(definitions.len(), 1);
         let description = &definitions[0].description;
         assert!(description
-            .starts_with("Discover and control XHarness's embedded browser when available"));
+            .starts_with("Discover and control XHarness's built-in browser when available"));
         for rule in [
-            "Embedded browser:",
+            "Built-in browser:",
             "Discover availability first",
             "zero open tabs does not mean unavailable",
             "An explicit request to open or view a page requires opening it",
             "Use web_fetch for lightweight public-page reading when opening or rendering is not requested",
             "Use computer for desktop applications or an explicitly requested external browser",
-            "check the embedded browser before ending an unresolved page-reading request",
+            "check the built-in browser before ending an unresolved page-reading request",
             "Respect explicit browser choices",
             "never claim a page opened without a successful result",
             "do not bypass approvals",
